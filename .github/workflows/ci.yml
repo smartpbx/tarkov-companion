@@ -57,7 +57,9 @@ jobs:
           dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
           dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1
       - name: Publish self-contained win-x64
-        run: dotnet publish src/TarkovCompanion.App/TarkovCompanion.App.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
+        run: |
+          dotnet publish src/TarkovCompanion.App/TarkovCompanion.App.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
+          dotnet publish src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
       - uses: actions/upload-artifact@v5
         with:
           name: TarkovCompanion-win-x64
