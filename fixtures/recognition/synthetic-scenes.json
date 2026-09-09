@@ -1,0 +1,72 @@
+[
+  {
+    "name": "single-item-1080p-100-noise",
+    "source": "fixture://single-item-1080p-100",
+    "width": 1920,
+    "height": 1080,
+    "scale": 1.0,
+    "noise": 0.02,
+    "expectedContext": "SingleItem",
+    "lines": [
+      { "text": "INSPECT", "x": 650, "y": 120, "width": 190, "height": 20, "confidence": 0.99 },
+      { "text": "Gr@phics C@rd", "x": 690, "y": 225, "width": 280, "height": 20, "confidence": 0.96 },
+      { "text": "WEIGHT", "x": 680, "y": 720, "width": 130, "height": 20, "confidence": 0.94 }
+    ]
+  },
+  {
+    "name": "container-1440p-125-noise",
+    "source": "fixture://container-1440p-125",
+    "width": 2560,
+    "height": 1440,
+    "scale": 1.25,
+    "noise": 0.04,
+    "expectedContext": "Container",
+    "lines": [
+      { "text": "STASH", "x": 180, "y": 95, "width": 170, "height": 25, "confidence": 0.98 },
+      { "text": "TACTICAL RIG", "x": 170, "y": 420, "width": 260, "height": 25, "confidence": 0.91 },
+      { "text": "WIRES", "x": 610, "y": 580, "width": 120, "height": 25, "confidence": 0.89 }
+    ]
+  },
+  {
+    "name": "extract-list-4k-150-noise",
+    "source": "fixture://extract-list-4k-150",
+    "width": 3840,
+    "height": 2160,
+    "scale": 1.5,
+    "noise": 0.06,
+    "expectedContext": "ExtractList",
+    "lines": [
+      { "text": "EXTRACTS", "x": 2720, "y": 150, "width": 260, "height": 30, "confidence": 0.97 },
+      { "text": "Road to Custorns", "x": 2670, "y": 390, "width": 430, "height": 30, "confidence": 0.88 },
+      { "text": "Dorms V-EX (CLOSED)", "x": 2670, "y": 475, "width": 510, "height": 30, "confidence": 0.86 }
+    ]
+  },
+  {
+    "name": "flea-listings-1080p-125-noise",
+    "source": "fixture://flea-listings-1080p-125",
+    "width": 1920,
+    "height": 1080,
+    "scale": 1.25,
+    "noise": 0.05,
+    "expectedContext": "FleaListings",
+    "lines": [
+      { "text": "FLEA MARKET", "x": 155, "y": 85, "width": 260, "height": 25, "confidence": 0.98 },
+      { "text": "FILTER BY ITEM", "x": 210, "y": 165, "width": 300, "height": 25, "confidence": 0.95 },
+      { "text": "189 999 ₽ x3", "x": 1240, "y": 410, "width": 260, "height": 25, "confidence": 0.91 }
+    ]
+  },
+  {
+    "name": "unknown-4k-150-heavy-noise",
+    "source": "fixture://unknown-4k-150",
+    "width": 3840,
+    "height": 2160,
+    "scale": 1.5,
+    "noise": 0.12,
+    "expectedContext": "Unknown",
+    "lines": [
+      { "text": "CHARACTER", "x": 140, "y": 110, "width": 260, "height": 30, "confidence": 0.62 },
+      { "text": "SKILLS", "x": 420, "y": 110, "width": 170, "height": 30, "confidence": 0.55 },
+      { "text": "0BJECTlVES", "x": 710, "y": 110, "width": 250, "height": 30, "confidence": 0.48 }
+    ]
+  }
+]
