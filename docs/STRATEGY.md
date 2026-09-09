@@ -1,0 +1,27 @@
+# Strategy predictions
+
+Every traffic, risk, and rotation result carries this disclaimer:
+
+> Predicted traffic based on map and game knowledge—not live player data.
+
+The strategy layer consumes only static authored zone weights, the elapsed raid fraction, and the user's last-known screenshot position. It has no enemy objects, live player inputs, renderer hooks, game memory, or network observations.
+
+## Traffic field and risk panel
+
+Raid time is split into equal early, mid, and late thirds. Spawn influence decays with the square of remaining time, while extract attraction rises with the square of elapsed time. POI influence peaks mid-raid, chokepoints receive a smaller mid-raid lift, and quest influence tapers gradually. Inputs are bounded before being combined.
+
+The risk panel sorts the same calculated samples into Low, Moderate, and High bands. “Current area” is an estimate derived from distance to static zone centers and the optional last-known player position. Without that position, current-area risk is Unknown.
+
+Rotation flows connect strong spawn zones to nearby objectives early and objective zones toward extracts later. They are generic planning narratives, not detected paths. The code-authored `assets/strategy/generic-training-ground.json` exists only as a distributable fixture.
+
+## Route planner
+
+The planner uses phase-valid directed edges in a static navigation graph:
+
+- Fastest minimizes travel cost.
+- Safest weights known risk three times.
+- Quest favors edges arriving at quest nodes.
+- Loot rewards declared loot utility while retaining travel and risk cost.
+- AvoidPvP weights known risk five times.
+
+A complete graph route is reported with 0.80 confidence. A route across a graph flagged incomplete is explicitly imprecise with 0.45 confidence. If known edges cannot connect the requested points, the planner returns only the start and says that no route was guessed; users must fall back to the map and in-game judgment.

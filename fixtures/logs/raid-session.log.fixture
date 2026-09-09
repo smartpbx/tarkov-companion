@@ -1,0 +1,5 @@
+2026-09-04 22:31:02.100|Info|application bootstrap complete
+2026-09-04 22:31:07.220|Info|raid_loading location='bigmap'
+2026-09-04 22:31:09.410|Debug|unknown future field=value should be ignored
+2026-09-04 22:32:15.090|Info|Game started, profile status: Busy, location: bigmap
+2026-09-04 23:04:54.002|Info|Raid ended; profile status: Free
