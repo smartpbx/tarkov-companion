@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "raidId": "8d11fcb6-a516-4b76-ad0e-f2d248dc69e2",
+  "startedUtc": "2026-01-15T20:00:00Z",
+  "events": [
+    {
+      "sequence": 1,
+      "type": "map",
+      "timestampUtc": "2026-01-15T20:00:01Z",
+      "source": "simulator-fixture",
+      "confidence": 1.0,
+      "mapId": "synthetic-harbor"
+    },
+    {
+      "sequence": 2,
+      "type": "position",
+      "timestampUtc": "2026-01-15T20:02:00Z",
+      "source": "simulator-fixture",
+      "confidence": 1.0,
+      "screenshotFilename": "2026-01-15[20-02]_12.5, 4.25, -8.75_0, 0.7071068, 0, 0.7071068_120.png"
+    },
+    {
+      "sequence": 3,
+      "type": "item",
+      "timestampUtc": "2026-01-15T20:03:00Z",
+      "source": "simulator-fixture",
+      "confidence": 0.98,
+      "itemId": "synthetic-circuit-board"
+    },
+    {
+      "sequence": 4,
+      "type": "extracts",
+      "timestampUtc": "2026-01-15T20:04:00Z",
+      "source": "simulator-fixture",
+      "confidence": 0.96,
+      "extractIds": ["harbor-gate", "rail-yard"]
+    },
+    {
+      "sequence": 5,
+      "type": "container",
+      "timestampUtc": "2026-01-15T20:05:00Z",
+      "source": "simulator-fixture",
+      "confidence": 0.94,
+      "containerItemIds": ["synthetic-bolts", "synthetic-wire", "synthetic-medkit"]
+    },
+    {
+      "sequence": 6,
+      "type": "raid-end",
+      "timestampUtc": "2026-01-15T20:31:00Z",
+      "source": "simulator-fixture",
+      "confidence": 1.0,
+      "outcome": "extracted"
+    }
+  ]
+}
