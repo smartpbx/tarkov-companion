@@ -1,0 +1,51 @@
+{
+  "data": {
+    "items": {
+      "item-001": {
+        "id": "item-001",
+        "name": "item-001 Name",
+        "shortName": "item-001 ShortName",
+        "description": "item-001 Description",
+        "normalizedName": "salewa-first-aid-kit",
+        "updated": "2026-09-09T12:00:00Z",
+        "width": 1,
+        "height": 2,
+        "basePrice": 18000,
+        "avg24hPrice": 22500,
+        "lastLowPrice": 21000,
+        "low24hPrice": 20000,
+        "high24hPrice": 24000,
+        "types": ["meds"],
+        "categories": ["category-medical"],
+        "iconLink": "https://assets.tarkov.dev/item-001-icon.webp",
+        "gridImageLink": "https://assets.tarkov.dev/item-001-grid.webp",
+        "wikiLink": "https://escapefromtarkov.fandom.com/wiki/Salewa_first_aid_kit",
+        "properties": { "propertiesType": "ItemPropertiesMedKit", "maxHealAmount": 400 },
+        "sellToTrader": [
+          { "trader": "trader-001", "price": 12000, "priceRUB": 12000, "currency": "RUB" }
+        ],
+        "futureSchemaField": { "kept": true }
+      },
+      "item-002": {
+        "id": "item-002",
+        "name": "item-002 Name",
+        "shortName": "item-002 ShortName",
+        "width": 2,
+        "height": 1,
+        "types": ["barter", "noFlea"],
+        "categories": ["category-barter"]
+      }
+    },
+    "itemCategories": {
+      "category-medical": { "id": "category-medical", "name": "category-medical Name" },
+      "category-barter": { "id": "category-barter", "name": "category-barter Name" }
+    },
+    "futureCollection": []
+  },
+  "translations": [
+    "$.data.items.*.name",
+    "$.data.items.*.shortName",
+    "$.data.items.*.description",
+    "$.data.itemCategories.*.name"
+  ]
+}

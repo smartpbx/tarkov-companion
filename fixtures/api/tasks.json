@@ -1,0 +1,26 @@
+{
+  "data": {
+    "tasks": {
+      "task-001": {
+        "id": "task-001",
+        "name": "task-001 Name",
+        "trader": "trader-001",
+        "minPlayerLevel": 2,
+        "map": "map-001",
+        "objectives": [
+          {
+            "id": "objective-001",
+            "type": "giveItem",
+            "description": "objective-001 Description",
+            "count": 2,
+            "foundInRaid": true,
+            "items": ["item-001"],
+            "maps": ["map-001"]
+          }
+        ]
+      }
+    },
+    "questItems": {}
+  },
+  "translations": ["$.data.tasks.*.name", "$.data.tasks.*.objectives[*].description"]
+}

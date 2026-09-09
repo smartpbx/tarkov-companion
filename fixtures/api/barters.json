@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "id": "barter-001",
+      "trader": "trader-001",
+      "requiredItems": [{ "item": "item-002", "count": 2.5, "attributes": {} }],
+      "offeredItem": { "item": "item-001", "count": 1, "attributes": {} }
+    }
+  ],
+  "translations": []
+}

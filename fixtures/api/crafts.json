@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "id": "craft-001",
+      "station": "station-001",
+      "level": 1,
+      "requiredItems": [{ "item": "item-002", "count": 1, "attributes": {} }],
+      "productItem": { "item": "item-001", "count": 1, "attributes": {} }
+    }
+  ],
+  "translations": []
+}

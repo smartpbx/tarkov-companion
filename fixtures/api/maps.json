@@ -1,0 +1,26 @@
+{
+  "data": {
+    "maps": {
+      "map-001": {
+        "id": "map-001",
+        "name": "map-001 Name",
+        "normalizedName": "customs",
+        "raidDuration": 40,
+        "spawns": [
+          { "position": { "x": 1, "y": 2, "z": 3 }, "sides": ["all"], "categories": ["player"], "zoneName": "spawn-a" }
+        ],
+        "extracts": [
+          { "id": "extract-001", "name": "extract-001 Name", "position": { "x": 4, "y": 5, "z": 6 }, "faction": "pmc" }
+        ],
+        "transits": [{ "id": "transit-001", "map": "map-002" }],
+        "locks": [{ "id": "lock-001", "key": "item-002", "lockType": "door" }],
+        "hazards": [{ "id": "hazard-001", "type": "minefield" }],
+        "lootContainers": [{ "position": { "x": 7, "y": 8, "z": 9 }, "lootContainer": "item-002" }],
+        "lootLoose": [{ "position": { "x": 10, "y": 11, "z": 12 }, "items": ["item-001"] }],
+        "futureMapField": "ignored"
+      }
+    },
+    "goonReports": []
+  },
+  "translations": ["$.data.maps.*.name", "$.data.maps.*.extracts[*].name"]
+}

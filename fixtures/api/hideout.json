@@ -1,0 +1,21 @@
+{
+  "data": {
+    "station-001": {
+      "id": "station-001",
+      "name": "station-001 Name",
+      "levels": [
+        {
+          "id": "station-001-1",
+          "level": 1,
+          "itemRequirements": [
+            { "item": "item-002", "count": 2, "attributes": { "foundInRaid": false } }
+          ],
+          "stationLevelRequirements": [],
+          "traderRequirements": [{ "trader": "trader-001", "level": 1 }],
+          "skillRequirements": [{ "skill": "Health", "level": 2 }]
+        }
+      ]
+    }
+  },
+  "translations": ["$.data.*.name"]
+}

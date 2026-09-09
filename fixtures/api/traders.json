@@ -1,0 +1,10 @@
+{
+  "data": {
+    "trader-001": {
+      "id": "trader-001",
+      "name": "trader-001 Name",
+      "levels": [{ "id": "trader-001-1", "level": 1 }]
+    }
+  },
+  "translations": ["$.data.*.name"]
+}
