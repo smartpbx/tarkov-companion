@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "overrides": [
+    {
+      "itemId": "replace-with-canonical-item-id",
+      "tier": "A",
+      "advice": "Replace this disabled example with reviewed advice.",
+      "explanation": "Curated overrides require a reviewable source, observation date, reference, and confidence.",
+      "provenance": {
+        "source": "maintainer review required",
+        "observedUtc": "2026-09-09T00:00:00Z",
+        "sourceUpdatedUtc": null,
+        "reference": "replace-with-review-reference",
+        "confidence": {
+          "value": 0.5
+        }
+      }
+    }
+  ]
+}

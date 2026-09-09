@@ -1,0 +1,18 @@
+{
+  "id": "allergy-style-example",
+  "name": "Allergy-style event template",
+  "startUtc": null,
+  "endUtc": null,
+  "active": false,
+  "applicableItemIds": [],
+  "rulesJson": "{\"consumePrecedence\":[\"allergic\",\"safe\",\"untested\"]}",
+  "provenance": {
+    "source": "local template",
+    "observedUtc": "2026-09-09T00:00:00Z",
+    "sourceUpdatedUtc": null,
+    "reference": "docs/PRODUCT.md#event-intelligence",
+    "confidence": {
+      "value": 1.0
+    }
+  }
+}
