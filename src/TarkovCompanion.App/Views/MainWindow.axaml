@@ -12,7 +12,7 @@
     MinHeight="720"
     Background="#11151B">
   <Window.Styles>
-    <StyleInclude Source="avares://TarkovCompanion.App/Themes/InstrumentStyles.axaml" />
+    <StyleInclude Source="avares://TarkovCompanion/Themes/InstrumentStyles.axaml" />
   </Window.Styles>
   <Window.DataTemplates>
     <DataTemplate DataType="{x:Type vm:RaidPageViewModel}">
