@@ -4,140 +4,150 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:TarkovCompanion.App.ViewModels"
+    xmlns:pages="using:TarkovCompanion.App.Views.Pages"
     Title="Tarkov Companion"
     Width="1500"
     Height="900"
-    MinWidth="1100"
-    MinHeight="700">
-  <Grid RowDefinitions="52,*,98" ColumnDefinitions="178,*,300">
+    MinWidth="1120"
+    MinHeight="720"
+    Background="#11151B">
+  <Window.Styles>
+    <StyleInclude Source="avares://TarkovCompanion.App/Themes/InstrumentStyles.axaml" />
+  </Window.Styles>
+  <Window.DataTemplates>
+    <DataTemplate DataType="{x:Type vm:RaidPageViewModel}">
+      <pages:RaidView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ScannerPageViewModel}">
+      <pages:ScannerView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:ItemsPageViewModel}">
+      <pages:ItemsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:AmmoPageViewModel}">
+      <pages:AmmoView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:KeysPageViewModel}">
+      <pages:KeysView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:FleaPageViewModel}">
+      <pages:FleaView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:QuestsPageViewModel}">
+      <pages:QuestsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:HideoutPageViewModel}">
+      <pages:HideoutView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:EventsPageViewModel}">
+      <pages:EventsView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:LoadoutPageViewModel}">
+      <pages:LoadoutView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:HistoryPageViewModel}">
+      <pages:HistoryView />
+    </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:SettingsPageViewModel}">
+      <pages:SettingsView />
+    </DataTemplate>
+  </Window.DataTemplates>
+
+  <Grid RowDefinitions="76,*,110" ColumnDefinitions="184,*,334">
     <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="178,*,Auto" Margin="16,0">
-        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
-          <TextBlock FontSize="17" FontWeight="SemiBold" Text="Tarkov Companion" />
-          <TextBlock Classes="label" FontSize="10" Text="{Binding ModeLabel}" />
+      <Grid ColumnDefinitions="184,*,Auto" Margin="16,0">
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+          <TextBlock FontSize="17" FontWeight="SemiBold" Foreground="#E6EDF2" Text="Tarkov Companion" />
+          <TextBlock Classes="label" Text="{Binding ModeLabel}" />
         </StackPanel>
-        <ItemsControl Grid.Column="1" ItemsSource="{Binding Status}" HorizontalAlignment="Center">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <StackPanel Orientation="Horizontal" Spacing="28" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
+
+        <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+          <ItemsControl ItemsSource="{Binding Status}" HorizontalAlignment="Center">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="25" />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:StatusChip">
+                <StackPanel VerticalAlignment="Center" MinWidth="92" Spacing="1">
+                  <TextBlock Classes="label" Text="{Binding Label}" />
+                  <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="{Binding Color}" Text="{Binding Value}" />
+                  <TextBlock FontSize="11" Foreground="#71808C" Text="{Binding Evidence}" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+
+        <Border Grid.Column="2" Padding="10,6" BorderBrush="#43515E" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
+          <StackPanel Spacing="1">
+            <TextBlock Foreground="#B9C5CD" FontSize="12" Text="Read-only / external" />
+            <TextBlock Foreground="#71808C" FontSize="11" Text="No game input or memory access" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Grid.Column="0" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,1,0" Padding="8,12">
+      <Grid RowDefinitions="*,Auto">
+        <ItemsControl ItemsSource="{Binding Navigation}">
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:StatusChip">
-              <StackPanel VerticalAlignment="Center" Spacing="1">
-                <TextBlock Classes="label" Text="{Binding Label}" />
-                <TextBlock FontSize="13" FontWeight="Medium" Foreground="{Binding Color}" Text="{Binding Value}" />
-              </StackPanel>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <Button Classes.nav="True"
+                      Classes.selected="{Binding IsSelected}"
+                      Command="{Binding SelectCommand}"
+                      Margin="0,1">
+                <Grid ColumnDefinitions="28,*">
+                  <TextBlock Grid.Column="0" Foreground="#56B8C6" FontSize="15" Text="{Binding Glyph}" VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="1" FontSize="13" Text="{Binding Name}" VerticalAlignment="Center" />
+                </Grid>
+              </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
-        <Border Grid.Column="2" Padding="10,5" BorderBrush="#43515E" BorderThickness="1" CornerRadius="3" VerticalAlignment="Center">
-          <TextBlock Foreground="#9FB0BC" FontSize="11" Text="Read-only / external" />
+
+        <Border Grid.Row="1" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="12,12,8,2">
+          <StackPanel Spacing="3">
+            <TextBlock Classes="label" Text="Display role" />
+            <TextBlock FontSize="12" TextWrapping="Wrap" Text="Second screen · calm at rest" />
+          </StackPanel>
         </Border>
       </Grid>
     </Border>
 
-    <Border Grid.Row="1" Grid.Column="0" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,1,0" Padding="10,14">
-      <ItemsControl ItemsSource="{Binding Navigation}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:NavigationItem">
-            <Button Classes="nav" Margin="0,1">
-              <Grid ColumnDefinitions="24,*">
-                <TextBlock Grid.Column="0" Foreground="#56B8C6" Text="{Binding Glyph}" />
-                <TextBlock Grid.Column="1" Text="{Binding Name}" />
-              </Grid>
-            </Button>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
-    </Border>
-
-    <Grid Grid.Row="1" Grid.Column="1" Margin="14" RowDefinitions="Auto,*">
-      <Grid ColumnDefinitions="*,Auto" Margin="4,0,4,10">
-        <StackPanel>
-          <TextBlock FontSize="22" FontWeight="SemiBold" Text="Customs" />
-          <TextBlock Classes="label" Text="Last-known position from a user-created screenshot" />
+    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="70,*" Margin="16,10,16,14">
+      <Grid Margin="2,0,2,10" ColumnDefinitions="*,Auto">
+        <StackPanel VerticalAlignment="Center" Spacing="2">
+          <TextBlock FontSize="23" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding CurrentPage.Title}" />
+          <TextBlock Classes="label" Text="{Binding CurrentPage.Description}" />
         </StackPanel>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Bottom">
-          <ToggleButton Content="Traffic prediction" IsChecked="True" />
-          <ToggleButton Content="Quest markers" IsChecked="True" />
-          <Button Content="Floors" />
-        </StackPanel>
+        <Border Grid.Column="1" Classes="inset" Padding="10,6" VerticalAlignment="Center">
+          <TextBlock Classes="label" Text="{Binding CurrentPage.Evidence}" />
+        </Border>
       </Grid>
-      <Border Grid.Row="1" Classes="panel" ClipToBounds="True">
-        <Grid>
-          <Canvas Background="#171E26">
-            <Polyline Points="85,650 220,520 340,550 470,410 610,430 760,280 950,330 1110,190" Stroke="#303B47" StrokeThickness="22" />
-            <Polyline Points="90,650 220,520 340,550 470,410 610,430 760,280 950,330 1110,190" Stroke="#46515D" StrokeThickness="2" />
-            <Ellipse Canvas.Left="443" Canvas.Top="383" Width="54" Height="54" Fill="#265C66" Opacity="0.58" />
-            <Ellipse Canvas.Left="460" Canvas.Top="400" Width="20" Height="20" Fill="#56B8C6" Stroke="#D8F5F7" StrokeThickness="2" />
-            <Path Data="M 470,400 L 462,377 L 478,377 Z" Fill="#D8F5F7" />
-            <Border Canvas.Left="690" Canvas.Top="210" Background="#5A302F" BorderBrush="#DF6A62" BorderThickness="1" CornerRadius="2" Padding="8,4">
-              <TextBlock Foreground="#F3C0BB" FontSize="11" Text="Predicted traffic: high" />
-            </Border>
-            <Border Canvas.Left="210" Canvas.Top="490" Background="#283C34" BorderBrush="#77B895" BorderThickness="1" CornerRadius="2" Padding="8,4">
-              <TextBlock Foreground="#B8DFC9" FontSize="11" Text="Crossroads · active extract" />
-            </Border>
-          </Canvas>
-          <Border HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12" Padding="10,6" Background="#D911151B" CornerRadius="3">
-            <TextBlock Classes="label" Text="Prediction based on map/game knowledge — not live player data" />
-          </Border>
-        </Grid>
-      </Border>
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
     </Grid>
 
-    <ScrollViewer Grid.Row="1" Grid.Column="2" Margin="0,14,14,14">
-      <StackPanel Spacing="10">
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="8">
-            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Active extracts" />
-            <TextBlock Foreground="#77B895" Text="Crossroads  ·  98%" />
-            <TextBlock Foreground="#77B895" Text="ZB-1011  ·  94%" />
-            <TextBlock Classes="label" TextWrapping="Wrap" Text="Only observed or manually selected extracts are marked active." />
-            <Button HorizontalAlignment="Left" Content="Review extracts" />
-          </StackPanel>
-        </Border>
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="8">
-            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Strategy" />
-            <TextBlock Classes="label" Text="Current-area risk" />
-            <TextBlock Classes="metric" Foreground="#DF6A62" Text="High" />
-            <TextBlock TextWrapping="Wrap" Text="Predicted early contact from the northwest spawn lanes. Avoid the central crossing for the next 2–4 minutes." />
-          </StackPanel>
-        </Border>
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="8">
-            <TextBlock FontSize="16" FontWeight="SemiBold" Text="Route guidance" />
-            <ComboBox SelectedIndex="0">
-              <ComboBoxItem Content="Safest" />
-              <ComboBoxItem Content="Fastest" />
-              <ComboBoxItem Content="Quest-focused" />
-              <ComboBoxItem Content="Loot-focused" />
-              <ComboBoxItem Content="Avoid PvP" />
-            </ComboBox>
-            <TextBlock Classes="label" TextWrapping="Wrap" Text="Limited until a validated navigation graph is loaded." />
-          </StackPanel>
-        </Border>
-      </StackPanel>
-    </ScrollViewer>
-
     <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="18,12">
-      <Grid ColumnDefinitions="178,220,*,260">
-        <StackPanel Grid.Column="0" Spacing="2">
-          <TextBlock Classes="label" Text="Last scan" />
-          <TextBlock FontSize="16" FontWeight="SemiBold" Text="{Binding LastScanName}" />
+      <Grid ColumnDefinitions="184,260,*,300">
+        <StackPanel Grid.Column="0" Spacing="3">
+          <TextBlock Classes="label" Text="Last observed scan" />
+          <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding LastScanName}" />
         </StackPanel>
-        <StackPanel Grid.Column="1" Spacing="2">
+        <StackPanel Grid.Column="1" Spacing="3">
           <TextBlock Classes="label" Text="Economy" />
-          <TextBlock Foreground="#C6A15B" Text="{Binding LastScanValue}" />
+          <TextBlock Foreground="#C6A15B" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanValue}" />
         </StackPanel>
-        <StackPanel Grid.Column="2" Spacing="2">
-          <TextBlock Classes="label" Text="Recommendation" />
-          <TextBlock Foreground="#77B895" TextWrapping="Wrap" Text="{Binding LastScanAdvice}" />
+        <StackPanel Grid.Column="2" Spacing="3" Margin="16,0">
+          <TextBlock Classes="label" Text="Recommendation and reason" />
+          <TextBlock Foreground="#77B895" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanAdvice}" />
+          <TextBlock Foreground="#71808C" FontSize="11" Text="{Binding LastScanEvidence}" />
         </StackPanel>
-        <StackPanel Grid.Column="3" Spacing="2">
+        <StackPanel Grid.Column="3" Spacing="3">
           <TextBlock Classes="label" Text="Capture privacy" />
-          <TextBlock Text="In memory · discarded" />
+          <TextBlock FontSize="13" Text="In memory · discarded after analysis" />
+          <TextBlock Foreground="#71808C" FontSize="11" Text="Debug capture is off" />
         </StackPanel>
       </Grid>
     </Border>

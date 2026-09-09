@@ -1,0 +1,67 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.SettingsView"
+             x:DataType="vm:SettingsPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid ColumnDefinitions="0.95*,1.05*" ColumnSpacing="12">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10">
+        <Border Classes="panel cyan" Padding="15">
+          <StackPanel Spacing="12">
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="First-run setup" /><TextBlock Classes="label" Text="3 guided checks · safe defaults" /></StackPanel><Border Grid.Column="1" Classes="inset ochre" Padding="9,5"><TextBlock Classes="ochre" Text="Step 2 of 3" /></Border></Grid>
+            <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="10"><Border Width="24" Height="24" CornerRadius="12" Background="#345B4A"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Classes="sage" Text="✓" /></Border><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Find local data paths" /><TextBlock Classes="label" Text="EFT install, logs, and screenshots" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" VerticalAlignment="Center" Text="Complete" /></Grid>
+            <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="10"><Border Width="24" Height="24" CornerRadius="12" Background="#28515A" BorderBrush="#56B8C6" BorderThickness="1"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Classes="cyan" Text="2" /></Border><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Choose hotkey and monitor" /><TextBlock Classes="label" Text="User-triggered capture destination" /></StackPanel><TextBlock Grid.Column="2" Classes="cyan" VerticalAlignment="Center" Text="Current" /></Grid>
+            <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="10"><Border Width="24" Height="24" CornerRadius="12" Background="#202933"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Text="3" /></Border><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Review privacy" /><TextBlock Classes="label" Text="Confirm capture and retention behavior" /></StackPanel><TextBlock Grid.Column="2" Classes="label" VerticalAlignment="Center" Text="Next" /></Grid>
+            <StackPanel Orientation="Horizontal" Spacing="8"><Button Classes="tool" Content="Back" /><Button Classes="primary" Content="Continue setup" /></StackPanel>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="sectionTitle" Text="Paths" />
+            <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8"><TextBlock Classes="label" VerticalAlignment="Center" Text="Install root" /><TextBox Grid.Column="1" Text="C:\Battlestate Games\EFT" /><Button Grid.Column="2" Classes="tool" Content="Browse" /></Grid>
+            <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8"><TextBlock Classes="label" VerticalAlignment="Center" Text="Log root" /><TextBox Grid.Column="1" Text="C:\Battlestate Games\EFT\Logs" /><Button Grid.Column="2" Classes="tool" Content="Browse" /></Grid>
+            <Grid ColumnDefinitions="120,*,Auto" ColumnSpacing="8"><TextBlock Classes="label" VerticalAlignment="Center" Text="Screenshots" /><TextBox Grid.Column="1" Text="C:\Users\Player\Documents\Escape from Tarkov\Screenshots" /><Button Grid.Column="2" Classes="tool" Content="Browse" /></Grid>
+            <Grid ColumnDefinitions="120,*"><TextBlock Classes="label" Text="Discovery" /><TextBlock Grid.Column="1" Classes="sage" Text="High confidence · install and logs agree" /></Grid>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="10"><TextBlock Classes="sectionTitle" Text="Capture controls" /><Grid ColumnDefinitions="140,*" ColumnSpacing="10"><TextBlock Classes="label" VerticalAlignment="Center" Text="Scan hotkey" /><TextBox Grid.Column="1" Text="Ctrl+Shift+S" /></Grid><Grid ColumnDefinitions="140,*" ColumnSpacing="10"><TextBlock Classes="label" VerticalAlignment="Center" Text="Companion monitor" /><ComboBox Grid.Column="1" SelectedIndex="0"><ComboBoxItem Content="Display 2 · 2560×1440 · 100%" /><ComboBoxItem Content="Display 1 · 3840×2160 · 150%" /></ComboBox></Grid><CheckBox Content="Allow simulator window in developer mode" IsChecked="True" /><TextBlock Classes="label" TextWrapping="Wrap" Text="The capture action always requires the configured hotkey. No gameplay input is generated." /></StackPanel>
+        </Border>
+
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="9"><TextBlock Classes="sectionTitle" Text="Privacy" /><CheckBox Content="Keep captures only in memory" IsChecked="True" IsEnabled="False" /><CheckBox Content="Discard capture immediately after analysis" IsChecked="True" IsEnabled="False" /><CheckBox Content="Enable debug capture files" IsChecked="False" /><TextBlock Classes="coral" TextWrapping="Wrap" Text="Debug captures may contain personal or in-game information. Leave this off unless diagnosing recognition." /></StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10">
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="9">
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Diagnostics" /><TextBlock Classes="label" Text="Fixture run · 21:41:55 local" /></StackPanel><Button Grid.Column="1" Classes="tool" Content="Run all checks" /></Grid>
+            <Border Classes="inset sage" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Game window selector" /><TextBlock Classes="label" Text="EFT Simulator matched explicitly" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Pass" /></Grid></Border>
+            <Border Classes="inset sage" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Screenshot path" /><TextBlock Classes="label" Text="Readable · 9 fixture files" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Pass" /></Grid></Border>
+            <Border Classes="inset sage" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Global hotkey" /><TextBlock Classes="label" Text="Ctrl+Shift+S registered" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Pass" /></Grid></Border>
+            <Border Classes="inset sage" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Game data cache" /><TextBlock Classes="label" Text="18,462 records · 14 minutes old" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Pass" /></Grid></Border>
+            <Border Classes="inset sage" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Monitor scaling" /><TextBlock Classes="label" Text="Display 2 · effective 100%" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Pass" /></Grid></Border>
+            <Border Classes="inset coral" Padding="10"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10"><TextBlock Classes="coral" Text="!" /><StackPanel Grid.Column="1"><TextBlock Text="OCR language model" /><TextBlock Classes="label" TextWrapping="Wrap" Text="English model available; Russian model not installed" /></StackPanel><Button Grid.Column="2" Classes="tool" Content="Fix" /></Grid></Border>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel ochre" Padding="15">
+          <StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Recognition thresholds" /><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Text="Automatic recommendation" /><TextBlock Classes="label" Text="Require candidate agreement" /></StackPanel><TextBlock Grid.Column="1" Classes="ochre" Text="85%" /></Grid><Slider Minimum="50" Maximum="100" Value="85" TickFrequency="5" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Below 85%, the scanner shows candidates and withholds keep/sell advice." /></StackPanel>
+        </Border>
+
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="9"><TextBlock Classes="sectionTitle" Text="Data and age limits" /><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Structured game data" /><TextBlock Grid.Column="1" Classes="sage" Text="Synced · 14m old" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Price advice expiry" /><TextBlock Grid.Column="1" Text="24 hours" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Position freshness" /><TextBlock Grid.Column="1" Text="60 seconds" /></Grid><Button Classes="tool" HorizontalAlignment="Left" Content="Sync now" /></StackPanel>
+        </Border>
+
+        <Border Classes="panel" Padding="15">
+          <StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Empty and error states" /><Border Classes="inset" Padding="10"><StackPanel><TextBlock FontWeight="SemiBold" Text="No raid evidence" /><TextBlock Classes="label" Text="Start EFT or the simulator; the map stays available as a reference." /></StackPanel></Border><Border Classes="inset coral" Padding="10"><StackPanel><TextBlock FontWeight="SemiBold" Text="Path access failed" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Choose a readable screenshots folder, then run the check again." /></StackPanel></Border></StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>
