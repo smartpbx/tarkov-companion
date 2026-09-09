@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - name: Restore
+        run: dotnet restore TarkovCompanion.sln --locked-mode=false
+      - name: Build
+        run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
+      - name: Test
+        run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
+      - name: Safety audit
+        run: ./scripts/audit-safety.sh
+      - name: Secret-pattern audit
+        run: ./scripts/scan-secrets.sh
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: linux-test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  windows-publish:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - name: Restore
+        run: dotnet restore TarkovCompanion.sln
+      - name: Build and test
+        run: |
+          dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
+          dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1
+      - name: Publish self-contained win-x64
+        run: dotnet publish src/TarkovCompanion.App/TarkovCompanion.App.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
+      - uses: actions/upload-artifact@v5
+        with:
+          name: TarkovCompanion-win-x64
+          path: artifacts/win-x64

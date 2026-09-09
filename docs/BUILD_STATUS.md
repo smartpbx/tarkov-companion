@@ -32,6 +32,7 @@ Last updated: 2026-09-09
 - [x] Foundation solution builds and tests (25 tests; 0 failed).
 - [x] Private GitHub repository created at `smartpbx/tarkov-companion`; `main` tracks `origin/main`.
 - [x] Repository registered in Orca with base ref `origin/main`.
+- [x] Six isolated implementation tasks dispatched through Orca run `run_4bd33b0d6a32`.
 - [ ] Data/economy/profile implementation.
 - [ ] Core UI.
 - [ ] Recognition.
