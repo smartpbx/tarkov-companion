@@ -1,0 +1,9 @@
+{
+  "purpose": "Generic educational fixture; not derived from live players or a third-party map asset.",
+  "disclaimer": "Predicted traffic based on map and game knowledge—not live player data.",
+  "zones": [
+    { "id": "west-spawn", "x": 100, "y": 500, "radius": 100, "spawnWeight": 1.0, "poiWeight": 0.1, "chokepointWeight": 0.0, "questWeight": 0.0, "extractWeight": 0.0 },
+    { "id": "central-objective", "x": 500, "y": 500, "radius": 140, "spawnWeight": 0.0, "poiWeight": 0.9, "chokepointWeight": 0.8, "questWeight": 0.6, "extractWeight": 0.0 },
+    { "id": "north-extract", "x": 900, "y": 100, "radius": 100, "spawnWeight": 0.0, "poiWeight": 0.1, "chokepointWeight": 0.2, "questWeight": 0.0, "extractWeight": 1.0 }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "training-ground",
+  "name": "Code-rendered Training Ground",
+  "pmcRaidDurationMinutes": 40,
+  "scavRaidDurationMinutes": 25,
+  "floors": [
+    { "id": "lower", "name": "Lower", "minHeight": -20, "maxHeight": 5 },
+    { "id": "upper", "name": "Upper", "minHeight": 5, "maxHeight": 60 }
+  ],
+  "extracts": [
+    { "id": "north-gate", "name": "North Gate", "x": 900, "y": 100 },
+    { "id": "conditional", "name": "Conditional Exit", "conditions": "Static position not verified" }
+  ],
+  "transform": {
+    "worldMinX": -100,
+    "worldMaxX": 100,
+    "worldMinZ": -100,
+    "worldMaxZ": 100,
+    "visualWidth": 1000,
+    "visualHeight": 1000,
+    "rotationDegrees": 0,
+    "flipX": false,
+    "flipY": true
+  },
+  "unknownFutureField": { "ignored": true }
+}
