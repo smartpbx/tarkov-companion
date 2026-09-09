@@ -17,6 +17,7 @@
     <!-- Keep managed SkiaSharp aligned with Avalonia 12.1.2's native asset line. -->
     <PackageVersion Include="SkiaSharp" Version="3.119.4" />
     <PackageVersion Include="Svg.Skia" Version="4.9.1" />
+    <PackageVersion Include="TesseractOCR" Version="5.5.2" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />

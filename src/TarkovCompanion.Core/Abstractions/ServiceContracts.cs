@@ -33,7 +33,52 @@ public sealed record EftPaths(string? InstallRoot, string? LogRoot, string? Scre
 
 public sealed record HotkeyGesture(uint Modifiers, uint VirtualKey, string DisplayName);
 
-public sealed record ExtractRecognitionResult(IReadOnlyList<ActiveExtract> Extracts, IReadOnlyList<string> UnmatchedLines);
+public sealed record ExtractRecognitionResult(
+    IReadOnlyList<ActiveExtract> Extracts,
+    IReadOnlyList<ObservedExtract> Observations,
+    IReadOnlyList<string> AmbiguousLines,
+    IReadOnlyList<string> UnmatchedLines,
+    bool ProviderAvailable,
+    string? DiagnosticCode = null);
+
+public enum ScanCompletionStatus
+{
+    Complete,
+    Partial,
+    Unavailable,
+}
+
+public sealed record ScanRequest(CaptureRequest Capture);
+
+public sealed record ScanEvidence(
+    string Code,
+    string Detail,
+    Confidence Confidence,
+    DateTimeOffset ObservedUtc);
+
+public sealed record ScanOutcome(
+    Guid ScanId,
+    ScanCompletionStatus Status,
+    ScanContext Context,
+    DateTimeOffset ObservedUtc,
+    RecognitionResult Recognition,
+    ExtractRecognitionResult? Extracts,
+    ContainerScanResult? Container,
+    FleaRecognitionResult? Flea,
+    RecommendationResult? Recommendation,
+    IReadOnlyList<ScanEvidence> Evidence,
+    string? DiagnosticCode = null);
+
+public sealed record ScanEventMetadata(
+    Guid ScanId,
+    DateTimeOffset TimestampUtc,
+    ScanContext Context,
+    string? ResolvedItemId,
+    Confidence Confidence,
+    IReadOnlyList<RecognitionCandidate> Candidates,
+    string? Recommendation,
+    PixelRect? SourceGeometry,
+    string? DiagnosticCode);
 
 public interface IDataSyncService
 {
@@ -120,6 +165,11 @@ public interface IOcrEngine
     Task<OcrResult> RecognizeAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken);
 }
 
+public interface IOcrEngineStatus
+{
+    OcrEngineAvailability Availability { get; }
+}
+
 public interface IIconMatcher
 {
     Task<IReadOnlyList<RecognitionCandidate>> MatchAsync(CapturedImage image, int limit, CancellationToken cancellationToken);
@@ -186,6 +236,44 @@ public interface IExtractRecognitionService
     Task<ExtractRecognitionResult> RecognizeAsync(
         CapturedImage image,
         MapDefinition currentMap,
+        CancellationToken cancellationToken);
+}
+
+public interface IContainerRecognitionService
+{
+    Task<ContainerScanResult> RecognizeAsync(CapturedImage image, CancellationToken cancellationToken);
+}
+
+public interface IFleaRecognitionService
+{
+    Task<FleaRecognitionResult> RecognizeAsync(CapturedImage image, CancellationToken cancellationToken);
+}
+
+public interface IRecognitionCatalogRepository
+{
+    Task<IReadOnlyList<CanonicalItemReference>> LoadAsync(CancellationToken cancellationToken);
+}
+
+public interface IScanUseCase
+{
+    Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken);
+}
+
+public interface IScanEventRepository
+{
+    Task SaveAsync(ScanEventMetadata scanEvent, CancellationToken cancellationToken);
+}
+
+public interface IScanResultPublisher
+{
+    Task PublishAsync(ScanOutcome result, CancellationToken cancellationToken);
+}
+
+public interface IScanRecommendationContextProvider
+{
+    Task<RecommendationContext?> GetAsync(
+        ItemDefinition item,
+        RecognitionCandidate recognition,
         CancellationToken cancellationToken);
 }
 

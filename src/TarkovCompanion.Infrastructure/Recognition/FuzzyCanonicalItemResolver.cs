@@ -1,12 +1,8 @@
+using System.Buffers;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Infrastructure.Recognition;
-
-public sealed record CanonicalItemReference(
-    string Id,
-    string DisplayName,
-    IReadOnlyList<string>? Aliases = null);
 
 public sealed record CanonicalItemResolution(
     IReadOnlyList<RecognitionCandidate> Candidates,
@@ -17,7 +13,11 @@ public sealed record CanonicalItemResolution(
 
 public sealed class FuzzyCanonicalItemResolver
 {
-    private readonly IReadOnlyList<IndexedItem> _items;
+    private const int MaximumPrefilterCandidates = 96;
+    private const int MaximumComparedTextLength = 160;
+    private readonly IReadOnlyList<IndexedName> _names;
+    private readonly IReadOnlyDictionary<string, int[]> _exactIndex;
+    private readonly IReadOnlyDictionary<string, int[]> _trigramIndex;
     private readonly OcrTextNormalizer _normalizer;
 
     public FuzzyCanonicalItemResolver(
@@ -26,7 +26,22 @@ public sealed class FuzzyCanonicalItemResolver
     {
         ArgumentNullException.ThrowIfNull(items);
         _normalizer = normalizer ?? new OcrTextNormalizer();
-        _items = items.Select(Index).ToArray();
+
+        _names = items.SelectMany(Index).ToArray();
+        _exactIndex = _names
+            .Select((name, index) => (name.Normalized, index))
+            .GroupBy(pair => pair.Normalized, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(pair => pair.index).ToArray(),
+                StringComparer.Ordinal);
+        _trigramIndex = _names
+            .SelectMany((name, index) => Trigrams(name.Normalized).Select(trigram => (trigram, index)))
+            .GroupBy(pair => pair.trigram, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(pair => pair.index).Distinct().ToArray(),
+                StringComparer.Ordinal);
     }
 
     public CanonicalItemResolution Resolve(
@@ -41,56 +56,127 @@ public sealed class FuzzyCanonicalItemResolver
         }
 
         var normalized = _normalizer.NormalizeForLookup(observedText);
-        if (normalized.Length == 0)
+        if (normalized.Length == 0 || normalized.Length > MaximumComparedTextLength)
         {
             return new([], RecognitionDecision.NoMatch);
         }
 
-        var candidates = _items
-            .Select(item => Score(item, normalized, ocrConfidence, bounds))
-            .Where(candidate => candidate.Confidence.Value >= RecognitionPolicy.CandidateFloor)
+        var candidates = Prefilter(normalized)
+            .Select(index => Score(_names[index], normalized, ocrConfidence, bounds))
+            .Where(candidate => candidate.Confidence.Value >= RecognitionThresholds.Candidate)
+            .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
+            .Select(group => group
+                .OrderByDescending(candidate => candidate.Confidence.Value)
+                .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
+                .First())
             .OrderByDescending(candidate => candidate.Confidence.Value)
             .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
             .Take(limit)
             .ToArray();
 
-        var decision = candidates.Length == 0
-            ? RecognitionDecision.NoMatch
-            : RecognitionPolicy.Classify(candidates[0].Confidence);
+        if (candidates.Length == 0)
+        {
+            return new([], RecognitionDecision.NoMatch);
+        }
+
+        var decision = RecognitionThresholds.Classify(candidates[0].Confidence);
+        if (decision == RecognitionDecision.AutoSelected &&
+            candidates.Length > 1 &&
+            candidates[0].Confidence.Value - candidates[1].Confidence.Value < RecognitionThresholds.MinimumRunnerUpLead)
+        {
+            decision = RecognitionDecision.Ambiguous;
+        }
+
         return new(candidates, decision);
     }
 
-    private IndexedItem Index(CanonicalItemReference item)
+    private IEnumerable<IndexedName> Index(CanonicalItemReference item)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(item.Id);
         ArgumentException.ThrowIfNullOrWhiteSpace(item.DisplayName);
 
-        var names = new[] { item.DisplayName }
+        return new[] { item.DisplayName }
             .Concat(item.Aliases ?? [])
-            .Select(_normalizer.NormalizeForLookup)
-            .Where(name => name.Length > 0)
-            .Distinct(StringComparer.Ordinal)
+            .Select(name => (Original: name, Normalized: _normalizer.NormalizeForLookup(name)))
+            .Where(name => name.Normalized.Length is > 0 and <= MaximumComparedTextLength)
+            .DistinctBy(name => name.Normalized, StringComparer.Ordinal)
+            .Select(name => new IndexedName(item.Id, item.DisplayName, name.Original, name.Normalized));
+    }
+
+    private IReadOnlyList<int> Prefilter(string observed)
+    {
+        if (_exactIndex.TryGetValue(observed, out var exact))
+        {
+            return exact;
+        }
+
+        var hits = new Dictionary<int, int>();
+        foreach (var trigram in Trigrams(observed))
+        {
+            if (!_trigramIndex.TryGetValue(trigram, out var indexes))
+            {
+                continue;
+            }
+
+            foreach (var index in indexes)
+            {
+                hits[index] = hits.GetValueOrDefault(index) + 1;
+            }
+        }
+
+        if (hits.Count > 0)
+        {
+            return hits
+                .OrderByDescending(pair => pair.Value)
+                .ThenBy(pair => Math.Abs(_names[pair.Key].Normalized.Length - observed.Length))
+                .ThenBy(pair => _names[pair.Key].DisplayName, StringComparer.Ordinal)
+                .Take(MaximumPrefilterCandidates)
+                .Select(pair => pair.Key)
+                .ToArray();
+        }
+
+        var lengthWindow = Math.Max(4, observed.Length / 3);
+        return _names
+            .Select((name, index) => (name, index))
+            .Where(pair => Math.Abs(pair.name.Normalized.Length - observed.Length) <= lengthWindow)
+            .OrderBy(pair => Math.Abs(pair.name.Normalized.Length - observed.Length))
+            .ThenBy(pair => pair.name.DisplayName, StringComparer.Ordinal)
+            .Take(MaximumPrefilterCandidates)
+            .Select(pair => pair.index)
             .ToArray();
-        return new(item.Id, item.DisplayName, names);
     }
 
     private static RecognitionCandidate Score(
-        IndexedItem item,
+        IndexedName item,
         string observed,
         Confidence ocrConfidence,
         PixelRect? bounds)
     {
-        var similarity = item.Names.Max(name => FuzzyTextSimilarity.Score(observed, name));
+        var similarity = FuzzyTextSimilarity.Score(observed, item.Normalized);
         var combined = Math.Clamp((similarity * 0.80) + (ocrConfidence.Value * 0.20), 0, 1);
         return new(
             item.Id,
             item.DisplayName,
             new Confidence(combined),
-            $"ocr-fuzzy; normalized={observed}; similarity={similarity:F3}",
+            $"ocr-fuzzy; observed={observed}; matched={item.Original}; similarity={similarity:F3}",
             bounds);
     }
 
-    private sealed record IndexedItem(string Id, string DisplayName, IReadOnlyList<string> Names);
+    private static IEnumerable<string> Trigrams(string value)
+    {
+        if (value.Length < 3)
+        {
+            yield return value;
+            yield break;
+        }
+
+        for (var index = 0; index <= value.Length - 3; index++)
+        {
+            yield return value.Substring(index, 3);
+        }
+    }
+
+    private sealed record IndexedName(string Id, string DisplayName, string Original, string Normalized);
 }
 
 public static class FuzzyTextSimilarity
@@ -119,40 +205,50 @@ public static class FuzzyTextSimilarity
 
     private static int DamerauLevenshteinDistance(string left, string right)
     {
-        var distances = new int[left.Length + 1, right.Length + 1];
-        for (var leftIndex = 0; leftIndex <= left.Length; leftIndex++)
+        var rowLength = right.Length + 1;
+        var pool = ArrayPool<int>.Shared;
+        var previousPrevious = pool.Rent(rowLength);
+        var previous = pool.Rent(rowLength);
+        var current = pool.Rent(rowLength);
+        try
         {
-            distances[leftIndex, 0] = leftIndex;
-        }
-
-        for (var rightIndex = 0; rightIndex <= right.Length; rightIndex++)
-        {
-            distances[0, rightIndex] = rightIndex;
-        }
-
-        for (var leftIndex = 1; leftIndex <= left.Length; leftIndex++)
-        {
-            for (var rightIndex = 1; rightIndex <= right.Length; rightIndex++)
+            for (var rightIndex = 0; rightIndex <= right.Length; rightIndex++)
             {
-                var substitutionCost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1;
-                var distance = Math.Min(
-                    Math.Min(
-                        distances[leftIndex - 1, rightIndex] + 1,
-                        distances[leftIndex, rightIndex - 1] + 1),
-                    distances[leftIndex - 1, rightIndex - 1] + substitutionCost);
+                previous[rightIndex] = rightIndex;
+                previousPrevious[rightIndex] = rightIndex;
+            }
 
-                if (leftIndex > 1 &&
-                    rightIndex > 1 &&
-                    left[leftIndex - 1] == right[rightIndex - 2] &&
-                    left[leftIndex - 2] == right[rightIndex - 1])
+            for (var leftIndex = 1; leftIndex <= left.Length; leftIndex++)
+            {
+                current[0] = leftIndex;
+                for (var rightIndex = 1; rightIndex <= right.Length; rightIndex++)
                 {
-                    distance = Math.Min(distance, distances[leftIndex - 2, rightIndex - 2] + 1);
+                    var substitutionCost = left[leftIndex - 1] == right[rightIndex - 1] ? 0 : 1;
+                    var distance = Math.Min(
+                        Math.Min(previous[rightIndex] + 1, current[rightIndex - 1] + 1),
+                        previous[rightIndex - 1] + substitutionCost);
+
+                    if (leftIndex > 1 &&
+                        rightIndex > 1 &&
+                        left[leftIndex - 1] == right[rightIndex - 2] &&
+                        left[leftIndex - 2] == right[rightIndex - 1])
+                    {
+                        distance = Math.Min(distance, previousPrevious[rightIndex - 2] + 1);
+                    }
+
+                    current[rightIndex] = distance;
                 }
 
-                distances[leftIndex, rightIndex] = distance;
+                (previousPrevious, previous, current) = (previous, current, previousPrevious);
             }
-        }
 
-        return distances[left.Length, right.Length];
+            return previous[right.Length];
+        }
+        finally
+        {
+            pool.Return(previousPrevious);
+            pool.Return(previous);
+            pool.Return(current);
+        }
     }
 }
