@@ -1,0 +1,67 @@
+[
+  {
+    "normalizedName": "synthetic-port",
+    "id": "synthetic-location-id",
+    "name": "Synthetic Port (test only)",
+    "description": "Synthetic catalog fixture; never a production EFT location.",
+    "primaryPath": "/map/synthetic-port",
+    "maps": [
+      {
+        "key": "synthetic-port-interactive",
+        "projection": "interactive",
+        "minZoom": 1,
+        "maxZoom": 5,
+        "transform": [0.5, 10, 0.25, 20],
+        "coordinateRotation": 90,
+        "bounds": [[100, -100], [-100, 100]],
+        "svgBounds": [[90, -90], [-90, 90]],
+        "author": "Synthetic Fixture Authors",
+        "authorLink": "https://tarkov.dev",
+        "svgPath": "https://assets.tarkov.dev/maps/svg/SyntheticFixture.svg",
+        "tilePath": "https://assets.tarkov.dev/maps/synthetic-fixture/main/{z}/{x}/{y}.png",
+        "tileSize": 256,
+        "svgLayer": "Ground_Level",
+        "heightRange": [-5, 5],
+        "altMaps": ["synthetic-port-night"],
+        "layers": [
+          {
+            "name": "Upper Floor",
+            "svgLayer": "Upper_Floor",
+            "show": false,
+            "extents": [{"height": [5, 20]}]
+          },
+          {
+            "name": "Underground",
+            "tilePath": "https://assets.tarkov.dev/maps/synthetic-fixture/underground/{z}/{x}/{y}.png",
+            "show": false,
+            "extents": [
+              {
+                "height": [-20, -5],
+                "bounds": [[[50, -50], [-50, 50]]]
+              }
+            ]
+          }
+        ],
+        "labels": [
+          {
+            "position": [12, -8],
+            "text": "Fixture Warehouse",
+            "rotation": 15,
+            "size": 80,
+            "bottom": -5,
+            "top": 20
+          }
+        ],
+        "futureField": {"ignored": true}
+      },
+      {
+        "key": "synthetic-port-2d",
+        "projection": "2D",
+        "orientation": "landscape",
+        "author": "Synthetic Fixture Authors",
+        "authorLink": "https://tarkov.dev"
+      }
+    ],
+    "futureLocationField": true
+  }
+]

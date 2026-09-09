@@ -2,95 +2,10 @@
              x:DataType="vm:RaidPageViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels"
+             xmlns:maps="using:TarkovCompanion.App.Views.Maps">
   <Grid ColumnDefinitions="*,316" ColumnSpacing="12">
-    <Border Grid.Column="0" Classes="panel" ClipToBounds="True">
-      <Grid RowDefinitions="52,*,44">
-        <Grid Background="#151B22" ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8" Margin="10,0">
-          <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
-            <Button Classes="tool" Content="−" ToolTip.Tip="Zoom out" />
-            <Border Classes="inset" Padding="12,8">
-              <TextBlock FontSize="12" Text="68%" />
-            </Border>
-            <Button Classes="tool" Content="+" ToolTip.Tip="Zoom in" />
-          </StackPanel>
-          <Button Grid.Column="1" Classes="tool" Content="Recenter" VerticalAlignment="Center" />
-          <ComboBox Grid.Column="2" SelectedIndex="0" Width="112" VerticalAlignment="Center">
-            <ComboBoxItem Content="Ground floor" />
-            <ComboBoxItem Content="Upper floor" />
-          </ComboBox>
-          <TextBox Grid.Column="4" Width="180" PlaceholderText="Filter markers" VerticalAlignment="Center" />
-          <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-            <ToggleButton Classes="tool" IsChecked="True" Content="Quests" />
-            <ToggleButton Classes="tool" IsChecked="True" Content="Traffic" />
-            <ToggleButton Classes="tool" IsChecked="True" Content="Extracts" />
-          </StackPanel>
-        </Grid>
-
-        <Grid Grid.Row="1" Background="#141B22">
-          <Viewbox Stretch="UniformToFill">
-            <Canvas Width="980" Height="590" Background="#141B22">
-              <Path Data="M 24,78 L 208,36 L 298,85 L 518,45 L 748,94 L 945,54 L 962,262 L 882,378 L 934,558 L 626,566 L 516,512 L 324,552 L 158,492 L 38,530 Z"
-                    Fill="#19232B" Stroke="#34434D" StrokeThickness="3" />
-              <Path Data="M 40,355 L 168,324 L 238,348 L 370,314 L 470,332 L 590,288 L 712,310 L 822,256 L 952,270"
-                    Stroke="#2A3741" StrokeThickness="38" />
-              <Path Data="M 40,355 L 168,324 L 238,348 L 370,314 L 470,332 L 590,288 L 712,310 L 822,256 L 952,270"
-                    Stroke="#56636C" StrokeThickness="3" />
-              <Path Data="M 174,48 L 190,492 M 285,78 L 304,542 M 532,48 L 510,514 M 750,95 L 712,558"
-                    Stroke="#2C3944" StrokeThickness="12" />
-              <Path Data="M 174,48 L 190,492 M 285,78 L 304,542 M 532,48 L 510,514 M 750,95 L 712,558"
-                    Stroke="#46545F" StrokeThickness="2" StrokeDashArray="7,5" />
-              <Path Data="M 86,136 L 230,112 L 250,214 L 116,236 Z M 382,112 L 520,96 L 538,200 L 398,218 Z M 622,120 L 736,114 L 754,202 L 640,214 Z"
-                    Fill="#202A32" Stroke="#3B4853" StrokeThickness="2" />
-              <Path Data="M 600,442 L 874,418 L 900,518 L 624,538 Z" Fill="#202A32" Stroke="#3B4853" StrokeThickness="2" />
-
-              <Path Data="M 500,348 C 548,326 606,323 662,300 C 712,279 750,266 817,260"
-                    Stroke="#56B8C6" StrokeThickness="5" StrokeDashArray="8,5" />
-              <Ellipse Canvas.Left="474" Canvas.Top="322" Width="58" Height="58" Fill="#295B64" Opacity="0.55" />
-              <Ellipse Canvas.Left="492" Canvas.Top="340" Width="22" Height="22" Fill="#56B8C6" Stroke="#D8F5F7" StrokeThickness="2" />
-              <Path Data="M 503,339 L 495,315 L 511,315 Z" Fill="#D8F5F7" />
-              <TextBlock Canvas.Left="522" Canvas.Top="340" Foreground="#D8F5F7" FontSize="13" FontWeight="SemiBold" Text="Train Yard" />
-              <TextBlock Canvas.Left="522" Canvas.Top="357" Foreground="#8F9BA6" FontSize="11" Text="Heading 008° · position 12s old" />
-
-              <Border Canvas.Left="786" Canvas.Top="226" Background="#2A4539" BorderBrush="#77B895" BorderThickness="1" CornerRadius="2" Padding="9,5">
-                <StackPanel>
-                  <TextBlock Foreground="#B8DFC9" FontSize="12" FontWeight="SemiBold" Text="Crossroads" />
-                  <TextBlock Foreground="#86A997" FontSize="11" Text="Active extract · 98%" />
-                </StackPanel>
-              </Border>
-              <Border Canvas.Left="625" Canvas.Top="92" Background="#4A2B2C" BorderBrush="#DF6A62" BorderThickness="1" CornerRadius="2" Padding="9,5">
-                <StackPanel>
-                  <TextBlock Foreground="#F3C0BB" FontSize="12" FontWeight="SemiBold" Text="High predicted traffic" />
-                  <TextBlock Foreground="#BE8A87" FontSize="11" Text="Spawn lanes · 2–4 min" />
-                </StackPanel>
-              </Border>
-              <Border Canvas.Left="264" Canvas.Top="391" Background="#4A4028" BorderBrush="#C6A15B" BorderThickness="1" CornerRadius="2" Padding="9,5">
-                <TextBlock Foreground="#E1C78E" FontSize="12" Text="Quest · Golden Swag" />
-              </Border>
-            </Canvas>
-          </Viewbox>
-
-          <Border HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12" Classes="inset" Padding="9,6">
-            <TextBlock Classes="label" Text="Drag to pan · mouse wheel or +/− to zoom" />
-          </Border>
-          <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12" Background="#E5151B22" BorderBrush="#43515E" BorderThickness="1" CornerRadius="2" Padding="10,6">
-            <TextBlock FontSize="12" Foreground="#B8C3CB" Text="Map reference only · position is last-known, never live" />
-          </Border>
-        </Grid>
-
-        <Grid Grid.Row="2" Background="#151B22" ColumnDefinitions="Auto,*,Auto" Margin="12,0">
-          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-            <TextBlock Classes="label" Text="Cursor" />
-            <TextBlock FontSize="12" Text="13.4, 7.8" />
-          </StackPanel>
-          <TextBlock Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Classes="label" Text="Map data · local fixture · floor 0" />
-          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <Border Width="16" Height="3" Background="#56B8C6" />
-            <TextBlock FontSize="12" Text="Proposed route" />
-          </StackPanel>
-        </Grid>
-      </Grid>
-    </Border>
+    <maps:MapView Grid.Column="0" DataContext="{Binding Map}" />
 
     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="10">

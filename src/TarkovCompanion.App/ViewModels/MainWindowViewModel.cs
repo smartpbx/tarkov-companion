@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using TarkovCompanion.App.ViewModels.Maps;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -65,7 +66,7 @@ public sealed record StatusChip(string Label, string Value, string Evidence, str
 
 public abstract record PageViewModel(string Title, string Description, string Evidence);
 
-public sealed record RaidPageViewModel()
+public sealed record RaidPageViewModel(MapViewModel Map)
     : PageViewModel("Customs raid", "Map-first route planning from last-known evidence", "Position · screenshot · 12 seconds old");
 
 public sealed record ScannerPageViewModel()
@@ -107,11 +108,12 @@ public sealed class MainWindowViewModel : BindableViewModel
 
     private MainWindowViewModel(bool demoMode)
     {
+        Map = MapViewModel.CreateDefault();
         IsDemoMode = demoMode;
 
         Navigation =
         [
-            CreateNavigation("Raid", "⌖", new RaidPageViewModel()),
+            CreateNavigation("Raid", "⌖", new RaidPageViewModel(Map)),
             CreateNavigation("Scanner", "⌁", new ScannerPageViewModel()),
             CreateNavigation("Items", "◇", new ItemsPageViewModel()),
             CreateNavigation("Ammo", "◉", new AmmoPageViewModel()),
@@ -141,6 +143,8 @@ public sealed class MainWindowViewModel : BindableViewModel
         get => _currentPage;
         private set => SetProperty(ref _currentPage, value);
     }
+
+    public MapViewModel Map { get; }
 
     public string ModeLabel => IsDemoMode ? "Fixture replay · Linux-safe demo" : "External read-only companion";
 
