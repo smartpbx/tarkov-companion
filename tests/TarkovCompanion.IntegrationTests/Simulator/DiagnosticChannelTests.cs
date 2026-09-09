@@ -54,8 +54,9 @@ public sealed class DiagnosticChannelTests
             Assert.NotNull(channel);
 
             var commandPath = Path.Combine(root, "commands", "scene-2.command.json");
+            var temporaryCommandPath = commandPath + ".tmp";
             await File.WriteAllTextAsync(
-                commandPath,
+                temporaryCommandPath,
                 JsonSerializer.Serialize(new
                 {
                     id = "scene-2",
@@ -63,6 +64,7 @@ public sealed class DiagnosticChannelTests
                     token,
                     scenario = "RaidEnd",
                 }));
+            File.Move(temporaryCommandPath, commandPath);
 
             var responsePath = Path.Combine(root, "responses", "scene-2.response.json");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
