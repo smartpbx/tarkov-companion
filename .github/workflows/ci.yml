@@ -21,7 +21,7 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
       - name: Restore
-        run: dotnet restore TarkovCompanion.sln --locked-mode=false
+        run: dotnet restore TarkovCompanion.sln
       - name: Build
         run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
       - name: Test
