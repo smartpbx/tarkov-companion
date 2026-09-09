@@ -23,5 +23,5 @@ Predicted traffic is computed only from static spawns, points of interest, choke
 - Platform interfaces expose capture and observation, never process handles for memory operations or input sending.
 - Dependency/source audits search for known injection, hooking, packet-capture, automation, and memory-access packages/APIs.
 - Deterministic tests assert that strategy inputs have no live-enemy concept.
-- Support bundles redact tokens and user path segments; captures are opt-in only.
+- Captures are never retained by default. Any future shareable support-bundle feature must redact tokens and user path segments before it is enabled; current self-test output is local diagnostic data and may contain local paths.
 - No telemetry or screenshot upload SDK is included.
