@@ -1,0 +1,177 @@
+<UserControl
+    x:Class="TarkovCompanion.App.Views.Maps.MapView"
+    x:DataType="vm:MapViewModel"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:TarkovCompanion.App.ViewModels.Maps"
+    xmlns:maps="using:TarkovCompanion.Application.Services.Maps">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+    <Grid ColumnDefinitions="2*,2*,*,Auto" ColumnSpacing="8">
+      <ComboBox
+          x:Name="LocationChooser"
+          ItemsSource="{Binding Locations}"
+          SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
+          SelectionChanged="LocationSelectionChanged">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="maps:MapLocation">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <ComboBox
+          x:Name="VariantChooser"
+          Grid.Column="1"
+          ItemsSource="{Binding Variants}"
+          SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
+          SelectionChanged="VariantSelectionChanged">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="maps:MapVariant">
+            <TextBlock Text="{Binding DisplayName}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <ComboBox
+          x:Name="FloorChooser"
+          Grid.Column="2"
+          ItemsSource="{Binding Floors}"
+          SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
+          SelectionChanged="FloorSelectionChanged">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="maps:MapFloorDefinition">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+        <Button Click="ZoomOutClick" Content="−" />
+        <TextBlock MinWidth="42" VerticalAlignment="Center" Text="{Binding ZoomScale, StringFormat={}{0:F1}×}" TextAlignment="Center" />
+        <Button Click="ZoomInClick" Content="+" />
+      </StackPanel>
+    </Grid>
+
+    <ItemsControl Grid.Row="1" ItemsSource="{Binding Overlays}">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:MapOverlayViewModel">
+          <StackPanel Margin="0,0,8,0" Orientation="Horizontal" Spacing="2">
+            <ToggleButton
+                Tag="{Binding Kind}"
+                Content="{Binding Name}"
+                IsChecked="{Binding IsVisible, Mode=OneWay}"
+                Click="OverlayVisibilityChanged" />
+            <Button
+                Tag="{Binding Kind}"
+                Content="{Binding HighlightLabel}"
+                Click="OverlayHighlightClick" />
+          </StackPanel>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <Border Grid.Row="2" Classes="panel" ClipToBounds="True" Background="#171E26">
+      <ScrollViewer
+          x:Name="ViewportScrollViewer"
+          HorizontalScrollBarVisibility="Auto"
+          VerticalScrollBarVisibility="Auto">
+        <Border Width="{Binding ViewportWidth}" Height="{Binding ViewportHeight}">
+        <Canvas
+            Width="{Binding CanvasWidth}"
+            Height="{Binding CanvasHeight}"
+            RenderTransformOrigin="0%,0%"
+            PointerPressed="ViewportPointerPressed"
+            PointerMoved="ViewportPointerMoved"
+            PointerReleased="ViewportPointerReleased"
+            PointerWheelChanged="ViewportPointerWheelChanged">
+          <Canvas.RenderTransform>
+            <ScaleTransform ScaleX="{Binding ZoomScale}" ScaleY="{Binding ZoomScale}" />
+          </Canvas.RenderTransform>
+
+          <Image
+              Source="{Binding BackgroundImagePath}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}"
+              Stretch="Uniform"
+              IsVisible="{Binding HasBackgroundImage}" />
+
+          <ItemsControl
+              ItemsSource="{Binding Tiles}"
+              IsVisible="{Binding HasTiles}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapTileViewModel">
+                <Image
+                    Source="{Binding LocalPath}"
+                    Width="{Binding Size}"
+                    Height="{Binding Size}"
+                    Stretch="Fill"
+                    RenderTransformOrigin="0%,0%">
+                  <Image.RenderTransform>
+                    <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                  </Image.RenderTransform>
+                </Image>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <ItemsControl
+              ItemsSource="{Binding OverlayElements}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapOverlayElementViewModel">
+                <Border
+                    Padding="4,2"
+                    Background="#CC11151B"
+                    BorderBrush="{Binding BorderColor}"
+                    BorderThickness="1"
+                    RenderTransformOrigin="50%,50%">
+                  <Border.RenderTransform>
+                    <TransformGroup>
+                      <RotateTransform Angle="{Binding RotationDegrees}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Border.RenderTransform>
+                  <TextBlock Text="{Binding Label}" FontSize="{Binding FontSize}" />
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <Border
+              Canvas.Left="16"
+              Canvas.Top="16"
+              Padding="10,6"
+              Background="#DD11151B"
+              IsVisible="{Binding ShowsPlaceholder}">
+            <TextBlock MaxWidth="520" Text="{Binding Status}" TextWrapping="Wrap" />
+          </Border>
+        </Canvas>
+        </Border>
+      </ScrollViewer>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+      <StackPanel VerticalAlignment="Center">
+        <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding TransformStatus}" TextWrapping="Wrap" />
+      </StackPanel>
+      <Button Grid.Column="1" Click="AttributionClick" Content="{Binding AttributionText}" />
+      <Button Grid.Column="2" Click="LicenseClick" Content="License" />
+    </Grid>
+  </Grid>
+</UserControl>

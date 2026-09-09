@@ -15,10 +15,14 @@ public sealed class App : Avalonia.Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var demoMode = desktop.Args?.Contains("--demo", StringComparer.OrdinalIgnoreCase) ?? false;
-            desktop.MainWindow = new MainWindow
+            var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode);
+            var window = new MainWindow
             {
-                DataContext = MainWindowViewModel.CreateFoundationDemo(demoMode),
+                DataContext = viewModel,
             };
+            window.Closed += (_, _) => viewModel.Map.Dispose();
+            desktop.MainWindow = window;
+            _ = viewModel.Map.InitializeAsync();
         }
 
         base.OnFrameworkInitializationCompleted();
