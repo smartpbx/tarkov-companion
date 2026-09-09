@@ -52,6 +52,22 @@ public sealed record MapExtract(
     string? Conditions,
     DataProvenance Provenance);
 
+public enum ExtractStatus
+{
+    Active,
+    Closed,
+    Pending,
+    Unknown,
+}
+
+public sealed record ObservedExtract(
+    string ExtractId,
+    string Name,
+    ExtractStatus Status,
+    Confidence Confidence,
+    string Source,
+    DateTimeOffset ObservedUtc);
+
 public sealed record ActiveExtract(string ExtractId, string Name, Confidence Confidence, string Source);
 
 public sealed record MapDefinition(
