@@ -12,7 +12,8 @@ public sealed class SimulatorApp : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new SimulatorWindow(desktop.Args ?? []);
+            var options = SimulatorCommandLine.Parse(desktop.Args ?? []);
+            desktop.MainWindow = new SimulatorWindow(SimulatorScenarioCatalog.Get(options.Scenario));
         }
 
         base.OnFrameworkInitializationCompleted();

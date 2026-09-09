@@ -6,6 +6,8 @@
   <ItemGroup>
     <ProjectReference Include="../../src/TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
     <ProjectReference Include="../../src/TarkovCompanion.Application/TarkovCompanion.Application.csproj" />
+    <ProjectReference Include="../../src/TarkovCompanion.App/TarkovCompanion.App.csproj" />
+    <ProjectReference Include="../../src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj" />
     <ProjectReference Include="../../src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup>

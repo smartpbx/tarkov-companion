@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -7,26 +8,17 @@ namespace TarkovCompanion.EftSimulator;
 
 public sealed class SimulatorWindow : Window
 {
-    public SimulatorWindow(IReadOnlyList<string> args)
+    public SimulatorWindow(SimulatorScenario scenario)
     {
         Title = "Tarkov Companion EFT Simulator";
         Width = 1280;
         Height = 720;
         Background = new SolidColorBrush(Color.Parse("#18212A"));
-        Content = BuildScene(ParseScenario(args));
+        Content = BuildScene(scenario);
     }
 
-    private static Control BuildScene(string scenario)
+    private static Grid BuildScene(SimulatorScenario scenario)
     {
-        var itemName = scenario switch
-        {
-            "Inspect_GraphicsCard" => "Graphics Card",
-            "Inspect_AmmoPack" => "5.45x39 ammunition pack",
-            "Inspect_Key" => "Dorm room 214 key",
-            "Inspect_Consumable" => "Synthetic provision",
-            _ => "Synthetic permitted-input scene",
-        };
-
         return new Grid
         {
             Margin = new Thickness(48),
@@ -54,8 +46,28 @@ public sealed class SimulatorWindow : Window
                         Spacing = 16,
                         Children =
                         {
-                            new TextBlock { Text = itemName, FontSize = 42, Foreground = Brushes.White },
-                            new TextBlock { Text = $"Scenario: {scenario}", FontSize = 18, Foreground = Brushes.LightGray },
+                            BuildGenericArtwork(scenario),
+                            new TextBlock
+                            {
+                                Text = scenario.Heading,
+                                FontSize = 42,
+                                Foreground = Brushes.White,
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                            },
+                            new TextBlock
+                            {
+                                Text = scenario.Detail,
+                                FontSize = 18,
+                                Foreground = Brushes.LightGray,
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                            },
+                            new TextBlock
+                            {
+                                Text = $"Scenario: {scenario.Id}",
+                                FontSize = 18,
+                                Foreground = new SolidColorBrush(Color.Parse(scenario.Accent)),
+                                HorizontalAlignment = HorizontalAlignment.Center,
+                            },
                         },
                     },
                 },
@@ -69,16 +81,53 @@ public sealed class SimulatorWindow : Window
         };
     }
 
-    private static string ParseScenario(IReadOnlyList<string> args)
+    private static Canvas BuildGenericArtwork(SimulatorScenario scenario)
     {
-        for (var index = 0; index < args.Count - 1; index++)
+        var accent = new SolidColorBrush(Color.Parse(scenario.Accent));
+        return new Canvas
         {
-            if (string.Equals(args[index], "--scenario", StringComparison.OrdinalIgnoreCase))
+            Width = 260,
+            Height = 130,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Children =
             {
-                return args[index + 1];
-            }
-        }
-
-        return "Inspect_GraphicsCard";
+                new Rectangle
+                {
+                    Width = 220,
+                    Height = 92,
+                    RadiusX = 12,
+                    RadiusY = 12,
+                    Fill = new SolidColorBrush(Color.Parse("#293746")),
+                    Stroke = accent,
+                    StrokeThickness = 3,
+                    [Canvas.LeftProperty] = 20,
+                    [Canvas.TopProperty] = 18,
+                },
+                new Ellipse
+                {
+                    Width = 54,
+                    Height = 54,
+                    Fill = accent,
+                    [Canvas.LeftProperty] = 45,
+                    [Canvas.TopProperty] = 37,
+                },
+                new Rectangle
+                {
+                    Width = 105,
+                    Height = 14,
+                    Fill = Brushes.LightGray,
+                    [Canvas.LeftProperty] = 116,
+                    [Canvas.TopProperty] = 44,
+                },
+                new Rectangle
+                {
+                    Width = 75,
+                    Height = 14,
+                    Fill = new SolidColorBrush(Color.Parse("#8796A5")),
+                    [Canvas.LeftProperty] = 116,
+                    [Canvas.TopProperty] = 70,
+                },
+            },
+        };
     }
 }
