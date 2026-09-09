@@ -30,6 +30,8 @@ Last updated: 2026-09-09
 - [x] Repository initialized.
 - [x] Permanent safety rules written.
 - [x] Foundation solution builds and tests (25 tests; 0 failed).
+- [x] Private GitHub repository created at `smartpbx/tarkov-companion`; `main` tracks `origin/main`.
+- [x] Repository registered in Orca with base ref `origin/main`.
 - [ ] Data/economy/profile implementation.
 - [ ] Core UI.
 - [ ] Recognition.
