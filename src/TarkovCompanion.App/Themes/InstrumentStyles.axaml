@@ -1,0 +1,140 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="CanvasBrush" Color="#11151B" />
+    <SolidColorBrush x:Key="ChromeBrush" Color="#151B22" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#1A212A" />
+    <SolidColorBrush x:Key="InsetBrush" Color="#171E26" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#303B47" />
+    <SolidColorBrush x:Key="TextBrush" Color="#C6D0D8" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#8F9BA6" />
+    <SolidColorBrush x:Key="CyanBrush" Color="#56B8C6" />
+    <SolidColorBrush x:Key="OchreBrush" Color="#C6A15B" />
+    <SolidColorBrush x:Key="CoralBrush" Color="#DF6A62" />
+    <SolidColorBrush x:Key="SageBrush" Color="#77B895" />
+  </Styles.Resources>
+
+  <Style Selector="Button.nav">
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="#AAB5BE" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="2,0,0,0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="12,9" />
+    <Setter Property="MinHeight" Value="40" />
+  </Style>
+  <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#202A34" />
+    <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
+  </Style>
+  <Style Selector="Button.nav.selected">
+    <Setter Property="Background" Value="#202B34" />
+    <Setter Property="BorderBrush" Value="#56B8C6" />
+    <Setter Property="Foreground" Value="#E8EEF2" />
+  </Style>
+
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="#1A212A" />
+    <Setter Property="BorderBrush" Value="#303B47" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+  </Style>
+  <Style Selector="Border.inset">
+    <Setter Property="Background" Value="#171E26" />
+    <Setter Property="BorderBrush" Value="#303B47" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+  </Style>
+  <Style Selector="Border.reading">
+    <Setter Property="Background" Value="#151B22" />
+    <Setter Property="BorderBrush" Value="#303B47" />
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+  </Style>
+  <Style Selector="Border.cyan">
+    <Setter Property="BorderBrush" Value="#56B8C6" />
+  </Style>
+  <Style Selector="Border.ochre">
+    <Setter Property="BorderBrush" Value="#C6A15B" />
+  </Style>
+  <Style Selector="Border.coral">
+    <Setter Property="BorderBrush" Value="#DF6A62" />
+  </Style>
+  <Style Selector="Border.sage">
+    <Setter Property="BorderBrush" Value="#77B895" />
+  </Style>
+
+  <Style Selector="TextBlock.sectionTitle">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="#E6EDF2" />
+  </Style>
+  <Style Selector="TextBlock.label">
+    <Setter Property="Foreground" Value="#8F9BA6" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="TextBlock.value">
+    <Setter Property="Foreground" Value="#E4EAEE" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TextBlock.metric">
+    <Setter Property="Foreground" Value="#E4EAEE" />
+    <Setter Property="FontSize" Value="24" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+  </Style>
+  <Style Selector="TextBlock.cyan">
+    <Setter Property="Foreground" Value="#56B8C6" />
+  </Style>
+  <Style Selector="TextBlock.ochre">
+    <Setter Property="Foreground" Value="#C6A15B" />
+  </Style>
+  <Style Selector="TextBlock.coral">
+    <Setter Property="Foreground" Value="#DF6A62" />
+  </Style>
+  <Style Selector="TextBlock.sage">
+    <Setter Property="Foreground" Value="#77B895" />
+  </Style>
+
+  <Style Selector="Button.tool, ToggleButton.tool">
+    <Setter Property="Background" Value="#202933" />
+    <Setter Property="Foreground" Value="#C6D0D8" />
+    <Setter Property="BorderBrush" Value="#3B4855" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="11,7" />
+    <Setter Property="MinHeight" Value="36" />
+  </Style>
+  <Style Selector="ToggleButton.tool:checked">
+    <Setter Property="Background" Value="#24434A" />
+    <Setter Property="Foreground" Value="#D8F5F7" />
+    <Setter Property="BorderBrush" Value="#56B8C6" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="#28515A" />
+    <Setter Property="Foreground" Value="#E7FBFC" />
+    <Setter Property="BorderBrush" Value="#56B8C6" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="MinHeight" Value="38" />
+  </Style>
+  <Style Selector="Button:focus-visible, ToggleButton:focus-visible, TextBox:focus-visible, ComboBox:focus-visible">
+    <Setter Property="BorderBrush" Value="#D8F5F7" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="#151B22" />
+    <Setter Property="Foreground" Value="#E4EAEE" />
+    <Setter Property="BorderBrush" Value="#3B4855" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="MinHeight" Value="38" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="#202933" />
+    <Setter Property="Foreground" Value="#E4EAEE" />
+    <Setter Property="BorderBrush" Value="#3B4855" />
+    <Setter Property="CornerRadius" Value="2" />
+    <Setter Property="MinHeight" Value="38" />
+  </Style>
+</Styles>

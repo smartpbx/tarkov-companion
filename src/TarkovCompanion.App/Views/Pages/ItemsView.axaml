@@ -1,0 +1,78 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.ItemsView"
+             x:DataType="vm:ItemsPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <TextBox PlaceholderText="Search item name, short name, or category" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <ComboBox Width="150" SelectedIndex="0"><ComboBoxItem Content="All categories" /><ComboBoxItem Content="Quest items" /><ComboBoxItem Content="Hideout needs" /></ComboBox>
+        <ToggleButton Classes="tool" IsChecked="True" Content="Needed only" />
+        <Button Classes="tool" Content="Sort: value / slot" />
+      </StackPanel>
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="1.15*,0.85*" ColumnSpacing="12">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+        <WrapPanel ItemWidth="292" ItemHeight="190">
+          <Border Classes="panel ochre" Width="280" Height="178" Margin="0,0,10,10" Padding="13">
+            <Grid RowDefinitions="Auto,*,Auto">
+              <Grid ColumnDefinitions="52,*,Auto">
+                <Border Width="44" Height="44" Classes="inset ochre"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Classes="ochre" FontSize="20" Text="GPU" /></Border>
+                <StackPanel Grid.Column="1" Margin="10,0"><TextBlock FontWeight="SemiBold" Text="Graphics Card" /><TextBlock Classes="label" Text="Electronics · 2 slots" /></StackPanel>
+                <TextBlock Grid.Column="2" Classes="sage" FontWeight="SemiBold" Text="Keep" />
+              </Grid>
+              <StackPanel Grid.Row="1" Margin="0,10,0,0"><TextBlock Classes="metric ochre" FontSize="20" Text="617,284 ₽ / slot" /><TextBlock Classes="label" Text="Flea · 1,234,567 ₽ · 14m old" /></StackPanel>
+              <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Quest: 3 · Hideout: 0" /><TextBlock Grid.Column="1" Classes="cyan" Text="Selected" /></Grid>
+            </Grid>
+          </Border>
+          <Border Classes="panel" Width="280" Height="178" Margin="0,0,10,10" Padding="13">
+            <Grid RowDefinitions="Auto,*,Auto">
+              <Grid ColumnDefinitions="52,*,Auto"><Border Width="44" Height="44" Classes="inset"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#C6D0D8" FontSize="16" Text="MED" /></Border><StackPanel Grid.Column="1" Margin="10,0"><TextBlock FontWeight="SemiBold" Text="Salewa" /><TextBlock Classes="label" Text="Medical · 2 slots" /></StackPanel><TextBlock Grid.Column="2" Classes="sage" Text="Keep" /></Grid>
+              <StackPanel Grid.Row="1" Margin="0,10,0,0"><TextBlock Classes="metric ochre" FontSize="20" Text="19,450 ₽ / slot" /><TextBlock Classes="label" Text="Therapist · 38,900 ₽" /></StackPanel>
+              <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Quest: 2 found in raid" /><TextBlock Grid.Column="1" Classes="sage" Text="Needed" /></Grid>
+            </Grid>
+          </Border>
+          <Border Classes="panel" Width="280" Height="178" Margin="0,0,10,10" Padding="13">
+            <Grid RowDefinitions="Auto,*,Auto">
+              <Grid ColumnDefinitions="52,*,Auto"><Border Width="44" Height="44" Classes="inset"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#C6D0D8" FontSize="16" Text="BLB" /></Border><StackPanel Grid.Column="1" Margin="10,0"><TextBlock FontWeight="SemiBold" Text="Light bulb" /><TextBlock Classes="label" Text="Electronics · 1 slot" /></StackPanel><TextBlock Grid.Column="2" Classes="ochre" Text="Keep 4" /></Grid>
+              <StackPanel Grid.Row="1" Margin="0,10,0,0"><TextBlock Classes="metric ochre" FontSize="20" Text="17,820 ₽ / slot" /><TextBlock Classes="label" Text="Flea · 17,820 ₽ · 14m old" /></StackPanel>
+              <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Hideout: Illumination 2" /><TextBlock Grid.Column="1" Classes="ochre" Text="4 remaining" /></Grid>
+            </Grid>
+          </Border>
+          <Border Classes="panel" Width="280" Height="178" Margin="0,0,10,10" Padding="13">
+            <Grid RowDefinitions="Auto,*,Auto">
+              <Grid ColumnDefinitions="52,*,Auto"><Border Width="44" Height="44" Classes="inset"><TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#C6D0D8" FontSize="16" Text="TAPE" /></Border><StackPanel Grid.Column="1" Margin="10,0"><TextBlock FontWeight="SemiBold" Text="Duct tape" /><TextBlock Classes="label" Text="Building · 2 slots" /></StackPanel><TextBlock Grid.Column="2" Foreground="#8F9BA6" Text="Sell" /></Grid>
+              <StackPanel Grid.Row="1" Margin="0,10,0,0"><TextBlock Classes="metric ochre" FontSize="20" Text="8,650 ₽ / slot" /><TextBlock Classes="label" Text="Flea · 17,300 ₽ · 14m old" /></StackPanel>
+              <Grid Grid.Row="2" ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="No tracked need" /><TextBlock Grid.Column="1" Classes="label" Text="Low value" /></Grid>
+            </Grid>
+          </Border>
+        </WrapPanel>
+      </ScrollViewer>
+
+      <Border Grid.Column="1" Classes="panel ochre" Padding="16">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="13">
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Graphics Card" /><TextBlock Classes="label" Text="Adaptive item reference" /></StackPanel><Border Grid.Column="1" Classes="inset sage" Padding="9,5"><TextBlock Classes="sage" Text="Keep" /></Border></Grid>
+            <TextBlock TextWrapping="Wrap" Text="A graphics card is just as important to progression as its price suggests. Keep found-in-raid units until Farming — Part 4 is complete." />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+              <Border Classes="inset" Padding="12"><StackPanel><TextBlock Classes="label" Text="Best observed price" /><TextBlock Classes="metric ochre" FontSize="20" Text="1,234,567 ₽" /><TextBlock Classes="label" Text="Flea · 14m old" /></StackPanel></Border>
+              <Border Grid.Column="1" Classes="inset" Padding="12"><StackPanel><TextBlock Classes="label" Text="Trader fallback" /><TextBlock Classes="metric" FontSize="20" Text="124,740 ₽" /><TextBlock Classes="label" Text="Therapist" /></StackPanel></Border>
+            </Grid>
+            <Border Height="1" Background="#303B47" />
+            <TextBlock Classes="sectionTitle" Text="Progression uses" />
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Farming — Part 4" /><TextBlock Classes="label" Text="3 found-in-raid units remaining" /></StackPanel></Grid>
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10"><TextBlock Classes="cyan" Text="◇" /><StackPanel Grid.Column="1"><TextBlock Text="Bitcoin Farm" /><TextBlock Classes="label" Text="Optional production capacity" /></StackPanel></Grid>
+            <Border Height="1" Background="#303B47" />
+            <TextBlock Classes="sectionTitle" Text="Field reference" />
+            <Grid ColumnDefinitions="120,*"><TextBlock Classes="label" Text="Common locations" /><TextBlock Grid.Column="1" TextWrapping="Wrap" Text="PC blocks, tech stores, electronics spawns" /></Grid>
+            <Grid ColumnDefinitions="120,*"><TextBlock Classes="label" Text="Space" /><TextBlock Grid.Column="1" Text="2 × 1 · 0.6 kg" /></Grid>
+            <Grid ColumnDefinitions="120,*"><TextBlock Classes="label" Text="Source" /><TextBlock Grid.Column="1" Text="json.tarkov.dev fixture" /></Grid>
+            <Button Classes="tool" HorizontalAlignment="Left" Content="Open price history" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

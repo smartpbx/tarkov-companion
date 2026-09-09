@@ -1,0 +1,115 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.ScannerView"
+             x:DataType="vm:ScannerPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid ColumnDefinitions="1.35*,0.65*" ColumnSpacing="12">
+    <Grid RowDefinitions="Auto,*" RowSpacing="12">
+      <Border Classes="panel cyan" Padding="18">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="sectionTitle" Text="User-triggered scan" />
+            <TextBlock TextWrapping="Wrap" Text="Capture the configured game window once, analyze it in memory, then discard the image." />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Border Classes="inset" Padding="9,5"><TextBlock Classes="label" Text="Window · EFT Simulator" /></Border>
+              <Border Classes="inset" Padding="9,5"><TextBlock Classes="label" Text="Hotkey · Ctrl+Shift+S" /></Border>
+              <Border Classes="inset sage" Padding="9,5"><TextBlock Classes="sage" FontSize="12" Text="Privacy · ready" /></Border>
+            </StackPanel>
+          </StackPanel>
+          <Button Grid.Column="1" Classes="primary" MinWidth="148" Content="Scan visible item" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="panel" Padding="18">
+        <Grid RowDefinitions="Auto,1,*" RowSpacing="14">
+          <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="16">
+            <Border Width="110" Height="110" Classes="inset ochre">
+              <Grid>
+                <Path Data="M 31,35 L 79,35 L 79,77 L 31,77 Z M 38,28 L 72,28 M 43,84 L 67,84 M 24,44 L 31,44 M 79,44 L 86,44"
+                      Stroke="#C6A15B" StrokeThickness="4" />
+                <TextBlock VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,7" Foreground="#8F9BA6" FontSize="11" Text="2 × 1 slots" />
+              </Grid>
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="5">
+              <TextBlock FontSize="23" FontWeight="SemiBold" Foreground="#E6EDF2" Text="Graphics Card" />
+              <TextBlock Classes="label" Text="Electronics · barter item" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Border Classes="inset sage" Padding="8,4"><TextBlock Classes="sage" FontSize="12" Text="Keep" /></Border>
+                <Border Classes="inset cyan" Padding="8,4"><TextBlock Classes="cyan" FontSize="12" Text="96% confidence" /></Border>
+                <Border Classes="inset" Padding="8,4"><TextBlock Classes="label" Text="8 seconds old" /></Border>
+              </StackPanel>
+              <TextBlock TextWrapping="Wrap" Text="Needed for Farming — Part 4. Also exceptional value per occupied slot." />
+            </StackPanel>
+            <StackPanel Grid.Column="2" HorizontalAlignment="Right" Spacing="4">
+              <TextBlock Classes="label" HorizontalAlignment="Right" Text="Flea estimate" />
+              <TextBlock Classes="metric ochre" Text="1,234,567 ₽" />
+              <TextBlock Classes="label" HorizontalAlignment="Right" Text="617,284 ₽ per slot" />
+            </StackPanel>
+          </Grid>
+          <Border Grid.Row="1" Background="#303B47" />
+          <Grid Grid.Row="2" ColumnDefinitions="1.1*,0.9*" ColumnSpacing="20">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="sectionTitle" Text="Why this result" />
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock Classes="sage" Text="✓" />
+                <StackPanel Grid.Column="1"><TextBlock Text="Quest need" /><TextBlock Classes="label" Text="3 found-in-raid items remaining" /></StackPanel>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock Classes="ochre" Text="₽" />
+                <StackPanel Grid.Column="1"><TextBlock Text="Value tier · exceptional" /><TextBlock Classes="label" Text="Above 180,000 ₽ per slot threshold" /></StackPanel>
+              </Grid>
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock Classes="cyan" Text="◎" />
+                <StackPanel Grid.Column="1"><TextBlock Text="Recognition agreement" /><TextBlock Classes="label" Text="OCR text and icon candidate agree" /></StackPanel>
+              </Grid>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="10">
+              <TextBlock Classes="sectionTitle" Text="Candidate review" />
+              <Border Classes="inset sage" Padding="10">
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Graphics Card" /><TextBlock Grid.Column="1" Classes="sage" Text="96%" /></Grid>
+              </Border>
+              <Border Classes="inset" Padding="10">
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Printed circuit board" /><TextBlock Grid.Column="1" Classes="label" Text="21%" /></Grid>
+              </Border>
+              <Border Classes="inset" Padding="10">
+                <Grid ColumnDefinitions="*,Auto"><TextBlock Text="Military cable" /><TextBlock Grid.Column="1" Classes="label" Text="8%" /></Grid>
+              </Border>
+              <Button Classes="tool" HorizontalAlignment="Left" Content="Choose a different match" />
+            </StackPanel>
+          </Grid>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10">
+        <Border Classes="panel" Padding="14">
+          <StackPanel Spacing="9">
+            <TextBlock Classes="sectionTitle" Text="Scan evidence" />
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Captured" /><TextBlock Grid.Column="1" Text="21:42:08 local" /></Grid>
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Region" /><TextBlock Grid.Column="1" Text="Item inspection" /></Grid>
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="OCR" /><TextBlock Grid.Column="1" Classes="sage" Text="Text found" /></Grid>
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Icon match" /><TextBlock Grid.Column="1" Classes="sage" Text="Strong" /></Grid>
+            <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Image retained" /><TextBlock Grid.Column="1" Classes="sage" Text="No" /></Grid>
+          </StackPanel>
+        </Border>
+        <Border Classes="panel" Padding="14">
+          <StackPanel Spacing="9">
+            <TextBlock Classes="sectionTitle" Text="Recent observations" />
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Text="Graphics Card" /><TextBlock Classes="label" Text="8s ago · 96% confidence" /></StackPanel><TextBlock Grid.Column="1" Classes="sage" Text="Keep" /></Grid>
+            <Border Height="1" Background="#303B47" />
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Text="Salewa" /><TextBlock Classes="label" Text="4m ago · 91% confidence" /></StackPanel><TextBlock Grid.Column="1" Classes="sage" Text="Keep" /></Grid>
+            <Border Height="1" Background="#303B47" />
+            <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Text="Duct tape" /><TextBlock Classes="label" Text="11m ago · 72% confidence" /></StackPanel><TextBlock Grid.Column="1" Classes="ochre" Text="Review" /></Grid>
+          </StackPanel>
+        </Border>
+        <Border Classes="panel coral" Padding="14">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="sectionTitle" Text="When confidence is low" />
+            <TextBlock Classes="label" TextWrapping="Wrap" Text="No keep/sell advice is shown below the configured confidence threshold. Retake the scan or choose a candidate manually." />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

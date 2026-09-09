@@ -1,0 +1,32 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.EventsView"
+             x:DataType="vm:EventsPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid ColumnDefinitions="1.25*,0.75*" ColumnSpacing="12">
+    <Border Classes="panel coral" Padding="17">
+      <Grid RowDefinitions="Auto,Auto,1,*" RowSpacing="14">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="3"><TextBlock FontSize="21" FontWeight="SemiBold" Text="Autumn supply drive" /><TextBlock Classes="label" Text="Fixture event · collection rules confirmed" /></StackPanel>
+          <StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Classes="coral" FontWeight="SemiBold" Text="Ends in 2d 7h" /><TextBlock Classes="label" Text="2026-09-11 05:00 UTC" /></StackPanel>
+        </Grid>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16"><StackPanel><TextBlock Classes="label" Text="Overall progress" /><ProgressBar Value="67" Height="9" Foreground="#DF6A62" /><TextBlock Margin="0,5,0,0" Text="20 of 30 items secured" /></StackPanel><Border Grid.Column="1" Classes="inset coral" Padding="12,7"><TextBlock Classes="metric coral" FontSize="20" Text="67%" /></Border></Grid>
+        <Border Grid.Row="2" Background="#303B47" />
+        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="10">
+            <Border Classes="inset sage" Padding="12"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12"><TextBlock Classes="sage" FontSize="18" Text="✓" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Army bandage" /><TextBlock Classes="label" Text="Turn in any condition" /></StackPanel><StackPanel Grid.Column="2" HorizontalAlignment="Right"><TextBlock Classes="sage" Text="10 / 10" /><TextBlock Classes="label" Text="Secured" /></StackPanel></Grid></Border>
+            <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12"><TextBlock Classes="ochre" FontSize="18" Text="◒" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Bottle of water" /><TextBlock Classes="label" Text="Found in raid required" /></StackPanel><StackPanel Grid.Column="2" HorizontalAlignment="Right"><TextBlock Classes="ochre" Text="6 / 10" /><TextBlock Classes="label" Text="Collect 4" /></StackPanel></Grid></Border>
+            <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12"><TextBlock Classes="ochre" FontSize="18" Text="◒" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Can of beef stew" /><TextBlock Classes="label" Text="Found in raid required" /></StackPanel><StackPanel Grid.Column="2" HorizontalAlignment="Right"><TextBlock Classes="ochre" Text="4 / 10" /><TextBlock Classes="label" Text="Collect 6" /></StackPanel></Grid></Border>
+            <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12"><TextBlock Foreground="#8F9BA6" FontSize="18" Text="○" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Optional community goal" /><TextBlock Classes="label" Text="No personal item requirement" /></StackPanel><StackPanel Grid.Column="2" HorizontalAlignment="Right"><TextBlock Text="Unlocked" /><TextBlock Classes="label" Text="Reference only" /></StackPanel></Grid></Border>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+
+    <StackPanel Grid.Column="1" Spacing="10">
+      <Border Classes="panel ochre" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Item-state legend" /><Grid ColumnDefinitions="Auto,*" ColumnSpacing="10"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock Text="Secured" /><TextBlock Classes="label" Text="Already set aside" /></StackPanel></Grid><Grid ColumnDefinitions="Auto,*" ColumnSpacing="10"><TextBlock Classes="ochre" Text="◒" /><StackPanel Grid.Column="1"><TextBlock Text="Needed" /><TextBlock Classes="label" Text="Keep until target is reached" /></StackPanel></Grid><Grid ColumnDefinitions="Auto,*" ColumnSpacing="10"><TextBlock Classes="coral" Text="!" /><StackPanel Grid.Column="1"><TextBlock Text="Turn-in risk" /><TextBlock Classes="label" Text="Check found-in-raid condition" /></StackPanel></Grid></StackPanel></Border>
+      <Border Classes="panel" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Event rules" /><TextBlock TextWrapping="Wrap" Text="Deliver medical and ration supplies before the deadline. Partial personal progress is retained in this local profile." /><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Rule source" /><TextBlock Grid.Column="1" Text="Fixture reference" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Confidence" /><TextBlock Grid.Column="1" Classes="sage" Text="Confirmed" /></Grid><Button Classes="tool" HorizontalAlignment="Left" Content="Open full event reference" /></StackPanel></Border>
+      <Border Classes="panel coral" Padding="14"><StackPanel Spacing="6"><TextBlock Classes="sectionTitle" Text="No live event detection" /><TextBlock Classes="label" TextWrapping="Wrap" Text="This state comes from structured reference data and your manual progress, never game traffic or memory." /></StackPanel></Border>
+    </StackPanel>
+  </Grid>
+</UserControl>
