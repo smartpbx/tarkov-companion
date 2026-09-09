@@ -1,0 +1,7 @@
+{
+  "data": [
+    { "timestamp": 1788955200000, "price": 22000, "priceMin": 21000 },
+    { "timestamp": 1788958800000, "price": 22500, "priceMin": 21500 }
+  ],
+  "translations": []
+}

@@ -1,0 +1,11 @@
+{
+  "data": {
+    "item-001 Name": "Salewa first aid kit",
+    "item-001 ShortName": "Salewa",
+    "item-001 Description": "A compact first aid kit.",
+    "item-002 Name": "Corrugated hose",
+    "item-002 ShortName": "Hose",
+    "category-medical Name": "Medical supplies",
+    "category-barter Name": "Barter items"
+  }
+}
