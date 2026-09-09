@@ -26,6 +26,8 @@ jobs:
         run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
       - name: Test
         run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
+      - name: Dependency vulnerability audit
+        run: dotnet list TarkovCompanion.sln package --vulnerable --include-transitive --no-restore
       - name: Safety audit
         run: ./scripts/audit-safety.sh
       - name: Secret-pattern audit
