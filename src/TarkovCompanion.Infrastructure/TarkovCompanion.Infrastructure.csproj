@@ -10,8 +10,10 @@
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="Svg.Skia" />
+    <PackageReference Include="TesseractOCR" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Persistence/Migrations/*.sql" />
+    <EmbeddedResource Include="Recognition/Tessdata/eng.traineddata" />
   </ItemGroup>
 </Project>
