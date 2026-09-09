@@ -8,9 +8,11 @@ The current `tarkov-dev` website/configuration repository reports an MIT license
 
 ## Decision
 
-Map geometry/configuration may be normalized with source metadata when its license permits. Third-party artwork is never treated as project-owned and is not silently copied into source. A map-asset provider stores the original URI, local cache path, attribution, license identifier/text reference, retrieval date, and content hash. The app may download/cache an original for local use only when current terms allow it.
+Production map geometry, visual variants, SVG paths, tile paths, transforms, floor metadata, and attribution come from tarkov.dev's current map configuration. The application does not invent or generate substitute gameplay maps. Users can choose a default visual variant for each EFT location; the interactive variant is preferred when one exists.
 
-The base app and simulator remain functional with code-rendered fixture maps. Unavailable or unvalidated assets degrade honestly and never weaken transform confidence.
+Third-party artwork is never treated as project-owned and is not copied into source or release archives. A map-asset provider stores the original URI, local cache path, attribution, license identifier/text reference, retrieval date, and content hash. The app downloads/caches originals for local use only under the current terms. Companion markers, extracts, routes, traffic predictions, labels, and filters remain separate hideable/highlightable overlay layers.
+
+The simulator and tests remain functional with a clearly synthetic code-rendered fixture that cannot be selected as a production location. Unavailable or unvalidated upstream assets degrade honestly and never weaken transform confidence.
 
 ## Consequences
 
