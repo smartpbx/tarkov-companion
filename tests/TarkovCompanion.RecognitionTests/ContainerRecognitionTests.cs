@@ -133,6 +133,42 @@ public sealed class ContainerRecognitionTests
         Assert.True(result.IsPartial);
     }
 
+    [Fact]
+    public async Task ContainerServiceRetriesUnresolvedCellsWhenWholeGridOcrHasNoLines()
+    {
+        const int width = 800;
+        const int height = 600;
+        var pixels = new byte[width * height];
+        Array.Fill(pixels, (byte)24);
+        var grid = new ContainerGridSpec(new PixelRect(200, 120, 400, 300), 4, 3);
+        PaintCell(pixels, width, grid, 0, 0, 100);
+        PaintCell(pixels, width, grid, 1, 2, 120);
+        PaintGridLines(pixels, width, grid, 220);
+        var image = CreateImage(pixels, width, height) with { Source = "fixture://grid-sensitive-ocr" };
+        var engine = new RegionSensitiveOcrEngine(
+        [
+            new("Wires x2", new(215, 145, 70, 22), new Confidence(0.95)),
+            new("Graphics Card", new(415, 245, 85, 22), new Confidence(0.94)),
+        ]);
+        await using var cache = new CanonicalItemResolverCache(
+            new InMemoryRecognitionCatalogRepository(
+            [
+                new("wires", "Wires"),
+                new("graphics-card", "Graphics Card"),
+            ]));
+        var service = new ContainerRecognitionService(
+            engine,
+            cache,
+            new ValuationItemRepository(image.CapturedUtc));
+
+        var result = await service.RecognizeAsync(image, CancellationToken.None);
+
+        Assert.True(engine.WholeGridAttempted);
+        Assert.True(engine.CellAttempts >= 2);
+        Assert.Contains(result.Items, item => item.CanonicalId == "wires" && item.Quantity == 2);
+        Assert.Contains(result.Items, item => item.CanonicalId == "graphics-card");
+    }
+
     private static ContainerSegment OccupiedCell(int row, int column, int x) => new(
         row,
         column,
@@ -228,6 +264,35 @@ public sealed class ContainerRecognitionTests
                 value,
                 value,
                 _provenance));
+        }
+    }
+
+    private sealed class RegionSensitiveOcrEngine(IReadOnlyList<OcrLine> lines) : IOcrEngine
+    {
+        public bool WholeGridAttempted { get; private set; }
+
+        public int CellAttempts { get; private set; }
+
+        public Task<OcrResult> RecognizeAsync(
+            CapturedImage image,
+            OcrRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var region = Assert.IsType<PixelRect>(request.Region);
+            if (region.Width > 150)
+            {
+                WholeGridAttempted = true;
+                return Task.FromResult(new OcrResult([], TimeSpan.Zero, "grid-sensitive-fixture"));
+            }
+
+            CellAttempts++;
+            var visible = lines.Where(line =>
+                region.X < line.Bounds.X + line.Bounds.Width &&
+                region.X + region.Width > line.Bounds.X &&
+                region.Y < line.Bounds.Y + line.Bounds.Height &&
+                region.Y + region.Height > line.Bounds.Y).ToArray();
+            return Task.FromResult(new OcrResult(visible, TimeSpan.Zero, "grid-sensitive-fixture"));
         }
     }
 }

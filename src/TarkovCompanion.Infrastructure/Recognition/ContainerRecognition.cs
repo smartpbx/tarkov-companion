@@ -403,6 +403,7 @@ public sealed class ContainerScanAnalyzer
 
 public sealed class ContainerRecognitionService : IContainerRecognitionService
 {
+    private const int MaximumCellFallbacks = 24;
     private static readonly Regex QuantitySuffix = new(
         @"(?:\s+(?:x|qty\s*:?)\s*(?<quantity>\d{1,4}))\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
@@ -440,6 +441,7 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             return Empty("container_grid_not_detected");
         }
 
+        var segments = _segmenter.Segment(image, grid);
         var ocr = await _ocrEngine
             .RecognizeAsync(image, new OcrRequest(ScanContext.Container, grid.Bounds), cancellationToken)
             .ConfigureAwait(false);
@@ -451,7 +453,28 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
         var candidates = ocr.Lines
             .SelectMany(line => ResolveLine(resolver, line))
+            .ToList();
+        var preliminary = _analyzer.Analyze(segments, candidates, []);
+        var fallbackCells = preliminary.UnresolvedCells
+            .Concat(preliminary.AmbiguousCells)
+            .OrderBy(cell => cell.Row)
+            .ThenBy(cell => cell.Column)
+            .Take(MaximumCellFallbacks)
             .ToArray();
+        foreach (var cell in fallbackCells)
+        {
+            var cellOcr = await _ocrEngine
+                .RecognizeAsync(
+                    image,
+                    new OcrRequest(ScanContext.Container, Inset(cell.Bounds)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (cellOcr.IsAvailable)
+            {
+                candidates.AddRange(cellOcr.Lines.SelectMany(line => ResolveLine(resolver, line)));
+            }
+        }
+
         var valuations = new List<ContainerItemValuation>();
         foreach (var itemId in candidates.Select(candidate => candidate.CanonicalId).Distinct(StringComparer.Ordinal))
         {
@@ -462,7 +485,18 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             }
         }
 
-        return _analyzer.Analyze(_segmenter.Segment(image, grid), candidates, valuations);
+        return _analyzer.Analyze(segments, candidates, valuations);
+    }
+
+    private static PixelRect Inset(PixelRect bounds)
+    {
+        var horizontal = Math.Min(Math.Max(2, bounds.Width / 40), Math.Max(0, (bounds.Width - 1) / 2));
+        var vertical = Math.Min(Math.Max(2, bounds.Height / 40), Math.Max(0, (bounds.Height - 1) / 2));
+        return new(
+            bounds.X + horizontal,
+            bounds.Y + vertical,
+            Math.Max(1, bounds.Width - (horizontal * 2)),
+            Math.Max(1, bounds.Height - (vertical * 2)));
     }
 
     private static IEnumerable<RecognitionCandidate> ResolveLine(
