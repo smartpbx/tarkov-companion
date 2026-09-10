@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
@@ -18,6 +19,7 @@ using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
+using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Platform.Windows.Capture;
@@ -86,7 +88,12 @@ public static class AppComposition
         services.AddSingleton<IRaidHistoryService>(provider => provider.GetRequiredService<SqliteRaidHistoryService>());
 
         services.AddSingleton<DataTranslationService>();
-        services.AddSingleton(provider => new HttpClient(settings.HttpMessageHandler ?? new HttpClientHandler()));
+        services.AddSingleton(_ => new HttpClient(
+            offline ? new OfflineHttpMessageHandler() : settings.HttpMessageHandler ?? new HttpClientHandler(),
+            disposeHandler: true)
+        {
+            Timeout = Timeout.InfiniteTimeSpan,
+        });
         services.AddSingleton(provider => new TarkovDevJsonClient(
             provider.GetRequiredService<HttpClient>(),
             provider.GetRequiredService<ITarkovDevResponseCache>(),
@@ -97,6 +104,15 @@ public static class AppComposition
         services.AddSingleton<IDataSyncService, DataSyncService>();
         services.AddSingleton<IItemSearchService, ItemSearchService>();
         services.AddSingleton<IPriceHistoryService, PriceHistoryService>();
+
+        services.AddSingleton(TarkovDevMapCatalogClientOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Catalog")));
+        services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")));
+        services.AddSingleton<TarkovDevMapCatalogClient>();
+        services.AddSingleton<TarkovDevMapAssetCache>();
+        services.AddSingleton<IMapVariantPreferenceStore>(_ =>
+            new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
+        services.AddSingleton<MapVariantSelectionService>();
+        services.AddSingleton<MapViewModel>();
 
         services.AddSingleton<IPlayerProfileService, JsonFilePlayerProfileService>();
         services.AddSingleton<ProfileNeedAggregationService>();
@@ -154,4 +170,16 @@ public static class AppComposition
     private static bool IsEnabled(string? value) =>
         string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+    private sealed class OfflineHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromException<HttpResponseMessage>(
+                new HttpRequestException("Network access is disabled by TARKOV_COMPANION_OFFLINE."));
+        }
+    }
 }

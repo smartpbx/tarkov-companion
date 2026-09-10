@@ -1,5 +1,8 @@
 using Avalonia;
+using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.App;
 
@@ -18,7 +21,11 @@ internal static class Program
                     throw new ArgumentException("--self-test requires --output <json>.");
                 }
 
-                var report = SelfTestRunner.RunAsync(options.OutputPath, CancellationToken.None)
+                var report = SelfTestRunner.RunAsync(
+                        options.OutputPath,
+                        options,
+                        settings: null,
+                        cancellationToken: CancellationToken.None)
                     .GetAwaiter()
                     .GetResult();
                 return report.Success ? 0 : 1;
@@ -29,16 +36,21 @@ internal static class Program
                 return RunHeadlessDemo(options);
             }
 
+            var services = AppComposition.Build(options);
+            var app = new App(services);
             var diagnosticChannel = DiagnosticCommandChannel.Start(
                 options.DeveloperMode,
-                options.DiagnosticChannelPath);
+                options.DiagnosticChannelPath,
+                services.GetRequiredService<IScanUseCase>());
             try
             {
-                return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+                return BuildAvaloniaApp(app).StartWithClassicDesktopLifetime(args);
             }
             finally
             {
                 diagnosticChannel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                app.StopAsync().GetAwaiter().GetResult();
+                services.DisposeAsync().AsTask().GetAwaiter().GetResult();
             }
         }
         catch (Exception exception) when (exception is ArgumentException
@@ -51,8 +63,8 @@ internal static class Program
         }
     }
 
-    public static AppBuilder BuildAvaloniaApp() =>
-        AppBuilder.Configure<App>()
+    public static AppBuilder BuildAvaloniaApp(App app) =>
+        AppBuilder.Configure(() => app)
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();

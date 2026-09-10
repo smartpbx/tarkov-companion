@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
@@ -21,13 +22,17 @@ public sealed record DiagnosticResponse(
     string Event,
     string? Scenario,
     DateTimeOffset ProcessedUtc,
-    string? Error = null);
+    string? Error = null,
+    ScanExecutionResult? Scan = null);
 
-public sealed class DiagnosticCommandProcessor(string requiredToken)
+public sealed class DiagnosticCommandProcessor(string requiredToken, IScanUseCase scanUseCase)
 {
     private const int MaximumIdentifierLength = 80;
 
-    public DiagnosticResponse Process(DiagnosticCommand command, DateTimeOffset processedUtc)
+    public async Task<DiagnosticResponse> ProcessAsync(
+        DiagnosticCommand command,
+        DateTimeOffset processedUtc,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
@@ -42,9 +47,28 @@ public sealed class DiagnosticCommandProcessor(string requiredToken)
             return Reject(commandId, processedUtc, "unauthorized");
         }
 
+        if (command.Command == DiagnosticCommandKind.Scan)
+        {
+            try
+            {
+                var scan = await scanUseCase.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+                return new(
+                    commandId,
+                    true,
+                    scan.Succeeded ? "scan-completed" : scan.IsAvailable ? "scan-no-result" : "scan-unavailable",
+                    null,
+                    processedUtc,
+                    null,
+                    scan);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                return new(commandId, true, "scan-failed", null, processedUtc, exception.Message);
+            }
+        }
+
         return command.Command switch
         {
-            DiagnosticCommandKind.Scan => new(commandId, true, "scan-requested", null, processedUtc),
             DiagnosticCommandKind.Scenario when IsSafeIdentifier(command.Scenario) =>
                 new(commandId, true, "scenario-selected", command.Scenario, processedUtc),
             DiagnosticCommandKind.Scenario => Reject(commandId, processedUtc, "invalid-scenario"),
@@ -93,21 +117,23 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task worker;
 
-    private DiagnosticCommandChannel(string channelPath, string token)
+    private DiagnosticCommandChannel(string channelPath, string token, IScanUseCase scanUseCase)
     {
         commandDirectory = Path.Combine(channelPath, "commands");
         responseDirectory = Path.Combine(channelPath, "responses");
         Directory.CreateDirectory(commandDirectory);
         Directory.CreateDirectory(responseDirectory);
-        processor = new(token);
+        processor = new(token, scanUseCase);
         worker = Task.Run(() => RunAsync(stopping.Token));
     }
 
     public static DiagnosticCommandChannel? Start(
         bool developerMode,
         string? channelPath,
+        IScanUseCase scanUseCase,
         string? token = null)
     {
+        ArgumentNullException.ThrowIfNull(scanUseCase);
         if (!developerMode || string.IsNullOrWhiteSpace(channelPath))
         {
             return null;
@@ -120,7 +146,7 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
                 $"Developer diagnostics require a token of at least 32 characters in {TokenEnvironmentVariable}.");
         }
 
-        return new(Path.GetFullPath(channelPath), token);
+        return new(Path.GetFullPath(channelPath), token, scanUseCase);
     }
 
     public async ValueTask DisposeAsync()
@@ -163,7 +189,9 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
             var command = await JsonSerializer.DeserializeAsync<DiagnosticCommand>(stream, SerializerOptions, cancellationToken)
                 .ConfigureAwait(false)
                 ?? throw new JsonException("The diagnostic command was empty.");
-            response = processor.Process(command, DateTimeOffset.UtcNow);
+            response = await processor
+                .ProcessAsync(command, DateTimeOffset.UtcNow, cancellationToken)
+                .ConfigureAwait(false);
             responseName = $"{response.Id}.response.json";
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)

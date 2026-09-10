@@ -1,7 +1,14 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
+using Microsoft.Extensions.Logging;
+using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels;
 
@@ -17,9 +24,12 @@ public abstract class BindableViewModel : INotifyPropertyChanged
         }
 
         field = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        OnPropertyChanged(propertyName);
         return true;
     }
+
+    protected void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
 public sealed class DelegateCommand(Action execute) : ICommand
@@ -33,6 +43,37 @@ public sealed class DelegateCommand(Action execute) : ICommand
     public bool CanExecute(object? parameter) => true;
 
     public void Execute(object? parameter) => execute();
+}
+
+public sealed class AsyncDelegateCommand(Func<Task> execute) : ICommand
+{
+    private bool _isRunning;
+
+    public event EventHandler? CanExecuteChanged;
+
+    public bool CanExecute(object? parameter) => !_isRunning;
+
+    public async void Execute(object? parameter) => await ExecuteAsync().ConfigureAwait(true);
+
+    public async Task ExecuteAsync()
+    {
+        if (_isRunning)
+        {
+            return;
+        }
+
+        _isRunning = true;
+        CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        try
+        {
+            await execute().ConfigureAwait(true);
+        }
+        finally
+        {
+            _isRunning = false;
+            CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
 }
 
 public sealed class NavigationItem : BindableViewModel
@@ -64,79 +105,585 @@ public sealed class NavigationItem : BindableViewModel
 
 public sealed record StatusChip(string Label, string Value, string Evidence, string Color);
 
-public abstract record PageViewModel(string Title, string Description, string Evidence);
-
-public sealed record RaidPageViewModel(MapViewModel Map)
-    : PageViewModel("Customs raid", "Map-first route planning from last-known evidence", "Position · screenshot · 12 seconds old");
-
-public sealed record ScannerPageViewModel()
-    : PageViewModel("Scanner", "Review a user-triggered capture before acting on it", "Confidence · 96% · observed 8 seconds ago");
-
-public sealed record ItemsPageViewModel()
-    : PageViewModel("Items", "Compare value, progression needs, and storage cost", "Prices · fixture cache · synced 14 minutes ago");
-
-public sealed record AmmoPageViewModel()
-    : PageViewModel("Ammo", "Caliber comparisons tuned to your current trader access", "Profile · level 28 · traders confirmed");
-
-public sealed record KeysPageViewModel()
-    : PageViewModel("Keys", "Uses, routes, and current progression value", "Reference · structured game data + field notes");
-
-public sealed record FleaPageViewModel()
-    : PageViewModel("Flea", "Price context for deliberate decisions outside raid", "Market data · 14 minutes old");
-
-public sealed record QuestsPageViewModel()
-    : PageViewModel("Quests", "Track only the objectives that change item decisions", "Profile · manual progress · updated today");
-
-public sealed record HideoutPageViewModel()
-    : PageViewModel("Hideout", "See what each upgrade consumes before selling", "Profile · 3 stations ready to build");
-
-public sealed record EventsPageViewModel()
-    : PageViewModel("Events", "Explicit rules, progress, and collection states", "Event reference · ends in 2 days 7 hours");
-
-public sealed record LoadoutPageViewModel()
-    : PageViewModel("Loadout", "Check armor, ammunition, and cost as one plan", "Evaluation · fixture profile · no live inventory access");
-
-public sealed record HistoryPageViewModel()
-    : PageViewModel("History", "A local timeline of observed raid evidence", "Local database · last entry 22 minutes ago");
-
-public sealed record SettingsPageViewModel()
-    : PageViewModel("Settings & diagnostics", "Configure explicit access and verify every integration", "Diagnostics · 5 passing · 1 needs attention");
-
-public sealed class MainWindowViewModel : BindableViewModel
+public abstract class PageViewModel(string title, string description, string evidence) : BindableViewModel
 {
-    private PageViewModel _currentPage;
+    private string _title = title;
+    private string _description = description;
+    private string _evidence = evidence;
 
-    private MainWindowViewModel(bool demoMode)
+    public string Title
     {
-        Map = MapViewModel.CreateDefault();
-        IsDemoMode = demoMode;
+        get => _title;
+        protected set => SetProperty(ref _title, value);
+    }
+
+    public string Description
+    {
+        get => _description;
+        protected set => SetProperty(ref _description, value);
+    }
+
+    public string Evidence
+    {
+        get => _evidence;
+        protected set => SetProperty(ref _evidence, value);
+    }
+}
+
+public abstract class ServicePageViewModel(
+    string title,
+    string description,
+    string availabilityMessage) : PageViewModel(title, description, "Runtime state not loaded")
+{
+    public string AvailabilityMessage { get; } = availabilityMessage;
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
+        var profile = snapshot.Profile is null
+            ? "Profile unavailable"
+            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode}";
+        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items · {profile}";
+    }
+}
+
+public sealed class AmmoPageViewModel() : ServicePageViewModel(
+    "Ammo",
+    "Caliber intelligence from structured data and the active local profile",
+    "Ammo rows are unavailable until a service-backed intelligence data loader is connected.");
+
+public sealed class KeysPageViewModel() : ServicePageViewModel(
+    "Keys",
+    "Key uses and value from structured data and attributed field notes",
+    "Key intelligence is unavailable; no curated runtime facts are loaded.");
+
+public sealed class FleaPageViewModel() : ServicePageViewModel(
+    "Flea",
+    "Cached price context for deliberate between-raid decisions",
+    "Select an item through search to view its current cached price; no watchlist is loaded.");
+
+public sealed class QuestsPageViewModel() : ServicePageViewModel(
+    "Quests",
+    "Manual profile progress that can affect item decisions",
+    "Quest progress editing is not connected to this runtime view.");
+
+public sealed class HideoutPageViewModel() : ServicePageViewModel(
+    "Hideout",
+    "Manual station progress that can affect item decisions",
+    "Hideout progress editing is not connected to this runtime view.");
+
+public sealed class EventsPageViewModel() : ServicePageViewModel(
+    "Events",
+    "Explicit event rules and local manual progress",
+    "No current event definition is loaded; the app does not infer events from live game activity.");
+
+public sealed class LoadoutPageViewModel() : ServicePageViewModel(
+    "Loadout",
+    "Evaluate a manually selected loadout without reading game inventory",
+    "No loadout selection is active; live inventory is never inspected.");
+
+public sealed class RaidPageViewModel : PageViewModel
+{
+    private string _raidState = "No raid evidence";
+    private string _position = "No last-known position";
+    private string _extracts = "No extracts have been observed.";
+
+    public RaidPageViewModel(MapViewModel map)
+        : base("Raid reference", "Interactive tarkov.dev maps with last-known external evidence", "No raid evidence")
+    {
+        Map = map;
+    }
+
+    public MapViewModel Map { get; }
+
+    public string RaidState
+    {
+        get => _raidState;
+        private set => SetProperty(ref _raidState, value);
+    }
+
+    public string Position
+    {
+        get => _position;
+        private set => SetProperty(ref _position, value);
+    }
+
+    public string Extracts
+    {
+        get => _extracts;
+        private set => SetProperty(ref _extracts, value);
+    }
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc)
+    {
+        var raid = snapshot.Raid;
+        Title = raid.MapId is null ? "Raid reference" : $"{raid.MapId} raid";
+        RaidState = raid.State == RaidLifecycleState.Unknown
+            ? "No raid state has been observed."
+            : $"{raid.State} · {FormatAge(raid.UpdatedUtc, nowUtc)}";
+        Position = raid.LastKnownPosition is null
+            ? "No last-known position; the map remains reference-only."
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"X {raid.LastKnownPosition.Position.X:F1}, Y {raid.LastKnownPosition.Position.Y:F1}, Z {raid.LastKnownPosition.Position.Z:F1} · screenshot {FormatAge(raid.LastKnownPosition.Timestamp, nowUtc)}");
+        Extracts = raid.ActiveExtracts.Count == 0
+            ? "No extracts have been observed; none are marked active."
+            : string.Join(
+                ", ",
+                raid.ActiveExtracts.Select(extract =>
+                    $"{extract.Name} ({extract.Confidence.Value:P0}, {extract.Source})"));
+        Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
+            ? "No raid evidence"
+            : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
+    }
+
+    private static string FormatAge(DateTimeOffset observedUtc, DateTimeOffset nowUtc)
+    {
+        var age = nowUtc - observedUtc;
+        return age < TimeSpan.Zero ? "timestamp is in the future" : $"{Math.Max(0, (int)age.TotalSeconds)}s ago";
+    }
+}
+
+public sealed record ItemSearchResultViewModel(
+    string Id,
+    string Name,
+    string ShortName,
+    string Category,
+    string Dimensions,
+    string Match,
+    string Price,
+    string PriceSource,
+    string Updated);
+
+public sealed class ItemsPageViewModel : PageViewModel
+{
+    private readonly IItemSearchService _searchService;
+    private readonly IItemRepository _itemRepository;
+    private string _searchQuery = string.Empty;
+    private string _searchStatus = "Load local data, then search by item name or short name.";
+    private IReadOnlyList<ItemSearchResultViewModel> _results = [];
+    private ApplicationRuntimeSnapshot? _snapshot;
+
+    public ItemsPageViewModel(IItemSearchService searchService, IItemRepository itemRepository)
+        : base("Items", "Search the normalized local json.tarkov.dev cache", "Runtime state not loaded")
+    {
+        _searchService = searchService;
+        _itemRepository = itemRepository;
+        SearchCommand = new AsyncDelegateCommand(SearchAsync);
+    }
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set => SetProperty(ref _searchQuery, value);
+    }
+
+    public string SearchStatus
+    {
+        get => _searchStatus;
+        private set => SetProperty(ref _searchStatus, value);
+    }
+
+    public IReadOnlyList<ItemSearchResultViewModel> Results
+    {
+        get => _results;
+        private set => SetProperty(ref _results, value);
+    }
+
+    public AsyncDelegateCommand SearchCommand { get; }
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        if (snapshot.Data.ItemCount == 0)
+        {
+            Results = [];
+            SearchStatus = snapshot.Data.Detail;
+        }
+    }
+
+    public async Task InitializeAsync(CancellationToken cancellationToken)
+    {
+        if (_snapshot?.IsDemoMode == true)
+        {
+            SearchQuery = "Graphics Card";
+            await SearchAsync(cancellationToken).ConfigureAwait(true);
+        }
+    }
+
+    public Task SearchAsync() => SearchAsync(CancellationToken.None);
+
+    public async Task SearchAsync(CancellationToken cancellationToken)
+    {
+        if (_snapshot?.Data.ItemCount is null or 0)
+        {
+            Results = [];
+            SearchStatus = _snapshot?.Data.Detail ?? "Runtime state is not loaded.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SearchQuery))
+        {
+            Results = [];
+            SearchStatus = "Enter an item name or short name.";
+            return;
+        }
+
+        try
+        {
+            SearchStatus = "Searching the local item cache…";
+            var hits = await _searchService.SearchAsync(SearchQuery, 12, cancellationToken).ConfigureAwait(true);
+            var results = new List<ItemSearchResultViewModel>(hits.Count);
+            foreach (var hit in hits)
+            {
+                var price = await _itemRepository.GetPriceAsync(hit.Item.Id, cancellationToken).ConfigureAwait(true);
+                var bestValue = price?.BestEconomicValue ?? 0;
+                var channel = price?.BestSaleChannel.ToString() ?? "Unavailable";
+                results.Add(new(
+                    hit.Item.Id,
+                    hit.Item.Name,
+                    hit.Item.ShortName,
+                    hit.Item.Category.ToString(),
+                    $"{hit.Item.Dimensions.Width} × {hit.Item.Dimensions.Height} · {hit.Item.Dimensions.Slots} slot(s)",
+                    $"{hit.Score:P0} · matched {hit.MatchedText}",
+                    bestValue > 0 ? $"{bestValue:N0} ₽ · {hit.Item.ValuePerSlot(price!):N0} ₽ / slot" : "Price unavailable",
+                    channel,
+                    $"json.tarkov.dev · {hit.Item.Provenance.SourceUpdatedUtc?.ToUniversalTime():u}"));
+            }
+
+            Results = results;
+            SearchStatus = results.Count == 0
+                ? "No local item matched that query."
+                : $"{results.Count} local result(s); no network request was made by search.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Results = [];
+            SearchStatus = $"Item search failed: {exception.Message}";
+        }
+    }
+}
+
+public sealed class ScannerPageViewModel : PageViewModel
+{
+    private readonly IScanUseCase _scanUseCase;
+    private string _itemName = "No item scanned";
+    private string _value = "Unavailable";
+    private string _recommendation = "No recommendation without observed evidence.";
+    private string _confidence = "Unavailable";
+    private string _source = "No capture source";
+    private string _detail = "No OCR-backed scan provider is configured.";
+
+    public ScannerPageViewModel(IScanUseCase scanUseCase)
+        : base("Scanner", "Dispatch a user-triggered scan through the configured use case", "Runtime state not loaded")
+    {
+        _scanUseCase = scanUseCase;
+        ScanCommand = new AsyncDelegateCommand(ScanAsync);
+    }
+
+    public AsyncDelegateCommand ScanCommand { get; }
+
+    public string ItemName
+    {
+        get => _itemName;
+        private set => SetProperty(ref _itemName, value);
+    }
+
+    public string Value
+    {
+        get => _value;
+        private set => SetProperty(ref _value, value);
+    }
+
+    public string Recommendation
+    {
+        get => _recommendation;
+        private set => SetProperty(ref _recommendation, value);
+    }
+
+    public string Confidence
+    {
+        get => _confidence;
+        private set => SetProperty(ref _confidence, value);
+    }
+
+    public string Source
+    {
+        get => _source;
+        private set => SetProperty(ref _source, value);
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        private set => SetProperty(ref _detail, value);
+    }
+
+    public Task ScanAsync() => ScanAsync(CancellationToken.None);
+
+    public async Task ScanAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _scanUseCase.ExecuteAsync(cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Detail = $"Scan failed: {exception.Message}";
+        }
+    }
+
+    public void Apply(ScanExecutionResult scan)
+    {
+        ItemName = scan.Succeeded ? scan.ItemName ?? "Unnamed item" : "No item scanned";
+        Value = scan.Succeeded && scan.ValueRoubles is { } value
+            ? $"{value:N0} ₽ · {scan.ValuePerSlotRoubles.GetValueOrDefault():N0} ₽ / slot"
+            : "Unavailable";
+        Recommendation = scan.Succeeded
+            ? scan.Recommendation ?? "No recommendation was produced."
+            : "No recommendation without observed evidence.";
+        Confidence = scan.Succeeded ? scan.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture) : "Unavailable";
+        Source = scan.Source;
+        Detail = scan.Detail;
+        Evidence = scan.Succeeded
+            ? $"{Confidence} confidence · {scan.Source} · {scan.ObservedUtc.ToLocalTime():T}"
+            : scan.Detail;
+    }
+}
+
+public sealed record RaidHistoryEntryViewModel(
+    string Id,
+    string Map,
+    string Mode,
+    string Started,
+    string Ended,
+    string Outcome,
+    string Notes);
+
+public sealed class HistoryPageViewModel : PageViewModel
+{
+    private readonly IRaidHistoryService _raidHistoryService;
+    private IReadOnlyList<RaidHistoryEntryViewModel> _entries = [];
+    private string _status = "History has not been loaded.";
+
+    public HistoryPageViewModel(IRaidHistoryService raidHistoryService)
+        : base("History", "Local raid rows created from external evidence transitions", "Runtime state not loaded")
+    {
+        _raidHistoryService = raidHistoryService;
+        RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    public IReadOnlyList<RaidHistoryEntryViewModel> Entries
+    {
+        get => _entries;
+        private set => SetProperty(ref _entries, value);
+    }
+
+    public string Status
+    {
+        get => _status;
+        private set => SetProperty(ref _status, value);
+    }
+
+    public AsyncDelegateCommand RefreshCommand { get; }
+
+    public Task LoadAsync() => LoadAsync(CancellationToken.None);
+
+    public async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
+            Entries = raids.Select(raid => new RaidHistoryEntryViewModel(
+                raid.Id.ToString("D"),
+                raid.MapId ?? "Unknown map",
+                raid.Mode,
+                raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
+                raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
+                raid.Outcome ?? "Not recorded",
+                raid.Notes ?? "No notes")).ToArray();
+            Status = Entries.Count == 0
+                ? "No local raid history has been recorded."
+                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}.";
+            Evidence = $"SQLite · {Status}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Entries = [];
+            Status = $"Raid history unavailable: {exception.Message}";
+            Evidence = Status;
+        }
+    }
+}
+
+public sealed class SettingsPageViewModel : PageViewModel
+{
+    private readonly ApplicationStartupCoordinator _startupCoordinator;
+    private string _dataStatus = "Runtime state not loaded";
+    private string _profileContext = "Profile unavailable";
+    private string _scanProvider = "Unavailable";
+
+    public SettingsPageViewModel(
+        ApplicationStartupCoordinator startupCoordinator,
+        RuntimeOptions options,
+        AppDataPaths paths,
+        AppCommandLine commandLine)
+        : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
+    {
+        _startupCoordinator = startupCoordinator;
+        IsOffline = options.Offline;
+        DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
+        DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
+            ? "Requested; token validation occurs before the channel starts."
+            : "Disabled (developer mode and an explicit path are required).";
+        SyncCommand = new AsyncDelegateCommand(SyncAsync);
+    }
+
+    public bool IsOffline { get; }
+
+    public string DatabasePath { get; }
+
+    public string DiagnosticChannel { get; }
+
+    public AsyncDelegateCommand SyncCommand { get; }
+
+    public string DataStatus
+    {
+        get => _dataStatus;
+        private set => SetProperty(ref _dataStatus, value);
+    }
+
+    public string ProfileContext
+    {
+        get => _profileContext;
+        private set => SetProperty(ref _profileContext, value);
+    }
+
+    public string ScanProvider
+    {
+        get => _scanProvider;
+        private set => SetProperty(ref _scanProvider, value);
+    }
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
+        DataStatus = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} items · {snapshot.Data.Detail}";
+        ProfileContext = snapshot.Profile is null
+            ? "Profile unavailable"
+            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode} · updated {snapshot.Profile.UpdatedUtc.ToLocalTime():g}";
+        ScanProvider = snapshot.Scan.IsAvailable
+            ? snapshot.Scan.Succeeded ? $"Last result: {snapshot.Scan.Source}" : snapshot.Scan.Detail
+            : snapshot.Scan.Detail;
+        Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
+    }
+
+    public async Task SyncAsync()
+    {
+        try
+        {
+            await _startupCoordinator.RefreshAsync(force: true, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DataStatus = $"Refresh failed: {exception.Message}";
+        }
+    }
+}
+
+public sealed class MainWindowViewModel : BindableViewModel, IDisposable
+{
+    private readonly IRuntimeStateStore _stateStore;
+    private readonly ApplicationStartupCoordinator _startupCoordinator;
+    private readonly RuntimeOptions _options;
+    private readonly TimeProvider _timeProvider;
+    private readonly ILogger<MainWindowViewModel> _logger;
+    private readonly SynchronizationContext? _synchronizationContext;
+    private readonly SemaphoreSlim _initializationLock = new(1, 1);
+    private PageViewModel _currentPage;
+    private IReadOnlyList<StatusChip> _status = [];
+    private string _modeLabel = "External read-only companion";
+    private string _lastScanName = "No item scanned";
+    private string _lastScanValue = "Unavailable";
+    private string _lastScanAdvice = "No recommendation without observed evidence.";
+    private string _lastScanEvidence = "No scan evidence";
+    private bool _initialized;
+    private bool _disposed;
+
+    public MainWindowViewModel(
+        IRuntimeStateStore stateStore,
+        ApplicationStartupCoordinator startupCoordinator,
+        IItemSearchService itemSearchService,
+        IItemRepository itemRepository,
+        IRaidHistoryService raidHistoryService,
+        IScanUseCase scanUseCase,
+        RuntimeOptions options,
+        AppDataPaths paths,
+        AppCommandLine commandLine,
+        MapViewModel map,
+        TimeProvider timeProvider,
+        ILogger<MainWindowViewModel> logger)
+    {
+        _stateStore = stateStore;
+        _startupCoordinator = startupCoordinator;
+        _options = options;
+        _timeProvider = timeProvider;
+        _logger = logger;
+        var synchronizationContext = SynchronizationContext.Current;
+        _synchronizationContext = synchronizationContext?.GetType().Namespace?
+            .StartsWith("Avalonia", StringComparison.Ordinal) == true
+                ? synchronizationContext
+                : null;
+
+        Map = map;
+        Raid = new(map);
+        Scanner = new(scanUseCase);
+        Items = new(itemSearchService, itemRepository);
+        History = new(raidHistoryService);
+        Settings = new(startupCoordinator, options, paths, commandLine);
+        ServicePages =
+        [
+            new AmmoPageViewModel(),
+            new KeysPageViewModel(),
+            new FleaPageViewModel(),
+            new QuestsPageViewModel(),
+            new HideoutPageViewModel(),
+            new EventsPageViewModel(),
+            new LoadoutPageViewModel(),
+        ];
 
         Navigation =
         [
-            CreateNavigation("Raid", "⌖", new RaidPageViewModel(Map)),
-            CreateNavigation("Scanner", "⌁", new ScannerPageViewModel()),
-            CreateNavigation("Items", "◇", new ItemsPageViewModel()),
-            CreateNavigation("Ammo", "◉", new AmmoPageViewModel()),
-            CreateNavigation("Keys", "⌑", new KeysPageViewModel()),
-            CreateNavigation("Flea", "₽", new FleaPageViewModel()),
-            CreateNavigation("Quests", "✓", new QuestsPageViewModel()),
-            CreateNavigation("Hideout", "⌂", new HideoutPageViewModel()),
-            CreateNavigation("Events", "⚑", new EventsPageViewModel()),
-            CreateNavigation("Loadout", "▦", new LoadoutPageViewModel()),
-            CreateNavigation("History", "◷", new HistoryPageViewModel()),
-            CreateNavigation("Settings", "⚙", new SettingsPageViewModel()),
+            CreateNavigation("Raid", "⌖", Raid),
+            CreateNavigation("Scanner", "⌁", Scanner),
+            CreateNavigation("Items", "◇", Items),
+            CreateNavigation("Ammo", "◉", ServicePages[0]),
+            CreateNavigation("Keys", "⌑", ServicePages[1]),
+            CreateNavigation("Flea", "₽", ServicePages[2]),
+            CreateNavigation("Quests", "✓", ServicePages[3]),
+            CreateNavigation("Hideout", "⌂", ServicePages[4]),
+            CreateNavigation("Events", "⚑", ServicePages[5]),
+            CreateNavigation("Loadout", "▦", ServicePages[6]),
+            CreateNavigation("History", "◷", History),
+            CreateNavigation("Settings", "⚙", Settings),
         ];
 
         _currentPage = Navigation[0].Page;
         Navigation[0].IsSelected = true;
-        Status = CreateStatus(demoMode);
+        _stateStore.Changed += RuntimeStateChanged;
+        ApplySnapshot(_stateStore.Current);
     }
 
-    public bool IsDemoMode { get; }
+    public bool IsDemoMode => _options.DemoMode;
 
     public IReadOnlyList<NavigationItem> Navigation { get; }
 
-    public IReadOnlyList<StatusChip> Status { get; }
+    public IReadOnlyList<ServicePageViewModel> ServicePages { get; }
+
+    public IReadOnlyList<StatusChip> Status
+    {
+        get => _status;
+        private set => SetProperty(ref _status, value);
+    }
 
     public PageViewModel CurrentPage
     {
@@ -146,17 +693,85 @@ public sealed class MainWindowViewModel : BindableViewModel
 
     public MapViewModel Map { get; }
 
-    public string ModeLabel => IsDemoMode ? "Fixture replay · Linux-safe demo" : "External read-only companion";
+    public RaidPageViewModel Raid { get; }
 
-    public string LastScanName => IsDemoMode ? "Graphics Card" : "No item scanned";
+    public ScannerPageViewModel Scanner { get; }
 
-    public string LastScanValue => IsDemoMode ? "1,234,567 ₽ · 617,284 ₽ per slot" : "Press the configured hotkey while an item is visible.";
+    public ItemsPageViewModel Items { get; }
 
-    public string LastScanAdvice => IsDemoMode ? "Keep · outstanding quest need and exceptional slot value" : "No recommendation without observed evidence.";
+    public HistoryPageViewModel History { get; }
 
-    public string LastScanEvidence => IsDemoMode ? "96% confidence · OCR + icon agreement · 8s old" : "Waiting for a user-triggered capture";
+    public SettingsPageViewModel Settings { get; }
 
-    public static MainWindowViewModel CreateFoundationDemo(bool demoMode) => new(demoMode);
+    public string ModeLabel
+    {
+        get => _modeLabel;
+        private set => SetProperty(ref _modeLabel, value);
+    }
+
+    public string LastScanName
+    {
+        get => _lastScanName;
+        private set => SetProperty(ref _lastScanName, value);
+    }
+
+    public string LastScanValue
+    {
+        get => _lastScanValue;
+        private set => SetProperty(ref _lastScanValue, value);
+    }
+
+    public string LastScanAdvice
+    {
+        get => _lastScanAdvice;
+        private set => SetProperty(ref _lastScanAdvice, value);
+    }
+
+    public string LastScanEvidence
+    {
+        get => _lastScanEvidence;
+        private set => SetProperty(ref _lastScanEvidence, value);
+    }
+
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        await _initializationLock.WaitAsync(cancellationToken).ConfigureAwait(true);
+        try
+        {
+            if (_initialized)
+            {
+                return;
+            }
+
+            await Task.Run(
+                    () => _startupCoordinator.InitializeAsync(cancellationToken),
+                    cancellationToken)
+                .ConfigureAwait(true);
+            ApplySnapshot(_stateStore.Current);
+            await Items.InitializeAsync(cancellationToken).ConfigureAwait(true);
+            await History.LoadAsync(cancellationToken).ConfigureAwait(true);
+            _startupCoordinator.BeginBackgroundRefresh();
+            _initialized = true;
+            await Map.InitializeAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(exception, "Application startup failed.");
+            _stateStore.Update(current => current with
+            {
+                DatabaseReady = false,
+                Data = current.Data with
+                {
+                    Availability = DataAvailability.Error,
+                    Detail = $"Application startup failed: {exception.Message}",
+                },
+            });
+        }
+        finally
+        {
+            _initializationLock.Release();
+        }
+    }
 
     public bool Navigate(string pageName)
     {
@@ -168,6 +783,18 @@ public sealed class MainWindowViewModel : BindableViewModel
 
         Select(target);
         return true;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _stateStore.Changed -= RuntimeStateChanged;
+        _initializationLock.Dispose();
     }
 
     private NavigationItem CreateNavigation(string name, string glyph, PageViewModel page) =>
@@ -183,14 +810,103 @@ public sealed class MainWindowViewModel : BindableViewModel
         CurrentPage = selected.Page;
     }
 
-    private static IReadOnlyList<StatusChip> CreateStatus(bool demoMode) =>
-    [
-        new("EFT", demoMode ? "Simulator" : "Not detected", demoMode ? "Window evidence" : "No window evidence", demoMode ? "#77B895" : "#8F9BA6"),
-        new("Map", demoMode ? "Customs" : "Unknown", demoMode ? "Log evidence · 18s old" : "Waiting for raid evidence", "#56B8C6"),
-        new("Raid", demoMode ? "18:34" : "Waiting", demoMode ? "Elapsed · estimated" : "No active session", "#C6A15B"),
-        new("Time", demoMode ? "21:42:16" : "—", demoMode ? "Local display · 1s old" : "Starts with raid", "#C6D0D8"),
-        new("Position", demoMode ? "Train Yard" : "No evidence", demoMode ? "Screenshot · 12s old" : "Create a screenshot to update", "#56B8C6"),
-        new("Data", demoMode ? "Synced" : "Cache not loaded", demoMode ? "18,462 records · 14m old" : "Run data sync", "#77B895"),
-        new("Scan", demoMode ? "Ready" : "Unavailable", demoMode ? "Ctrl+Shift+S" : "Configure a hotkey", "#C6A15B"),
-    ];
+    private void RuntimeStateChanged(object? sender, EventArgs eventArgs)
+    {
+        var snapshot = _stateStore.Current;
+        if (_synchronizationContext is null || ReferenceEquals(SynchronizationContext.Current, _synchronizationContext))
+        {
+            ApplySnapshot(snapshot);
+            return;
+        }
+
+        _synchronizationContext.Post(_ => ApplySnapshot(snapshot), null);
+    }
+
+    private void ApplySnapshot(ApplicationRuntimeSnapshot snapshot)
+    {
+        var now = _timeProvider.GetUtcNow();
+        ModeLabel = snapshot.IsDemoMode
+            ? "Deterministic local fixture · no live game access"
+            : snapshot.IsOffline
+                ? "External read-only companion · offline"
+                : "External read-only companion";
+        Status = CreateStatus(snapshot, now);
+        Raid.Apply(snapshot, now);
+        Scanner.Apply(snapshot.Scan);
+        Items.Apply(snapshot);
+        Settings.Apply(snapshot);
+        foreach (var page in ServicePages)
+        {
+            page.Apply(snapshot);
+        }
+
+        LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
+        LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value
+            ? $"{value:N0} ₽ · {snapshot.Scan.ValuePerSlotRoubles.GetValueOrDefault():N0} ₽ per slot"
+            : "Unavailable";
+        LastScanAdvice = snapshot.Scan.Succeeded
+            ? snapshot.Scan.Recommendation ?? "No recommendation was produced."
+            : "No recommendation without observed evidence.";
+        LastScanEvidence = snapshot.Scan.Detail;
+    }
+
+    private static IReadOnlyList<StatusChip> CreateStatus(
+        ApplicationRuntimeSnapshot snapshot,
+        DateTimeOffset nowUtc)
+    {
+        var raid = snapshot.Raid;
+        var dataAge = snapshot.Data.UpdatedUtc is { } updated
+            ? FormatAge(updated, nowUtc)
+            : "never synced";
+        var position = raid.LastKnownPosition;
+        var scan = snapshot.Scan;
+        return
+        [
+            new(
+                "EFT",
+                snapshot.IsDemoMode ? "Demo fixture" : "Not observed",
+                snapshot.IsDemoMode ? "No live game access" : "No window observation",
+                "#8F9BA6"),
+            new(
+                "Map",
+                raid.MapId ?? "Unknown",
+                raid.MapId is null ? "No current raid evidence" : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
+                "#56B8C6"),
+            new(
+                "Raid",
+                raid.State.ToString(),
+                raid.StartedUtc is null ? "No active session" : $"Started {raid.StartedUtc.Value.ToLocalTime():T}",
+                "#C6A15B"),
+            new(
+                "Position",
+                position is null ? "No evidence" : string.Create(CultureInfo.InvariantCulture, $"{position.Position.X:F0}, {position.Position.Z:F0}"),
+                position is null ? "No screenshot observation" : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
+                "#56B8C6"),
+            new(
+                "Data",
+                snapshot.Data.Availability.ToString(),
+                $"{snapshot.Data.ItemCount:N0} items · {dataAge}",
+                "#77B895"),
+            new(
+                "Scan",
+                scan.IsAvailable ? scan.Succeeded ? "Observed" : "Ready" : "Unavailable",
+                scan.Detail,
+                "#C6A15B"),
+        ];
+    }
+
+    private static string FormatAge(DateTimeOffset observedUtc, DateTimeOffset nowUtc)
+    {
+        var age = nowUtc - observedUtc;
+        if (age < TimeSpan.Zero)
+        {
+            return "future timestamp";
+        }
+
+        return age < TimeSpan.FromMinutes(1)
+            ? $"{Math.Max(0, (int)age.TotalSeconds)}s ago"
+            : age < TimeSpan.FromHours(1)
+                ? $"{(int)age.TotalMinutes}m ago"
+                : $"{(int)age.TotalHours}h ago";
+    }
 }

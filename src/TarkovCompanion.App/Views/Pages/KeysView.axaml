@@ -1,58 +1,11 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.KeysView"
-             x:DataType="vm:KeysPageViewModel"
-             xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.KeysView" x:DataType="vm:KeysPageViewModel"
+             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-      <TextBox PlaceholderText="Search a key or locked location" />
-      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><ComboBox Width="150" SelectedIndex="0"><ComboBoxItem Content="All maps" /><ComboBoxItem Content="Customs" /><ComboBoxItem Content="Shoreline" /></ComboBox><ToggleButton Classes="tool" IsChecked="True" Content="Quest-relevant" /></StackPanel>
-    </Grid>
-    <Grid Grid.Row="1" ColumnDefinitions="310,*,300" ColumnSpacing="12">
-      <Border Classes="panel" Padding="12">
-        <StackPanel Spacing="6">
-          <TextBlock Classes="sectionTitle" Text="Key ring" />
-          <Border Classes="inset cyan" Padding="11"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Dorm room 206" /><TextBlock Classes="label" Text="Customs · quest" /></StackPanel><TextBlock Grid.Column="1" Classes="cyan" Text="40/40" /></Grid></Border>
-          <Border Classes="inset" Padding="11"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Factory exit key" /><TextBlock Classes="label" Text="Factory / Customs" /></StackPanel><TextBlock Grid.Column="1" Text="31/40" /></Grid></Border>
-          <Border Classes="inset" Padding="11"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Unknown key" /><TextBlock Classes="label" Text="Customs · reference" /></StackPanel><TextBlock Grid.Column="1" Text="40/40" /></Grid></Border>
-          <Border Classes="inset" Padding="11"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="RB-BK marked key" /><TextBlock Classes="label" Text="Reserve · loot" /></StackPanel><TextBlock Grid.Column="1" Classes="ochre" Text="8/10" /></Grid></Border>
-          <Border Classes="inset" Padding="11"><Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock FontWeight="SemiBold" Text="Cottage back door" /><TextBlock Classes="label" Text="Shoreline · quest" /></StackPanel><TextBlock Grid.Column="1" Text="40/40" /></Grid></Border>
-        </StackPanel>
-      </Border>
-
-      <Border Grid.Column="1" Classes="panel cyan" Padding="16">
-        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14">
-          <Grid ColumnDefinitions="*,Auto">
-            <StackPanel><TextBlock FontSize="21" FontWeight="SemiBold" Text="Dorm room 206 key" /><TextBlock Classes="label" Text="Customs · three-story dorms" /></StackPanel>
-            <Border Grid.Column="1" Classes="inset sage" Padding="9,5"><TextBlock Classes="sage" Text="Keep · quest" /></Border>
-          </Grid>
-          <Grid Grid.Row="1" RowDefinitions="1.1*,0.9*" RowSpacing="12">
-            <Border Classes="inset" ClipToBounds="True">
-              <Viewbox Stretch="UniformToFill">
-                <Canvas Width="580" Height="300" Background="#151D24">
-                  <Path Data="M 36,54 L 284,36 L 530,72 L 520,248 L 316,270 L 62,238 Z" Fill="#1C272F" Stroke="#3B4855" StrokeThickness="3" />
-                  <Path Data="M 278,42 L 292,264 M 58,150 L 520,164" Stroke="#43515E" StrokeThickness="4" />
-                  <Path Data="M 292,164 L 404,165 L 404,234" Stroke="#56B8C6" StrokeThickness="5" StrokeDashArray="7,5" />
-                  <Ellipse Canvas.Left="390" Canvas.Top="220" Width="28" Height="28" Fill="#56B8C6" Stroke="#D8F5F7" StrokeThickness="2" />
-                  <TextBlock Canvas.Left="422" Canvas.Top="218" Foreground="#D8F5F7" FontSize="13" Text="Room 206" />
-                  <TextBlock Canvas.Left="74" Canvas.Top="78" Foreground="#8F9BA6" FontSize="12" Text="Three-story dorms" />
-                </Canvas>
-              </Viewbox>
-            </Border>
-            <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="12">
-              <StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Unlocks" /><TextBlock Text="Dorm room 206" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Second floor, south corridor. Door number is visible from the stairwell." /><TextBlock Classes="label" Text="40 uses remaining" /></StackPanel>
-              <StackPanel Grid.Column="1" Spacing="8"><TextBlock Classes="sectionTitle" Text="Progression value" /><TextBlock Text="Operation Aquarius — Part 1" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Required to enter the water room. Keep until the objective is confirmed complete." /><TextBlock Classes="sage" Text="Quest tracked · incomplete" /></StackPanel>
-            </Grid>
-          </Grid>
-          <TextBlock Grid.Row="2" Classes="label" TextWrapping="Wrap" Text="Reference positions are illustrative fixture data. Confirm map version and room signage in game." />
-        </Grid>
-      </Border>
-
-      <StackPanel Grid.Column="2" Spacing="10">
-        <Border Classes="panel ochre" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Value" /><TextBlock Classes="metric ochre" Text="38,900 ₽" /><TextBlock Classes="label" Text="Flea estimate · 14m old" /><TextBlock Text="973 ₽ per remaining use" /><Button Classes="tool" HorizontalAlignment="Left" Content="Show price history" /></StackPanel></Border>
-        <Border Classes="panel" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Typical contents" /><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Medical supplies" /><TextBlock Grid.Column="1" Classes="sage" Text="Common" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Loose loot" /><TextBlock Grid.Column="1" Text="Mixed" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Quest access" /><TextBlock Grid.Column="1" Classes="sage" Text="Yes" /></Grid></StackPanel></Border>
-        <Border Classes="panel" Padding="14"><StackPanel Spacing="6"><TextBlock Classes="sectionTitle" Text="Reference source" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Structured game data with local field notes. Last reviewed for the current wipe fixture." /><Button Classes="tool" HorizontalAlignment="Left" Content="Report outdated note" /></StackPanel></Border>
-      </StackPanel>
-    </Grid>
-  </Grid>
+  <Border Classes="panel" Padding="22">
+    <StackPanel Spacing="10">
+      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
+      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
+      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
+    </StackPanel>
+  </Border>
 </UserControl>

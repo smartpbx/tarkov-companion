@@ -92,7 +92,7 @@ public sealed class RaidActivityCoordinator(
         }
 
         if (previous.RaidId is { } previousRaidId
-            && current.RaidId != previousRaidId
+            && previous.State == RaidLifecycleState.InRaid
             && current.State is RaidLifecycleState.Menu or RaidLifecycleState.PostRaid)
         {
             await raidHistoryService.EndAsync(previousRaidId, evidence.ObservedUtc, null, null, cancellationToken)

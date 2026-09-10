@@ -80,7 +80,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             return;
         }
 
-        _backgroundRefresh ??= RefreshAsync(force: false, _stopping.Token);
+        _backgroundRefresh ??= Task.Run(
+            () => RefreshAsync(force: true, _stopping.Token),
+            CancellationToken.None);
     }
 
     public async Task RefreshAsync(bool force, CancellationToken cancellationToken)
@@ -182,6 +184,16 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
                 cached.LastError ?? "No local game data is available.");
+        }
+
+        if (_options.Offline)
+        {
+            return new(
+                DataAvailability.Cached,
+                cached.ItemCount,
+                cached.SyncedEndpointCount,
+                cached.LastSuccessUtc,
+                "Offline mode is enabled; using the local game-data cache.");
         }
 
         var stale = cached.LastSuccessUtc is null || _timeProvider.GetUtcNow() - cached.LastSuccessUtc > _options.DataFreshFor;

@@ -1,30 +1,49 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.Views;
 
 namespace TarkovCompanion.App;
 
-public sealed class App : Avalonia.Application
+public sealed class App(IServiceProvider services) : Avalonia.Application
 {
+    private readonly CancellationTokenSource _stopping = new();
+    private Task _initialization = Task.CompletedTask;
+
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var demoMode = desktop.Args?.Contains("--demo", StringComparer.OrdinalIgnoreCase) ?? false;
-            var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode);
-            var window = new MainWindow
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            desktop.MainWindow = new MainWindow
             {
                 DataContext = viewModel,
             };
-            window.Closed += (_, _) => viewModel.Map.Dispose();
-            desktop.MainWindow = window;
-            _ = viewModel.Map.InitializeAsync();
+            _initialization = viewModel.InitializeAsync(_stopping.Token);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    public async Task StopAsync()
+    {
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        services.GetService<MapViewModel>()?.Dispose();
+        try
+        {
+            await _initialization.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            _stopping.Dispose();
+        }
     }
 }

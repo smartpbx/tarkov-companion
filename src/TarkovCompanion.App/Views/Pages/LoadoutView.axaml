@@ -1,48 +1,11 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.LoadoutView"
-             x:DataType="vm:LoadoutPageViewModel"
-             xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.LoadoutView" x:DataType="vm:LoadoutPageViewModel"
+             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Grid ColumnDefinitions="0.9*,1.1*,310" ColumnSpacing="12">
-    <Border Classes="panel" Padding="14">
-      <Grid RowDefinitions="Auto,*">
-        <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Plan · Customs general" /><TextBlock Classes="label" Text="Manual selection · no inventory access" /></StackPanel><Button Grid.Column="1" Classes="tool" Content="New plan" /></Grid>
-        <Viewbox Grid.Row="1" Stretch="Uniform">
-          <Canvas Width="430" Height="560">
-            <Border Canvas.Left="130" Canvas.Top="20" Width="170" Height="64" Classes="inset"><Grid Margin="10" ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="label" Text="Headwear" /><TextBlock FontWeight="SemiBold" Text="ULACH" /></StackPanel><TextBlock Grid.Column="1" Classes="sage" VerticalAlignment="Center" Text="Class 4" /></Grid></Border>
-            <Border Canvas.Left="104" Canvas.Top="104" Width="222" Height="104" Classes="inset cyan"><Grid Margin="10" RowDefinitions="Auto,*"><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Armor" /><TextBlock Grid.Column="1" Classes="cyan" Text="Selected" /></Grid><StackPanel Grid.Row="1"><TextBlock FontSize="16" FontWeight="SemiBold" Text="6B13 assault armor" /><TextBlock Classes="sage" Text="Class 4 · 47 / 47" /></StackPanel></Grid></Border>
-            <Border Canvas.Left="36" Canvas.Top="230" Width="170" Height="86" Classes="inset"><Grid Margin="10"><StackPanel><TextBlock Classes="label" Text="Primary weapon" /><TextBlock FontSize="16" FontWeight="SemiBold" Text="AK-74N" /><TextBlock Classes="label" Text="5.45×39 mm" /></StackPanel></Grid></Border>
-            <Border Canvas.Left="224" Canvas.Top="230" Width="170" Height="86" Classes="inset"><Grid Margin="10"><StackPanel><TextBlock Classes="label" Text="Ammunition" /><TextBlock FontSize="16" FontWeight="SemiBold" Text="5.45 BT gs" /><TextBlock Classes="sage" Text="120 rounds" /></StackPanel></Grid></Border>
-            <Border Canvas.Left="36" Canvas.Top="338" Width="170" Height="86" Classes="inset"><Grid Margin="10"><StackPanel><TextBlock Classes="label" Text="Rig" /><TextBlock FontSize="16" FontWeight="SemiBold" Text="BlackRock" /><TextBlock Classes="label" Text="20 slots" /></StackPanel></Grid></Border>
-            <Border Canvas.Left="224" Canvas.Top="338" Width="170" Height="86" Classes="inset"><Grid Margin="10"><StackPanel><TextBlock Classes="label" Text="Backpack" /><TextBlock FontSize="16" FontWeight="SemiBold" Text="Tri-Zip" /><TextBlock Classes="label" Text="30 slots" /></StackPanel></Grid></Border>
-            <Border Canvas.Left="130" Canvas.Top="448" Width="170" Height="78" Classes="inset ochre"><Grid Margin="10"><StackPanel><TextBlock Classes="label" Text="Secure container" /><TextBlock FontSize="16" FontWeight="SemiBold" Text="CMS + keys" /><TextBlock Classes="ochre" Text="7 / 9 slots" /></StackPanel></Grid></Border>
-            <Path Data="M 215,84 L 215,104 M 104,188 L 74,230 M 326,188 L 356,230 M 121,316 L 121,338 M 309,316 L 309,338 M 215,424 L 215,448" Stroke="#43515E" StrokeThickness="2" />
-          </Canvas>
-        </Viewbox>
-      </Grid>
-    </Border>
-
-    <Border Grid.Column="1" Classes="panel" Padding="15">
-      <Grid RowDefinitions="Auto,Auto,1,*" RowSpacing="13">
-        <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Readiness evaluation" /><TextBlock Classes="label" Text="Rules represented by application contracts" /></StackPanel><Border Grid.Column="1" Classes="inset sage" Padding="9,5"><TextBlock Classes="sage" Text="Raid ready" /></Border></Grid>
-        <Grid Grid.Row="1" ColumnDefinitions="*,*,*" ColumnSpacing="9"><Border Classes="inset" Padding="11"><StackPanel><TextBlock Classes="label" Text="Estimated cost" /><TextBlock Classes="metric ochre" FontSize="19" Text="384,200 ₽" /></StackPanel></Border><Border Grid.Column="1" Classes="inset" Padding="11"><StackPanel><TextBlock Classes="label" Text="Weight" /><TextBlock Classes="metric" FontSize="19" Text="24.7 kg" /></StackPanel></Border><Border Grid.Column="2" Classes="inset" Padding="11"><StackPanel><TextBlock Classes="label" Text="Free space" /><TextBlock Classes="metric cyan" FontSize="19" Text="34 slots" /></StackPanel></Border></Grid>
-        <Border Grid.Row="2" Background="#303B47" />
-        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="10">
-            <Border Classes="inset sage" Padding="12"><Grid ColumnDefinitions="Auto,*" ColumnSpacing="11"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Armor matches the plan" /><TextBlock Classes="label" Text="Full-durability class 4 protection" /></StackPanel></Grid></Border>
-            <Border Classes="inset sage" Padding="12"><Grid ColumnDefinitions="Auto,*" ColumnSpacing="11"><TextBlock Classes="sage" Text="✓" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Ammunition is viable" /><TextBlock Classes="label" Text="BT is reliable against the class 4 target" /></StackPanel></Grid></Border>
-            <Border Classes="inset ochre" Padding="12"><Grid ColumnDefinitions="Auto,*" ColumnSpacing="11"><TextBlock Classes="ochre" Text="!" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Bring a painkiller" /><TextBlock Classes="label" Text="No pain management item selected" /></StackPanel></Grid></Border>
-            <Border Classes="inset coral" Padding="12"><Grid ColumnDefinitions="Auto,*" ColumnSpacing="11"><TextBlock Classes="coral" Text="!" /><StackPanel Grid.Column="1"><TextBlock FontWeight="SemiBold" Text="Hydration margin is narrow" /><TextBlock Classes="label" Text="Add water for a longer route plan" /></StackPanel></Grid></Border>
-            <Border Classes="inset" Padding="12"><StackPanel Spacing="6"><TextBlock FontWeight="SemiBold" Text="Plan assumptions" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Customs · safest route · 25–35 minute duration · player profile level 28" /></StackPanel></Border>
-          </StackPanel>
-        </ScrollViewer>
-      </Grid>
-    </Border>
-
-    <StackPanel Grid.Column="2" Spacing="10">
-      <Border Classes="panel ochre" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Budget" /><TextBlock Classes="metric ochre" Text="384,200 ₽" /><ProgressBar Value="64" Height="8" Foreground="#C6A15B" /><TextBlock Classes="label" Text="64% of 600,000 ₽ target" /><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Weapon + ammo" /><TextBlock Grid.Column="1" Text="152,800 ₽" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Armor" /><TextBlock Grid.Column="1" Text="181,400 ₽" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Medical + utility" /><TextBlock Grid.Column="1" Text="50,000 ₽" /></Grid></StackPanel></Border>
-      <Border Classes="panel" Padding="14"><StackPanel Spacing="8"><TextBlock Classes="sectionTitle" Text="Route fit" /><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Map" /><TextBlock Grid.Column="1" Text="Customs" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Priority" /><TextBlock Grid.Column="1" Text="Survival" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Mobility" /><TextBlock Grid.Column="1" Classes="sage" Text="Good" /></Grid><Button Classes="primary" Content="Use this plan" /></StackPanel></Border>
-      <Border Classes="panel" Padding="14"><StackPanel Spacing="5"><TextBlock Classes="sectionTitle" Text="Save state" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Plans store selections only. They do not read or change the in-game inventory." /><Button Classes="tool" HorizontalAlignment="Left" Content="Save as template" /></StackPanel></Border>
+  <Border Classes="panel" Padding="22">
+    <StackPanel Spacing="10">
+      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
+      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
+      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
     </StackPanel>
-  </Grid>
+  </Border>
 </UserControl>

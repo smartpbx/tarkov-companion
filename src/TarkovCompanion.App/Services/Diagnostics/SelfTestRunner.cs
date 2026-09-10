@@ -1,7 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using Microsoft.Data.Sqlite;
-using TarkovCompanion.Infrastructure.Persistence;
+using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
@@ -30,69 +31,122 @@ public static class SelfTestRunner
         WriteIndented = true,
     };
 
-    public static async Task<SelfTestReport> RunAsync(string outputPath, CancellationToken cancellationToken)
+    public static async Task<SelfTestReport> RunAsync(
+        string outputPath,
+        AppCommandLine commandLine,
+        AppCompositionSettings? settings,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentNullException.ThrowIfNull(commandLine);
 
         var fullOutputPath = Path.GetFullPath(outputPath);
         var outputDirectory = Path.GetDirectoryName(fullOutputPath)
             ?? throw new InvalidOperationException("The self-test output path has no parent directory.");
         Directory.CreateDirectory(outputDirectory);
 
-        var workspace = Path.Combine(Path.GetTempPath(), $"tarkov-companion-self-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(workspace);
         var checks = new List<SelfTestCheck>();
+        var paths = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["report"] = fullOutputPath,
+            ["appBase"] = AppContext.BaseDirectory,
+            ["currentDirectory"] = Environment.CurrentDirectory,
+            ["eftInstall"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_INSTALL_ROOT"),
+            ["eftLogs"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_LOG_ROOT"),
+            ["eftScreenshots"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_SCREENSHOT_ROOT"),
+        };
+        var diagnosticEnabled = false;
+        var offlineSettings = settings is null
+            ? new AppCompositionSettings(Offline: true)
+            : settings with { Offline = true };
 
+        ServiceProvider? services = null;
         try
         {
-            var databasePath = Path.Combine(workspace, "self-test.db");
-            var factory = new SqliteConnectionFactory(new(databasePath));
-            var migrations = await new SqliteMigrationRunner(factory).ApplyAsync(cancellationToken).ConfigureAwait(false);
-            checks.Add(new("database", "pass", $"Opened SQLite and applied {migrations.Count} migration(s)."));
+            services = AppComposition.Build(commandLine, offlineSettings);
+            var startup = services.GetRequiredService<ApplicationStartupCoordinator>();
+            await startup.InitializeAsync(cancellationToken).ConfigureAwait(false);
 
-            await using var connection = await factory.OpenAsync(cancellationToken).ConfigureAwait(false);
-            var tableCount = await ScalarLongAsync(
-                connection,
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('items', 'sync_state', 'raids');",
-                cancellationToken).ConfigureAwait(false);
-            checks.Add(tableCount == 3
-                ? new("cache", "pass", "Required cache tables are present.")
-                : new("cache", "fail", $"Expected 3 required cache tables; found {tableCount}."));
+            var snapshot = services.GetRequiredService<IRuntimeStateStore>().Current;
+            var appPaths = services.GetRequiredService<AppDataPaths>();
+            var dataStore = services.GetRequiredService<IRuntimeDataStore>();
+            paths["database"] = dataStore.DatabasePath;
+            paths["cache"] = appPaths.Cache;
+            paths["profile"] = Path.Combine(appPaths.Config, "profile.json");
 
-            await SeedSearchProbeAsync(connection, cancellationToken).ConfigureAwait(false);
-            var searchCount = await ScalarLongAsync(
-                connection,
-                "SELECT COUNT(*) FROM item_search WHERE item_search MATCH 'diagnostic';",
-                cancellationToken).ConfigureAwait(false);
-            checks.Add(searchCount == 1
-                ? new("search", "pass", "SQLite FTS returned the deterministic diagnostic item.")
-                : new("search", "fail", $"SQLite FTS returned {searchCount} rows."));
+            checks.Add(snapshot.DatabaseReady && File.Exists(dataStore.DatabasePath)
+                ? new("database", "pass", $"Persistent SQLite opened at {dataStore.DatabasePath}.")
+                : new("database", "fail", "The persistent SQLite database was not initialized."));
 
-            checks.Add(new("platform", "pass", $"Headless diagnostics supported on {RuntimeInformation.OSDescription}."));
-            checks.Add(new("provider", "pass", "json.tarkov.dev is configured; the self-test made no network request."));
+            checks.Add(snapshot.Data.ItemCount > 0
+                ? new(
+                    "cache",
+                    "pass",
+                    $"{snapshot.Data.ItemCount} normalized item(s); state is {snapshot.Data.Availability}.")
+                : new(
+                    "cache",
+                    "unavailable",
+                    $"No normalized item cache is present: {snapshot.Data.Detail}",
+                    Required: false));
 
-            var pathProbe = Path.Combine(workspace, "path-probe.tmp");
+            checks.Add(services.GetService<IDataSyncService>() is not null
+                ? new("data-source", "pass", "json.tarkov.dev services are composed; self-test forced offline mode.")
+                : new("data-source", "fail", "The json.tarkov.dev data-sync service is not composed."));
+
+            checks.Add(snapshot.Profile is null
+                ? new("profile", "fail", "The local profile could not be loaded.")
+                : new(
+                    "profile",
+                    "pass",
+                    $"Loaded profile '{snapshot.Profile.Name}' at level {snapshot.Profile.Level} ({snapshot.Profile.GameMode})."));
+
+            var recognitionProvider = services.GetService<IRecognitionService>();
+            checks.Add(recognitionProvider is null
+                ? new(
+                    "ocr-provider",
+                    "unavailable",
+                    "No production OCR/recognition provider is configured; scan results remain unavailable outside demo fixtures.",
+                    Required: false)
+                : new("ocr-provider", "pass", $"Recognition provider: {recognitionProvider.GetType().Name}."));
+
+            var diagnosticRequested = commandLine.DeveloperMode &&
+                !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath);
+            var diagnosticToken = Environment.GetEnvironmentVariable(DiagnosticCommandChannel.TokenEnvironmentVariable);
+            diagnosticEnabled = diagnosticRequested && diagnosticToken?.Length >= 32;
+            checks.Add(diagnosticRequested
+                ? diagnosticEnabled
+                    ? new("diagnostic", "pass", "Developer diagnostic channel configuration is complete.")
+                    : new(
+                        "diagnostic",
+                        "fail",
+                        "Developer diagnostics were requested without a token of at least 32 characters.")
+                : new(
+                    "diagnostic",
+                    "disabled",
+                    "Developer diagnostics are disabled unless explicitly requested.",
+                    Required: false));
+
+            Directory.CreateDirectory(appPaths.Support);
+            var pathProbe = Path.Combine(appPaths.Support, $"self-test-{Guid.NewGuid():N}.tmp");
             await File.WriteAllTextAsync(pathProbe, "writable", cancellationToken).ConfigureAwait(false);
-            checks.Add(new("paths", "pass", "Temporary data and requested report directories are writable."));
+            File.Delete(pathProbe);
+            checks.Add(new("paths", "pass", "Configured database, cache, profile, and support paths are writable."));
+            checks.Add(new("platform", "pass", $"Headless diagnostics supported on {RuntimeInformation.OSDescription}."));
         }
-        catch (Exception exception) when (exception is IOException or SqliteException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             checks.Add(new("self-test-runtime", "fail", exception.Message));
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
-            try
+            if (services is not null)
             {
-                Directory.Delete(workspace, true);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
+                await services.DisposeAsync().ConfigureAwait(false);
             }
         }
 
         var report = new SelfTestReport(
-            1,
+            2,
             DateTimeOffset.UtcNow,
             checks.All(check => !check.Required || string.Equals(check.Status, "pass", StringComparison.Ordinal)),
             checks,
@@ -102,46 +156,17 @@ public static class SelfTestRunner
                 RuntimeInformation.FrameworkDescription,
                 "json.tarkov.dev",
                 false),
-            new Dictionary<string, string?>(StringComparer.Ordinal)
-            {
-                ["report"] = fullOutputPath,
-                ["appBase"] = AppContext.BaseDirectory,
-                ["currentDirectory"] = Environment.CurrentDirectory,
-                ["eftInstall"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_INSTALL_ROOT"),
-                ["eftLogs"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_LOG_ROOT"),
-                ["eftScreenshots"] = Environment.GetEnvironmentVariable("TARKOV_COMPANION_EFT_SCREENSHOT_ROOT"),
-            },
+            paths,
             new Dictionary<string, bool>(StringComparer.Ordinal)
             {
                 ["readsGameMemory"] = false,
                 ["sendsGameInput"] = false,
                 ["capturesNetworkTraffic"] = false,
-                ["diagnosticChannelEnabled"] = false,
+                ["diagnosticChannelEnabled"] = diagnosticEnabled,
             });
 
         await using var output = File.Create(fullOutputPath);
         await JsonSerializer.SerializeAsync(output, report, SerializerOptions, cancellationToken).ConfigureAwait(false);
         return report;
-    }
-
-    private static async Task SeedSearchProbeAsync(SqliteConnection connection, CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO item_search(item_id, name, short_name, aliases, normalized_terms)
-            VALUES ('diagnostic-item', 'Diagnostic item', 'Diag', '', 'diagnostic item');
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<long> ScalarLongAsync(
-        SqliteConnection connection,
-        string sql,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return Convert.ToInt64(result, System.Globalization.CultureInfo.InvariantCulture);
     }
 }
