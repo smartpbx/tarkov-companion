@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sourceProjects": ["src/Fixture.Runtime/Fixture.Runtime.csproj"],
+  "testProjects": [],
+  "sourcePackages": [
+    {
+      "id": "Fixture.Runtime",
+      "version": "1.0.0",
+      "contentHash": "sha512-fixture-content-hash",
+      "relationship": "direct",
+      "projects": ["src/Fixture.Runtime/Fixture.Runtime.csproj"]
+    }
+  ],
+  "testPackages": []
+}

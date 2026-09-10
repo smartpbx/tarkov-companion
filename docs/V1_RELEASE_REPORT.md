@@ -20,14 +20,14 @@ Status: In progress. This document must not be read as a completed release claim
 
 | Gate | Status | Evidence |
 |---|---|---|
-| Linux build | Foundation passed | 10 projects, 0 warnings, 0 errors |
-| Tests | Foundation passed | 25 passed, 0 failed |
+| Linux build | Passed | Serial Release build of 10 projects: 0 warnings, 0 errors |
+| Tests | Passed | 225 passed, 0 failed, 5 skipped (the Windows/native rendered-pixel OCR cases remain environment-gated) |
 | Linux demo | Pending | — |
-| win-x64 publish | Pending | — |
+| win-x64 publish | Passed | Clean self-contained staging produced a 300-entry archive with project/license policy, notices, locked inventory, and 23 license/notice files; no runtime map cache/artwork entries |
 | Windows VM smoke | Pending | — |
-| Dependency/license audit | Pending | — |
-| Safety/secret audit | Pending | — |
-| Claude reviews | Pending | — |
+| Dependency/license audit | Passed | Fail-closed local audit: 52 runtime, 1 build-only, 6 non-Windows, and 13 test-only packages plus 13 bundled components; missing-mapping fixture rejected as required |
+| Safety/secret audit | Passed | `scripts/audit-safety.sh` and `scripts/scan-secrets.sh` both passed on the release-licensing validation host |
+| Claude reviews | In progress | Independent safety/license review completed; its release-blocking third-party notice finding is remediated by the locked inventory and packaged `LICENSES/` corpus |
 
 ## Feature matrix
 
@@ -43,7 +43,7 @@ Startup, warm search, single scan, screenshot event latency, and memory measurem
 
 ## Data and licensing
 
-The verified endpoint catalog and current versions are recorded in `docs/DATA_SOURCES.md`. The final dependency table and map-asset decisions are recorded in `docs/LICENSING.md` and `docs/THIRD_PARTY_NOTICES.md`.
+The verified endpoint catalog and current versions are recorded in `docs/DATA_SOURCES.md`. The final package graph and bundled native/font/data components are locked with NuGet content hashes in `docs/THIRD_PARTY_INVENTORY.json`; policy, authoritative evidence, notices, and exact redistributed texts are recorded in `docs/LICENSING.md`, `docs/THIRD_PARTY_NOTICES.md`, and `LICENSES/`. Optional tarkov.dev map artwork remains runtime-cached, visibly attributed, and absent from the source and release archive.
 
 ## Safety audit
 
@@ -51,7 +51,7 @@ The release contains no game memory access, injection/hooks, packet inspection, 
 
 ## Reviews and known limitations
 
-Claude architecture, recognition, safety/license, and final review summaries are populated after each report is addressed. Real-game behavior, OCR calibration against live EFT visuals, and real screenshot/map transform plausibility remain pending until `docs/LIVE_EFT_VALIDATION.md` is completed.
+Claude architecture, recognition, safety/license, and final review summaries are populated after each report is addressed. The TesseractOCR NuGet package does not publish a native dependency manifest or NOTICE; its packaged binaries were therefore documented from package metadata, the recorded repository commit, PE imports, and embedded version/copyright strings, with exact upstream license texts shipped for each identified static codec. Real-game behavior, OCR calibration against live EFT visuals, real screenshot/map transform plausibility, and Windows VM smoke remain pending until their dedicated validation is completed.
 
 ## Required final statement
 
