@@ -38,6 +38,10 @@ public sealed class RuntimeCompositionTests
             Assert.Contains("fixture", viewModel.ModeLabel, StringComparison.OrdinalIgnoreCase);
             Assert.Equal("Graphics Card", Assert.Single(viewModel.Items.Results).Name);
             Assert.Same(services.GetRequiredService<MapViewModel>(), viewModel.Map);
+            Assert.NotNull(services.GetRequiredService<IQuestCatalog>());
+            Assert.NotNull(services.GetRequiredService<IQuestProgressStore>());
+            Assert.NotNull(services.GetRequiredService<IQuestProgressCommandService>());
+            Assert.NotNull(services.GetRequiredService<IQuestReadService>());
             Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
         }
         finally

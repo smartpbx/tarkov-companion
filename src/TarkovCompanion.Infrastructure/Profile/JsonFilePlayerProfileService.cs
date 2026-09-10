@@ -17,7 +17,7 @@ public sealed record JsonProfileOptions(string FilePath, int MaximumImportBytes 
 
 public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDisposable
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
     private readonly string _filePath;
@@ -56,7 +56,13 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
             }
 
             var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            return ParseAndValidate(json).Profile;
+            var export = ParseAndValidate(json);
+            if (export.SchemaVersion < CurrentSchemaVersion)
+            {
+                await WriteProfileAsync(export.Profile, cancellationToken).ConfigureAwait(false);
+            }
+
+            return export.Profile;
         }
         finally
         {
@@ -140,13 +146,26 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         {
             var export = JsonSerializer.Deserialize<ProfileExport>(json, SerializerOptions)
                 ?? throw new InvalidDataException("Profile import is empty.");
-            if (export.SchemaVersion != CurrentSchemaVersion)
+            if (export.Profile is null)
             {
-                throw new InvalidDataException(
-                    $"Unsupported profile schema {export.SchemaVersion}; expected {CurrentSchemaVersion}.");
+                throw new InvalidDataException("Profile import is missing the profile object.");
             }
 
-            return export with { Profile = ValidateAndNormalize(export.Profile) };
+            if (export.SchemaVersion is < 1 or > CurrentSchemaVersion)
+            {
+                throw new InvalidDataException(
+                    $"Unsupported profile schema {export.SchemaVersion}; supported versions are 1 through {CurrentSchemaVersion}.");
+            }
+
+            if (export.SchemaVersion == CurrentSchemaVersion && !HasProfileGeneration(json))
+            {
+                throw new InvalidDataException("Profile schema 2 requires an explicit profile generation.");
+            }
+
+            var profile = export.SchemaVersion == 1
+                ? export.Profile with { ProfileGeneration = $"legacy-{export.Profile.Id:N}" }
+                : export.Profile;
+            return export with { Profile = ValidateAndNormalize(profile) };
         }
         catch (JsonException exception)
         {
@@ -178,6 +197,11 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         if (profile.Level is < 1 or > 100)
         {
             throw new InvalidDataException("Profile level must be between 1 and 100.");
+        }
+
+        if (string.IsNullOrWhiteSpace(profile.ProfileGeneration) || profile.ProfileGeneration.Trim().Length > 128)
+        {
+            throw new InvalidDataException("Profile generation is required and cannot exceed 128 characters.");
         }
 
         if (profile.TraderLevels is null ||
@@ -212,6 +236,7 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
             EventItemStates = SortedDictionary(profile.EventItemStates),
             ItemOverrides = SortedDictionary(profile.ItemOverrides),
             UpdatedUtc = profile.UpdatedUtc.ToUniversalTime(),
+            ProfileGeneration = profile.ProfileGeneration.Trim(),
         };
     }
 
@@ -219,6 +244,25 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         IEnumerable<KeyValuePair<string, TValue>> values) => values
         .OrderBy(x => x.Key, StringComparer.Ordinal)
         .ToDictionary(x => x.Key, x => x.Value, StringComparer.Ordinal);
+
+    private static bool HasProfileGeneration(string json)
+    {
+        using var document = JsonDocument.Parse(json, new()
+        {
+            AllowTrailingCommas = true,
+            CommentHandling = JsonCommentHandling.Skip,
+        });
+        var profile = document.RootElement.EnumerateObject()
+            .FirstOrDefault(property => property.Name.Equals("profile", StringComparison.OrdinalIgnoreCase));
+        if (profile.Value.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var generation = profile.Value.EnumerateObject()
+            .FirstOrDefault(property => property.Name.Equals("profileGeneration", StringComparison.OrdinalIgnoreCase));
+        return generation.Value.ValueKind == JsonValueKind.String;
+    }
 
     private PlayerProfile CreateDefaultProfile()
     {
@@ -238,7 +282,8 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
             new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, EventItemState>(StringComparer.Ordinal),
             new Dictionary<string, string>(StringComparer.Ordinal),
-            now);
+            now,
+            Guid.NewGuid().ToString("N"));
     }
 
     private static JsonSerializerOptions CreateSerializerOptions()
