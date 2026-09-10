@@ -7,7 +7,9 @@ using TarkovCompanion.Core.Domain.Recognition;
 namespace TarkovCompanion.Platform.Windows.Capture;
 
 /// <summary>Captures visible pixels with GDI. Captured bytes remain in memory and are never persisted.</summary>
-public sealed partial class GdiScreenCaptureService(IGameWindowLocator windowLocator) : IScreenCaptureService
+public sealed partial class GdiScreenCaptureService(
+    IGameWindowLocator windowLocator,
+    bool developerMode = false) : IScreenCaptureService
 {
     public async Task<CapturedImage> CaptureAsync(CaptureRequest request, CancellationToken cancellationToken)
     {
@@ -18,7 +20,7 @@ public sealed partial class GdiScreenCaptureService(IGameWindowLocator windowLoc
             throw new PlatformNotSupportedException("GDI capture is available only on Windows.");
         }
 
-        var window = await windowLocator.FindAsync(developerMode: false, cancellationToken).ConfigureAwait(false);
+        var window = await windowLocator.FindAsync(developerMode, cancellationToken).ConfigureAwait(false);
         if (window is not null && !window.IsMinimized)
         {
             return CaptureWindow(window, request.Region);
@@ -60,81 +62,91 @@ public sealed partial class GdiScreenCaptureService(IGameWindowLocator windowLoc
     [SupportedOSPlatform("windows")]
     private static CapturedImage Capture(nint window, int sourceX, int sourceY, int width, int height, string source)
     {
-        _ = CaptureNative.SetThreadDpiAwarenessContext(new nint(-4));
-        var sourceDc = CaptureNative.GetWindowDC(window);
-        if (sourceDc == 0)
-        {
-            throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not acquire a capture device context.");
-        }
-
-        nint memoryDc = 0;
-        nint bitmap = 0;
-        nint previousObject = 0;
+        var previousDpiContext = CaptureNative.SetThreadDpiAwarenessContext(new nint(-4));
         try
         {
-            memoryDc = CaptureNative.CreateCompatibleDC(sourceDc);
-            bitmap = CaptureNative.CreateCompatibleBitmap(sourceDc, width, height);
-            if (memoryDc == 0 || bitmap == 0)
+            var sourceDc = CaptureNative.GetWindowDC(window);
+            if (sourceDc == 0)
             {
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not allocate GDI capture resources.");
+                throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not acquire a capture device context.");
             }
 
-            previousObject = CaptureNative.SelectObject(memoryDc, bitmap);
-            const uint copyVisiblePixels = 0x00CC0020 | 0x40000000;
-            if (CaptureNative.BitBlt(memoryDc, 0, 0, width, height, sourceDc, sourceX, sourceY, copyVisiblePixels) == 0)
-            {
-                throw new Win32Exception(Marshal.GetLastPInvokeError(), "GDI could not copy the visible pixels.");
-            }
-
-            var stride = checked(width * 4);
-            var pixels = new byte[checked(stride * height)];
-            var info = new BitmapInfo
-            {
-                Header = new BitmapInfoHeader
-                {
-                    Size = (uint)Marshal.SizeOf<BitmapInfoHeader>(),
-                    Width = width,
-                    Height = -height,
-                    Planes = 1,
-                    BitCount = 32,
-                    Compression = 0,
-                },
-            };
-            var buffer = Marshal.AllocHGlobal(pixels.Length);
+            nint memoryDc = 0;
+            nint bitmap = 0;
+            nint previousObject = 0;
             try
             {
-                if (CaptureNative.GetDIBits(memoryDc, bitmap, 0, (uint)height, buffer, ref info, 0) == 0)
+                memoryDc = CaptureNative.CreateCompatibleDC(sourceDc);
+                bitmap = CaptureNative.CreateCompatibleBitmap(sourceDc, width, height);
+                if (memoryDc == 0 || bitmap == 0)
                 {
-                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "GDI could not read the captured bitmap.");
+                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not allocate GDI capture resources.");
                 }
 
-                Marshal.Copy(buffer, pixels, 0, pixels.Length);
+                previousObject = CaptureNative.SelectObject(memoryDc, bitmap);
+                const uint copyVisiblePixels = 0x00CC0020 | 0x40000000;
+                if (CaptureNative.BitBlt(memoryDc, 0, 0, width, height, sourceDc, sourceX, sourceY, copyVisiblePixels) == 0)
+                {
+                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "GDI could not copy the visible pixels.");
+                }
+
+                var stride = checked(width * 4);
+                var pixels = new byte[checked(stride * height)];
+                var info = new BitmapInfo
+                {
+                    Header = new BitmapInfoHeader
+                    {
+                        Size = (uint)Marshal.SizeOf<BitmapInfoHeader>(),
+                        Width = width,
+                        Height = -height,
+                        Planes = 1,
+                        BitCount = 32,
+                        Compression = 0,
+                    },
+                };
+                var buffer = Marshal.AllocHGlobal(pixels.Length);
+                try
+                {
+                    if (CaptureNative.GetDIBits(memoryDc, bitmap, 0, (uint)height, buffer, ref info, 0) == 0)
+                    {
+                        throw new Win32Exception(Marshal.GetLastPInvokeError(), "GDI could not read the captured bitmap.");
+                    }
+
+                    Marshal.Copy(buffer, pixels, 0, pixels.Length);
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+
+                return new(pixels, width, height, stride, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, source);
             }
             finally
             {
-                Marshal.FreeHGlobal(buffer);
-            }
+                if (previousObject != 0 && memoryDc != 0)
+                {
+                    _ = CaptureNative.SelectObject(memoryDc, previousObject);
+                }
 
-            return new(pixels, width, height, stride, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, source);
+                if (bitmap != 0)
+                {
+                    _ = CaptureNative.DeleteObject(bitmap);
+                }
+
+                if (memoryDc != 0)
+                {
+                    _ = CaptureNative.DeleteDC(memoryDc);
+                }
+
+                _ = CaptureNative.ReleaseDC(window, sourceDc);
+            }
         }
         finally
         {
-            if (previousObject != 0 && memoryDc != 0)
+            if (previousDpiContext != 0)
             {
-                _ = CaptureNative.SelectObject(memoryDc, previousObject);
+                _ = CaptureNative.SetThreadDpiAwarenessContext(previousDpiContext);
             }
-
-            if (bitmap != 0)
-            {
-                _ = CaptureNative.DeleteObject(bitmap);
-            }
-
-            if (memoryDc != 0)
-            {
-                _ = CaptureNative.DeleteDC(memoryDc);
-            }
-
-            _ = CaptureNative.ReleaseDC(window, sourceDc);
         }
     }
 

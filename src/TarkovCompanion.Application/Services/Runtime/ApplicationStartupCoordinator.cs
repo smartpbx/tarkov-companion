@@ -44,12 +44,13 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        if (_options.DemoMode)
+        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        if (_options.DemoMode && cached.ItemCount == 0)
         {
             await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
+            cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
         var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
         _stateStore.Update(current => current with
         {

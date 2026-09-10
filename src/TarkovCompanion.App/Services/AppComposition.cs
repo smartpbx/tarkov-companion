@@ -52,6 +52,7 @@ public sealed record AppCompositionSettings(
 
 public static class AppComposition
 {
+    public const string DataRootEnvironmentVariable = "TARKOV_COMPANION_DATA_ROOT";
     public const string OfflineEnvironmentVariable = "TARKOV_COMPANION_OFFLINE";
     public const string TarkovTrackerEnvironmentVariable = "TARKOV_COMPANION_TARKOVTRACKER_ENABLED";
 
@@ -61,7 +62,8 @@ public static class AppComposition
         settings ??= new();
         var timeProvider = settings.TimeProvider ?? TimeProvider.System;
         var offline = settings.Offline ?? IsEnabled(Environment.GetEnvironmentVariable(OfflineEnvironmentVariable));
-        var paths = AppDataPaths.Resolve(settings.DataRoot, commandLine.Demo);
+        var dataRoot = settings.DataRoot ?? Environment.GetEnvironmentVariable(DataRootEnvironmentVariable);
+        var paths = AppDataPaths.Resolve(dataRoot, commandLine.Demo);
         var runtimeOptions = new RuntimeOptions(
             commandLine.Demo,
             offline,
@@ -207,7 +209,8 @@ public static class AppComposition
         services.AddSingleton<ILoadoutService, LoadoutIntelligenceService>();
         services.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 
-        services.AddSingleton<IMapDefinitionCache, InMemoryMapDefinitionCache>();
+        services.AddSingleton<IMapDefinitionCache>(_ => new InMemoryMapDefinitionCache(
+            commandLine.Demo ? CreateDemoMaps(timeProvider.GetUtcNow()) : []));
         services.AddSingleton<IMapDataService, MapDataService>();
         services.AddSingleton<IMapTransformService, MapTransformService>();
         services.AddSingleton<IStrategyModel, StrategyModel>();
@@ -227,6 +230,7 @@ public static class AppComposition
         services.AddSingleton<RecognitionSelfTest>();
         services.AddSingleton<IRecognitionSelfTest>(provider => provider.GetRequiredService<RecognitionSelfTest>());
 
+        services.AddSingleton<PngFileScreenCaptureService>();
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IGameWindowLocator, WindowsGameWindowLocator>();
@@ -235,7 +239,26 @@ public static class AppComposition
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
             services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
             services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
-            services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
+            services.AddSingleton<IScreenCaptureService>(provider =>
+            {
+                var native = new GdiScreenCaptureService(
+                    provider.GetRequiredService<IGameWindowLocator>(),
+                    commandLine.DeveloperMode);
+                return commandLine.DeveloperMode
+                    ? new DeveloperScreenCaptureService(
+                        provider.GetRequiredService<PngFileScreenCaptureService>(),
+                        native)
+                    : native;
+            });
+        }
+        else if (commandLine.DeveloperMode)
+        {
+            services.AddSingleton<IScreenCaptureService>(provider =>
+                provider.GetRequiredService<PngFileScreenCaptureService>());
+        }
+
+        if (OperatingSystem.IsWindows() || commandLine.DeveloperMode)
+        {
             services.AddSingleton<ExtractRecognitionService>();
             services.AddSingleton<IExtractRecognitionService>(provider =>
                 provider.GetRequiredService<ExtractRecognitionService>());
@@ -260,7 +283,9 @@ public static class AppComposition
         services.AddSingleton<RaidActivityCoordinator>();
         services.AddSingleton<ApplicationStartupCoordinator>();
         services.AddSingleton<IScanAdapter>(_ => settings.ScanAdapter
-            ?? (commandLine.Demo
+            ?? (commandLine.DeveloperMode && (OperatingSystem.IsWindows() || _.GetService<IScreenCaptureService>() is not null)
+                ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
+                : commandLine.Demo
                 ? new FixtureScanAdapter(
                     new("demo-graphics-card"),
                     _.GetRequiredService<IItemRepository>(),
@@ -270,6 +295,7 @@ public static class AppComposition
                     ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
+        services.AddSingleton<DiagnosticScenarioProcessor>();
         services.AddSingleton<MainWindowViewModel>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
@@ -287,6 +313,27 @@ public static class AppComposition
         string.IsNullOrWhiteSpace(configuredValue)
             ? protectedStorageAvailable
             : IsEnabled(configuredValue);
+
+    private static IReadOnlyList<MapDefinition> CreateDemoMaps(DateTimeOffset observedUtc)
+    {
+        var provenance = new DataProvenance("simulator-fixture; live-unvalidated", observedUtc.ToUniversalTime());
+        return
+        [
+            new(
+                "customs",
+                "Customs",
+                TimeSpan.FromMinutes(40),
+                TimeSpan.FromMinutes(25),
+                [],
+                [
+                    new("customs-crossroads", "customs", "Crossroads", null, null, provenance),
+                    new("customs-trailer-park", "customs", "Trailer Park", null, null, provenance),
+                    new("customs-dorms-v-ex", "customs", "Dorms V-Ex", null, "Dynamic status must be observed.", provenance),
+                ],
+                null,
+                provenance),
+        ];
+    }
 
     private sealed class OfflineHttpMessageHandler : HttpMessageHandler
     {

@@ -1,6 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TarkovCompanion.Application.Services;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
@@ -8,13 +11,23 @@ public enum DiagnosticCommandKind
 {
     Scan,
     Scenario,
+    State,
 }
 
 public sealed record DiagnosticCommand(
     string? Id,
     DiagnosticCommandKind Command,
     string? Token,
-    string? Scenario = null);
+    string? Scenario = null,
+    string? ScreenshotPath = null,
+    string? LogPath = null,
+    string? PositionFilename = null);
+
+public sealed record DiagnosticObservation(
+    string Code,
+    string Source,
+    string Detail,
+    DateTimeOffset ObservedUtc);
 
 public sealed record DiagnosticResponse(
     string Id,
@@ -23,9 +36,15 @@ public sealed record DiagnosticResponse(
     string? Scenario,
     DateTimeOffset ProcessedUtc,
     string? Error = null,
-    ScanExecutionResult? Scan = null);
+    ScanExecutionResult? Scan = null,
+    ApplicationRuntimeSnapshot? Runtime = null,
+    IReadOnlyList<DiagnosticObservation>? Evidence = null);
 
-public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeScanUseCase scanUseCase)
+public sealed class DiagnosticCommandProcessor(
+    string requiredToken,
+    IRuntimeScanUseCase scanUseCase,
+    IRuntimeStateStore? stateStore = null,
+    DiagnosticScenarioProcessor? scenarioProcessor = null)
 {
     private const int MaximumIdentifierLength = 80;
 
@@ -51,7 +70,9 @@ public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeSca
         {
             try
             {
-                var scan = await scanUseCase.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+                var scan = await scanUseCase
+                    .ExecuteAsync(new(command.ScreenshotPath), cancellationToken)
+                    .ConfigureAwait(false);
                 return new(
                     commandId,
                     true,
@@ -59,7 +80,13 @@ public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeSca
                     null,
                     processedUtc,
                     null,
-                    scan);
+                    scan,
+                    stateStore?.Current,
+                    scan.Outcome?.Evidence.Select(evidence => new DiagnosticObservation(
+                        evidence.Code,
+                        scan.Source,
+                        evidence.Detail,
+                        evidence.ObservedUtc)).ToArray());
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -67,10 +94,59 @@ public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeSca
             }
         }
 
+        if (command.Command == DiagnosticCommandKind.State)
+        {
+            return stateStore is null
+                ? Reject(commandId, processedUtc, "runtime-state-unavailable")
+                : new(
+                    commandId,
+                    true,
+                    "state-read",
+                    null,
+                    processedUtc,
+                    Runtime: stateStore.Current,
+                    Evidence:
+                    [
+                        new(
+                            "runtime-state",
+                            "application-runtime-state-store",
+                            "Returned current persisted/cache, raid, position, extract, and scan state.",
+                            processedUtc),
+                    ]);
+        }
+
+        if (command.Command == DiagnosticCommandKind.Scenario && IsSafeIdentifier(command.Scenario))
+        {
+            try
+            {
+                var evidence = scenarioProcessor is null
+                    ? []
+                    : await scenarioProcessor.ProcessAsync(command, processedUtc, cancellationToken)
+                        .ConfigureAwait(false);
+                return new(
+                    commandId,
+                    true,
+                    evidence.Count == 0 ? "scenario-selected" : "scenario-evidence-applied",
+                    command.Scenario,
+                    processedUtc,
+                    Runtime: stateStore?.Current,
+                    Evidence: evidence);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                return new(
+                    commandId,
+                    true,
+                    "scenario-failed",
+                    command.Scenario,
+                    processedUtc,
+                    exception.Message,
+                    Runtime: stateStore?.Current);
+            }
+        }
+
         return command.Command switch
         {
-            DiagnosticCommandKind.Scenario when IsSafeIdentifier(command.Scenario) =>
-                new(commandId, true, "scenario-selected", command.Scenario, processedUtc),
             DiagnosticCommandKind.Scenario => Reject(commandId, processedUtc, "invalid-scenario"),
             _ => Reject(commandId, processedUtc, "unsupported-command"),
         };
@@ -101,6 +177,83 @@ public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeSca
     }
 }
 
+public sealed class DiagnosticScenarioProcessor(
+    EftLogParser logParser,
+    IScreenshotFilenameParser screenshotFilenameParser,
+    RaidActivityCoordinator raidActivityCoordinator)
+{
+    private const long MaximumLogBytes = 1024 * 1024;
+
+    public async Task<IReadOnlyList<DiagnosticObservation>> ProcessAsync(
+        DiagnosticCommand command,
+        DateTimeOffset processedUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        var evidence = new List<DiagnosticObservation>();
+        var observationIndex = 0;
+        if (!string.IsNullOrWhiteSpace(command.LogPath))
+        {
+            var logPath = ValidateLogPath(command.LogPath);
+            var lines = await File.ReadAllLinesAsync(logPath, cancellationToken).ConfigureAwait(false);
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                var observedUtc = processedUtc.AddMilliseconds(observationIndex++);
+                var parsed = logParser.ParseLine(lines[lineIndex], observedUtc);
+                if (parsed is null)
+                {
+                    continue;
+                }
+
+                var snapshot = await raidActivityCoordinator.ApplyEvidenceAsync(parsed, cancellationToken)
+                    .ConfigureAwait(false);
+                evidence.Add(new(
+                    "log-evidence",
+                    $"eft-log-parser:{Path.GetFileName(logPath)}:{lineIndex + 1}",
+                    $"Applied {parsed.SuggestedState?.ToString() ?? "state-unchanged"}; map={parsed.MapId ?? "unchanged"}; resulting-state={snapshot.State}.",
+                    observedUtc));
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.PositionFilename))
+        {
+            if (!screenshotFilenameParser.TryParse(command.PositionFilename, TimeSpan.Zero, out var parsedPosition) ||
+                parsedPosition is null)
+            {
+                throw new InvalidDataException("The supplied synthetic screenshot filename is not parseable position evidence.");
+            }
+
+            var observedUtc = processedUtc.AddMilliseconds(observationIndex);
+            var position = parsedPosition with { Timestamp = observedUtc };
+            await raidActivityCoordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
+            evidence.Add(new(
+                "position-evidence",
+                "screenshot-filename-parser:" + parsedPosition.Filename,
+                $"Parsed world=({position.Position.X:F2},{position.Position.Y:F2},{position.Position.Z:F2}); heading={position.HeadingDegrees:F2}; filename-time={parsedPosition.Timestamp:O}.",
+                observedUtc));
+        }
+
+        return evidence;
+    }
+
+    private static string ValidateLogPath(string value)
+    {
+        var path = Path.GetFullPath(value);
+        if (!string.Equals(Path.GetExtension(path), ".log", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("Diagnostic scenario evidence accepts .log files only.");
+        }
+
+        var file = new FileInfo(path);
+        if (!file.Exists || file.Length > MaximumLogBytes)
+        {
+            throw new InvalidDataException("The diagnostic log is missing or exceeds the 1 MiB input limit.");
+        }
+
+        return path;
+    }
+}
+
 public sealed class DiagnosticCommandChannel : IAsyncDisposable
 {
     public const string TokenEnvironmentVariable = "TARKOV_COMPANION_DIAGNOSTIC_TOKEN";
@@ -117,13 +270,18 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task worker;
 
-    private DiagnosticCommandChannel(string channelPath, string token, IRuntimeScanUseCase scanUseCase)
+    private DiagnosticCommandChannel(
+        string channelPath,
+        string token,
+        IRuntimeScanUseCase scanUseCase,
+        IRuntimeStateStore? stateStore,
+        DiagnosticScenarioProcessor? scenarioProcessor)
     {
         commandDirectory = Path.Combine(channelPath, "commands");
         responseDirectory = Path.Combine(channelPath, "responses");
         Directory.CreateDirectory(commandDirectory);
         Directory.CreateDirectory(responseDirectory);
-        processor = new(token, scanUseCase);
+        processor = new(token, scanUseCase, stateStore, scenarioProcessor);
         worker = Task.Run(() => RunAsync(stopping.Token));
     }
 
@@ -131,7 +289,9 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
         bool developerMode,
         string? channelPath,
         IRuntimeScanUseCase scanUseCase,
-        string? token = null)
+        string? token = null,
+        IRuntimeStateStore? stateStore = null,
+        DiagnosticScenarioProcessor? scenarioProcessor = null)
     {
         ArgumentNullException.ThrowIfNull(scanUseCase);
         if (!developerMode || string.IsNullOrWhiteSpace(channelPath))
@@ -146,7 +306,7 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
                 $"Developer diagnostics require a token of at least 32 characters in {TokenEnvironmentVariable}.");
         }
 
-        return new(Path.GetFullPath(channelPath), token, scanUseCase);
+        return new(Path.GetFullPath(channelPath), token, scanUseCase, stateStore, scenarioProcessor);
     }
 
     public async ValueTask DisposeAsync()

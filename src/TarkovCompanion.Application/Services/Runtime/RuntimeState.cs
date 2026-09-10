@@ -38,7 +38,8 @@ public sealed record ScanExecutionResult(
     Confidence Confidence,
     DateTimeOffset ObservedUtc,
     string Source,
-    string Detail)
+    string Detail,
+    ScanOutcome? Outcome = null)
 {
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,

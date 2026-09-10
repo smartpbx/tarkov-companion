@@ -41,7 +41,9 @@ internal static class Program
             var diagnosticChannel = DiagnosticCommandChannel.Start(
                 options.DeveloperMode,
                 options.DiagnosticChannelPath,
-                services.GetRequiredService<IRuntimeScanUseCase>());
+                services.GetRequiredService<IRuntimeScanUseCase>(),
+                stateStore: services.GetRequiredService<IRuntimeStateStore>(),
+                scenarioProcessor: services.GetRequiredService<DiagnosticScenarioProcessor>());
             try
             {
                 return BuildAvaloniaApp(app).StartWithClassicDesktopLifetime(args);

@@ -24,7 +24,12 @@ public sealed record PriceHistoryPoint(DateTimeOffset TimestampUtc, long? FleaPr
 
 public sealed record ItemNeedSummary(int QuestCount, int FoundInRaidQuestCount, int HideoutCount);
 
-public sealed record CaptureRequest(string WindowSelector, PixelRect? Region, bool AllowDesktopFallback, string Reason);
+public sealed record CaptureRequest(
+    string WindowSelector,
+    PixelRect? Region,
+    bool AllowDesktopFallback,
+    string Reason,
+    string? SourceImagePath = null);
 
 public sealed record WindowDescriptor(nint Handle, string ProcessName, string Title, PixelRect Bounds, bool IsMinimized, bool IsSimulator);
 
