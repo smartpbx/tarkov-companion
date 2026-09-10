@@ -78,6 +78,23 @@ function Stop-StartedProcess {
     }
 }
 
+function Invoke-PackagedApp {
+    param(
+        [string] $Path,
+        [string[]] $Arguments,
+        [string] $WorkRoot,
+        [string] $Name
+    )
+
+    # TarkovCompanion.exe is a WinExe. PowerShell does not wait for GUI-subsystem
+    # processes invoked with the call operator, so the exit code and any report
+    # file would be read before the process had produced them.
+    $Process = Start-Process -FilePath $Path -ArgumentList $Arguments -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput (Join-Path $WorkRoot "$Name.out.txt") `
+        -RedirectStandardError (Join-Path $WorkRoot "$Name.err.txt")
+    return $Process.ExitCode
+}
+
 function Send-DiagnosticCommand {
     param(
         [string] $ChannelRoot,
@@ -113,8 +130,11 @@ try {
     New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 
     $SelfTestPath = Join-Path $WorkRoot "self-test.json"
-    & $ResolvedAppPath --self-test --output $SelfTestPath
-    Add-Assertion -Name "self-test-exit" -Passed ($LASTEXITCODE -eq 0) -Detail "Exit code: $LASTEXITCODE"
+    $SelfTestExitCode = Invoke-PackagedApp -Path $ResolvedAppPath `
+        -Arguments @("--self-test", "--output", $SelfTestPath) `
+        -WorkRoot $WorkRoot `
+        -Name "self-test"
+    Add-Assertion -Name "self-test-exit" -Passed ($SelfTestExitCode -eq 0) -Detail "Exit code: $SelfTestExitCode"
     $SelfTest = Get-Content -LiteralPath $SelfTestPath -Raw | ConvertFrom-Json
     Add-Assertion -Name "self-test-report" -Passed ([bool]$SelfTest.success) -Detail "Headless report is successful."
     Add-Assertion -Name "self-test-offline" -Passed (-not [bool]$SelfTest.environment.networkContacted) -Detail "Self-test made no network contact."

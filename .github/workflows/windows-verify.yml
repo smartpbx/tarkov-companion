@@ -1,0 +1,208 @@
+name: Windows verification
+
+# Behavioral verification of the packaged Windows build on a GitHub-hosted
+# Windows runner. Clayton's workstation must never build or run this project,
+# and CT 114 is Linux, so a hosted Windows runner is the only sanctioned place
+# to prove that the shipped package actually starts and works.
+#
+# Escape from Tarkov is not installed on the runner and is not required. Nothing
+# here reads game memory, sends input to another process, or inspects network
+# traffic.
+#
+# TarkovCompanion.exe is a WinExe. PowerShell does not wait for GUI-subsystem
+# processes, so every headless invocation below goes through Start-Process
+# -Wait -PassThru and reads ExitCode from the returned process.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - smartpbx/v1-windows-build
+
+permissions:
+  contents: read
+
+jobs:
+  windows-verify:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+      DOTNET_CLI_TELEMETRY_OPTOUT: 1
+      DOTNET_NOLOGO: 1
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Report runner session facts
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path "verification" -Force | Out-Null
+          $Geometry = "unavailable"
+          try {
+            Add-Type -AssemblyName System.Windows.Forms
+            $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+            $Geometry = "$($Bounds.Width)x$($Bounds.Height)"
+          } catch {
+            $Geometry = "error: $($_.Exception.Message)"
+          }
+          $Facts = [ordered]@{
+            os = [System.Environment]::OSVersion.VersionString
+            userInteractive = [System.Environment]::UserInteractive
+            userName = [System.Environment]::UserName
+            virtualScreen = $Geometry
+          }
+          $Facts | ConvertTo-Json | Set-Content -LiteralPath "verification/runner-session.json" -Encoding utf8
+          $Facts | ConvertTo-Json
+
+      - name: Restore
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+
+      - name: Restore win-x64 publish graphs
+        run: |
+          dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+          dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+
+      - name: Package self-contained win-x64
+        id: package
+        shell: bash
+        run: ./scripts/package-windows.sh
+
+      - name: Extract package the way a user would
+        shell: powershell
+        run: |
+          $Target = Join-Path $env:RUNNER_TEMP "TarkovCompanion"
+          New-Item -ItemType Directory -Path $Target -Force | Out-Null
+          Expand-Archive -LiteralPath "dist/TarkovCompanion-v1.0.0-win-x64.zip" -DestinationPath $Target -Force
+          "TC_APP=$(Join-Path $Target 'TarkovCompanion.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TC_SIMULATOR=$(Join-Path $Target 'TarkovCompanion.EftSimulator.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")
+
+      - name: Headless self-test on a clean machine
+        id: self-test-cold
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $Report = Join-Path $env:GITHUB_WORKSPACE "verification/self-test-cold.json"
+          $Process = Start-Process -FilePath $env:TC_APP -ArgumentList @("--self-test", "--output", $Report) `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "verification/self-test-cold.out.txt" `
+            -RedirectStandardError "verification/self-test-cold.err.txt"
+          Get-Content -LiteralPath "verification/self-test-cold.err.txt" -Raw
+          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          exit $Process.ExitCode
+
+      - name: Headless demo raid replay
+        id: demo-replay
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $Report = Join-Path $env:GITHUB_WORKSPACE "verification/demo-replay.json"
+          $Process = Start-Process -FilePath $env:TC_APP -ArgumentList @("--demo", "--headless", "--output", $Report) `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "verification/demo-replay.out.txt" `
+            -RedirectStandardError "verification/demo-replay.err.txt"
+          Get-Content -LiteralPath "verification/demo-replay.err.txt" -Raw
+          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          exit $Process.ExitCode
+
+      - name: First-run desktop launch probe
+        id: launch-probe
+        continue-on-error: true
+        shell: powershell
+        run: |
+          ./scripts/windows-launch-probe.ps1 `
+            -AppPath $env:TC_APP `
+            -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
+            -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
+
+      - name: Headless self-test after first run
+        id: self-test-warm
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $Report = Join-Path $env:GITHUB_WORKSPACE "verification/self-test-warm.json"
+          $Process = Start-Process -FilePath $env:TC_APP -ArgumentList @("--self-test", "--output", $Report) `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput "verification/self-test-warm.out.txt" `
+            -RedirectStandardError "verification/self-test-warm.err.txt"
+          Get-Content -LiteralPath "verification/self-test-warm.err.txt" -Raw
+          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          exit $Process.ExitCode
+
+      - name: Inventory local application data
+        if: always()
+        continue-on-error: true
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Path "verification" -Force | Out-Null
+          $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
+          if (Test-Path -LiteralPath $Root) {
+            Get-ChildItem -LiteralPath $Root -Recurse -File |
+              Select-Object @{ n = "path"; e = { $_.FullName.Substring($Root.Length + 1) } }, Length |
+              Sort-Object path |
+              ConvertTo-Json -Depth 4 |
+              Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
+            Get-Content -LiteralPath "verification/local-appdata.json" -Raw
+          } else {
+            "The application never created $Root." | Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
+          }
+
+      - name: Developer diagnostic smoke with the simulator
+        id: developer-smoke
+        continue-on-error: true
+        shell: powershell
+        run: |
+          ./scripts/windows-smoke.ps1 `
+            -AppPath $env:TC_APP `
+            -SimulatorPath $env:TC_SIMULATOR `
+            -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/windows-smoke.json")
+
+      - name: Publish verification evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-verification
+          path: verification/**
+          if-no-files-found: warn
+
+      - name: Publish the verified package
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: TarkovCompanion-win-x64
+          path: |
+            dist/TarkovCompanion-v1.0.0-win-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: warn
+
+      - name: Summarize and fail on any unverified step
+        if: always()
+        shell: powershell
+        run: |
+          $Steps = [ordered]@{
+            "self-test-cold" = "${{ steps.self-test-cold.outcome }}"
+            "demo-replay" = "${{ steps.demo-replay.outcome }}"
+            "launch-probe" = "${{ steps.launch-probe.outcome }}"
+            "self-test-warm" = "${{ steps.self-test-warm.outcome }}"
+            "developer-smoke" = "${{ steps.developer-smoke.outcome }}"
+          }
+
+          $Lines = @("| Verification | Outcome |", "| --- | --- |")
+          foreach ($Name in $Steps.Keys) {
+            $Lines += "| $Name | $($Steps[$Name]) |"
+          }
+          ($Lines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+          $Failed = @($Steps.Keys | Where-Object { $Steps[$_] -ne "success" })
+          if ($Failed.Count -gt 0) {
+            Write-Host ("Windows verification failed: " + ($Failed -join ", "))
+            exit 1
+          }
+
+          Write-Host "Every Windows verification step passed."
