@@ -6,46 +6,67 @@
     xmlns:vm="using:TarkovCompanion.App.ViewModels.Maps"
     xmlns:maps="using:TarkovCompanion.Application.Services.Maps">
   <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="8">
-    <Grid ColumnDefinitions="2*,2*,*,Auto" ColumnSpacing="8">
-      <ComboBox
-          x:Name="LocationChooser"
-          ItemsSource="{Binding Locations}"
-          SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
-          SelectionChanged="LocationSelectionChanged">
-        <ComboBox.ItemTemplate>
-          <DataTemplate x:DataType="maps:MapLocation">
-            <TextBlock Text="{Binding Name}" />
-          </DataTemplate>
-        </ComboBox.ItemTemplate>
-      </ComboBox>
-      <ComboBox
-          x:Name="VariantChooser"
-          Grid.Column="1"
-          ItemsSource="{Binding Variants}"
-          SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
-          SelectionChanged="VariantSelectionChanged">
-        <ComboBox.ItemTemplate>
-          <DataTemplate x:DataType="maps:MapVariant">
-            <TextBlock Text="{Binding DisplayName}" />
-          </DataTemplate>
-        </ComboBox.ItemTemplate>
-      </ComboBox>
-      <ComboBox
-          x:Name="FloorChooser"
-          Grid.Column="2"
-          ItemsSource="{Binding Floors}"
-          SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
-          SelectionChanged="FloorSelectionChanged">
-        <ComboBox.ItemTemplate>
-          <DataTemplate x:DataType="maps:MapFloorDefinition">
-            <TextBlock Text="{Binding Name}" />
-          </DataTemplate>
-        </ComboBox.ItemTemplate>
-      </ComboBox>
-      <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
-        <Button Click="ZoomOutClick" Content="−" />
-        <TextBlock MinWidth="42" VerticalAlignment="Center" Text="{Binding ZoomScale, StringFormat={}{0:F1}×}" TextAlignment="Center" />
-        <Button Click="ZoomInClick" Content="+" />
+    <!-- One compact instrument row. The three choosers stay together on the left so the
+         eye lands in one place, and the view controls sit on the right where they do not
+         compete with them. Captions are inline rather than stacked: this panel is glanced
+         at from a second monitor mid-raid, so vertical space belongs to the map. -->
+    <Grid ColumnDefinitions="Auto,*" VerticalAlignment="Center">
+      <StackPanel Orientation="Horizontal" Spacing="14">
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Classes="chooserLabel" Text="MAP" />
+          <ComboBox
+              x:Name="LocationChooser"
+              Classes="chooser"
+              MinWidth="150"
+              ItemsSource="{Binding Locations}"
+              SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
+              SelectionChanged="LocationSelectionChanged">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="maps:MapLocation">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Classes="chooserLabel" Text="VIEW" />
+          <ComboBox
+              x:Name="VariantChooser"
+              Classes="chooser"
+              MinWidth="130"
+              ItemsSource="{Binding Variants}"
+              SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
+              SelectionChanged="VariantSelectionChanged">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="maps:MapVariant">
+                <TextBlock Text="{Binding DisplayName}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <TextBlock Classes="chooserLabel" Text="FLOOR" />
+          <ComboBox
+              x:Name="FloorChooser"
+              Classes="chooser"
+              MinWidth="110"
+              ItemsSource="{Binding Floors}"
+              SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
+              SelectionChanged="FloorSelectionChanged">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="maps:MapFloorDefinition">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right">
+        <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it" />
+        <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
+        <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
+        <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />
       </StackPanel>
     </Grid>
 
@@ -57,17 +78,26 @@
       </ItemsControl.ItemsPanel>
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:MapOverlayViewModel">
-          <StackPanel Margin="0,0,8,0" Orientation="Horizontal" Spacing="2">
-            <ToggleButton
-                Tag="{Binding Kind}"
-                Content="{Binding Name}"
-                IsChecked="{Binding IsVisible, Mode=OneWay}"
-                Click="OverlayVisibilityChanged" />
-            <Button
-                Tag="{Binding Kind}"
-                Content="{Binding HighlightLabel}"
-                Click="OverlayHighlightClick" />
-          </StackPanel>
+          <!-- One chip per layer rather than two separate buttons. The name toggles the
+               layer; the trailing target button highlights it. Two controls per layer made
+               the row twice as long and read as clutter. -->
+          <Border Classes="chip" Margin="0,0,6,6">
+            <StackPanel Orientation="Horizontal">
+              <ToggleButton
+                  Classes="chipToggle"
+                  Tag="{Binding Kind}"
+                  Content="{Binding Name}"
+                  IsChecked="{Binding IsVisible, Mode=OneWay}"
+                  Click="OverlayVisibilityChanged" />
+              <Button
+                  Classes="chipFocus"
+                  Classes.on="{Binding IsHighlighted}"
+                  Tag="{Binding Kind}"
+                  Content="&#x25CE;"
+                  ToolTip.Tip="{Binding HighlightLabel}"
+                  Click="OverlayHighlightClick" />
+            </StackPanel>
+          </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>

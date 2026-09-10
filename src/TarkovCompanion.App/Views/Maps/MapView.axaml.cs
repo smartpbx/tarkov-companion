@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Maps;
 
@@ -11,11 +12,82 @@ namespace TarkovCompanion.App.Views.Maps;
 
 public sealed partial class MapView : UserControl
 {
+    /// <summary>Room left around a fitted map so its edge is not flush with the panel.</summary>
+    private const double ViewportPadding = 16;
+
+    private MapViewModel? _boundViewModel;
     private bool _isPanning;
     private Point _panStart;
     private Vector _panOffset;
 
-    public MapView() => AvaloniaXamlLoader.Load(this);
+    public MapView()
+    {
+        AvaloniaXamlLoader.Load(this);
+        DataContextChanged += MapDataContextChanged;
+        ViewportScrollViewer.SizeChanged += ViewportSizeChanged;
+    }
+
+    private void MapDataContextChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_boundViewModel is not null)
+        {
+            _boundViewModel.FitRequested -= FitRequested;
+        }
+
+        _boundViewModel = DataContext as MapViewModel;
+        if (_boundViewModel is not null)
+        {
+            _boundViewModel.FitRequested += FitRequested;
+            FitAndCentre();
+        }
+    }
+
+    private void ViewportSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
+    {
+        if (_boundViewModel?.IsAutoFit == true)
+        {
+            FitAndCentre();
+        }
+    }
+
+    private void FitRequested(object? sender, EventArgs eventArgs) => FitAndCentre();
+
+    /// <summary>
+    /// Scales the map to the panel and puts the middle of it in the middle of the view.
+    /// </summary>
+    /// <remarks>
+    /// A tile grid is laid out in upstream pixel coordinates and is routinely several times
+    /// the panel's size, with empty tiles at the top-left. Opening at 100% therefore showed
+    /// blank space and left the player to hunt for the map by dragging.
+    /// </remarks>
+    private void FitAndCentre()
+    {
+        if (DataContext is not MapViewModel viewModel)
+        {
+            return;
+        }
+
+        var available = ViewportScrollViewer.Bounds.Size;
+        if (available.Width <= 0 || available.Height <= 0)
+        {
+            return;
+        }
+
+        viewModel.ApplyFit(available.Width - ViewportPadding, available.Height - ViewportPadding);
+
+        // Centring has to wait for the resized content to be measured, otherwise the
+        // scrollable extent is still the previous one and the offset is clamped away.
+        Dispatcher.UIThread.Post(CentreViewport, DispatcherPriority.Background);
+    }
+
+    private void CentreViewport()
+    {
+        var extent = ViewportScrollViewer.Extent;
+        var viewport = ViewportScrollViewer.Viewport;
+        ViewportScrollViewer.Offset = new(
+            Math.Max(0, (extent.Width - viewport.Width) / 2),
+            Math.Max(0, (extent.Height - viewport.Height) / 2));
+    }
 
     private async void LocationSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)
     {
@@ -116,6 +188,9 @@ public sealed partial class MapView : UserControl
 
     private void ZoomOutClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.ChangeZoom(-1);
+
+    private void FitClick(object? sender, RoutedEventArgs eventArgs) =>
+        (DataContext as MapViewModel)?.RequestFit();
 
     private async void AttributionClick(object? sender, RoutedEventArgs eventArgs)
     {

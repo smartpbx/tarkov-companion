@@ -181,6 +181,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasWidth = 900;
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
+    private bool _isAutoFit = true;
     private bool _disposed;
 
     public MapViewModel(
@@ -342,8 +343,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _canvasWidth;
         private set
         {
-            Set(ref _canvasWidth, value);
-            OnPropertyChanged(nameof(ViewportWidth));
+            if (Set(ref _canvasWidth, value))
+            {
+                OnPropertyChanged(nameof(ViewportWidth));
+                RequestFit();
+            }
         }
     }
 
@@ -352,8 +356,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _canvasHeight;
         private set
         {
-            Set(ref _canvasHeight, value);
-            OnPropertyChanged(nameof(ViewportHeight));
+            if (Set(ref _canvasHeight, value))
+            {
+                OnPropertyChanged(nameof(ViewportHeight));
+                RequestFit();
+            }
         }
     }
 
@@ -563,11 +570,59 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateOverlays();
     }
 
+    /// <summary>
+    /// Raised when the map should be scaled to the panel and centred again.
+    /// </summary>
+    /// <remarks>
+    /// Only the view knows how much room the panel actually has, so the view model asks
+    /// rather than computes. A newly loaded map raises this so the player sees the whole
+    /// thing at once instead of the empty top-left corner of a tile grid.
+    /// </remarks>
+    public event EventHandler? FitRequested;
+
+    /// <summary>Whether the view should keep refitting as the panel resizes.</summary>
+    public bool IsAutoFit
+    {
+        get => _isAutoFit;
+        private set => Set(ref _isAutoFit, value);
+    }
+
     public void ChangeZoom(double wheelDelta)
     {
         var factor = wheelDelta > 0 ? 1.2 : 1 / 1.2;
-        ZoomScale = Math.Clamp(ZoomScale * factor, 0.5, 6);
+        SetZoom(ZoomScale * factor);
     }
+
+    /// <summary>Zooms deliberately, which turns off automatic fitting.</summary>
+    public void SetZoom(double scale)
+    {
+        IsAutoFit = false;
+        ZoomScale = ClampZoom(scale);
+    }
+
+    /// <summary>Asks the view to scale the whole map into the panel and centre it.</summary>
+    public void RequestFit()
+    {
+        IsAutoFit = true;
+        FitRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Scales the map to the room the panel reports.</summary>
+    public void ApplyFit(double availableWidth, double availableHeight)
+    {
+        if (CanvasWidth <= 0 || CanvasHeight <= 0 ||
+            !double.IsFinite(availableWidth) || availableWidth <= 0 ||
+            !double.IsFinite(availableHeight) || availableHeight <= 0)
+        {
+            return;
+        }
+
+        ZoomScale = ClampZoom(Math.Min(availableWidth / CanvasWidth, availableHeight / CanvasHeight));
+    }
+
+    // A tile grid can be several times the panel's size, so the lower bound has to allow a
+    // genuine fit. The previous floor of 0.5 could not show a whole map at once.
+    private static double ClampZoom(double scale) => Math.Clamp(scale, 0.05, 8);
 
     public void Dispose()
     {
@@ -997,15 +1052,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(ShowsPlaceholder));
     }
 
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+    /// <summary>Assigns a backing field and reports whether the value actually changed.</summary>
+    private bool Set<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value))
         {
-            return;
+            return false;
         }
 
         field = value;
         OnPropertyChanged(propertyName);
+        return true;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>

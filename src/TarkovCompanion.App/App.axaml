@@ -55,6 +55,95 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="3" />
     </Style>
+    <!-- Map instrument row -->
+    <Style Selector="TextBlock.chooserLabel">
+      <Setter Property="Foreground" Value="#6F7C88" />
+      <Setter Property="FontSize" Value="10" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ComboBox.chooser">
+      <Setter Property="Background" Value="#1A212A" />
+      <Setter Property="BorderBrush" Value="#303B47" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.viewControl">
+      <Setter Property="Background" Value="#1A212A" />
+      <Setter Property="Foreground" Value="#93A0AA" />
+      <Setter Property="BorderBrush" Value="#303B47" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="3" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="MinWidth" Value="32" />
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.viewControl:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#242E39" />
+      <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
+    </Style>
+    <Style Selector="Button.viewControl.on /template/ ContentPresenter">
+      <Setter Property="Background" Value="#1E3A42" />
+      <Setter Property="TextElement.Foreground" Value="#56B8C6" />
+    </Style>
+    <Style Selector="TextBlock.zoomReadout">
+      <Setter Property="Foreground" Value="#8F9BA6" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="MinWidth" Value="46" />
+      <Setter Property="TextAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- Layer chips: one object per layer, the name toggles it, the target highlights it -->
+    <Style Selector="Border.chip">
+      <Setter Property="Background" Value="#1A212A" />
+      <Setter Property="BorderBrush" Value="#303B47" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+      <Setter Property="ClipToBounds" Value="True" />
+    </Style>
+    <Style Selector="ToggleButton.chipToggle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#7A8894" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="12,5" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="ToggleButton.chipToggle:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#242E39" />
+      <Setter Property="TextElement.Foreground" Value="#C6D0D8" />
+    </Style>
+    <Style Selector="ToggleButton.chipToggle:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="#1E3A42" />
+      <Setter Property="TextElement.Foreground" Value="#7FD3DF" />
+    </Style>
+    <Style Selector="ToggleButton.chipToggle:checked:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#24515C" />
+      <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
+    </Style>
+    <Style Selector="Button.chipFocus">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="#5C6874" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Padding" Value="7,5" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="Button.chipFocus:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#242E39" />
+      <Setter Property="TextElement.Foreground" Value="#C6A15B" />
+    </Style>
+    <Style Selector="Button.chipFocus.on /template/ ContentPresenter">
+      <Setter Property="TextElement.Foreground" Value="#C6A15B" />
+    </Style>
+
     <Style Selector="TextBlock.hotkey">
       <Setter Property="Foreground" Value="#C6A15B" />
       <Setter Property="FontSize" Value="18" />

@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 
@@ -124,6 +125,17 @@ public static class SelfTestRunner
                         required));
                 }
             }
+
+            // Registering the shortcut here is the only way to prove the combination is
+            // actually obtainable on this machine. The composition is disposed below, which
+            // releases it again.
+            var hotkeys = services.GetRequiredService<ScanHotkeyService>();
+            var hotkeyState = await hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            checks.Add(new(
+                "scan-hotkey",
+                hotkeyState.IsRegistered ? "pass" : hotkeyState.IsSupported ? "fail" : "unavailable",
+                $"{hotkeyState.Binding.DisplayName}: {hotkeyState.Detail}",
+                Required: hotkeyState.IsSupported));
 
             var diagnosticRequested = commandLine.DeveloperMode &&
                 !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath);
