@@ -176,12 +176,12 @@ current repository documents local browser tracking without an account,
 account-backed synchronization, game-mode separation, map/objective views,
 and bearer-token API access.[^10]
 
-Its supported public progress API is `https://api.tarkovtracker.org`, with
-`/api/v2/*` aliases accepted. The documented legacy cross-host route may
-redirect, and an Authorization header can be lost during that redirect; the
-client should use the canonical host and reject cross-origin redirects instead
-of following them with credentials.[^11] Internal `/api/tarkov/*` routes are
-explicitly not a supported third-party integration surface.[^1]
+Its supported public progress API is `https://api.tarkovtracker.org`. Stage 5
+uses only the canonical `/token` and `/progress` paths. The documented legacy
+cross-host route may redirect, and an Authorization header can be lost during
+that redirect; the client disables automatic redirects and rejects every
+redirect instead of forwarding credentials.[^11] Internal routes are not part
+of this adapter.
 
 The current OpenAPI contract defines:
 
@@ -204,14 +204,11 @@ match the target local profile.
 The documented free tier currently allows 1,000 reads per day. Conditional
 requests use weak ETags and private 15-second caching, but a `304` still counts
 against quota; the docs recommend polling no faster than once per minute.[^11]
-A companion does not need minute-level progress. The recommended schedule is:
-
-- once at application start when integration and network access are enabled;
-- on explicit user refresh; and
-- at most every five minutes while the relevant progress view is foregrounded.
-
-Stop scheduled polling when the view/app is inactive, honor `Retry-After`, and
-surface quota state. This remains a snapshot import, not a live feed.
+A companion does not need minute-level progress. Stage 5 performs no startup or
+background polling: Connect performs token validation, manual Refresh fetches
+progress, and the foreground refresh entry point rejects calls less than 60
+seconds apart. It honors `Retry-After`, pauses when reported quota is exhausted,
+and surfaces quota state. This remains a snapshot import, not a live feed.
 
 The public progress response has no per-task or per-objective source-event
 timestamp.[^12] Consequently, automatic last-write-wins reconciliation would
@@ -552,8 +549,11 @@ not rewrite history or contact the source.
 
 ### TarkovTracker adapter security
 
-The adapter is an optional feature flag and must have an explicit connect flow.
-It should:
+The adapter is optional and has an explicit connect flow. The disconnected
+feature is available by default on Windows when protected storage exists; an
+environment setting provides an explicit opt-out, while offline mode and
+unavailable protected storage disable network actions. Merely composing the
+runtime or reading status performs no network request. It must:
 
 1. accept a user-generated token through a password-masked field;
 2. store it through `IIntegrationSecretStore` using Windows protected storage;
@@ -983,13 +983,13 @@ The first implementation is complete only when:
     [README.md](https://github.com/tarkovtracker-org/TarkovTracker/blob/3e8f036cf3582684a3dc4cbcb7ef3396357ad14c/README.md).
 
 [^11]: TarkovTracker, “API Integration,” canonical host, redirects, cache and
-    quota guidance, revision `3e8f036cf3582684a3dc4cbcb7ef3396357ad14c`,
+    quota guidance, revision `443d9fd73f0f88cac1623206fe79ba122ab9b1fb`,
     accessed 2026-09-10:
-    [docs/API.md](https://github.com/tarkovtracker-org/TarkovTracker/blob/3e8f036cf3582684a3dc4cbcb7ef3396357ad14c/docs/API.md).
+    [docs/API.md](https://github.com/tarkovtracker-org/TarkovTracker/blob/443d9fd73f0f88cac1623206fe79ba122ab9b1fb/docs/API.md).
 
 [^12]: TarkovTracker, public progress OpenAPI source, revision
-    `3e8f036cf3582684a3dc4cbcb7ef3396357ad14c`, accessed 2026-09-10:
-    [workers/api-gateway/src/openapi.ts](https://github.com/tarkovtracker-org/TarkovTracker/blob/3e8f036cf3582684a3dc4cbcb7ef3396357ad14c/workers/api-gateway/src/openapi.ts).
+    `443d9fd73f0f88cac1623206fe79ba122ab9b1fb`, accessed 2026-09-10:
+    [workers/api-gateway/src/openapi.ts](https://github.com/tarkovtracker-org/TarkovTracker/blob/443d9fd73f0f88cac1623206fe79ba122ab9b1fb/workers/api-gateway/src/openapi.ts).
 
 [^13]: TarkovTracker, backup composable, revision
     `3e8f036cf3582684a3dc4cbcb7ef3396357ad14c`, accessed 2026-09-10:

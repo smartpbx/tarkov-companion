@@ -4,11 +4,12 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Quests;
 
 namespace TarkovCompanion.Platform.Windows.Security;
 
-/// <summary>Stores only DPAPI CurrentUser-protected bytes on disk.</summary>
-public sealed partial class WindowsDpapiSecretStore : ISecretStore
+/// <summary>Stores only DPAPI CurrentUser-protected integration secrets on disk.</summary>
+public sealed partial class WindowsDpapiSecretStore : IIntegrationSecretStore
 {
     private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("TarkovCompanion.v1.local-secrets");
     private readonly string _root;
@@ -21,18 +22,38 @@ public sealed partial class WindowsDpapiSecretStore : ISecretStore
             "Secrets");
     }
 
-    public async Task SetAsync(string key, string secret, CancellationToken cancellationToken)
+    public bool IsAvailable => OperatingSystem.IsWindows();
+
+    public async Task SaveAsync(
+        IntegrationSecretReference reference,
+        string secret,
+        CancellationToken cancellationToken)
     {
-        ValidateKey(key);
+        ValidateReference(reference);
         ArgumentNullException.ThrowIfNull(secret);
+        if (secret.Length is < 1 or > 4096)
+        {
+            throw new ArgumentOutOfRangeException(nameof(secret));
+        }
+
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException("DPAPI secret storage is available only on Windows.");
         }
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(_root);
-        var protectedBytes = Protect(Encoding.UTF8.GetBytes(secret));
-        var path = PathFor(key);
+        var plaintextBytes = Encoding.UTF8.GetBytes(secret);
+        byte[] protectedBytes;
+        try
+        {
+            protectedBytes = Protect(plaintextBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintextBytes);
+        }
+
+        var path = PathFor(reference);
         var temporaryPath = Path.Combine(_root, $"{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
         try
         {
@@ -48,32 +69,53 @@ public sealed partial class WindowsDpapiSecretStore : ISecretStore
         }
     }
 
-    public async Task<string?> GetAsync(string key, CancellationToken cancellationToken)
+    public async Task<string?> LoadAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken)
     {
-        ValidateKey(key);
+        ValidateReference(reference);
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException("DPAPI secret storage is available only on Windows.");
         }
-        var path = PathFor(key);
+        var path = PathFor(reference);
         if (!File.Exists(path))
         {
             return null;
         }
 
         var protectedBytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-        return Encoding.UTF8.GetString(Unprotect(protectedBytes));
+        var plaintextBytes = Unprotect(protectedBytes);
+        try
+        {
+            return Encoding.UTF8.GetString(plaintextBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(plaintextBytes);
+        }
     }
 
-    public Task DeleteAsync(string key, CancellationToken cancellationToken)
+    public Task<bool> ExistsAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken)
     {
-        ValidateKey(key);
+        ValidateReference(reference);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(IsAvailable && File.Exists(PathFor(reference)));
+    }
+
+    public Task DeleteAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken)
+    {
+        ValidateReference(reference);
         if (!OperatingSystem.IsWindows())
         {
             throw new PlatformNotSupportedException("DPAPI secret storage is available only on Windows.");
         }
         cancellationToken.ThrowIfCancellationRequested();
-        var path = PathFor(key);
+        var path = PathFor(reference);
         if (File.Exists(path))
         {
             File.Delete(path);
@@ -82,15 +124,24 @@ public sealed partial class WindowsDpapiSecretStore : ISecretStore
         return Task.CompletedTask;
     }
 
-    private string PathFor(string key) =>
-        Path.Combine(_root, $"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))}.secret");
-
-    private static void ValidateKey(string key)
+    private string PathFor(IntegrationSecretReference reference)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        if (key.Length > 256)
+        var key = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{reference.Kind}:{reference.ProfileId:D}:{reference.GameMode}:{reference.ProfileGeneration}");
+        return Path.Combine(_root, $"{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))}.secret");
+    }
+
+    private static void ValidateReference(IntegrationSecretReference reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        if (!Enum.IsDefined(reference.Kind) || reference.ProfileId == Guid.Empty ||
+            !Enum.IsDefined(reference.GameMode) ||
+            string.IsNullOrWhiteSpace(reference.ProfileGeneration) ||
+            reference.ProfileGeneration.Length > 128 ||
+            !reference.ProfileGeneration.Equals(reference.ProfileGeneration.Trim(), StringComparison.Ordinal))
         {
-            throw new ArgumentOutOfRangeException(nameof(key), "Secret key must not exceed 256 characters.");
+            throw new ArgumentException("The integration secret reference is invalid.", nameof(reference));
         }
     }
 
@@ -124,13 +175,38 @@ public sealed partial class WindowsDpapiSecretStore : ISecretStore
             }
             finally
             {
+                ZeroUnmanaged(output.Data, output.Length);
                 _ = DpapiNative.LocalFree(output.Data);
             }
         }
         finally
         {
-            Marshal.FreeHGlobal(input.Data);
-            Marshal.FreeHGlobal(entropy.Data);
+            ZeroAndFree(input);
+            ZeroAndFree(entropy);
+        }
+    }
+
+    private static void ZeroAndFree(DataBlob blob)
+    {
+        ZeroUnmanaged(blob.Data, blob.Length);
+        Marshal.FreeHGlobal(blob.Data);
+    }
+
+    private static void ZeroUnmanaged(nint data, int length)
+    {
+        if (data == 0 || length <= 0)
+        {
+            return;
+        }
+
+        var zeros = new byte[length];
+        try
+        {
+            Marshal.Copy(zeros, 0, data, length);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(zeros);
         }
     }
 

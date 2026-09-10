@@ -10,7 +10,7 @@ public sealed class QuestProgressExchangeService(
     IQuestProgressStore progressStore,
     IQuestProgressImportStore importStore,
     IProjectQuestProgressJson projectJson,
-    QuestTrackingOptions options) : IQuestProgressExchangeService
+    QuestTrackingOptions options) : IQuestProgressExchangeService, IQuestProgressImportPlanner
 {
     private readonly string _language = options.NormalizedLanguage;
 
@@ -31,8 +31,38 @@ public sealed class QuestProgressExchangeService(
     {
         var profile = await ActiveProfileAsync(scope, cancellationToken).ConfigureAwait(false);
         var document = await projectJson.ReadAsync(filePath, cancellationToken).ConfigureAwait(false);
-        var progress = await progressStore.GetAsync(scope, cancellationToken).ConfigureAwait(false);
         var incoming = SelectExactProfile(document, profile);
+        return await PreviewAsync(
+            scope,
+            new(
+                document.IsLegacyProfileSettingsEnvelope
+                    ? QuestProgressImportSource.LegacyProfileJsonV1
+                    : QuestProgressImportSource.ProjectJsonV2,
+                incoming.GameMode,
+                incoming.ProfileGeneration,
+                document.PayloadSha256,
+                document.AppVersion,
+                document.ExportedUtc,
+                document.ProvenanceSummary,
+                incoming.Tasks.Select(value => new QuestProgressImportTask(value.TaskId, value.State)).ToArray(),
+                incoming.Objectives.Select(value => new QuestProgressImportObjective(
+                    value.ObjectiveId,
+                    value.State,
+                    value.Count)).ToArray(),
+                incoming.Holdings,
+                incoming.Pins),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<QuestProgressImportPreview> PreviewAsync(
+        QuestProfileScope scope,
+        QuestProgressImportSnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ValidateSnapshot(scope, snapshot);
+        var profile = await ActiveProfileAsync(scope, cancellationToken).ConfigureAwait(false);
+        var progress = await progressStore.GetAsync(scope, cancellationToken).ConfigureAwait(false);
         var catalog = await questCatalog.GetAsync(scope.GameMode, _language, cancellationToken).ConfigureAwait(false);
         var knownTasks = catalog?.Tasks.Select(value => value.Id).ToHashSet(StringComparer.Ordinal)
             ?? new HashSet<string>(StringComparer.Ordinal);
@@ -48,13 +78,13 @@ public sealed class QuestProgressExchangeService(
             .ToHashSet(StringComparer.Ordinal)
             ?? new HashSet<string>(StringComparer.Ordinal);
         var proposals = new List<QuestImportProposal>();
-        foreach (var task in incoming.Tasks)
+        foreach (var task in snapshot.Tasks)
         {
             progress.Tasks.TryGetValue(task.TaskId, out var local);
             proposals.Add(TaskProposal(task, local, knownTasks.Contains(task.TaskId)));
         }
 
-        foreach (var objective in incoming.Objectives)
+        foreach (var objective in snapshot.Objectives)
         {
             progress.Objectives.TryGetValue(objective.ObjectiveId, out var local);
             proposals.Add(ObjectiveProposal(objective, local, knownObjectives.Contains(objective.ObjectiveId)));
@@ -63,7 +93,7 @@ public sealed class QuestProgressExchangeService(
         var holdings = progress.ItemHoldings.ToDictionary(
             value => (value.ItemId, value.FoundInRaid),
             value => value);
-        foreach (var holding in incoming.Holdings)
+        foreach (var holding in snapshot.Holdings)
         {
             holdings.TryGetValue((holding.ItemId, holding.FoundInRaid), out var local);
             proposals.Add(HoldingProposal(holding, local, knownItems.Contains(holding.ItemId)));
@@ -72,7 +102,7 @@ public sealed class QuestProgressExchangeService(
         var pins = progress.Pins.ToDictionary(
             value => (value.TargetKind, value.TargetId),
             value => value);
-        foreach (var pin in incoming.Pins)
+        foreach (var pin in snapshot.Pins)
         {
             pins.TryGetValue((pin.TargetKind, pin.TargetId), out var local);
             var isKnown = pin.TargetKind switch
@@ -88,13 +118,14 @@ public sealed class QuestProgressExchangeService(
             scope,
             profile.Name,
             progress.Revision,
-            document.PayloadSha256,
+            snapshot.PayloadSha256,
             string.Empty,
-            document.AppVersion,
-            document.ExportedUtc,
-            document.ProvenanceSummary,
-            document.IsLegacyProfileSettingsEnvelope,
-            proposals.OrderBy(value => value.Key, StringComparer.Ordinal).ToArray()));
+            snapshot.SourceVersion,
+            snapshot.ObservedUtc,
+            snapshot.ProvenanceSummary,
+            snapshot.Source == QuestProgressImportSource.LegacyProfileJsonV1,
+            proposals.OrderBy(value => value.Key, StringComparer.Ordinal).ToArray(),
+            snapshot.Source));
     }
 
     public async Task<QuestImportApplyResult> ApplyImportAsync(
@@ -179,13 +210,63 @@ public sealed class QuestProgressExchangeService(
     private static QuestProgressImportPreview WithHash(QuestProgressImportPreview preview) =>
         preview with { PreviewSha256 = QuestImportPreviewHash.Compute(preview) };
 
+    private static void ValidateSnapshot(QuestProfileScope scope, QuestProgressImportSnapshot snapshot)
+    {
+        if (!Enum.IsDefined(snapshot.Source) || !Enum.IsDefined(snapshot.GameMode) ||
+            snapshot.GameMode != scope.GameMode)
+        {
+            throw new InvalidOperationException("The progress snapshot source or game mode is invalid.");
+        }
+
+        if (snapshot.Source != QuestProgressImportSource.TarkovTracker &&
+            !string.Equals(snapshot.SourceGeneration, scope.Generation, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The progress snapshot profile generation does not match the active scope.");
+        }
+
+        if (snapshot.Source == QuestProgressImportSource.TarkovTracker && snapshot.SourceGeneration is not null)
+        {
+            throw new InvalidOperationException(
+                "TarkovTracker does not expose a source generation; the adapter must not manufacture one.");
+        }
+
+        if (snapshot.PayloadSha256.Length != 64 || !snapshot.PayloadSha256.All(Uri.IsHexDigit) ||
+            string.IsNullOrWhiteSpace(snapshot.SourceVersion) || snapshot.SourceVersion.Length > 256 ||
+            string.IsNullOrWhiteSpace(snapshot.ProvenanceSummary) || snapshot.ProvenanceSummary.Length > 4096)
+        {
+            throw new InvalidOperationException("The progress snapshot metadata is invalid.");
+        }
+
+        var recordCount = snapshot.Tasks.Count + snapshot.Objectives.Count + snapshot.Holdings.Count + snapshot.Pins.Count;
+        if (recordCount > 50_000 ||
+            snapshot.Tasks.Select(value => value.TaskId).Distinct(StringComparer.Ordinal).Count() != snapshot.Tasks.Count ||
+            snapshot.Objectives.Select(value => value.ObjectiveId).Distinct(StringComparer.Ordinal).Count() != snapshot.Objectives.Count)
+        {
+            throw new InvalidOperationException("The progress snapshot contains too many records or duplicate ids.");
+        }
+    }
+
     private static QuestImportProposal TaskProposal(
-        ProjectQuestProgressTask incoming,
+        QuestProgressImportTask incoming,
         RecordedTaskProgress? local,
         bool isKnown)
     {
         var localValue = local is null ? null : new QuestImportValue(TaskState: local.State);
         var incomingValue = new QuestImportValue(TaskState: incoming.State);
+        if (incoming.UnresolvedReason is not null || incoming.State is null)
+        {
+            return Proposal(
+                "task",
+                QuestProgressEntityKind.Task,
+                incoming.TaskId,
+                null,
+                QuestImportClassification.UnresolvedSourceRecord,
+                localValue,
+                incomingValue,
+                incoming.UnresolvedReason ?? "The source task record could not be mapped safely.");
+        }
+
+        var incomingState = incoming.State.Value;
         if (!isKnown)
         {
             return Proposal(
@@ -200,7 +281,7 @@ public sealed class QuestProgressExchangeService(
         }
 
         var localState = local?.State ?? RecordedTaskState.Unknown;
-        if (localState == incoming.State)
+        if (localState == incomingState)
         {
             return Proposal(
                 "task", QuestProgressEntityKind.Task, incoming.TaskId, null,
@@ -208,8 +289,8 @@ public sealed class QuestProgressExchangeService(
                 "Incoming task state matches local state; absence elsewhere is not deletion.");
         }
 
-        var conflict = localState == RecordedTaskState.Failed || incoming.State == RecordedTaskState.Failed ||
-            TaskStrength(incoming.State) < TaskStrength(localState);
+        var conflict = localState == RecordedTaskState.Failed || incomingState == RecordedTaskState.Failed ||
+            TaskStrength(incomingState) < TaskStrength(localState);
         return Proposal(
             "task", QuestProgressEntityKind.Task, incoming.TaskId, null,
             conflict ? QuestImportClassification.Conflict : QuestImportClassification.SafeMonotonic,
@@ -221,7 +302,7 @@ public sealed class QuestProgressExchangeService(
     }
 
     private static QuestImportProposal ObjectiveProposal(
-        ProjectQuestProgressObjective incoming,
+        QuestProgressImportObjective incoming,
         RecordedObjectiveProgress? local,
         bool isKnown)
     {
@@ -231,6 +312,20 @@ public sealed class QuestProgressExchangeService(
         var incomingValue = new QuestImportValue(
             ObjectiveState: incoming.State,
             ObjectiveCount: incoming.Count);
+        if (incoming.UnresolvedReason is not null || incoming.State is null)
+        {
+            return Proposal(
+                "objective",
+                QuestProgressEntityKind.Objective,
+                incoming.ObjectiveId,
+                null,
+                QuestImportClassification.UnresolvedSourceRecord,
+                localValue,
+                incomingValue,
+                incoming.UnresolvedReason ?? "The source objective record could not be mapped safely.");
+        }
+
+        var incomingState = incoming.State.Value;
         if (!isKnown)
         {
             return Proposal(
@@ -241,7 +336,7 @@ public sealed class QuestProgressExchangeService(
 
         var localState = local?.State ?? RecordedObjectiveState.Unknown;
         var localCount = local?.Count;
-        if (localState == incoming.State && localCount == incoming.Count)
+        if (localState == incomingState && localCount == incoming.Count)
         {
             return Proposal(
                 "objective", QuestProgressEntityKind.Objective, incoming.ObjectiveId, null,
@@ -251,7 +346,7 @@ public sealed class QuestProgressExchangeService(
 
         var countRegression = localCount is not null &&
             (incoming.Count is null || incoming.Count.Value < localCount.Value);
-        var stateRegression = ObjectiveStrength(incoming.State) < ObjectiveStrength(localState);
+        var stateRegression = ObjectiveStrength(incomingState) < ObjectiveStrength(localState);
         var classification = countRegression || stateRegression
             ? QuestImportClassification.Conflict
             : QuestImportClassification.SafeMonotonic;

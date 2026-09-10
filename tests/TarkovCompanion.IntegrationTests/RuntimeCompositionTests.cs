@@ -7,9 +7,11 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.IntegrationTests;
@@ -82,6 +84,154 @@ public sealed class RuntimeCompositionTests
         finally
         {
             Cleanup(root);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, true, true)]
+    [InlineData(null, false, false)]
+    [InlineData("false", true, false)]
+    [InlineData("0", true, false)]
+    [InlineData("true", false, true)]
+    public void TarkovTrackerDefaultAndExplicitOptOutAreDeterministic(
+        string? setting,
+        bool protectedStorageAvailable,
+        bool expected) =>
+        Assert.Equal(
+            expected,
+            AppComposition.OptionalFeatureEnabled(setting, protectedStorageAvailable));
+
+    [Fact]
+    public async Task AvailableProtectedStorageEnablesDisconnectedTrackerWithoutNetwork()
+    {
+        var root = TemporaryRoot();
+        var trackerNetwork = new FailIfUsedHandler();
+        var secretStore = new FixtureIntegrationSecretStore(isAvailable: true);
+        var scope = new QuestProfileScope(
+            Guid.Parse("d66960bb-47bd-4276-a52e-498afbe054c3"),
+            GameMode.Regular,
+            "composition-generation");
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: false),
+                new(
+                    DataRoot: root,
+                    Offline: false,
+                    TarkovTrackerHttpMessageHandler: trackerNetwork,
+                    IntegrationSecretStore: secretStore));
+            var integration = services.GetRequiredService<ITarkovTrackerIntegrationService>();
+            var status = await integration.GetStatusAsync(scope, CancellationToken.None);
+
+            Assert.True(status.FeatureEnabled);
+            Assert.True(status.SecureStorageAvailable);
+            Assert.True(status.CanConnect);
+            Assert.False(status.Connected);
+
+            await secretStore.SaveAsync(
+                new(
+                    IntegrationSecretKind.TarkovTrackerProgressToken,
+                    scope.ProfileId,
+                    scope.GameMode,
+                    scope.Generation),
+                "fixture-protected-value",
+                CancellationToken.None);
+            var existingStatus = await integration.GetStatusAsync(scope, CancellationToken.None);
+            Assert.True(existingStatus.Connected);
+            Assert.Equal(0, trackerNetwork.RequestCount);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task ExplicitOptOutDisablesComposedTrackerWithoutNetwork()
+    {
+        var root = TemporaryRoot();
+        var trackerNetwork = new FailIfUsedHandler();
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: false),
+                new(
+                    DataRoot: root,
+                    Offline: false,
+                    TarkovTrackerOptions: new() { Enabled = false },
+                    TarkovTrackerHttpMessageHandler: trackerNetwork,
+                    IntegrationSecretStore: new FixtureIntegrationSecretStore(isAvailable: true)));
+            var status = await services.GetRequiredService<ITarkovTrackerIntegrationService>().GetStatusAsync(
+                new(
+                    Guid.Parse("d66960bb-47bd-4276-a52e-498afbe054c3"),
+                    GameMode.Regular,
+                    "composition-generation"),
+                CancellationToken.None);
+
+            Assert.False(status.FeatureEnabled);
+            Assert.False(status.CanConnect);
+            Assert.Equal(0, trackerNetwork.RequestCount);
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task OfflineAndUnavailableStorageCompositionDisableTrackerWithoutNetwork()
+    {
+        var offlineRoot = TemporaryRoot();
+        var unavailableRoot = TemporaryRoot();
+        var offlineNetwork = new FailIfUsedHandler();
+        var unavailableNetwork = new FailIfUsedHandler();
+        try
+        {
+            await using (var offline = AppComposition.Build(
+                CommandLine(demo: false),
+                new(
+                    DataRoot: offlineRoot,
+                    Offline: true,
+                    TarkovTrackerOptions: new() { Enabled = true },
+                    TarkovTrackerHttpMessageHandler: offlineNetwork,
+                    IntegrationSecretStore: new FixtureIntegrationSecretStore(isAvailable: true))))
+            {
+                var status = await offline.GetRequiredService<ITarkovTrackerIntegrationService>().GetStatusAsync(
+                    new(
+                        Guid.Parse("d66960bb-47bd-4276-a52e-498afbe054c3"),
+                        GameMode.Regular,
+                        "composition-generation"),
+                    CancellationToken.None);
+                Assert.False(status.NetworkAccessEnabled);
+                Assert.False(status.CanConnect);
+            }
+
+            await using (var unavailable = AppComposition.Build(
+                CommandLine(demo: false),
+                new(
+                    DataRoot: unavailableRoot,
+                    Offline: false,
+                    TarkovTrackerOptions: new() { Enabled = true },
+                    TarkovTrackerHttpMessageHandler: unavailableNetwork,
+                    IntegrationSecretStore: new FixtureIntegrationSecretStore(isAvailable: false))))
+            {
+                var status = await unavailable.GetRequiredService<ITarkovTrackerIntegrationService>().GetStatusAsync(
+                    new(
+                        Guid.Parse("d66960bb-47bd-4276-a52e-498afbe054c3"),
+                        GameMode.Regular,
+                        "composition-generation"),
+                    CancellationToken.None);
+                Assert.False(status.SecureStorageAvailable);
+                Assert.False(status.CanConnect);
+            }
+
+            Assert.Equal(0, offlineNetwork.RequestCount);
+            Assert.Equal(0, unavailableNetwork.RequestCount);
+        }
+        finally
+        {
+            Cleanup(offlineRoot);
+            Cleanup(unavailableRoot);
         }
     }
 
@@ -248,6 +398,48 @@ public sealed class RuntimeCompositionTests
         {
             RequestCount++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        }
+    }
+
+    private sealed class FixtureIntegrationSecretStore(bool isAvailable) : IIntegrationSecretStore
+    {
+        private readonly HashSet<IntegrationSecretReference> _references = [];
+
+        public bool IsAvailable { get; } = isAvailable;
+
+        public Task SaveAsync(
+            IntegrationSecretReference reference,
+            string secret,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _references.Add(reference);
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> LoadAsync(
+            IntegrationSecretReference reference,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<bool> ExistsAsync(
+            IntegrationSecretReference reference,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(IsAvailable && _references.Contains(reference));
+        }
+
+        public Task DeleteAsync(
+            IntegrationSecretReference reference,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _references.Remove(reference);
+            return Task.CompletedTask;
         }
     }
 }

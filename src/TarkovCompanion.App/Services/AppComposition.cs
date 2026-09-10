@@ -25,7 +25,9 @@ using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.Recognition;
+using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
+using TarkovCompanion.Infrastructure.TarkovTracker;
 using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
@@ -43,11 +45,15 @@ public sealed record AppCompositionSettings(
     bool? Offline = null,
     TimeProvider? TimeProvider = null,
     HttpMessageHandler? HttpMessageHandler = null,
-    IScanAdapter? ScanAdapter = null);
+    IScanAdapter? ScanAdapter = null,
+    TarkovTrackerOptions? TarkovTrackerOptions = null,
+    HttpMessageHandler? TarkovTrackerHttpMessageHandler = null,
+    IIntegrationSecretStore? IntegrationSecretStore = null);
 
 public static class AppComposition
 {
     public const string OfflineEnvironmentVariable = "TARKOV_COMPANION_OFFLINE";
+    public const string TarkovTrackerEnvironmentVariable = "TARKOV_COMPANION_TARKOVTRACKER_ENABLED";
 
     public static ServiceProvider Build(AppCommandLine commandLine, AppCompositionSettings? settings = null)
     {
@@ -68,6 +74,21 @@ public static class AppComposition
         var questExchangeOptions = new ProjectQuestProgressJsonOptions(
             typeof(AppComposition).Assembly.GetName().Version?.ToString() ?? "unknown");
         var questTrackingOptions = new QuestTrackingOptions(runtimeOptions.Language);
+        var integrationSecretStore = settings.IntegrationSecretStore ??
+            (OperatingSystem.IsWindows()
+                ? new WindowsDpapiSecretStore(Path.Combine(paths.Config, "Secrets"))
+                : new UnavailableIntegrationSecretStore());
+        var requestedTarkovTrackerOptions = settings.TarkovTrackerOptions ?? new TarkovTrackerOptions
+        {
+            Enabled = OptionalFeatureEnabled(
+                Environment.GetEnvironmentVariable(TarkovTrackerEnvironmentVariable),
+                integrationSecretStore.IsAvailable),
+        };
+        var tarkovTrackerOptions = requestedTarkovTrackerOptions with
+        {
+            NetworkAccessEnabled = requestedTarkovTrackerOptions.NetworkAccessEnabled && !offline,
+        };
+        tarkovTrackerOptions.Validate();
 
         var services = new ServiceCollection();
         services.AddSingleton(commandLine);
@@ -77,6 +98,7 @@ public static class AppComposition
         services.AddSingleton(profileOptions);
         services.AddSingleton(questExchangeOptions);
         services.AddSingleton(questTrackingOptions);
+        services.AddSingleton(tarkovTrackerOptions);
         services.AddSingleton(timeProvider);
         services.AddLogging(builder =>
         {
@@ -158,6 +180,22 @@ public static class AppComposition
         services.AddSingleton<QuestProgressExchangeService>();
         services.AddSingleton<IQuestProgressExchangeService>(provider =>
             provider.GetRequiredService<QuestProgressExchangeService>());
+        services.AddSingleton<IQuestProgressImportPlanner>(provider =>
+            provider.GetRequiredService<QuestProgressExchangeService>());
+        services.AddSingleton<IIntegrationSecretStore>(integrationSecretStore);
+
+        services.AddSingleton<TarkovTrackerApiClient>(_ => new(
+            settings.TarkovTrackerHttpMessageHandler ??
+                (offline
+                    ? new OfflineHttpMessageHandler()
+                    : new HttpClientHandler { AllowAutoRedirect = false }),
+            tarkovTrackerOptions,
+            timeProvider));
+        services.AddSingleton<ITarkovTrackerApiClient>(provider =>
+            provider.GetRequiredService<TarkovTrackerApiClient>());
+        services.AddSingleton<TarkovTrackerIntegrationService>();
+        services.AddSingleton<ITarkovTrackerIntegrationService>(provider =>
+            provider.GetRequiredService<TarkovTrackerIntegrationService>());
         services.AddSingleton<QuestsPageViewModel>();
         services.AddSingleton<ProfileNeedAggregationService>();
         services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
@@ -198,7 +236,6 @@ public static class AppComposition
             services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
             services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
-            services.AddSingleton<ISecretStore>(_ => new WindowsDpapiSecretStore(Path.Combine(paths.Config, "Secrets")));
             services.AddSingleton<ExtractRecognitionService>();
             services.AddSingleton<IExtractRecognitionService>(provider =>
                 provider.GetRequiredService<ExtractRecognitionService>());
@@ -245,6 +282,11 @@ public static class AppComposition
     private static bool IsEnabled(string? value) =>
         string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
         || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+
+    public static bool OptionalFeatureEnabled(string? configuredValue, bool protectedStorageAvailable) =>
+        string.IsNullOrWhiteSpace(configuredValue)
+            ? protectedStorageAvailable
+            : IsEnabled(configuredValue);
 
     private sealed class OfflineHttpMessageHandler : HttpMessageHandler
     {

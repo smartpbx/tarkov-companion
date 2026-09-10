@@ -1,5 +1,7 @@
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Platform.Windows.Capture;
@@ -127,8 +129,12 @@ public sealed class WindowsIntegrationTests
         await Assert.ThrowsAsync<PlatformNotSupportedException>(() => capture.CaptureAsync(
             new CaptureRequest("eft", null, false, "test"),
             CancellationToken.None));
-        await Assert.ThrowsAsync<PlatformNotSupportedException>(() => new WindowsDpapiSecretStore().GetAsync(
-            "fixture",
+        await Assert.ThrowsAsync<PlatformNotSupportedException>(() => new WindowsDpapiSecretStore().LoadAsync(
+            new(
+                IntegrationSecretKind.TarkovTrackerProgressToken,
+                Guid.Parse("0b147c71-4be9-45da-aa64-4fd9d5b1d2e1"),
+                GameMode.Regular,
+                "fixture-generation"),
             CancellationToken.None));
         await Assert.ThrowsAsync<PlatformNotSupportedException>(() => new WindowsGlobalHotkeyService().RegisterAsync(
             new HotkeyGesture(0, 0x7B, "F12"),

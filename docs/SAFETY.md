@@ -25,3 +25,7 @@ Predicted traffic is computed only from static spawns, points of interest, choke
 - Deterministic tests assert that strategy inputs have no live-enemy concept.
 - Captures are never retained by default. Any future shareable support-bundle feature must redact tokens and user path segments before it is enabled; current self-test output is local diagnostic data and may contain local paths.
 - No telemetry or screenshot upload SDK is included.
+- The optional TarkovTracker adapter exposes only canonical HTTPS `GET /token`
+  and `GET /progress`; redirects, team access, HTTP mutation, uploads, and
+  automatic apply are absent. Composition and status checks are offline, and a
+  fetched snapshot cannot mutate local progress before reviewed confirmation.

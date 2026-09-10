@@ -53,7 +53,39 @@ public enum QuestImportClassification
     Conflict,
     IgnoredUnchanged,
     UnresolvedUnknownId,
+    UnresolvedSourceRecord,
 }
+
+public enum QuestProgressImportSource
+{
+    ProjectJsonV2,
+    LegacyProfileJsonV1,
+    TarkovTracker,
+}
+
+public sealed record QuestProgressImportTask(
+    string TaskId,
+    RecordedTaskState? State,
+    string? UnresolvedReason = null);
+
+public sealed record QuestProgressImportObjective(
+    string ObjectiveId,
+    RecordedObjectiveState? State,
+    decimal? Count,
+    string? UnresolvedReason = null);
+
+public sealed record QuestProgressImportSnapshot(
+    QuestProgressImportSource Source,
+    GameMode GameMode,
+    string? SourceGeneration,
+    string PayloadSha256,
+    string SourceVersion,
+    DateTimeOffset ObservedUtc,
+    string ProvenanceSummary,
+    IReadOnlyList<QuestProgressImportTask> Tasks,
+    IReadOnlyList<QuestProgressImportObjective> Objectives,
+    IReadOnlyList<ProjectQuestProgressHolding> Holdings,
+    IReadOnlyList<ProjectQuestProgressPin> Pins);
 
 public enum QuestImportResolution
 {
@@ -91,7 +123,8 @@ public sealed record QuestProgressImportPreview(
     DateTimeOffset ExportedUtc,
     string ProvenanceSummary,
     bool IsLegacyProfileSettingsEnvelope,
-    IReadOnlyList<QuestImportProposal> Proposals)
+    IReadOnlyList<QuestImportProposal> Proposals,
+    QuestProgressImportSource Source = QuestProgressImportSource.ProjectJsonV2)
 {
     public IReadOnlyList<QuestImportProposal> SafeProposals =>
         Proposals.Where(value => value.Classification == QuestImportClassification.SafeMonotonic).ToArray();
@@ -103,8 +136,21 @@ public sealed record QuestProgressImportPreview(
         Proposals.Where(value => value.Classification == QuestImportClassification.IgnoredUnchanged).ToArray();
 
     public IReadOnlyList<QuestImportProposal> Unresolved =>
-        Proposals.Where(value => value.Classification == QuestImportClassification.UnresolvedUnknownId).ToArray();
+        Proposals.Where(value => value.Classification is
+            QuestImportClassification.UnresolvedUnknownId or
+            QuestImportClassification.UnresolvedSourceRecord).ToArray();
 }
+
+public enum IntegrationSecretKind
+{
+    TarkovTrackerProgressToken,
+}
+
+public sealed record IntegrationSecretReference(
+    IntegrationSecretKind Kind,
+    Guid ProfileId,
+    GameMode GameMode,
+    string ProfileGeneration);
 
 public sealed record QuestImportApplyResult(
     Guid ImportId,
@@ -141,6 +187,7 @@ public static class QuestImportPreviewHash
         Add(hash, preview.ExportedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
         Add(hash, preview.ProvenanceSummary);
         Add(hash, preview.IsLegacyProfileSettingsEnvelope ? "1" : "0");
+        Add(hash, preview.Source.ToString());
         foreach (var proposal in preview.Proposals.OrderBy(value => value.Key, StringComparer.Ordinal))
         {
             Add(hash, proposal.Key);

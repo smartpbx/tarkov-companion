@@ -1,6 +1,6 @@
 # Quest tracking — staged implementation plan
 
-Status: Stages 1 through 4 implemented; optional external integration and final hardening remain.
+Status: Stages 1 through 5 implemented; independent hardening and release validation remain.
 
 Read root `AGENTS.md` and
 `docs/research/QUEST_TRACKING_ARCHITECTURE.md` before changing code. The
