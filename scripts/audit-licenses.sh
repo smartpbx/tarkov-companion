@@ -64,7 +64,7 @@ while (($# > 0)); do
     esac
 done
 
-for command_name in jq grep; do
+for command_name in jq grep tr; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
         printf 'License audit failed: required command is unavailable: %s\n' "${command_name}" >&2
         exit 1
@@ -310,6 +310,7 @@ while IFS=$'\t' read -r component notice_key license_files_json; do
         exit 1
     fi
     while IFS= read -r license_file; do
+        license_file="${license_file%$'\r'}"
         if [[ "${license_file}" != LICENSES/* ]]; then
             printf 'License audit failed: license path is outside LICENSES/: %s\n' "${license_file}" >&2
             exit 1
@@ -393,7 +394,7 @@ jq -n \
           shippedBundledComponents: ($mapping[0].bundledComponents | map(select(.ships == true)) | length)
         }
       }
-    ' > "${TASK_GENERATED_INVENTORY}"
+    ' | tr -d '\r' > "${TASK_GENERATED_INVENTORY}"
 
 if [[ "${TASK_WRITE_LOCK}" == true ]]; then
     mkdir -p "$(dirname "${TASK_LOCKED_INVENTORY}")"

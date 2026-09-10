@@ -1,0 +1,5 @@
+*.sh text eol=lf
+docs/THIRD_PARTY_INVENTORY.json text eol=lf
+fixtures/licenses/*.json text eol=lf
+licenses/*.json text eol=lf
+LICENSES/** -text
