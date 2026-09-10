@@ -55,6 +55,24 @@ public sealed class TarkovDevJsonClientTests
     }
 
     [Fact]
+    public async Task MissingObjectiveDiscriminatorFailsClearly()
+    {
+        const string malformed = """
+            {"data":{"tasks":{"task":{"id":"task","name":"Task","objectives":[{"id":"objective","description":"Missing type"}]}}},"translations":[]}
+            """;
+        var handler = new FixtureApiHandler
+        {
+            ResponseFactory = (_, _) => Task.FromResult(FixtureApiHandler.Json(malformed)),
+        };
+        var client = CreateClient(handler);
+
+        var error = await Assert.ThrowsAsync<JsonException>(
+            () => client.GetTasksAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
+
+        Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task ConcurrentCacheMissesShareOneRequest()
     {
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

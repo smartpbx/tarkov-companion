@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Core.Domain.Items;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -299,9 +300,10 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
     }
 
     public async Task RefreshTasksAsync(
-        TarkovDevTasksData data,
+        QuestCatalogSnapshot catalog,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(catalog);
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -310,7 +312,51 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     transaction,
                     "DELETE FROM task_objective_items; DELETE FROM task_objectives; DELETE FROM tasks;",
                     cancellationToken).ConfigureAwait(false);
-                foreach (var task in data.Tasks.Values)
+
+                var provenance = catalog.Provenance;
+                await ExecuteAsync(
+                    connection,
+                    transaction,
+                    """
+                    DELETE FROM quest_catalog_tasks
+                    WHERE source_key = $sourceKey AND source_mode = $sourceMode AND language = $language;
+
+                    INSERT INTO quest_catalog_snapshots(
+                        source_key, source_uri, local_game_mode, source_mode, language,
+                        payload_sha256, translated_payload_sha256, etag, last_modified_utc,
+                        fetched_utc, validated_utc, raw_json, translated_json)
+                    VALUES (
+                        $sourceKey, $sourceUri, $localGameMode, $sourceMode, $language,
+                        $payloadHash, $translatedPayloadHash, $etag, $lastModifiedUtc,
+                        $fetchedUtc, $validatedUtc, $rawJson, $translatedJson)
+                    ON CONFLICT(source_key, source_mode, language) DO UPDATE SET
+                        source_uri = excluded.source_uri,
+                        local_game_mode = excluded.local_game_mode,
+                        payload_sha256 = excluded.payload_sha256,
+                        translated_payload_sha256 = excluded.translated_payload_sha256,
+                        etag = excluded.etag,
+                        last_modified_utc = excluded.last_modified_utc,
+                        fetched_utc = excluded.fetched_utc,
+                        validated_utc = excluded.validated_utc,
+                        raw_json = excluded.raw_json,
+                        translated_json = excluded.translated_json;
+                    """,
+                    cancellationToken,
+                    ("$sourceKey", provenance.Source),
+                    ("$sourceUri", provenance.SourceUri),
+                    ("$localGameMode", provenance.GameMode.ToString()),
+                    ("$sourceMode", provenance.SourceMode),
+                    ("$language", provenance.Language),
+                    ("$payloadHash", provenance.PayloadSha256),
+                    ("$translatedPayloadHash", provenance.TranslatedPayloadSha256),
+                    ("$etag", provenance.ETag),
+                    ("$lastModifiedUtc", provenance.LastModifiedUtc is null ? null : FormatTimestamp(provenance.LastModifiedUtc.Value)),
+                    ("$fetchedUtc", FormatTimestamp(provenance.FetchedUtc)),
+                    ("$validatedUtc", FormatTimestamp(provenance.ValidatedUtc)),
+                    ("$rawJson", catalog.RawSourceJson),
+                    ("$translatedJson", catalog.TranslatedSourceJson)).ConfigureAwait(false);
+
+                foreach (var task in catalog.Tasks)
                 {
                     await ExecuteAsync(
                         connection,
@@ -322,46 +368,371 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         cancellationToken,
                         ("$id", task.Id),
                         ("$name", task.Name),
-                        ("$traderId", task.Trader),
-                        ("$minLevel", task.MinPlayerLevel),
-                        ("$mapId", task.Map),
-                        ("$sourceJson", JsonSerializer.Serialize(task, SerializerOptions))).ConfigureAwait(false);
-                    foreach (var objective in task.Objectives)
+                        ("$traderId", task.TraderId),
+                        ("$minLevel", task.MinimumPlayerLevel),
+                        ("$mapId", task.PrimaryMapId),
+                        ("$sourceJson", task.RawSourceJson)).ConfigureAwait(false);
+                    await ExecuteAsync(
+                        connection,
+                        transaction,
+                        """
+                        INSERT INTO quest_catalog_tasks(
+                            source_key, source_mode, language, id, name, normalized_name,
+                            trader_id, min_player_level, faction_name, primary_map_id,
+                            restartable, kappa_required, lightkeeper_required, required_prestige_id,
+                            available_delay_seconds_min, available_delay_seconds_max,
+                            source_game_modes_json, raw_json)
+                        VALUES (
+                            $sourceKey, $sourceMode, $language, $id, $name, $normalizedName,
+                            $traderId, $minLevel, $factionName, $primaryMapId,
+                            $restartable, $kappaRequired, $lightkeeperRequired, $requiredPrestigeId,
+                            $delayMin, $delayMax, $sourceGameMode, $rawJson);
+                        """,
+                        cancellationToken,
+                        ("$sourceKey", provenance.Source),
+                        ("$sourceMode", provenance.SourceMode),
+                        ("$language", provenance.Language),
+                        ("$id", task.Id),
+                        ("$name", task.Name),
+                        ("$normalizedName", task.NormalizedName),
+                        ("$traderId", task.TraderId),
+                        ("$minLevel", task.MinimumPlayerLevel),
+                        ("$factionName", task.FactionName),
+                        ("$primaryMapId", task.PrimaryMapId),
+                        ("$restartable", task.Restartable),
+                        ("$kappaRequired", task.KappaRequired),
+                        ("$lightkeeperRequired", task.LightkeeperRequired),
+                        ("$requiredPrestigeId", task.RequiredPrestigeId),
+                        ("$delayMin", task.AvailableDelaySecondsMinimum),
+                        ("$delayMax", task.AvailableDelaySecondsMaximum),
+                        ("$sourceGameMode", JsonSerializer.Serialize(task.SourceGameModes, SerializerOptions)),
+                        ("$rawJson", task.RawSourceJson)).ConfigureAwait(false);
+
+                    foreach (var requirement in task.Requirements)
                     {
                         await ExecuteAsync(
                             connection,
                             transaction,
                             """
-                            INSERT INTO task_objectives(id, task_id, type, description, map_id, zone_json)
-                            VALUES ($id, $taskId, $type, $description, $mapId, $zoneJson);
+                            INSERT INTO quest_task_requirements(
+                                source_key, source_mode, language, task_id, source_ordinal,
+                                required_task_id, raw_json)
+                            VALUES (
+                                $sourceKey, $sourceMode, $language, $taskId, $sourceOrdinal,
+                                $requiredTaskId, $rawJson);
                             """,
                             cancellationToken,
-                            ("$id", objective.Id),
+                            ("$sourceKey", provenance.Source),
+                            ("$sourceMode", provenance.SourceMode),
+                            ("$language", provenance.Language),
                             ("$taskId", task.Id),
-                            ("$type", objective.Type),
-                            ("$description", objective.Description),
-                            ("$mapId", objective.Maps.FirstOrDefault()),
-                            ("$zoneJson", objective.Zones?.GetRawText())).ConfigureAwait(false);
-                        foreach (var itemId in objective.Items.Distinct(StringComparer.Ordinal))
+                            ("$sourceOrdinal", requirement.SourceOrdinal),
+                            ("$requiredTaskId", requirement.RequiredTaskId),
+                            ("$rawJson", requirement.RawSourceJson)).ConfigureAwait(false);
+                        for (var statusOrdinal = 0; statusOrdinal < requirement.RequiredStatuses.Count; statusOrdinal++)
                         {
                             await ExecuteAsync(
                                 connection,
                                 transaction,
                                 """
-                                INSERT INTO task_objective_items(objective_id, item_id, count, found_in_raid_required)
-                                VALUES ($objectiveId, $itemId, $count, $foundInRaid);
+                                INSERT INTO quest_task_requirement_statuses(
+                                    source_key, source_mode, language, task_id, requirement_ordinal,
+                                    status_ordinal, required_status)
+                                VALUES (
+                                    $sourceKey, $sourceMode, $language, $taskId, $requirementOrdinal,
+                                    $statusOrdinal, $requiredStatus);
                                 """,
                                 cancellationToken,
-                                ("$objectiveId", objective.Id),
-                                ("$itemId", itemId),
-                                ("$count", objective.Count ?? 1),
-                                ("$foundInRaid", objective.FoundInRaid == true)).ConfigureAwait(false);
+                                ("$sourceKey", provenance.Source),
+                                ("$sourceMode", provenance.SourceMode),
+                                ("$language", provenance.Language),
+                                ("$taskId", task.Id),
+                                ("$requirementOrdinal", requirement.SourceOrdinal),
+                                ("$statusOrdinal", statusOrdinal),
+                                ("$requiredStatus", requirement.RequiredStatuses[statusOrdinal])).ConfigureAwait(false);
                         }
                     }
+
+                    foreach (var objective in task.Objectives.Concat(task.FailureConditions))
+                    {
+                        await PersistObjectiveAsync(
+                            connection,
+                            transaction,
+                            provenance,
+                            objective,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                 }
+
+                await RefreshQuestOrphansAsync(
+                    connection,
+                    transaction,
+                    provenance,
+                    cancellationToken).ConfigureAwait(false);
             },
             cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task PersistObjectiveAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        QuestCatalogProvenance provenance,
+        QuestObjectiveDefinition objective,
+        CancellationToken cancellationToken)
+    {
+        var failure = objective.IsFailureCondition;
+        await ExecuteAsync(
+            connection,
+            transaction,
+            """
+            INSERT INTO quest_catalog_objectives(
+                source_key, source_mode, language, task_id, id, is_failure_condition,
+                source_ordinal, source_type, normalized_kind, is_unsupported, description,
+                target_count, optional, found_in_raid_required, target_task_id,
+                subtype_json, raw_json)
+            VALUES (
+                $sourceKey, $sourceMode, $language, $taskId, $id, $isFailure,
+                $sourceOrdinal, $sourceType, $normalizedKind, $isUnsupported, $description,
+                $targetCount, $optional, $foundInRaid, $targetTaskId,
+                $subtypeJson, $rawJson);
+            """,
+            cancellationToken,
+            ("$sourceKey", provenance.Source),
+            ("$sourceMode", provenance.SourceMode),
+            ("$language", provenance.Language),
+            ("$taskId", objective.TaskId),
+            ("$id", objective.Id),
+            ("$isFailure", failure),
+            ("$sourceOrdinal", objective.SourceOrdinal),
+            ("$sourceType", objective.SourceType),
+            ("$normalizedKind", objective.Kind.ToString()),
+            ("$isUnsupported", objective.IsUnsupported),
+            ("$description", objective.Description),
+            ("$targetCount", FormatCount(objective.TargetCount)),
+            ("$optional", objective.Optional),
+            ("$foundInRaid", objective.FoundInRaidRequired),
+            ("$targetTaskId", objective.TargetTaskId),
+            ("$subtypeJson", objective.SubtypeJson),
+            ("$rawJson", objective.RawSourceJson)).ConfigureAwait(false);
+
+        if (!failure)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT OR REPLACE INTO task_objectives(id, task_id, type, description, map_id, zone_json)
+                VALUES ($id, $taskId, $type, $description, $mapId, $zoneJson);
+                """,
+                cancellationToken,
+                ("$id", objective.Id),
+                ("$taskId", objective.TaskId),
+                ("$type", objective.SourceType),
+                ("$description", objective.Description),
+                ("$mapId", objective.MapAssociations.FirstOrDefault(link => link.Kind == QuestMapAssociationKind.Declared)?.MapId),
+                ("$zoneJson", JsonSerializer.Serialize(objective.Zones, SerializerOptions))).ConfigureAwait(false);
+        }
+
+        for (var statusOrdinal = 0; statusOrdinal < objective.TargetStatuses.Count; statusOrdinal++)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO quest_objective_target_statuses(
+                    source_key, source_mode, language, task_id, objective_id,
+                    is_failure_condition, status_ordinal, target_status)
+                VALUES (
+                    $sourceKey, $sourceMode, $language, $taskId, $objectiveId,
+                    $isFailure, $statusOrdinal, $targetStatus);
+                """,
+                cancellationToken,
+                ("$sourceKey", provenance.Source),
+                ("$sourceMode", provenance.SourceMode),
+                ("$language", provenance.Language),
+                ("$taskId", objective.TaskId),
+                ("$objectiveId", objective.Id),
+                ("$isFailure", failure),
+                ("$statusOrdinal", statusOrdinal),
+                ("$targetStatus", objective.TargetStatuses[statusOrdinal])).ConfigureAwait(false);
+        }
+
+        foreach (var link in objective.MapAssociations)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO quest_objective_map_links(
+                    source_key, source_mode, language, task_id, objective_id,
+                    is_failure_condition, association_kind, source_ordinal, map_id)
+                VALUES (
+                    $sourceKey, $sourceMode, $language, $taskId, $objectiveId,
+                    $isFailure, $associationKind, $sourceOrdinal, $mapId);
+                """,
+                cancellationToken,
+                ("$sourceKey", provenance.Source),
+                ("$sourceMode", provenance.SourceMode),
+                ("$language", provenance.Language),
+                ("$taskId", objective.TaskId),
+                ("$objectiveId", objective.Id),
+                ("$isFailure", failure),
+                ("$associationKind", link.Kind.ToString()),
+                ("$sourceOrdinal", link.SourceOrdinal),
+                ("$mapId", link.MapId)).ConfigureAwait(false);
+        }
+
+        foreach (var target in objective.ItemTargets)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO quest_objective_item_targets(
+                    source_key, source_mode, language, task_id, objective_id,
+                    is_failure_condition, source_field, alternative_group, source_ordinal,
+                    item_id, target_count, found_in_raid_required)
+                VALUES (
+                    $sourceKey, $sourceMode, $language, $taskId, $objectiveId,
+                    $isFailure, $sourceField, $alternativeGroup, $sourceOrdinal,
+                    $itemId, $targetCount, $foundInRaid);
+                """,
+                cancellationToken,
+                ("$sourceKey", provenance.Source),
+                ("$sourceMode", provenance.SourceMode),
+                ("$language", provenance.Language),
+                ("$taskId", objective.TaskId),
+                ("$objectiveId", objective.Id),
+                ("$isFailure", failure),
+                ("$sourceField", target.SourceField),
+                ("$alternativeGroup", target.AlternativeGroup),
+                ("$sourceOrdinal", target.SourceOrdinal),
+                ("$itemId", target.ItemId),
+                ("$targetCount", FormatCount(target.TargetCount)),
+                ("$foundInRaid", target.FoundInRaidRequired)).ConfigureAwait(false);
+
+            if (!failure && target.SourceField == "items")
+            {
+                await ExecuteAsync(
+                    connection,
+                    transaction,
+                    """
+                    INSERT OR REPLACE INTO task_objective_items(
+                        objective_id, item_id, count, found_in_raid_required)
+                    VALUES ($objectiveId, $itemId, $count, $foundInRaid);
+                    """,
+                    cancellationToken,
+                    ("$objectiveId", objective.Id),
+                    ("$itemId", target.ItemId),
+                    ("$count", objective.TargetCount ?? 1),
+                    ("$foundInRaid", objective.FoundInRaidRequired == true)).ConfigureAwait(false);
+            }
+        }
+
+        foreach (var zone in objective.Zones)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT INTO quest_objective_zones(
+                    source_key, source_mode, language, task_id, objective_id,
+                    is_failure_condition, source_ordinal, source_zone_id, map_id,
+                    position_x, position_y, position_z, outline_json,
+                    bottom_elevation, top_elevation, terrain_elevation,
+                    size_json, name, raw_json)
+                VALUES (
+                    $sourceKey, $sourceMode, $language, $taskId, $objectiveId,
+                    $isFailure, $sourceOrdinal, $sourceZoneId, $mapId,
+                    $positionX, $positionY, $positionZ, $outlineJson,
+                    $bottomElevation, $topElevation, $terrainElevation,
+                    $sizeJson, $name, $rawJson);
+                """,
+                cancellationToken,
+                ("$sourceKey", provenance.Source),
+                ("$sourceMode", provenance.SourceMode),
+                ("$language", provenance.Language),
+                ("$taskId", objective.TaskId),
+                ("$objectiveId", objective.Id),
+                ("$isFailure", failure),
+                ("$sourceOrdinal", zone.SourceOrdinal),
+                ("$sourceZoneId", zone.SourceZoneId),
+                ("$mapId", zone.MapId),
+                ("$positionX", zone.Position?.X),
+                ("$positionY", zone.Position?.Y),
+                ("$positionZ", zone.Position?.Z),
+                ("$outlineJson", JsonSerializer.Serialize(zone.Outline, SerializerOptions)),
+                ("$bottomElevation", zone.BottomElevation),
+                ("$topElevation", zone.TopElevation),
+                ("$terrainElevation", zone.TerrainElevation),
+                ("$sizeJson", zone.Size is null ? null : JsonSerializer.Serialize(zone.Size.Value, SerializerOptions)),
+                ("$name", zone.Name),
+                ("$rawJson", zone.RawSourceJson)).ConfigureAwait(false);
+        }
+    }
+
+    private static Task<int> RefreshQuestOrphansAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        QuestCatalogProvenance provenance,
+        CancellationToken cancellationToken) =>
+        ExecuteAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM quest_catalog_orphans WHERE source_mode = $sourceMode;
+
+            INSERT INTO quest_catalog_orphans(
+                source_mode, profile_id, entity_kind, external_id, recorded_value, detected_utc)
+            SELECT $sourceMode, progress.profile_id, 'task', progress.task_id, progress.status, $detectedUtc
+            FROM profile_task_progress AS progress
+            JOIN player_profiles AS profile ON profile.id = progress.profile_id
+            WHERE CASE lower(profile.game_mode)
+                    WHEN 'regular' THEN 'regular'
+                    WHEN 'pvp' THEN 'regular'
+                    WHEN 'pve' THEN 'pve'
+                    WHEN 'pvpseason' THEN 'pvp-season'
+                    WHEN 'pvp-season' THEN 'pvp-season'
+                    ELSE ''
+                  END = $sourceMode
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM quest_catalog_tasks AS task
+                  WHERE task.source_key = $sourceKey
+                    AND task.source_mode = $sourceMode
+                    AND task.language = $language
+                    AND task.id = progress.task_id
+              );
+
+            INSERT INTO quest_catalog_orphans(
+                source_mode, profile_id, entity_kind, external_id, recorded_value, detected_utc)
+            SELECT $sourceMode, progress.profile_id, 'objective', progress.objective_id,
+                   CAST(progress.count AS TEXT), $detectedUtc
+            FROM profile_objective_progress AS progress
+            JOIN player_profiles AS profile ON profile.id = progress.profile_id
+            WHERE CASE lower(profile.game_mode)
+                    WHEN 'regular' THEN 'regular'
+                    WHEN 'pvp' THEN 'regular'
+                    WHEN 'pve' THEN 'pve'
+                    WHEN 'pvpseason' THEN 'pvp-season'
+                    WHEN 'pvp-season' THEN 'pvp-season'
+                    ELSE ''
+                  END = $sourceMode
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM quest_catalog_objectives AS objective
+                  WHERE objective.source_key = $sourceKey
+                    AND objective.source_mode = $sourceMode
+                    AND objective.language = $language
+                    AND objective.id = progress.objective_id
+                    AND objective.is_failure_condition = 0
+              );
+            """,
+            cancellationToken,
+            ("$sourceKey", provenance.Source),
+            ("$sourceMode", provenance.SourceMode),
+            ("$language", provenance.Language),
+            ("$detectedUtc", FormatTimestamp(provenance.ValidatedUtc)));
 
     public async Task RefreshHideoutAsync(
         IReadOnlyDictionary<string, TarkovDevHideoutStation> data,
@@ -711,6 +1082,9 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
     private static string FormatTimestamp(DateTimeOffset timestamp) =>
         timestamp.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
+
+    private static string? FormatCount(decimal? count) =>
+        count?.ToString(CultureInfo.InvariantCulture);
 
     private static ItemCategory MapCategory(IReadOnlyList<string> types)
     {

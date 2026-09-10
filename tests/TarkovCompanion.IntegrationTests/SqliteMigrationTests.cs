@@ -17,7 +17,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(3, first.Count);
+            Assert.Equal(4, first.Count);
             Assert.Empty(second);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -26,6 +26,12 @@ public sealed class SqliteMigrationTests
             Assert.Equal(1L, await command.ExecuteScalarAsync());
 
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'http_response_cache';";
+            Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_snapshots';";
+            Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_objective_zones';";
             Assert.Equal(1L, await command.ExecuteScalarAsync());
         }
         finally
@@ -71,7 +77,9 @@ public sealed class SqliteMigrationTests
 
             var applied = await new SqliteMigrationRunner(factory).ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(["0002_data_cache", "0003_recognition_scan_metadata"], applied);
+            Assert.Equal(
+                ["0002_data_cache", "0003_recognition_scan_metadata", "0004_quest_catalog_fidelity"],
+                applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
             await using var verifyCommand = verification.CreateCommand();
             verifyCommand.CommandText = "SELECT name, normalized_short_name FROM items WHERE id = 'existing';";
@@ -82,6 +90,9 @@ public sealed class SqliteMigrationTests
 
             await result.DisposeAsync();
             verifyCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scan_history') WHERE name = 'diagnostic_code';";
+            Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
+
+            verifyCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';";
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
         }
         finally

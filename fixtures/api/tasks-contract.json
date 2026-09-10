@@ -1,0 +1,307 @@
+{
+  "data": {
+    "tasks": {
+      "task-contract": {
+        "id": "task-contract",
+        "name": "Quest catalog contract",
+        "normalizedName": "quest-catalog-contract",
+        "trader": "trader-001",
+        "minPlayerLevel": 17,
+        "map": "map-primary",
+        "factionName": "USEC",
+        "restartable": true,
+        "kappaRequired": true,
+        "lightkeeperRequired": false,
+        "requiredPrestige": "prestige-001",
+        "availableDelaySecondsMin": 60,
+        "availableDelaySecondsMax": 120,
+        "gameMode": ["regular"],
+        "taskRequirements": [
+          {
+            "task": "task-prerequisite",
+            "status": ["complete", "active", "future-status"],
+            "futureRequirementField": {"retained": true}
+          }
+        ],
+        "objectives": [
+          {
+            "id": "objective-build-weapon",
+            "type": "buildWeapon",
+            "description": "Build the configured weapon",
+            "count": 1,
+            "optional": false,
+            "item": "item-weapon",
+            "buildAttributes": {"ergonomics": {"value": 40, "compareMethod": ">="}},
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-dialogue",
+            "type": "dialogue",
+            "description": "Complete the dialogue",
+            "count": 1,
+            "optional": true,
+            "traders": ["trader-001"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-experience",
+            "type": "experience",
+            "description": "Experience the condition",
+            "count": 1,
+            "optional": false,
+            "healthEffect": {"effects": ["Dehydration"]},
+            "maps": ["map-one", "map-two"],
+            "zones": []
+          },
+          {
+            "id": "objective-extract",
+            "type": "extract",
+            "description": "Extract successfully",
+            "count": 1,
+            "optional": false,
+            "exitName": "extract-001",
+            "exitStatus": ["survived"],
+            "maps": ["map-one", "map-two"]
+          },
+          {
+            "id": "objective-find-item",
+            "type": "findItem",
+            "description": "Find an acceptable item",
+            "count": 3,
+            "optional": false,
+            "foundInRaid": true,
+            "items": ["item-a", "item-b"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-find-quest-item",
+            "type": "findQuestItem",
+            "description": "Find the quest item",
+            "count": 1,
+            "optional": false,
+            "questItem": "quest-item-a",
+            "requiredKeys": [["key-a", "key-b"], ["key-c"]],
+            "possibleLocations": [
+              {"map": "map-one", "positions": [{"x": 1, "y": 2, "z": 3}]},
+              {"map": "map-two", "positions": [{"x": 4, "y": 5, "z": 6}]}
+            ],
+            "maps": ["map-one", "map-two"],
+            "zones": []
+          },
+          {
+            "id": "objective-give-item",
+            "type": "giveItem",
+            "description": "Hand over one acceptable item",
+            "count": 2,
+            "optional": false,
+            "foundInRaid": false,
+            "items": ["item-a", "item-b"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-give-quest-item",
+            "type": "giveQuestItem",
+            "description": "Hand over the quest item",
+            "count": 1,
+            "optional": false,
+            "questItem": "quest-item-a",
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-global-variable",
+            "type": "globalVariable",
+            "description": "Meet the global condition",
+            "count": 1,
+            "optional": true,
+            "globalVariable": {"id": "variable-a", "value": 1, "compareMethod": "=="},
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-mark",
+            "type": "mark",
+            "description": "Mark the location",
+            "count": 1,
+            "optional": false,
+            "markerItem": "marker-a",
+            "maps": ["map-one", "map-two"],
+            "zones": [
+              {
+                "id": "zone-a",
+                "map": "map-one",
+                "name": "Upper room",
+                "position": {"x": 10.5, "y": 20.5, "z": 30.5},
+                "outline": [
+                  {"x": 9, "y": 19, "z": 29},
+                  {"x": 11, "y": 19, "z": 29},
+                  {"x": 11, "y": 19, "z": 31}
+                ],
+                "bottom": 19,
+                "top": 22,
+                "terrainElevation": 20.25,
+                "size": {"x": 2, "y": 3, "z": 2},
+                "futureGeometryField": [1, 2, 3]
+              }
+            ]
+          },
+          {
+            "id": "objective-plant-item",
+            "type": "plantItem",
+            "description": "Plant an item",
+            "count": 1,
+            "optional": false,
+            "foundInRaid": false,
+            "items": ["item-plant"],
+            "maps": ["map-one"],
+            "zones": []
+          },
+          {
+            "id": "objective-plant-quest-item",
+            "type": "plantQuestItem",
+            "description": "Plant a quest item",
+            "count": 1,
+            "optional": false,
+            "questItem": "quest-item-b",
+            "maps": ["map-one"],
+            "zones": []
+          },
+          {
+            "id": "objective-sell-item",
+            "type": "sellItem",
+            "description": "Sell an acceptable item",
+            "count": 5,
+            "optional": false,
+            "items": ["item-a", "item-b"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-shoot",
+            "type": "shoot",
+            "description": "Meet the shooting condition",
+            "count": 4,
+            "optional": false,
+            "shotType": "kill",
+            "targetNames": ["Any"],
+            "distance": {"value": 50, "compareMethod": ">="},
+            "maps": ["map-one", "map-two"],
+            "zones": []
+          },
+          {
+            "id": "objective-skill",
+            "type": "skill",
+            "description": "Reach a skill level",
+            "optional": false,
+            "skill": "Attention",
+            "level": 8,
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-task-status",
+            "type": "taskStatus",
+            "description": "Meet a task status condition",
+            "count": null,
+            "optional": false,
+            "task": "task-related",
+            "status": ["complete", "active"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-trader-level",
+            "type": "traderLevel",
+            "description": "Reach a trader level",
+            "optional": false,
+            "trader": "trader-001",
+            "level": 3,
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-trader-standing",
+            "type": "traderStanding",
+            "description": "Reach trader standing",
+            "optional": false,
+            "trader": "trader-001",
+            "value": 0.5,
+            "compareMethod": ">=",
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "objective-use-item",
+            "type": "useItem",
+            "description": "Use any acceptable item",
+            "count": 2,
+            "optional": false,
+            "useAny": ["item-use-a", "item-use-b"],
+            "compareMethod": ">=",
+            "maps": ["map-one"],
+            "zones": []
+          },
+          {
+            "id": "objective-visit",
+            "type": "visit",
+            "description": "Visit a zone",
+            "optional": false,
+            "maps": ["map-two"],
+            "zones": [
+              {
+                "id": "zone-without-position",
+                "map": "map-two",
+                "outline": [],
+                "bottom": -5,
+                "top": 5
+              }
+            ]
+          },
+          {
+            "id": "objective-future",
+            "type": "futureObjective",
+            "description": "Retain a future objective without guessing",
+            "optional": null,
+            "futureCondition": {"operator": "approximately", "operand": 7},
+            "maps": [],
+            "zones": []
+          }
+        ],
+        "failConditions": [
+          {
+            "id": "failure-task-status",
+            "type": "taskStatus",
+            "description": "A related task completed",
+            "count": null,
+            "optional": false,
+            "task": "task-exclusive-branch",
+            "status": ["complete", "future-status"],
+            "maps": [],
+            "zones": []
+          },
+          {
+            "id": "failure-use-item",
+            "type": "useItem",
+            "description": "A failure item was used",
+            "count": 1,
+            "optional": false,
+            "useAny": ["failure-item-a", "failure-item-b"],
+            "compareMethod": ">=",
+            "maps": ["map-two"],
+            "zones": []
+          }
+        ],
+        "startRewards": [{"type": "future-reward"}],
+        "finishRewards": [],
+        "failureOutcome": [],
+        "futureTaskField": {"retained": true}
+      }
+    },
+    "questItems": {}
+  },
+  "translations": []
+}
