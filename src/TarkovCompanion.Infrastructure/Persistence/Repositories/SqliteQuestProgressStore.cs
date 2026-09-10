@@ -18,11 +18,14 @@ public sealed class SqliteQuestProgressStore(
     {
         ValidateScope(scope);
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var revision = await GetRevisionAsync(connection, null, scope, cancellationToken).ConfigureAwait(false);
-        var tasks = await LoadTasksAsync(connection, scope, cancellationToken).ConfigureAwait(false);
-        var objectives = await LoadObjectivesAsync(connection, scope, cancellationToken).ConfigureAwait(false);
-        var holdings = await LoadHoldingsAsync(connection, scope, cancellationToken).ConfigureAwait(false);
-        var pins = await LoadPinsAsync(connection, scope, cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var revision = await GetRevisionAsync(connection, transaction, scope, cancellationToken).ConfigureAwait(false);
+        var tasks = await LoadTasksAsync(connection, transaction, scope, cancellationToken).ConfigureAwait(false);
+        var objectives = await LoadObjectivesAsync(connection, transaction, scope, cancellationToken).ConfigureAwait(false);
+        var holdings = await LoadHoldingsAsync(connection, transaction, scope, cancellationToken).ConfigureAwait(false);
+        var pins = await LoadPinsAsync(connection, transaction, scope, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(scope, revision, tasks, objectives, holdings, pins);
     }
 
@@ -434,10 +437,12 @@ public sealed class SqliteQuestProgressStore(
 
     private static async Task<Dictionary<string, RecordedTaskProgress>> LoadTasksAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         QuestProfileScope scope,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT task_id, state, assertion_source, revision, modified_utc
             FROM quest_profile_task_states
@@ -458,10 +463,12 @@ public sealed class SqliteQuestProgressStore(
 
     private static async Task<Dictionary<string, RecordedObjectiveProgress>> LoadObjectivesAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         QuestProfileScope scope,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT objective_id, state, progress_count, assertion_source, revision, modified_utc
             FROM quest_profile_objective_states
@@ -482,10 +489,12 @@ public sealed class SqliteQuestProgressStore(
 
     private static async Task<IReadOnlyList<RecordedItemHolding>> LoadHoldingsAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         QuestProfileScope scope,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT item_id, found_in_raid, item_count, assertion_source, revision, modified_utc
             FROM quest_profile_item_holdings
@@ -505,10 +514,12 @@ public sealed class SqliteQuestProgressStore(
 
     private static async Task<IReadOnlyList<RecordedQuestPin>> LoadPinsAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         QuestProfileScope scope,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT target_kind, target_id, sort_order, note, assertion_source, revision, modified_utc
             FROM quest_profile_pins

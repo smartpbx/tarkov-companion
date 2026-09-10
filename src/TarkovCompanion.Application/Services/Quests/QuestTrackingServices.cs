@@ -219,6 +219,13 @@ public sealed class QuestEligibilityEvaluator
         var reasons = new List<QuestEligibilityReason>();
         var definitelyLocked = false;
         EvaluateFaction(task, profile, reasons, ref definitelyLocked);
+        if (!string.IsNullOrWhiteSpace(task.RequiredPrestigeId))
+        {
+            reasons.Add(new(
+                "unknown-profile-prestige",
+                "The task requires a prestige, but this profile does not record prestige state."));
+        }
+
         if (task.MinimumPlayerLevel is int minimumLevel && profile.Level < minimumLevel)
         {
             definitelyLocked = true;

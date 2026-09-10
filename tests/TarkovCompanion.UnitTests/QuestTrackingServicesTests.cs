@@ -97,6 +97,23 @@ public sealed class QuestEligibilityEvaluatorTests
         Assert.Equal(completedUtc.AddHours(1), result.AvailableUtc);
     }
 
+    [Fact]
+    public void RequiredPrestigeWithoutProfileStateIsIndeterminate()
+    {
+        var task = Task("prestige-task") with { RequiredPrestigeId = "prestige-001" };
+        var profile = Profile();
+
+        var result = new QuestEligibilityEvaluator().Evaluate(
+            task,
+            Catalog(task),
+            Progress(profile, tasks: []),
+            profile,
+            DateTimeOffset.Parse("2026-09-10T12:00:00Z"));
+
+        Assert.Equal(QuestEligibilityState.Indeterminate, result.State);
+        Assert.Contains(result.Reasons, reason => reason.Code == "unknown-profile-prestige");
+    }
+
     private static QuestTaskDefinition Task(
         string id,
         IReadOnlyList<QuestTaskRequirement>? requirements = null) => new(
