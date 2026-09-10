@@ -54,7 +54,9 @@ function Add-Assertion {
 function Wait-Path {
     param(
         [string] $Path,
-        [int] $TimeoutSeconds = 15
+        # A first run now populates several thousand items before the application settles,
+        # so fifteen seconds was no longer a realistic ceiling for a diagnostic round trip.
+        [int] $TimeoutSeconds = 90
     )
 
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -149,6 +151,7 @@ try {
         "--developer-mode",
         "--diagnostic-channel", ('"{0}"' -f $ChannelRoot)
     ) -PassThru
+    $null = $AppProcess.Handle
     $StartedProcesses.Add($AppProcess)
     Wait-Path -Path (Join-Path $ChannelRoot "commands")
     Add-Assertion -Name "developer-app-process" -Passed (-not $AppProcess.HasExited) -Detail "PID $($AppProcess.Id) is running."
@@ -163,6 +166,7 @@ try {
             "--screenshot-root", ('"{0}"' -f $ScreenshotRoot),
             "--state-output", ('"{0}"' -f $StatePath)
         ) -PassThru
+        $null = $SimulatorProcess.Handle
         $StartedProcesses.Add($SimulatorProcess)
 
         Wait-Path -Path $StatePath
@@ -185,6 +189,7 @@ try {
 
     $env:TARKOV_COMPANION_OFFLINE = "1"
     $OfflineProcess = Start-Process -FilePath $ResolvedAppPath -ArgumentList @("--demo") -PassThru
+    $null = $OfflineProcess.Handle
     $StartedProcesses.Add($OfflineProcess)
     Start-Sleep -Seconds 2
     Add-Assertion -Name "offline-relaunch" -Passed (-not $OfflineProcess.HasExited) -Detail "Demo process remained healthy while offline."

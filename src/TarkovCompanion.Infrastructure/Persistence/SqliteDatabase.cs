@@ -12,7 +12,12 @@ public sealed record SqliteDatabaseOptions(string DatabasePath)
             {
                 DataSource = DatabasePath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Shared,
+                // Shared cache replaces WAL's reader/writer independence with in-process
+                // table locks, and the resulting SQLITE_LOCKED is not covered by
+                // busy_timeout. Microsoft.Data.Sqlite then retries with a blocking sleep on
+                // the calling thread, so a read taken while the background refresh is
+                // writing could stall for the full command timeout.
+                Cache = SqliteCacheMode.Private,
                 ForeignKeys = true,
                 Pooling = true,
             };

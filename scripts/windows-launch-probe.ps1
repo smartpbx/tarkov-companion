@@ -141,6 +141,11 @@ try {
         -RedirectStandardError $StandardErrorPath `
         -PassThru
 
+    # Touch the handle so the object keeps it open. Without this, ExitCode and WaitForExit
+    # are unreliable once the process ends, which made a clean two-tenths-of-a-second
+    # shutdown look like a process that refused to exit.
+    $null = $Process.Handle
+
     $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     while ($Stopwatch.Elapsed.TotalSeconds -lt $WindowTimeoutSeconds) {
         if ($Process.HasExited) {
