@@ -14,7 +14,7 @@ if "${TASK_PROJECT_ROOT}/scripts/audit-licenses.sh" \
     exit 1
 fi
 
-if ! rg --fixed-strings --quiet \
+if ! grep -Fq -- \
     'License audit failed: missing license mapping: Fixture.Runtime/1.0.0' \
     "${TASK_TEMP_DIR}/stderr.txt"; then
     printf 'License audit fixture failed: expected missing-mapping diagnostic was not emitted\n' >&2

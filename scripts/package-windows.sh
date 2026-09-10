@@ -70,7 +70,7 @@ if [[ -e "${TASK_PUBLISH_DIR}/Data" || -e "${TASK_PUBLISH_DIR}/portable.flag" ]]
 fi
 if find "${TASK_PUBLISH_DIR}" -type f \
     \( -name 'tarkov-dev-maps.cache.json' -o -name '*.metadata.json' -o -name '*.preview.png' \) \
-    -print -quit | rg --quiet '.'; then
+    -print -quit | grep -q '.'; then
     printf 'Packaging failed: runtime-cached tarkov.dev map content entered the staging directory\n' >&2
     exit 1
 fi

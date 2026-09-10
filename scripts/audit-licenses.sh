@@ -64,7 +64,7 @@ while (($# > 0)); do
     esac
 done
 
-for command_name in jq rg; do
+for command_name in jq grep; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
         printf 'License audit failed: required command is unavailable: %s\n' "${command_name}" >&2
         exit 1
@@ -319,7 +319,7 @@ while IFS=$'\t' read -r component notice_key license_files_json; do
             exit 1
         fi
     done < <(jq -r '.[]' <<<"${license_files_json}")
-    if ! rg --fixed-strings --quiet "<!-- notice:${notice_key} -->" "${TASK_NOTICES}"; then
+    if ! grep -Fq -- "<!-- notice:${notice_key} -->" "${TASK_NOTICES}"; then
         printf 'License audit failed: notice mapping is absent for %s (notice:%s)\n' \
             "${component}" "${notice_key}" >&2
         exit 1
