@@ -66,7 +66,6 @@
             <Button
                 Tag="{Binding Kind}"
                 Content="{Binding HighlightLabel}"
-                IsVisible="{Binding CanHighlight}"
                 Click="OverlayHighlightClick" />
           </StackPanel>
         </DataTemplate>
@@ -91,6 +90,8 @@
             <ScaleTransform ScaleX="{Binding ZoomScale}" ScaleY="{Binding ZoomScale}" />
           </Canvas.RenderTransform>
 
+          <!-- The image and overlay canvas intentionally share the same explicit dimensions.
+               Fill preserves the normalized full-canvas mapping tested by MapCanvasCoordinateMapper. -->
           <Image
               Source="{Binding BackgroundImagePath}"
               Width="{Binding CanvasWidth}"
@@ -137,9 +138,9 @@
               <DataTemplate x:DataType="vm:QuestMapRegionViewModel">
                 <Polygon
                     Points="{Binding Points}"
-                    Fill="#3056B8C6"
-                    Stroke="#E6C6A15B"
-                    StrokeThickness="2"
+                    Fill="{Binding FillColor}"
+                    Stroke="{Binding StrokeColor}"
+                    StrokeThickness="{Binding StrokeThickness}"
                     ToolTip.Tip="{Binding Label}" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
@@ -157,12 +158,12 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:QuestMapPointViewModel">
                 <Border
-                    Width="14"
-                    Height="14"
-                    CornerRadius="7"
-                    Background="#E656B8C6"
-                    BorderBrush="#FFE6EDF2"
-                    BorderThickness="2"
+                    Width="{Binding Size}"
+                    Height="{Binding Size}"
+                    CornerRadius="{Binding CornerRadius}"
+                    Background="{Binding FillColor}"
+                    BorderBrush="{Binding BorderColor}"
+                    BorderThickness="{Binding BorderThickness}"
                     ToolTip.Tip="{Binding Label}">
                   <Border.RenderTransform>
                     <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />

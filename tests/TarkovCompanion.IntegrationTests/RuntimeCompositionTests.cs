@@ -140,6 +140,8 @@ public sealed class RuntimeCompositionTests
             var quests = main.Quests;
 
             await quests.InitializeAsync(CancellationToken.None);
+            Assert.Contains(quests.AvailableFilters, filter => filter.Id == "locked");
+            Assert.Contains(quests.AvailableFilters, filter => filter.Id == "indeterminate");
             quests.SelectedFilter = quests.AvailableFilters.Single(filter => filter.Id == "all");
             var task = Assert.Single(quests.Tasks);
             await Assert.IsType<AsyncDelegateCommand>(task.SetActiveCommand).ExecuteAsync();
@@ -147,11 +149,15 @@ public sealed class RuntimeCompositionTests
             task = Assert.Single(quests.Tasks);
             Assert.Equal("Active", task.RecordedState);
             Assert.Contains("Active need: 2", Assert.Single(task.Objectives).Items, StringComparison.Ordinal);
+            Assert.Equal("Objective source requires found-in-raid items.", Assert.Single(task.Objectives).FoundInRaidRule);
             await Assert.IsType<AsyncDelegateCommand>(task.Objectives[0].IncrementCommand).ExecuteAsync();
             task = Assert.Single(quests.Tasks);
             Assert.Contains("1/2", Assert.Single(task.Objectives).Status, StringComparison.Ordinal);
             await Assert.IsType<AsyncDelegateCommand>(task.TogglePinCommand).ExecuteAsync();
-            Assert.True(Assert.Single(quests.Tasks).IsPinned);
+            task = Assert.Single(quests.Tasks);
+            Assert.True(task.IsPinned);
+            await Assert.IsType<AsyncDelegateCommand>(task.SetUnknownCommand).ExecuteAsync();
+            Assert.Equal("Unknown", Assert.Single(quests.Tasks).RecordedState);
             Assert.Contains("exact mode Regular", quests.ScopeStatus, StringComparison.Ordinal);
             Assert.Contains("generation", quests.ScopeStatus, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("json.tarkov.dev", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);

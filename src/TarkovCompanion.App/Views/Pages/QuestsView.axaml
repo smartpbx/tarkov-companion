@@ -89,6 +89,7 @@
                       </WrapPanel>
                       <TextBlock Classes="label" Text="{Binding Maps}" TextWrapping="Wrap" />
                       <TextBlock Classes="label" IsVisible="{Binding HasItems}" Text="{Binding Items}" TextWrapping="Wrap" />
+                      <TextBlock Classes="label" IsVisible="{Binding HasFoundInRaidRule}" Text="{Binding FoundInRaidRule}" TextWrapping="Wrap" />
                       <TextBlock Classes="label" Text="{Binding Source}" TextWrapping="Wrap" />
                       <WrapPanel Orientation="Horizontal">
                         <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,5,5" />

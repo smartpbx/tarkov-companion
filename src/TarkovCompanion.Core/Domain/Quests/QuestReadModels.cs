@@ -31,6 +31,7 @@ public sealed record QuestObjectiveReadModel(
     RecordedObjectiveState RecordedState,
     decimal? RecordedCount,
     decimal? TargetCount,
+    bool? FoundInRaidRequired,
     string ProgressSource,
     DateTimeOffset? ProgressModifiedUtc,
     bool IsPinned,
@@ -110,6 +111,7 @@ public sealed record QuestMapObjectiveReadModel(
     int? PinSortOrder,
     string ProgressSource,
     DateTimeOffset? ProgressModifiedUtc,
+    bool? FoundInRaidRequired,
     IReadOnlyList<string> MapIds,
     IReadOnlyList<QuestObjectiveZone> Zones,
     IReadOnlyList<QuestObjectiveItemTarget> ItemTargets);

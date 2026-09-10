@@ -208,6 +208,7 @@ public sealed class QuestReadServiceTests
         var service = Service(profile, Catalog(task), progress);
 
         var result = await service.GetItemNeedsAsync(progress.Scope, "item-a", CancellationToken.None);
+        var board = await service.GetQuestBoardAsync(progress.Scope, CancellationToken.None);
 
         var requirement = Assert.Single(result.Requirements);
         Assert.Equal(["item-a", "item-b"], requirement.AcceptableItemIds);
@@ -217,6 +218,7 @@ public sealed class QuestReadServiceTests
         Assert.Equal(2, requirement.RemainingCount);
         Assert.Equal(2, result.FoundInRaidHeldCount);
         Assert.Equal(7, result.NonFoundInRaidHeldCount);
+        Assert.True(Assert.Single(Assert.Single(board.Tasks).Objectives).FoundInRaidRequired);
     }
 
     [Fact]
@@ -272,7 +274,12 @@ public sealed class QuestReadServiceTests
             SourceOrdinal = 1,
             MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-one")],
         };
-        var activeTask = TaskDefinition("active-task", [completedObjective, activeObjective]);
+        var alternateObjective = Objective("alternate-objective", 1, true, []) with
+        {
+            SourceOrdinal = 3,
+            MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-night")],
+        };
+        var activeTask = TaskDefinition("active-task", [completedObjective, activeObjective, alternateObjective]);
         var pinnedTask = TaskDefinition("pinned-task", [pinnedObjective]) with { Name = "A pinned task" };
         var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
         var progress = new QuestProgressSnapshot(
@@ -297,11 +304,15 @@ public sealed class QuestReadServiceTests
         var service = Service(profile, Catalog(activeTask, pinnedTask), progress);
 
         var result = await service.GetActiveMapObjectivesAsync(scope, ["MAP-ONE"], CancellationToken.None);
+        var alternateResult = await service.GetActiveMapObjectivesAsync(scope, ["MAP-NIGHT"], CancellationToken.None);
 
         Assert.Equal(["pinned-objective", "active-objective"], result.Objectives.Select(value => value.ObjectiveId));
         Assert.True(result.Objectives[0].IsObjectivePinned);
         Assert.Equal(RecordedTaskState.Active, result.Objectives[1].TaskState);
         Assert.DoesNotContain(result.Objectives, value => value.ObjectiveId == completedObjective.Id);
+        var alternate = Assert.Single(alternateResult.Objectives);
+        Assert.Equal("alternate-objective", alternate.ObjectiveId);
+        Assert.True(alternate.FoundInRaidRequired);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetActiveMapObjectivesAsync(
             scope with { Generation = "different-generation" },
             ["map-one"],

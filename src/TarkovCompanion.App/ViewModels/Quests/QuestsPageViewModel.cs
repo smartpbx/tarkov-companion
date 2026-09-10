@@ -23,7 +23,7 @@ public sealed class QuestObjectiveViewModel
         SetUnknownCommand = new AsyncDelegateCommand(() =>
             _owner.SetObjectiveAsync(this, RecordedObjectiveState.Unknown, null));
         SetInProgressCommand = new AsyncDelegateCommand(() =>
-            _owner.SetObjectiveAsync(this, RecordedObjectiveState.InProgress, Model.RecordedCount ?? 0));
+            _owner.SetObjectiveAsync(this, RecordedObjectiveState.InProgress, CountForInProgress(Model)));
         SetCompletedCommand = new AsyncDelegateCommand(() =>
             _owner.SetObjectiveAsync(this, RecordedObjectiveState.Completed, Model.TargetCount ?? Model.RecordedCount));
         DecrementCommand = new AsyncDelegateCommand(() =>
@@ -47,7 +47,7 @@ public sealed class QuestObjectiveViewModel
             ? $"{Model.ProgressSource} · {QuestsPageViewModel.FormatAge(modified, owner.NowUtc)}"
             : Model.ProgressSource;
         Maps = Model.MapIds.Count == 0 ? "No map association" : $"Map: {string.Join(", ", Model.MapIds)}";
-        Items = DescribeItems(Model, taskState);
+        Items = QuestItemRequirementFormatter.DescribeForQuest(Model, taskState);
     }
 
     public QuestObjectiveReadModel Model { get; }
@@ -67,6 +67,12 @@ public sealed class QuestObjectiveViewModel
     public string Items { get; }
 
     public bool HasItems => Model.ItemTargets.Count > 0;
+
+    public bool HasFoundInRaidRule => Model.FoundInRaidRequired is not null;
+
+    public string FoundInRaidRule => Model.FoundInRaidRequired == true
+        ? "Objective source requires found-in-raid items."
+        : "Objective source does not require found-in-raid items.";
 
     public bool IsUnsupported => Model.IsUnsupported;
 
@@ -88,37 +94,8 @@ public sealed class QuestObjectiveViewModel
 
     public ICommand TogglePinCommand { get; }
 
-    private static string DescribeItems(QuestObjectiveReadModel objective, RecordedTaskState taskState)
-    {
-        if (objective.ItemTargets.Count == 0)
-        {
-            return "No item requirement";
-        }
-
-        var requiredKeys = objective.ItemTargets
-            .Where(target => target.SourceField == "requiredKeys")
-            .GroupBy(target => target.AlternativeGroup)
-            .OrderBy(group => group.Key)
-            .Select(group => string.Join(" or ", group.Select(target => target.ItemId).Order(StringComparer.Ordinal)))
-            .ToArray();
-        var itemIds = objective.ItemTargets
-            .Where(target => target.SourceField != "requiredKeys")
-            .Select(target => target.ItemId)
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        var remaining = objective.TargetCount is { } target
-            ? Math.Max(0, target - (objective.RecordedCount ?? 0)).ToString("0.##", CultureInfo.InvariantCulture)
-            : "unknown quantity";
-        var prefix = taskState == RecordedTaskState.Active ? "Active need" : "Planning need";
-        var fir = objective.ItemTargets.Any(target =>
-            target.SourceField != "requiredKeys" && target.FoundInRaidRequired == true)
-            ? " · found in raid"
-            : string.Empty;
-        var itemNeed = itemIds.Length == 0 ? null : $"{prefix}: {remaining} · {string.Join(" or ", itemIds)}{fir}";
-        var keyNeed = requiredKeys.Length == 0 ? null : $"Required keys: {string.Join("; ", requiredKeys)}";
-        return string.Join(" · ", new[] { itemNeed, keyNeed }.OfType<string>());
-    }
+    public static decimal? CountForInProgress(QuestObjectiveReadModel objective) =>
+        objective.RecordedCount ?? (objective.TargetCount is null ? null : 0);
 }
 
 public sealed class QuestTaskViewModel
