@@ -68,9 +68,25 @@ public sealed partial class WindowsGlobalHotkeyService : IGlobalHotkeyService
         await stopped.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Releases the hotkey without letting a teardown failure escape.
+    /// </summary>
+    /// <remarks>
+    /// This runs while the dependency-injection container is disposing its singletons. A
+    /// throw here aborts that walk, so the services after it, including the open SQLite
+    /// connections, are never disposed.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
-        await UnregisterAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await UnregisterAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is Win32Exception
+                                          or EntryPointNotFoundException
+                                          or ObjectDisposedException)
+        {
+        }
     }
 
     private void RunMessagePump(HotkeyGesture gesture, TaskCompletionSource ready)
@@ -128,7 +144,11 @@ public sealed partial class WindowsGlobalHotkeyService : IGlobalHotkeyService
         [LibraryImport("user32.dll", EntryPoint = "PeekMessageW")]
         internal static partial int PeekMessage(out NativeMessage message, nint window, uint minimum, uint maximum, uint remove);
 
-        [LibraryImport("user32.dll", SetLastError = true)]
+        // user32 exports PostThreadMessageW/A, never a bare PostThreadMessage. LibraryImport
+        // uses the name literally rather than appending a suffix the way DllImport could, so
+        // without the explicit entry point every unregister threw EntryPointNotFoundException.
+        // Nothing called this service until the scan shortcut was wired up, so it went unseen.
+        [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageW", SetLastError = true)]
         internal static partial int PostThreadMessage(uint threadId, uint message, nint wParam, nint lParam);
 
         [LibraryImport("kernel32.dll")]

@@ -131,11 +131,14 @@ public static class SelfTestRunner
             // releases it again.
             var hotkeys = services.GetRequiredService<ScanHotkeyService>();
             var hotkeyState = await hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(false);
+            // Reported, never required. A combination another application already owns is an
+            // ordinary situation the user fixes by choosing a different one; it must not make
+            // an otherwise healthy installation report itself as broken.
             checks.Add(new(
                 "scan-hotkey",
-                hotkeyState.IsRegistered ? "pass" : hotkeyState.IsSupported ? "fail" : "unavailable",
+                hotkeyState.IsRegistered ? "pass" : "unavailable",
                 $"{hotkeyState.Binding.DisplayName}: {hotkeyState.Detail}",
-                Required: hotkeyState.IsSupported));
+                Required: false));
 
             var diagnosticRequested = commandLine.DeveloperMode &&
                 !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath);

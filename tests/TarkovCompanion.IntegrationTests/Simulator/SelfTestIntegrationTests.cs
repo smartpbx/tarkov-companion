@@ -58,8 +58,9 @@ public sealed class SelfTestIntegrationTests
             // to prove the combination is obtainable. Global shortcuts do not exist off
             // Windows, so there it reports unavailable rather than failing.
             var hotkey = report.Checks.Single(check => check.Name == "scan-hotkey");
-            Assert.Equal(OperatingSystem.IsWindows() ? "pass" : "unavailable", hotkey.Status);
+            Assert.False(hotkey.Required);
             Assert.Contains("Ctrl + Alt + S", hotkey.Detail, StringComparison.Ordinal);
+            Assert.Equal(OperatingSystem.IsWindows() ? "pass" : "unavailable", hotkey.Status);
             Assert.False(report.Safety["readsGameMemory"]);
             Assert.False(report.Safety["sendsGameInput"]);
             Assert.False(report.Safety["capturesNetworkTraffic"]);
