@@ -43,6 +43,22 @@ Last updated: 2026-09-09
 - [ ] Windows VM smoke.
 - [ ] v1 package and release report.
 
+## Hosted Windows verification
+
+The packaged build is now launched and exercised on a GitHub-hosted Windows runner on every
+push to the working branch. Method and current results are in `docs/WINDOWS_VERIFICATION.md`.
+
+As of run 34535907475 the packaged application starts on a machine with no prior application
+data, presents its window in about two seconds, stays responsive, downloads and stores the
+full tarkov.dev catalogs, renders tarkov.dev map artwork, and exits cleanly. Real-EFT
+behaviour remains unverified and deferred.
+
+Six defects were found by launching the package that no fixture test could have caught,
+because each fixture described a shape upstream no longer sends: a hideout trader requirement
+that is now a comparison rather than a level, a quoted label rotation in the map catalog, an
+empty translated item short name, duplicate extract identifiers, a view tile budget below
+what a real map needs, and map images bound as file paths to a property that takes an image.
+
 ## Active decisions and limitations
 
 - Code is MIT. Restrictively licensed map artwork is not embedded in the foundation; map providers retain explicit asset-level provenance and attribution.
