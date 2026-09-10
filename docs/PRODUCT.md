@@ -6,6 +6,8 @@ The local profile is the default and sufficient source of player progress. It st
 
 TarkovTracker remains an optional read-only integration. Quest, hideout, wishlist, and recommendation context calculation does not depend on it and never writes to it.
 
+Quest progress has a separate project-owned JSON v2 exchange surface. It exports exact local profile identity, mode, generation, task/objective assertions, explicit FIR-class holdings, and pins to a checksummed local file without raw assertion sources, authorization data, local paths, or external account IDs. Import is preview-only until the user reviews monotonic changes, resolves every conflict, and confirms apply; unknown catalog IDs remain unresolved evidence and missing records never delete local progress. Apply and undo are atomic, journaled, revision-bound, idempotent, and fully offline. The older profile settings schema 1 is handled only by an explicit compatibility reader: it binds to the deterministic legacy generation and proposes its explicit completed-task IDs, objective counts, and non-FIR owned counts, without inventing assertions for absent entities or confusing the settings envelope with v2.
+
 Quest requirements are removed when their task is complete and reduced by recorded objective progress. Hideout requirements are removed when the target station level is built and reduced by locally owned item counts. The context service combines those results with wishlist membership, event state, user override, and specialized item advice for the existing recommendation engine.
 
 Recommendation actions use this deterministic precedence:

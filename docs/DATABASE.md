@@ -12,6 +12,9 @@ The executable does this through `IRuntimeDataStore.InitializeAsync` before it e
 
 - `0001_initial.sql` creates the normalized v1 schema and FTS5 item index.
 - `0002_data_cache.sql` adds normalized short-name and 24-hour price columns plus the conditional HTTP response cache.
+- `0004_quest_catalog_fidelity.sql` adds mode-scoped catalog snapshots, complete objective variants, map links, zones, and orphan evidence.
+- `0005_local_quest_progress.sql` adds exact profile/mode/generation progress, explicit FIR-class holdings, pins, revisions, and an append-only inverse journal.
+- `0006_quest_progress_exchange.sql` adds immutable import metadata, reviewed conflict decisions, unresolved IDs, normalized-payload idempotency, and append-only undo boundaries.
 
 Never edit an applied migration. Add a monotonically numbered migration instead.
 
@@ -59,6 +62,8 @@ Exact full-name and short-name hits rank ahead of FTS and fuzzy hits. `SqlitePri
 `SqliteRuntimeDataStore` reports a startup snapshot from normalized item and sync-state tables, including item count, successful endpoint count, the most recent UTC success, and the most recent bounded error summary. This is the source for the UI's data availability and freshness state.
 
 `SqliteRaidHistoryService` implements `IRaidHistoryService` over the existing `raids` and `raid_events` tables. It creates summary rows on evidence-based raid starts, records state/position/extract/scan events with UTC timestamps and validated JSON, and closes the summary row on a transition out of `InRaid`. CSV and JSON export read those persisted summaries; no capture bytes or screen images enter the database.
+
+`SqliteQuestProgressImportStore` applies one confirmed project JSON preview in a single transaction. It compares the exact base revision, records the normalized payload and preview hashes, applies selected values, stores conflict decisions and unknown catalog IDs, and appends inverse journal rows before commit. Repeated payload hashes are idempotent within one exact profile scope. Undo adds a new journal batch and a separate undo boundary; it never rewrites prior history and refuses to overwrite later revisions.
 
 ## Verification
 

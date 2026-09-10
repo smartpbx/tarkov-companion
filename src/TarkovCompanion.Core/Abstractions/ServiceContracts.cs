@@ -153,6 +153,54 @@ public interface IQuestProgressStore
         CancellationToken cancellationToken);
 }
 
+public interface IProjectQuestProgressJson
+{
+    Task<ProjectQuestProgressDocument> ReadAsync(string filePath, CancellationToken cancellationToken);
+
+    Task<QuestProgressExportResult> WriteAsync(
+        string filePath,
+        PlayerProfile profile,
+        QuestProgressSnapshot progress,
+        CancellationToken cancellationToken);
+}
+
+public interface IQuestProgressImportStore
+{
+    Task<QuestImportApplyResult> ApplyImportAsync(
+        QuestProgressImportPreview preview,
+        string expectedPreviewSha256,
+        IReadOnlyDictionary<string, QuestImportResolution> resolutions,
+        CancellationToken cancellationToken);
+
+    Task<QuestImportUndoResult> UndoImportAsync(
+        QuestProfileScope scope,
+        Guid importId,
+        CancellationToken cancellationToken);
+}
+
+public interface IQuestProgressExchangeService
+{
+    Task<QuestProgressExportResult> ExportAsync(
+        QuestProfileScope scope,
+        string filePath,
+        CancellationToken cancellationToken);
+
+    Task<QuestProgressImportPreview> PreviewImportAsync(
+        QuestProfileScope scope,
+        string filePath,
+        CancellationToken cancellationToken);
+
+    Task<QuestImportApplyResult> ApplyImportAsync(
+        QuestProgressImportPreview preview,
+        IReadOnlyDictionary<string, QuestImportResolution> resolutions,
+        CancellationToken cancellationToken);
+
+    Task<QuestImportUndoResult> UndoImportAsync(
+        QuestProfileScope scope,
+        Guid importId,
+        CancellationToken cancellationToken);
+}
+
 public interface IQuestProgressCommandService
 {
     Task<QuestProgressCommandResult> SetTaskStateAsync(

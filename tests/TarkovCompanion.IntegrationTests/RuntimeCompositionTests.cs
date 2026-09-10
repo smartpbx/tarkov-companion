@@ -43,6 +43,9 @@ public sealed class RuntimeCompositionTests
             Assert.NotNull(services.GetRequiredService<IQuestProgressStore>());
             Assert.NotNull(services.GetRequiredService<IQuestProgressCommandService>());
             Assert.NotNull(services.GetRequiredService<IQuestReadService>());
+            Assert.NotNull(services.GetRequiredService<IProjectQuestProgressJson>());
+            Assert.NotNull(services.GetRequiredService<IQuestProgressImportStore>());
+            Assert.NotNull(services.GetRequiredService<IQuestProgressExchangeService>());
             Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
         }
         finally
@@ -161,6 +164,16 @@ public sealed class RuntimeCompositionTests
             Assert.Contains("exact mode Regular", quests.ScopeStatus, StringComparison.Ordinal);
             Assert.Contains("generation", quests.ScopeStatus, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("json.tarkov.dev", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);
+
+            quests.ExchangePath = Path.Combine(root, "Support", "quest-progress-test.json");
+            await quests.ExportProgressCommand.ExecuteAsync();
+            Assert.True(File.Exists(quests.ExchangePath));
+            Assert.Contains("Exported", quests.ExchangeStatus, StringComparison.Ordinal);
+            await quests.PreviewImportCommand.ExecuteAsync();
+            Assert.True(quests.HasImportProposals);
+            Assert.Contains("unchanged", quests.ImportPreviewSummary, StringComparison.OrdinalIgnoreCase);
+            await quests.ApplyImportCommand.ExecuteAsync();
+            Assert.Contains("Applied 0 changes", quests.ExchangeStatus, StringComparison.Ordinal);
         }
         finally
         {

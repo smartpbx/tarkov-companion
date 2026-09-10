@@ -20,6 +20,8 @@ Startup applies the hand-written migrations, seeds deterministic local data only
 
 The UI consumes runtime snapshots and repositories rather than constructing a second fake application model. Normal and demo modes use the same commands and ViewModels. Demo mode changes only the registered fixture adapter and deterministic seed, while unavailable data, map state, position, or scans are presented as unavailable. Application shutdown cancels and awaits startup/map work before disposing the service provider.
 
+The quest view also composes the project-owned JSON v2 exchange service. Infrastructure performs bounded, checksummed, atomic local file I/O; Application selects one exact profile/mode/generation scope and classifies monotonic, conflicting, unchanged, and unresolved proposals; SQLite applies a confirmed preview and its inverse journal in one transaction. The UI never parses JSON or merges records itself, and project exchange performs no network access.
+
 A user scan captures visible pixels into memory, detects a context, obtains OCR/icon candidates, resolves canonical item or extract IDs, and only then invokes recommendation/economy services. Capture bytes are discarded by default.
 
 The executable currently composes `IScanUseCase` through an `IScanAdapter` seam. Demo mode registers a deterministic adapter that resolves a seeded item through the real item and recommendation services; normal mode registers an honest unavailable adapter until the production recognition work provides an implementation. The authenticated developer diagnostic channel invokes this same use case.

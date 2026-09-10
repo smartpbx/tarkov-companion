@@ -1,6 +1,6 @@
 # Quest tracking — staged implementation plan
 
-Status: research complete; implementation not started.
+Status: Stages 1 through 4 implemented; optional external integration and final hardening remain.
 
 Read root `AGENTS.md` and
 `docs/research/QUEST_TRACKING_ARCHITECTURE.md` before changing code. The

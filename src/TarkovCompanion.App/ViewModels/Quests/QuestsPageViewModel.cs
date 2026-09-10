@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Input;
+using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -8,6 +9,29 @@ using TarkovCompanion.Core.Domain.Quests;
 namespace TarkovCompanion.App.ViewModels.Quests;
 
 public sealed record QuestBoardFilter(string Id, string Label);
+
+public sealed class QuestImportProposalViewModel(
+    QuestImportProposal proposal,
+    QuestImportResolution? resolution = null)
+{
+    public string Key => proposal.Key;
+
+    public string Classification => proposal.Classification switch
+    {
+        QuestImportClassification.SafeMonotonic => "Safe monotonic",
+        QuestImportClassification.Conflict => "Conflict — confirmation required",
+        QuestImportClassification.IgnoredUnchanged => "Ignored unchanged",
+        QuestImportClassification.UnresolvedUnknownId => "Unresolved unknown id",
+        _ => proposal.Classification.ToString(),
+    };
+
+    public string Entity => $"{proposal.EntityKind}: {proposal.EntityId}";
+
+    public string Detail => proposal.Reason;
+
+    public string Resolution => resolution?.ToString() ??
+        (proposal.Classification == QuestImportClassification.Conflict ? "Unresolved" : "Automatic");
+}
 
 public sealed class QuestObjectiveViewModel
 {
@@ -193,6 +217,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     private readonly IPlayerProfileService _profileService;
     private readonly IQuestReadService _readService;
     private readonly IQuestProgressCommandService _commandService;
+    private readonly IQuestProgressExchangeService _exchangeService;
     private readonly MapViewModel _map;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -207,24 +232,41 @@ public sealed class QuestsPageViewModel : PageViewModel
     private string _status = "Loading local quest progress…";
     private DateTimeOffset? _lastRuntimeDataUtc;
     private bool _initialized;
+    private string _exchangePath;
+    private string _exchangeStatus = "Project JSON exchange is local-only and has not run.";
+    private string _importPreviewSummary = "No import preview loaded.";
+    private IReadOnlyList<QuestImportProposalViewModel> _importProposals = [];
+    private QuestProgressImportPreview? _importPreview;
+    private Dictionary<string, QuestImportResolution> _importResolutions = new(StringComparer.Ordinal);
+    private Guid? _lastImportId;
 
     public QuestsPageViewModel(
         IPlayerProfileService profileService,
         IQuestReadService readService,
         IQuestProgressCommandService commandService,
+        IQuestProgressExchangeService exchangeService,
+        AppDataPaths paths,
         MapViewModel map,
         TimeProvider timeProvider)
         : base(
             "Quests",
-            "Manual, local-first quest progress and source-honest static map links",
+            "Local-first quest progress, reviewed project exchange, and source-honest static map links",
             "Quest state not loaded")
     {
         _profileService = profileService;
         _readService = readService;
         _commandService = commandService;
+        _exchangeService = exchangeService;
+        _exchangePath = Path.Combine(paths.Support, "quest-progress.json");
         _map = map;
         _timeProvider = timeProvider;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
+        ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
+        PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
+        KeepLocalConflictsCommand = new DelegateCommand(() => ResolveConflicts(QuestImportResolution.KeepLocal));
+        UseIncomingConflictsCommand = new DelegateCommand(() => ResolveConflicts(QuestImportResolution.UseIncoming));
+        ApplyImportCommand = new AsyncDelegateCommand(ApplyImportAsync);
+        UndoLastImportCommand = new AsyncDelegateCommand(UndoLastImportAsync);
     }
 
     public IReadOnlyList<QuestBoardFilter> AvailableFilters => Filters;
@@ -286,6 +328,48 @@ public sealed class QuestsPageViewModel : PageViewModel
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
+
+    public AsyncDelegateCommand ExportProgressCommand { get; }
+
+    public AsyncDelegateCommand PreviewImportCommand { get; }
+
+    public DelegateCommand KeepLocalConflictsCommand { get; }
+
+    public DelegateCommand UseIncomingConflictsCommand { get; }
+
+    public AsyncDelegateCommand ApplyImportCommand { get; }
+
+    public AsyncDelegateCommand UndoLastImportCommand { get; }
+
+    public string ExchangePath
+    {
+        get => _exchangePath;
+        set => SetProperty(ref _exchangePath, value);
+    }
+
+    public string ExchangeStatus
+    {
+        get => _exchangeStatus;
+        private set => SetProperty(ref _exchangeStatus, value);
+    }
+
+    public string ImportPreviewSummary
+    {
+        get => _importPreviewSummary;
+        private set => SetProperty(ref _importPreviewSummary, value);
+    }
+
+    public IReadOnlyList<QuestImportProposalViewModel> ImportProposals
+    {
+        get => _importProposals;
+        private set
+        {
+            SetProperty(ref _importProposals, value);
+            OnPropertyChanged(nameof(HasImportProposals));
+        }
+    }
+
+    public bool HasImportProposals => ImportProposals.Count > 0;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -378,6 +462,143 @@ public sealed class QuestsPageViewModel : PageViewModel
             0,
             null,
             CancellationToken.None).ConfigureAwait(true));
+
+    private async Task ExportProgressAsync()
+    {
+        if (_scope is null)
+        {
+            ExchangeStatus = "Load the exact profile scope before exporting.";
+            return;
+        }
+
+        try
+        {
+            var result = await _exchangeService.ExportAsync(
+                _scope,
+                ExchangePath,
+                CancellationToken.None).ConfigureAwait(true);
+            ExchangeStatus = $"Exported {result.RecordCount} owned records · SHA-256 {result.PayloadSha256[..12]}…";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ExchangeStatus = $"Export failed without changing progress: {exception.Message}";
+        }
+    }
+
+    private async Task PreviewImportAsync()
+    {
+        if (_scope is null)
+        {
+            ExchangeStatus = "Load the exact profile scope before previewing an import.";
+            return;
+        }
+
+        try
+        {
+            var preview = await _exchangeService.PreviewImportAsync(
+                _scope,
+                ExchangePath,
+                CancellationToken.None).ConfigureAwait(true);
+            _importPreview = preview;
+            _importResolutions = new(StringComparer.Ordinal);
+            RefreshImportProposalRows();
+            ImportPreviewSummary = preview.IsLegacyProfileSettingsEnvelope
+                ? $"Legacy profile settings v1 · {preview.SafeProposals.Count} explicit promotions · {preview.Conflicts.Count} conflicts · absent entities ignored"
+                : $"Revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unknown ids";
+            ExchangeStatus = preview.Conflicts.Count == 0
+                ? "Preview ready. Safe monotonic changes can be applied; absent records never delete local state."
+                : "Preview ready. Choose Keep local or Use incoming for every conflict before applying.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _importPreview = null;
+            _importResolutions.Clear();
+            ImportProposals = [];
+            ImportPreviewSummary = "No valid import preview loaded.";
+            ExchangeStatus = $"Preview failed; the database is unchanged: {exception.Message}";
+        }
+    }
+
+    private void ResolveConflicts(QuestImportResolution resolution)
+    {
+        if (_importPreview is null)
+        {
+            ExchangeStatus = "Load a project quest progress v2 preview before resolving conflicts.";
+            return;
+        }
+
+        _importResolutions = _importPreview.Conflicts.ToDictionary(
+            value => value.Key,
+            _ => resolution,
+            StringComparer.Ordinal);
+        RefreshImportProposalRows();
+        ExchangeStatus = _importPreview.Conflicts.Count == 0
+            ? "The preview has no conflicts; safe monotonic changes are ready to apply."
+            : $"Confirmed {resolution} for {_importPreview.Conflicts.Count} conflicts. Review the list, then apply.";
+    }
+
+    private async Task ApplyImportAsync()
+    {
+        if (_importPreview is null)
+        {
+            ExchangeStatus = "Preview a project quest progress file before applying it.";
+            return;
+        }
+
+        try
+        {
+            var result = await _exchangeService.ApplyImportAsync(
+                _importPreview,
+                _importResolutions,
+                CancellationToken.None).ConfigureAwait(true);
+            _lastImportId = result.ImportId;
+            ExchangeStatus = result.AlreadyApplied
+                ? $"This normalized payload was already applied as import {result.ImportId}. No duplicate changes were made."
+                : $"Applied {result.AppliedChangeCount} changes atomically · kept {result.KeptLocalCount} local · retained {result.UnresolvedCount} unresolved.";
+            _importPreview = null;
+            _importResolutions.Clear();
+            ImportProposals = [];
+            ImportPreviewSummary = "Import applied. Preview again before another apply.";
+            await RefreshAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ExchangeStatus = $"Import was not applied: {exception.Message}";
+        }
+    }
+
+    private async Task UndoLastImportAsync()
+    {
+        if (_scope is null || _lastImportId is null)
+        {
+            ExchangeStatus = "No import from this session is available to undo.";
+            return;
+        }
+
+        try
+        {
+            var result = await _exchangeService.UndoImportAsync(
+                _scope,
+                _lastImportId.Value,
+                CancellationToken.None).ConfigureAwait(true);
+            ExchangeStatus = result.AlreadyUndone
+                ? "That import was already undone; no duplicate journal entry was created."
+                : $"Undid {result.RestoredChangeCount} imported changes as journal revision {result.Revision}.";
+            await RefreshAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ExchangeStatus = $"Import undo was refused without changing progress: {exception.Message}";
+        }
+    }
+
+    private void RefreshImportProposalRows()
+    {
+        ImportProposals = _importPreview?.Proposals.Select(proposal =>
+            new QuestImportProposalViewModel(
+                proposal,
+                _importResolutions.GetValueOrDefault(proposal.Key))).ToArray() ?? [];
+    }
 
     internal static string FormatAge(DateTimeOffset timestamp, DateTimeOffset now)
     {
