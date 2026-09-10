@@ -47,6 +47,17 @@ public sealed record OcrResult(
 
 public sealed record OcrEngineAvailability(bool IsAvailable, string Provider, string? Reason = null);
 
+public sealed record RecognitionCapabilityStatus(
+    string Capability,
+    bool IsAvailable,
+    string Provider,
+    string Detail);
+
+public sealed record RecognitionSelfTestResult(
+    DateTimeOffset CheckedUtc,
+    bool IsReady,
+    IReadOnlyList<RecognitionCapabilityStatus> Capabilities);
+
 public enum RecognitionDecision
 {
     NoMatch,

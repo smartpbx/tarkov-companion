@@ -1,0 +1,21 @@
+[
+  { "context": "SingleItem", "term": "inspect", "weight": 0.65, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "SingleItem", "term": "durability", "weight": 0.25, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "SingleItem", "term": "ergonomics", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "SingleItem", "term": "compatible with", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "SingleItem", "term": "weight", "weight": 0.15, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "Container", "term": "stash", "weight": 0.65, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "Container", "term": "sorting table", "weight": 0.65, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "Container", "term": "backpack", "weight": 0.25, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "Container", "term": "tactical rig", "weight": 0.25, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "Container", "term": "pockets", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "ExtractList", "term": "extracts", "weight": 0.70, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "ExtractList", "term": "exfil", "weight": 0.70, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "ExtractList", "term": "find an extraction point", "weight": 0.70, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "ExtractList", "term": "double press o", "weight": 0.55, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "FleaListings", "term": "flea market", "weight": 0.75, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "FleaListings", "term": "filter by item", "weight": 0.45, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "FleaListings", "term": "purchase", "weight": 0.25, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "FleaListings", "term": "price", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" },
+  { "context": "FleaListings", "term": "trader rating", "weight": 0.20, "provenance": "simulator-ui-contract/2026-09-09; live-unvalidated" }
+]

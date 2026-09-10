@@ -14,7 +14,7 @@ public sealed class RecognitionPipelineTests
         var engine = new FixtureOcrEngine([fixture.ToOcrScene()]);
         var service = new RecognitionService(
             new OcrCoordinator(engine, new ScanContextDetector()),
-            new FuzzyCanonicalItemResolver(
+            ResolverCache(
             [
                 new CanonicalItemReference("graphics-card", "Graphics Card", ["GPU"]),
                 new CanonicalItemReference("power-cord", "Power Cord"),
@@ -29,14 +29,13 @@ public sealed class RecognitionPipelineTests
     }
 
     [Fact]
-    public async Task UnknownSceneReturnsNoStateEvenWhenIconMatcherWouldMatch()
+    public async Task UnknownSceneReturnsNoState()
     {
         var fixture = SyntheticFixtureLoader.LoadScenes().Single(scene => scene.ExpectedContext == "Unknown");
         var engine = new FixtureOcrEngine([fixture.ToOcrScene()]);
         var service = new RecognitionService(
             new OcrCoordinator(engine, new ScanContextDetector()),
-            new FuzzyCanonicalItemResolver([new CanonicalItemReference("item", "Item")]),
-            new AlwaysMatchingIconMatcher());
+            ResolverCache([new CanonicalItemReference("item", "Item")]));
 
         var result = await service.RecognizeAsync(fixture.CreateImage(), CancellationToken.None);
 
@@ -47,37 +46,20 @@ public sealed class RecognitionPipelineTests
     }
 
     [Fact]
-    public async Task KnownSceneUsesIconFallbackWhenOcrHasNoViableItem()
+    public async Task KnownSceneDoesNotFabricateDisabledIconFallback()
     {
         var fixture = SyntheticFixtureLoader.LoadScenes().Single(scene => scene.ExpectedContext == "SingleItem");
         var engine = new FixtureOcrEngine([fixture.ToOcrScene()]);
         var service = new RecognitionService(
             new OcrCoordinator(engine, new ScanContextDetector()),
-            new FuzzyCanonicalItemResolver([new CanonicalItemReference("fallback", "Fallback Item")]),
-            new AlwaysMatchingIconMatcher());
+            ResolverCache([new CanonicalItemReference("fallback", "Fallback Item")]));
 
         var result = await service.RecognizeAsync(fixture.CreateImage(), CancellationToken.None);
 
-        Assert.Equal("icon-match", result.Selected?.CanonicalId);
-        Assert.Null(result.DiagnosticCode);
+        Assert.Null(result.Selected);
+        Assert.Equal("no_match", result.DiagnosticCode);
     }
 
-    private sealed class AlwaysMatchingIconMatcher : IIconMatcher
-    {
-        public Task<IReadOnlyList<RecognitionCandidate>> MatchAsync(
-            CapturedImage image,
-            int limit,
-            CancellationToken cancellationToken)
-        {
-            IReadOnlyList<RecognitionCandidate> candidates =
-            [
-                new RecognitionCandidate(
-                    "icon-match",
-                    "Icon Match",
-                    Confidence.Certain,
-                    "should-never-be-used"),
-            ];
-            return Task.FromResult(candidates);
-        }
-    }
+    private static CanonicalItemResolverCache ResolverCache(IReadOnlyList<CanonicalItemReference> items) =>
+        new(new InMemoryRecognitionCatalogRepository(items));
 }

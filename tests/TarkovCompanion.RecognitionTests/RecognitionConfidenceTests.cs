@@ -26,4 +26,19 @@ public sealed class RecognitionConfidenceTests
 
         Assert.Null(result.Selected);
     }
+
+    [Fact]
+    public void SelectionUsesHighestConfidenceAndRejectsHighConfidenceNearTieRegardlessOfOrder()
+    {
+        var lower = new RecognitionCandidate("lower", "Lower", new Confidence(0.85), "fixture");
+        var highest = new RecognitionCandidate("highest", "Highest", new Confidence(0.97), "fixture");
+        var clear = new RecognitionResult(ScanContext.SingleItem, [lower, highest], DateTimeOffset.UtcNow);
+        var nearTie = new RecognitionResult(
+            ScanContext.SingleItem,
+            [highest, new("runner", "Runner", new Confidence(0.94), "fixture")],
+            DateTimeOffset.UtcNow);
+
+        Assert.Equal("highest", clear.Selected?.CanonicalId);
+        Assert.Null(nearTie.Selected);
+    }
 }

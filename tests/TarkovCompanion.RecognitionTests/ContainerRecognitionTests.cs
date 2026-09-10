@@ -1,4 +1,6 @@
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Infrastructure.Recognition;
 
@@ -65,6 +67,70 @@ public sealed class ContainerRecognitionTests
             },
             item => Assert.Equal("wires", item.CanonicalId));
         Assert.DoesNotContain(result.Items, item => item.CanonicalId == "junk");
+        Assert.True(result.IsPartial);
+        Assert.Empty(result.UnresolvedCells);
+        Assert.Contains(result.AmbiguousCells, issue => issue.Column == 3);
+    }
+
+    [Fact]
+    public void GridDetectorFindsRenderedRegularGrid()
+    {
+        const int width = 800;
+        const int height = 600;
+        var pixels = new byte[width * height];
+        Array.Fill(pixels, (byte)24);
+        var image = CreateImage(pixels, width, height);
+        var expected = new ContainerGridSpec(new PixelRect(200, 120, 400, 300), 4, 3);
+        PaintGridLines(pixels, width, expected, 220);
+
+        var detected = new ContainerGridDetector().Detect(image);
+
+        Assert.NotNull(detected);
+        Assert.Equal(expected.Columns, detected.Columns);
+        Assert.Equal(expected.Rows, detected.Rows);
+        Assert.InRange(Math.Abs(expected.Bounds.X - detected.Bounds.X), 0, 2);
+        Assert.InRange(Math.Abs(expected.Bounds.Y - detected.Bounds.Y), 0, 2);
+    }
+
+    [Fact]
+    public async Task ContainerServiceDetectsGridParsesQuantityAndFlagsUnresolvedOccupiedCell()
+    {
+        const int width = 800;
+        const int height = 600;
+        var pixels = new byte[width * height];
+        Array.Fill(pixels, (byte)24);
+        var grid = new ContainerGridSpec(new PixelRect(200, 120, 400, 300), 4, 3);
+        PaintCell(pixels, width, grid, 0, 0, 100);
+        PaintCell(pixels, width, grid, 1, 2, 120);
+        PaintCell(pixels, width, grid, 2, 3, 130);
+        PaintGridLines(pixels, width, grid, 220);
+        var image = CreateImage(pixels, width, height) with { Source = "fixture://container-service" };
+        var engine = new FixtureOcrEngine(
+        [
+            new(
+                image.Source,
+                [
+                    new("Wires x2", new(215, 145, 70, 22), new Confidence(0.95)),
+                    new("Graphics Card", new(415, 245, 85, 22), new Confidence(0.94)),
+                ])
+        ]);
+        await using var cache = new CanonicalItemResolverCache(
+            new InMemoryRecognitionCatalogRepository(
+            [
+                new("wires", "Wires"),
+                new("graphics-card", "Graphics Card"),
+            ]));
+        var service = new ContainerRecognitionService(
+            engine,
+            cache,
+            new ValuationItemRepository(image.CapturedUtc));
+
+        var result = await service.RecognizeAsync(image, CancellationToken.None);
+
+        Assert.Contains(result.Items, item => item.CanonicalId == "wires" && item.Quantity == 2);
+        Assert.Contains(result.Items, item => item.CanonicalId == "graphics-card");
+        Assert.Contains(result.UnresolvedCells, cell => cell is { Row: 2, Column: 3 });
+        Assert.True(result.IsPartial);
     }
 
     private static ContainerSegment OccupiedCell(int row, int column, int x) => new(
@@ -110,6 +176,58 @@ public sealed class ContainerRecognitionTests
             {
                 pixels[(y * stride) + x] = value;
             }
+        }
+    }
+
+    private static void PaintGridLines(byte[] pixels, int stride, ContainerGridSpec grid, byte value)
+    {
+        for (var column = 0; column <= grid.Columns; column++)
+        {
+            var x = grid.Bounds.X + ((grid.Bounds.Width * column) / grid.Columns);
+            for (var y = grid.Bounds.Y; y <= grid.Bounds.Y + grid.Bounds.Height; y++)
+            {
+                pixels[(y * stride) + x] = value;
+            }
+        }
+
+        for (var row = 0; row <= grid.Rows; row++)
+        {
+            var y = grid.Bounds.Y + ((grid.Bounds.Height * row) / grid.Rows);
+            for (var x = grid.Bounds.X; x <= grid.Bounds.X + grid.Bounds.Width; x++)
+            {
+                pixels[(y * stride) + x] = value;
+            }
+        }
+    }
+
+    private sealed class ValuationItemRepository : IItemRepository
+    {
+        private readonly DataProvenance _provenance;
+
+        public ValuationItemRepository(DateTimeOffset observedUtc)
+        {
+            _provenance = new("fixture", observedUtc);
+        }
+
+        public Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken) =>
+            Task.FromResult<ItemDefinition?>(null);
+
+        public Task<IReadOnlyList<ItemSearchHit>> SearchAsync(
+            string query,
+            int limit,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ItemSearchHit>>([]);
+
+        public Task<ItemPriceSnapshot?> GetPriceAsync(string itemId, CancellationToken cancellationToken)
+        {
+            var value = itemId == "graphics-card" ? 200_000L : 12_000L;
+            return Task.FromResult<ItemPriceSnapshot?>(new(
+                value,
+                [],
+                value,
+                value,
+                value,
+                _provenance));
         }
     }
 }

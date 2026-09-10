@@ -1,4 +1,5 @@
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Infrastructure.Recognition;
 
 namespace TarkovCompanion.RecognitionTests;
@@ -41,7 +42,7 @@ public sealed class TextResolutionTests
     [InlineData(0.449999, RecognitionDecision.NoMatch)]
     public void PolicyClassifiesBoundaryValues(double value, RecognitionDecision expected)
     {
-        Assert.Equal(expected, RecognitionPolicy.Classify(new Confidence(value)));
+        Assert.Equal(expected, RecognitionThresholds.Classify(new Confidence(value)));
     }
 
     private static FuzzyCanonicalItemResolver CreateResolver() => new(
