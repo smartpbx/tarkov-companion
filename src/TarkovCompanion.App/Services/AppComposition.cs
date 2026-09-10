@@ -65,6 +65,8 @@ public static class AppComposition
             TimeSpan.FromSeconds(45));
         var databaseOptions = new SqliteDatabaseOptions(Path.Combine(paths.Database, "tarkov-companion.db"));
         var profileOptions = new JsonProfileOptions(Path.Combine(paths.Config, "profile.json"));
+        var questExchangeOptions = new ProjectQuestProgressJsonOptions(
+            typeof(AppComposition).Assembly.GetName().Version?.ToString() ?? "unknown");
         var questTrackingOptions = new QuestTrackingOptions(runtimeOptions.Language);
 
         var services = new ServiceCollection();
@@ -73,6 +75,7 @@ public static class AppComposition
         services.AddSingleton(runtimeOptions);
         services.AddSingleton(databaseOptions);
         services.AddSingleton(profileOptions);
+        services.AddSingleton(questExchangeOptions);
         services.AddSingleton(questTrackingOptions);
         services.AddSingleton(timeProvider);
         services.AddLogging(builder =>
@@ -106,6 +109,11 @@ public static class AppComposition
         services.AddSingleton<SqliteQuestProgressStore>();
         services.AddSingleton<IQuestProgressStore>(provider =>
             provider.GetRequiredService<SqliteQuestProgressStore>());
+        services.AddSingleton(provider => new SqliteQuestProgressImportStore(
+            provider.GetRequiredService<SqliteConnectionFactory>(),
+            timeProvider));
+        services.AddSingleton<IQuestProgressImportStore>(provider =>
+            provider.GetRequiredService<SqliteQuestProgressImportStore>());
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
@@ -136,12 +144,20 @@ public static class AppComposition
         services.AddSingleton<MapViewModel>();
 
         services.AddSingleton<IPlayerProfileService, JsonFilePlayerProfileService>();
+        services.AddSingleton(provider => new ProjectQuestProgressJson(
+            provider.GetRequiredService<ProjectQuestProgressJsonOptions>(),
+            timeProvider));
+        services.AddSingleton<IProjectQuestProgressJson>(provider =>
+            provider.GetRequiredService<ProjectQuestProgressJson>());
         services.AddSingleton<QuestEligibilityEvaluator>();
         services.AddSingleton<QuestProgressCommandService>();
         services.AddSingleton<IQuestProgressCommandService>(provider =>
             provider.GetRequiredService<QuestProgressCommandService>());
         services.AddSingleton<QuestReadService>();
         services.AddSingleton<IQuestReadService>(provider => provider.GetRequiredService<QuestReadService>());
+        services.AddSingleton<QuestProgressExchangeService>();
+        services.AddSingleton<IQuestProgressExchangeService>(provider =>
+            provider.GetRequiredService<QuestProgressExchangeService>());
         services.AddSingleton<QuestsPageViewModel>();
         services.AddSingleton<ProfileNeedAggregationService>();
         services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();

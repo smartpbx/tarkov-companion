@@ -17,7 +17,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(5, first.Count);
+            Assert.Equal(6, first.Count);
             Assert.Empty(second);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -35,6 +35,9 @@ public sealed class SqliteMigrationTests
             Assert.Equal(1L, await command.ExecuteScalarAsync());
 
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_progress_journal';";
+            Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_progress_imports';";
             Assert.Equal(1L, await command.ExecuteScalarAsync());
         }
         finally
@@ -95,6 +98,7 @@ public sealed class SqliteMigrationTests
                     "0003_recognition_scan_metadata",
                     "0004_quest_catalog_fidelity",
                     "0005_local_quest_progress",
+                    "0006_quest_progress_exchange",
                 ],
                 applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);

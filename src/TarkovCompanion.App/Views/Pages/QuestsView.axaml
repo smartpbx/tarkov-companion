@@ -5,16 +5,53 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:TarkovCompanion.App.ViewModels.Quests">
   <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
-    <Border Classes="inset" Padding="12,9">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-        <StackPanel Spacing="3">
-          <TextBlock FontWeight="SemiBold" Text="{Binding ScopeStatus}" TextWrapping="Wrap" />
-          <TextBlock Classes="label" Text="{Binding CatalogStatus}" TextWrapping="Wrap" />
-          <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
-        </StackPanel>
-        <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Refresh local view" VerticalAlignment="Center" />
-      </Grid>
-    </Border>
+    <StackPanel Spacing="8">
+      <Border Classes="inset" Padding="12,9">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel Spacing="3">
+            <TextBlock FontWeight="SemiBold" Text="{Binding ScopeStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding CatalogStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
+          </StackPanel>
+          <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Refresh local view" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
+
+      <Expander Header="Project JSON import / export">
+        <Border Classes="inset" Padding="12,9">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="label" Text="Local file only · exact profile, mode, and generation · preview required before apply" TextWrapping="Wrap" />
+            <TextBox PlaceholderText="Quest progress JSON file path" Text="{Binding ExchangePath}" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Command="{Binding ExportProgressCommand}" Content="Export v2" Margin="0,0,6,6" />
+              <Button Command="{Binding PreviewImportCommand}" Content="Preview import" Margin="0,0,6,6" />
+              <Button Command="{Binding KeepLocalConflictsCommand}" Content="Keep local conflicts" Margin="0,0,6,6" />
+              <Button Command="{Binding UseIncomingConflictsCommand}" Content="Use incoming conflicts" Margin="0,0,6,6" />
+              <Button Command="{Binding ApplyImportCommand}" Content="Apply confirmed preview" Margin="0,0,6,6" />
+              <Button Command="{Binding UndoLastImportCommand}" Content="Undo last import" Margin="0,0,6,6" />
+            </WrapPanel>
+            <TextBlock FontWeight="SemiBold" Text="{Binding ImportPreviewSummary}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding ExchangeStatus}" TextWrapping="Wrap" />
+            <ScrollViewer IsVisible="{Binding HasImportProposals}" MaxHeight="170" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding ImportProposals}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestImportProposalViewModel">
+                    <Border Classes="panel" Padding="8" Margin="0,0,0,5">
+                      <Grid ColumnDefinitions="160,*,120" RowDefinitions="Auto,Auto" ColumnSpacing="8">
+                        <TextBlock FontWeight="SemiBold" Text="{Binding Classification}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1" Text="{Binding Entity}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="2" Classes="label" Text="{Binding Resolution}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+      </Expander>
+    </StackPanel>
 
     <Grid Grid.Row="1" ColumnDefinitions="390,6,*" ColumnSpacing="10">
       <Border Classes="panel" Padding="12">
