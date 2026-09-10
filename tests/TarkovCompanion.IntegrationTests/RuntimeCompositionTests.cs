@@ -6,6 +6,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -115,6 +116,45 @@ public sealed class RuntimeCompositionTests
                 Assert.Equal("item-001", Assert.Single(hits).Item.Id);
                 Assert.Equal(0, forbiddenNetwork.RequestCount);
             }
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task ComposedQuestBoardEditsTaskObjectiveCountAndPinState()
+    {
+        var root = TemporaryRoot();
+        var clock = new ManualTimeProvider(new(2026, 9, 10, 12, 0, 0, TimeSpan.Zero));
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: false),
+                new(DataRoot: root, Offline: false, TimeProvider: clock, HttpMessageHandler: new FixtureApiHandler()));
+            var startup = services.GetRequiredService<ApplicationStartupCoordinator>();
+            await startup.InitializeAsync(CancellationToken.None);
+            await startup.RefreshAsync(force: true, CancellationToken.None);
+            var main = services.GetRequiredService<MainWindowViewModel>();
+            var quests = main.Quests;
+
+            await quests.InitializeAsync(CancellationToken.None);
+            quests.SelectedFilter = quests.AvailableFilters.Single(filter => filter.Id == "all");
+            var task = Assert.Single(quests.Tasks);
+            await Assert.IsType<AsyncDelegateCommand>(task.SetActiveCommand).ExecuteAsync();
+
+            task = Assert.Single(quests.Tasks);
+            Assert.Equal("Active", task.RecordedState);
+            Assert.Contains("Active need: 2", Assert.Single(task.Objectives).Items, StringComparison.Ordinal);
+            await Assert.IsType<AsyncDelegateCommand>(task.Objectives[0].IncrementCommand).ExecuteAsync();
+            task = Assert.Single(quests.Tasks);
+            Assert.Contains("1/2", Assert.Single(task.Objectives).Status, StringComparison.Ordinal);
+            await Assert.IsType<AsyncDelegateCommand>(task.TogglePinCommand).ExecuteAsync();
+            Assert.True(Assert.Single(quests.Tasks).IsPinned);
+            Assert.Contains("exact mode Regular", quests.ScopeStatus, StringComparison.Ordinal);
+            Assert.Contains("generation", quests.ScopeStatus, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("json.tarkov.dev", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

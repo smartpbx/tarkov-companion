@@ -590,11 +590,127 @@ public sealed class QuestReadService(
             BuildOrphans(context.Progress, context.Catalog));
     }
 
+    public async Task<QuestMapObjectivesReadModel> GetActiveMapObjectivesAsync(
+        QuestProfileScope scope,
+        IReadOnlyCollection<string> mapIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mapIds);
+        var requestedMapIds = mapIds
+            .Where(mapId => !string.IsNullOrWhiteSpace(mapId))
+            .Select(mapId => mapId.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (requestedMapIds.Length == 0)
+        {
+            throw new ArgumentException("At least one map identity is required.", nameof(mapIds));
+        }
+
+        var context = await GetContextAsync(scope, cancellationToken).ConfigureAwait(false);
+        if (context.Catalog is null)
+        {
+            return new(
+                scope,
+                context.Progress.Revision,
+                null,
+                requestedMapIds,
+                [],
+                BuildOrphans(context.Progress, null),
+                $"No validated {scope.GameMode} quest catalog is available.");
+        }
+
+        var taskPins = context.Progress.Pins
+            .Where(pin => pin.TargetKind == QuestPinTargetKind.Task)
+            .ToDictionary(pin => pin.TargetId, StringComparer.Ordinal);
+        var objectivePins = context.Progress.Pins
+            .Where(pin => pin.TargetKind == QuestPinTargetKind.Objective)
+            .ToDictionary(pin => pin.TargetId, StringComparer.Ordinal);
+        var objectives = new List<QuestMapObjectiveReadModel>();
+        foreach (var task in context.Catalog.Tasks)
+        {
+            var taskProgress = context.Progress.Tasks.GetValueOrDefault(task.Id);
+            var taskPinned = taskPins.GetValueOrDefault(task.Id);
+            foreach (var objective in task.Objectives)
+            {
+                var objectiveProgress = context.Progress.Objectives.GetValueOrDefault(objective.Id);
+                var objectivePinned = objectivePins.GetValueOrDefault(objective.Id);
+                var isActiveIncomplete = taskProgress?.State == RecordedTaskState.Active &&
+                    objectiveProgress?.State != RecordedObjectiveState.Completed;
+                if (!isActiveIncomplete && taskPinned is null && objectivePinned is null)
+                {
+                    continue;
+                }
+
+                var objectiveMapIds = objective.MapAssociations
+                    .Select(association => association.MapId)
+                    .Concat(objective.Zones.Where(zone => zone.MapId is not null).Select(zone => zone.MapId!))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Order(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var associatedMapIds = objectiveMapIds.Length == 0 && task.PrimaryMapId is not null
+                    ? [task.PrimaryMapId]
+                    : objectiveMapIds;
+                if (!associatedMapIds.Any(associated => requestedMapIds.Contains(associated, StringComparer.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                var pinOrder = new[] { taskPinned?.SortOrder, objectivePinned?.SortOrder }
+                    .Where(value => value is not null)
+                    .Select(value => value!.Value)
+                    .DefaultIfEmpty()
+                    .Min();
+                objectives.Add(new(
+                    task.Id,
+                    task.Name,
+                    task.TraderId,
+                    objective.Id,
+                    objective.SourceOrdinal,
+                    objective.Description,
+                    objective.Kind,
+                    objective.IsUnsupported,
+                    objective.Optional,
+                    taskProgress?.State ?? RecordedTaskState.Unknown,
+                    objectiveProgress?.State ?? RecordedObjectiveState.Unknown,
+                    taskPinned is not null,
+                    objectivePinned is not null,
+                    taskPinned is null && objectivePinned is null ? null : pinOrder,
+                    objectiveProgress?.Source ?? taskProgress?.Source ?? "No progress assertion",
+                    objectiveProgress?.ModifiedUtc ?? taskProgress?.ModifiedUtc,
+                    associatedMapIds,
+                    objective.Zones,
+                    objective.ItemTargets));
+            }
+        }
+
+        var ordered = objectives
+            .OrderBy(objective => objective.PinSortOrder is null ? 1 : 0)
+            .ThenBy(objective => objective.PinSortOrder)
+            .ThenBy(objective => objective.TaskName, StringComparer.Ordinal)
+            .ThenBy(objective => objective.TaskId, StringComparer.Ordinal)
+            .ThenBy(objective => objective.SourceOrdinal)
+            .ThenBy(objective => objective.ObjectiveId, StringComparer.Ordinal)
+            .ToArray();
+        return new(
+            scope,
+            context.Progress.Revision,
+            context.Catalog.Provenance,
+            requestedMapIds,
+            ordered,
+            BuildOrphans(context.Progress, context.Catalog));
+    }
+
     private QuestSummaryReadModel BuildTask(
         QuestTaskDefinition task,
         ReadContext context,
         bool isPinned)
     {
+        var taskProgress = context.Progress.Tasks.GetValueOrDefault(task.Id);
+        var pinnedObjectives = context.Progress.Pins
+            .Where(pin => pin.TargetKind == QuestPinTargetKind.Objective)
+            .Select(pin => pin.TargetId)
+            .ToHashSet(StringComparer.Ordinal);
         var objectives = task.Objectives
             .OrderBy(objective => objective.SourceOrdinal)
             .ThenBy(objective => objective.Id, StringComparer.Ordinal)
@@ -609,13 +725,27 @@ public sealed class QuestReadService(
                     objective.IsUnsupported,
                     recorded?.State ?? RecordedObjectiveState.Unknown,
                     recorded?.Count,
-                    objective.TargetCount);
+                    objective.TargetCount,
+                    recorded?.Source ?? "No progress assertion",
+                    recorded?.ModifiedUtc,
+                    pinnedObjectives.Contains(objective.Id),
+                    objective.MapAssociations
+                        .Select(association => association.MapId)
+                        .Concat(objective.Zones.Where(zone => zone.MapId is not null).Select(zone => zone.MapId!))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Order(StringComparer.OrdinalIgnoreCase)
+                        .ToArray(),
+                    objective.ItemTargets);
             })
             .ToArray();
         return new(
             task.Id,
             task.Name,
-            context.Progress.Tasks.GetValueOrDefault(task.Id)?.State ?? RecordedTaskState.Unknown,
+            task.TraderId,
+            task.PrimaryMapId,
+            taskProgress?.State ?? RecordedTaskState.Unknown,
+            taskProgress?.Source ?? "No progress assertion",
+            taskProgress?.ModifiedUtc,
             eligibilityEvaluator.Evaluate(
                 task,
                 context.Catalog!,
@@ -624,6 +754,22 @@ public sealed class QuestReadService(
                 _timeProvider.GetUtcNow()),
             ObjectiveSatisfaction(objectives),
             isPinned,
+            task.Restartable,
+            task.FailureConditions.Count > 0,
+            task.FailureConditions
+                .OrderBy(condition => condition.SourceOrdinal)
+                .ThenBy(condition => condition.Id, StringComparer.Ordinal)
+                .Select(condition => $"{condition.Description} ({condition.Kind})")
+                .ToArray(),
+            task.Requirements
+                .OrderBy(requirement => requirement.SourceOrdinal)
+                .ThenBy(requirement => requirement.RequiredTaskId, StringComparer.Ordinal)
+                .Select(requirement => new QuestPrerequisiteReadModel(
+                    requirement.RequiredTaskId,
+                    requirement.RequiredStatuses,
+                    context.Progress.Tasks.GetValueOrDefault(requirement.RequiredTaskId)?.State
+                        ?? RecordedTaskState.Unknown))
+                .ToArray(),
             objectives);
     }
 

@@ -24,6 +24,7 @@ public enum MapTransformAvailability
 
 public enum MapOverlayKind
 {
+    QuestObjectives,
     CompanionMarkers,
     Extracts,
     Labels,
@@ -185,6 +186,7 @@ public sealed class MapPresentationService
 
     private static IReadOnlyList<MapOverlayLayer> CreateDefaultOverlays() =>
     [
+        new(MapOverlayKind.QuestObjectives, "Quest objectives", false, false),
         new(MapOverlayKind.CompanionMarkers, "Companion markers", true, false),
         new(MapOverlayKind.Extracts, "Extracts", true, false),
         new(MapOverlayKind.Labels, "Labels", true, false),

@@ -253,6 +253,61 @@ public sealed class QuestReadServiceTests
         Assert.Equal(RecordedObjectivesSatisfaction.Satisfied, summary.RecordedObjectivesSatisfied);
     }
 
+    [Fact]
+    public async Task ActiveAndPinnedMapObjectivesAreDeterministicAndScopeIsExact()
+    {
+        var profile = Profile();
+        var activeObjective = Objective("active-objective", 1, false, []) with
+        {
+            SourceOrdinal = 2,
+            MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-one")],
+        };
+        var completedObjective = Objective("completed-objective", 1, false, []) with
+        {
+            SourceOrdinal = 0,
+            MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-one")],
+        };
+        var pinnedObjective = Objective("pinned-objective", 1, false, []) with
+        {
+            SourceOrdinal = 1,
+            MapAssociations = [new(QuestMapAssociationKind.Declared, 0, "map-one")],
+        };
+        var activeTask = TaskDefinition("active-task", [completedObjective, activeObjective]);
+        var pinnedTask = TaskDefinition("pinned-task", [pinnedObjective]) with { Name = "A pinned task" };
+        var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+        var progress = new QuestProgressSnapshot(
+            scope,
+            5,
+            new Dictionary<string, RecordedTaskProgress>
+            {
+                [activeTask.Id] = new(activeTask.Id, RecordedTaskState.Active, "Manual", 1, RecordedUtc),
+            },
+            new Dictionary<string, RecordedObjectiveProgress>
+            {
+                [completedObjective.Id] = new(
+                    completedObjective.Id,
+                    RecordedObjectiveState.Completed,
+                    1,
+                    "Manual",
+                    2,
+                    RecordedUtc),
+            },
+            [],
+            [new(QuestPinTargetKind.Objective, pinnedObjective.Id, 3, null, "Manual", 3, RecordedUtc)]);
+        var service = Service(profile, Catalog(activeTask, pinnedTask), progress);
+
+        var result = await service.GetActiveMapObjectivesAsync(scope, ["MAP-ONE"], CancellationToken.None);
+
+        Assert.Equal(["pinned-objective", "active-objective"], result.Objectives.Select(value => value.ObjectiveId));
+        Assert.True(result.Objectives[0].IsObjectivePinned);
+        Assert.Equal(RecordedTaskState.Active, result.Objectives[1].TaskState);
+        Assert.DoesNotContain(result.Objectives, value => value.ObjectiveId == completedObjective.Id);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetActiveMapObjectivesAsync(
+            scope with { Generation = "different-generation" },
+            ["map-one"],
+            CancellationToken.None));
+    }
+
     internal static PlayerProfile Profile() => new(
         Guid.Parse("46bc28fe-1554-4b16-884f-fe725285877b"),
         "Quest profile",

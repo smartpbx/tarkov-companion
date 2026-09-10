@@ -195,6 +195,11 @@ public interface IQuestReadService
         QuestProfileScope scope,
         string itemId,
         CancellationToken cancellationToken);
+
+    Task<QuestMapObjectivesReadModel> GetActiveMapObjectivesAsync(
+        QuestProfileScope scope,
+        IReadOnlyCollection<string> mapIds,
+        CancellationToken cancellationToken);
 }
 
 public interface IHideoutProgressService

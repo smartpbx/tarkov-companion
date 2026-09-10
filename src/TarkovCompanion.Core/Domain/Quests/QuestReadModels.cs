@@ -30,15 +30,33 @@ public sealed record QuestObjectiveReadModel(
     bool IsUnsupported,
     RecordedObjectiveState RecordedState,
     decimal? RecordedCount,
-    decimal? TargetCount);
+    decimal? TargetCount,
+    string ProgressSource,
+    DateTimeOffset? ProgressModifiedUtc,
+    bool IsPinned,
+    IReadOnlyList<string> MapIds,
+    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets);
+
+public sealed record QuestPrerequisiteReadModel(
+    string RequiredTaskId,
+    IReadOnlyList<string> RequiredStatuses,
+    RecordedTaskState RecordedState);
 
 public sealed record QuestSummaryReadModel(
     string TaskId,
     string Name,
+    string? TraderId,
+    string? PrimaryMapId,
     RecordedTaskState RecordedState,
+    string ProgressSource,
+    DateTimeOffset? ProgressModifiedUtc,
     QuestEligibility Eligibility,
     RecordedObjectivesSatisfaction RecordedObjectivesSatisfied,
     bool IsPinned,
+    bool? Restartable,
+    bool HasFailureConditions,
+    IReadOnlyList<string> FailureConditionNotes,
+    IReadOnlyList<QuestPrerequisiteReadModel> Prerequisites,
     IReadOnlyList<QuestObjectiveReadModel> Objectives);
 
 public sealed record OrphanedQuestProgress(
@@ -72,5 +90,35 @@ public sealed record QuestItemNeedsReadModel(
     int? FoundInRaidHeldCount,
     int? NonFoundInRaidHeldCount,
     IReadOnlyList<QuestItemRequirementReadModel> Requirements,
+    IReadOnlyList<OrphanedQuestProgress> OrphanedProgress,
+    string? UnavailableReason = null);
+
+public sealed record QuestMapObjectiveReadModel(
+    string TaskId,
+    string TaskName,
+    string? TraderId,
+    string ObjectiveId,
+    int SourceOrdinal,
+    string Description,
+    QuestObjectiveKind Kind,
+    bool IsUnsupported,
+    bool? IsOptional,
+    RecordedTaskState TaskState,
+    RecordedObjectiveState ObjectiveState,
+    bool IsTaskPinned,
+    bool IsObjectivePinned,
+    int? PinSortOrder,
+    string ProgressSource,
+    DateTimeOffset? ProgressModifiedUtc,
+    IReadOnlyList<string> MapIds,
+    IReadOnlyList<QuestObjectiveZone> Zones,
+    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets);
+
+public sealed record QuestMapObjectivesReadModel(
+    QuestProfileScope Scope,
+    long ProgressRevision,
+    QuestCatalogProvenance? CatalogProvenance,
+    IReadOnlyList<string> RequestedMapIds,
+    IReadOnlyList<QuestMapObjectiveReadModel> Objectives,
     IReadOnlyList<OrphanedQuestProgress> OrphanedProgress,
     string? UnavailableReason = null);

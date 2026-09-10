@@ -57,6 +57,13 @@ public sealed class QuestCatalogNormalizationTests
         Assert.Equal([0, 0, 1], questItem.ItemTargets
             .Where(target => target.SourceField == "requiredKeys")
             .Select(target => target.AlternativeGroup));
+        Assert.Equal(2, questItem.Zones.Count);
+        Assert.Equal(["map-one", "map-two"], questItem.Zones.Select(zone => zone.MapId));
+        Assert.All(questItem.Zones, zone =>
+        {
+            Assert.NotNull(zone.Position);
+            Assert.StartsWith("possible-location-", zone.SourceZoneId, StringComparison.Ordinal);
+        });
 
         var mark = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.Mark);
         var zone = Assert.Single(mark.Zones);

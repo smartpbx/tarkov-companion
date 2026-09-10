@@ -1,6 +1,12 @@
+using Avalonia;
+using Avalonia.Collections;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
@@ -10,6 +16,8 @@ public sealed record MapTileViewModel(string LocalPath, double Left, double Top,
 public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted)
 {
     public string HighlightLabel => IsHighlighted ? "Highlighted" : "Highlight";
+
+    public bool CanHighlight => Kind != MapOverlayKind.QuestObjectives;
 }
 
 public sealed record MapOverlayElementViewModel(
@@ -23,12 +31,28 @@ public sealed record MapOverlayElementViewModel(
     public string BorderColor => IsHighlighted ? "#FFC6A15B" : "#8056B8C6";
 }
 
+public sealed record QuestMapPointViewModel(string Label, double Left, double Top, bool IsPinned);
+
+public sealed record QuestMapRegionViewModel(string Label, AvaloniaList<Point> Points, bool IsPinned);
+
+public sealed record QuestMapAssociationViewModel(
+    string Title,
+    string Detail,
+    string Evidence,
+    string Items,
+    bool HasExactGeometry,
+    bool IsUnsupported,
+    bool IsFloorFiltered);
+
 public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly HttpClient? _ownedHttpClient;
     private readonly TarkovDevMapCatalogClient _catalogClient;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly MapVariantSelectionService _selectionService;
+    private readonly IPlayerProfileService? _profileService;
+    private readonly IQuestReadService? _questReadService;
+    private readonly QuestMapProjectionService? _questProjectionService;
     private readonly MapPresentationService _presentationService = new();
     private readonly CancellationTokenSource _lifetime = new();
     private CancellationTokenSource? _selectionLoad;
@@ -38,12 +62,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<MapOverlayViewModel> _overlays = [];
     private IReadOnlyList<MapOverlayElementViewModel> _overlayElements = [];
     private IReadOnlyList<MapTileViewModel> _tiles = [];
+    private IReadOnlyList<QuestMapPointViewModel> _questPoints = [];
+    private IReadOnlyList<QuestMapRegionViewModel> _questRegions = [];
+    private IReadOnlyList<QuestMapAssociationViewModel> _questAssociations = [];
     private MapLocation? _selectedLocation;
     private MapVariant? _selectedVariant;
     private MapFloorDefinition? _selectedFloor;
     private MapRenderModel? _renderModel;
+    private MapCatalogProvenance? _mapCatalogProvenance;
+    private QuestMapProjectionReadModel? _questProjection;
     private string? _backgroundImagePath;
     private string _status = "Loading the tarkov.dev map catalog…";
+    private string _questLayerStatus = "Quest layer is off. Enable it to show static active or pinned objectives.";
+    private long _questRefreshGeneration;
     private double _canvasWidth = 900;
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
@@ -52,8 +83,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public MapViewModel(
         TarkovDevMapCatalogClient catalogClient,
         TarkovDevMapAssetCache assetCache,
-        MapVariantSelectionService selectionService)
-        : this(null, catalogClient, assetCache, selectionService)
+        MapVariantSelectionService selectionService,
+        IPlayerProfileService profileService,
+        IQuestReadService questReadService,
+        QuestMapProjectionService questProjectionService)
+        : this(
+            null,
+            catalogClient,
+            assetCache,
+            selectionService,
+            profileService,
+            questReadService,
+            questProjectionService)
     {
     }
 
@@ -61,12 +102,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         HttpClient? ownedHttpClient,
         TarkovDevMapCatalogClient catalogClient,
         TarkovDevMapAssetCache assetCache,
-        MapVariantSelectionService selectionService)
+        MapVariantSelectionService selectionService,
+        IPlayerProfileService? profileService,
+        IQuestReadService? questReadService,
+        QuestMapProjectionService? questProjectionService)
     {
         _ownedHttpClient = ownedHttpClient;
         _catalogClient = catalogClient;
         _assetCache = assetCache;
         _selectionService = selectionService;
+        _profileService = profileService;
+        _questReadService = questReadService;
+        _questProjectionService = questProjectionService;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -112,6 +159,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    public IReadOnlyList<QuestMapPointViewModel> QuestPoints
+    {
+        get => _questPoints;
+        private set => Set(ref _questPoints, value);
+    }
+
+    public IReadOnlyList<QuestMapRegionViewModel> QuestRegions
+    {
+        get => _questRegions;
+        private set => Set(ref _questRegions, value);
+    }
+
+    public IReadOnlyList<QuestMapAssociationViewModel> QuestAssociations
+    {
+        get => _questAssociations;
+        private set => Set(ref _questAssociations, value);
+    }
+
     public MapLocation? SelectedLocation
     {
         get => _selectedLocation;
@@ -145,6 +210,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         get => _status;
         private set => Set(ref _status, value);
+    }
+
+    public string QuestLayerStatus
+    {
+        get => _questLayerStatus;
+        private set => Set(ref _questLayerStatus, value);
     }
 
     public double CanvasWidth
@@ -210,7 +281,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             httpClient,
             MapAssetCacheOptions.CreateDefault(Path.Combine(root, "Assets")));
         var preferences = new JsonFileMapVariantPreferenceStore(Path.Combine(root, "map-defaults.json"));
-        return new(httpClient, catalogClient, assetCache, new(preferences));
+        return new(httpClient, catalogClient, assetCache, new(preferences), null, null, null);
     }
 
     public async Task InitializeAsync()
@@ -223,6 +294,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 Status = result.Message ?? "Map catalog unavailable.";
                 return;
             }
+
+            _mapCatalogProvenance = result.Catalog.Provenance;
 
             Locations = result.Catalog.Locations
                 .Where(location => location.Variants.Any(variant => variant.HasRuntimeAsset))
@@ -307,6 +380,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 UpdateOverlayElements();
                 NotifyPresentationProperties();
             }
+
+            await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -329,6 +404,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _renderModel = _renderModel.SetLayerVisibility(kind, isVisible);
         UpdateOverlays();
+        if (kind == MapOverlayKind.QuestObjectives)
+        {
+            _ = RefreshQuestLayerAsync();
+        }
     }
 
     public void HighlightOverlay(MapOverlayKind? kind)
@@ -417,6 +496,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
             UpdateOverlays();
             NotifyPresentationProperties();
+            await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -454,6 +534,88 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             : cached.Message ?? $"Floor '{floor.Name}' is unavailable.";
         UpdateOverlayElements();
         NotifyPresentationProperties();
+    }
+
+    public Task RefreshQuestLayerAsync() => RefreshQuestLayerAsync(CancellationToken.None);
+
+    private async Task RefreshQuestLayerAsync(CancellationToken cancellationToken)
+    {
+        var refreshGeneration = Interlocked.Increment(ref _questRefreshGeneration);
+        if (_renderModel?.Overlays.SingleOrDefault(layer => layer.Kind == MapOverlayKind.QuestObjectives)?.IsVisible != true)
+        {
+            ClearQuestLayer("Quest layer is off. Enable it to show static active or pinned objectives.");
+            return;
+        }
+
+        if (_profileService is null || _questReadService is null || _questProjectionService is null)
+        {
+            ClearQuestLayer("Quest services are unavailable; no quest geometry is shown.");
+            return;
+        }
+
+        if (SelectedLocation is not { } location ||
+            SelectedVariant is not { } variant ||
+            _mapCatalogProvenance is null)
+        {
+            ClearQuestLayer("Select a tarkov.dev map variant to load quest associations.");
+            return;
+        }
+
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
+            var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+            var mapIds = new[] { location.Id, location.SourceId }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            var query = await _questReadService
+                .GetActiveMapObjectivesAsync(scope, mapIds, cancellationToken)
+                .ConfigureAwait(true);
+            if (refreshGeneration != Volatile.Read(ref _questRefreshGeneration) ||
+                !ReferenceEquals(SelectedLocation, location) ||
+                !ReferenceEquals(SelectedVariant, variant))
+            {
+                return;
+            }
+
+            var projection = _questProjectionService.Project(
+                query,
+                location,
+                variant,
+                SelectedFloor,
+                _mapCatalogProvenance);
+            _questProjection = projection;
+            QuestAssociations = _questProjection.Objectives.Select(objective => new QuestMapAssociationViewModel(
+                $"{objective.TaskName} · {objective.ObjectiveKind}",
+                objective.Availability,
+                $"{objective.Attribution} · quest catalog {FormatUtc(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {FormatUtc(objective.MapCatalogProvenance.RetrievedUtc)}",
+                DescribeItems(objective.ItemTargets),
+                objective.HasExactGeometry,
+                objective.IsUnsupported,
+                objective.IsFloorFiltered)).ToArray();
+            UpdateQuestGeometry();
+            var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
+            var associationCount = _questProjection.Objectives.Count - exactCount;
+            QuestLayerStatus = _questProjection.UnavailableReason ?? (_renderModel?.CanRender == true
+                ? $"Static quest layer · exact {exactCount} · association only {associationCount} · mode {scope.GameMode} · generation {scope.Generation}"
+                : $"Map artwork unavailable · {exactCount} exact source geometry item(s) hidden · association only {associationCount} · mode {scope.GameMode} · generation {scope.Generation}");
+            if (_questProjection.OrphanedProgress.Count > 0)
+            {
+                QuestLayerStatus += $" · {_questProjection.OrphanedProgress.Count} orphaned local record(s)";
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            if (refreshGeneration == Volatile.Read(ref _questRefreshGeneration))
+            {
+                ClearQuestLayer($"Quest layer unavailable: {exception.Message}");
+            }
+        }
     }
 
     private async Task LoadTilesAsync(MapVariant variant, CancellationToken cancellationToken)
@@ -534,38 +696,60 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private void UpdateOverlayElements()
     {
-        if (_renderModel is null || SelectedVariant is not { } variant || variant.Transform is null)
+        var mapper = CreateCanvasMapper();
+        if (mapper is null)
         {
             OverlayElements = [];
+            UpdateQuestGeometry();
             return;
         }
 
-        if (variant.MinimumZoom is { } zoom)
+        OverlayElements = _renderModel?.VisibleOverlayElements.Select(element =>
+        {
+            var layer = _renderModel.Overlays.Single(item => item.Kind == element.Layer);
+            var canvasPoint = mapper(element.Position);
+            return new MapOverlayElementViewModel(
+                element.Label,
+                canvasPoint.X,
+                canvasPoint.Y,
+                element.RotationDegrees,
+                Math.Clamp(element.SizePercent / 7, 9, 18),
+                layer.IsHighlighted);
+        }).ToArray() ?? [];
+        UpdateQuestGeometry();
+    }
+
+    private Func<MapPoint, Point>? CreateCanvasMapper()
+    {
+        if (_renderModel is null || SelectedVariant is not { } variant || variant.Transform is null)
+        {
+            return null;
+        }
+
+        if (_renderModel.Background?.Kind == MapBackgroundKind.TileTemplate && variant.MinimumZoom is { } zoom)
         {
             var plan = MapTilePlanner.Plan(variant, zoom, 16);
             if (plan.IsValid)
             {
                 var scale = Math.Pow(2, zoom);
-                OverlayElements = CreateOverlayElements(
-                    element => (element.Position.X * scale) - plan.OriginPixelX,
-                    element => (element.Position.Y * scale) - plan.OriginPixelY);
-                return;
+                return point => new(
+                    (point.X * scale) - plan.OriginPixelX,
+                    (point.Y * scale) - plan.OriginPixelY);
             }
         }
 
         if (variant.Bounds?.IsValid != true)
         {
-            OverlayElements = [];
-            return;
+            return null;
         }
 
         var bounds = variant.SvgBounds ?? variant.Bounds;
         var corners = new[]
         {
-            new TarkovCompanion.Core.Domain.Maps.WorldPosition(bounds.First.X, 0, bounds.First.Y),
-            new TarkovCompanion.Core.Domain.Maps.WorldPosition(bounds.First.X, 0, bounds.Second.Y),
-            new TarkovCompanion.Core.Domain.Maps.WorldPosition(bounds.Second.X, 0, bounds.First.Y),
-            new TarkovCompanion.Core.Domain.Maps.WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
+            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
         };
         var projected = corners.Select(corner =>
         {
@@ -578,29 +762,89 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var maximumY = projected.Max(point => point.Y);
         if (maximumX <= minimumX || maximumY <= minimumY)
         {
-            OverlayElements = [];
+            return null;
+        }
+
+        return point => new(
+            ((point.X - minimumX) / (maximumX - minimumX)) * CanvasWidth,
+            ((point.Y - minimumY) / (maximumY - minimumY)) * CanvasHeight);
+    }
+
+    private void UpdateQuestGeometry()
+    {
+        var questLayerVisible = _renderModel?.Overlays
+            .SingleOrDefault(layer => layer.Kind == MapOverlayKind.QuestObjectives)?.IsVisible == true;
+        var mapper = CreateCanvasMapper();
+        if (!questLayerVisible || _renderModel?.CanRender != true || _questProjection is null || mapper is null)
+        {
+            QuestPoints = [];
+            QuestRegions = [];
             return;
         }
 
-        OverlayElements = CreateOverlayElements(
-            element => ((element.Position.X - minimumX) / (maximumX - minimumX)) * CanvasWidth,
-            element => ((element.Position.Y - minimumY) / (maximumY - minimumY)) * CanvasHeight);
+        QuestPoints = _questProjection.Objectives
+            .Where(objective => objective.HasExactGeometry && objective.GeometryKind == QuestMapGeometryKind.Point)
+            .Select(objective =>
+            {
+                var point = mapper(objective.Points[0]);
+                return new QuestMapPointViewModel(
+                    $"{objective.TaskName} · {objective.Description}",
+                    point.X,
+                    point.Y,
+                    objective.IsPinned);
+            })
+            .ToArray();
+        QuestRegions = _questProjection.Objectives
+            .Where(objective => objective.HasExactGeometry && objective.GeometryKind == QuestMapGeometryKind.Region)
+            .Select(objective =>
+            {
+                var points = new AvaloniaList<Point>();
+                points.AddRange(objective.Points.Select(mapper));
+                return new QuestMapRegionViewModel(
+                    $"{objective.TaskName} · {objective.Description}",
+                    points,
+                    objective.IsPinned);
+            })
+            .ToArray();
     }
 
-    private IReadOnlyList<MapOverlayElementViewModel> CreateOverlayElements(
-        Func<MapOverlayElement, double> getLeft,
-        Func<MapOverlayElement, double> getTop) =>
-        _renderModel?.VisibleOverlayElements.Select(element =>
+    private void ClearQuestLayer(string status)
+    {
+        _questProjection = null;
+        QuestPoints = [];
+        QuestRegions = [];
+        QuestAssociations = [];
+        QuestLayerStatus = status;
+    }
+
+    private static string DescribeItems(IReadOnlyList<QuestObjectiveItemTarget> targets)
+    {
+        if (targets.Count == 0)
         {
-            var layer = _renderModel.Overlays.Single(item => item.Kind == element.Layer);
-            return new MapOverlayElementViewModel(
-                element.Label,
-                getLeft(element),
-                getTop(element),
-                element.RotationDegrees,
-                Math.Clamp(element.SizePercent / 7, 9, 18),
-                layer.IsHighlighted);
-        }).ToArray() ?? [];
+            return "No item requirement";
+        }
+
+        var itemIds = targets
+            .Where(target => target.SourceField != "requiredKeys")
+            .Select(target => target.ItemId)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var requiredKeys = targets
+            .Where(target => target.SourceField == "requiredKeys")
+            .GroupBy(target => target.AlternativeGroup)
+            .OrderBy(group => group.Key)
+            .Select(group => string.Join(" or ", group.Select(target => target.ItemId).Order(StringComparer.Ordinal)))
+            .ToArray();
+        var fir = targets.Any(target => target.SourceField != "requiredKeys" && target.FoundInRaidRequired == true)
+            ? " · found in raid"
+            : string.Empty;
+        var itemText = itemIds.Length == 0 ? null : $"Items: {string.Join(" or ", itemIds)}{fir}";
+        var keyText = requiredKeys.Length == 0 ? null : $"Required keys: {string.Join("; ", requiredKeys)}";
+        return string.Join(" · ", new[] { itemText, keyText }.OfType<string>());
+    }
+
+    private static string FormatUtc(DateTimeOffset timestamp) => timestamp.ToUniversalTime().ToString("u");
 
     private void NotifyPresentationProperties()
     {
