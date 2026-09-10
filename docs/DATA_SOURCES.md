@@ -1,6 +1,6 @@
 # Data sources
 
-Verified 2026-09-09.
+Verified 2026-09-10.
 
 ## Primary structured data
 
@@ -29,7 +29,9 @@ Map geometry/configuration may be derived from current `the-hideout/tarkov-dev` 
 
 ## Optional player progress
 
-TarkovTracker integration is optional, bearer-token-based, read-only, and never required for core operation. No external writes occur in v1.
+TarkovTracker integration is optional, bearer-token-based, read-only, and never required for core operation. Its supported surface is limited to canonical `https://api.tarkovtracker.org/token` and `/progress` GET requests documented at TarkovTracker revision [`443d9fd73f0f88cac1623206fe79ba122ab9b1fb`](https://github.com/tarkovtracker-org/TarkovTracker/blob/443d9fd73f0f88cac1623206fe79ba122ab9b1fb/docs/API.md) and the pinned [OpenAPI source](https://github.com/tarkovtracker-org/TarkovTracker/blob/443d9fd73f0f88cac1623206fe79ba122ab9b1fb/workers/api-gateway/src/openapi.ts). It imports only task and objective progress after explicit preview; no external writes, team access, player metadata, hideout data, uploads, or polling occur in v1.
+
+On Windows, the disconnected integration is available by default when per-user protected storage is available. `TARKOV_COMPANION_TARKOVTRACKER_ENABLED=false` (or `0`) is an explicit opt-out. Offline mode and unavailable protected storage disable Connect and Refresh, and composition or status inspection never performs network access. A user must explicitly Connect to validate and store a mode-scoped token, then explicitly Refresh; an optional foreground caller is rate-gated to no faster than 60 seconds.
 
 ## Clean-room references
 

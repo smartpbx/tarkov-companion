@@ -178,6 +178,14 @@ public interface IQuestProgressImportStore
         CancellationToken cancellationToken);
 }
 
+public interface IQuestProgressImportPlanner
+{
+    Task<QuestProgressImportPreview> PreviewAsync(
+        QuestProfileScope scope,
+        QuestProgressImportSnapshot snapshot,
+        CancellationToken cancellationToken);
+}
+
 public interface IQuestProgressExchangeService
 {
     Task<QuestProgressExportResult> ExportAsync(
@@ -429,13 +437,26 @@ public interface IRoutePlanner
     PlannedRoute Plan(RouteGraph graph, string startNodeId, string endNodeId, RouteMode mode, RaidPhase phase);
 }
 
-public interface ISecretStore
+public interface IIntegrationSecretStore
 {
-    Task SetAsync(string key, string secret, CancellationToken cancellationToken);
+    bool IsAvailable { get; }
 
-    Task<string?> GetAsync(string key, CancellationToken cancellationToken);
+    Task SaveAsync(
+        IntegrationSecretReference reference,
+        string secret,
+        CancellationToken cancellationToken);
 
-    Task DeleteAsync(string key, CancellationToken cancellationToken);
+    Task<string?> LoadAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken);
+
+    Task<bool> ExistsAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken);
+
+    Task DeleteAsync(
+        IntegrationSecretReference reference,
+        CancellationToken cancellationToken);
 }
 
 public interface IRaidHistoryService

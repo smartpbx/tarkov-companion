@@ -2,7 +2,7 @@
 
 Tarkov Companion stores public game data in a local SQLite database. The database path is supplied through `SqliteDatabaseOptions`; the data layer creates its parent directory, enables foreign keys, uses WAL journaling, and applies a five-second busy timeout whenever it opens a connection.
 
-The cache is local application state. It never contains game process memory, intercepted traffic, user tokens, or captured screen images.
+The cache is local application state. It never contains game process memory, intercepted traffic, user tokens, or captured screen images. Optional TarkovTracker tokens live only behind the Windows per-user protected-storage adapter, outside SQLite.
 
 ## Startup
 
@@ -63,7 +63,7 @@ Exact full-name and short-name hits rank ahead of FTS and fuzzy hits. `SqlitePri
 
 `SqliteRaidHistoryService` implements `IRaidHistoryService` over the existing `raids` and `raid_events` tables. It creates summary rows on evidence-based raid starts, records state/position/extract/scan events with UTC timestamps and validated JSON, and closes the summary row on a transition out of `InRaid`. CSV and JSON export read those persisted summaries; no capture bytes or screen images enter the database.
 
-`SqliteQuestProgressImportStore` applies one confirmed project JSON preview in a single transaction. It compares the exact base revision, records the normalized payload and preview hashes, applies selected values, stores conflict decisions and unknown catalog IDs, and appends inverse journal rows before commit. Repeated payload hashes are idempotent within one exact profile scope. Undo adds a new journal batch and a separate undo boundary; it never rewrites prior history and refuses to overwrite later revisions.
+`SqliteQuestProgressImportStore` applies one confirmed project JSON or TarkovTracker preview in a single transaction. It compares the exact base revision, records non-secret source provenance plus normalized payload and preview hashes, applies selected values, stores conflict decisions and unknown or invalid source IDs, and appends inverse journal rows before commit. Repeated payload hashes are idempotent within one exact profile scope. Undo adds a new journal batch and a separate undo boundary; it never rewrites prior history and refuses to overwrite later revisions. Stage 5 required no schema migration because the existing source-neutral import, conflict, unresolved-record, journal, and undo tables already hold this metadata.
 
 ## Verification
 

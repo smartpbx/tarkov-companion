@@ -11,8 +11,7 @@ public sealed class SqliteQuestProgressImportStore(
     SqliteConnectionFactory connectionFactory,
     TimeProvider? timeProvider = null) : IQuestProgressImportStore
 {
-    private const string ImportSource = "Project JSON v2 import";
-    private const string UndoSource = "Undo project JSON import";
+    private const string UndoSource = "Undo reviewed quest progress import";
     private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -46,9 +45,13 @@ public sealed class SqliteQuestProgressImportStore(
         }
 
         var importId = Guid.NewGuid();
-        var source = preview.IsLegacyProfileSettingsEnvelope
-            ? "Project profile JSON v1 compatibility import"
-            : ImportSource;
+        var source = preview.Source switch
+        {
+            QuestProgressImportSource.ProjectJsonV2 => "Project JSON v2 import",
+            QuestProgressImportSource.LegacyProfileJsonV1 => "Project profile JSON v1 compatibility import",
+            QuestProgressImportSource.TarkovTracker => "TarkovTracker read-only snapshot import",
+            _ => throw new InvalidOperationException("The quest progress import source is unsupported."),
+        };
         var changes = preview.Proposals.Where(proposal =>
             proposal.Classification == QuestImportClassification.SafeMonotonic ||
             proposal.Classification == QuestImportClassification.Conflict &&
@@ -246,6 +249,7 @@ public sealed class SqliteQuestProgressImportStore(
         }
 
         if (preview.BaseRevision < 0 ||
+            !Enum.IsDefined(preview.Source) ||
             !IsSha256(preview.PayloadSha256) ||
             !IsSha256(preview.PreviewSha256) ||
             !IsSha256(expectedPreviewSha256))

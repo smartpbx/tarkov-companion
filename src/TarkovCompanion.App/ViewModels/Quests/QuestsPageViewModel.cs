@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
@@ -22,6 +23,7 @@ public sealed class QuestImportProposalViewModel(
         QuestImportClassification.Conflict => "Conflict — confirmation required",
         QuestImportClassification.IgnoredUnchanged => "Ignored unchanged",
         QuestImportClassification.UnresolvedUnknownId => "Unresolved unknown id",
+        QuestImportClassification.UnresolvedSourceRecord => "Unresolved source record",
         _ => proposal.Classification.ToString(),
     };
 
@@ -255,6 +257,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     private readonly IQuestReadService _readService;
     private readonly IQuestProgressCommandService _commandService;
     private readonly IQuestProgressExchangeService _exchangeService;
+    private readonly ITarkovTrackerIntegrationService _tarkovTracker;
     private readonly MapViewModel _map;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -276,12 +279,18 @@ public sealed class QuestsPageViewModel : PageViewModel
     private QuestProgressImportPreview? _importPreview;
     private Dictionary<string, QuestImportResolution> _importResolutions = new(StringComparer.Ordinal);
     private Guid? _lastImportId;
+    private string _tarkovTrackerToken = string.Empty;
+    private string _tarkovTrackerStatus = "Optional TarkovTracker connection status not loaded.";
+    private bool _canConnectTarkovTracker;
+    private bool _canRefreshTarkovTracker;
+    private bool _canDisconnectTarkovTracker;
 
     public QuestsPageViewModel(
         IPlayerProfileService profileService,
         IQuestReadService readService,
         IQuestProgressCommandService commandService,
         IQuestProgressExchangeService exchangeService,
+        ITarkovTrackerIntegrationService tarkovTracker,
         AppDataPaths paths,
         MapViewModel map,
         TimeProvider timeProvider)
@@ -294,6 +303,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         _readService = readService;
         _commandService = commandService;
         _exchangeService = exchangeService;
+        _tarkovTracker = tarkovTracker;
         _exchangePath = Path.Combine(paths.Support, "quest-progress.json");
         _map = map;
         _timeProvider = timeProvider;
@@ -304,6 +314,9 @@ public sealed class QuestsPageViewModel : PageViewModel
         UseIncomingConflictsCommand = new DelegateCommand(() => ResolveConflicts(QuestImportResolution.UseIncoming));
         ApplyImportCommand = new AsyncDelegateCommand(ApplyImportAsync);
         UndoLastImportCommand = new AsyncDelegateCommand(UndoLastImportAsync);
+        ConnectTarkovTrackerCommand = new AsyncDelegateCommand(ConnectTarkovTrackerAsync);
+        DisconnectTarkovTrackerCommand = new AsyncDelegateCommand(DisconnectTarkovTrackerAsync);
+        RefreshTarkovTrackerCommand = new AsyncDelegateCommand(RefreshTarkovTrackerAsync);
     }
 
     public IReadOnlyList<QuestBoardFilter> AvailableFilters => Filters;
@@ -378,6 +391,42 @@ public sealed class QuestsPageViewModel : PageViewModel
 
     public AsyncDelegateCommand UndoLastImportCommand { get; }
 
+    public AsyncDelegateCommand ConnectTarkovTrackerCommand { get; }
+
+    public AsyncDelegateCommand DisconnectTarkovTrackerCommand { get; }
+
+    public AsyncDelegateCommand RefreshTarkovTrackerCommand { get; }
+
+    public string TarkovTrackerToken
+    {
+        get => _tarkovTrackerToken;
+        set => SetProperty(ref _tarkovTrackerToken, value);
+    }
+
+    public string TarkovTrackerStatus
+    {
+        get => _tarkovTrackerStatus;
+        private set => SetProperty(ref _tarkovTrackerStatus, value);
+    }
+
+    public bool CanConnectTarkovTracker
+    {
+        get => _canConnectTarkovTracker;
+        private set => SetProperty(ref _canConnectTarkovTracker, value);
+    }
+
+    public bool CanRefreshTarkovTracker
+    {
+        get => _canRefreshTarkovTracker;
+        private set => SetProperty(ref _canRefreshTarkovTracker, value);
+    }
+
+    public bool CanDisconnectTarkovTracker
+    {
+        get => _canDisconnectTarkovTracker;
+        private set => SetProperty(ref _canDisconnectTarkovTracker, value);
+    }
+
     public string ExchangePath
     {
         get => _exchangePath;
@@ -435,6 +484,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
             ScopeStatus = $"{profile.Name} · exact mode {profile.GameMode} · generation {profile.ProfileGeneration}";
+            await RefreshTarkovTrackerStatusAsync(_scope, cancellationToken).ConfigureAwait(true);
             var board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _allTasks = board.Tasks.Select(task => new QuestTaskViewModel(task, this)).ToArray();
             OrphanedProgress = board.OrphanedProgress
@@ -500,6 +550,131 @@ public sealed class QuestsPageViewModel : PageViewModel
             null,
             CancellationToken.None).ConfigureAwait(true));
 
+    private async Task ConnectTarkovTrackerAsync()
+    {
+        if (_scope is null)
+        {
+            TarkovTrackerStatus = "Load the exact profile scope before connecting TarkovTracker.";
+            return;
+        }
+
+        try
+        {
+            var status = await _tarkovTracker.ConnectAsync(
+                _scope,
+                TarkovTrackerToken,
+                CancellationToken.None).ConfigureAwait(true);
+            UpdateTarkovTrackerStatus(status,
+                "Token validated with canonical GET /token and saved in protected storage.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            TarkovTrackerStatus = $"Connection failed without saving a token: {exception.Message}";
+        }
+        finally
+        {
+            TarkovTrackerToken = string.Empty;
+        }
+    }
+
+    private async Task DisconnectTarkovTrackerAsync()
+    {
+        if (_scope is null)
+        {
+            TarkovTrackerStatus = "Load the exact profile scope before disconnecting TarkovTracker.";
+            return;
+        }
+
+        try
+        {
+            var status = await _tarkovTracker.DisconnectAsync(_scope, CancellationToken.None)
+                .ConfigureAwait(true);
+            if (_importPreview?.Source == QuestProgressImportSource.TarkovTracker)
+            {
+                ClearImportPreview("TarkovTracker was disconnected; its pending preview was discarded.");
+            }
+
+            UpdateTarkovTrackerStatus(status, "Disconnected and deleted the protected token.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            TarkovTrackerStatus = $"Disconnect failed: {exception.Message}";
+        }
+    }
+
+    private async Task RefreshTarkovTrackerAsync()
+    {
+        if (_scope is null)
+        {
+            TarkovTrackerStatus = "Load the exact profile scope before refreshing TarkovTracker.";
+            return;
+        }
+
+        try
+        {
+            var result = await _tarkovTracker.RefreshPreviewAsync(
+                _scope,
+                TarkovTrackerRefreshKind.Manual,
+                CancellationToken.None).ConfigureAwait(true);
+            LoadImportPreview(result.Preview);
+            UpdateTarkovTrackerStatus(
+                result.Status,
+                result.NotModified
+                    ? "GET /progress returned 304; the cached snapshot was re-previewed and the request still counted against quota."
+                    : "GET /progress fetched a read-only snapshot for review; nothing was applied automatically.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            TarkovTrackerStatus = $"Refresh failed; local progress is unchanged: {exception.Message}";
+        }
+    }
+
+    private async Task RefreshTarkovTrackerStatusAsync(
+        QuestProfileScope scope,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            UpdateTarkovTrackerStatus(
+                await _tarkovTracker.GetStatusAsync(scope, cancellationToken).ConfigureAwait(true));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            CanConnectTarkovTracker = false;
+            CanRefreshTarkovTracker = false;
+            CanDisconnectTarkovTracker = false;
+            TarkovTrackerStatus = $"TarkovTracker status unavailable: {exception.Message}";
+        }
+    }
+
+    private void UpdateTarkovTrackerStatus(
+        TarkovTrackerIntegrationStatus status,
+        string? operation = null)
+    {
+        CanConnectTarkovTracker = status.CanConnect;
+        CanRefreshTarkovTracker = status.CanRefresh;
+        CanDisconnectTarkovTracker = status.SecureStorageAvailable && status.Connected;
+        var availability = !status.SecureStorageAvailable
+            ? "Integration disabled because protected secret storage is unavailable."
+            : !status.FeatureEnabled
+                ? "Optional integration disabled by feature flag."
+                : !status.NetworkAccessEnabled
+                    ? "Integration unavailable in offline mode; all local quest features remain available."
+                    : status.RequiresReconnect
+                        ? "Saved credential was rejected; reconnect is required."
+                        : status.Connected
+                            ? $"Connected for exact mode {status.GameMode}."
+                            : $"Not connected for exact mode {status.GameMode}.";
+        var quota = status.Quota.Remaining is { } remaining
+            ? $" Read quota remaining: {remaining}/{status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
+            : " Read quota is unknown.";
+        var backoff = status.NextEligibleRefreshUtc is { } next
+            ? $" Next eligible refresh: {next:O}."
+            : string.Empty;
+        TarkovTrackerStatus = string.Join(" ", new[] { operation, availability }
+                .Where(value => !string.IsNullOrWhiteSpace(value))) + quota + backoff;
+    }
+
     private async Task ExportProgressAsync()
     {
         if (_scope is null)
@@ -536,22 +711,11 @@ public sealed class QuestsPageViewModel : PageViewModel
                 _scope,
                 ExchangePath,
                 CancellationToken.None).ConfigureAwait(true);
-            _importPreview = preview;
-            _importResolutions = new(StringComparer.Ordinal);
-            RefreshImportProposalRows();
-            ImportPreviewSummary = preview.IsLegacyProfileSettingsEnvelope
-                ? $"Legacy profile settings v1 · {preview.SafeProposals.Count} explicit promotions · {preview.Conflicts.Count} conflicts · absent entities ignored"
-                : $"Revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unknown ids";
-            ExchangeStatus = preview.Conflicts.Count == 0
-                ? "Preview ready. Safe monotonic changes can be applied; absent records never delete local state."
-                : "Preview ready. Choose Keep local or Use incoming for every conflict before applying.";
+            LoadImportPreview(preview);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _importPreview = null;
-            _importResolutions.Clear();
-            ImportProposals = [];
-            ImportPreviewSummary = "No valid import preview loaded.";
+            ClearImportPreview("No valid import preview loaded.");
             ExchangeStatus = $"Preview failed; the database is unchanged: {exception.Message}";
         }
     }
@@ -560,7 +724,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Load a project quest progress v2 preview before resolving conflicts.";
+            ExchangeStatus = "Load a quest progress preview before resolving conflicts.";
             return;
         }
 
@@ -578,7 +742,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Preview a project quest progress file before applying it.";
+            ExchangeStatus = "Preview a quest progress source before applying it.";
             return;
         }
 
@@ -592,10 +756,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             ExchangeStatus = result.AlreadyApplied
                 ? $"This normalized payload was already applied as import {result.ImportId}. No duplicate changes were made."
                 : $"Applied {result.AppliedChangeCount} changes atomically · kept {result.KeptLocalCount} local · retained {result.UnresolvedCount} unresolved.";
-            _importPreview = null;
-            _importResolutions.Clear();
-            ImportProposals = [];
-            ImportPreviewSummary = "Import applied. Preview again before another apply.";
+            ClearImportPreview("Import applied. Preview again before another apply.");
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -635,6 +796,33 @@ public sealed class QuestsPageViewModel : PageViewModel
             new QuestImportProposalViewModel(
                 proposal,
                 _importResolutions.GetValueOrDefault(proposal.Key))).ToArray() ?? [];
+    }
+
+    private void LoadImportPreview(QuestProgressImportPreview preview)
+    {
+        _importPreview = preview;
+        _importResolutions = new(StringComparer.Ordinal);
+        RefreshImportProposalRows();
+        ImportPreviewSummary = preview.Source switch
+        {
+            QuestProgressImportSource.LegacyProfileJsonV1 =>
+                $"Legacy profile settings v1 · {preview.SafeProposals.Count} explicit promotions · {preview.Conflicts.Count} conflicts · absent entities ignored",
+            QuestProgressImportSource.TarkovTracker =>
+                $"TarkovTracker fetched snapshot (not source edit time; source generation unavailable) · revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+            _ =>
+                $"Project JSON v2 · revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+        };
+        ExchangeStatus = preview.Conflicts.Count == 0
+            ? "Preview ready. Safe monotonic changes can be applied; absent records never delete local state."
+            : "Preview ready. Choose Keep local or Use incoming for every conflict before applying.";
+    }
+
+    private void ClearImportPreview(string summary)
+    {
+        _importPreview = null;
+        _importResolutions.Clear();
+        ImportProposals = [];
+        ImportPreviewSummary = summary;
     }
 
     internal static string FormatAge(DateTimeOffset timestamp, DateTimeOffset now)

@@ -55,6 +55,39 @@
           </StackPanel>
         </Border>
       </Expander>
+
+      <Expander Header="Optional TarkovTracker read-only import">
+        <Border Classes="inset" Padding="12,9">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="label"
+                       Text="Disconnected by default · network only after Connect or Refresh · canonical api.tarkovtracker.org GET /token and GET /progress only · no team access, writes, uploads, telemetry, or automatic apply"
+                       TextWrapping="Wrap" />
+            <TextBlock Classes="label"
+                       Text="Tokens are mode-scoped and stored only with Windows protected storage. Fetch time is not TarkovTracker edit time, and the API does not expose a profile generation."
+                       TextWrapping="Wrap" />
+            <TextBox IsEnabled="{Binding CanConnectTarkovTracker}"
+                     PasswordChar="●"
+                     PlaceholderText="Paste a PVP_, PVE_, or SZN_ token with GP permission"
+                     Text="{Binding TarkovTrackerToken}" />
+            <WrapPanel Orientation="Horizontal">
+              <Button Command="{Binding ConnectTarkovTrackerCommand}"
+                      Content="Connect and validate"
+                      IsEnabled="{Binding CanConnectTarkovTracker}"
+                      Margin="0,0,6,6" />
+              <Button Command="{Binding RefreshTarkovTrackerCommand}"
+                      Content="Refresh and preview"
+                      IsEnabled="{Binding CanRefreshTarkovTracker}"
+                      Margin="0,0,6,6" />
+              <Button Command="{Binding DisconnectTarkovTrackerCommand}"
+                      Content="Disconnect and delete token"
+                      IsEnabled="{Binding CanDisconnectTarkovTracker}"
+                      Margin="0,0,6,6" />
+            </WrapPanel>
+            <TextBlock Classes="label" Text="Use the shared conflict buttons, Apply confirmed preview, and Undo last import above after reviewing a fetched snapshot." TextWrapping="Wrap" />
+            <TextBlock FontWeight="SemiBold" Text="{Binding TarkovTrackerStatus}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Expander>
     </StackPanel>
 
     <Grid Grid.Row="1" ColumnDefinitions="390,6,*" ColumnSpacing="10">
