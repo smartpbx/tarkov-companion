@@ -40,6 +40,7 @@ public sealed class SelfTestIntegrationTests
                     "ocr-provider",
                     "recognition-catalog",
                     "recognition-icon-fallback",
+                    "scan-hotkey",
                     "diagnostic",
                     "paths",
                     "platform",
@@ -52,6 +53,13 @@ public sealed class SelfTestIntegrationTests
                 report.Checks.Single(check => check.Name == "ocr-provider").Status);
             Assert.Equal("pass", report.Checks.Single(check => check.Name == "recognition-catalog").Status);
             Assert.Equal("unavailable", report.Checks.Single(check => check.Name == "recognition-icon-fallback").Status);
+
+            // The shortcut is registered for real during the self-test, which is the only way
+            // to prove the combination is obtainable. Global shortcuts do not exist off
+            // Windows, so there it reports unavailable rather than failing.
+            var hotkey = report.Checks.Single(check => check.Name == "scan-hotkey");
+            Assert.Equal(OperatingSystem.IsWindows() ? "pass" : "unavailable", hotkey.Status);
+            Assert.Contains("Ctrl + Alt + S", hotkey.Detail, StringComparison.Ordinal);
             Assert.False(report.Safety["readsGameMemory"]);
             Assert.False(report.Safety["sendsGameInput"]);
             Assert.False(report.Safety["capturesNetworkTraffic"]);
