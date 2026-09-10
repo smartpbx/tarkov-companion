@@ -1,5 +1,33 @@
 # Tarkov Companion Permanent Agent Rules
 
+## Workstation safety — non-negotiable
+
+This repository triggered two workstation hard lockups on 2026-09-10. A local
+.NET debugger run was associated with kernel page-table corruption (`BUG: Bad
+page map`), followed later by a 12-CPU soft lockup and network-stack deadlock.
+These rules override every conflicting instruction elsewhere in this repository:
+
+1. Never attach, launch, or use a .NET debugger on Clayton's workstation.
+2. Never run .NET workloads locally. This includes `dotnet`, MSBuild,
+   `scripts/bootstrap.sh`, `scripts/build.sh`, `scripts/test.sh`,
+   `scripts/package-windows.sh`, the simulator, and any IDE build/test/debug
+   action.
+3. Never start Docker, a container stack, or the local Windows VM for this
+   repository on Clayton's workstation.
+4. Do not launch local Orca worker/sub-agent terminals for this repository.
+   The current assistant may make edits, use Git/GitHub CLI, and run short
+   read-only inspection commands only.
+5. Build- and test-shaped work must run in GitHub Actions. If it cannot run in
+   CI, use the Proxmox development container CT 114 via
+   `ssh proxmox 'pct exec 114 -- bash -lc "cd /root/repos/<repo> && ..."'`
+   after verifying the remote checkout path. Never silently fall back to local
+   execution.
+6. Do not run multiple heavy jobs concurrently on CT 114; check its existing
+   workload first and clean up agent processes when finished.
+7. If work requires anything beyond editing files, Git, `gh`, or short
+   read-only commands on the workstation, stop and ask Clayton first.
+8. Every delegated task or handoff must repeat these workstation restrictions.
+
 1. This application is external and read-only relative to Escape from Tarkov.
 2. Never read or write Escape from Tarkov process memory.
 3. Never inject code or DLLs, and never hook the game renderer.
@@ -32,7 +60,9 @@
 - Propagate cancellation for I/O and bounded background work.
 - Treat external JSON as untrusted: tolerate unknown fields and fail clearly for missing required fields.
 - Do not persist captured screen images unless Debug Capture is explicitly enabled.
-- Run `scripts/build.sh` and `scripts/test.sh` before committing substantive changes.
+- Require `scripts/build.sh` and `scripts/test.sh` (or equivalent targeted
+  checks) in GitHub Actions before integrating substantive changes. Never run
+  them on Clayton's workstation.
 - Keep generated output (`bin`, `obj`, local databases, debug captures, packages) out of Git.
 
 ## Agent ownership
