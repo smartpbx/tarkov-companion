@@ -29,8 +29,45 @@ public sealed class QuestImportProposalViewModel(
 
     public string Detail => proposal.Reason;
 
+    public string LocalValue => $"Local: {FormatValue(proposal.LocalValue)}";
+
+    public string IncomingValue => $"Incoming: {FormatValue(proposal.IncomingValue)}";
+
     public string Resolution => resolution?.ToString() ??
         (proposal.Classification == QuestImportClassification.Conflict ? "Unresolved" : "Automatic");
+
+    private static string FormatValue(QuestImportValue? value)
+    {
+        if (value is null)
+        {
+            return "no record";
+        }
+
+        if (value.TaskState is { } taskState)
+        {
+            return taskState.ToString();
+        }
+
+        if (value.ObjectiveState is { } objectiveState)
+        {
+            return value.ObjectiveCount is { } count
+                ? string.Create(CultureInfo.InvariantCulture, $"{objectiveState} · count {count:0.##}")
+                : objectiveState.ToString();
+        }
+
+        if (value.HoldingCount is { } holdingCount && value.HoldingFoundInRaid is { } foundInRaid)
+        {
+            return $"{holdingCount} · {(foundInRaid ? "found in raid" : "not found in raid")}";
+        }
+
+        if (value.PinTargetKind is { } pinKind && value.PinSortOrder is { } sortOrder)
+        {
+            var note = string.IsNullOrWhiteSpace(value.PinNote) ? "no note" : $"“{value.PinNote}”";
+            return $"{pinKind} pin · order {sortOrder} · {note}";
+        }
+
+        return "unsupported value";
+    }
 }
 
 public sealed class QuestObjectiveViewModel

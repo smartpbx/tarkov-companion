@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -22,6 +23,36 @@ public sealed class QuestProgressExchangeTests
     {
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
     };
+
+    [Fact]
+    public void PreviewRowsExposeTheLocalAndIncomingValuesBeingResolved()
+    {
+        var task = new QuestImportProposalViewModel(new(
+            "task:task-contract:",
+            QuestProgressEntityKind.Task,
+            "task-contract",
+            null,
+            QuestImportClassification.Conflict,
+            new(TaskState: RecordedTaskState.Active),
+            new(TaskState: RecordedTaskState.Completed),
+            "Incoming state differs."));
+        var objective = new QuestImportProposalViewModel(new(
+            "objective:objective-find-item:",
+            QuestProgressEntityKind.Objective,
+            "objective-find-item",
+            null,
+            QuestImportClassification.Conflict,
+            new(ObjectiveState: RecordedObjectiveState.Completed, ObjectiveCount: 2),
+            new(ObjectiveState: RecordedObjectiveState.InProgress, ObjectiveCount: 1),
+            "Incoming progress regresses."),
+            QuestImportResolution.KeepLocal);
+
+        Assert.Equal("Local: Active", task.LocalValue);
+        Assert.Equal("Incoming: Completed", task.IncomingValue);
+        Assert.Equal("Local: Completed · count 2", objective.LocalValue);
+        Assert.Equal("Incoming: InProgress · count 1", objective.IncomingValue);
+        Assert.Equal("KeepLocal", objective.Resolution);
+    }
 
     [Fact]
     public async Task VersionTwoRoundTripIsDeterministicBoundedAndSecretFree()

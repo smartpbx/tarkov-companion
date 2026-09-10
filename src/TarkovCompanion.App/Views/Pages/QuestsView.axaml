@@ -37,11 +37,15 @@
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:QuestImportProposalViewModel">
                     <Border Classes="panel" Padding="8" Margin="0,0,0,5">
-                      <Grid ColumnDefinitions="160,*,120" RowDefinitions="Auto,Auto" ColumnSpacing="8">
+                      <Grid ColumnDefinitions="160,*,120" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="3">
                         <TextBlock FontWeight="SemiBold" Text="{Binding Classification}" TextWrapping="Wrap" />
                         <TextBlock Grid.Column="1" Text="{Binding Entity}" TextWrapping="Wrap" />
                         <TextBlock Grid.Column="2" Classes="label" Text="{Binding Resolution}" TextWrapping="Wrap" />
-                        <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                        <Grid Grid.Row="1" Grid.ColumnSpan="3" ColumnDefinitions="*,*" ColumnSpacing="12">
+                          <TextBlock Foreground="#C6A15B" Text="{Binding LocalValue}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Foreground="#8EC9A8" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
+                        </Grid>
+                        <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
                       </Grid>
                     </Border>
                   </DataTemplate>
