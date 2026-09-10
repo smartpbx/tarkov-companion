@@ -25,6 +25,7 @@ public sealed record PlayerProfile(
     IReadOnlyDictionary<string, int> OwnedItemCounts,
     IReadOnlyDictionary<string, EventItemState> EventItemStates,
     IReadOnlyDictionary<string, string> ItemOverrides,
-    DateTimeOffset UpdatedUtc);
+    DateTimeOffset UpdatedUtc,
+    string ProfileGeneration = "legacy");
 
 public sealed record ProfileExport(int SchemaVersion, PlayerProfile Profile, DateTimeOffset ExportedUtc);

@@ -138,6 +138,65 @@ public interface IQuestCatalog
         CancellationToken cancellationToken);
 }
 
+public interface IQuestProgressStore
+{
+    Task<QuestProgressSnapshot> GetAsync(
+        QuestProfileScope scope,
+        CancellationToken cancellationToken);
+
+    Task<QuestProgressCommandResult> ApplyAsync(
+        QuestProgressMutation mutation,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<QuestProgressChange>> GetJournalAsync(
+        QuestProfileScope scope,
+        CancellationToken cancellationToken);
+}
+
+public interface IQuestProgressCommandService
+{
+    Task<QuestProgressCommandResult> SetTaskStateAsync(
+        QuestProfileScope scope,
+        string taskId,
+        RecordedTaskState state,
+        CancellationToken cancellationToken);
+
+    Task<QuestProgressCommandResult> SetObjectiveProgressAsync(
+        QuestProfileScope scope,
+        string objectiveId,
+        RecordedObjectiveState state,
+        decimal? count,
+        CancellationToken cancellationToken);
+
+    Task<QuestProgressCommandResult> SetItemHoldingAsync(
+        QuestProfileScope scope,
+        string itemId,
+        bool foundInRaid,
+        int? count,
+        CancellationToken cancellationToken);
+
+    Task<QuestProgressCommandResult> SetPinAsync(
+        QuestProfileScope scope,
+        QuestPinTargetKind targetKind,
+        string targetId,
+        bool isPinned,
+        int sortOrder,
+        string? note,
+        CancellationToken cancellationToken);
+}
+
+public interface IQuestReadService
+{
+    Task<QuestBoardReadModel> GetQuestBoardAsync(
+        QuestProfileScope scope,
+        CancellationToken cancellationToken);
+
+    Task<QuestItemNeedsReadModel> GetItemNeedsAsync(
+        QuestProfileScope scope,
+        string itemId,
+        CancellationToken cancellationToken);
+}
+
 public interface IHideoutProgressService
 {
     Task<int> GetRemainingItemCountAsync(string itemId, CancellationToken cancellationToken);

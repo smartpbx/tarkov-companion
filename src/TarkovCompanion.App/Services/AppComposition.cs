@@ -7,6 +7,7 @@ using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Runtime;
@@ -63,6 +64,7 @@ public static class AppComposition
             TimeSpan.FromSeconds(45));
         var databaseOptions = new SqliteDatabaseOptions(Path.Combine(paths.Database, "tarkov-companion.db"));
         var profileOptions = new JsonProfileOptions(Path.Combine(paths.Config, "profile.json"));
+        var questTrackingOptions = new QuestTrackingOptions(runtimeOptions.Language);
 
         var services = new ServiceCollection();
         services.AddSingleton(commandLine);
@@ -70,6 +72,7 @@ public static class AppComposition
         services.AddSingleton(runtimeOptions);
         services.AddSingleton(databaseOptions);
         services.AddSingleton(profileOptions);
+        services.AddSingleton(questTrackingOptions);
         services.AddSingleton(timeProvider);
         services.AddLogging(builder =>
         {
@@ -97,6 +100,11 @@ public static class AppComposition
         services.AddSingleton<SqliteScanEventRepository>();
         services.AddSingleton<IScanEventRepository>(provider =>
             provider.GetRequiredService<SqliteScanEventRepository>());
+        services.AddSingleton<SqliteQuestCatalog>();
+        services.AddSingleton<IQuestCatalog>(provider => provider.GetRequiredService<SqliteQuestCatalog>());
+        services.AddSingleton<SqliteQuestProgressStore>();
+        services.AddSingleton<IQuestProgressStore>(provider =>
+            provider.GetRequiredService<SqliteQuestProgressStore>());
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
@@ -126,6 +134,12 @@ public static class AppComposition
         services.AddSingleton<MapViewModel>();
 
         services.AddSingleton<IPlayerProfileService, JsonFilePlayerProfileService>();
+        services.AddSingleton<QuestEligibilityEvaluator>();
+        services.AddSingleton<QuestProgressCommandService>();
+        services.AddSingleton<IQuestProgressCommandService>(provider =>
+            provider.GetRequiredService<QuestProgressCommandService>());
+        services.AddSingleton<QuestReadService>();
+        services.AddSingleton<IQuestReadService>(provider => provider.GetRequiredService<QuestReadService>());
         services.AddSingleton<ProfileNeedAggregationService>();
         services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
         services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();

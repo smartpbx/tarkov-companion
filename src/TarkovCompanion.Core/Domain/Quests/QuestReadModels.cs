@@ -1,0 +1,76 @@
+namespace TarkovCompanion.Core.Domain.Quests;
+
+public enum QuestEligibilityState
+{
+    Locked,
+    Available,
+    Delayed,
+    Indeterminate,
+}
+
+public enum RecordedObjectivesSatisfaction
+{
+    Indeterminate,
+    NotSatisfied,
+    Satisfied,
+}
+
+public sealed record QuestEligibilityReason(string Code, string Detail, string? RelatedTaskId = null);
+
+public sealed record QuestEligibility(
+    QuestEligibilityState State,
+    IReadOnlyList<QuestEligibilityReason> Reasons,
+    DateTimeOffset? AvailableUtc = null);
+
+public sealed record QuestObjectiveReadModel(
+    string ObjectiveId,
+    string Description,
+    QuestObjectiveKind Kind,
+    bool? IsOptional,
+    bool IsUnsupported,
+    RecordedObjectiveState RecordedState,
+    decimal? RecordedCount,
+    decimal? TargetCount);
+
+public sealed record QuestSummaryReadModel(
+    string TaskId,
+    string Name,
+    RecordedTaskState RecordedState,
+    QuestEligibility Eligibility,
+    RecordedObjectivesSatisfaction RecordedObjectivesSatisfied,
+    bool IsPinned,
+    IReadOnlyList<QuestObjectiveReadModel> Objectives);
+
+public sealed record OrphanedQuestProgress(
+    QuestProgressEntityKind EntityKind,
+    string ExternalId,
+    string RecordedValue);
+
+public sealed record QuestBoardReadModel(
+    QuestProfileScope Scope,
+    long ProgressRevision,
+    QuestCatalogProvenance? CatalogProvenance,
+    IReadOnlyList<QuestSummaryReadModel> Tasks,
+    IReadOnlyList<OrphanedQuestProgress> OrphanedProgress,
+    string? UnavailableReason = null);
+
+public sealed record QuestItemRequirementReadModel(
+    string TaskId,
+    string TaskName,
+    string ObjectiveId,
+    IReadOnlyList<string> AcceptableItemIds,
+    string SourceField,
+    int AlternativeGroup,
+    bool? FoundInRaidRequired,
+    decimal? TargetCount,
+    decimal? RecordedCount,
+    decimal? RemainingCount);
+
+public sealed record QuestItemNeedsReadModel(
+    QuestProfileScope Scope,
+    string ItemId,
+    int? FoundInRaidHeldCount,
+    int? NonFoundInRaidHeldCount,
+    IReadOnlyList<QuestItemRequirementReadModel> Requirements,
+    IReadOnlyList<OrphanedQuestProgress> OrphanedProgress,
+    string? UnavailableReason = null);

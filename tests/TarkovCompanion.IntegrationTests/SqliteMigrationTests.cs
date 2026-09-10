@@ -17,7 +17,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(4, first.Count);
+            Assert.Equal(5, first.Count);
             Assert.Empty(second);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -32,6 +32,9 @@ public sealed class SqliteMigrationTests
             Assert.Equal(1L, await command.ExecuteScalarAsync());
 
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_objective_zones';";
+            Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+            command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_progress_journal';";
             Assert.Equal(1L, await command.ExecuteScalarAsync());
         }
         finally
@@ -71,6 +74,15 @@ public sealed class SqliteMigrationTests
                         id, name, short_name, normalized_name, description, category_type,
                         width, height, slots, flea_eligible, source_updated_utc)
                     VALUES ('existing', 'Existing item', 'Existing', 'existing item', '', 'Barter', 1, 1, 1, 1, '2026-09-09T00:00:00Z');
+                    INSERT INTO player_profiles(
+                        id, name, game_mode, faction, level, created_utc, updated_utc)
+                    VALUES (
+                        '940d35d5-47a2-4a25-afb9-94145166d65b', 'Legacy profile', 'Regular', 'Usec', 12,
+                        '2026-09-09T00:00:00Z', '2026-09-09T01:00:00Z');
+                    INSERT INTO profile_task_progress(profile_id, task_id, status)
+                    VALUES ('940d35d5-47a2-4a25-afb9-94145166d65b', 'legacy-task', 'active');
+                    INSERT INTO profile_objective_progress(profile_id, objective_id, count)
+                    VALUES ('940d35d5-47a2-4a25-afb9-94145166d65b', 'legacy-objective', 2);
                     """;
                 await command.ExecuteNonQueryAsync();
             }
@@ -78,7 +90,12 @@ public sealed class SqliteMigrationTests
             var applied = await new SqliteMigrationRunner(factory).ApplyAsync(CancellationToken.None);
 
             Assert.Equal(
-                ["0002_data_cache", "0003_recognition_scan_metadata", "0004_quest_catalog_fidelity"],
+                [
+                    "0002_data_cache",
+                    "0003_recognition_scan_metadata",
+                    "0004_quest_catalog_fidelity",
+                    "0005_local_quest_progress",
+                ],
                 applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
             await using var verifyCommand = verification.CreateCommand();
@@ -94,6 +111,31 @@ public sealed class SqliteMigrationTests
 
             verifyCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';";
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
+
+            verifyCommand.CommandText = """
+                SELECT game_mode, generation, revision
+                FROM quest_progress_profiles
+                WHERE profile_id = '940d35d5-47a2-4a25-afb9-94145166d65b';
+                """;
+            await using var profileResult = await verifyCommand.ExecuteReaderAsync();
+            Assert.True(await profileResult.ReadAsync());
+            Assert.Equal("Regular", profileResult.GetString(0));
+            Assert.Equal("legacy-940d35d547a24a25afb994145166d65b", profileResult.GetString(1));
+            Assert.Equal(0, profileResult.GetInt64(2));
+
+            await profileResult.DisposeAsync();
+            verifyCommand.CommandText = """
+                SELECT state FROM quest_profile_task_states WHERE task_id = 'legacy-task';
+                """;
+            Assert.Equal("Active", await verifyCommand.ExecuteScalarAsync());
+            verifyCommand.CommandText = """
+                SELECT state || ':' || progress_count
+                FROM quest_profile_objective_states
+                WHERE objective_id = 'legacy-objective';
+                """;
+            Assert.Equal("InProgress:2", await verifyCommand.ExecuteScalarAsync());
+            verifyCommand.CommandText = "SELECT COUNT(*) FROM quest_progress_journal WHERE actor = 'SystemMigration';";
+            Assert.Equal(2L, await verifyCommand.ExecuteScalarAsync());
         }
         finally
         {
