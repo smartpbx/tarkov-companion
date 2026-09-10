@@ -47,7 +47,9 @@ public sealed record MapOverlayElement(
     MapPoint Position,
     string Label,
     double RotationDegrees = 0,
-    double SizePercent = 100);
+    double SizePercent = 100,
+    double? MinimumHeight = null,
+    double? MaximumHeight = null);
 
 public sealed record MapRenderModel(
     MapLocation Location,
@@ -66,7 +68,9 @@ public sealed record MapRenderModel(
 
     public IReadOnlyList<MapOverlayElement> VisibleOverlayElements => CanRender
         ? OverlayElements
-            .Where(element => Overlays.Any(layer => layer.Kind == element.Layer && layer.IsVisible))
+            .Where(element =>
+                Overlays.Any(layer => layer.Kind == element.Layer && layer.IsVisible) &&
+                IsVisibleOnSelectedFloor(element))
             .ToArray()
         : [];
 
@@ -99,6 +103,26 @@ public sealed record MapRenderModel(
         return TransformAvailability == MapTransformAvailability.Valid &&
             Variant.Transform is not null &&
             Variant.Transform.TryProject(position, out point);
+    }
+
+    private bool IsVisibleOnSelectedFloor(MapOverlayElement element)
+    {
+        if (element.MinimumHeight is null && element.MaximumHeight is null || SelectedFloor is null)
+        {
+            return true;
+        }
+
+        var boundedExtents = SelectedFloor.Extents
+            .Where(extent => extent.MinimumHeight is not null || extent.MaximumHeight is not null)
+            .ToArray();
+        if (boundedExtents.Length == 0)
+        {
+            return true;
+        }
+
+        return boundedExtents.Any(extent =>
+            (extent.MinimumHeight is null || element.MaximumHeight is null || element.MaximumHeight > extent.MinimumHeight) &&
+            (extent.MaximumHeight is null || element.MinimumHeight is null || extent.MaximumHeight > element.MinimumHeight));
     }
 }
 
@@ -207,7 +231,14 @@ public sealed class MapPresentationService
         {
             if (variant.Transform.TryProject(new(label.Position.X, 0, label.Position.Y), out var point))
             {
-                labels.Add(new(MapOverlayKind.Labels, point, label.Text, label.RotationDegrees, label.SizePercent));
+                labels.Add(new(
+                    MapOverlayKind.Labels,
+                    point,
+                    label.Text,
+                    label.RotationDegrees,
+                    label.SizePercent,
+                    label.MinimumHeight,
+                    label.MaximumHeight));
             }
         }
 

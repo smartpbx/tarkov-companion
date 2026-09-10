@@ -59,11 +59,10 @@ public sealed class QuestCatalogNormalizationTests
             .Select(target => target.AlternativeGroup));
         Assert.Equal(2, questItem.Zones.Count);
         Assert.Equal(["map-one", "map-two"], questItem.Zones.Select(zone => zone.MapId));
-        Assert.All(questItem.Zones, zone =>
-        {
-            Assert.NotNull(zone.Position);
-            Assert.StartsWith("possible-location-", zone.SourceZoneId, StringComparison.Ordinal);
-        });
+        Assert.All(questItem.Zones, zone => Assert.Null(zone.SourceZoneId));
+        Assert.Equal([0, 1], questItem.Zones.Select(zone => zone.SourceOrdinal));
+        Assert.Equal([(1d, 2d, 3d), (4d, 5d, 6d)], questItem.Zones.Select(zone =>
+            (zone.Position!.Value.X, zone.Position.Value.Y, zone.Position.Value.Z)));
 
         var mark = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.Mark);
         var zone = Assert.Single(mark.Zones);

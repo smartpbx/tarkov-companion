@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
@@ -16,8 +17,6 @@ public sealed record MapTileViewModel(string LocalPath, double Left, double Top,
 public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted)
 {
     public string HighlightLabel => IsHighlighted ? "Highlighted" : "Highlight";
-
-    public bool CanHighlight => Kind != MapOverlayKind.QuestObjectives;
 }
 
 public sealed record MapOverlayElementViewModel(
@@ -31,9 +30,101 @@ public sealed record MapOverlayElementViewModel(
     public string BorderColor => IsHighlighted ? "#FFC6A15B" : "#8056B8C6";
 }
 
-public sealed record QuestMapPointViewModel(string Label, double Left, double Top, bool IsPinned);
+public sealed record QuestMapPointViewModel(
+    string Label,
+    double CenterX,
+    double CenterY,
+    bool IsPinned,
+    bool IsHighlighted)
+{
+    public double Size => IsHighlighted ? IsPinned ? 24 : 22 : IsPinned ? 18 : 14;
 
-public sealed record QuestMapRegionViewModel(string Label, AvaloniaList<Point> Points, bool IsPinned);
+    public double Left => CenterX - (Size / 2);
+
+    public double Top => CenterY - (Size / 2);
+
+    public double CornerRadius => Size / 2;
+
+    public double BorderThickness => IsHighlighted ? IsPinned ? 4 : 3 : IsPinned ? 3 : 2;
+
+    public string FillColor => IsHighlighted ? "#FFF0B44D" : IsPinned ? "#FFC6A15B" : "#E656B8C6";
+
+    public string BorderColor => IsPinned ? "#FFFFFFFF" : "#FFE6EDF2";
+}
+
+public sealed record QuestMapRegionViewModel(
+    string Label,
+    AvaloniaList<Point> Points,
+    bool IsPinned,
+    bool IsHighlighted)
+{
+    public string FillColor => IsHighlighted ? "#70F0B44D" : IsPinned ? "#50C6A15B" : "#3056B8C6";
+
+    public string StrokeColor => IsHighlighted ? "#FFF0B44D" : IsPinned ? "#FFFFFFFF" : "#E6C6A15B";
+
+    public double StrokeThickness => IsHighlighted ? IsPinned ? 5 : 4 : IsPinned ? 3 : 2;
+}
+
+public static class MapCanvasCoordinateMapper
+{
+    public static Func<MapPoint, Point>? Create(
+        MapRenderModel renderModel,
+        double canvasWidth,
+        double canvasHeight)
+    {
+        ArgumentNullException.ThrowIfNull(renderModel);
+        var variant = renderModel.Variant;
+        if (variant.Transform is null ||
+            !double.IsFinite(canvasWidth) || canvasWidth <= 0 ||
+            !double.IsFinite(canvasHeight) || canvasHeight <= 0)
+        {
+            return null;
+        }
+
+        if (renderModel.Background?.Kind == MapBackgroundKind.TileTemplate && variant.MinimumZoom is { } zoom)
+        {
+            var plan = MapTilePlanner.Plan(variant, zoom, 16);
+            if (plan.IsValid)
+            {
+                var scale = Math.Pow(2, zoom);
+                return point => new(
+                    (point.X * scale) - plan.OriginPixelX,
+                    (point.Y * scale) - plan.OriginPixelY);
+            }
+        }
+
+        if (variant.Bounds?.IsValid != true)
+        {
+            return null;
+        }
+
+        var bounds = variant.SvgBounds ?? variant.Bounds;
+        var corners = new[]
+        {
+            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
+        };
+        var projected = corners.Select(corner =>
+        {
+            variant.Transform.TryProject(corner, out var point);
+            return point;
+        }).ToArray();
+        var minimumX = projected.Min(point => point.X);
+        var maximumX = projected.Max(point => point.X);
+        var minimumY = projected.Min(point => point.Y);
+        var maximumY = projected.Max(point => point.Y);
+        if (maximumX <= minimumX || maximumY <= minimumY)
+        {
+            return null;
+        }
+
+        return point => new(
+            ((point.X - minimumX) / (maximumX - minimumX)) * canvasWidth,
+            ((point.Y - minimumY) / (maximumY - minimumY)) * canvasHeight);
+    }
+}
 
 public sealed record QuestMapAssociationViewModel(
     string Title,
@@ -565,10 +656,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
-            var mapIds = new[] { location.Id, location.SourceId }
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Select(value => value!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
+            var mapIds = QuestMapProjectionService.CompatibleMapIds(location, variant)
+                .Order(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             var query = await _questReadService
                 .GetActiveMapObjectivesAsync(scope, mapIds, cancellationToken)
@@ -591,7 +680,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 $"{objective.TaskName} · {objective.ObjectiveKind}",
                 objective.Availability,
                 $"{objective.Attribution} · quest catalog {FormatUtc(objective.QuestCatalogProvenance.ValidatedUtc)} · map catalog {FormatUtc(objective.MapCatalogProvenance.RetrievedUtc)}",
-                DescribeItems(objective.ItemTargets),
+                QuestItemRequirementFormatter.DescribeForMap(
+                    objective.ItemTargets,
+                    objective.FoundInRaidRequired),
                 objective.HasExactGeometry,
                 objective.IsUnsupported,
                 objective.IsFloorFiltered)).ToArray();
@@ -721,59 +812,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private Func<MapPoint, Point>? CreateCanvasMapper()
     {
-        if (_renderModel is null || SelectedVariant is not { } variant || variant.Transform is null)
-        {
-            return null;
-        }
-
-        if (_renderModel.Background?.Kind == MapBackgroundKind.TileTemplate && variant.MinimumZoom is { } zoom)
-        {
-            var plan = MapTilePlanner.Plan(variant, zoom, 16);
-            if (plan.IsValid)
-            {
-                var scale = Math.Pow(2, zoom);
-                return point => new(
-                    (point.X * scale) - plan.OriginPixelX,
-                    (point.Y * scale) - plan.OriginPixelY);
-            }
-        }
-
-        if (variant.Bounds?.IsValid != true)
-        {
-            return null;
-        }
-
-        var bounds = variant.SvgBounds ?? variant.Bounds;
-        var corners = new[]
-        {
-            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
-            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
-        };
-        var projected = corners.Select(corner =>
-        {
-            variant.Transform.TryProject(corner, out var point);
-            return point;
-        }).ToArray();
-        var minimumX = projected.Min(point => point.X);
-        var maximumX = projected.Max(point => point.X);
-        var minimumY = projected.Min(point => point.Y);
-        var maximumY = projected.Max(point => point.Y);
-        if (maximumX <= minimumX || maximumY <= minimumY)
-        {
-            return null;
-        }
-
-        return point => new(
-            ((point.X - minimumX) / (maximumX - minimumX)) * CanvasWidth,
-            ((point.Y - minimumY) / (maximumY - minimumY)) * CanvasHeight);
+        return _renderModel is null
+            ? null
+            : MapCanvasCoordinateMapper.Create(_renderModel, CanvasWidth, CanvasHeight);
     }
 
     private void UpdateQuestGeometry()
     {
-        var questLayerVisible = _renderModel?.Overlays
-            .SingleOrDefault(layer => layer.Kind == MapOverlayKind.QuestObjectives)?.IsVisible == true;
+        var questLayer = _renderModel?.Overlays
+            .SingleOrDefault(layer => layer.Kind == MapOverlayKind.QuestObjectives);
+        var questLayerVisible = questLayer?.IsVisible == true;
+        var questLayerHighlighted = questLayer?.IsHighlighted == true;
         var mapper = CreateCanvasMapper();
         if (!questLayerVisible || _renderModel?.CanRender != true || _questProjection is null || mapper is null)
         {
@@ -791,7 +840,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     $"{objective.TaskName} · {objective.Description}",
                     point.X,
                     point.Y,
-                    objective.IsPinned);
+                    objective.IsPinned,
+                    questLayerHighlighted);
             })
             .ToArray();
         QuestRegions = _questProjection.Objectives
@@ -803,7 +853,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 return new QuestMapRegionViewModel(
                     $"{objective.TaskName} · {objective.Description}",
                     points,
-                    objective.IsPinned);
+                    objective.IsPinned,
+                    questLayerHighlighted);
             })
             .ToArray();
     }
@@ -815,33 +866,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestRegions = [];
         QuestAssociations = [];
         QuestLayerStatus = status;
-    }
-
-    private static string DescribeItems(IReadOnlyList<QuestObjectiveItemTarget> targets)
-    {
-        if (targets.Count == 0)
-        {
-            return "No item requirement";
-        }
-
-        var itemIds = targets
-            .Where(target => target.SourceField != "requiredKeys")
-            .Select(target => target.ItemId)
-            .Distinct(StringComparer.Ordinal)
-            .Order(StringComparer.Ordinal)
-            .ToArray();
-        var requiredKeys = targets
-            .Where(target => target.SourceField == "requiredKeys")
-            .GroupBy(target => target.AlternativeGroup)
-            .OrderBy(group => group.Key)
-            .Select(group => string.Join(" or ", group.Select(target => target.ItemId).Order(StringComparer.Ordinal)))
-            .ToArray();
-        var fir = targets.Any(target => target.SourceField != "requiredKeys" && target.FoundInRaidRequired == true)
-            ? " · found in raid"
-            : string.Empty;
-        var itemText = itemIds.Length == 0 ? null : $"Items: {string.Join(" or ", itemIds)}{fir}";
-        var keyText = requiredKeys.Length == 0 ? null : $"Required keys: {string.Join("; ", requiredKeys)}";
-        return string.Join(" · ", new[] { itemText, keyText }.OfType<string>());
     }
 
     private static string FormatUtc(DateTimeOffset timestamp) => timestamp.ToUniversalTime().ToString("u");

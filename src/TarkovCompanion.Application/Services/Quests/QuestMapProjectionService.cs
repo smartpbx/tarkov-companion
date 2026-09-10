@@ -26,6 +26,7 @@ public sealed record QuestMapObjectiveProjection(
     bool IsFloorFiltered,
     string Availability,
     string? FloorHint,
+    bool? FoundInRaidRequired,
     IReadOnlyList<QuestObjectiveItemTarget> ItemTargets,
     QuestCatalogProvenance QuestCatalogProvenance,
     MapCatalogProvenance MapCatalogProvenance,
@@ -114,7 +115,7 @@ public sealed class QuestMapProjectionService
                 "Map association only—source objective geometry is unavailable.")];
         }
 
-        var compatibleMapIds = CompatibleMapIds(location);
+        var compatibleMapIds = CompatibleMapIds(location, variant);
         var matchingZones = objective.Zones
             .Where(zone => zone.MapId is not null && compatibleMapIds.Contains(zone.MapId))
             .OrderBy(zone => zone.SourceOrdinal)
@@ -251,6 +252,7 @@ public sealed class QuestMapProjectionService
                 ? "Exact source-authored point projected through the selected tarkov.dev variant."
                 : "Exact source-authored region projected through the selected tarkov.dev variant.",
             FloorHint(zone),
+            objective.FoundInRaidRequired,
             objective.ItemTargets,
             questCatalogProvenance,
             mapCatalogProvenance,
@@ -270,7 +272,7 @@ public sealed class QuestMapProjectionService
             return "Quest catalog mode does not match the exact profile scope; exact geometry is hidden.";
         }
 
-        var compatibleMapIds = CompatibleMapIds(location);
+        var compatibleMapIds = CompatibleMapIds(location, variant);
         if (!query.RequestedMapIds.Any(compatibleMapIds.Contains))
         {
             return "The objective query belongs to a different map; exact geometry is hidden.";
@@ -388,6 +390,7 @@ public sealed class QuestMapProjectionService
         isFloorFiltered,
         availability,
         zone is null ? null : FloorHint(zone),
+        objective.FoundInRaidRequired,
         objective.ItemTargets,
         questCatalogProvenance,
         mapCatalogProvenance,
@@ -406,12 +409,17 @@ public sealed class QuestMapProjectionService
         query.OrphanedProgress,
         reason);
 
-    private static IReadOnlySet<string> CompatibleMapIds(MapLocation location) =>
-        new HashSet<string>(
+    public static IReadOnlySet<string> CompatibleMapIds(MapLocation location, MapVariant variant)
+    {
+        ArgumentNullException.ThrowIfNull(location);
+        ArgumentNullException.ThrowIfNull(variant);
+        return new HashSet<string>(
             new[] { location.Id, location.SourceId }
+                .Concat(variant.AlternateLocationIds)
                 .Where(value => !string.IsNullOrWhiteSpace(value))
                 .Select(value => value!),
             StringComparer.OrdinalIgnoreCase);
+    }
 
     private static string Attribution(MapVariant variant) =>
         $"Map by {variant.Author ?? "unknown author"} via tarkov.dev · quest catalog via json.tarkov.dev";

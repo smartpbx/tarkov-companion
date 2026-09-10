@@ -678,6 +678,7 @@ public sealed class QuestReadService(
                     taskPinned is null && objectivePinned is null ? null : pinOrder,
                     objectiveProgress?.Source ?? taskProgress?.Source ?? "No progress assertion",
                     objectiveProgress?.ModifiedUtc ?? taskProgress?.ModifiedUtc,
+                    objective.FoundInRaidRequired,
                     associatedMapIds,
                     objective.Zones,
                     objective.ItemTargets));
@@ -726,6 +727,7 @@ public sealed class QuestReadService(
                     recorded?.State ?? RecordedObjectiveState.Unknown,
                     recorded?.Count,
                     objective.TargetCount,
+                    objective.FoundInRaidRequired,
                     recorded?.Source ?? "No progress assertion",
                     recorded?.ModifiedUtc,
                     pinnedObjectives.Contains(objective.Id),

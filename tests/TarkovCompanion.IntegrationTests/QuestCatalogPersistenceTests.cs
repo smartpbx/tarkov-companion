@@ -54,6 +54,9 @@ public sealed class QuestCatalogPersistenceTests
         var questItem = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.FindQuestItem);
         Assert.Equal(2, questItem.Zones.Count);
         Assert.Equal(["map-one", "map-two"], questItem.Zones.Select(value => value.MapId));
+        Assert.All(questItem.Zones, value => Assert.Null(value.SourceZoneId));
+        Assert.Equal([(1d, 2d, 3d), (4d, 5d, 6d)], questItem.Zones.Select(value =>
+            (value.Position!.Value.X, value.Position.Value.Y, value.Position.Value.Z)));
 
         var itemObjective = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.FindItem);
         Assert.Equal(2, itemObjective.ItemTargets.Count);

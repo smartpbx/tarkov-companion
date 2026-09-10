@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Maps;
@@ -151,6 +152,8 @@ public sealed class TarkovDevMapTests
         Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.QuestObjectives).IsVisible);
         Assert.Equal("Fixture Warehouse", Assert.Single(changed.VisibleOverlayElements).Label);
         Assert.Empty(changed.SetLayerVisibility(MapOverlayKind.Labels, false).VisibleOverlayElements);
+        Assert.Empty(changed.SelectFloor("layer-1-underground").VisibleOverlayElements);
+        Assert.Equal("Fixture Warehouse", Assert.Single(changed.SelectFloor("layer-0-upper-floor").VisibleOverlayElements).Label);
         Assert.Contains("Synthetic Fixture Authors", changed.AttributionText, StringComparison.Ordinal);
         Assert.Contains("CC BY-NC-SA 4.0", changed.AttributionText, StringComparison.Ordinal);
         Assert.Equal(MapTransformAvailability.Valid, changed.TransformAvailability);
@@ -176,6 +179,33 @@ public sealed class TarkovDevMapTests
         Assert.Equal(MapTransformAvailability.Invalid, model.TransformAvailability);
         Assert.False(model.TryMapPosition(new WorldPosition(4, 0, 2), out _));
         Assert.Contains("hidden", model.TransformMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SvgCanvasMappingUsesTheSameFullExtentAsTheFillBackground()
+    {
+        var location = ParseFixture().Locations[0];
+        var variant = location.Variants[0] with { TilePath = null };
+        var render = new MapPresentationService().Create(location, variant);
+        var mapper = MapCanvasCoordinateMapper.Create(render, 900, 620);
+        var bounds = variant.SvgBounds!;
+        var projected = new[]
+        {
+            new WorldPosition(bounds.First.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.First.X, 0, bounds.Second.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.First.Y),
+            new WorldPosition(bounds.Second.X, 0, bounds.Second.Y),
+        }.Select(position =>
+        {
+            Assert.True(variant.Transform!.TryProject(position, out var point));
+            return mapper!(point);
+        }).ToArray();
+
+        Assert.Equal(MapBackgroundKind.Svg, render.Background?.Kind);
+        Assert.Equal(0, projected.Min(point => point.X), 6);
+        Assert.Equal(900, projected.Max(point => point.X), 6);
+        Assert.Equal(0, projected.Min(point => point.Y), 6);
+        Assert.Equal(620, projected.Max(point => point.Y), 6);
     }
 
     [Fact]

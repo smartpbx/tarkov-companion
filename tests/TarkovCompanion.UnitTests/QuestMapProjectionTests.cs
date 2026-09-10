@@ -96,6 +96,27 @@ public sealed class QuestMapProjectionTests
     }
 
     [Fact]
+    public void UpstreamVariantAlternateMapIdentityPermitsExactGeometry()
+    {
+        var objective = Objective("alternate", [Zone("zone", new(10, 0, 20), []) with
+        {
+            MapId = "map-night",
+        }]);
+        var variant = Variant() with { AlternateLocationIds = ["map-night"] };
+        var query = Query(objective) with { RequestedMapIds = ["MAP-NIGHT"] };
+
+        var result = new QuestMapProjectionService().Project(
+            query,
+            Location(),
+            variant,
+            null,
+            MapProvenance());
+
+        Assert.Contains("map-night", QuestMapProjectionService.CompatibleMapIds(Location(), variant));
+        Assert.Equal(QuestMapGeometryKind.Point, Assert.Single(result.Objectives).GeometryKind);
+    }
+
+    [Fact]
     public void SelectedFloorFiltersOnlyWhenSourceElevationSupportsIt()
     {
         var upper = Objective("upper", [Zone("upper-zone", new(10, 12, 20), [])]);
@@ -157,6 +178,7 @@ public sealed class QuestMapProjectionTests
         null,
         "Manual",
         Now,
+        false,
         ["map-source-id"],
         zones,
         []);

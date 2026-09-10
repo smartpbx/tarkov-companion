@@ -261,7 +261,7 @@ public sealed class TarkovDevQuestCatalogNormalizer
 
                 normalized.Add(new(
                     sourceOrdinal++,
-                    $"possible-location-{locationIndex}-{positionIndex}",
+                    null,
                     possibleLocation.Map,
                     position,
                     [],
