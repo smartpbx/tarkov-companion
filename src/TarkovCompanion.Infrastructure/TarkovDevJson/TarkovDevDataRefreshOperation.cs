@@ -14,6 +14,7 @@ public sealed class TarkovDevDataRefreshOperation(
     TimeProvider? timeProvider = null) : IDataRefreshOperation
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TarkovDevQuestCatalogNormalizer _questCatalogNormalizer = new();
 
     public async Task<IReadOnlyList<SyncEndpointResult>> RefreshAsync(
         SyncRequest request,
@@ -39,7 +40,13 @@ public sealed class TarkovDevDataRefreshOperation(
                 "tasks",
                 request,
                 () => client.GetTasksAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshTasksAsync(response.Data, cancellationToken),
+                response => refreshRepository.RefreshTasksAsync(
+                    _questCatalogNormalizer.Normalize(
+                        response,
+                        request.GameMode,
+                        request.Language,
+                        _timeProvider.GetUtcNow()),
+                    cancellationToken),
                 response => response.Data.Tasks.Count,
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
@@ -100,7 +107,7 @@ public sealed class TarkovDevDataRefreshOperation(
                     response.LastModified,
                     status,
                     null),
-                Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(response.Json))),
+                Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(response.RawSourceJson ?? response.Json))),
                 cancellationToken).ConfigureAwait(false);
             return new(endpoint, !response.IsStale, response.IsStale, count(response), null);
         }

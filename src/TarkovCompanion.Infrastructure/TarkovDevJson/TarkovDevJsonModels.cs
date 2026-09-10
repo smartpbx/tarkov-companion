@@ -202,13 +202,45 @@ public sealed class TarkovDevTask
 
     public required string Name { get; init; }
 
+    public string? NormalizedName { get; init; }
+
     public string? Trader { get; init; }
 
     public int? MinPlayerLevel { get; init; }
 
     public string? Map { get; init; }
 
+    public string? FactionName { get; init; }
+
+    public bool? Restartable { get; init; }
+
+    public bool? KappaRequired { get; init; }
+
+    public bool? LightkeeperRequired { get; init; }
+
+    public string? RequiredPrestige { get; init; }
+
+    public int? AvailableDelaySecondsMin { get; init; }
+
+    public int? AvailableDelaySecondsMax { get; init; }
+
+    public IReadOnlyList<string> GameMode { get; init; } = [];
+
+    public IReadOnlyList<TarkovDevTaskRequirement> TaskRequirements { get; init; } = [];
+
     public IReadOnlyList<TarkovDevTaskObjective> Objectives { get; init; } = [];
+
+    public IReadOnlyList<TarkovDevTaskObjective> FailConditions { get; init; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+public sealed class TarkovDevTaskRequirement
+{
+    public required string Task { get; init; }
+
+    public IReadOnlyList<string> Status { get; init; } = [];
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
@@ -222,15 +254,79 @@ public sealed class TarkovDevTaskObjective
 
     public string Description { get; init; } = string.Empty;
 
-    public int? Count { get; init; }
+    public decimal? Count { get; init; }
+
+    public bool? Optional { get; init; }
 
     public bool? FoundInRaid { get; init; }
 
     public IReadOnlyList<string> Items { get; init; } = [];
 
+    public string? Item { get; init; }
+
+    public string? QuestItem { get; init; }
+
+    public string? MarkerItem { get; init; }
+
+    public IReadOnlyList<string> UseAny { get; init; } = [];
+
+    public IReadOnlyList<IReadOnlyList<string>> RequiredKeys { get; init; } = [];
+
     public IReadOnlyList<string> Maps { get; init; } = [];
 
-    public JsonElement? Zones { get; init; }
+    public IReadOnlyList<TarkovDevObjectiveZone> Zones { get; init; } = [];
+
+    public IReadOnlyList<TarkovDevPossibleLocation> PossibleLocations { get; init; } = [];
+
+    public string? Task { get; init; }
+
+    public IReadOnlyList<string> Status { get; init; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+public sealed class TarkovDevObjectiveZone
+{
+    public string? Id { get; init; }
+
+    public string? Map { get; init; }
+
+    public TarkovDevObjectivePosition? Position { get; init; }
+
+    public IReadOnlyList<TarkovDevObjectivePosition> Outline { get; init; } = [];
+
+    public double? Bottom { get; init; }
+
+    public double? Top { get; init; }
+
+    public double? TerrainElevation { get; init; }
+
+    public TarkovDevObjectivePosition? Size { get; init; }
+
+    public string? Name { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+public sealed class TarkovDevPossibleLocation
+{
+    public string? Map { get; init; }
+
+    public IReadOnlyList<TarkovDevObjectivePosition> Positions { get; init; } = [];
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+public sealed class TarkovDevObjectivePosition
+{
+    public double? X { get; init; }
+
+    public double? Y { get; init; }
+
+    public double? Z { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
@@ -379,4 +475,5 @@ public sealed record TarkovDevResponse<T>(
     bool IsFromCache,
     bool IsStale,
     string? ETag,
-    DateTimeOffset? LastModified);
+    DateTimeOffset? LastModified,
+    string? RawSourceJson = null);

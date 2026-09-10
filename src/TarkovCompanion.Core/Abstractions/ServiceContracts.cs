@@ -6,6 +6,7 @@ using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Profile;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Recommendations;
@@ -127,6 +128,14 @@ public interface IPlayerProfileService
 public interface IQuestProgressService
 {
     Task<ItemNeedSummary> GetItemNeedsAsync(string itemId, CancellationToken cancellationToken);
+}
+
+public interface IQuestCatalog
+{
+    Task<QuestCatalogSnapshot?> GetAsync(
+        GameMode gameMode,
+        string language,
+        CancellationToken cancellationToken);
 }
 
 public interface IHideoutProgressService

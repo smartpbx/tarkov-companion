@@ -16,4 +16,7 @@
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="coverlet.collector" PrivateAssets="all" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../fixtures/api/tasks-contract.json" Link="fixtures/api/tasks-contract.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

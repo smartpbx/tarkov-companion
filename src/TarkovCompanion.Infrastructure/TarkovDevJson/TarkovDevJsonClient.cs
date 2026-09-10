@@ -193,7 +193,8 @@ public sealed class TarkovDevJsonClient
             baseResponse.IsFromCache || translationResponse?.IsFromCache == true,
             baseResponse.IsStale || translationResponse?.IsStale == true,
             baseResponse.Entry.ETag,
-            baseResponse.Entry.LastModified);
+            baseResponse.Entry.LastModified,
+            baseResponse.Entry.BodyJson);
     }
 
     private async Task<TarkovDevResponse<T>> GetUntranslatedAsync<T>(
@@ -216,7 +217,8 @@ public sealed class TarkovDevJsonClient
             response.IsFromCache,
             response.IsStale,
             response.Entry.ETag,
-            response.Entry.LastModified);
+            response.Entry.LastModified,
+            response.Entry.BodyJson);
     }
 
     private async Task<CachedResponse> GetJsonAsync(
