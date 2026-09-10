@@ -1,0 +1,1776 @@
+{
+  "schemaVersion": 1,
+  "targetFramework": "net10.0",
+  "runtimeIdentifier": "win-x64",
+  "sourceProjects": [
+    "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+    "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+    "src/TarkovCompanion.Core/TarkovCompanion.Core.csproj",
+    "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+    "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+    "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+  ],
+  "testProjects": [
+    "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+    "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+    "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+    "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+  ],
+  "packageGraph": {
+    "runtime": [
+      {
+        "id": "Avalonia",
+        "version": "12.1.2",
+        "contentHash": "GHSe4qxjbqqxB570xuB4KtoD+Qhk3uKXJUXbelGYhGz/ti8xEoL7e5DGun8hcsXHondszPPBEdcC68szw7vUKg==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Angle.Windows.Natives",
+        "version": "2.1.27548.20260419",
+        "contentHash": "l17nI3XVDN3oMnpjf2pnmJg0YTwK4m6NLsn/itAjDMdObTFxN77D5F1M9sRMSfViSY3KKcse1ROczwgoWLJsnA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia ANGLE Windows native payload",
+        "scope": "runtime",
+        "ships": true,
+        "license": "BSD-3-Clause",
+        "copyrightNotice": "Copyright 2018 The ANGLE Project Authors. All rights reserved.",
+        "purpose": "Windows OpenGL ES renderer used by Avalonia.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/angle/tree/1c89805903c1482166356d3b950d474973180e61",
+        "licenseFiles": [
+          "LICENSES/ANGLE-BSD-3-Clause.txt"
+        ],
+        "noticeKey": "angle"
+      },
+      {
+        "id": "Avalonia.Desktop",
+        "version": "12.1.2",
+        "contentHash": "ghG7UVnLVhCyWm/74xh24gAkXgEZ41oJTUr7c0VI9BiVSqhpukvU5vm8l8ZY35BZX8VPx1YtXUI1+VbhDTOLMw==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Fonts.Inter",
+        "version": "12.1.2",
+        "contentHash": "pFkrNWecSX3wP9kTsMyLKyP29/8T7cYywKuE+DC9HN+BstmcIx5iOi6ZZLYAK1HkNTAGjF+oQf5wpTj3gnkWXA==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.FreeDesktop",
+        "version": "12.1.2",
+        "contentHash": "RJqKF7djK/lyDBdj24+HKELGe+7I/86NIA57aeiod5k340svbcb9hs1RYkIF8Nga4Xa2Jd/Pzxpkmvdjb1ASiw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.FreeDesktop.AtSpi",
+        "version": "12.1.2",
+        "contentHash": "632PfHnqe7OkzStmDOW2ghXfCcTapGhT46HZGMMOIZFr+I0biyxUk7felBQwNzEk5LJ54y4VfIoiWKTgZK8FnA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.HarfBuzz",
+        "version": "12.1.2",
+        "contentHash": "CqYTMnOLuAXjGldTEMdEf5/ozMY1z5ZshpE4YF0i2s2o4ycsYq855BD/eQS0iBt5PbjtlJgk8njILrBwW0HteQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Native",
+        "version": "12.1.2",
+        "contentHash": "Co60A3FhDiCR022en90e/nUJqn2GtYal353cSUB0lWAd0qb/AuVRdScz9i0QCyglYw+PBfUXSP+9OfI2XvnfCg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Remote.Protocol",
+        "version": "12.1.2",
+        "contentHash": "DdLTe9xKXxxfRcXmUw1trXZpBpz1YiZYWXx0DfMVPFAnkCszKsHLi67kaZfGJqtfQq2EySKd2qgRYX2QYkSxcg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Skia",
+        "version": "12.1.2",
+        "contentHash": "x0TDDdZgNepbxRd6gSQyv3A/hHoVJk3kYqjRa1baI43XPGPuO87lArf4DRKAERgWUxUp1ad28aTvVsE3x0JM0g==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Themes.Fluent",
+        "version": "12.1.2",
+        "contentHash": "EKw1PzlIfqB8n0+yGuHThR9cUEiqZYj0EHYp89jrTwSuudu8pji6I4SGe1UmdwJWdgWf+kuss8T7KT+0wsUyow==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.Win32",
+        "version": "12.1.2",
+        "contentHash": "MjHc5aKNs7Hp/fiX13wTQ3pg+kG9lh+NfqSQGx6/SkfvdO1Hbmribk7Bt0pwFTxcJ6HGlzwGKp1Ur3Ib/tv0ew==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "Avalonia.X11",
+        "version": "12.1.2",
+        "contentHash": "wtCAY9k90yrvhzKmesDGGFxYHsgejmLaR7HY36A4VYJ+E1R8AguNZc3hFaVKywnQLpf/eLhAwQWUxoNVFu9h/w==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+        "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
+        "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
+        "licenseFiles": [
+          "LICENSES/Avalonia-MIT.txt",
+          "LICENSES/Avalonia-THIRD-PARTY-NOTICES.md"
+        ],
+        "noticeKey": "avalonia"
+      },
+      {
+        "id": "CommunityToolkit.Mvvm",
+        "version": "8.4.2",
+        "contentHash": "WadCzGEc2U+3e20avRLng4qNtt4zoOGWrdUISqJWrHe3/FSnrYjuM5Sb4yQb09LhkBXrrI4Zt3dLKgRMbItsrg==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj"
+        ],
+        "component": "CommunityToolkit.Mvvm",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © .NET Foundation and Contributors. All rights reserved.",
+        "purpose": "MVVM observable and command infrastructure.",
+        "authoritativeSource": "https://github.com/CommunityToolkit/dotnet/tree/35dfe7b12da0e64384bfaec7ebc0883196a89f9f",
+        "licenseFiles": [
+          "LICENSES/CommunityToolkit-MIT.md"
+        ],
+        "noticeKey": "communitytoolkit"
+      },
+      {
+        "id": "ExCSS",
+        "version": "4.3.1",
+        "contentHash": "A8UtcghHQlWxPJhJF5bsfEYO7068JHGTuJ7tzyyMjd5fE/N/xY1cVOUhzuLLFwMOCJVnM4mqSQc93W9fGfZ1kA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "ExCSS",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2024 Tyler Brinks",
+        "purpose": "CSS parsing used by the SVG rendering stack.",
+        "authoritativeSource": "https://github.com/TylerBrinks/ExCSS/tree/c97e84d6126bb2e42658cf5af627d52e697c8779",
+        "licenseFiles": [
+          "LICENSES/ExCSS-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "HarfBuzzSharp",
+        "version": "8.3.1.3",
+        "contentHash": "NGZ2+ZVNPM+NdHB/asW0/ykWngyHWwcqjrbN2nDeH1B/aptPGlCUl8wkQ2cSJxw5fdWgdmIPmNuTPWpLwNVXWg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "HarfBuzzSharp",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Managed text-shaping wrapper and Windows HarfBuzz native payload.",
+        "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp.NativeAssets.Win32/8.3.1.3",
+        "licenseFiles": [
+          "LICENSES/SkiaSharp-HarfBuzzSharp-MIT.txt",
+          "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+        ],
+        "noticeKey": "harfbuzz"
+      },
+      {
+        "id": "HarfBuzzSharp.NativeAssets.Win32",
+        "version": "8.3.1.3",
+        "contentHash": "bx8CE8Js+XGX8PUxAHCBDEORt5aaBYtMN4Hr9QFs57Xithh6yjUyYqksizH6eRDhJkwsGI+SXWmPmMm8lZC9Pw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "HarfBuzzSharp",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Managed text-shaping wrapper and Windows HarfBuzz native payload.",
+        "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp.NativeAssets.Win32/8.3.1.3",
+        "licenseFiles": [
+          "LICENSES/SkiaSharp-HarfBuzzSharp-MIT.txt",
+          "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+        ],
+        "noticeKey": "harfbuzz"
+      },
+      {
+        "id": "MicroCom.Runtime",
+        "version": "0.11.6",
+        "contentHash": "NdNWGDiZ6eS/Mf/9+QHR91cj1K7Hy+PX9yrHI/zM7xFYuj9IWT2uxtB6sCHjrnxAeLV9fut1R6zHDUGKX6f9lQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "MicroCom.Runtime",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2021 © Nikita Tsukanov",
+        "purpose": "COM interop runtime used by Avalonia.",
+        "authoritativeSource": "https://github.com/kekekeks/MicroCom/tree/76785efcafd91b5902fd19dd11145f6dd655b7b4",
+        "licenseFiles": [
+          "LICENSES/MicroCom-MIT.txt"
+        ],
+        "noticeKey": "microcom"
+      },
+      {
+        "id": "Microsoft.Data.Sqlite",
+        "version": "10.0.12",
+        "contentHash": "xUq9xUc653ue7ac2rMfCaf8UQN+U3zS8poWYlugycpvJllplMM0Mk7v/+MM0CTlu9zGvbGML4BPH8YWhrUOfGw==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Data.Sqlite",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Managed SQLite data access.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Data.Sqlite.Core",
+        "version": "10.0.12",
+        "contentHash": "2aL9eL5HQr0V4b8V909SD+jQAx6qnTTl7sT/v3D8dIvmr2UGdpZIQxqm1pj2Js3e4EYTvpw0oMH7DjapJJuPPw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Data.Sqlite",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Managed SQLite data access.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Configuration",
+        "version": "10.0.12",
+        "contentHash": "e3IPP32CRNL031VZJAUTlCTG0YN7WFh4mN3fsSHTDQCJB+3+f0jGycv4fXk3rrftaY3B85XrQaj7sRthrOsavg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Configuration.Abstractions",
+        "version": "10.0.12",
+        "contentHash": "8xaGcvS/qZ1otoxPQCEJkNva389CVL/plNcvIETZhQTETYdRkYDPEYhUMoAGONo4FU45ufdfE0j29AfWVVj0wA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Configuration.Binder",
+        "version": "10.0.12",
+        "contentHash": "dAgIf1TOr8KLs+aBRIbXUZBjHoSH4rDG8+XkX/Q6AZwkQdMA0+yPDKTHsieeXdZDfpOpZVHzOnuAb5Z2nX3KsA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Configuration.FileExtensions",
+        "version": "10.0.12",
+        "contentHash": "PNPS7yYH9U2M0dExn0tMkQFVtE53xTlCs/dgTfsWTTFyCF6qwGT3VrTgm2nnnkSRlSmvM9/J+n9xCpyzd9xTpQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Configuration.Json",
+        "version": "10.0.12",
+        "contentHash": "H4u2ZeIhjmRQvbHj7S7U4MK1kXb0khx3UtOWcir32VHczdFyIVF0lvHew/VVHmCF7Uk0QseAUaO7HyFKOCSiKA==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.DependencyInjection",
+        "version": "10.0.12",
+        "contentHash": "lXyK2O5GoYvfxW8eCFcD16JFbcoSTM1sJkAM0UHS1jZyl9NYMW64Tqm6OQFT0IDBjZi+xHt95/Zg+nxZhGFhZg==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+        "version": "10.0.12",
+        "contentHash": "9/qymSh7hVDMGTGwrLz8MRp5zRyXy9adGDOs4HwRdnLil3oZGYuWeZjbmHgCQ9BL1qBroVfgUK3U/nb61617Cw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Diagnostics",
+        "version": "10.0.12",
+        "contentHash": "amx0O/R4dReqKlC3T740+CHpX8D8tAIV0f5kAPfFi4XK9jYo9BSepGt9/rWfvvCoSMaZ1+XvnqPp/Vv2fmTdAg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Diagnostics.Abstractions",
+        "version": "10.0.12",
+        "contentHash": "fMp91qlRlMOuHfMyp7LuAnOS+MOeWTF1obJmyFcs4nZCXu6pr+QB1AbFJcl2qpBltBrqF/Y7+Rn9IuNcSuctig==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.FileProviders.Abstractions",
+        "version": "10.0.12",
+        "contentHash": "iQseV6HixWzEYQH4i++84ToIroXnM5jC1TJF4EqBz3lWNG1HBTMYDLkRb6Wm3wk5V6WqSfl7NukO/LYsloGyfg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.FileProviders.Physical",
+        "version": "10.0.12",
+        "contentHash": "3cY+wo2+Qe65BVwShhr2fFqZv5Ns73h3kX4mpW3WvSgfT3AWCk0hKArKW4TF7Dg3mvbJdA6RhWPW7FR+PS5/1w==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.FileSystemGlobbing",
+        "version": "10.0.12",
+        "contentHash": "45cV+UeI0chPAIXrx9Wv7K4PJXuuIR2pnOur5MOAo6kOFclBHSLLDrvGAxMfWRMtUvpv/kQZkxlgaUN56jwzSQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Http",
+        "version": "10.0.12",
+        "contentHash": "x/fnoUGgmIUjSgLR1p6Mpi/vXc1Xe0xDPJnggPp23I6vwM/kY4nxyOjo8i6G5KPVw+esJM+rJsqnHbdjasvCBw==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Logging",
+        "version": "10.0.12",
+        "contentHash": "6I46fTPfgYkrjRYfRXbho9WOvOelTnNjWuZws/hzGHDASH1LEJeA4VKK9k3wJvido8o7jJSB5WkMTonX7HM1bA==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Logging.Abstractions",
+        "version": "10.0.12",
+        "contentHash": "+24lC4plfbEDNfLAdTV/SWKS7dW+16X4HdydO3R++134kSNTzcbYA4KpR1Hdh6uWisB8Za3AzwyOn+K+NxWIug==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Options",
+        "version": "10.0.12",
+        "contentHash": "TDYD33TSRpXKZWlmTXNlj5kCihxatmv2Ec1u6C+bMYLphCS7PoSLE9Pjd/nunDoE7yETk+LLKjVJX78HYtWjpA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Options.ConfigurationExtensions",
+        "version": "10.0.12",
+        "contentHash": "rqpu4qj5WE9x1IHGXSIgHBKi7IUlQaHyp4aXCYIanG2OghlUMFZpZTgExaXwcvmLAJHsxKQWMPpc7D2WIbCVtA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "Microsoft.Extensions.Primitives",
+        "version": "10.0.12",
+        "contentHash": "dYfCLR52UA+3DL7C4I/pvSaRPkNqxrUAQmbFL2u0zvYKKzqgrFCJl08Df+F1aYc8leu9JvpC9bsURUdpExcBXQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+          "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
+        ],
+        "component": "Microsoft.Extensions",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
+        "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
+        "licenseFiles": [
+          "LICENSES/Dotnet-Runtime-MIT.txt"
+        ],
+        "noticeKey": "microsoft-dotnet"
+      },
+      {
+        "id": "ShimSkiaSharp",
+        "version": "4.9.1",
+        "contentHash": "gkHqvkQS5hwJNgtLjDlZKcmdbLualjRZ+GIQx9CSePeh+BzE2fVqnM6/s4OhxCVoLJq+DMhQs942mJPNObn1mw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Skia stack",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
+        "licenseFiles": [
+          "LICENSES/SvgSkia-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "SkiaSharp",
+        "version": "3.119.4",
+        "contentHash": "53NOSUZ1Us+91Sm0uCkIivh/k7jOowRErZT2sIWwPFN9mLUvdxnE6rS4sWo4255+Rd2MWUSF+j0NMZHD6Cke+Q==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SkiaSharp",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Managed graphics wrapper and Windows Skia native payload.",
+        "authoritativeSource": "https://github.com/mono/SkiaSharp/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5",
+        "licenseFiles": [
+          "LICENSES/SkiaSharp-HarfBuzzSharp-MIT.txt",
+          "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+        ],
+        "noticeKey": "skia"
+      },
+      {
+        "id": "SkiaSharp.NativeAssets.Win32",
+        "version": "3.119.4",
+        "contentHash": "XOpbx/4CReO2wYsq2s6rbvdauc6dntG4Zv499sHGTJ87bwZaFXszFkwql3+FIZMc8kUPeaj3Mx2ezIJmo8a1Kg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SkiaSharp",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Managed graphics wrapper and Windows Skia native payload.",
+        "authoritativeSource": "https://github.com/mono/SkiaSharp/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5",
+        "licenseFiles": [
+          "LICENSES/SkiaSharp-HarfBuzzSharp-MIT.txt",
+          "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+        ],
+        "noticeKey": "skia"
+      },
+      {
+        "id": "SQLitePCLRaw.bundle_e_sqlite3",
+        "version": "2.1.12",
+        "contentHash": "mAgscpQMLw5/nfA1Q5oJVAT29yROUo1ifZGbbTpx/lwZpSxMUGoYbKfmvdm8oXER+RzxqBmmQzeBEVKfeHv2nw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SQLitePCLRaw",
+        "scope": "runtime",
+        "ships": true,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright 2014-2024 SourceGear, LLC",
+        "purpose": "Managed SQLite provider and bundled e_sqlite3 Windows native library.",
+        "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/tree/v2.1.12",
+        "licenseFiles": [
+          "LICENSES/Apache-2.0.txt",
+          "LICENSES/SQLitePCLRaw-NOTICE.txt"
+        ],
+        "noticeKey": "sqlite"
+      },
+      {
+        "id": "SQLitePCLRaw.core",
+        "version": "2.1.12",
+        "contentHash": "ETpNw9DY3ckWLgRRAeCHj+GKOuPi61aeczkXhgHexUvqoZBAYg8RYESE2J7O1M7+o6QbdSEZwrw9bfqztUVWXg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SQLitePCLRaw",
+        "scope": "runtime",
+        "ships": true,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright 2014-2024 SourceGear, LLC",
+        "purpose": "Managed SQLite provider and bundled e_sqlite3 Windows native library.",
+        "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/tree/v2.1.12",
+        "licenseFiles": [
+          "LICENSES/Apache-2.0.txt",
+          "LICENSES/SQLitePCLRaw-NOTICE.txt"
+        ],
+        "noticeKey": "sqlite"
+      },
+      {
+        "id": "SQLitePCLRaw.lib.e_sqlite3",
+        "version": "2.1.12",
+        "contentHash": "fWi8Dbknuhgg72fWinIdjXVaqO1hHL4YBBwVLnr7e1c9TAZwJ0QE38j9syW1hwx6HaqEVTwI+O07WPdZn8Rp0w==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SQLitePCLRaw",
+        "scope": "runtime",
+        "ships": true,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright 2014-2024 SourceGear, LLC",
+        "purpose": "Managed SQLite provider and bundled e_sqlite3 Windows native library.",
+        "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/tree/v2.1.12",
+        "licenseFiles": [
+          "LICENSES/Apache-2.0.txt",
+          "LICENSES/SQLitePCLRaw-NOTICE.txt"
+        ],
+        "noticeKey": "sqlite"
+      },
+      {
+        "id": "SQLitePCLRaw.provider.e_sqlite3",
+        "version": "2.1.12",
+        "contentHash": "W3oH4XIfCzFrgUSDKHhN6N+dgzA5YHOR2VxX8GB6Qy7CyrJJgxPEG8NirgYWlPQC5P2jz2knSsexWu4tDUL33g==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SQLitePCLRaw",
+        "scope": "runtime",
+        "ships": true,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright 2014-2024 SourceGear, LLC",
+        "purpose": "Managed SQLite provider and bundled e_sqlite3 Windows native library.",
+        "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/tree/v2.1.12",
+        "licenseFiles": [
+          "LICENSES/Apache-2.0.txt",
+          "LICENSES/SQLitePCLRaw-NOTICE.txt"
+        ],
+        "noticeKey": "sqlite"
+      },
+      {
+        "id": "Svg.Animation",
+        "version": "4.9.1",
+        "contentHash": "DlXD1byMpRIFuko/ITIWa8fTL70i7SzIXtzCnzR/Mlpj4+HHCLd8a+7+ZHMPernlJKLu9ja4eknFmj8IdBB+zg==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Skia stack",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
+        "licenseFiles": [
+          "LICENSES/SvgSkia-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "Svg.Custom",
+        "version": "4.9.1",
+        "contentHash": "mVPI4fwuLy0IVTR5yp4McQ/r10TukWhPmIuqSIb4F9cuBQJf8O1A0v2EMEiQ4pAESBcCQeAnQBSS0QoUEcyf/w==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Custom",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MS-PL",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Custom SVG document model used transitively by Svg.Skia.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/blob/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037/src/Svg.Custom/LICENSE.TXT",
+        "licenseFiles": [
+          "LICENSES/SvgCustom-MS-PL.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "Svg.Model",
+        "version": "4.9.1",
+        "contentHash": "L3rAi+hbZpWQylMTs0/qVhV4TrEyjSZE3rpjk3FUsqMTyxcyJWizfilSQHOyaByJZZBr5AphRQg+NVOb7ZPo1A==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Skia stack",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
+        "licenseFiles": [
+          "LICENSES/SvgSkia-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "Svg.SceneGraph",
+        "version": "4.9.1",
+        "contentHash": "kzhaeKqlGBm6iUk8PsaN1eEtYU/TrksjPk7bfWa8UC+Y4eh+0ymURvAoHZWGK0YZdApxDPepxrDCfyeFWCxUoA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Skia stack",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
+        "licenseFiles": [
+          "LICENSES/SvgSkia-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "Svg.Skia",
+        "version": "4.9.1",
+        "contentHash": "LI+58LiF9bU1gr8+zQ2fsrCA0235Ql9DEccqkPjzIKBfdDH0cGjpBfdMVyt4RAy/BjMZ7kpESX4He1er4kbGiQ==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "Svg.Skia stack",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+        "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
+        "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
+        "licenseFiles": [
+          "LICENSES/SvgSkia-MIT.txt"
+        ],
+        "noticeKey": "svg-stack"
+      },
+      {
+        "id": "TesseractOCR",
+        "version": "5.5.2",
+        "contentHash": "m/B0uXLq7JvXfsn+KJtB8iiBJaySEUH13P3x0q9hvnXZ5QnN4+9KcFQaLFE5hwVZD1zGOy2KLxN4B9A1HxvtPQ==",
+        "relationship": "direct",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "TesseractOCR",
+        "scope": "runtime",
+        "ships": true,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright 2012-2021 Charles Weld; Copyright 2021-2023 Kees van Spelde",
+        "purpose": "Managed OCR wrapper and packaged Windows OCR native payloads.",
+        "authoritativeSource": "https://github.com/Sicos1977/TesseractOCR/tree/787ebdb488184f47df3dcad7fe687b0b95d0d98c",
+        "licenseFiles": [
+          "LICENSES/Apache-2.0.txt",
+          "LICENSES/TesseractOCR-README.md"
+        ],
+        "noticeKey": "ocr"
+      },
+      {
+        "id": "Tmds.DBus.Protocol",
+        "version": "0.94.1",
+        "contentHash": "11YMr7FnAbL83bQmVxlhbIKHvSLxjO81D12Ej0QMSGXMDTxNA9MTOa4MQxx43nv5el/efuPHwzyrj6a5ha2gug==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Tmds.DBus.Protocol",
+        "scope": "runtime",
+        "ships": true,
+        "license": "MIT",
+        "copyrightNotice": "Copyright 2006 Alp Toker; Copyright 2010 Other Contributors; Copyright 2016 Tom Deseyn",
+        "purpose": "D-Bus protocol support resolved by Avalonia Desktop.",
+        "authoritativeSource": "https://github.com/tmds/Tmds.DBus/tree/b4a7fed0b878f74cb54f7cca84d2889af4e596ba",
+        "licenseFiles": [
+          "LICENSES/Tmds-DBus-MIT.txt"
+        ],
+        "noticeKey": "tmds-dbus"
+      }
+    ],
+    "buildOnly": [
+      {
+        "id": "Avalonia.BuildServices",
+        "version": "11.3.2",
+        "contentHash": "qHDToxto1e3hci5YqbG9n0Ty8mlp3zBUN5wT66wKqaDVzXyQ0do3EnRILd4Ke9jpvsktaPpgE0YjEk7hornryQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "Avalonia.BuildServices",
+        "scope": "build",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright © The AvaloniaUI Project",
+        "purpose": "Avalonia build-time XAML tooling; absent from the release archive.",
+        "authoritativeSource": "https://www.nuget.org/packages/Avalonia.BuildServices/11.3.2",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      }
+    ],
+    "resolvedOtherPlatforms": [
+      {
+        "id": "HarfBuzzSharp.NativeAssets.Linux",
+        "version": "8.3.1.3",
+        "contentHash": "RI6A1LgmooU30+4QIyFt5rmBCzP0VzTR+587IJSGvYIsHHWlahFufihYxtraLfsIhW7I8dn6+xX+DZGygOPKWQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "HarfBuzzSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp/8.3.1.3",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "HarfBuzzSharp.NativeAssets.macOS",
+        "version": "8.3.1.3",
+        "contentHash": "KPTq0xnslkI6nAo0jh3ptcQPJvZZr7MWYXa2jUe4SnHc9q+JlHElmNXp0sfFoiTgoCX7WOYpYsurypuH9Gehxw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "HarfBuzzSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp/8.3.1.3",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "HarfBuzzSharp.NativeAssets.WebAssembly",
+        "version": "8.3.1.3",
+        "contentHash": "w2QfdNm9Uz/sUa0B5D+OnVQhyq3G/fBq6ibQMdWBlQqqwh0g0/5j3RFvYqZAmRZ5+RzvjVe8o8SFFnWYUSkuxA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "HarfBuzzSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp/8.3.1.3",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "SkiaSharp.NativeAssets.Linux",
+        "version": "3.119.4",
+        "contentHash": "UAyVzbqNfZsZbKbzj68zXLyUyF/SbTKmzTfOO6qDu++dtIUMMTzPBe8oOuzU/DiewpfKoUUlOSsJmqWc6blxBw==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "SkiaSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://github.com/mono/SkiaSharp/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "SkiaSharp.NativeAssets.macOS",
+        "version": "3.119.4",
+        "contentHash": "fgBOWEqbY012x7gMfJU4ezgz6dfhJb30Z6YdW35h85Zoe39+a8YNbAAwL29ihPfWoppg5AjvyKNzD1oCvlqWwA==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
+        ],
+        "component": "SkiaSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://github.com/mono/SkiaSharp/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "SkiaSharp.NativeAssets.WebAssembly",
+        "version": "3.119.4",
+        "contentHash": "S1HOxtBbD4bYDtA2e9WH5TX+lxqRrTPvKjrjttRhxnHNNu7YY8VFo/LeCP7tNqoTA6PV+8vsvNbmRUEC2ip8RQ==",
+        "relationship": "transitive",
+        "projects": [
+          "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+        ],
+        "component": "SkiaSharp non-Windows native assets",
+        "scope": "platform",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2015-2016 Xamarin, Inc.; Copyright (c) 2017-2018 Microsoft Corporation.",
+        "purpose": "Resolved cross-platform assets excluded by the win-x64 publish target.",
+        "authoritativeSource": "https://github.com/mono/SkiaSharp/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      }
+    ],
+    "testOnly": [
+      {
+        "id": "coverlet.collector",
+        "version": "10.0.1",
+        "contentHash": "27jXSV/0DbVqF5jDrAxuQFZ9oaz6gmG03p8ttxAFk+X0M4woFYj7MoWDLCna5EGLb0CE6OE7X6ZH3Wt5smTtaA==",
+        "relationship": "direct",
+        "projects": [
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj"
+        ],
+        "component": "coverlet.collector",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "Copyright (c) 2018 Toni Solarin-Sodara",
+        "purpose": "Build/test-only coverage collector.",
+        "authoritativeSource": "https://www.nuget.org/packages/coverlet.collector/10.0.1",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "Microsoft.CodeCoverage",
+        "version": "18.10.0",
+        "contentHash": "zo1hqV+Nz6FlIwdc+aPfrvGzqfKAPPaZ6OPj1W8C0QQE2xH951AZwTUytL3K7XX8brVBUFd7MhrLDl3CtK3U/A==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "Microsoft test platform",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Build/test-only test host and coverage tooling.",
+        "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "Microsoft.NET.Test.Sdk",
+        "version": "18.10.0",
+        "contentHash": "0CZZ688UBvpQFB9HKo7wrNJNVe+AOM4UtipgwpER3TTM+d2DDM6QyKkIJZTR3mpbn9/zFbZEtAgVIz4SPTjQZQ==",
+        "relationship": "direct",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "Microsoft test platform",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Build/test-only test host and coverage tooling.",
+        "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "Microsoft.TestPlatform.ObjectModel",
+        "version": "18.10.0",
+        "contentHash": "aXA7DDbnt6MYu3eLBEDksNdl09QxJ/PpMzrFcSxqEOk3RvRGJzhKI5mezVCEOcvveRhjfw/mvn6xVXC/rTaOog==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "Microsoft test platform",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Build/test-only test host and coverage tooling.",
+        "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "Microsoft.TestPlatform.TestHost",
+        "version": "18.10.0",
+        "contentHash": "Spu6C7bgz1PmWN+Y7wS0PfGCw9Kwv5RvJbCwyQaEWjcwpMire+qYMrcZ7qk8agjy6nd0sdHLc3ugCSrGuSbZdw==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "Microsoft test platform",
+        "scope": "test",
+        "ships": false,
+        "license": "MIT",
+        "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+        "purpose": "Build/test-only test host and coverage tooling.",
+        "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit",
+        "version": "2.9.3",
+        "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
+        "relationship": "direct",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.abstractions",
+        "version": "2.0.3",
+        "contentHash": "pot1I4YOxlWjIb5jmwvvQNbTrZ3lJQ+jUGkGjWE3hEFM0l5gOnBWS+H3qsex68s5cO52g+44vpGzhAt+42vwKg==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.analyzers",
+        "version": "1.18.0",
+        "contentHash": "OtFMHN8yqIcYP9wcVIgJrq01AfTxijjAqVDy/WeQVSyrDC1RzBWeQPztL49DN2syXRah8TYnfvk035s7L95EZQ==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.assert",
+        "version": "2.9.3",
+        "contentHash": "/Kq28fCE7MjOV42YLVRAJzRF0WmEqsmflm0cfpMjGtzQ2lR5mYVj1/i0Y8uDAOLczkL3/jArrwehfMD0YogMAA==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.core",
+        "version": "2.9.3",
+        "contentHash": "BiAEvqGvyme19wE0wTKdADH+NloYqikiU0mcnmiNyXaF9HyHmE6sr/3DC5vnBkgsWaE6yPyWszKSPSApWdRVeQ==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.extensibility.core",
+        "version": "2.9.3",
+        "contentHash": "kf3si0YTn2a8J8eZNb+zFpwfoyvIrQ7ivNk5ZYA5yuYk1bEtMe4DxJ2CF/qsRgmEnDr7MnW1mxylBaHTZ4qErA==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.extensibility.execution",
+        "version": "2.9.3",
+        "contentHash": "yMb6vMESlSrE3Wfj7V6cjQ3S4TXdXpRqYeNEI3zsX31uTsGMJjEw6oD5F5u1cHnMptjhEECnmZSsPxB6ChZHDQ==",
+        "relationship": "transitive",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      },
+      {
+        "id": "xunit.runner.visualstudio",
+        "version": "4.0.0",
+        "contentHash": "kzLFyBYUnoidpGOXvpNOfIo8C92gVgVR6X8ncHwhcrDYugiOut5rrhDkr0L3cWHd7J2pKXf6LgaeXoBBDlx1ag==",
+        "relationship": "direct",
+        "projects": [
+          "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
+          "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
+          "tests/TarkovCompanion.WindowsSmokeTests/TarkovCompanion.WindowsSmokeTests.csproj"
+        ],
+        "component": "xUnit.net",
+        "scope": "test",
+        "ships": false,
+        "license": "Apache-2.0",
+        "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+        "purpose": "Build/test-only unit test framework, analyzers, and runner.",
+        "authoritativeSource": "https://github.com/xunit/xunit",
+        "licenseFiles": [],
+        "noticeKey": "build-test"
+      }
+    ]
+  },
+  "bundledComponents": [
+    {
+      "id": "angle-native",
+      "name": "ANGLE Windows native library",
+      "version": "2.1.27548.20260419 package payload",
+      "ships": true,
+      "license": "BSD-3-Clause",
+      "copyrightNotice": "Copyright 2018 The ANGLE Project Authors. All rights reserved.",
+      "purpose": "av_libglesv2.dll graphics translation layer.",
+      "authoritativeSource": "https://www.nuget.org/packages/Avalonia.Angle.Windows.Natives/2.1.27548.20260419",
+      "licenseFiles": [
+        "LICENSES/ANGLE-BSD-3-Clause.txt"
+      ],
+      "noticeKey": "angle"
+    },
+    {
+      "id": "dotnet-runtime-win-x64",
+      "name": ".NET runtime for win-x64",
+      "version": "10.0.12",
+      "ships": true,
+      "license": "MIT",
+      "copyrightNotice": "Copyright (c) .NET Foundation and Contributors",
+      "purpose": "Self-contained managed runtime and Windows native runtime files.",
+      "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NETCore.App.Runtime.win-x64/10.0.12",
+      "licenseFiles": [
+        "LICENSES/Dotnet-Runtime-MIT.txt",
+        "LICENSES/Dotnet-Runtime-THIRD-PARTY-NOTICES.txt"
+      ],
+      "noticeKey": "dotnet-runtime"
+    },
+    {
+      "id": "harfbuzz-native",
+      "name": "HarfBuzz native library",
+      "version": "8.3.1 (HarfBuzzSharp payload 8.3.1.3)",
+      "ships": true,
+      "license": "MIT",
+      "copyrightNotice": "Copyright © 1998-2012 Google, Mozilla, Codethink, Nokia, Red Hat, and individual HarfBuzz contributors; complete notice retained verbatim.",
+      "purpose": "libHarfBuzzSharp.dll text shaping engine.",
+      "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp.NativeAssets.Win32/8.3.1.3",
+      "licenseFiles": [
+        "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+      ],
+      "noticeKey": "harfbuzz"
+    },
+    {
+      "id": "inter-font",
+      "name": "Inter typeface",
+      "version": "3.019 (git-0a5106e0b)",
+      "ships": true,
+      "license": "OFL-1.1",
+      "copyrightNotice": "Copyright (c) 2016-2020 The Inter Project Authors. Inter is a trademark of Rasmus Andersson.",
+      "purpose": "Embedded default application typeface in Avalonia.Fonts.Inter.dll.",
+      "authoritativeSource": "https://github.com/rsms/inter/blob/0a5106e0b/LICENSE.txt",
+      "licenseFiles": [
+        "LICENSES/Inter-OFL-1.1.txt"
+      ],
+      "noticeKey": "inter-font"
+    },
+    {
+      "id": "leptonica-native",
+      "name": "Leptonica image-processing library",
+      "version": "1.85.0",
+      "ships": true,
+      "license": "BSD-2-Clause",
+      "copyrightNotice": "Copyright (C) 2001-2020 Leptonica. All rights reserved.",
+      "purpose": "x86 and x64 leptonica-1.85.0.dll image processing for OCR.",
+      "authoritativeSource": "https://github.com/DanBloomberg/leptonica/blob/1.85.0/leptonica-license.txt",
+      "artifactSha256": [
+        "64bb1d584bce83db5e5c3625f1857e4bc12993625699cabd0a9b8b76e393bd01",
+        "424162e2a630c3591d451f98bf73e9bf1caaed3dcd2e198ceb053f4ef8f41f33"
+      ],
+      "licenseFiles": [
+        "LICENSES/Leptonica-BSD-2-Clause.txt"
+      ],
+      "noticeKey": "ocr-codecs"
+    },
+    {
+      "id": "libjpeg-turbo",
+      "name": "libjpeg-turbo",
+      "version": "2.0.6",
+      "ships": true,
+      "license": "IJG AND BSD-3-Clause AND Zlib",
+      "copyrightNotice": "Copyright (C) 2009-2020 D. R. Commander; Copyright (C) 2015 Viktor Szathmáry; Independent JPEG Group notices retained verbatim.",
+      "purpose": "Statically bundled JPEG support in leptonica-1.85.0.dll.",
+      "authoritativeSource": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/2.0.6",
+      "licenseFiles": [
+        "LICENSES/libjpeg-turbo-LICENSE.md",
+        "LICENSES/libjpeg-turbo-README.ijg"
+      ],
+      "noticeKey": "ocr-codecs"
+    },
+    {
+      "id": "libpng",
+      "name": "libpng",
+      "version": "1.6.37",
+      "ships": true,
+      "license": "Libpng",
+      "copyrightNotice": "Copyright (c) 1995-2019 The PNG Reference Library Authors and named contributors; complete notice retained verbatim.",
+      "purpose": "Statically bundled PNG support in leptonica-1.85.0.dll.",
+      "authoritativeSource": "https://github.com/pnggroup/libpng/blob/v1.6.37/LICENSE",
+      "licenseFiles": [
+        "LICENSES/libpng-LICENSE.txt"
+      ],
+      "noticeKey": "ocr-codecs"
+    },
+    {
+      "id": "libtiff",
+      "name": "libtiff",
+      "version": "4.3.0",
+      "ships": true,
+      "license": "libtiff",
+      "copyrightNotice": "Copyright (c) 1988-1997 Sam Leffler; Copyright (c) 1991-1997 Silicon Graphics, Inc.",
+      "purpose": "Statically bundled TIFF support in leptonica-1.85.0.dll.",
+      "authoritativeSource": "https://github.com/libsdl-org/libtiff/blob/v4.3.0/COPYRIGHT",
+      "licenseFiles": [
+        "LICENSES/libtiff-COPYRIGHT.txt"
+      ],
+      "noticeKey": "ocr-codecs"
+    },
+    {
+      "id": "skia-native",
+      "name": "Skia native graphics library",
+      "version": "SkiaSharp payload 3.119.4",
+      "ships": true,
+      "license": "BSD-3-Clause",
+      "copyrightNotice": "Copyright (c) 2011 Google Inc. All rights reserved; complete transitive notices retained verbatim.",
+      "purpose": "libSkiaSharp.dll 2D graphics engine.",
+      "authoritativeSource": "https://www.nuget.org/packages/SkiaSharp.NativeAssets.Win32/3.119.4",
+      "licenseFiles": [
+        "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+      ],
+      "noticeKey": "skia"
+    },
+    {
+      "id": "sqlite-native",
+      "name": "SQLite native engine",
+      "version": "3.53.3 (source id d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62)",
+      "ships": true,
+      "license": "LicenseRef-SQLite-Public-Domain",
+      "copyrightNotice": "The SQLite authors disclaim copyright; the authoritative blessing is retained verbatim.",
+      "purpose": "e_sqlite3.dll embedded database engine.",
+      "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/blob/v2.1.12/NOTICE.TXT",
+      "artifactSha256": [
+        "b7385d722c83fb52142a00477a726723745916d22a555711ee89834c1111fb2e"
+      ],
+      "licenseFiles": [
+        "LICENSES/SQLitePCLRaw-NOTICE.txt"
+      ],
+      "noticeKey": "sqlite"
+    },
+    {
+      "id": "tessdata-fast-eng",
+      "name": "tessdata_fast English model",
+      "version": "commit 87416418657359cb625c412a48b6e1d6d41c29bd",
+      "ships": true,
+      "license": "Apache-2.0",
+      "copyrightNotice": "Copyright © Tesseract OCR contributors",
+      "purpose": "Embedded English LSTM recognition model.",
+      "authoritativeSource": "https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd",
+      "artifactSha256": [
+        "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      ],
+      "licenseFiles": [
+        "LICENSES/Apache-2.0.txt"
+      ],
+      "noticeKey": "ocr-model"
+    },
+    {
+      "id": "tesseract-native",
+      "name": "Tesseract OCR native library",
+      "version": "5.5.1",
+      "ships": true,
+      "license": "Apache-2.0",
+      "copyrightNotice": "Copyright © Tesseract OCR contributors",
+      "purpose": "x86 and x64 tesseract55.dll OCR engines.",
+      "authoritativeSource": "https://github.com/tesseract-ocr/tesseract/tree/5.5.1",
+      "artifactSha256": [
+        "e9903623e901f2d754eb49eea4dbff229f599a8817055a3e3f1c292216670ca9",
+        "5fb5b163e9b78e584a8d320df7a75d3713ba6c925ba274ab35ba0cce15567ff8"
+      ],
+      "licenseFiles": [
+        "LICENSES/Apache-2.0.txt"
+      ],
+      "noticeKey": "ocr"
+    },
+    {
+      "id": "zlib",
+      "name": "zlib",
+      "version": "1.2.11",
+      "ships": true,
+      "license": "Zlib",
+      "copyrightNotice": "Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler",
+      "purpose": "Statically bundled compression support in leptonica-1.85.0.dll.",
+      "authoritativeSource": "https://github.com/madler/zlib/blob/v1.2.11/README",
+      "licenseFiles": [
+        "LICENSES/zlib-README.txt"
+      ],
+      "noticeKey": "ocr-codecs"
+    }
+  ],
+  "summary": {
+    "runtimePackages": 52,
+    "buildOnlyPackages": 1,
+    "resolvedOtherPlatformPackages": 6,
+    "testOnlyPackages": 13,
+    "shippedBundledComponents": 13
+  }
+}

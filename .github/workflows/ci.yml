@@ -21,13 +21,17 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
       - name: Restore
-        run: dotnet restore TarkovCompanion.sln
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
       - name: Build
         run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
       - name: Test
         run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
       - name: Dependency vulnerability audit
         run: dotnet list TarkovCompanion.sln package --vulnerable --include-transitive --no-restore
+      - name: Dependency license audit
+        run: ./scripts/audit-licenses.sh
+      - name: License audit fail-closed fixture
+        run: ./scripts/test-license-audit.sh
       - name: Safety audit
         run: ./scripts/audit-safety.sh
       - name: Secret-pattern audit
@@ -43,6 +47,8 @@ jobs:
   windows-publish:
     runs-on: windows-latest
     timeout-minutes: 25
+    env:
+      NUGET_PACKAGES: ${{ runner.temp }}/tarkov-companion-nuget
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-dotnet@v5
@@ -51,16 +57,21 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
       - name: Restore
-        run: dotnet restore TarkovCompanion.sln
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
       - name: Build and test
         run: |
           dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
           dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1
-      - name: Publish self-contained win-x64
+      - name: Restore win-x64 publish graphs
         run: |
-          dotnet publish src/TarkovCompanion.App/TarkovCompanion.App.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
-          dotnet publish src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/win-x64
+          dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+          dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+      - name: Audit and package self-contained win-x64
+        shell: bash
+        run: ./scripts/package-windows.sh
       - uses: actions/upload-artifact@v5
         with:
           name: TarkovCompanion-win-x64
-          path: artifacts/win-x64
+          path: |
+            dist/TarkovCompanion-v1.0.0-win-x64.zip
+            dist/SHA256SUMS.txt
