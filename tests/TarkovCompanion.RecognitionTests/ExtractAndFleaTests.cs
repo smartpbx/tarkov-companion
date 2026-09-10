@@ -29,15 +29,86 @@ public sealed class ExtractAndFleaTests
 
         var result = await service.RecognizeAsync(fixture.CreateImage(), map, CancellationToken.None);
 
-        Assert.Equal(2, result.Extracts.Count);
+        Assert.True(result.ProviderAvailable);
+        Assert.Single(result.Extracts);
         Assert.Contains(result.Extracts, extract => extract.ExtractId == "road-to-customs");
-        Assert.Contains(result.Extracts, extract => extract.ExtractId == "dorms-v-ex");
+        Assert.DoesNotContain(result.Extracts, extract => extract.ExtractId == "dorms-v-ex");
+        Assert.Contains(result.Observations, extract =>
+            extract.ExtractId == "dorms-v-ex" && extract.Status == ExtractStatus.Closed);
         Assert.All(result.Extracts, extract =>
         {
             Assert.True(extract.Confidence.Value >= 0.70);
             Assert.Contains("observedUtc=", extract.Source, StringComparison.Ordinal);
         });
         Assert.Empty(result.UnmatchedLines);
+        Assert.Empty(result.AmbiguousLines);
+    }
+
+    [Fact]
+    public async Task NearTieExtractNamesRemainAmbiguous()
+    {
+        var image = CreateImage(800, 600) with { Source = "fixture://extract-near-tie" };
+        var engine = new FixtureOcrEngine(
+        [
+            new FixtureOcrScene(
+                image.Source,
+                [new OcrLine("ZB-101", new PixelRect(400, 100, 120, 24), new Confidence(0.96))])
+        ]);
+        var provenance = new DataProvenance("fixture", image.CapturedUtc);
+        var map = new MapDefinition(
+            "customs",
+            "Customs",
+            null,
+            null,
+            [],
+            [
+                new MapExtract("zb-1011", "customs", "ZB-1011", null, null, provenance),
+                new MapExtract("zb-1012", "customs", "ZB-1012", null, null, provenance),
+            ],
+            null,
+            provenance);
+
+        var result = await new ExtractRecognitionService(engine)
+            .RecognizeAsync(image, map, CancellationToken.None);
+
+        Assert.Empty(result.Extracts);
+        Assert.Empty(result.Observations);
+        Assert.Equal(["ZB-101"], result.AmbiguousLines);
+    }
+
+    [Fact]
+    public async Task ExtractStatusModelPreservesActiveClosedPendingAndUnknown()
+    {
+        var image = CreateImage(1000, 700) with { Source = "fixture://extract-statuses" };
+        var lines = new[]
+        {
+            new OcrLine("North ACTIVE", new(500, 100, 150, 20), new Confidence(0.96)),
+            new OcrLine("South CLOSED", new(500, 150, 150, 20), new Confidence(0.96)),
+            new OcrLine("East PENDING", new(500, 200, 150, 20), new Confidence(0.96)),
+            new OcrLine("West UNKNOWN", new(500, 250, 150, 20), new Confidence(0.96)),
+        };
+        var engine = new FixtureOcrEngine([new(image.Source, lines)]);
+        var provenance = new DataProvenance("fixture", image.CapturedUtc);
+        var map = new MapDefinition(
+            "test",
+            "Test",
+            null,
+            null,
+            [],
+            new[] { "North", "South", "East", "West" }
+                .Select(name => new MapExtract(name.ToLowerInvariant(), "test", name, null, null, provenance))
+                .ToArray(),
+            null,
+            provenance);
+
+        var result = await new ExtractRecognitionService(engine)
+            .RecognizeAsync(image, map, CancellationToken.None);
+
+        Assert.Equal(["north"], result.Extracts.Select(extract => extract.ExtractId));
+        Assert.Contains(result.Observations, value => value.ExtractId == "north" && value.Status == ExtractStatus.Active);
+        Assert.Contains(result.Observations, value => value.ExtractId == "south" && value.Status == ExtractStatus.Closed);
+        Assert.Contains(result.Observations, value => value.ExtractId == "east" && value.Status == ExtractStatus.Pending);
+        Assert.Contains(result.Observations, value => value.ExtractId == "west" && value.Status == ExtractStatus.Unknown);
     }
 
     [Fact]

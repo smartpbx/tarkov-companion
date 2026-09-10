@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
 
@@ -25,6 +27,140 @@ public sealed record ContainerSegment(
     Confidence Occupancy,
     bool IsOccupied);
 
+public sealed class ContainerGridDetector
+{
+    public ContainerGridSpec? Detect(CapturedImage image)
+    {
+        CapturedImagePixels.Validate(image);
+        var vertical = SelectRegularRun(FindLinePositions(image, vertical: true));
+        var horizontal = SelectRegularRun(FindLinePositions(image, vertical: false));
+        if (vertical.Count < 3 || horizontal.Count < 3)
+        {
+            return null;
+        }
+
+        return new(
+            new PixelRect(
+                vertical[0],
+                horizontal[0],
+                vertical[^1] - vertical[0],
+                horizontal[^1] - horizontal[0]),
+            vertical.Count - 1,
+            horizontal.Count - 1);
+    }
+
+    private static IReadOnlyList<int> FindLinePositions(CapturedImage image, bool vertical)
+    {
+        var axisLength = vertical ? image.Width : image.Height;
+        var crossLength = vertical ? image.Height : image.Width;
+        var step = Math.Max(1, crossLength / 360);
+        var coverage = new double[axisLength];
+        for (var axis = 0; axis < axisLength; axis++)
+        {
+            var contrasting = 0;
+            var count = 0;
+            for (var cross = 0; cross < crossLength; cross += step)
+            {
+                var x = vertical ? axis : cross;
+                var y = vertical ? cross : axis;
+                var neighborAxis = Math.Clamp(
+                    axis + (axis < axisLength - 2 ? 2 : -2),
+                    0,
+                    axisLength - 1);
+                var neighborX = vertical ? neighborAxis : cross;
+                var neighborY = vertical ? cross : neighborAxis;
+                var value = CapturedImagePixels.GetLuminance(image, x, y);
+                var neighbor = CapturedImagePixels.GetLuminance(image, neighborX, neighborY);
+                if (Math.Abs(value - neighbor) >= 45)
+                {
+                    contrasting++;
+                }
+
+                count++;
+            }
+
+            coverage[axis] = contrasting / (double)Math.Max(1, count);
+        }
+
+        var raw = Enumerable.Range(0, axisLength)
+            .Where(axis => coverage[axis] > 0.18)
+            .ToArray();
+        var positions = new List<int>();
+        for (var index = 0; index < raw.Length;)
+        {
+            var start = raw[index];
+            var end = start;
+            while (index + 1 < raw.Length && raw[index + 1] <= end + 2)
+            {
+                index++;
+                end = raw[index];
+            }
+
+            positions.Add((start + end) / 2);
+            index++;
+        }
+
+        return positions;
+    }
+
+    private static IReadOnlyList<int> SelectRegularRun(IReadOnlyList<int> positions)
+    {
+        IReadOnlyList<int> best = [];
+        for (var first = 0; first < positions.Count; first++)
+        {
+            for (var second = first + 1; second < positions.Count; second++)
+            {
+                var spacing = positions[second] - positions[first];
+                if (spacing < 12)
+                {
+                    continue;
+                }
+
+                var tolerance = Math.Max(2, (int)Math.Round(spacing * 0.08));
+                var run = new List<int> { positions[first] };
+                var expected = positions[first] + spacing;
+                while (TryFindClosest(positions, run[^1], expected, tolerance, out var match))
+                {
+                    run.Add(match);
+                    expected += spacing;
+                }
+
+                if (run.Count > best.Count ||
+                    (run.Count == best.Count &&
+                     run.Count > 0 &&
+                     run[^1] - run[0] > best[^1] - best[0]))
+                {
+                    best = run;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private static bool TryFindClosest(
+        IReadOnlyList<int> positions,
+        int after,
+        int expected,
+        int tolerance,
+        out int match)
+    {
+        var candidate = positions
+            .Where(position => position > after)
+            .Select(position => (Position: position, Distance: Math.Abs(position - expected)))
+            .OrderBy(value => value.Distance)
+            .FirstOrDefault();
+        if (candidate.Position > after && candidate.Distance <= tolerance)
+        {
+            match = candidate.Position;
+            return true;
+        }
+
+        match = 0;
+        return false;
+    }
+}
+
 public sealed class ContainerGridSegmenter
 {
     public IReadOnlyList<ContainerSegment> Segment(CapturedImage image, ContainerGridSpec grid)
@@ -37,12 +173,8 @@ public sealed class ContainerGridSegmenter
         }
 
         var frame = new PixelRect(0, 0, image.Width, image.Height);
-        if (!CapturedImagePixels.Intersects(frame, grid.Bounds))
-        {
-            throw new ArgumentOutOfRangeException(nameof(grid), "Grid must intersect the image.");
-        }
-
-        if (grid.Bounds.X < 0 ||
+        if (!CapturedImagePixels.Intersects(frame, grid.Bounds) ||
+            grid.Bounds.X < 0 ||
             grid.Bounds.Y < 0 ||
             grid.Bounds.X + grid.Bounds.Width > image.Width ||
             grid.Bounds.Y + grid.Bounds.Height > image.Height ||
@@ -77,11 +209,7 @@ public sealed class ContainerGridSegmenter
         }).ToArray();
     }
 
-    private static PixelRect GetCellBounds(
-        CapturedImage image,
-        ContainerGridSpec grid,
-        int row,
-        int column)
+    private static PixelRect GetCellBounds(CapturedImage image, ContainerGridSpec grid, int row, int column)
     {
         var left = grid.Bounds.X + ((grid.Bounds.Width * column) / grid.Columns);
         var right = grid.Bounds.X + ((grid.Bounds.Width * (column + 1)) / grid.Columns);
@@ -145,40 +273,67 @@ public sealed class ContainerScanAnalyzer
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(valuations);
 
-        var occupied = segments.Where(segment => segment.IsOccupied).ToArray();
-        var included = candidates
-            .Where(candidate =>
-                candidate.Confidence.Value >= RecognitionPolicy.AmbiguityThreshold &&
-                candidate.Bounds is not null)
-            .Select(candidate => new CandidateCells(
-                candidate,
-                occupied.Where(segment => Overlaps(candidate.Bounds!, segment.Bounds)).ToArray()))
-            .Where(candidate => candidate.Cells.Count > 0)
-            .ToArray();
+        var accepted = new List<CandidateCell>();
+        var unresolved = new List<ContainerCellIssue>();
+        var ambiguous = new List<ContainerCellIssue>();
+        foreach (var cell in segments.Where(segment => segment.IsOccupied))
+        {
+            var ranked = candidates
+                .Where(candidate => candidate.Bounds is not null && Overlaps(candidate.Bounds, cell.Bounds))
+                .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
+                .Select(group => group.OrderByDescending(candidate => candidate.Confidence.Value).First())
+                .OrderByDescending(candidate => candidate.Confidence.Value)
+                .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
+                .ToArray();
+            if (ranked.Length == 0)
+            {
+                unresolved.Add(new(cell.Row, cell.Column, cell.Bounds, "occupied_without_candidate", []));
+                continue;
+            }
+
+            if (ranked[0].Confidence.Value < RecognitionThresholds.Ambiguous ||
+                (ranked.Length > 1 &&
+                 ranked[0].Confidence.Value - ranked[1].Confidence.Value < RecognitionThresholds.MinimumRunnerUpLead))
+            {
+                ambiguous.Add(new(
+                    cell.Row,
+                    cell.Column,
+                    cell.Bounds,
+                    "low_or_near_tie_candidate",
+                    ranked.Take(3).ToArray()));
+                continue;
+            }
+
+            accepted.Add(new(ranked[0], cell));
+        }
+
         var values = valuations
             .GroupBy(valuation => valuation.CanonicalId, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Last().ValueRoubles, StringComparer.Ordinal);
-
-        var aggregate = included
-            .GroupBy(item => item.Candidate.CanonicalId, StringComparer.Ordinal)
+        var aggregate = accepted
+            .GroupBy(match => match.Candidate.CanonicalId, StringComparer.Ordinal)
             .Select(group => Aggregate(group.Key, group.ToArray()))
             .OrderByDescending(candidate => candidate.Confidence.Value)
             .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
             .ToArray();
-        var occupiedKeys = included
-            .SelectMany(item => item.Cells)
-            .Select(cell => (cell.Row, cell.Column))
+        var includedCells = accepted
+            .Select(match => (match.Cell.Row, match.Cell.Column))
             .Distinct()
+            .ToArray();
+        var missingValuations = aggregate
+            .Where(candidate => !values.ContainsKey(candidate.CanonicalId))
+            .Select(candidate => candidate.CanonicalId)
             .ToArray();
         var approximateValue = aggregate.Sum(candidate =>
             values.GetValueOrDefault(candidate.CanonicalId) * (long)(candidate.Quantity ?? 1));
-        var dropFirst = included
-            .GroupBy(item => item.Candidate.CanonicalId, StringComparer.Ordinal)
+        var dropFirst = accepted
+            .GroupBy(match => match.Candidate.CanonicalId, StringComparer.Ordinal)
             .Where(group => values.ContainsKey(group.Key))
             .Select(group => new
             {
                 Id = group.Key,
-                ValuePerSlot = (double)values[group.Key] / Math.Max(1, group.SelectMany(item => item.Cells).DistinctBy(cell => (cell.Row, cell.Column)).Count()),
+                ValuePerSlot = (double)values[group.Key] /
+                    Math.Max(1, group.Select(match => (match.Cell.Row, match.Cell.Column)).Distinct().Count()),
             })
             .OrderBy(item => item.ValuePerSlot)
             .ThenBy(item => item.Id, StringComparer.Ordinal)
@@ -187,23 +342,34 @@ public sealed class ContainerScanAnalyzer
         var confidence = aggregate.Length == 0
             ? Confidence.Unknown
             : new Confidence(aggregate.Average(candidate => candidate.Confidence.Value));
+        var partial = unresolved.Count > 0 || ambiguous.Count > 0 || missingValuations.Length > 0;
 
-        return new(aggregate, approximateValue, occupiedKeys.Length, dropFirst, confidence);
+        return new(
+            aggregate,
+            approximateValue,
+            includedCells.Length,
+            dropFirst,
+            confidence,
+            unresolved,
+            ambiguous,
+            partial,
+            partial ? "container_partial; missing-valuations=" + string.Join(',', missingValuations) : null);
     }
 
-    private static RecognitionCandidate Aggregate(string canonicalId, IReadOnlyList<CandidateCells> matches)
+    private static RecognitionCandidate Aggregate(string canonicalId, IReadOnlyList<CandidateCell> matches)
     {
-        var best = matches
+        var observations = matches
             .Select(match => match.Candidate)
-            .OrderByDescending(candidate => candidate.Confidence.Value)
-            .First();
-        var quantity = matches.Sum(match => match.Candidate.Quantity ?? 1);
-        var bounds = Union(matches.Select(match => match.Candidate.Bounds!).ToArray());
+            .DistinctBy(candidate => candidate.Bounds)
+            .ToArray();
+        var best = observations.OrderByDescending(candidate => candidate.Confidence.Value).First();
+        var quantity = observations.Sum(candidate => candidate.Quantity ?? 1);
+        var bounds = Union(matches.Select(match => match.Cell.Bounds).Distinct().ToArray());
         return best with
         {
             Bounds = bounds,
             Quantity = quantity,
-            Evidence = $"container-beta; observations={matches.Count}; {best.Evidence}",
+            Evidence = "container-grid; observations=" + observations.Length + "; " + best.Evidence,
         };
     }
 
@@ -232,7 +398,95 @@ public sealed class ContainerScanAnalyzer
         return (double)intersection / candidateArea >= 0.10;
     }
 
-    private sealed record CandidateCells(
-        RecognitionCandidate Candidate,
-        IReadOnlyList<ContainerSegment> Cells);
+    private sealed record CandidateCell(RecognitionCandidate Candidate, ContainerSegment Cell);
+}
+
+public sealed class ContainerRecognitionService : IContainerRecognitionService
+{
+    private static readonly Regex QuantitySuffix = new(
+        @"(?:\s+(?:x|qty\s*:?)\s*(?<quantity>\d{1,4}))\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private readonly IOcrEngine _ocrEngine;
+    private readonly CanonicalItemResolverCache _resolverCache;
+    private readonly IItemRepository _items;
+    private readonly ContainerGridDetector _gridDetector;
+    private readonly ContainerGridSegmenter _segmenter;
+    private readonly ContainerScanAnalyzer _analyzer;
+
+    public ContainerRecognitionService(
+        IOcrEngine ocrEngine,
+        CanonicalItemResolverCache resolverCache,
+        IItemRepository items,
+        ContainerGridDetector? gridDetector = null,
+        ContainerGridSegmenter? segmenter = null,
+        ContainerScanAnalyzer? analyzer = null)
+    {
+        _ocrEngine = ocrEngine ?? throw new ArgumentNullException(nameof(ocrEngine));
+        _resolverCache = resolverCache ?? throw new ArgumentNullException(nameof(resolverCache));
+        _items = items ?? throw new ArgumentNullException(nameof(items));
+        _gridDetector = gridDetector ?? new();
+        _segmenter = segmenter ?? new();
+        _analyzer = analyzer ?? new();
+    }
+
+    public async Task<ContainerScanResult> RecognizeAsync(
+        CapturedImage image,
+        CancellationToken cancellationToken)
+    {
+        CapturedImagePixels.Validate(image);
+        var grid = _gridDetector.Detect(image);
+        if (grid is null)
+        {
+            return Empty("container_grid_not_detected");
+        }
+
+        var ocr = await _ocrEngine
+            .RecognizeAsync(image, new OcrRequest(ScanContext.Container, grid.Bounds), cancellationToken)
+            .ConfigureAwait(false);
+        if (!ocr.IsAvailable)
+        {
+            return Empty(ocr.DiagnosticCode ?? "ocr_provider_unavailable");
+        }
+
+        var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
+        var candidates = ocr.Lines
+            .SelectMany(line => ResolveLine(resolver, line))
+            .ToArray();
+        var valuations = new List<ContainerItemValuation>();
+        foreach (var itemId in candidates.Select(candidate => candidate.CanonicalId).Distinct(StringComparer.Ordinal))
+        {
+            var price = await _items.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (price is not null && price.BestEconomicValue > 0)
+            {
+                valuations.Add(new(itemId, price.BestEconomicValue));
+            }
+        }
+
+        return _analyzer.Analyze(_segmenter.Segment(image, grid), candidates, valuations);
+    }
+
+    private static IEnumerable<RecognitionCandidate> ResolveLine(
+        FuzzyCanonicalItemResolver resolver,
+        OcrLine line)
+    {
+        var quantityMatch = QuantitySuffix.Match(line.Text);
+        var itemText = quantityMatch.Success ? line.Text[..quantityMatch.Index] : line.Text;
+        int? quantity = quantityMatch.Success &&
+                        int.TryParse(quantityMatch.Groups["quantity"].Value, out var parsed)
+            ? parsed
+            : null;
+        return resolver.Resolve(itemText, line.Confidence, limit: 3, line.Bounds).Candidates
+            .Select(candidate => candidate with { Quantity = quantity });
+    }
+
+    private static ContainerScanResult Empty(string diagnosticCode) => new(
+        [],
+        0,
+        0,
+        [],
+        Confidence.Unknown,
+        [],
+        [],
+        true,
+        diagnosticCode);
 }

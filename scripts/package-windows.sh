@@ -40,6 +40,8 @@ mkdir -p "${TASK_PUBLISH_DIR}" "${TASK_PROJECT_ROOT}/dist"
 cp "${TASK_PROJECT_ROOT}/README.md" "${TASK_PUBLISH_DIR}/README.md"
 cp "${TASK_PROJECT_ROOT}/LICENSE" "${TASK_PUBLISH_DIR}/LICENSE"
 cp "${TASK_PROJECT_ROOT}/docs/THIRD_PARTY_NOTICES.md" "${TASK_PUBLISH_DIR}/THIRD_PARTY_NOTICES.md"
+mkdir -p "${TASK_PUBLISH_DIR}/LICENSES"
+cp "${TASK_PROJECT_ROOT}/LICENSES/Apache-2.0.txt" "${TASK_PUBLISH_DIR}/LICENSES/Apache-2.0.txt"
 cp "${TASK_PROJECT_ROOT}/scripts/windows-smoke.ps1" "${TASK_PUBLISH_DIR}/windows-smoke.ps1"
 printf 'version=1.0.0\ncommit=%s\nbuilt_utc=%s\n' \
     "$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD)" \

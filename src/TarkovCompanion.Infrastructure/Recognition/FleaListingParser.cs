@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
 
@@ -64,5 +65,43 @@ public sealed class FleaListingParser
             .OrderBy(listing => listing.Bounds.Y)
             .ThenBy(listing => listing.Bounds.X)
             .ToArray();
+    }
+}
+
+public sealed class FleaRecognitionService : IFleaRecognitionService
+{
+    private readonly IOcrEngine _ocrEngine;
+    private readonly FleaListingParser _parser;
+
+    public FleaRecognitionService(IOcrEngine ocrEngine, FleaListingParser? parser = null)
+    {
+        _ocrEngine = ocrEngine ?? throw new ArgumentNullException(nameof(ocrEngine));
+        _parser = parser ?? new FleaListingParser();
+    }
+
+    public async Task<FleaRecognitionResult> RecognizeAsync(
+        CapturedImage image,
+        CancellationToken cancellationToken)
+    {
+        CapturedImagePixels.Validate(image);
+        var ocr = await _ocrEngine
+            .RecognizeAsync(image, new OcrRequest(ScanContext.FleaListings), cancellationToken)
+            .ConfigureAwait(false);
+        if (!ocr.IsAvailable)
+        {
+            return new([], image.CapturedUtc.ToUniversalTime(), Confidence.Unknown, false,
+                ocr.DiagnosticCode ?? "ocr_provider_unavailable");
+        }
+
+        var listings = _parser.ParseVisible(ocr, image);
+        var confidence = listings.Count == 0
+            ? Confidence.Unknown
+            : new Confidence(listings.Average(listing => listing.Confidence.Value));
+        return new(
+            listings,
+            image.CapturedUtc.ToUniversalTime(),
+            confidence,
+            true,
+            listings.Count == 0 ? "no_visible_flea_rows" : null);
     }
 }

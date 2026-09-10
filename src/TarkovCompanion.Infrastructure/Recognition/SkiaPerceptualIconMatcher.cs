@@ -1,6 +1,4 @@
 using System.Numerics;
-using System.Runtime.InteropServices;
-using SkiaSharp;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
@@ -12,8 +10,14 @@ public sealed record IconFingerprintReference(
     string DisplayName,
     ulong DifferenceHash);
 
+/// <summary>
+/// Experimental ROI matcher. Production recognition keeps this disabled until
+/// licensed cached icons have populated a calibrated reference repository.
+/// </summary>
 public sealed class SkiaPerceptualIconMatcher : IIconMatcher
 {
+    public const int MaximumHammingDistance = 12;
+    private const double MaximumCandidateScore = RecognitionThresholds.Ambiguous - 0.01;
     private readonly IReadOnlyList<IconFingerprintReference> _references;
 
     public SkiaPerceptualIconMatcher(IEnumerable<IconFingerprintReference> references)
@@ -25,38 +29,30 @@ public sealed class SkiaPerceptualIconMatcher : IIconMatcher
     public static IconFingerprintReference CreateReference(
         string canonicalId,
         string displayName,
-        CapturedImage image)
+        CapturedImage itemRegion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalId);
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
-        return new(canonicalId, displayName, ComputeDifferenceHash(image));
+        return new(canonicalId, displayName, ComputeDifferenceHash(itemRegion));
     }
 
     public Task<IReadOnlyList<RecognitionCandidate>> MatchAsync(
-        CapturedImage image,
+        CapturedImage itemRegion,
         int limit,
         CancellationToken cancellationToken)
     {
-        if (limit <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(limit));
-        }
-
+        ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
         cancellationToken.ThrowIfCancellationRequested();
-        var hash = ComputeDifferenceHash(image);
+        var hash = ComputeDifferenceHash(itemRegion);
         IReadOnlyList<RecognitionCandidate> candidates = _references
-            .Select(reference =>
-            {
-                var distance = BitOperations.PopCount(hash ^ reference.DifferenceHash);
-                var similarity = 1d - (distance / 64d);
-                return new RecognitionCandidate(
-                    reference.CanonicalId,
-                    reference.DisplayName,
-                    new Confidence(similarity),
-                    $"skia-dhash; hamming={distance}",
-                    new PixelRect(0, 0, image.Width, image.Height));
-            })
-            .Where(candidate => candidate.Confidence.Value >= RecognitionPolicy.CandidateFloor)
+            .Select(reference => (Reference: reference, Distance: BitOperations.PopCount(hash ^ reference.DifferenceHash)))
+            .Where(match => match.Distance <= MaximumHammingDistance)
+            .Select(match => new RecognitionCandidate(
+                match.Reference.CanonicalId,
+                match.Reference.DisplayName,
+                DistanceScore(match.Distance),
+                $"icon-dhash; hamming={match.Distance}; cutoff={MaximumHammingDistance}; score-is-not-probability",
+                new PixelRect(0, 0, itemRegion.Width, itemRegion.Height)))
             .OrderByDescending(candidate => candidate.Confidence.Value)
             .ThenBy(candidate => candidate.DisplayName, StringComparer.Ordinal)
             .Take(limit)
@@ -64,52 +60,54 @@ public sealed class SkiaPerceptualIconMatcher : IIconMatcher
         return Task.FromResult(candidates);
     }
 
-    public static ulong ComputeDifferenceHash(CapturedImage image)
+    public static ulong ComputeDifferenceHash(CapturedImage itemRegion)
     {
-        CapturedImagePixels.Validate(image);
-        try
-        {
-            return ComputeWithSkia(image);
-        }
-        catch (Exception exception) when (IsMissingNativeSkia(exception))
-        {
-            return ComputeManaged(image);
-        }
-    }
-
-    private static ulong ComputeWithSkia(CapturedImage image)
-    {
-        using var bitmap = CreateBitmap(image);
+        CapturedImagePixels.Validate(itemRegion);
         Span<byte> luminance = stackalloc byte[9 * 8];
         for (var row = 0; row < 8; row++)
         {
-            var sourceY = Math.Clamp(((2 * row + 1) * bitmap.Height) / 16, 0, bitmap.Height - 1);
+            var top = (itemRegion.Height * row) / 8;
+            var bottom = Math.Max(top + 1, (itemRegion.Height * (row + 1)) / 8);
             for (var column = 0; column < 9; column++)
             {
-                var sourceX = Math.Clamp(((2 * column + 1) * bitmap.Width) / 18, 0, bitmap.Width - 1);
-                var color = bitmap.GetPixel(sourceX, sourceY);
-                luminance[(row * 9) + column] =
-                    (byte)(((color.Red * 77) + (color.Green * 150) + (color.Blue * 29)) >> 8);
+                var left = (itemRegion.Width * column) / 9;
+                var right = Math.Max(left + 1, (itemRegion.Width * (column + 1)) / 9);
+                luminance[(row * 9) + column] = AverageLuminance(itemRegion, left, top, right, bottom);
             }
         }
 
         return BuildHash(luminance);
     }
 
-    private static ulong ComputeManaged(CapturedImage image)
+    private static Confidence DistanceScore(int distance)
     {
-        Span<byte> luminance = stackalloc byte[9 * 8];
-        for (var row = 0; row < 8; row++)
+        var closeness = (MaximumHammingDistance - distance) / (double)MaximumHammingDistance;
+        var score = RecognitionThresholds.Candidate +
+                    (closeness * (MaximumCandidateScore - RecognitionThresholds.Candidate));
+        return new(Math.Clamp(score, RecognitionThresholds.Candidate, MaximumCandidateScore));
+    }
+
+    private static byte AverageLuminance(
+        CapturedImage image,
+        int left,
+        int top,
+        int right,
+        int bottom)
+    {
+        var stepX = Math.Max(1, (right - left) / 16);
+        var stepY = Math.Max(1, (bottom - top) / 16);
+        long sum = 0;
+        var count = 0;
+        for (var y = top; y < bottom; y += stepY)
         {
-            var sourceY = Math.Clamp(((2 * row + 1) * image.Height) / 16, 0, image.Height - 1);
-            for (var column = 0; column < 9; column++)
+            for (var x = left; x < right; x += stepX)
             {
-                var sourceX = Math.Clamp(((2 * column + 1) * image.Width) / 18, 0, image.Width - 1);
-                luminance[(row * 9) + column] = CapturedImagePixels.GetLuminance(image, sourceX, sourceY);
+                sum += CapturedImagePixels.GetLuminance(image, x, y);
+                count++;
             }
         }
 
-        return BuildHash(luminance);
+        return (byte)(sum / Math.Max(1, count));
     }
 
     private static ulong BuildHash(ReadOnlySpan<byte> luminance)
@@ -130,44 +128,5 @@ public sealed class SkiaPerceptualIconMatcher : IIconMatcher
         }
 
         return hash;
-    }
-
-    private static bool IsMissingNativeSkia(Exception exception)
-    {
-        for (var current = exception; current is not null; current = current.InnerException!)
-        {
-            if (current is DllNotFoundException)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static SKBitmap CreateBitmap(CapturedImage image)
-    {
-        var colorType = image.Format switch
-        {
-            PixelFormat.Bgra8888 => SKColorType.Bgra8888,
-            PixelFormat.Rgba8888 => SKColorType.Rgba8888,
-            PixelFormat.Gray8 => SKColorType.Gray8,
-            _ => throw new ArgumentOutOfRangeException(nameof(image)),
-        };
-        var alphaType = image.Format == PixelFormat.Gray8 ? SKAlphaType.Opaque : SKAlphaType.Unpremul;
-        var bitmap = new SKBitmap(new SKImageInfo(image.Width, image.Height, colorType, alphaType));
-        var source = image.Pixels.ToArray();
-        var bytesPerRow = checked(image.Width * CapturedImagePixels.BytesPerPixel(image.Format));
-        var destination = bitmap.GetPixels();
-        for (var row = 0; row < image.Height; row++)
-        {
-            Marshal.Copy(
-                source,
-                row * image.Stride,
-                IntPtr.Add(destination, row * bitmap.RowBytes),
-                bytesPerRow);
-        }
-
-        return bitmap;
     }
 }

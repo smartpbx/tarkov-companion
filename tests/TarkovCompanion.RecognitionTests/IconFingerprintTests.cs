@@ -19,7 +19,8 @@ public sealed class IconFingerprintTests
         Assert.Collection(exact, candidate =>
         {
             Assert.Equal("icon-a", candidate.CanonicalId);
-            Assert.Equal(1, candidate.Confidence.Value);
+            Assert.InRange(candidate.Confidence.Value, 0.68, 0.699999);
+            Assert.Contains("score-is-not-probability", candidate.Evidence, StringComparison.Ordinal);
         });
         Assert.Empty(opposite);
     }
@@ -33,6 +34,20 @@ public sealed class IconFingerprintTests
         Assert.Equal(
             SkiaPerceptualIconMatcher.ComputeDifferenceHash(small),
             SkiaPerceptualIconMatcher.ComputeDifferenceHash(large));
+    }
+
+    [Fact]
+    public async Task UnrelatedTextureIsRejectedByHardNegativeCutoff()
+    {
+        var reference = SkiaPerceptualIconMatcher.CreateReference(
+            "gradient",
+            "Gradient",
+            CreateGradient(reverse: false));
+        var matcher = new SkiaPerceptualIconMatcher([reference]);
+
+        var result = await matcher.MatchAsync(CreateUnrelatedTexture(), 3, CancellationToken.None);
+
+        Assert.Empty(result);
     }
 
     private static CapturedImage CreateGradient(bool reverse, int width = 90, int height = 80)
@@ -55,5 +70,28 @@ public sealed class IconFingerprintTests
             PixelFormat.Gray8,
             new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero),
             "fixture://icon");
+    }
+
+    private static CapturedImage CreateUnrelatedTexture()
+    {
+        const int width = 90;
+        const int height = 80;
+        var pixels = new byte[width * height];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                pixels[(y * width) + x] = (byte)((x * 37 + y * 53 + (x * y)) % 256);
+            }
+        }
+
+        return new(
+            pixels,
+            width,
+            height,
+            width,
+            PixelFormat.Gray8,
+            new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero),
+            "fixture://unrelated-texture");
     }
 }

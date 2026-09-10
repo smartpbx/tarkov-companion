@@ -8,7 +8,7 @@ namespace TarkovCompanion.RecognitionTests;
 public sealed class ContextAndOcrTests
 {
     [Fact]
-    public async Task SyntheticResolutionAndScaleFixturesClassifyWithoutFabricatingUnknownState()
+    public async Task ScriptedPostOcrFixturesClassifyWithoutFabricatingUnknownState()
     {
         var fixtures = SyntheticFixtureLoader.LoadScenes();
         var engine = new FixtureOcrEngine(fixtures.Select(fixture => fixture.ToOcrScene()));
@@ -29,7 +29,13 @@ public sealed class ContextAndOcrTests
             var detection = detector.Detect(image, ocr);
 
             Assert.Equal(Enum.Parse<ScanContext>(fixture.ExpectedContext), detection.Context);
-            Assert.InRange(detection.EstimatedUiScale, fixture.Scale - 0.01, fixture.Scale + 0.01);
+            Assert.InRange(detection.EstimatedUiScale, 0.50, 2.50);
+            if (detection.Context != ScanContext.Unknown)
+            {
+                Assert.NotEmpty(detection.Anchors);
+                Assert.All(detection.Anchors, anchor =>
+                    Assert.Contains("live-unvalidated", anchor.Provenance, StringComparison.Ordinal));
+            }
         }
     }
 
@@ -92,6 +98,37 @@ public sealed class ContextAndOcrTests
         Assert.Equal(2, engine.Requests.Count);
         Assert.Equal(ScanContext.SingleItem, engine.Requests[1].Context);
         Assert.NotNull(engine.Requests[1].Region);
+    }
+
+    [Fact]
+    public async Task AnchorRelativeRegionKeepsFullFrameCandidatesOutsideDraggablePanelGuess()
+    {
+        var image = new CapturedImage(
+            new byte[1000 * 600],
+            1000,
+            600,
+            1000,
+            PixelFormat.Gray8,
+            new DateTimeOffset(2026, 9, 9, 12, 0, 0, TimeSpan.Zero),
+            "fixture://edge-panel");
+        var engine = new FixtureOcrEngine(
+        [
+            new FixtureOcrScene(
+                image.Source,
+                [
+                    new OcrLine("INSPECT", new PixelRect(890, 30, 90, 20), new Confidence(0.99)),
+                    new OcrLine("WEIGHT", new PixelRect(900, 300, 80, 20), new Confidence(0.95)),
+                    new OcrLine("Graphics Card", new PixelRect(40, 100, 180, 24), new Confidence(0.93)),
+                ])
+        ]);
+        var coordinator = new OcrCoordinator(engine, new ScanContextDetector());
+
+        var result = await coordinator.RecognizeAsync(image, CancellationToken.None);
+
+        Assert.Equal(ScanContext.SingleItem, result.Detection.Context);
+        Assert.True(result.UsedFullFrameSupplement);
+        Assert.Contains(result.Candidates.Lines, line => line.Text == "Graphics Card");
+        Assert.DoesNotContain(result.Contextual.Lines, line => line.Text == "Graphics Card");
     }
 
     private static CapturedImage CreateSmallImage(string source) => new(

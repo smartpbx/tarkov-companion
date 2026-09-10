@@ -1,32 +1,130 @@
 # Recognition pipeline
 
-The recognition subsystem consumes only caller-supplied `CapturedImage` buffers. It does not capture windows, persist frames, upload screenshots, inspect game memory, or make gameplay inputs. A frame remains in memory for the duration of the call and ownership stays with the caller.
+The recognition subsystem consumes only caller-supplied `CapturedImage` buffers. It does not persist frames, upload screenshots, inspect game memory or traffic, hook the renderer, or generate gameplay input. A frame remains in memory for the duration of the scan and ownership stays with the caller.
 
-## Pipeline
+## Production OCR and availability
 
-`OcrCoordinator` runs a provider-neutral full-frame OCR pass, classifies the visible scene using normalized OCR anchors and scale-independent regions, and runs a context-specific OCR pass only after a context is established. `FixtureOcrEngine` provides deterministic in-memory responses for tests; production OCR providers implement the existing Core `IOcrEngine` contract.
+`TesseractOcrEngine` is the production offline provider for packaged Windows x64 builds. It uses
+NuGet package `TesseractOCR` 5.5.2 (Tesseract 5.5.1/Leptonica 1.85.0) and an
+embedded, SHA-256-pinned `tessdata_fast` English model. The package build target copies
+the x64 native libraries into publish output. The model is atomically materialized under
+the user's local application-data cache only after its hash is verified; no runtime
+download occurs.
 
-Supported contexts are single-item inspection, containers, the extract list, visible flea listings, and unknown. An unknown or tied scene returns no recognized state and does not invoke icon fallback. OCR text is Unicode-normalized and repairs common letter/number confusions before Damerau-Levenshtein and token similarity are compared against caller-supplied canonical item names and aliases.
+The provider exposes `IOcrEngineStatus`. Unsupported operating systems, architectures,
+missing native dependencies, missing language data, and execution failures return an
+explicit unavailable result and diagnostic. They never substitute scripted OCR.
+`RecognitionSelfTest` exposes OCR status, canonical-catalog count, and the intentionally
+disabled icon fallback as structured self-test data. The runtime composition owner must
+include that result in the App's existing `--self-test` report; this recognition change
+does not take ownership of App startup or diagnostics composition.
 
-Confidence handling is explicit:
+License, source revision, redistribution, VC++ runtime, and model provenance are recorded
+in `docs/LICENSING.md` and `docs/THIRD_PARTY_NOTICES.md`. The full Apache-2.0 text is in
+`LICENSES/Apache-2.0.txt`.
 
-- `>= 0.90`: auto-selected
-- `>= 0.70` and `< 0.90`: ambiguous and must be confirmed
-- `>= 0.45` and `< 0.70`: candidate only
-- `< 0.45`: no match
+## Pixel-to-result flow
 
-Each candidate retains evidence and bounds. `RecognitionResult` retains the captured UTC timestamp. Extract matches are restricted to the current map's canonical extracts and include OCR engine, map, and observed UTC time in their source string because the current Core extract result has no timestamp field.
+`OcrCoordinator` runs a full-frame OCR pass, detects the visible context from the
+data-driven `Recognition/anchors.en.json` catalog, and runs a second OCR pass in a region
+relative to the matched anchor bounds. Every anchor carries provenance that currently
+labels it as simulator-derived and live-unvalidated. Full-frame lines are merged back into
+the candidate set, so a draggable panel or imperfect contextual crop cannot discard text
+that the first pass already observed.
 
-## Fallbacks and beta parsers
+`SqliteRecognitionCatalogRepository` builds canonical item references from the synchronized
+`items` table, including short names as aliases. Production callers do not supply handcrafted
+item lists. `CanonicalItemResolverCache` indexes that catalog once, and the fuzzy resolver
+uses exact/trigram prefiltering plus bounded edit distance. A 5,000-item/40-line performance
+test includes catalog construction and is bounded by the 1.5-second scan budget.
 
-`SkiaPerceptualIconMatcher` computes a 64-bit difference hash from an in-memory Skia bitmap. When a deployment omits Skia's native runtime, the same fixed sampling algorithm falls back to the managed captured-pixel reader. It is a lightweight fallback for weak OCR, not a semantic classifier. References must be built from licensed or user-provided icon pixels by the caller.
+`ScanUseCase` in Application owns capture -> context recognition -> context dispatch ->
+recommendation -> metadata persistence -> result publication. It dispatches:
 
-`ContainerGridSegmenter` samples normalized grid cells and marks cells occupied using luminance deviation/variation. `ContainerScanAnalyzer` associates recognized bounds with occupied cells, excludes candidates below `0.70`, aggregates duplicates and quantities, totals caller-supplied values, and orders drop-first IDs by ascending value per occupied slot. This beta ranking is informational inventory triage only; it contains no quest, hideout, combat, or recommendation rules.
+- single items to canonical lookup, cached item/price lookup, and `IRecommendationEngine`;
+- extract lists only against the current raid map's canonical extracts;
+- mixed containers to grid detection, occupied-cell OCR, quantities, valuation, and partial totals;
+- visible flea rows to local parsing only.
 
-`FleaListingParser` parses only OCR rows with a visible rouble marker (`₽`, `RUB`, or `ROUBLES`) and optional `x`/`qty` quantities. Results are informational; the subsystem never buys, sells, clicks, or types.
+`LatestScanResultPublisher` is the runtime/UI seam. `SqliteScanEventRepository` writes UTC
+metadata, candidate evidence, recommendation, source geometry, and diagnostics to
+`scan_history`; it has no captured-pixel or image column.
 
-## Fixtures and limitations
+### Runtime registration seam
 
-`fixtures/recognition/synthetic-scenes.json` covers 1920×1080, 2560×1440, and 3840×2160 scenes at 100%, 125%, and 150% UI scale with deterministic synthetic noise. The fixtures exercise every supported context and the unknown safeguard without storing captured screen images.
+The App/runtime owner should construct this graph after SQLite migrations have run:
 
-The detector depends on visible English UI anchors and is not yet a production-trained vision model. Perceptual hashes can confuse visually similar icons, container segmentation expects a caller-supplied grid region and dimensions, multi-line flea rows are not joined, and real-game validation across themes, localization, HDR, ultrawide layouts, and future UI changes remains outstanding. No result should be described as a live detection or gameplay-state guarantee.
+1. Register one `TesseractOcrEngine` as both `IOcrEngine` and `IOcrEngineStatus`.
+2. Register `SqliteRecognitionCatalogRepository`, `SqliteScanEventRepository`, and one
+   `CanonicalItemResolverCache` using the existing `SqliteConnectionFactory`.
+3. Construct `ScanContextDetector` (its default constructor loads the bundled anchors),
+   `OcrCoordinator`, `RecognitionService`, `ExtractRecognitionService`,
+   `ContainerRecognitionService`, and `FleaRecognitionService`.
+4. Register one `LatestScanResultPublisher`; UI state may read `Current` and subscribe to
+   `Published` without taking ownership of recognition orchestration.
+5. Construct `ScanUseCase` with the existing capture, map, raid-state, item,
+   recommendation, and recommendation-context services plus the recognition services,
+   scan-event repository, and publisher above.
+6. Invoke `IScanUseCase.ScanAsync(new ScanRequest(captureRequest), cancellationToken)` from
+   the runtime worker/hotkey path. Include `IRecognitionSelfTest.RunAsync` capability rows
+   in the existing App self-test report.
+
+No fixture OCR type exists in production assemblies. The runtime must not register a
+scripted substitute when `IOcrEngineStatus.Availability.IsAvailable` is false; the scan use
+case will publish an honest unavailable outcome.
+
+## Confidence and honest partial state
+
+OCR confidence is normalized by the provider to 0..1 for ranking output from that provider.
+It is not presented as a calibrated probability. Shared Core thresholds are:
+
+- `>= 0.90`: eligible for automatic selection only with at least a `0.08` runner-up lead;
+- `>= 0.70` and `< 0.90`: ambiguous;
+- `>= 0.45` and `< 0.70`: candidate only;
+- `< 0.45`: no match.
+
+Candidate selection is confidence-ordered and independent of input order. Every candidate
+retains evidence, bounds, and the capture timestamp in its containing result.
+
+Extract observations preserve `Active`, `Closed`, `Pending`, or `Unknown`. Closed and pending
+observations never enter `ActiveExtracts`; near-tie names remain ambiguous. A line without an
+explicit status is treated as active because that is the simulator contract, and the evidence
+retains that it came from OCR rather than live state.
+
+Container totals exclude unresolved and ambiguous occupied cells. Results expose both cell
+sets and `IsPartial`; missing valuations also make the total partial. Quantities such as `x2`
+or `qty: 2` are parsed from cell text. The deterministic grid detector searches for a regular
+line lattice, then the segmenter measures occupied cells from in-memory luminance variation.
+
+Flea parsing reads visible rouble/RUB rows and optional quantities. It never buys, sells,
+clicks, types, contacts a market service, or claims that a listing remained available after
+the captured timestamp.
+
+## Icon fallback
+
+Production icon fallback is explicitly unavailable. No licensed runtime-cached icon
+fingerprint repository is currently populated, so `RecognitionService` does not invoke an
+icon matcher and `RecognitionSelfTest` reports the capability disabled. The retained
+experimental ROI matcher uses averaged dHash with a hard 12-bit negative cutoff and caps its
+ranking score below the ambiguity threshold; its raw distance is labeled as not a probability.
+
+## Fixtures and evidence
+
+The suites deliberately separate two evidence levels:
+
+- `fixtures/recognition/synthetic-scenes.json` contains scripted OCR lines. These tests cover
+  post-OCR normalization, anchors, dispatch, ambiguity, status, and policy logic only. Their
+  resolution, scale, and noise metadata are not OCR-accuracy evidence.
+- `RenderedPixelOcrTests` creates actual high-contrast bitmap scenes with deterministic pixel
+  noise for a 1080p item, similar-name ambiguity, 1440p extract statuses, a 1440p mixed
+  container, and 4K flea rows. The tests call `TesseractOcrEngine`, not a fixture engine.
+
+Rendered-pixel tests are discovered as explicit skips on non-Windows-x64 hosts, with the
+reason reported by the test runner. On Windows x64, provider absence is a failure and every
+scene must pass. Therefore a Linux green run proves packaging, post-OCR behavior, persistence,
+and skip honesty; it does not publish screenshot-recognition accuracy. Accuracy remains
+unmeasured until the Windows suite or VM smoke run records real results.
+
+The anchors and rendered scenes remain synthetic and English-only. Live validation across
+EFT themes, localization, HDR, ultrawide layouts, and UI revisions is still outstanding.
+No output from this subsystem should be described as a live detection or gameplay-state guarantee.

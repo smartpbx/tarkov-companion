@@ -170,6 +170,11 @@ public interface IOcrEngineStatus
     OcrEngineAvailability Availability { get; }
 }
 
+public interface IRecognitionSelfTest
+{
+    Task<RecognitionSelfTestResult> RunAsync(CancellationToken cancellationToken);
+}
+
 public interface IIconMatcher
 {
     Task<IReadOnlyList<RecognitionCandidate>> MatchAsync(CapturedImage image, int limit, CancellationToken cancellationToken);

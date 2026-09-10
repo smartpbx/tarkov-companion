@@ -23,7 +23,7 @@ public sealed record TesseractOcrOptions(
 /// </summary>
 public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposable
 {
-    private const string ProviderName = "tesseract-5.5.1";
+    private const string ProviderName = "tesseract-5.5.1-wrapper-5.5.2";
     private const string BundledModelResource =
         "TarkovCompanion.Infrastructure.Recognition.Tessdata.eng.traineddata";
     private const string BundledModelSha256 =
@@ -119,7 +119,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             var modelPath = Path.Combine(tessdataPath, $"{options.Language}.traineddata");
             if (!File.Exists(modelPath))
             {
-                return new(false, ProviderName, $"Traineddata is missing: {modelPath}");
+                return new(false, ProviderName, "The configured traineddata file is missing.");
             }
 
             _engine = new Engine(tessdataPath, options.Language, EngineMode.LstmOnly)
@@ -274,7 +274,13 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     }
 
     private static bool IsProviderFailure(Exception exception) =>
-        exception is DllNotFoundException or BadImageFormatException or TypeInitializationException or InvalidOperationException;
+        exception is DllNotFoundException or
+            BadImageFormatException or
+            TypeInitializationException or
+            InvalidOperationException or
+            IOException or
+            UnauthorizedAccessException ||
+        exception.GetType().Namespace?.StartsWith("TesseractOCR", StringComparison.Ordinal) == true;
 
     private static string SummarizeProviderFailure(Exception exception)
     {
@@ -284,6 +290,13 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             current = current.InnerException;
         }
 
-        return $"{current.GetType().Name}: {current.Message}";
+        return current switch
+        {
+            DllNotFoundException => "A packaged native OCR library or its Visual C++ runtime dependency is unavailable.",
+            BadImageFormatException => "The packaged OCR native library does not match the process architecture.",
+            UnauthorizedAccessException => "The OCR model cache is not writable.",
+            IOException => "The OCR model cache could not be prepared.",
+            _ => current.GetType().Name + ": OCR provider initialization or execution failed.",
+        };
     }
 }

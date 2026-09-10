@@ -24,19 +24,16 @@ public sealed class RecognitionService : IRecognitionService
     ];
 
     private readonly OcrCoordinator _coordinator;
-    private readonly FuzzyCanonicalItemResolver _itemResolver;
-    private readonly IIconMatcher? _iconMatcher;
+    private readonly CanonicalItemResolverCache _resolverCache;
     private readonly OcrTextNormalizer _normalizer;
 
     public RecognitionService(
         OcrCoordinator coordinator,
-        FuzzyCanonicalItemResolver itemResolver,
-        IIconMatcher? iconMatcher = null,
+        CanonicalItemResolverCache resolverCache,
         OcrTextNormalizer? normalizer = null)
     {
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
-        _itemResolver = itemResolver ?? throw new ArgumentNullException(nameof(itemResolver));
-        _iconMatcher = iconMatcher;
+        _resolverCache = resolverCache ?? throw new ArgumentNullException(nameof(resolverCache));
         _normalizer = normalizer ?? new OcrTextNormalizer();
     }
 
@@ -45,6 +42,11 @@ public sealed class RecognitionService : IRecognitionService
         CancellationToken cancellationToken)
     {
         var coordinated = await _coordinator.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
+        if (!coordinated.FullFrame.IsAvailable)
+        {
+            return new(ScanContext.Unknown, [], image.CapturedUtc, "ocr_provider_unavailable");
+        }
+
         var context = coordinated.Detection.Context;
         if (context == ScanContext.Unknown)
         {
@@ -56,7 +58,8 @@ public sealed class RecognitionService : IRecognitionService
             return new(context, [], image.CapturedUtc, "extract_context");
         }
 
-        var candidates = ResolveOcrCandidates(coordinated.Contextual)
+        var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
+        var candidates = ResolveOcrCandidates(coordinated.Candidates, resolver)
             .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
             .Select(group => group.OrderByDescending(candidate => candidate.Confidence.Value).First())
             .OrderByDescending(candidate => candidate.Confidence.Value)
@@ -64,32 +67,24 @@ public sealed class RecognitionService : IRecognitionService
             .Take(5)
             .ToList();
 
-        if ((candidates.Count == 0 || candidates[0].Confidence.Value < RecognitionPolicy.AmbiguityThreshold) &&
-            _iconMatcher is not null)
-        {
-            var iconCandidates = await _iconMatcher.MatchAsync(image, 5, cancellationToken).ConfigureAwait(false);
-            candidates.AddRange(iconCandidates);
-            candidates = candidates
-                .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
-                .Select(group => group.OrderByDescending(candidate => candidate.Confidence.Value).First())
-                .OrderByDescending(candidate => candidate.Confidence.Value)
-                .Take(5)
-                .ToList();
-        }
-
+        var result = new RecognitionResult(context, candidates, image.CapturedUtc);
         var diagnostic = candidates.Count == 0
             ? "no_match"
-            : RecognitionPolicy.Classify(candidates[0].Confidence) switch
-            {
-                RecognitionDecision.AutoSelected => null,
-                RecognitionDecision.Ambiguous => "ambiguous",
-                RecognitionDecision.Candidate => "low_confidence_candidates",
-                _ => "no_match",
-            };
-        return new(context, candidates, image.CapturedUtc, diagnostic);
+            : result.Selected is not null
+                ? null
+                : RecognitionThresholds.Classify(candidates[0].Confidence) switch
+                {
+                    RecognitionDecision.AutoSelected => "ambiguous_runner_up",
+                    RecognitionDecision.Ambiguous => "ambiguous",
+                    RecognitionDecision.Candidate => "low_confidence_candidates",
+                    _ => "no_match",
+                };
+        return result with { DiagnosticCode = diagnostic };
     }
 
-    private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(OcrResult result)
+    private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(
+        OcrResult result,
+        FuzzyCanonicalItemResolver resolver)
     {
         foreach (var line in result.Lines)
         {
@@ -99,7 +94,7 @@ public sealed class RecognitionService : IRecognitionService
                 continue;
             }
 
-            var resolution = _itemResolver.Resolve(line.Text, line.Confidence, bounds: line.Bounds);
+            var resolution = resolver.Resolve(line.Text, line.Confidence, bounds: line.Bounds);
             foreach (var candidate in resolution.Candidates)
             {
                 yield return candidate with { Evidence = $"{candidate.Evidence}; engine={result.Engine}" };
@@ -107,7 +102,6 @@ public sealed class RecognitionService : IRecognitionService
         }
     }
 
-    private static bool IsUiChrome(string normalized) => UiChromeTerms.Any(term =>
-        normalized.Equals(term, StringComparison.Ordinal) ||
-        normalized.StartsWith($"{term} ", StringComparison.Ordinal));
+    private static bool IsUiChrome(string normalized) =>
+        UiChromeTerms.Contains(normalized, StringComparer.Ordinal);
 }

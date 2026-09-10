@@ -14,6 +14,9 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Persistence/Migrations/*.sql" />
+    <EmbeddedResource Include="Recognition/anchors.en.json"
+                      WithCulture="false"
+                      LogicalName="TarkovCompanion.Infrastructure.Recognition.anchors.en.json" />
     <EmbeddedResource Include="Recognition/Tessdata/eng.traineddata" />
   </ItemGroup>
 </Project>
