@@ -126,6 +126,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
         foreach (var item in data.Items.Values)
         {
+            var shortName = ResolveShortName(item);
             foreach (var categoryId in item.Categories.Where(data.ItemCategories.ContainsKey).Distinct(StringComparer.Ordinal))
             {
                 await ExecuteAsync(

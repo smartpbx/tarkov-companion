@@ -23,6 +23,36 @@ permissions:
   contents: read
 
 jobs:
+  # Runs alongside the Windows job so a compile error or a failing test surfaces without
+  # waiting on packaging, and so the unit and integration suites actually cover the changes
+  # the Windows job is verifying.
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - name: Restore
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+      - name: Build
+        run: dotnet build TarkovCompanion.sln --configuration Release --no-restore --maxcpucount:1
+      - name: Test
+        run: dotnet test TarkovCompanion.sln --configuration Release --no-build --no-restore --maxcpucount:1 --logger "trx;LogFileName=tests.trx"
+      - name: Safety audit
+        run: ./scripts/audit-safety.sh
+      - name: Secret-pattern audit
+        run: ./scripts/scan-secrets.sh
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: linux-test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
   windows-verify:
     runs-on: windows-latest
     timeout-minutes: 60
