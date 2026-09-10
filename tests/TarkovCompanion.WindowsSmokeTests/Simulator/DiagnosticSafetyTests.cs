@@ -37,7 +37,7 @@ public sealed class DiagnosticSafetyTests
         Assert.Equal("invalid-scenario", response.Error);
     }
 
-    private sealed class UnavailableScanUseCase : IScanUseCase
+    private sealed class UnavailableScanUseCase : IRuntimeScanUseCase
     {
         public Task<ScanExecutionResult> ExecuteAsync(CancellationToken cancellationToken) =>
             Task.FromResult(ScanExecutionResult.Unavailable("Unavailable in safety test.", DateTimeOffset.UtcNow));

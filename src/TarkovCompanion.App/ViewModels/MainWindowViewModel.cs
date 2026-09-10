@@ -366,7 +366,7 @@ public sealed class ItemsPageViewModel : PageViewModel
 
 public sealed class ScannerPageViewModel : PageViewModel
 {
-    private readonly IScanUseCase _scanUseCase;
+    private readonly IRuntimeScanUseCase _scanUseCase;
     private string _itemName = "No item scanned";
     private string _value = "Unavailable";
     private string _recommendation = "No recommendation without observed evidence.";
@@ -374,7 +374,7 @@ public sealed class ScannerPageViewModel : PageViewModel
     private string _source = "No capture source";
     private string _detail = "No OCR-backed scan provider is configured.";
 
-    public ScannerPageViewModel(IScanUseCase scanUseCase)
+    public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase)
         : base("Scanner", "Dispatch a user-triggered scan through the configured use case", "Runtime state not loaded")
     {
         _scanUseCase = scanUseCase;
@@ -615,7 +615,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IItemSearchService itemSearchService,
         IItemRepository itemRepository,
         IRaidHistoryService raidHistoryService,
-        IScanUseCase scanUseCase,
+        IRuntimeScanUseCase scanUseCase,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,

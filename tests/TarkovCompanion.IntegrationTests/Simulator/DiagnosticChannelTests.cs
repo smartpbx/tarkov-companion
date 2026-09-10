@@ -147,7 +147,7 @@ public sealed class DiagnosticChannelTests
         "test-fixture",
         "Fixture result.");
 
-    private sealed class StubScanUseCase(ScanExecutionResult result) : IScanUseCase
+    private sealed class StubScanUseCase(ScanExecutionResult result) : IRuntimeScanUseCase
     {
         public int CallCount { get; private set; }
 

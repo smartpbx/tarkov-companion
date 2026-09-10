@@ -25,7 +25,7 @@ public sealed record DiagnosticResponse(
     string? Error = null,
     ScanExecutionResult? Scan = null);
 
-public sealed class DiagnosticCommandProcessor(string requiredToken, IScanUseCase scanUseCase)
+public sealed class DiagnosticCommandProcessor(string requiredToken, IRuntimeScanUseCase scanUseCase)
 {
     private const int MaximumIdentifierLength = 80;
 
@@ -117,7 +117,7 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
     private readonly CancellationTokenSource stopping = new();
     private readonly Task worker;
 
-    private DiagnosticCommandChannel(string channelPath, string token, IScanUseCase scanUseCase)
+    private DiagnosticCommandChannel(string channelPath, string token, IRuntimeScanUseCase scanUseCase)
     {
         commandDirectory = Path.Combine(channelPath, "commands");
         responseDirectory = Path.Combine(channelPath, "responses");
@@ -130,7 +130,7 @@ public sealed class DiagnosticCommandChannel : IAsyncDisposable
     public static DiagnosticCommandChannel? Start(
         bool developerMode,
         string? channelPath,
-        IScanUseCase scanUseCase,
+        IRuntimeScanUseCase scanUseCase,
         string? token = null)
     {
         ArgumentNullException.ThrowIfNull(scanUseCase);

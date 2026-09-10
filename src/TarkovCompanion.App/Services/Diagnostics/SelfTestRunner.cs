@@ -100,14 +100,30 @@ public static class SelfTestRunner
                     "pass",
                     $"Loaded profile '{snapshot.Profile.Name}' at level {snapshot.Profile.Level} ({snapshot.Profile.GameMode})."));
 
-            var recognitionProvider = services.GetService<IRecognitionService>();
-            checks.Add(recognitionProvider is null
-                ? new(
+            var recognitionSelfTest = services.GetService<IRecognitionSelfTest>();
+            if (recognitionSelfTest is null)
+            {
+                checks.Add(new(
                     "ocr-provider",
-                    "unavailable",
-                    "No production OCR/recognition provider is configured; scan results remain unavailable outside demo fixtures.",
-                    Required: false)
-                : new("ocr-provider", "pass", $"Recognition provider: {recognitionProvider.GetType().Name}."));
+                    OperatingSystem.IsWindows() ? "fail" : "unavailable",
+                    "The recognition capability self-test is not composed.",
+                    Required: OperatingSystem.IsWindows()));
+            }
+            else
+            {
+                var recognition = await recognitionSelfTest.RunAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var capability in recognition.Capabilities)
+                {
+                    var required = capability.Capability == "offline-ocr" &&
+                        OperatingSystem.IsWindows() &&
+                        RuntimeInformation.ProcessArchitecture == Architecture.X64;
+                    checks.Add(new(
+                        CapabilityCheckName(capability.Capability),
+                        capability.IsAvailable ? "pass" : required ? "fail" : "unavailable",
+                        $"{capability.Provider}: {capability.Detail}",
+                        required));
+                }
+            }
 
             var diagnosticRequested = commandLine.DeveloperMode &&
                 !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath);
@@ -169,4 +185,12 @@ public static class SelfTestRunner
         await JsonSerializer.SerializeAsync(output, report, SerializerOptions, cancellationToken).ConfigureAwait(false);
         return report;
     }
+
+    private static string CapabilityCheckName(string capability) => capability switch
+    {
+        "offline-ocr" => "ocr-provider",
+        "canonical-item-catalog" => "recognition-catalog",
+        "icon-fallback" => "recognition-icon-fallback",
+        _ => "recognition-" + capability,
+    };
 }

@@ -131,7 +131,7 @@ public sealed class RuntimeCompositionTests
             await services.GetRequiredService<ApplicationStartupCoordinator>()
                 .InitializeAsync(CancellationToken.None);
             var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
-            await services.GetRequiredService<IScanUseCase>().ExecuteAsync(CancellationToken.None);
+            await services.GetRequiredService<IRuntimeScanUseCase>().ExecuteAsync(CancellationToken.None);
             clock.Advance(TimeSpan.FromMinutes(12));
             await coordinator.ApplyEvidenceAsync(
                 new(

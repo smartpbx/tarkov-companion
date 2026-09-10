@@ -8,6 +8,7 @@ using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
@@ -21,6 +22,7 @@ using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
+using TarkovCompanion.Infrastructure.Recognition;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
@@ -28,6 +30,9 @@ using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Hotkeys;
 using TarkovCompanion.Platform.Windows.Security;
 using TarkovCompanion.Platform.Windows.Watching;
+using RecognitionScanContract = TarkovCompanion.Core.Abstractions.IScanUseCase;
+using RecognitionScanUseCase = TarkovCompanion.Application.Services.Recognition.ScanUseCase;
+using RuntimeScanUseCase = TarkovCompanion.Application.Services.Runtime.ScanUseCase;
 
 namespace TarkovCompanion.App.Services;
 
@@ -86,6 +91,12 @@ public static class AppComposition
         services.AddSingleton<IRuntimeDataStore>(provider => provider.GetRequiredService<SqliteRuntimeDataStore>());
         services.AddSingleton<SqliteRaidHistoryService>();
         services.AddSingleton<IRaidHistoryService>(provider => provider.GetRequiredService<SqliteRaidHistoryService>());
+        services.AddSingleton<SqliteRecognitionCatalogRepository>();
+        services.AddSingleton<IRecognitionCatalogRepository>(provider =>
+            provider.GetRequiredService<SqliteRecognitionCatalogRepository>());
+        services.AddSingleton<SqliteScanEventRepository>();
+        services.AddSingleton<IScanEventRepository>(provider =>
+            provider.GetRequiredService<SqliteScanEventRepository>());
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
@@ -134,6 +145,17 @@ public static class AppComposition
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
+        services.AddSingleton<TesseractOcrEngine>();
+        services.AddSingleton<IOcrEngine>(provider => provider.GetRequiredService<TesseractOcrEngine>());
+        services.AddSingleton<IOcrEngineStatus>(provider => provider.GetRequiredService<TesseractOcrEngine>());
+        services.AddSingleton<CanonicalItemResolverCache>();
+        services.AddSingleton<ScanContextDetector>();
+        services.AddSingleton<OcrCoordinator>();
+        services.AddSingleton<RecognitionService>();
+        services.AddSingleton<IRecognitionService>(provider => provider.GetRequiredService<RecognitionService>());
+        services.AddSingleton<RecognitionSelfTest>();
+        services.AddSingleton<IRecognitionSelfTest>(provider => provider.GetRequiredService<RecognitionSelfTest>());
+
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<IGameWindowLocator, WindowsGameWindowLocator>();
@@ -144,6 +166,24 @@ public static class AppComposition
             services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
             services.AddSingleton<ISecretStore>(_ => new WindowsDpapiSecretStore(Path.Combine(paths.Config, "Secrets")));
+            services.AddSingleton<ExtractRecognitionService>();
+            services.AddSingleton<IExtractRecognitionService>(provider =>
+                provider.GetRequiredService<ExtractRecognitionService>());
+            services.AddSingleton<ContainerRecognitionService>();
+            services.AddSingleton<IContainerRecognitionService>(provider =>
+                provider.GetRequiredService<ContainerRecognitionService>());
+            services.AddSingleton<FleaRecognitionService>();
+            services.AddSingleton<IFleaRecognitionService>(provider =>
+                provider.GetRequiredService<FleaRecognitionService>());
+            services.AddSingleton<EvidenceRequiredScanRecommendationContextProvider>();
+            services.AddSingleton<IScanRecommendationContextProvider>(provider =>
+                provider.GetRequiredService<EvidenceRequiredScanRecommendationContextProvider>());
+            services.AddSingleton<LatestScanResultPublisher>();
+            services.AddSingleton<IScanResultPublisher>(provider =>
+                provider.GetRequiredService<LatestScanResultPublisher>());
+            services.AddSingleton<RecognitionScanUseCase>();
+            services.AddSingleton<RecognitionScanContract>(provider =>
+                provider.GetRequiredService<RecognitionScanUseCase>());
         }
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
@@ -156,8 +196,10 @@ public static class AppComposition
                     _.GetRequiredService<IItemRepository>(),
                     _.GetRequiredService<IRecommendationEngine>(),
                     timeProvider)
-                : new UnavailableScanAdapter(timeProvider)));
-        services.AddSingleton<IScanUseCase, ScanUseCase>();
+                : OperatingSystem.IsWindows()
+                    ? new RecognitionScanAdapter(_.GetRequiredService<RecognitionScanContract>())
+                    : new UnavailableScanAdapter(timeProvider)));
+        services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
         services.AddSingleton<MainWindowViewModel>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions

@@ -32,11 +32,26 @@ public sealed class SelfTestIntegrationTests
             Assert.False(report.Environment.NetworkContacted);
             Assert.Equal("json.tarkov.dev", report.Environment.Provider);
             Assert.Equal(
-                ["database", "cache", "data-source", "profile", "ocr-provider", "diagnostic", "paths", "platform"],
+                [
+                    "database",
+                    "cache",
+                    "data-source",
+                    "profile",
+                    "ocr-provider",
+                    "recognition-catalog",
+                    "recognition-icon-fallback",
+                    "diagnostic",
+                    "paths",
+                    "platform",
+                ],
                 report.Checks.Select(check => check.Name));
             Assert.Equal("pass", report.Checks.Single(check => check.Name == "database").Status);
             Assert.Equal("pass", report.Checks.Single(check => check.Name == "cache").Status);
-            Assert.Equal("unavailable", report.Checks.Single(check => check.Name == "ocr-provider").Status);
+            Assert.Equal(
+                OperatingSystem.IsWindows() ? "pass" : "unavailable",
+                report.Checks.Single(check => check.Name == "ocr-provider").Status);
+            Assert.Equal("pass", report.Checks.Single(check => check.Name == "recognition-catalog").Status);
+            Assert.Equal("unavailable", report.Checks.Single(check => check.Name == "recognition-icon-fallback").Status);
             Assert.False(report.Safety["readsGameMemory"]);
             Assert.False(report.Safety["sendsGameInput"]);
             Assert.False(report.Safety["capturesNetworkTraffic"]);

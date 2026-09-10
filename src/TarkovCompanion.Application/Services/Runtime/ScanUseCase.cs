@@ -2,11 +2,13 @@ using System.Text.Json;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
+using TarkovCompanion.Core.Domain.Items;
+using TarkovCompanion.Core.Domain.Recognition;
 using TarkovCompanion.Core.Domain.Recommendations;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
-public interface IScanUseCase
+public interface IRuntimeScanUseCase
 {
     Task<ScanExecutionResult> ExecuteAsync(CancellationToken cancellationToken);
 }
@@ -19,7 +21,7 @@ public interface IScanAdapter
 public sealed class ScanUseCase(
     IScanAdapter adapter,
     IRuntimeStateStore stateStore,
-    RaidActivityCoordinator raidActivityCoordinator) : IScanUseCase
+    RaidActivityCoordinator raidActivityCoordinator) : IRuntimeScanUseCase
 {
     public async Task<ScanExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
     {
@@ -44,6 +46,69 @@ public sealed class UnavailableScanAdapter(TimeProvider? timeProvider = null) : 
         return Task.FromResult(ScanExecutionResult.Unavailable(
             "Capture is disabled because no production OCR provider is configured.",
             _timeProvider.GetUtcNow()));
+    }
+}
+
+public sealed class RecognitionScanAdapter(
+    TarkovCompanion.Core.Abstractions.IScanUseCase recognitionScanUseCase) : IScanAdapter
+{
+    public async Task<ScanExecutionResult> ScanAsync(CancellationToken cancellationToken)
+    {
+        var outcome = await recognitionScanUseCase.ScanAsync(
+                new(new(
+                    "EscapeFromTarkov",
+                    Region: null,
+                    AllowDesktopFallback: false,
+                    Reason: "User-requested local OCR scan.")),
+                cancellationToken)
+            .ConfigureAwait(false);
+        var selected = outcome.Recognition.Selected;
+        var recommendation = outcome.Recommendation;
+        var succeeded = selected is not null;
+        var available = outcome.Status != ScanCompletionStatus.Unavailable;
+        var detail = outcome.Status switch
+        {
+            ScanCompletionStatus.Unavailable =>
+                $"Local OCR scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
+            _ when selected is not null && recommendation is null =>
+                $"Resolved {selected.DisplayName}; recommendation withheld because required item-context evidence was unavailable. No pixels were persisted.",
+            _ when selected is not null =>
+                $"Resolved {selected.DisplayName} from an in-memory local OCR scan; no pixels were persisted.",
+            _ =>
+                $"{outcome.Context} scan finished with {outcome.Status}; no item was auto-selected and no pixels were persisted.",
+        };
+
+        return new(
+            available,
+            succeeded,
+            selected?.CanonicalId,
+            selected?.DisplayName,
+            recommendation?.SelectedEconomicValue,
+            recommendation?.ValuePerSlot,
+            recommendation?.Action.ToString(),
+            selected?.Confidence ?? Confidence.Unknown,
+            outcome.ObservedUtc.ToUniversalTime(),
+            "local-ocr",
+            detail);
+    }
+}
+
+/// <summary>
+/// Item text alone does not establish found-in-raid state or the other context required
+/// for an economic recommendation. Returning no context keeps the recognition result
+/// useful without fabricating advice.
+/// </summary>
+public sealed class EvidenceRequiredScanRecommendationContextProvider : IScanRecommendationContextProvider
+{
+    public Task<RecommendationContext?> GetAsync(
+        ItemDefinition item,
+        RecognitionCandidate recognition,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(recognition);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<RecommendationContext?>(null);
     }
 }
 
