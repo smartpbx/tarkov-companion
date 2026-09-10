@@ -49,9 +49,12 @@ internal static class Program
                 options.DeveloperMode,
                 options.DiagnosticChannelPath,
                 services.GetRequiredService<IRuntimeScanUseCase>());
+            CrashLog.Write("lifecycle", "Desktop lifetime starting.");
             try
             {
-                return BuildAvaloniaApp(app).StartWithClassicDesktopLifetime(args);
+                var exitCode = BuildAvaloniaApp(app).StartWithClassicDesktopLifetime(args);
+                CrashLog.Write("lifecycle", $"Desktop lifetime returned {exitCode}.");
+                return exitCode;
             }
             finally
             {
@@ -103,12 +106,11 @@ internal static class Program
 
         try
         {
-            if (!teardown.Wait(ShutdownTimeout))
-            {
-                CrashLog.Write(
-                    "shutdown-timeout",
-                    $"Teardown did not finish within {ShutdownTimeout.TotalSeconds:0} seconds; exiting anyway.");
-            }
+            CrashLog.Write(
+                "lifecycle",
+                teardown.Wait(ShutdownTimeout)
+                    ? "Teardown finished."
+                    : $"Teardown did not finish within {ShutdownTimeout.TotalSeconds:0} seconds; exiting anyway.");
         }
         catch (AggregateException exception)
         {

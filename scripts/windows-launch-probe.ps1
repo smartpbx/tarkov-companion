@@ -118,9 +118,11 @@ $DataBefore = Measure-Directory -Path $LocalDataRoot
 $Process = $null
 $WindowTitle = $null
 $WindowSeconds = $null
+$WindowClosedAfterSeconds = $null
 $ExitCode = $null
 $GracefulClose = $false
 $ScreenGeometry = $null
+$Session = [ordered]@{}
 $Success = $false
 
 try {
@@ -203,14 +205,38 @@ try {
     }
 
     $GracefulClose = $Process.CloseMainWindow()
-    if (-not $Process.WaitForExit($ShutdownTimeoutSeconds * 1000)) {
+
+    # Track the window and the process separately. "The window closed but the process stayed"
+    # and "the window never closed" are different defects and need different fixes.
+    $ShutdownWatch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($ShutdownWatch.Elapsed.TotalSeconds -lt $ShutdownTimeoutSeconds) {
+        if ($Process.HasExited) {
+            break
+        }
+
+        $Process.Refresh()
+        if ($null -eq $WindowClosedAfterSeconds -and $Process.MainWindowHandle -eq [IntPtr]::Zero) {
+            $WindowClosedAfterSeconds = [Math]::Round($ShutdownWatch.Elapsed.TotalSeconds, 2)
+        }
+
+        Start-Sleep -Milliseconds 250
+    }
+
+    $ShutdownWatch.Stop()
+    $ShutdownSeconds = [Math]::Round($ShutdownWatch.Elapsed.TotalSeconds, 2)
+    Add-Observation -Name "window-closed" `
+        -Passed ($null -ne $WindowClosedAfterSeconds -or $Process.HasExited) `
+        -Detail "Main window handle released after $WindowClosedAfterSeconds second(s)." `
+        -Required:$false
+
+    if (-not $Process.HasExited) {
         Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
         $Process.WaitForExit(10000) | Out-Null
         Add-Observation -Name "clean-shutdown" -Passed $false -Detail "The window-close request did not end the process within $ShutdownTimeoutSeconds second(s)."
     }
     else {
         $ExitCode = $Process.ExitCode
-        Add-Observation -Name "clean-shutdown" -Passed ($ExitCode -eq 0) -Detail "Closing the window exited with code $ExitCode (graceful request accepted: $GracefulClose)."
+        Add-Observation -Name "clean-shutdown" -Passed ($ExitCode -eq 0) -Detail "Closing the window exited with code $ExitCode after $ShutdownSeconds second(s) (graceful request accepted: $GracefulClose)."
     }
 
     $Success = -not ($Observations | Where-Object { $_.required -and -not $_.passed })
@@ -262,6 +288,7 @@ finally {
         }
         shutdown = [ordered]@{
             gracefulRequestAccepted = $GracefulClose
+            windowClosedAfterSeconds = $WindowClosedAfterSeconds
             exitCode = $ExitCode
         }
         localData = [ordered]@{

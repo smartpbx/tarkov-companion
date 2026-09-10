@@ -108,9 +108,15 @@ public sealed class DataTranslationService
             return node;
         }
 
+        // A blank translation is missing data, not a real name. json.tarkov.dev currently
+        // maps one item's short name and thirty-one objective descriptions to "", and
+        // substituting those blanked a required persistence field, which aborted the entire
+        // item refresh and left the application with no item catalog at all. Keeping the
+        // untranslated value is always more useful than an empty string.
         return translations.TryGetPropertyValue(translationKey, out var translated) &&
             translated is JsonValue translatedValue &&
-            translatedValue.TryGetValue<string>(out var text)
+            translatedValue.TryGetValue<string>(out var text) &&
+            !string.IsNullOrWhiteSpace(text)
                 ? JsonValue.Create(text)
                 : node;
     }

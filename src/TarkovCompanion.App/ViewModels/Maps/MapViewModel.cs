@@ -67,6 +67,16 @@ public sealed record QuestMapRegionViewModel(
 
 public static class MapCanvasCoordinateMapper
 {
+    /// <summary>
+    /// How many upstream PNG tiles one view may stitch together.
+    /// </summary>
+    /// <remarks>
+    /// This was pinned at 16 here while the planner's own default is 64, so any map whose
+    /// upstream bounds need more than a four-by-four grid rendered nothing at all. Customs
+    /// needs twenty.
+    /// </remarks>
+    public const int MaximumTilesPerView = 64;
+
     public static Func<MapPoint, Point>? Create(
         MapRenderModel renderModel,
         double canvasWidth,
@@ -83,7 +93,7 @@ public static class MapCanvasCoordinateMapper
 
         if (renderModel.Background?.Kind == MapBackgroundKind.TileTemplate && variant.MinimumZoom is { } zoom)
         {
-            var plan = MapTilePlanner.Plan(variant, zoom, 16);
+            var plan = MapTilePlanner.Plan(variant, zoom, MaximumTilesPerView);
             if (plan.IsValid)
             {
                 var scale = Math.Pow(2, zoom);
@@ -735,7 +745,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private async Task LoadTilesAsync(MapVariant variant, CancellationToken cancellationToken)
     {
         var zoom = variant.MinimumZoom ?? 0;
-        var plan = MapTilePlanner.Plan(variant, zoom, 16);
+        var plan = MapTilePlanner.Plan(variant, zoom, MapCanvasCoordinateMapper.MaximumTilesPerView);
         if (!plan.IsValid)
         {
             Tiles = [];

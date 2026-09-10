@@ -31,6 +31,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         {
             var updatedUtc = item.Updated ?? observedUtc;
             var propertiesType = GetString(item.Properties, "propertiesType");
+            var shortName = ResolveShortName(item);
             await ExecuteAsync(
                 connection,
                 transaction,
@@ -72,9 +73,9 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 cancellationToken,
                 ("$id", item.Id),
                 ("$name", item.Name),
-                ("$shortName", item.ShortName),
+                ("$shortName", shortName),
                 ("$normalizedName", TextNormalizer.Normalize(item.Name)),
-                ("$normalizedShortName", TextNormalizer.Normalize(item.ShortName)),
+                ("$normalizedShortName", TextNormalizer.Normalize(shortName)),
                 ("$description", item.Description),
                 ("$categoryType", MapCategory(item.Types).ToString()),
                 ("$width", item.Width),
@@ -161,8 +162,8 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 cancellationToken,
                 ("$id", item.Id),
                 ("$name", item.Name),
-                ("$shortName", item.ShortName),
-                ("$terms", $"{TextNormalizer.Normalize(item.Name)} {TextNormalizer.Normalize(item.ShortName)}")).ConfigureAwait(false);
+                ("$shortName", shortName),
+                ("$terms", $"{TextNormalizer.Normalize(item.Name)} {TextNormalizer.Normalize(shortName)}")).ConfigureAwait(false);
 
             await ExecuteAsync(
                 connection,
@@ -225,7 +226,12 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             ("$sourceJson", JsonSerializer.Serialize(spawn, SerializerOptions))).ConfigureAwait(false);
                     }
 
-                    foreach (var extract in map.Extracts)
+                    // One upstream map can list the same extract id twice - the same exit
+                    // for two factions, or two positions for one exit. Those are genuinely
+                    // different rows, so the ordinal is part of the synthetic key. Without
+                    // it the second insert violated the primary key and rolled back every
+                    // map, spawn, extract and loot position in the refresh.
+                    foreach (var (extract, extractOrdinal) in map.Extracts.Select((value, ordinal) => (value, ordinal)))
                     {
                         await ExecuteAsync(
                             connection,
@@ -235,7 +241,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             VALUES ($id, $mapId, $name, $x, $y, $z, $conditions, $sourceJson);
                             """,
                             cancellationToken,
-                            ("$id", $"{map.Id}:{extract.Id}"),
+                            ("$id", $"{map.Id}:{extractOrdinal}:{extract.Id}"),
                             ("$mapId", map.Id),
                             ("$name", extract.Name),
                             ("$x", extract.Position?.X),
@@ -1066,12 +1072,23 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
             }
 
             if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Name) ||
-                string.IsNullOrWhiteSpace(item.ShortName) || item.Width <= 0 || item.Height <= 0)
+                item.Width <= 0 || item.Height <= 0)
             {
                 throw new InvalidDataException($"Item '{pair.Key}' is missing required normalized persistence fields.");
             }
         }
     }
+
+    /// <summary>
+    /// Returns the short name to persist, falling back to the full name when it is blank.
+    /// </summary>
+    /// <remarks>
+    /// One live item currently carries an empty short name. Rejecting the whole batch over a
+    /// single cosmetic field meant a working download produced an empty item catalog, so the
+    /// item is stored under its full name instead.
+    /// </remarks>
+    private static string ResolveShortName(TarkovDevItem item) =>
+        string.IsNullOrWhiteSpace(item.ShortName) ? item.Name : item.ShortName;
 
     private static string? GetString(JsonElement? element, string propertyName) =>
         element is { ValueKind: JsonValueKind.Object } value &&
