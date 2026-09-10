@@ -93,7 +93,7 @@
           <!-- The image and overlay canvas intentionally share the same explicit dimensions.
                Fill preserves the normalized full-canvas mapping tested by MapCanvasCoordinateMapper. -->
           <Image
-              Source="{Binding BackgroundImagePath}"
+              Source="{Binding BackgroundImage}"
               Width="{Binding CanvasWidth}"
               Height="{Binding CanvasHeight}"
               Stretch="Fill"
@@ -112,7 +112,7 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:MapTileViewModel">
                 <Image
-                    Source="{Binding LocalPath}"
+                    Source="{Binding Image}"
                     Width="{Binding Size}"
                     Height="{Binding Size}"
                     Stretch="Fill"

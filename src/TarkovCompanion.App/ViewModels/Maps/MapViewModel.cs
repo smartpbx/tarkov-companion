@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Collections;
+using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Application.Services.Maps;
@@ -12,7 +14,7 @@ using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
 
-public sealed record MapTileViewModel(string LocalPath, double Left, double Top, int Size);
+public sealed record MapTileViewModel(string LocalPath, Bitmap Image, double Left, double Top, int Size);
 
 public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted)
 {
@@ -172,7 +174,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapRenderModel? _renderModel;
     private MapCatalogProvenance? _mapCatalogProvenance;
     private QuestMapProjectionReadModel? _questProjection;
-    private string? _backgroundImagePath;
+    private Bitmap? _backgroundImage;
     private string _status = "Loading the tarkov.dev map catalog…";
     private string _questLayerStatus = "Quest layer is off. Enable it to show static active or pinned objectives.";
     private long _questRefreshGeneration;
@@ -254,9 +256,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _tiles;
         private set
         {
+            var replaced = _tiles;
             Set(ref _tiles, value);
             OnPropertyChanged(nameof(HasTiles));
             OnPropertyChanged(nameof(ShowsPlaceholder));
+            ReleaseLater(replaced.Select(tile => tile.Image));
         }
     }
 
@@ -296,14 +300,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _selectedFloor, value);
     }
 
-    public string? BackgroundImagePath
+    /// <summary>
+    /// The decoded map artwork.
+    /// </summary>
+    /// <remarks>
+    /// This has to be a decoded image rather than a path. Image.Source is an IImage, the
+    /// project compiles bindings, and there is no converter, so binding a file path here
+    /// silently rendered nothing at all: every downloaded tile and every rasterized SVG
+    /// reached the cache on disk and none of them ever reached the screen.
+    /// </remarks>
+    public Bitmap? BackgroundImage
     {
-        get => _backgroundImagePath;
+        get => _backgroundImage;
         private set
         {
-            Set(ref _backgroundImagePath, value);
+            var replaced = _backgroundImage;
+            Set(ref _backgroundImage, value);
             OnPropertyChanged(nameof(HasBackgroundImage));
             OnPropertyChanged(nameof(ShowsPlaceholder));
+            if (!ReferenceEquals(replaced, value) && replaced is not null)
+            {
+                ReleaseLater([replaced]);
+            }
         }
     }
 
@@ -364,7 +382,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasTiles => Tiles.Count > 0;
 
-    public bool HasBackgroundImage => !string.IsNullOrWhiteSpace(BackgroundImagePath);
+    public bool HasBackgroundImage => BackgroundImage is not null;
 
     public bool ShowsPlaceholder => !HasTiles && !HasBackgroundImage;
 
@@ -476,7 +494,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             if (floor.TilePath is not null)
             {
                 Tiles = [];
-                BackgroundImagePath = null;
+                BackgroundImage = null;
                 _renderModel = _renderModel with
                 {
                     Background = new(
@@ -492,13 +510,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 (string.Equals(floor.Id, "base", StringComparison.Ordinal) || floor.SvgLayer is not null))
             {
                 Tiles = [];
-                BackgroundImagePath = null;
+                BackgroundImage = null;
                 await LoadSvgFloorAsync(variant, floor, cancellationToken).ConfigureAwait(true);
             }
             else
             {
                 Tiles = [];
-                BackgroundImagePath = null;
+                BackgroundImage = null;
                 _renderModel = _renderModel with { Background = null };
                 Status = $"Floor '{floor.Name}' has no explicit upstream SVG layer or PNG tile asset.";
                 UpdateOverlayElements();
@@ -513,7 +531,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception)
         {
             Tiles = [];
-            BackgroundImagePath = null;
+            BackgroundImage = null;
             Status = $"Map floor unavailable: {exception.Message}";
             NotifyPresentationProperties();
         }
@@ -564,6 +582,64 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _selectionLoad?.Dispose();
         _lifetime.Dispose();
         _ownedHttpClient?.Dispose();
+
+        _backgroundImage?.Dispose();
+        _backgroundImage = null;
+        foreach (var tile in _tiles)
+        {
+            tile.Image.Dispose();
+        }
+
+        _tiles = [];
+    }
+
+    /// <summary>Decodes a cached image file off the UI thread.</summary>
+    private static async Task<Bitmap?> LoadBitmapAsync(string? path, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return await Task.Run(
+                () =>
+                {
+                    using var stream = File.OpenRead(path);
+                    return new Bitmap(stream);
+                },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or ArgumentException
+                                          or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Disposes replaced artwork once the current render pass has finished with it.
+    /// </summary>
+    private static void ReleaseLater(IEnumerable<Bitmap> images)
+    {
+        var retained = images.ToArray();
+        if (retained.Length == 0)
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                foreach (var image in retained)
+                {
+                    image.Dispose();
+                }
+            },
+            DispatcherPriority.Background);
     }
 
     private async Task LoadVariantAsync(MapVariant variant, bool persist)
@@ -589,7 +665,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Floors = variant.Floors;
             SelectedFloor = variant.Floors.FirstOrDefault(floor => floor.IsVisibleByDefault) ?? variant.Floors.FirstOrDefault();
             Tiles = [];
-            BackgroundImagePath = null;
+            BackgroundImage = null;
             CanvasWidth = 900;
             CanvasHeight = 620;
             ZoomScale = 1;
@@ -612,7 +688,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     cached.Asset?.LocalPath,
                     availability,
                     cached.Message);
-                BackgroundImagePath = cached.Asset?.RenderPath;
+                BackgroundImage = await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
                 Status = cached.Asset is not null
                     ? $"{cached.Message} SVG rendered from the retained original; floor groups remain separate from companion overlays."
                     : cached.Message ?? "Map artwork unavailable.";
@@ -652,7 +728,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                         cached.Message),
                 SelectedFloor = floor,
             };
-        BackgroundImagePath = cached.Asset?.RenderPath;
+        BackgroundImage = await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
         Status = cached.Asset is not null
             ? $"{cached.Message} SVG floor rendered from the retained original."
             : cached.Message ?? $"Floor '{floor.Name}' is unavailable.";
@@ -766,6 +842,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     .ConfigureAwait(false);
                 if (result.Asset is not null)
                 {
+                    var decoded = await LoadBitmapAsync(result.Asset.LocalPath, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (decoded is null)
+                    {
+                        return;
+                    }
+
                     if (result.Asset.Availability == MapAssetAvailability.CachedOffline)
                     {
                         Interlocked.Increment(ref offlineCount);
@@ -773,7 +856,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
                     lock (loaded)
                     {
-                        loaded.Add(new(result.Asset.LocalPath, tile.Left, tile.Top, tile.Size));
+                        loaded.Add(new(result.Asset.LocalPath, decoded, tile.Left, tile.Top, tile.Size));
                     }
                 }
             }
