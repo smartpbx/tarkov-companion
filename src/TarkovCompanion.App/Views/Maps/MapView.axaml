@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:TarkovCompanion.App.ViewModels.Maps"
     xmlns:maps="using:TarkovCompanion.Application.Services.Maps">
-  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+  <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="8">
     <Grid ColumnDefinitions="2*,2*,*,Auto" ColumnSpacing="8">
       <ComboBox
           x:Name="LocationChooser"
@@ -66,6 +66,7 @@
             <Button
                 Tag="{Binding Kind}"
                 Content="{Binding HighlightLabel}"
+                IsVisible="{Binding CanHighlight}"
                 Click="OverlayHighlightClick" />
           </StackPanel>
         </DataTemplate>
@@ -94,7 +95,7 @@
               Source="{Binding BackgroundImagePath}"
               Width="{Binding CanvasWidth}"
               Height="{Binding CanvasHeight}"
-              Stretch="Uniform"
+              Stretch="Fill"
               IsVisible="{Binding HasBackgroundImage}" />
 
           <ItemsControl
@@ -119,6 +120,54 @@
                     <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
                   </Image.RenderTransform>
                 </Image>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <ItemsControl
+              ItemsSource="{Binding QuestRegions}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:QuestMapRegionViewModel">
+                <Polygon
+                    Points="{Binding Points}"
+                    Fill="#3056B8C6"
+                    Stroke="#E6C6A15B"
+                    StrokeThickness="2"
+                    ToolTip.Tip="{Binding Label}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <ItemsControl
+              ItemsSource="{Binding QuestPoints}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:QuestMapPointViewModel">
+                <Border
+                    Width="14"
+                    Height="14"
+                    CornerRadius="7"
+                    Background="#E656B8C6"
+                    BorderBrush="#FFE6EDF2"
+                    BorderThickness="2"
+                    ToolTip.Tip="{Binding Label}">
+                  <Border.RenderTransform>
+                    <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                  </Border.RenderTransform>
+                </Border>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -173,5 +222,26 @@
       <Button Grid.Column="1" Click="AttributionClick" Content="{Binding AttributionText}" />
       <Button Grid.Column="2" Click="LicenseClick" Content="License" />
     </Grid>
+
+    <Expander Grid.Row="4" Header="{Binding QuestLayerStatus}" IsExpanded="False">
+      <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding QuestAssociations}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:QuestMapAssociationViewModel">
+              <Border Classes="inset" Padding="9,6" Margin="0,0,0,5">
+                <StackPanel Spacing="2">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
+                  <TextBlock Foreground="#C6A15B" IsVisible="{Binding IsUnsupported}" Text="Unsupported objective details" />
+                  <TextBlock Foreground="#71808C" IsVisible="{Binding IsFloorFiltered}" Text="Hidden by selected floor" />
+                  <TextBlock Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                  <TextBlock Classes="label" Text="{Binding Items}" TextWrapping="Wrap" />
+                  <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Expander>
   </Grid>
 </UserControl>

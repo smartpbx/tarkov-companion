@@ -18,7 +18,7 @@ public sealed class JsonFileMapVariantPreferenceStore(string settingsPath) : IMa
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var preferences = await ReadAsync(cancellationToken).ConfigureAwait(false);
+            var preferences = await ReadOrEmptyAsync(cancellationToken).ConfigureAwait(false);
             return preferences.GetValueOrDefault(locationId);
         }
         finally
@@ -34,13 +34,25 @@ public sealed class JsonFileMapVariantPreferenceStore(string settingsPath) : IMa
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var preferences = await ReadAsync(cancellationToken).ConfigureAwait(false);
+            var preferences = await ReadOrEmptyAsync(cancellationToken).ConfigureAwait(false);
             preferences[locationId] = variantKey;
             await WriteAsync(preferences, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private async Task<Dictionary<string, string>> ReadOrEmptyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is InvalidDataException or JsonException)
+        {
+            return new(StringComparer.OrdinalIgnoreCase);
         }
     }
 

@@ -115,6 +115,25 @@ public sealed class TarkovDevMapTests
     }
 
     [Fact]
+    public async Task CorruptMapDefaultsFallBackAndCanBeReplacedSafely()
+    {
+        using var directory = new TemporaryDirectory();
+        var settingsPath = Path.Combine(directory.Path, "map-defaults.json");
+        await File.WriteAllTextAsync(settingsPath, "{ definitely not valid json");
+        var location = CreateLocationWithAssets();
+        var service = new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath));
+
+        var fallback = await service.SelectAsync(location, CancellationToken.None);
+        var chosen = await service.ChooseAsync(location, "two-dimensional", CancellationToken.None);
+        var reloaded = await new MapVariantSelectionService(new JsonFileMapVariantPreferenceStore(settingsPath))
+            .SelectAsync(location, CancellationToken.None);
+
+        Assert.Equal("interactive", fallback?.Key);
+        Assert.Equal("two-dimensional", chosen.Key);
+        Assert.Equal(chosen, reloaded);
+    }
+
+    [Fact]
     public void PresentationKeepsOverlayLayersIndependentAndShowsAttribution()
     {
         var location = ParseFixture().Locations[0];
@@ -129,6 +148,7 @@ public sealed class TarkovDevMapTests
         Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.RiskAndTraffic).IsVisible);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Extracts).IsHighlighted);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Labels).IsVisible);
+        Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.QuestObjectives).IsVisible);
         Assert.Equal("Fixture Warehouse", Assert.Single(changed.VisibleOverlayElements).Label);
         Assert.Empty(changed.SetLayerVisibility(MapOverlayKind.Labels, false).VisibleOverlayElements);
         Assert.Contains("Synthetic Fixture Authors", changed.AttributionText, StringComparison.Ordinal);

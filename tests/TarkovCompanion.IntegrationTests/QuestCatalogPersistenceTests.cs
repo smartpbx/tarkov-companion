@@ -51,6 +51,10 @@ public sealed class QuestCatalogPersistenceTests
         Assert.Equal(3, zone.Outline.Count);
         Assert.Contains("futureGeometryField", zone.RawSourceJson, StringComparison.Ordinal);
 
+        var questItem = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.FindQuestItem);
+        Assert.Equal(2, questItem.Zones.Count);
+        Assert.Equal(["map-one", "map-two"], questItem.Zones.Select(value => value.MapId));
+
         var itemObjective = Assert.Single(task.Objectives, objective => objective.Kind == QuestObjectiveKind.FindItem);
         Assert.Equal(2, itemObjective.ItemTargets.Count);
         Assert.All(itemObjective.ItemTargets, target => Assert.Equal(3, target.TargetCount));

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
@@ -131,6 +132,7 @@ public static class AppComposition
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         services.AddSingleton<MapVariantSelectionService>();
+        services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
 
         services.AddSingleton<IPlayerProfileService, JsonFilePlayerProfileService>();
@@ -140,6 +142,7 @@ public static class AppComposition
             provider.GetRequiredService<QuestProgressCommandService>());
         services.AddSingleton<QuestReadService>();
         services.AddSingleton<IQuestReadService>(provider => provider.GetRequiredService<QuestReadService>());
+        services.AddSingleton<QuestsPageViewModel>();
         services.AddSingleton<ProfileNeedAggregationService>();
         services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
         services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();

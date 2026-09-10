@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
@@ -160,11 +161,6 @@ public sealed class FleaPageViewModel() : ServicePageViewModel(
     "Flea",
     "Cached price context for deliberate between-raid decisions",
     "Select an item through search to view its current cached price; no watchlist is loaded.");
-
-public sealed class QuestsPageViewModel() : ServicePageViewModel(
-    "Quests",
-    "Manual profile progress that can affect item decisions",
-    "Quest progress editing is not connected to this runtime view.");
 
 public sealed class HideoutPageViewModel() : ServicePageViewModel(
     "Hideout",
@@ -620,6 +616,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         AppDataPaths paths,
         AppCommandLine commandLine,
         MapViewModel map,
+        QuestsPageViewModel quests,
         TimeProvider timeProvider,
         ILogger<MainWindowViewModel> logger)
     {
@@ -638,6 +635,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Raid = new(map);
         Scanner = new(scanUseCase);
         Items = new(itemSearchService, itemRepository);
+        Quests = quests;
         History = new(raidHistoryService);
         Settings = new(startupCoordinator, options, paths, commandLine);
         ServicePages =
@@ -645,7 +643,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             new AmmoPageViewModel(),
             new KeysPageViewModel(),
             new FleaPageViewModel(),
-            new QuestsPageViewModel(),
             new HideoutPageViewModel(),
             new EventsPageViewModel(),
             new LoadoutPageViewModel(),
@@ -659,10 +656,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             CreateNavigation("Ammo", "◉", ServicePages[0]),
             CreateNavigation("Keys", "⌑", ServicePages[1]),
             CreateNavigation("Flea", "₽", ServicePages[2]),
-            CreateNavigation("Quests", "✓", ServicePages[3]),
-            CreateNavigation("Hideout", "⌂", ServicePages[4]),
-            CreateNavigation("Events", "⚑", ServicePages[5]),
-            CreateNavigation("Loadout", "▦", ServicePages[6]),
+            CreateNavigation("Quests", "✓", Quests),
+            CreateNavigation("Hideout", "⌂", ServicePages[3]),
+            CreateNavigation("Events", "⚑", ServicePages[4]),
+            CreateNavigation("Loadout", "▦", ServicePages[5]),
             CreateNavigation("History", "◷", History),
             CreateNavigation("Settings", "⚙", Settings),
         ];
@@ -698,6 +695,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public ScannerPageViewModel Scanner { get; }
 
     public ItemsPageViewModel Items { get; }
+
+    public QuestsPageViewModel Quests { get; }
 
     public HistoryPageViewModel History { get; }
 
@@ -749,6 +748,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 .ConfigureAwait(true);
             ApplySnapshot(_stateStore.Current);
             await Items.InitializeAsync(cancellationToken).ConfigureAwait(true);
+            await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await History.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
             _initialized = true;
@@ -834,6 +834,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Raid.Apply(snapshot, now);
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
+        Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
         foreach (var page in ServicePages)
         {

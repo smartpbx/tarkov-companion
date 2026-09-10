@@ -83,6 +83,14 @@ public sealed class QuestProgressPersistenceTests
         Assert.True(task.IsPinned);
         Assert.Equal(RecordedObjectivesSatisfaction.Indeterminate, task.RecordedObjectivesSatisfied);
 
+        var mapObjectives = await read.GetActiveMapObjectivesAsync(
+            reloadedScope,
+            ["map-one"],
+            CancellationToken.None);
+        Assert.Contains(mapObjectives.Objectives, value => value.ObjectiveId == "objective-mark");
+        Assert.All(mapObjectives.Objectives, value => Assert.Equal(RecordedTaskState.Active, value.TaskState));
+        Assert.Equal("regular", mapObjectives.CatalogProvenance?.SourceMode);
+
         var needs = await read.GetItemNeedsAsync(reloadedScope, "item-a", CancellationToken.None);
         var need = Assert.Single(needs.Requirements, value => value.ObjectiveId == "objective-find-item");
         Assert.Equal(2, need.RemainingCount);

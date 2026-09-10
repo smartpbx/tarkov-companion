@@ -4,6 +4,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:TarkovCompanion.App.ViewModels"
+    xmlns:questVm="using:TarkovCompanion.App.ViewModels.Quests"
     xmlns:pages="using:TarkovCompanion.App.Views.Pages"
     Title="Tarkov Companion"
     Width="1500"
@@ -33,7 +34,7 @@
     <DataTemplate DataType="{x:Type vm:FleaPageViewModel}">
       <pages:FleaView />
     </DataTemplate>
-    <DataTemplate DataType="{x:Type vm:QuestsPageViewModel}">
+    <DataTemplate DataType="{x:Type questVm:QuestsPageViewModel}">
       <pages:QuestsView />
     </DataTemplate>
     <DataTemplate DataType="{x:Type vm:HideoutPageViewModel}">

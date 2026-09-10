@@ -135,7 +135,7 @@ public sealed class TarkovDevQuestCatalogNormalizer
                 (objective.Status ?? []).ToArray(),
                 NormalizeItemTargets(objective),
                 NormalizeMapAssociations(objective),
-                NormalizeZones(objective.Zones ?? [], rawJson),
+                NormalizeZones(objective.Zones ?? [], objective.PossibleLocations ?? [], rawJson),
                 SubtypeJson(rawJson),
                 rawJson));
         }
@@ -225,6 +225,7 @@ public sealed class TarkovDevQuestCatalogNormalizer
 
     private static IReadOnlyList<QuestObjectiveZone> NormalizeZones(
         IReadOnlyList<TarkovDevObjectiveZone> zones,
+        IReadOnlyList<TarkovDevPossibleLocation> possibleLocations,
         string rawObjectiveJson)
     {
         var rawZones = ReadRawArray(rawObjectiveJson, "zones");
@@ -244,6 +245,33 @@ public sealed class TarkovDevQuestCatalogNormalizer
                 Size(zone.Size),
                 zone.Name,
                 RawAt(rawZones, index, zone)));
+        }
+
+        var sourceOrdinal = zones.Count;
+        for (var locationIndex = 0; locationIndex < possibleLocations.Count; locationIndex++)
+        {
+            var possibleLocation = possibleLocations[locationIndex];
+            for (var positionIndex = 0; positionIndex < possibleLocation.Positions.Count; positionIndex++)
+            {
+                var position = Position(possibleLocation.Positions[positionIndex]);
+                if (position is null)
+                {
+                    continue;
+                }
+
+                normalized.Add(new(
+                    sourceOrdinal++,
+                    $"possible-location-{locationIndex}-{positionIndex}",
+                    possibleLocation.Map,
+                    position,
+                    [],
+                    null,
+                    null,
+                    null,
+                    null,
+                    "Possible location",
+                    rawObjectiveJson));
+            }
         }
 
         return normalized;
