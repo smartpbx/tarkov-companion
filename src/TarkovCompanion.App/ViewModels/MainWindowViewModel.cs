@@ -7,7 +7,9 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -515,20 +517,27 @@ public sealed class HistoryPageViewModel : PageViewModel
 public sealed class SettingsPageViewModel : PageViewModel
 {
     private readonly ApplicationStartupCoordinator _startupCoordinator;
+    private readonly ScanHotkeyService _hotkeys;
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
+    private HotkeyBinding _pendingHotkey = HotkeyBinding.DefaultScan;
+    private string _hotkeyStatus = "The scan shortcut has not been applied yet.";
+    private bool _isRecordingHotkey;
 
     public SettingsPageViewModel(
         ApplicationStartupCoordinator startupCoordinator,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,
-        IOcrEngineStatus ocrStatus)
+        IOcrEngineStatus ocrStatus,
+        ScanHotkeyService hotkeys)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
+        ArgumentNullException.ThrowIfNull(hotkeys);
         _startupCoordinator = startupCoordinator;
+        _hotkeys = hotkeys;
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
         // reads very differently from an unsupported architecture - but until now only the
         // headless self-test ever read that reason, so the user saw a bare "Unavailable".
@@ -541,6 +550,8 @@ public sealed class SettingsPageViewModel : PageViewModel
             ? "Requested; token validation occurs before the channel starts."
             : "Disabled (developer mode and an explicit path are required).";
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
+        ApplyHotkeyCommand = new AsyncDelegateCommand(ApplyHotkeyAsync);
+        ResetHotkeyCommand = new AsyncDelegateCommand(ResetHotkeyAsync);
     }
 
     public bool IsOffline { get; }
@@ -552,6 +563,68 @@ public sealed class SettingsPageViewModel : PageViewModel
     public string DiagnosticChannel { get; }
 
     public AsyncDelegateCommand SyncCommand { get; }
+
+    public AsyncDelegateCommand ApplyHotkeyCommand { get; }
+
+    public AsyncDelegateCommand ResetHotkeyCommand { get; }
+
+    /// <summary>The shortcut shown in the editor, which may not be the active one yet.</summary>
+    public HotkeyBinding PendingHotkey
+    {
+        get => _pendingHotkey;
+        private set
+        {
+            if (SetProperty(ref _pendingHotkey, value))
+            {
+                OnPropertyChanged(nameof(PendingHotkeyDisplay));
+            }
+        }
+    }
+
+    public string PendingHotkeyDisplay => PendingHotkey.DisplayName;
+
+    public string HotkeyStatus
+    {
+        get => _hotkeyStatus;
+        private set => SetProperty(ref _hotkeyStatus, value);
+    }
+
+    public bool IsRecordingHotkey
+    {
+        get => _isRecordingHotkey;
+        private set
+        {
+            if (SetProperty(ref _isRecordingHotkey, value))
+            {
+                OnPropertyChanged(nameof(RecordHotkeyLabel));
+            }
+        }
+    }
+
+    public string RecordHotkeyLabel => IsRecordingHotkey ? "Press a combination…" : "Record shortcut";
+
+    /// <summary>Registers the stored shortcut and reports the outcome.</summary>
+    public async Task InitializeHotkeyAsync(CancellationToken cancellationToken)
+    {
+        var state = await _hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(true);
+        PendingHotkey = state.Binding;
+        HotkeyStatus = state.Detail;
+    }
+
+    public void BeginRecordingHotkey() => IsRecordingHotkey = true;
+
+    public void CancelRecordingHotkey() => IsRecordingHotkey = false;
+
+    /// <summary>Accepts a combination captured from the keyboard.</summary>
+    public void RecordHotkey(HotkeyBinding binding)
+    {
+        ArgumentNullException.ThrowIfNull(binding);
+        IsRecordingHotkey = false;
+        PendingHotkey = binding;
+        HotkeyStatus = binding.IsValid(out var reason)
+            ? $"{binding.DisplayName} is ready. Choose Apply to start using it."
+            : reason;
+    }
 
     public string DataStatus
     {
@@ -583,6 +656,19 @@ public sealed class SettingsPageViewModel : PageViewModel
         Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
     }
 
+    public async Task ApplyHotkeyAsync()
+    {
+        var state = await _hotkeys.ApplyAsync(PendingHotkey, persist: true, CancellationToken.None)
+            .ConfigureAwait(true);
+        HotkeyStatus = state.Detail;
+    }
+
+    public async Task ResetHotkeyAsync()
+    {
+        PendingHotkey = HotkeyBinding.DefaultScan;
+        await ApplyHotkeyAsync().ConfigureAwait(true);
+    }
+
     public async Task SyncAsync()
     {
         try
@@ -604,6 +690,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly SynchronizationContext? _synchronizationContext;
+    private readonly ScanHotkeyService _hotkeys;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
     private IReadOnlyList<StatusChip> _status = [];
@@ -623,6 +710,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
+        ScanHotkeyService hotkeys,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,
@@ -633,6 +721,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     {
         _stateStore = stateStore;
         _startupCoordinator = startupCoordinator;
+        _hotkeys = hotkeys;
         _options = options;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -648,7 +737,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
         History = new(raidHistoryService);
-        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus);
+        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys);
+        _hotkeys.Triggered += ScanHotkeyPressed;
         ServicePages =
         [
             new AmmoPageViewModel(),
@@ -762,6 +852,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await History.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
+            await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
             await Map.InitializeAsync().ConfigureAwait(true);
         }
@@ -805,7 +896,47 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         _disposed = true;
         _stateStore.Changed -= RuntimeStateChanged;
+        _hotkeys.Triggered -= ScanHotkeyPressed;
         _initializationLock.Dispose();
+    }
+
+    /// <summary>
+    /// Runs a scan from the global shortcut.
+    /// </summary>
+    /// <remarks>
+    /// The event arrives on the hotkey service's own message-pump thread, so the work is
+    /// posted to the UI thread. The whole point of the shortcut is that the player is still
+    /// in the game, so this also brings the Scanner page forward on the second monitor
+    /// without anyone having to alt-tab and click.
+    /// </remarks>
+    private void ScanHotkeyPressed(object? sender, EventArgs arguments)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_synchronizationContext is null)
+        {
+            RunScanFromHotkey();
+            return;
+        }
+
+        _synchronizationContext.Post(_ => RunScanFromHotkey(), null);
+    }
+
+    private void RunScanFromHotkey()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        Navigate("Scanner");
+        if (Scanner.ScanCommand.CanExecute(null))
+        {
+            Scanner.ScanCommand.Execute(null);
+        }
     }
 
     private NavigationItem CreateNavigation(string name, string glyph, PageViewModel page) =>

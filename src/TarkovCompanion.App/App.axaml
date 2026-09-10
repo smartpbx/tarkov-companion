@@ -35,5 +35,31 @@
       <Setter Property="FontSize" Value="20" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
+    <Style Selector="TextBlock.sectionTitle">
+      <Setter Property="Foreground" Value="#E4EAEE" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- Accent classes encode which kind of information a panel carries, following the
+         tokens in docs/DESIGN_SYSTEM.md: cyan for position and navigation, ochre for
+         economy and value. -->
+    <Style Selector="Border.panel.cyan">
+      <Setter Property="BorderBrush" Value="#2F5E68" />
+    </Style>
+    <Style Selector="Border.panel.ochre">
+      <Setter Property="BorderBrush" Value="#6A5731" />
+    </Style>
+    <Style Selector="Border.readout">
+      <Setter Property="Background" Value="#11151B" />
+      <Setter Property="BorderBrush" Value="#303B47" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="3" />
+    </Style>
+    <Style Selector="TextBlock.hotkey">
+      <Setter Property="Foreground" Value="#C6A15B" />
+      <Setter Property="FontSize" Value="18" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace" />
+    </Style>
   </Application.Styles>
 </Application>

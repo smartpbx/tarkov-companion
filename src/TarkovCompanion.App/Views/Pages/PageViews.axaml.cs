@@ -57,8 +57,3 @@ public sealed partial class HistoryView : UserControl
 {
     public HistoryView() => AvaloniaXamlLoader.Load(this);
 }
-
-public sealed partial class SettingsView : UserControl
-{
-    public SettingsView() => AvaloniaXamlLoader.Load(this);
-}

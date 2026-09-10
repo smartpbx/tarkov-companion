@@ -1,6 +1,7 @@
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
+using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
@@ -312,6 +313,14 @@ public interface IIconMatcher
 public interface IScreenCaptureService
 {
     Task<CapturedImage> CaptureAsync(CaptureRequest request, CancellationToken cancellationToken);
+}
+
+/// <summary>Reads and writes the user's chosen global shortcut.</summary>
+public interface IHotkeySettingsStore
+{
+    Task<HotkeyBinding> GetScanBindingAsync(CancellationToken cancellationToken);
+
+    Task SaveScanBindingAsync(HotkeyBinding binding, CancellationToken cancellationToken);
 }
 
 public interface IGlobalHotkeyService : IAsyncDisposable

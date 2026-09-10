@@ -6,6 +6,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
+using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
@@ -26,6 +27,7 @@ using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.Recognition;
+using TarkovCompanion.Infrastructure.Settings;
 using TarkovCompanion.Infrastructure.Security;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 using TarkovCompanion.Infrastructure.TarkovTracker;
@@ -169,6 +171,9 @@ public static class AppComposition
         services.AddSingleton<TarkovDevMapAssetCache>();
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
+        services.AddSingleton<IHotkeySettingsStore>(_ =>
+            new JsonFileHotkeySettingsStore(Path.Combine(paths.Config, "hotkeys.json")));
+        services.AddSingleton<ScanHotkeyService>();
         services.AddSingleton<MapVariantSelectionService>();
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
@@ -262,6 +267,11 @@ public static class AppComposition
             services.AddSingleton<RecognitionScanUseCase>();
             services.AddSingleton<RecognitionScanContract>(provider =>
                 provider.GetRequiredService<RecognitionScanUseCase>());
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<IGlobalHotkeyService, UnavailableGlobalHotkeyService>();
         }
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
