@@ -96,7 +96,20 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 null,
                 [],
                 false),
-            ScanExecutionResult.Unavailable("No OCR-backed scan provider is configured.", now));
+            options.DemoMode
+                ? new(
+                    true,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Confidence.Unknown,
+                    now,
+                    "demo-fixture",
+                    "Deterministic demo scan fixture is ready; no live game pixels are used.")
+                : ScanExecutionResult.Unavailable("No OCR-backed scan provider is configured.", now));
     }
 
     public event EventHandler? Changed;

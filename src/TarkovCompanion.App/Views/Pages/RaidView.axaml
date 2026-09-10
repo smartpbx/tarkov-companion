@@ -9,67 +9,38 @@
 
     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="10">
-        <Border Classes="panel sage" Padding="14">
-          <StackPanel Spacing="9">
-            <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="sectionTitle" Text="Active extracts" />
-              <TextBlock Grid.Column="1" Classes="sage" FontSize="12" Text="2 observed" />
-            </Grid>
-            <Grid ColumnDefinitions="*,Auto">
-              <StackPanel>
-                <TextBlock FontWeight="SemiBold" Text="Crossroads" />
-                <TextBlock Classes="label" Text="Screenshot + raid reference" />
-              </StackPanel>
-              <TextBlock Grid.Column="1" Classes="sage" FontWeight="SemiBold" Text="98%" />
-            </Grid>
-            <Grid ColumnDefinitions="*,Auto">
-              <StackPanel>
-                <TextBlock FontWeight="SemiBold" Text="ZB-1011" />
-                <TextBlock Classes="label" Text="OCR evidence" />
-              </StackPanel>
-              <TextBlock Grid.Column="1" Classes="sage" FontWeight="SemiBold" Text="94%" />
-            </Grid>
-            <TextBlock Classes="label" TextWrapping="Wrap" Text="Only observed or manually selected extracts are marked active." />
-            <Button Classes="tool" HorizontalAlignment="Left" Content="Review extract evidence" />
-          </StackPanel>
-        </Border>
-
-        <Border Classes="panel coral" Padding="14">
-          <StackPanel Spacing="8">
-            <TextBlock Classes="sectionTitle" Text="Strategy" />
-            <Grid ColumnDefinitions="*,Auto">
-              <StackPanel>
-                <TextBlock Classes="label" Text="Current-area risk" />
-                <TextBlock Classes="metric coral" Text="High" />
-              </StackPanel>
-              <Border Grid.Column="1" Classes="inset coral" Padding="8,5" VerticalAlignment="Top">
-                <TextBlock Classes="coral" FontSize="12" Text="Prediction" />
-              </Border>
-            </Grid>
-            <TextBlock TextWrapping="Wrap" LineHeight="20" Text="Early contact is plausible from northwest spawn lanes. Avoid the central crossing for the next 2–4 minutes." />
-            <TextBlock Classes="label" TextWrapping="Wrap" Text="Based on map and game knowledge, not live player data." />
-          </StackPanel>
-        </Border>
-
         <Border Classes="panel cyan" Padding="14">
-          <StackPanel Spacing="9">
-            <TextBlock Classes="sectionTitle" Text="Route status" />
-            <ComboBox SelectedIndex="0">
-              <ComboBoxItem Content="Safest" />
-              <ComboBoxItem Content="Fastest" />
-              <ComboBoxItem Content="Quest-focused" />
-              <ComboBoxItem Content="Loot-focused" />
-              <ComboBoxItem Content="Avoid PvP" />
-            </ComboBox>
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
-              <TextBlock Classes="cyan" FontSize="18" Text="●" />
-              <StackPanel Grid.Column="1">
-                <TextBlock FontWeight="SemiBold" Text="Train Yard → Crossroads" />
-                <TextBlock Classes="label" Text="1.3 km · about 7 min" />
-              </StackPanel>
-            </Grid>
-            <TextBlock Classes="label" TextWrapping="Wrap" Text="Guidance is limited until a validated navigation graph is loaded." />
-            <Button Classes="primary" HorizontalAlignment="Stretch" Content="Recalculate from last-known position" />
+          <StackPanel Spacing="7">
+            <TextBlock Classes="sectionTitle" Text="Raid state" />
+            <TextBlock Text="{Binding RaidState}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="panel" Padding="14">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="sectionTitle" Text="Last-known position" />
+            <TextBlock Text="{Binding Position}" TextWrapping="Wrap" />
+            <TextBlock Classes="label"
+                       Text="Position is historical screenshot evidence, never live player tracking."
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="panel sage" Padding="14">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="sectionTitle" Text="Observed extracts" />
+            <TextBlock Text="{Binding Extracts}" TextWrapping="Wrap" />
+            <TextBlock Classes="label"
+                       Text="Only externally observed or manually selected extracts may be presented as active."
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Classes="panel coral" Padding="14">
+          <StackPanel Spacing="7">
+            <TextBlock Classes="sectionTitle" Text="Strategy and routes" />
+            <TextBlock Text="Unavailable until a validated service-backed route graph is loaded." TextWrapping="Wrap" />
+            <TextBlock Classes="label"
+                       Text="No enemy, traffic, or live-player detection is performed."
+                       TextWrapping="Wrap" />
           </StackPanel>
         </Border>
       </StackPanel>

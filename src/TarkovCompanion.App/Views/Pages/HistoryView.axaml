@@ -4,39 +4,41 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Grid ColumnDefinitions="*,Auto"><StackPanel Orientation="Horizontal" Spacing="8"><ComboBox Width="145" SelectedIndex="0"><ComboBoxItem Content="All maps" /><ComboBoxItem Content="Customs" /><ComboBoxItem Content="Woods" /></ComboBox><ComboBox Width="145" SelectedIndex="0"><ComboBoxItem Content="All outcomes" /><ComboBoxItem Content="Extracted" /><ComboBoxItem Content="Lost" /></ComboBox><TextBox Width="220" PlaceholderText="Search notes" /></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><Button Classes="tool" Content="Export CSV" /><Button Classes="tool" Content="Export JSON" /></StackPanel></Grid>
-    <Grid Grid.Row="1" ColumnDefinitions="0.9*,1.1*" ColumnSpacing="12">
-      <Border Classes="panel" Padding="14">
-        <Grid RowDefinitions="Auto,*" RowSpacing="12">
-          <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="sectionTitle" Text="Recent raids" /><TextBlock Grid.Column="1" Classes="label" Text="Local only · 4 entries" /></Grid>
-          <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="8">
-              <Border Classes="inset cyan" Padding="12"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="3"><TextBlock FontWeight="SemiBold" Text="Customs · 22 minutes ago" /><TextBlock Classes="label" Text="31m 08s · PMC · fixture replay" /><TextBlock Text="Crossroads extract · 7 item observations" /></StackPanel><StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Classes="sage" FontWeight="SemiBold" Text="Extracted" /><TextBlock Classes="ochre" Text="642,180 ₽" /></StackPanel></Grid></Border>
-              <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="3"><TextBlock FontWeight="SemiBold" Text="Woods · yesterday" /><TextBlock Classes="label" Text="18m 42s · PMC · local history" /><TextBlock Text="Outskirts extract · 3 item observations" /></StackPanel><StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Classes="sage" Text="Extracted" /><TextBlock Classes="ochre" Text="284,600 ₽" /></StackPanel></Grid></Border>
-              <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="3"><TextBlock FontWeight="SemiBold" Text="Interchange · yesterday" /><TextBlock Classes="label" Text="11m 26s · PMC · local history" /><TextBlock Text="Last evidence: OLI offices" /></StackPanel><StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Classes="coral" Text="Lost" /><TextBlock Classes="label" Text="Outcome noted" /></StackPanel></Grid></Border>
-              <Border Classes="inset" Padding="12"><Grid ColumnDefinitions="*,Auto"><StackPanel Spacing="3"><TextBlock FontWeight="SemiBold" Text="Factory · 2 days ago" /><TextBlock Classes="label" Text="07m 14s · Scav · local history" /><TextBlock Text="Gate 3 extract · no scans" /></StackPanel><StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Classes="sage" Text="Extracted" /><TextBlock Classes="ochre" Text="118,900 ₽" /></StackPanel></Grid></Border>
-              <Border Classes="inset" Padding="14"><StackPanel HorizontalAlignment="Center" Spacing="5"><TextBlock FontWeight="SemiBold" HorizontalAlignment="Center" Text="No older local raids" /><TextBlock Classes="label" Text="History begins when raid evidence is first observed." /></StackPanel></Border>
-            </StackPanel>
-          </ScrollViewer>
-        </Grid>
-      </Border>
-
-      <Border Grid.Column="1" Classes="panel cyan" Padding="15">
-        <Grid RowDefinitions="Auto,Auto,1,*" RowSpacing="13">
-          <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Customs evidence timeline" /><TextBlock Classes="label" Text="2026-09-09 · all times shown locally" /></StackPanel><Border Grid.Column="1" Classes="inset sage" Padding="9,5"><TextBlock Classes="sage" Text="Extracted" /></Border></Grid>
-          <Grid Grid.Row="1" ColumnDefinitions="*,*,*" ColumnSpacing="9"><Border Classes="inset" Padding="10"><StackPanel><TextBlock Classes="label" Text="Duration" /><TextBlock Classes="value" Text="31m 08s" /></StackPanel></Border><Border Grid.Column="1" Classes="inset" Padding="10"><StackPanel><TextBlock Classes="label" Text="Observed value" /><TextBlock Classes="value ochre" Text="642,180 ₽" /></StackPanel></Border><Border Grid.Column="2" Classes="inset" Padding="10"><StackPanel><TextBlock Classes="label" Text="Position updates" /><TextBlock Classes="value cyan" Text="3" /></StackPanel></Border></Grid>
-          <Border Grid.Row="2" Background="#303B47" />
-          <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled">
-            <Grid ColumnDefinitions="74,24,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="0">
-              <TextBlock Classes="label" Text="21:11:04" Margin="0,8" /><Grid Grid.Column="1"><Border Width="2" Background="#43515E" /><Ellipse Width="10" Height="10" Fill="#77B895" /></Grid><Border Grid.Column="2" Classes="inset" Padding="11" Margin="8,0,0,8"><StackPanel><TextBlock FontWeight="SemiBold" Text="Raid started" /><TextBlock Classes="label" Text="Log evidence · high confidence" /></StackPanel></Border>
-              <TextBlock Grid.Row="1" Classes="label" Text="21:16:31" Margin="0,8" /><Grid Grid.Row="1" Grid.Column="1"><Border Width="2" Background="#43515E" /><Ellipse Width="10" Height="10" Fill="#56B8C6" /></Grid><Border Grid.Row="1" Grid.Column="2" Classes="inset" Padding="11" Margin="8,0,0,8"><StackPanel><TextBlock FontWeight="SemiBold" Text="Position · Old Gas Station" /><TextBlock Classes="label" Text="Screenshot filename · 97% confidence" /></StackPanel></Border>
-              <TextBlock Grid.Row="2" Classes="label" Text="21:24:48" Margin="0,8" /><Grid Grid.Row="2" Grid.Column="1"><Border Width="2" Background="#43515E" /><Ellipse Width="10" Height="10" Fill="#C6A15B" /></Grid><Border Grid.Row="2" Grid.Column="2" Classes="inset" Padding="11" Margin="8,0,0,8"><StackPanel><TextBlock FontWeight="SemiBold" Text="Scanned · Graphics Card" /><TextBlock Classes="label" Text="96% confidence · advised Keep" /></StackPanel></Border>
-              <TextBlock Grid.Row="3" Classes="label" Text="21:31:09" Margin="0,8" /><Grid Grid.Row="3" Grid.Column="1"><Border Width="2" Background="#43515E" /><Ellipse Width="10" Height="10" Fill="#56B8C6" /></Grid><Border Grid.Row="3" Grid.Column="2" Classes="inset" Padding="11" Margin="8,0,0,8"><StackPanel><TextBlock FontWeight="SemiBold" Text="Extracts observed" /><TextBlock Classes="label" Text="Crossroads + ZB-1011 · OCR evidence" /></StackPanel></Border>
-              <TextBlock Grid.Row="4" Classes="label" Text="21:42:12" Margin="0,8" /><Grid Grid.Row="4" Grid.Column="1"><Border Width="2" Background="#43515E" /><Ellipse Width="10" Height="10" Fill="#77B895" /></Grid><Border Grid.Row="4" Grid.Column="2" Classes="inset sage" Padding="11" Margin="8,0,0,0"><StackPanel><TextBlock FontWeight="SemiBold" Text="Extracted · Crossroads" /><TextBlock Classes="label" Text="Manual outcome · confirmed" /></StackPanel></Border>
-            </Grid>
-          </ScrollViewer>
-        </Grid>
-      </Border>
+    <Grid ColumnDefinitions="*,Auto">
+      <TextBlock VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" />
+      <Button Grid.Column="1" Classes="tool" Command="{Binding RefreshCommand}" Content="Reload local history" />
     </Grid>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <ItemsControl ItemsSource="{Binding Entries}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:RaidHistoryEntryViewModel">
+            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
+              <Grid ColumnDefinitions="1.2*,1.1*,1.1*,1.1*,1.2*" ColumnSpacing="12">
+                <StackPanel>
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Map}" />
+                  <TextBlock Classes="label" Text="{Binding Mode}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                  <TextBlock Classes="label" Text="Started" />
+                  <TextBlock Text="{Binding Started}" />
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Classes="label" Text="Ended" />
+                  <TextBlock Text="{Binding Ended}" />
+                </StackPanel>
+                <StackPanel Grid.Column="3">
+                  <TextBlock Classes="label" Text="Outcome" />
+                  <TextBlock Text="{Binding Outcome}" />
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                  <TextBlock Classes="label" Text="Notes" />
+                  <TextBlock Text="{Binding Notes}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
   </Grid>
 </UserControl>

@@ -1,41 +1,11 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.FleaView"
-             x:DataType="vm:FleaPageViewModel"
-             xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.FleaView" x:DataType="vm:FleaPageViewModel"
+             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Grid ColumnDefinitions="*,318" ColumnSpacing="12">
-    <Border Classes="panel" Padding="16">
-      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="14">
-        <Grid ColumnDefinitions="*,Auto"><StackPanel><TextBlock Classes="sectionTitle" Text="Watchlist" /><TextBlock Classes="label" Text="Reference pricing for between-raid decisions" /></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><TextBox Width="220" PlaceholderText="Add item" /><Button Classes="tool" Content="Add" /></StackPanel></Grid>
-        <Grid Grid.Row="1" ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*" Margin="10,0"><TextBlock Classes="label" Text="Item" /><TextBlock Grid.Column="1" Classes="label" Text="Now" /><TextBlock Grid.Column="2" Classes="label" Text="7-day median" /><TextBlock Grid.Column="3" Classes="label" Text="Per slot" /><TextBlock Grid.Column="4" Classes="label" Text="Signal" /></Grid>
-        <StackPanel Grid.Row="2" Spacing="0">
-          <Border Classes="inset ochre" Padding="11"><Grid ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*"><StackPanel><TextBlock FontWeight="SemiBold" Text="Graphics Card" /><TextBlock Classes="label" Text="14m old · flea" /></StackPanel><TextBlock Grid.Column="1" Classes="ochre" Text="1,234,567 ₽" /><TextBlock Grid.Column="2" Text="1,109,420 ₽" /><TextBlock Grid.Column="3" Text="617,284 ₽" /><TextBlock Grid.Column="4" Classes="sage" Text="Above median" /></Grid></Border>
-          <Border BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="11"><Grid ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*"><StackPanel><TextBlock FontWeight="SemiBold" Text="LEDX" /><TextBlock Classes="label" Text="14m old · flea" /></StackPanel><TextBlock Grid.Column="1" Text="928,540 ₽" /><TextBlock Grid.Column="2" Text="951,200 ₽" /><TextBlock Grid.Column="3" Text="928,540 ₽" /><TextBlock Grid.Column="4" Classes="label" Text="Near median" /></Grid></Border>
-          <Border BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="11"><Grid ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*"><StackPanel><TextBlock FontWeight="SemiBold" Text="Water filter" /><TextBlock Classes="label" Text="14m old · flea" /></StackPanel><TextBlock Grid.Column="1" Text="79,340 ₽" /><TextBlock Grid.Column="2" Text="86,900 ₽" /><TextBlock Grid.Column="3" Text="39,670 ₽" /><TextBlock Grid.Column="4" Classes="coral" Text="Below median" /></Grid></Border>
-          <Border BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="11"><Grid ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*"><StackPanel><TextBlock FontWeight="SemiBold" Text="Sugar" /><TextBlock Classes="label" Text="14m old · flea" /></StackPanel><TextBlock Grid.Column="1" Text="63,800 ₽" /><TextBlock Grid.Column="2" Text="61,420 ₽" /><TextBlock Grid.Column="3" Text="63,800 ₽" /><TextBlock Grid.Column="4" Classes="sage" Text="Above median" /></Grid></Border>
-          <Border BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="11"><Grid ColumnDefinitions="2*,0.9*,0.9*,1.1*,1.1*"><StackPanel><TextBlock FontWeight="SemiBold" Text="Moonshine" /><TextBlock Classes="label" Text="14m old · flea" /></StackPanel><TextBlock Grid.Column="1" Text="247,100 ₽" /><TextBlock Grid.Column="2" Text="242,650 ₽" /><TextBlock Grid.Column="3" Text="123,550 ₽" /><TextBlock Grid.Column="4" Classes="label" Text="Near median" /></Grid></Border>
-        </StackPanel>
-      </Grid>
-    </Border>
-
-    <StackPanel Grid.Column="1" Spacing="10">
-      <Border Classes="panel ochre" Padding="14">
-        <StackPanel Spacing="9">
-          <TextBlock Classes="sectionTitle" Text="Graphics Card trend" />
-          <TextBlock Classes="metric ochre" Text="1,234,567 ₽" />
-          <TextBlock Classes="sage" Text="+11.3% vs 7-day median" />
-          <Viewbox Height="105" Stretch="Fill">
-            <Canvas Width="280" Height="100" Background="#171E26">
-              <Path Data="M 8,82 L 45,70 L 78,76 L 112,53 L 146,62 L 180,40 L 218,44 L 272,18" Stroke="#C6A15B" StrokeThickness="3" />
-              <Path Data="M 8,68 L 272,68" Stroke="#43515E" StrokeThickness="1" StrokeDashArray="5,4" />
-            </Canvas>
-          </Viewbox>
-          <Grid ColumnDefinitions="*,*"><TextBlock Classes="label" Text="7 days ago" /><TextBlock Grid.Column="1" Classes="label" HorizontalAlignment="Right" Text="Now" /></Grid>
-          <TextBlock Classes="label" Text="12 cached observations" />
-        </StackPanel>
-      </Border>
-      <Border Classes="panel" Padding="14"><StackPanel Spacing="7"><TextBlock Classes="sectionTitle" Text="Price sources" /><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Flea market" /><TextBlock Grid.Column="1" Classes="sage" Text="14m old" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Therapist" /><TextBlock Grid.Column="1" Text="124,740 ₽" /></Grid><Grid ColumnDefinitions="*,Auto"><TextBlock Text="Mechanic" /><TextBlock Grid.Column="1" Text="118,126 ₽" /></Grid><TextBlock Classes="label" TextWrapping="Wrap" Text="Displayed values are cached observations, not purchase automation or availability guarantees." /></StackPanel></Border>
-      <Border Classes="panel coral" Padding="14"><StackPanel Spacing="5"><TextBlock Classes="sectionTitle" Text="Stale-data behavior" /><TextBlock Classes="label" TextWrapping="Wrap" Text="Price advice is withheld after 24 hours. Sync manually before relying on an older cache." /><Button Classes="tool" HorizontalAlignment="Left" Content="Sync price data" /></StackPanel></Border>
+  <Border Classes="panel" Padding="22">
+    <StackPanel Spacing="10">
+      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
+      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
+      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
     </StackPanel>
-  </Grid>
+  </Border>
 </UserControl>

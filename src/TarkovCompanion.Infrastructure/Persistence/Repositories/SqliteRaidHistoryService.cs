@@ -69,7 +69,7 @@ public sealed class SqliteRaidHistoryService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(type);
         ArgumentException.ThrowIfNullOrWhiteSpace(payloadJson);
-        _ = JsonDocument.Parse(payloadJson);
+        using var payload = JsonDocument.Parse(payloadJson);
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """

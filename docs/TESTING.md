@@ -29,7 +29,18 @@ dotnet run --project src/TarkovCompanion.App -- \
   --self-test --output /tmp/tarkov-companion-self-test.json
 ```
 
-The self-test uses a disposable SQLite database and makes no network request. Its JSON covers database migration, cache schema, FTS search, platform/runtime, the configured `json.tarkov.dev` provider, writable paths, and safety invariants. Missing EFT install, log, or screenshot paths are reported as state and do not fail an otherwise healthy offline self-test.
+The self-test builds the production composition root with networking forcibly disabled and initializes the persistent database selected by the application's data-path policy. Its JSON reports actual database readiness/path, normalized cache count and availability, profile loading, configured `json.tarkov.dev` services, production OCR-provider presence, diagnostic configuration, writable paths, platform/runtime, and safety invariants. An empty cache and an intentionally absent production OCR provider are nonrequired unavailable states; missing EFT install, log, or screenshot paths are reported as state and do not fail an otherwise healthy offline self-test.
+
+## Runtime-composition coverage
+
+`RuntimeCompositionTests` constructs the same dependency-injection graph used by the executable with isolated data roots and deterministic HTTP handlers. It proves that:
+
+- demo mode persists its seed and exercises item search and scan commands through the shared `MainWindowViewModel`;
+- a normal offline first run exposes unavailable data and scan state without invented telemetry;
+- a newly constructed offline provider reloads a previously normalized cache without making an HTTP request; and
+- evidence transitions and successful scan events persist through SQLite and export as CSV.
+
+Diagnostic-channel tests inject a scan-use-case stub and assert authenticated delegation as well as honest unavailable results. UI tests resolve `MainWindowViewModel` from the real service provider instead of using a parallel static demo constructor.
 
 ## Simulator
 

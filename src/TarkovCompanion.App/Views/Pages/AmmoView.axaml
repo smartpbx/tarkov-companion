@@ -1,76 +1,11 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.AmmoView"
-             x:DataType="vm:AmmoPageViewModel"
-             xmlns="https://github.com/avaloniaui"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.AmmoView" x:DataType="vm:AmmoPageViewModel"
+             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Grid ColumnDefinitions="210,*,310" ColumnSpacing="12">
-    <Border Classes="panel" Padding="12">
-      <StackPanel Spacing="8">
-        <TextBlock Classes="sectionTitle" Text="Calibers" />
-        <TextBox PlaceholderText="Find caliber" />
-        <Button Classes="nav selected" Content="5.45×39 mm" />
-        <Button Classes="nav" Content="5.56×45 mm" />
-        <Button Classes="nav" Content="7.62×39 mm" />
-        <Button Classes="nav" Content="7.62×51 mm" />
-        <Button Classes="nav" Content="9×19 mm" />
-        <Button Classes="nav" Content="12/70" />
-        <Border Classes="inset" Padding="10" Margin="0,8,0,0"><StackPanel><TextBlock Classes="label" Text="Profile filter" /><TextBlock Text="Level 28 · LL3 max" /><TextBlock Classes="sage" FontSize="12" Text="Trader access applied" /></StackPanel></Border>
-      </StackPanel>
-    </Border>
-
-    <Border Grid.Column="1" Classes="panel" Padding="14">
-      <Grid RowDefinitions="Auto,1,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="0">
-        <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*" Margin="10,0,10,10">
-          <TextBlock Classes="label" Text="Round" /><TextBlock Grid.Column="1" Classes="label" Text="Pen" /><TextBlock Grid.Column="2" Classes="label" Text="Damage" /><TextBlock Grid.Column="3" Classes="label" Text="Armor" /><TextBlock Grid.Column="4" Classes="label" Text="Access" />
-        </Grid>
-        <Border Grid.Row="1" Background="#303B47" />
-        <Border Grid.Row="2" Classes="inset cyan" Margin="0,8,0,0" Padding="10">
-          <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*"><StackPanel><TextBlock FontWeight="SemiBold" Text="5.45 BS gs" /><TextBlock Classes="label" Text="Recommended" /></StackPanel><TextBlock Grid.Column="1" Classes="metric cyan" FontSize="19" Text="51" /><TextBlock Grid.Column="2" Classes="value" Text="40" /><TextBlock Grid.Column="3" Classes="sage" Text="Class 5" /><TextBlock Grid.Column="4" Text="Prapor LL4" /></Grid>
-        </Border>
-        <Border Grid.Row="3" BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="10">
-          <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*"><StackPanel><TextBlock FontWeight="SemiBold" Text="5.45 BT gs" /><TextBlock Classes="label" Text="Best available" /></StackPanel><TextBlock Grid.Column="1" Classes="value" Text="37" /><TextBlock Grid.Column="2" Classes="value" Text="42" /><TextBlock Grid.Column="3" Classes="ochre" Text="Class 4" /><TextBlock Grid.Column="4" Classes="sage" Text="Prapor LL3" /></Grid>
-        </Border>
-        <Border Grid.Row="4" BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="10">
-          <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*"><StackPanel><TextBlock FontWeight="SemiBold" Text="5.45 BP gs" /><TextBlock Classes="label" Text="Budget option" /></StackPanel><TextBlock Grid.Column="1" Classes="value" Text="35" /><TextBlock Grid.Column="2" Classes="value" Text="45" /><TextBlock Grid.Column="3" Classes="ochre" Text="Class 4" /><TextBlock Grid.Column="4" Classes="sage" Text="Prapor LL3" /></Grid>
-        </Border>
-        <Border Grid.Row="5" BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="10">
-          <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*"><TextBlock FontWeight="SemiBold" Text="5.45 PP gs" /><TextBlock Grid.Column="1" Text="33" /><TextBlock Grid.Column="2" Text="44" /><TextBlock Grid.Column="3" Text="Class 3" /><TextBlock Grid.Column="4" Classes="sage" Text="Prapor LL2" /></Grid>
-        </Border>
-        <Border Grid.Row="6" BorderBrush="#303B47" BorderThickness="0,0,0,1" Padding="10">
-          <Grid ColumnDefinitions="2*,0.75*,0.75*,0.9*,1.15*"><TextBlock FontWeight="SemiBold" Text="5.45 PS gs" /><TextBlock Grid.Column="1" Text="28" /><TextBlock Grid.Column="2" Text="48" /><TextBlock Grid.Column="3" Text="Class 3" /><TextBlock Grid.Column="4" Classes="sage" Text="Prapor LL1" /></Grid>
-        </Border>
-        <Border Grid.Row="7" VerticalAlignment="Bottom" Classes="inset" Padding="12" Margin="0,14,0,0">
-          <TextBlock Classes="label" TextWrapping="Wrap" Text="Armor ratings describe expected performance, not a guarantee. Damage, distance, fragmentation, and armor condition still matter." />
-        </Border>
-      </Grid>
-    </Border>
-
-    <StackPanel Grid.Column="2" Spacing="10">
-      <Border Classes="panel cyan" Padding="14">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="sectionTitle" Text="For your profile" />
-          <TextBlock Classes="metric cyan" Text="5.45 BT gs" />
-          <TextBlock TextWrapping="Wrap" Text="Best balanced round available from your confirmed trader access." />
-          <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Penetration" /><TextBlock Grid.Column="1" Classes="cyan" FontWeight="SemiBold" Text="37" /></Grid>
-          <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Damage" /><TextBlock Grid.Column="1" Text="42" /></Grid>
-          <Grid ColumnDefinitions="*,Auto"><TextBlock Classes="label" Text="Price" /><TextBlock Grid.Column="1" Classes="ochre" Text="892 ₽ / round" /></Grid>
-          <Button Classes="primary" Content="Add to loadout plan" />
-        </StackPanel>
-      </Border>
-      <Border Classes="panel" Padding="14">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="sectionTitle" Text="Reference" />
-          <TextBlock Classes="label" Text="Practical target" />
-          <TextBlock Text="Reliable against class 4" />
-          <TextBlock Classes="label" Text="Magazine plan" />
-          <TextBlock TextWrapping="Wrap" Text="Top-load 10 BT over 20 BP to preserve scarce rounds." />
-          <TextBlock Classes="label" Text="Source and age" />
-          <TextBlock TextWrapping="Wrap" Text="Fixture cache · json.tarkov.dev · synced 14m ago" />
-        </StackPanel>
-      </Border>
-      <Border Classes="panel coral" Padding="14">
-        <StackPanel Spacing="5"><TextBlock Classes="sectionTitle" Text="Unknown access" /><TextBlock Classes="label" TextWrapping="Wrap" Text="BS is stronger but not marked available because no current purchase source is confirmed for this profile." /></StackPanel>
-      </Border>
+  <Border Classes="panel" Padding="22">
+    <StackPanel Spacing="10">
+      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
+      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
+      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
     </StackPanel>
-  </Grid>
+  </Border>
 </UserControl>

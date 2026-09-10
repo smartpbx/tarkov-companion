@@ -8,6 +8,8 @@ The cache is local application state. It never contains game process memory, int
 
 Run `SqliteMigrationRunner.ApplyAsync` before constructing repositories. Migrations are embedded resources, sorted by filename, and recorded in `schema_migrations` within the same transaction as their SQL. Re-running the migration runner is idempotent.
 
+The executable does this through `IRuntimeDataStore.InitializeAsync` before it exposes database-backed state to the UI. The database is persistent under the resolved application-data root. Demo mode uses a separate application-data root and idempotently seeds a deterministic item fixture; it does not replace the repositories with in-memory fakes.
+
 - `0001_initial.sql` creates the normalized v1 schema and FTS5 item index.
 - `0002_data_cache.sql` adds normalized short-name and 24-hour price columns plus the conditional HTTP response cache.
 
@@ -52,6 +54,12 @@ Requests use `ETag` and `Last-Modified` validators when the server provides them
 
 Exact full-name and short-name hits rank ahead of FTS and fuzzy hits. `SqlitePriceHistoryRepository` supplies UTC chronological points to `PriceHistoryService`, which applies the requested time window.
 
+## Runtime and raid history
+
+`SqliteRuntimeDataStore` reports a startup snapshot from normalized item and sync-state tables, including item count, successful endpoint count, the most recent UTC success, and the most recent bounded error summary. This is the source for the UI's data availability and freshness state.
+
+`SqliteRaidHistoryService` implements `IRaidHistoryService` over the existing `raids` and `raid_events` tables. It creates summary rows on evidence-based raid starts, records state/position/extract/scan events with UTC timestamps and validated JSON, and closes the summary row on a transition out of `InRaid`. CSV and JSON export read those persisted summaries; no capture bytes or screen images enter the database.
+
 ## Verification
 
-The integration suite copies only the small synthetic files under `fixtures/api`. It verifies migrations, all endpoint shapes, translation, schema drift, missing optionals, retry limits, conditional requests, request deduplication, stale-while-revalidate/offline fallback, transactional refresh, exact/short/fuzzy search, and price history without requiring Internet access.
+The integration suite copies only the small synthetic files under `fixtures/api`. It verifies migrations, all endpoint shapes, translation, schema drift, missing optionals, retry limits, conditional requests, request deduplication, stale-while-revalidate/offline fallback, transactional refresh, exact/short/fuzzy search, price history, persistent runtime startup, offline restart, raid transitions, and history export without requiring Internet access.

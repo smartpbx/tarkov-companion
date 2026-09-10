@@ -1,3 +1,6 @@
+using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 
 namespace TarkovCompanion.UnitTests.UI;
@@ -21,9 +24,10 @@ public sealed class MainWindowViewModelTests
     ];
 
     [Fact]
-    public void NavigationContainsEveryV1DestinationInOrder()
+    public async Task NavigationContainsEveryV1DestinationInOrder()
     {
-        var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode: true);
+        await using var services = CreateServices();
+        var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
         Assert.Equal(ExpectedDestinations, viewModel.Navigation.Select(item => item.Name));
         Assert.IsType<RaidPageViewModel>(viewModel.CurrentPage);
@@ -34,9 +38,10 @@ public sealed class MainWindowViewModelTests
     [InlineData("Scanner", typeof(ScannerPageViewModel))]
     [InlineData("Items", typeof(ItemsPageViewModel))]
     [InlineData("Settings", typeof(SettingsPageViewModel))]
-    public void NavigateSelectsOneDestinationAndUpdatesThePage(string destination, Type expectedPageType)
+    public async Task NavigateSelectsOneDestinationAndUpdatesThePage(string destination, Type expectedPageType)
     {
-        var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode: true);
+        await using var services = CreateServices();
+        var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
         var found = viewModel.Navigate(destination);
 
@@ -46,9 +51,10 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public void UnknownDestinationLeavesTheCurrentPageUnchanged()
+    public async Task UnknownDestinationLeavesTheCurrentPageUnchanged()
     {
-        var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode: true);
+        await using var services = CreateServices();
+        var viewModel = services.GetRequiredService<MainWindowViewModel>();
         var originalPage = viewModel.CurrentPage;
 
         var found = viewModel.Navigate("Not a page");
@@ -59,12 +65,19 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public void DemoModeExposesCompleteEvidenceStrip()
+    public async Task InitialDemoStateIsExplicitlyFixtureBackedAndContainsNoFabricatedObservations()
     {
-        var viewModel = MainWindowViewModel.CreateFoundationDemo(demoMode: true);
+        await using var services = CreateServices();
+        var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
-        Assert.Equal(["EFT", "Map", "Raid", "Time", "Position", "Data", "Scan"], viewModel.Status.Select(status => status.Label));
+        Assert.Equal(["EFT", "Map", "Raid", "Position", "Data", "Scan"], viewModel.Status.Select(status => status.Label));
+        Assert.Contains("no live game access", viewModel.ModeLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("No item scanned", viewModel.LastScanName);
+        Assert.Contains("fixture", viewModel.LastScanEvidence, StringComparison.OrdinalIgnoreCase);
         Assert.All(viewModel.Status, status => Assert.False(string.IsNullOrWhiteSpace(status.Evidence)));
-        Assert.Contains("Linux-safe demo", viewModel.ModeLabel, StringComparison.Ordinal);
     }
+
+    private static ServiceProvider CreateServices() => AppComposition.Build(
+        new AppCommandLine(false, true, false, false, null, null, null),
+        new(DataRoot: Path.Combine(Path.GetTempPath(), $"tarkov-ui-{Guid.NewGuid():N}"), Offline: true));
 }

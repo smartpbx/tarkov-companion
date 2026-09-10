@@ -25,7 +25,7 @@ public sealed record MapOverlayElementViewModel(
 
 public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly HttpClient _httpClient;
+    private readonly HttpClient? _ownedHttpClient;
     private readonly TarkovDevMapCatalogClient _catalogClient;
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly MapVariantSelectionService _selectionService;
@@ -47,14 +47,23 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasWidth = 900;
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
+    private bool _disposed;
+
+    public MapViewModel(
+        TarkovDevMapCatalogClient catalogClient,
+        TarkovDevMapAssetCache assetCache,
+        MapVariantSelectionService selectionService)
+        : this(null, catalogClient, assetCache, selectionService)
+    {
+    }
 
     private MapViewModel(
-        HttpClient httpClient,
+        HttpClient? ownedHttpClient,
         TarkovDevMapCatalogClient catalogClient,
         TarkovDevMapAssetCache assetCache,
         MapVariantSelectionService selectionService)
     {
-        _httpClient = httpClient;
+        _ownedHttpClient = ownedHttpClient;
         _catalogClient = catalogClient;
         _assetCache = assetCache;
         _selectionService = selectionService;
@@ -341,11 +350,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         _lifetime.Cancel();
         _selectionLoad?.Cancel();
         _selectionLoad?.Dispose();
         _lifetime.Dispose();
-        _httpClient.Dispose();
+        _ownedHttpClient?.Dispose();
     }
 
     private async Task LoadVariantAsync(MapVariant variant, bool persist)
