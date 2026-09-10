@@ -33,8 +33,10 @@
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Scan provider" />
           <TextBlock Text="{Binding ScanProvider}" TextWrapping="Wrap" />
+          <TextBlock Classes="label" Text="Recognition provider" />
+          <TextBlock Text="{Binding RecognitionProvider}" TextWrapping="Wrap" />
           <TextBlock Classes="label"
-                     Text="No production OCR backend is selected by runtime composition."
+                     Text="Local OCR needs the Microsoft Visual C++ 2015-2022 x64 runtime, which is not part of this archive."
                      TextWrapping="Wrap" />
         </StackPanel>
       </Border>

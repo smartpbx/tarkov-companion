@@ -523,10 +523,18 @@ public sealed class SettingsPageViewModel : PageViewModel
         ApplicationStartupCoordinator startupCoordinator,
         RuntimeOptions options,
         AppDataPaths paths,
-        AppCommandLine commandLine)
+        AppCommandLine commandLine,
+        IOcrEngineStatus ocrStatus)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
+        ArgumentNullException.ThrowIfNull(ocrStatus);
         _startupCoordinator = startupCoordinator;
+        // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
+        // reads very differently from an unsupported architecture - but until now only the
+        // headless self-test ever read that reason, so the user saw a bare "Unavailable".
+        RecognitionProvider = ocrStatus.Availability.IsAvailable
+            ? $"Available · {ocrStatus.Availability.Provider}"
+            : $"Unavailable · {ocrStatus.Availability.Provider} · {ocrStatus.Availability.Reason ?? "No reason was reported."}";
         IsOffline = options.Offline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
@@ -536,6 +544,8 @@ public sealed class SettingsPageViewModel : PageViewModel
     }
 
     public bool IsOffline { get; }
+
+    public string RecognitionProvider { get; }
 
     public string DatabasePath { get; }
 
@@ -612,6 +622,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IItemRepository itemRepository,
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
+        IOcrEngineStatus ocrStatus,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,
@@ -637,7 +648,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
         History = new(raidHistoryService);
-        Settings = new(startupCoordinator, options, paths, commandLine);
+        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus);
         ServicePages =
         [
             new AmmoPageViewModel(),
