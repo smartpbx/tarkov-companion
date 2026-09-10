@@ -30,6 +30,10 @@ public sealed class TarkovDevJsonClientTests
         Assert.Equal("Shortage", tasks.Data.Tasks["task-001"].Name);
         Assert.Equal("Hand over two first aid kits", tasks.Data.Tasks["task-001"].Objectives[0].Description);
         Assert.Equal("Medstation", hideout.Data["station-001"].Name);
+        var traderRequirements = hideout.Data["station-001"].Levels[0].TraderRequirements;
+        Assert.Equal(2, traderRequirements[0].RequiredLevel);
+        Assert.Equal("level", traderRequirements[0].RequirementType);
+        Assert.Equal(1, traderRequirements[1].RequiredLevel);
         Assert.Equal("Therapist", traders.Data["trader-001"].Name);
         Assert.Single(crafts.Data);
         Assert.Single(barters.Data);

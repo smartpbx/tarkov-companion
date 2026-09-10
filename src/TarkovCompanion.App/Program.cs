@@ -8,12 +8,19 @@ namespace TarkovCompanion.App;
 
 internal static class Program
 {
+    /// <summary>
+    /// How long teardown may take before the process gives up and exits anyway.
+    /// </summary>
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(15);
+
     [STAThread]
     public static int Main(string[] args)
     {
         try
         {
             var options = AppCommandLine.Parse(args);
+            CrashLog.Install(AppDataPaths.Resolve(demoMode: options.Demo).Logs);
+
             if (options.SelfTest)
             {
                 if (string.IsNullOrWhiteSpace(options.OutputPath))
@@ -48,18 +55,19 @@ internal static class Program
             }
             finally
             {
-                diagnosticChannel?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                app.StopAsync().GetAwaiter().GetResult();
-                services.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                ShutDown(app, services, diagnosticChannel);
             }
         }
-        catch (Exception exception) when (exception is ArgumentException
-                                          or IOException
-                                          or InvalidDataException
-                                          or InvalidOperationException)
+        catch (Exception exception)
         {
+            CrashLog.Write("startup-failure", exception);
             Console.Error.WriteLine(exception.Message);
-            return 2;
+            return exception is ArgumentException
+                or IOException
+                or InvalidDataException
+                or InvalidOperationException
+                ? 2
+                : 3;
         }
     }
 
@@ -68,6 +76,45 @@ internal static class Program
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+
+    /// <summary>
+    /// Tears the application down without letting it outlive its own window.
+    /// </summary>
+    /// <remarks>
+    /// Teardown runs off the UI thread and under a deadline. View-model initialisation awaits
+    /// with continuations posted to the Avalonia dispatcher, and the dispatcher stops running
+    /// them once the desktop lifetime ends, so waiting for that work from the UI thread never
+    /// returned: closing the window left the process alive until it was killed. Cancellation
+    /// has already been requested by this point, and each data endpoint commits in its own
+    /// transaction, so abandoning a slow teardown loses at most one in-flight refresh.
+    /// </remarks>
+    private static void ShutDown(App app, ServiceProvider services, DiagnosticCommandChannel? diagnosticChannel)
+    {
+        var teardown = Task.Run(async () =>
+        {
+            if (diagnosticChannel is not null)
+            {
+                await diagnosticChannel.DisposeAsync().ConfigureAwait(false);
+            }
+
+            await app.StopAsync().ConfigureAwait(false);
+            await services.DisposeAsync().ConfigureAwait(false);
+        });
+
+        try
+        {
+            if (!teardown.Wait(ShutdownTimeout))
+            {
+                CrashLog.Write(
+                    "shutdown-timeout",
+                    $"Teardown did not finish within {ShutdownTimeout.TotalSeconds:0} seconds; exiting anyway.");
+            }
+        }
+        catch (AggregateException exception)
+        {
+            CrashLog.Write("shutdown-failure", exception);
+        }
+    }
 
     private static int RunHeadlessDemo(AppCommandLine options)
     {

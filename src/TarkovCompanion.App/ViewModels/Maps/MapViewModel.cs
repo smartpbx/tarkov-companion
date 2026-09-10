@@ -394,7 +394,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             var initial = Locations.FirstOrDefault(location =>
                     string.Equals(location.Id, "customs", StringComparison.OrdinalIgnoreCase))
                 ?? Locations.FirstOrDefault();
-            Status = result.Message ?? "Map catalog loaded.";
+            Status = DescribeCatalog(result, Locations.Count);
             if (initial is not null)
             {
                 await SelectLocationAsync(initial).ConfigureAwait(true);
@@ -407,6 +407,29 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             Status = $"Map catalog invalid or unavailable: {exception.Message}";
         }
+    }
+
+    /// <summary>
+    /// Describes what the catalog load actually produced.
+    /// </summary>
+    /// <remarks>
+    /// A catalog that parses but yields no usable location previously reported the upstream
+    /// success message, leaving the user with a blank canvas and text saying it worked.
+    /// </remarks>
+    private static string DescribeCatalog(MapCatalogLoadResult result, int usableLocations)
+    {
+        var skipped = result.Catalog?.SkippedLocations ?? [];
+        if (usableLocations == 0)
+        {
+            return skipped.Count == 0
+                ? "The tarkov.dev map catalog loaded but contains no map with a usable image."
+                : $"The tarkov.dev map catalog loaded but no map has a usable image. Skipped {skipped.Count} location(s): {string.Join("; ", skipped)}";
+        }
+
+        var loaded = result.Message ?? "Map catalog loaded.";
+        return skipped.Count == 0
+            ? loaded
+            : $"{loaded} Skipped {skipped.Count} upstream location(s): {string.Join("; ", skipped)}";
     }
 
     public async Task SelectLocationAsync(MapLocation location)

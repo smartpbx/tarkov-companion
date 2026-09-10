@@ -10,6 +10,7 @@ namespace TarkovCompanion.App;
 
 public sealed class App(IServiceProvider services) : Avalonia.Application
 {
+    private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
 
@@ -30,15 +31,23 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         base.OnFrameworkInitializationCompleted();
     }
 
+    /// <summary>
+    /// Cancels startup work and waits a bounded time for it to unwind.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="MainWindowViewModel.InitializeAsync"/> runs on the UI thread and resumes on
+    /// the Avalonia dispatcher. By the time shutdown runs the dispatcher has stopped, so those
+    /// continuations can never complete and an unbounded await here would hang forever.
+    /// </remarks>
     public async Task StopAsync()
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
         services.GetService<MapViewModel>()?.Dispose();
         try
         {
-            await _initialization.ConfigureAwait(false);
+            await _initialization.WaitAsync(InitializationDrainTimeout, CancellationToken.None).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception exception) when (exception is OperationCanceledException or TimeoutException)
         {
         }
         finally

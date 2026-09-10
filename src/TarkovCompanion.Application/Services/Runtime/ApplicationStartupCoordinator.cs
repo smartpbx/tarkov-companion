@@ -121,23 +121,34 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             {
                 Data = Describe(cached) with
                 {
-                    Detail = errors.Length == 0
-                        ? $"Game data refreshed from {report.Endpoints.Count} endpoints."
-                        : $"Local data remains available; {errors.Length} endpoint refreshes failed.",
-                    Availability = errors.Length == report.Endpoints.Count
-                        ? cached.ItemCount > 0 ? DataAvailability.Cached : DataAvailability.Error
-                        : DataAvailability.Current,
+                    Detail = cached.ItemCount == 0
+                        ? DescribeEmptyRefresh(errors)
+                        : errors.Length == 0
+                            ? $"Game data refreshed from {report.Endpoints.Count} endpoints."
+                            : $"Local data remains available; {errors.Length} endpoint refreshes failed.",
+                    // A refresh that reports "Current" while the item catalog is empty is a
+                    // false claim about the data the user is looking at. Partial success only
+                    // counts as current when something actually landed.
+                    Availability = cached.ItemCount == 0
+                        ? DataAvailability.Error
+                        : errors.Length == report.Endpoints.Count
+                            ? DataAvailability.Cached
+                            : DataAvailability.Current,
                 },
             });
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            SetRefreshError("The background refresh exceeded its bounded timeout.");
+            await SetRefreshErrorAsync(
+                "The background refresh exceeded its bounded timeout.",
+                cancellationToken).ConfigureAwait(false);
             _logger.LogWarning("The game-data refresh exceeded {RefreshTimeout}.", _options.RefreshTimeout);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            SetRefreshError("The refresh failed; any existing local cache remains available.");
+            await SetRefreshErrorAsync(
+                "The refresh failed; any existing local cache remains available.",
+                cancellationToken).ConfigureAwait(false);
             _logger.LogError(exception, "The game-data refresh failed.");
         }
         finally
@@ -205,15 +216,49 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             stale ? "Usable local data is loaded and marked stale." : "Usable local game data is loaded.");
     }
 
+    private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
+    {
+        if (errors.Count == 0)
+        {
+            return "The refresh reported success but no game items were stored.";
+        }
+
+        var named = errors.Select(endpoint => $"{endpoint.Endpoint} ({endpoint.Error})");
+        return $"No game items are available; {errors.Count} endpoint refresh(es) failed: {string.Join("; ", named)}";
+    }
+
     private bool NeedsRefresh(RuntimeDataState data) =>
         data.ItemCount == 0 || data.UpdatedUtc is null || _timeProvider.GetUtcNow() - data.UpdatedUtc > _options.DataFreshFor;
 
-    private void SetRefreshError(string detail) => _stateStore.Update(current => current with
+    /// <summary>
+    /// Records a failed refresh against what the database actually holds.
+    /// </summary>
+    /// <remarks>
+    /// Endpoints commit as they arrive, so a refresh that fails part way through can still
+    /// have stored items. Reading the item count from the pre-refresh state reported zero and
+    /// left item search disabled until the next restart even though the data was on disk.
+    /// </remarks>
+    private async Task SetRefreshErrorAsync(string detail, CancellationToken cancellationToken)
     {
-        Data = current.Data with
+        var itemCount = _stateStore.Current.Data.ItemCount;
+        try
         {
-            Availability = current.Data.ItemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
-            Detail = detail,
-        },
-    });
+            var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+            itemCount = cached.ItemCount;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "The post-failure data snapshot could not be read.");
+        }
+
+        _stateStore.Update(current => current with
+        {
+            Data = current.Data with
+            {
+                Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
+                ItemCount = itemCount,
+                Detail = detail,
+            },
+        });
+    }
 }

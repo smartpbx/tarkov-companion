@@ -111,6 +111,16 @@ jobs:
           if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
           exit $Process.ExitCode
 
+      - name: Reset local application data
+        shell: powershell
+        run: |
+          # The headless checks above already created the database, profile and OCR model.
+          # Removing them makes the launch probe a genuine first run, which is the case that
+          # actually needs proving.
+          $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
+          if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+          "Local application data reset: $Root"
+
       - name: First-run desktop launch probe
         id: launch-probe
         continue-on-error: true
@@ -149,6 +159,17 @@ jobs:
               ConvertTo-Json -Depth 4 |
               Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
             Get-Content -LiteralPath "verification/local-appdata.json" -Raw
+
+            $StartupLog = Join-Path $Root "Logs\startup.log"
+            if (Test-Path -LiteralPath $StartupLog) {
+              Copy-Item -LiteralPath $StartupLog -Destination "verification/startup.log" -Force
+              Get-Content -LiteralPath $StartupLog -Raw
+            }
+
+            $Database = Join-Path $Root "Database\tarkov-companion.db"
+            if (Test-Path -LiteralPath $Database) {
+              Copy-Item -LiteralPath $Database -Destination "verification/tarkov-companion.db" -Force
+            }
           } else {
             "The application never created $Root." | Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
           }

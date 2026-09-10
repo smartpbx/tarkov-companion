@@ -85,6 +85,70 @@ public sealed class TarkovDevMapTests
     }
 
     [Fact]
+    public void CatalogParserAcceptsQuotedNumbersAndSkipsUnparseableLocations()
+    {
+        // Upstream currently quotes three Customs label rotations ("6", "5", "-9"). Reading
+        // those through JsonElement.TryGetDouble threw rather than returning false, and a
+        // single throw discarded every location in the catalog.
+        const string json = """
+            [
+              {
+                "normalizedName": "quoted-rotation",
+                "maps": [
+                  {
+                    "key": "quoted-rotation",
+                    "projection": "interactive",
+                    "svgPath": "https://assets.tarkov.dev/maps/svg/QuotedRotation.svg",
+                    "tileSize": "512",
+                    "labels": [{ "text": "Main Bridge", "position": [10, 20], "rotation": "-9" }]
+                  }
+                ]
+              },
+              {
+                "normalizedName": "unparseable",
+                "maps": [{ "projection": "interactive" }]
+              }
+            ]
+            """;
+
+        var catalog = TarkovDevMapCatalogParser.Parse(json, CatalogUri, DateTimeOffset.UnixEpoch);
+
+        var location = Assert.Single(catalog.Locations);
+        Assert.Equal("quoted-rotation", location.Id);
+        var variant = Assert.Single(location.Variants);
+        Assert.Equal(512, variant.TileSize);
+        Assert.Equal(-9d, Assert.Single(variant.Labels).RotationDegrees);
+        Assert.Contains("unparseable", Assert.Single(catalog.SkippedLocations), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CatalogParserRejectsValuesThatAreNotNumbersAtAll()
+    {
+        const string json = """
+            [
+              {
+                "normalizedName": "bad-label",
+                "maps": [
+                  {
+                    "key": "bad-label",
+                    "projection": "interactive",
+                    "svgPath": "https://assets.tarkov.dev/maps/svg/BadLabel.svg",
+                    "labels": [{ "text": "Nowhere", "position": ["north", 20] }]
+                  }
+                ]
+              }
+            ]
+            """;
+
+        var exception = Assert.Throws<InvalidDataException>(() => TarkovDevMapCatalogParser.Parse(
+            json,
+            CatalogUri,
+            DateTimeOffset.UnixEpoch));
+
+        Assert.Contains("position", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void CatalogParserFailsClearlyForMissingRequiredIdentity()
     {
         var exception = Assert.Throws<InvalidDataException>(() => TarkovDevMapCatalogParser.Parse(

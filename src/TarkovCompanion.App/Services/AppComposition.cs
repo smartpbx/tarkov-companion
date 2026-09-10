@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -68,7 +69,12 @@ public static class AppComposition
             GameMode.Regular,
             "en",
             TimeSpan.FromHours(9),
-            TimeSpan.FromSeconds(45));
+            // The whole-sync budget must exceed the sum of the per-request budgets it
+            // contains. Seven endpoints, each up to three 12-second attempts and some with a
+            // second translation request, can legitimately need several minutes on a cold
+            // cache. At 45 seconds the first slow endpoint consumed the budget and every
+            // later endpoint was cancelled, so a clean install never obtained any game data.
+            TimeSpan.FromMinutes(5));
         var databaseOptions = new SqliteDatabaseOptions(Path.Combine(paths.Database, "tarkov-companion.db"));
         var profileOptions = new JsonProfileOptions(Path.Combine(paths.Config, "profile.json"));
         var questExchangeOptions = new ProjectQuestProgressJsonOptions(
@@ -139,7 +145,9 @@ public static class AppComposition
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
-            offline ? new OfflineHttpMessageHandler() : settings.HttpMessageHandler ?? new HttpClientHandler(),
+            offline
+                ? new OfflineHttpMessageHandler()
+                : settings.HttpMessageHandler ?? CreateDataHandler(),
             disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan,
@@ -278,6 +286,17 @@ public static class AppComposition
             ValidateScopes = true,
         });
     }
+
+    /// <summary>
+    /// Creates the handler used for public game-data requests.
+    /// </summary>
+    /// <remarks>
+    /// json.tarkov.dev payloads are several megabytes of JSON and are buffered whole. Without
+    /// negotiated compression a cold first sync moved many times more bytes than it needed to
+    /// and regularly exhausted its bounded budget.
+    /// </remarks>
+    private static HttpClientHandler CreateDataHandler() =>
+        new() { AutomaticDecompression = DecompressionMethods.All };
 
     private static bool IsEnabled(string? value) =>
         string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)

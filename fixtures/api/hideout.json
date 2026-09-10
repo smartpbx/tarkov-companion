@@ -11,7 +11,16 @@
             { "item": "item-002", "count": 2, "attributes": { "foundInRaid": false } }
           ],
           "stationLevelRequirements": [],
-          "traderRequirements": [{ "trader": "trader-001", "level": 1 }],
+          "traderRequirements": [
+            {
+              "id": "station-001-1-0",
+              "requirementType": "level",
+              "compareMethod": ">=",
+              "value": 2,
+              "trader": "trader-001"
+            },
+            { "trader": "trader-002", "level": 1 }
+          ],
           "skillRequirements": [{ "skill": "Health", "level": 2 }]
         }
       ]

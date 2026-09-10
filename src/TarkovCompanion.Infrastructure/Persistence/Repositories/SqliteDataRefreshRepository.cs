@@ -803,7 +803,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                                 level.Level,
                                 "trader",
                                 null,
-                                requirement.Level,
+                                requirement.RequiredLevel,
                                 JsonSerializer.Serialize(requirement, SerializerOptions),
                                 cancellationToken).ConfigureAwait(false);
                         }

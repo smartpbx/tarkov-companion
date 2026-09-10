@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -33,13 +34,32 @@ public static class TarkovDevMapCatalogParser
                 throw new InvalidDataException("The tarkov.dev map catalog root must be an array.");
             }
 
-            var locations = document.RootElement
-                .EnumerateArray()
-                .Select(ParseLocation)
-                .ToArray();
-            if (locations.Length == 0)
+            // The catalog tracks a live upstream file. Parsing it as one unit meant a single
+            // unexpected value removed every map, so each location is isolated and the ones
+            // that fail are reported instead of taking the rest down with them.
+            var locations = new List<MapLocation>();
+            var skipped = new List<string>();
+            foreach (var locationElement in document.RootElement.EnumerateArray())
             {
-                throw new InvalidDataException("The tarkov.dev map catalog does not contain any locations.");
+                try
+                {
+                    locations.Add(ParseLocation(locationElement));
+                }
+                catch (Exception exception) when (exception is InvalidDataException
+                                                  or InvalidOperationException
+                                                  or FormatException
+                                                  or OverflowException)
+                {
+                    skipped.Add(DescribeSkippedLocation(locationElement, exception));
+                }
+            }
+
+            if (locations.Count == 0)
+            {
+                throw new InvalidDataException(
+                    skipped.Count == 0
+                        ? "The tarkov.dev map catalog does not contain any locations."
+                        : $"No tarkov.dev map location could be parsed: {string.Join("; ", skipped)}");
             }
 
             var duplicateLocation = locations
@@ -53,8 +73,19 @@ public static class TarkovDevMapCatalogParser
             var contentHash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(json)));
             return new(
                 locations,
-                new(sourceUri, retrievedUtc.ToUniversalTime(), contentHash, availability));
+                new(sourceUri, retrievedUtc.ToUniversalTime(), contentHash, availability))
+            {
+                SkippedLocations = skipped,
+            };
         }
+    }
+
+    private static string DescribeSkippedLocation(JsonElement element, Exception exception)
+    {
+        var name = element.ValueKind == JsonValueKind.Object
+            ? OptionalString(element, "normalizedName") ?? OptionalString(element, "name")
+            : null;
+        return $"'{name ?? "unnamed location"}' ({exception.Message})";
     }
 
     private static MapLocation ParseLocation(JsonElement element)
@@ -254,12 +285,14 @@ public static class TarkovDevMapCatalogParser
         }
 
         var values = element.EnumerateArray().ToArray();
-        if (values.Length != 2 || !values.All(value => value.TryGetDouble(out _)))
+        if (values.Length != 2 ||
+            !TryReadDouble(values[0], out var x) ||
+            !TryReadDouble(values[1], out var y))
         {
             throw new InvalidDataException($"{context} bounds points require exactly two numbers.");
         }
 
-        return new(values[0].GetDouble(), values[1].GetDouble());
+        return new(x, y);
     }
 
     private static (double First, double Second)? OptionalNumberPair(
@@ -299,12 +332,21 @@ public static class TarkovDevMapCatalogParser
         }
 
         var values = element.EnumerateArray().ToArray();
-        if (values.Length != length || !values.All(value => value.TryGetDouble(out _)))
+        if (values.Length != length)
         {
             throw new InvalidDataException($"{context} {property} requires exactly {length} numbers.");
         }
 
-        return values.Select(value => value.GetDouble()).ToArray();
+        var numbers = new double[length];
+        for (var index = 0; index < length; index++)
+        {
+            if (!TryReadDouble(values[index], out numbers[index]))
+            {
+                throw new InvalidDataException($"{context} {property} requires exactly {length} numbers.");
+            }
+        }
+
+        return numbers;
     }
 
     private static IReadOnlyList<string> OptionalStrings(JsonElement parent, string property, string context)
@@ -343,10 +385,52 @@ public static class TarkovDevMapCatalogParser
             : null;
 
     private static int? OptionalInteger(JsonElement parent, string property) =>
-        parent.TryGetProperty(property, out var value) && value.TryGetInt32(out var number) ? number : null;
+        parent.TryGetProperty(property, out var value) && TryReadInt32(value, out var number) ? number : null;
 
     private static double? OptionalNumber(JsonElement parent, string property) =>
-        parent.TryGetProperty(property, out var value) && value.TryGetDouble(out var number) ? number : null;
+        parent.TryGetProperty(property, out var value) && TryReadDouble(value, out var number) ? number : null;
+
+    /// <summary>
+    /// Reads a number that upstream may have quoted.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="JsonElement.TryGetDouble"/> throws rather than returning false when the
+    /// element is not a number, so using it as a guard turned a single quoted value into a
+    /// total catalog failure. Three Customs labels currently ship a quoted rotation
+    /// ("6", "5", "-9"); accepting those keeps every location usable.
+    /// </remarks>
+    private static bool TryReadDouble(JsonElement element, out double value)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Number:
+                return element.TryGetDouble(out value);
+            case JsonValueKind.String:
+                return double.TryParse(
+                    element.GetString(),
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
+                    out value);
+            default:
+                value = 0;
+                return false;
+        }
+    }
+
+    private static bool TryReadInt32(JsonElement element, out int value)
+    {
+        if (TryReadDouble(element, out var number) &&
+            number >= int.MinValue &&
+            number <= int.MaxValue &&
+            number == Math.Truncate(number))
+        {
+            value = (int)number;
+            return true;
+        }
+
+        value = 0;
+        return false;
+    }
 
     private static bool? OptionalBoolean(JsonElement parent, string property) =>
         parent.TryGetProperty(property, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False

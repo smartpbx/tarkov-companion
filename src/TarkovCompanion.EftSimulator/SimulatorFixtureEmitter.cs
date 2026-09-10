@@ -75,8 +75,17 @@ public static class SimulatorFixtureEmitter
             var stateDirectory = Path.GetDirectoryName(statePath)
                 ?? throw new InvalidOperationException("The simulator state output has no parent directory.");
             Directory.CreateDirectory(stateDirectory);
-            await using var output = File.Create(statePath);
-            await JsonSerializer.SerializeAsync(output, state, SerializerOptions, cancellationToken).ConfigureAwait(false);
+
+            // Publish the state file atomically. A harness that waits for the path to exist
+            // would otherwise open a created-but-still-empty file and fail to read it.
+            var temporaryPath = $"{statePath}.{Guid.NewGuid():N}.tmp";
+            await using (var output = File.Create(temporaryPath))
+            {
+                await JsonSerializer.SerializeAsync(output, state, SerializerOptions, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            File.Move(temporaryPath, statePath, overwrite: true);
         }
 
         return state;

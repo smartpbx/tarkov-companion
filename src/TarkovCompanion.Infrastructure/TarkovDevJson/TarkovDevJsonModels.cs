@@ -372,11 +372,31 @@ public sealed class TarkovDevStationRequirement
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }
 
+/// <summary>
+/// A hideout trader requirement.
+/// </summary>
+/// <remarks>
+/// Unlike the station and skill requirements, json.tarkov.dev expresses this one as a
+/// comparison rather than a bare level: <c>{"requirementType":"level","compareMethod":"&gt;=",
+/// "value":2,"trader":"..."}</c>. Treating <c>level</c> as required made the whole hideout
+/// endpoint fail to deserialize, which in turn aborted the entire first-run data refresh.
+/// Both spellings are accepted so the shape can drift back without breaking the refresh.
+/// </remarks>
 public sealed class TarkovDevTraderRequirement
 {
     public required string Trader { get; init; }
 
-    public required int Level { get; init; }
+    public int? Level { get; init; }
+
+    public int? Value { get; init; }
+
+    public string? RequirementType { get; init; }
+
+    public string? CompareMethod { get; init; }
+
+    /// <summary>The trader loyalty level this requirement compares against.</summary>
+    [JsonIgnore]
+    public int RequiredLevel => Level ?? Value ?? 0;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];

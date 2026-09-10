@@ -164,6 +164,15 @@ public sealed record TarkovDevMapCatalog(
     IReadOnlyList<MapLocation> Locations,
     MapCatalogProvenance Provenance)
 {
+    /// <summary>
+    /// Upstream locations that could not be parsed and were left out, by normalized name.
+    /// </summary>
+    /// <remarks>
+    /// The catalog tracks a live upstream file, so one malformed entry must not remove every
+    /// map. Skipped locations are reported rather than silently dropped.
+    /// </remarks>
+    public IReadOnlyList<string> SkippedLocations { get; init; } = [];
+
     public MapLocation? FindLocation(string locationId) =>
         Locations.FirstOrDefault(location => string.Equals(location.Id, locationId, StringComparison.OrdinalIgnoreCase));
 }
