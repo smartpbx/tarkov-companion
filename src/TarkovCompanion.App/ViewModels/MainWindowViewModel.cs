@@ -159,11 +159,6 @@ public sealed class KeysPageViewModel() : ServicePageViewModel(
     "Key uses and value from structured data and attributed field notes",
     "Key intelligence is unavailable; no curated runtime facts are loaded.");
 
-public sealed class FleaPageViewModel() : ServicePageViewModel(
-    "Flea",
-    "Cached price context for deliberate between-raid decisions",
-    "Select an item through search to view its current cached price; no watchlist is loaded.");
-
 public sealed class HideoutPageViewModel() : ServicePageViewModel(
     "Hideout",
     "Manual station progress that can affect item decisions",
@@ -708,6 +703,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         ApplicationStartupCoordinator startupCoordinator,
         IItemSearchService itemSearchService,
         IItemRepository itemRepository,
+        IPriceHistoryService priceHistoryService,
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
@@ -738,13 +734,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
         History = new(raidHistoryService);
+        Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys);
         _hotkeys.Triggered += ScanHotkeyPressed;
         ServicePages =
         [
             new AmmoPageViewModel(),
             new KeysPageViewModel(),
-            new FleaPageViewModel(),
             new HideoutPageViewModel(),
             new EventsPageViewModel(),
             new LoadoutPageViewModel(),
@@ -757,11 +753,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             CreateNavigation("Items", "◇", Items),
             CreateNavigation("Ammo", "◉", ServicePages[0]),
             CreateNavigation("Keys", "⌑", ServicePages[1]),
-            CreateNavigation("Flea", "₽", ServicePages[2]),
+            CreateNavigation("Flea", "₽", Flea),
             CreateNavigation("Quests", "✓", Quests),
-            CreateNavigation("Hideout", "⌂", ServicePages[3]),
-            CreateNavigation("Events", "⚑", ServicePages[4]),
-            CreateNavigation("Loadout", "▦", ServicePages[5]),
+            CreateNavigation("Hideout", "⌂", ServicePages[2]),
+            CreateNavigation("Events", "⚑", ServicePages[3]),
+            CreateNavigation("Loadout", "▦", ServicePages[4]),
             CreateNavigation("History", "◷", History),
             CreateNavigation("Settings", "⚙", Settings),
         ];
@@ -775,6 +771,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public bool IsDemoMode => _options.DemoMode;
 
     public IReadOnlyList<NavigationItem> Navigation { get; }
+
+    public FleaPageViewModel Flea { get; }
 
     public IReadOnlyList<ServicePageViewModel> ServicePages { get; }
 
@@ -1011,6 +1009,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Raid.Apply(snapshot, now);
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
+        Flea.Apply(snapshot);
         Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
         foreach (var page in ServicePages)

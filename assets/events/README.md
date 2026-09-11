@@ -16,7 +16,7 @@ The app loads every `*.json` file directly inside its events directory (sub-fold
 - portable install (`portable.flag` next to the executable): `Data\Config\Events`
 
 Files in this repository directory are not loaded by themselves; copy the ones you want into the
-folder above. The folder is read once at startup, so restart the app after adding or editing a file.
+folder above. The folder is read once per run, so restart the app after adding or editing a file.
 
 ## File shape
 

@@ -281,7 +281,7 @@ public sealed class JsonFileEventCatalog(string definitionsDirectory) : IEventCa
 
     /// <summary>
     /// Mirrors the file's provenance block without its <c>source</c>, which the loader does not
-    /// honour. <see cref="Confidence"/> is read into a plain document rather than the domain
+    /// honour. The <c>confidence</c> block is read into a plain document rather than the domain
     /// struct because that struct has no JSON constructor and would silently deserialize as zero.
     /// </summary>
     private sealed record ProvenanceDocument(

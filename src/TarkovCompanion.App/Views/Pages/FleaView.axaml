@@ -1,11 +1,67 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.FleaView" x:DataType="vm:FleaPageViewModel"
-             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.FleaView"
+             x:DataType="vm:FleaPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Border Classes="panel" Padding="22">
-    <StackPanel Spacing="10">
-      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
-      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
-      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
-    </StackPanel>
-  </Border>
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
+               PlaceholderText="Search an item by name or short name" />
+      <Button Grid.Column="1" Classes="primary" Command="{Binding SearchCommand}" Content="Look up value" />
+    </Grid>
+
+    <Border Grid.Row="1" Classes="inset" Padding="10">
+      <TextBlock Text="{Binding SearchStatus}" TextWrapping="Wrap" />
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
+      <ListBox ItemsSource="{Binding Results}"
+               SelectedItem="{Binding Selected, Mode=TwoWay}"
+               Background="Transparent"
+               BorderThickness="0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:FleaPriceViewModel">
+            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
+              <StackPanel Spacing="5">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1" Classes="label" Text="{Binding ShortName}" />
+                </Grid>
+                <TextBlock Classes="metric ochre" FontSize="19" Text="{Binding FleaPrice}" />
+                <TextBlock Text="{Binding BestSale}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding DailyBand}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding ValuePerSlot}" />
+                <TextBlock Classes="label" Text="{Binding Dimensions}" />
+                <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <Border Grid.Column="1" Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+          <TextBlock Classes="sectionTitle" Text="Local observations" />
+          <TextBlock Grid.Row="1" Classes="label" Text="{Binding HistoryStatus}" TextWrapping="Wrap" />
+          <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding History}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:FleaHistoryPointViewModel">
+                  <Border Classes="inset" Margin="0,0,0,6" Padding="9">
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="label" Text="{Binding Observed}" />
+                      <Grid ColumnDefinitions="*,*">
+                        <TextBlock Text="{Binding FleaPrice}" />
+                        <TextBlock Grid.Column="1" Classes="label" Text="{Binding TraderValue}" />
+                      </Grid>
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
 </UserControl>

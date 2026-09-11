@@ -34,6 +34,7 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     // certain; the small discount records that the local copy is only as fresh as the last sync.
     private static readonly Confidence UpstreamFact = new(0.95);
     private static readonly IReadOnlySet<string> NoItemIds = new HashSet<string>(StringComparer.Ordinal);
+    private static readonly IReadOnlyList<string> NoLockIds = [];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<AmmoStats>? _ammo;
@@ -367,8 +368,8 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             var itemId = reader.GetString(0);
             using var properties = reader.IsDBNull(1) ? null : TryParse(reader.GetString(1));
             var opened = locks.GetValueOrDefault(itemId);
-            IReadOnlyList<string> lockIds = opened?.LockIds ?? [];
-            string? mapId = opened is { MapIds.Count: 1 } ? opened.MapIds[0] : null;
+            var lockIds = opened?.LockIds ?? NoLockIds;
+            string? mapId = opened is { MapIds.Count: 1 } onlyMap ? onlyMap.MapIds[0] : null;
             keys.Add(new(
                 ItemId: itemId,
                 MapId: mapId,
@@ -409,7 +410,7 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
             var keyItemId = reader.GetString(0);
             if (!builders.TryGetValue(keyItemId, out var entry))
             {
-                entry = (new(), new());
+                entry = (new List<string>(), new List<string>());
                 builders[keyItemId] = entry;
             }
 
