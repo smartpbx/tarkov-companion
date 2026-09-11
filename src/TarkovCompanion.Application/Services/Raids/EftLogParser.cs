@@ -215,7 +215,11 @@ public sealed partial class EftLogParser
             return null;
         }
 
-        var start = line.IndexOf('[');
+        // The payload is preceded by "NOTIFICATION <eventId> <type> ", and that event id is
+        // itself bracketed. Taking the first '[' therefore grabbed the id and the parse
+        // failed every time, which is why raid end never fired: unlike raid start, it has no
+        // prose line to fall back on.
+        var start = line.IndexOf("[{", StringComparison.Ordinal);
         if (start < 0)
         {
             return null;

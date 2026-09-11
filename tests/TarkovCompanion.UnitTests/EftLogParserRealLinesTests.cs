@@ -107,7 +107,10 @@ public sealed class EftLogParserRealLinesTests
 
     /// <summary>Builds a notification line in the layout the game writes.</summary>
     private static string Notification(string type, string status, string location, string profileId) =>
-        "2026-09-11 00:42:46.000|1.1.5.0.47242|Info|backend|NOTIFICATION eventid " + type +
+        // The real layout: a WebSocket preamble, then a BRACKETED event id, then the type,
+        // then the payload. The bracketed id is what broke naive JSON extraction.
+        "2026-09-11 00:42:46.000|1.1.5.0.47242|Info|output|backend|WebSocketSharp - message received: " +
+        "NOTIFICATION [EVT1] " + type +
         " [{\"type\":\"" + type + "\",\"eventId\":\"E1\",\"profileid\":\"" + profileId +
         "\",\"status\":\"" + status + "\",\"location\":\"" + location +
         "\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"CCQ5MC\"}]";
