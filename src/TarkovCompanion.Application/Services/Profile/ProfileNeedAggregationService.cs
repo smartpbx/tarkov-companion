@@ -25,8 +25,8 @@ public sealed record AggregatedItemNeed(
 
 public sealed class ProfileNeedAggregationService
 {
-    private readonly IReadOnlyList<QuestItemRequirement> _questRequirements;
-    private readonly IReadOnlyList<HideoutItemRequirement> _hideoutRequirements;
+    private volatile IReadOnlyList<QuestItemRequirement> _questRequirements;
+    private volatile IReadOnlyList<HideoutItemRequirement> _hideoutRequirements;
 
     public ProfileNeedAggregationService(
         IEnumerable<QuestItemRequirement> questRequirements,
@@ -35,16 +35,48 @@ public sealed class ProfileNeedAggregationService
         ArgumentNullException.ThrowIfNull(questRequirements);
         ArgumentNullException.ThrowIfNull(hideoutRequirements);
 
-        _questRequirements = questRequirements.ToArray();
-        _hideoutRequirements = hideoutRequirements.ToArray();
+        _questRequirements = Validate(questRequirements, hideoutRequirements, out var hideout);
+        _hideoutRequirements = hideout;
+    }
 
-        if (_questRequirements.Any(x => x.Required < 0) ||
-            _hideoutRequirements.Any(x => x.Required < 0 || x.TargetLevel <= 0))
+    /// <summary>
+    /// Replaces the requirements this service answers from.
+    /// </summary>
+    /// <remarks>
+    /// The requirements come out of SQLite, which on a clean install is still empty when this
+    /// service is first built and is filled seconds later by the first sync. Constructing the
+    /// service from a blocking read instead was worse in both directions: it captured empty
+    /// data on a fresh machine, and the block itself was enough to stall a scan behind it.
+    /// One long-lived instance whose data is swapped in when it arrives avoids both.
+    /// </remarks>
+    public void Update(
+        IEnumerable<QuestItemRequirement> questRequirements,
+        IEnumerable<HideoutItemRequirement> hideoutRequirements)
+    {
+        ArgumentNullException.ThrowIfNull(questRequirements);
+        ArgumentNullException.ThrowIfNull(hideoutRequirements);
+
+        var quest = Validate(questRequirements, hideoutRequirements, out var hideout);
+        _questRequirements = quest;
+        _hideoutRequirements = hideout;
+    }
+
+    private static IReadOnlyList<QuestItemRequirement> Validate(
+        IEnumerable<QuestItemRequirement> questRequirements,
+        IEnumerable<HideoutItemRequirement> hideoutRequirements,
+        out IReadOnlyList<HideoutItemRequirement> hideout)
+    {
+        var quest = questRequirements.ToArray();
+        hideout = hideoutRequirements.ToArray();
+        if (Array.Exists(quest, x => x.Required < 0) ||
+            hideout.Any(x => x.Required < 0 || x.TargetLevel <= 0))
         {
             throw new ArgumentOutOfRangeException(
                 nameof(questRequirements),
                 "Requirement quantities must be non-negative and hideout target levels must be positive.");
         }
+
+        return quest;
     }
 
     public AggregatedItemNeed GetItemNeed(PlayerProfile profile, string itemId)

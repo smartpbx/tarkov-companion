@@ -223,22 +223,14 @@ public static class AppComposition
         // nothing ever registered one, so it always answered "0 needed". That silently
         // disabled the scanner's outstanding-quest, found-in-raid and hideout reasons.
         // Reading them here is what brings those back.
-        // Transient, not singleton. A singleton captures its requirements the first time it
-        // is resolved, which on a clean install is before the first sync has landed, so it
-        // would stay empty for the life of the process. The catalog caches underneath, so
-        // rebuilding per use costs a dictionary lookup once the data is read.
-        services.AddTransient(provider =>
-        {
-            var catalog = provider.GetRequiredService<IRequirementCatalog>();
-            return new ProfileNeedAggregationService(
-                catalog.GetQuestRequirementsAsync(CancellationToken.None).GetAwaiter().GetResult(),
-                catalog.GetHideoutRequirementsAsync(CancellationToken.None).GetAwaiter().GetResult());
-        });
-        // These wrap the aggregation service and hold no state of their own, so they follow
-        // its lifetime rather than pinning a stale copy of it.
-        services.AddTransient<IQuestProgressService, ProfileQuestProgressService>();
-        services.AddTransient<IHideoutProgressService, ProfileHideoutProgressService>();
-        services.AddTransient<RecommendationContextService>();
+        // Starts empty and is filled by the startup coordinator once the requirements have
+        // been read. Building it from a blocking catalog read instead captured empty data on
+        // a clean install, where the database is still empty at composition time, and the
+        // block itself was enough to stall a scan waiting behind it.
+        services.AddSingleton(_ => new ProfileNeedAggregationService([], []));
+        services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
+        services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();
+        services.AddSingleton<RecommendationContextService>();
         // Built from the event catalog rather than by type. Registered by type it received an
         // empty definition list, and it throws KeyNotFoundException for an unknown event id
         // rather than degrading, so every call failed no matter what the caller passed.

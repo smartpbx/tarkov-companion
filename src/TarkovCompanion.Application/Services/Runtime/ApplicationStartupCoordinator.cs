@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -14,6 +15,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IPlayerProfileService _profileService;
     private readonly RaidActivityCoordinator _raidActivityCoordinator;
     private readonly RaidObservationService _observationService;
+    private readonly ProfileNeedAggregationService _needAggregation;
     private readonly IRequirementCatalog _requirementCatalog;
     private readonly IItemFactCatalog _itemFactCatalog;
     private readonly IRuntimeStateStore _stateStore;
@@ -30,6 +32,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IPlayerProfileService profileService,
         RaidActivityCoordinator raidActivityCoordinator,
         RaidObservationService observationService,
+        ProfileNeedAggregationService needAggregation,
         IRequirementCatalog requirementCatalog,
         IItemFactCatalog itemFactCatalog,
         IRuntimeStateStore stateStore,
@@ -42,6 +45,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _profileService = profileService;
         _raidActivityCoordinator = raidActivityCoordinator;
         _observationService = observationService;
+        _needAggregation = needAggregation;
         _requirementCatalog = requirementCatalog;
         _itemFactCatalog = itemFactCatalog;
         _stateStore = stateStore;
@@ -242,21 +246,20 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     }
 
     /// <summary>
-    /// Fills the catalog caches before anything needs them synchronously.
+    /// Reads the requirements and hands them to the service that answers from them.
     /// </summary>
     /// <remarks>
-    /// The need-aggregation service is built per use from these projections, and the only
-    /// place it can be constructed is a synchronous factory. Warming the caches here keeps
-    /// that construction an in-memory lookup; without it the first scan paid for a full
-    /// table read while blocking a thread-pool thread, which was enough to stall the
-    /// diagnostic channel behind it.
+    /// This runs at startup and again after every completed refresh, so the scanner's quest
+    /// and hideout reasons reflect the rows currently on disk without any caller ever
+    /// blocking on a database read.
     /// </remarks>
     private async Task WarmCatalogsAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
-            await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            _needAggregation.Update(quest, hideout);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
