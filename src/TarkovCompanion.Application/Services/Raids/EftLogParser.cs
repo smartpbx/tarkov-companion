@@ -79,8 +79,8 @@ public sealed partial class EftLogParser
     /// raid notification carrying any other profile was run as a scav. Reported as inferred
     /// rather than stated, because it rests on that one asymmetry.
     /// </remarks>
-    private string DescribeSide(string profileId) => _pmcProfileId is null
-        ? "raid"
+    private string? DescribeSide(string profileId) => _pmcProfileId is null
+        ? null
         : string.Equals(profileId, _pmcProfileId, StringComparison.Ordinal) ? "PMC" : "scav";
 
     public RaidEvidence? ParseLine(string? line, DateTimeOffset observedUtc)
@@ -251,7 +251,10 @@ public sealed partial class EftLogParser
 
             var mapId = ResolveMapId(ReadText(payload, "location"));
             var status = ReadText(payload, "status");
+            // Two forms deliberately: the recorded value stays null when the side is not yet
+            // knowable, while the sentence still reads naturally.
             var side = DescribeSide(profileId);
+            var sideWord = side ?? "raid";
             return type switch
             {
                 "userConfirmed" => new(
@@ -261,22 +264,31 @@ public sealed partial class EftLogParser
                     RaidLifecycleState.InRaid,
                     new Confidence(0.98),
                     mapId is null
-                        ? $"The game confirmed a {side} raid."
-                        : $"The game confirmed a {side} raid on {mapId}."),
+                        ? $"The game confirmed a {sideWord} raid."
+                        : $"The game confirmed a {sideWord} raid on {mapId}.")
+                {
+                    Side = side,
+                },
                 "userMatchOver" when string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase) => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
                     RaidLifecycleState.InRaid,
                     new Confidence(0.90),
-                    $"The game reported a transfer to another map rather than the end of the {side} raid."),
+                    $"The game reported a transfer to another map rather than the end of the {sideWord} raid.")
+                {
+                    Side = side,
+                },
                 "userMatchOver" => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
                     RaidLifecycleState.PostRaid,
                     new Confidence(0.98),
-                    $"The game reported the {side} raid as over."),
+                    $"The game reported the {sideWord} raid as over.")
+                {
+                    Side = side,
+                },
                 _ => null,
             };
         }

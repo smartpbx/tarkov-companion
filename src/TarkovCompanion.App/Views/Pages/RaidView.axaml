@@ -9,6 +9,53 @@
 
     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="10">
+        <!-- The raid that just finished, shown first so it is read without going looking for
+             it. It stays until the player dismisses it or the next raid ends. Nothing about
+             survival, kills or loot appears here because the game logs none of it. -->
+        <Border Classes="panel" IsVisible="{Binding HasSummary}" Padding="14">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="sectionTitle" Text="Last raid" VerticalAlignment="Center" />
+              <Button Grid.Column="1"
+                      Classes="viewControl"
+                      Command="{Binding DismissSummaryCommand}"
+                      Content="Dismiss" />
+            </Grid>
+            <TextBlock Classes="metric" Text="{Binding Summary.Headline}" TextWrapping="Wrap" />
+            <Border Classes="readout" Padding="11">
+              <StackPanel Spacing="7">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Started" />
+                  <TextBlock Text="{Binding Summary.Started}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Ended" />
+                  <TextBlock Text="{Binding Summary.Ended}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Duration" />
+                  <TextBlock Text="{Binding Summary.Duration}" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <TextBlock Classes="label" Text="{Binding Summary.Timing}" TextWrapping="Wrap" />
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Scanned during the raid" />
+              <TextBlock Text="{Binding Summary.Scans}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Last-known position" />
+              <TextBlock Text="{Binding Summary.LastKnownPosition}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Game mode" />
+              <TextBlock Text="{Binding Summary.Mode}" TextWrapping="Wrap" />
+            </StackPanel>
+            <TextBlock Text="{Binding Summary.Outcome}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding Summary.Side}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding Summary.History}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
         <Border Classes="panel cyan" Padding="14">
           <StackPanel Spacing="7">
             <TextBlock Classes="sectionTitle" Text="Raid state" />

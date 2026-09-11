@@ -136,17 +136,70 @@ public abstract class PageViewModel(string title, string description, string evi
 
 public sealed class RaidPageViewModel : PageViewModel
 {
+    private readonly IRaidHistoryService? _raidHistoryService;
+    private readonly List<string> _scannedThisRaid = [];
     private string _raidState = "No raid evidence";
     private string _position = "No last-known position";
     private string _extracts = "No extracts have been observed.";
+    private RaidSummaryViewModel? _summary;
+    private RaidSnapshot? _lastInRaid;
+    private string? _lastInRaidMode;
+    private RaidLifecycleState _previousState = RaidLifecycleState.Unknown;
+    private Guid? _summaryRaidId;
+    private Guid? _scanRaidId;
+    private DateTimeOffset _lastScanObservedUtc = DateTimeOffset.MinValue;
 
-    public RaidPageViewModel(MapViewModel map)
+    /// <summary>
+    /// Creates the raid page.
+    /// </summary>
+    /// <remarks>
+    /// The raid history service is optional because the summary does not depend on it: every
+    /// line is built from state the page has already observed. History is read afterwards
+    /// only to confirm the finished raid reached the local database, so when no service is
+    /// supplied that one line says the history was not read and the rest is unaffected.
+    /// </remarks>
+    public RaidPageViewModel(MapViewModel map, IRaidHistoryService? raidHistoryService = null)
         : base("Raid reference", "Interactive tarkov.dev maps with last-known external evidence", "No raid evidence")
     {
         Map = map;
+        _raidHistoryService = raidHistoryService;
+        DismissSummaryCommand = new DelegateCommand(DismissSummary);
     }
 
     public MapViewModel Map { get; }
+
+    /// <summary>
+    /// The raid that has just finished, or null when none has finished this session.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately sticky. It is set on the single transition out of a raid and then left
+    /// alone: the snapshots that follow a raid end arrive seconds apart, and clearing on any
+    /// of them would make the summary flash past before it could be read. The player
+    /// dismisses it, or the next finished raid replaces it.
+    /// </remarks>
+    public RaidSummaryViewModel? Summary
+    {
+        get => _summary;
+        private set
+        {
+            if (SetProperty(ref _summary, value))
+            {
+                OnPropertyChanged(nameof(HasSummary));
+            }
+        }
+    }
+
+    /// <summary>Whether a finished raid is available to show.</summary>
+    public bool HasSummary => Summary is not null;
+
+    /// <summary>
+    /// Puts the summary away.
+    /// </summary>
+    /// <remarks>
+    /// The summary sits above the live raid panels, so without a way to dismiss it the panel
+    /// would still be covering the top of the page during the next raid.
+    /// </remarks>
+    public DelegateCommand DismissSummaryCommand { get; }
 
     public string RaidState
     {
@@ -187,6 +240,159 @@ public sealed class RaidPageViewModel : PageViewModel
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
+        ObserveLifecycle(snapshot);
+    }
+
+    /// <summary>
+    /// Notices that a raid has ended and builds the summary of it.
+    /// </summary>
+    /// <remarks>
+    /// The end of a raid is the single edge from InRaid to PostRaid or Menu. A transfer to
+    /// another map keeps the state at InRaid by design, so no edge occurs and no summary is
+    /// produced for a raid that is still being played.
+    ///
+    /// The details of the raid are taken from the last snapshot seen while it was running,
+    /// not from the snapshot that ends it: returning to the menu clears the map, the start
+    /// time and the last-known position out of the raid state.
+    /// </remarks>
+    private void ObserveLifecycle(ApplicationRuntimeSnapshot snapshot)
+    {
+        var raid = snapshot.Raid;
+        TrackScans(snapshot);
+        if (raid.State == RaidLifecycleState.InRaid)
+        {
+            _lastInRaid = raid;
+            _lastInRaidMode = snapshot.Profile?.GameMode.ToString();
+        }
+
+        var finished = _previousState == RaidLifecycleState.InRaid
+            && raid.State is RaidLifecycleState.PostRaid or RaidLifecycleState.Menu;
+        _previousState = raid.State;
+        if (!finished || _lastInRaid is not { } lastInRaid)
+        {
+            return;
+        }
+
+        // Cleared immediately so a further Menu snapshot after PostRaid cannot rebuild the
+        // same summary and reset the history line that is already being filled in.
+        _lastInRaid = null;
+        _summaryRaidId = lastInRaid.RaidId;
+        Summary = RaidSummaryViewModel.Create(
+            ResolveMapName(lastInRaid.MapId),
+            lastInRaid.StartedUtc,
+            raid.UpdatedUtc,
+            _lastInRaidMode ?? snapshot.Profile?.GameMode.ToString(),
+            lastInRaid.Side,
+            _scannedThisRaid.ToArray(),
+            lastInRaid.LastKnownPosition,
+            _raidHistoryService is null
+                ? "The local raid history was not read for this summary."
+                : "Checking the local raid history…");
+        if (_raidHistoryService is not null && lastInRaid.RaidId is { } raidId)
+        {
+            // Deliberately not awaited: the summary is already complete and correct, and the
+            // snapshot handler that called this runs on the UI thread.
+            _ = ConfirmAgainstHistoryAsync(raidId, CancellationToken.None);
+        }
+    }
+
+    /// <summary>
+    /// Remembers what the player scanned while this raid was open.
+    /// </summary>
+    /// <remarks>
+    /// These are exactly the scans the raid coordinator writes to raid history, which records
+    /// a scan event whenever a raid id is open. The history service exposes no way to read
+    /// those events back, so the page counts the same scans as they pass through the runtime
+    /// snapshot instead of querying for them.
+    ///
+    /// A new raid takes the scan already on screen as its baseline, so an item looked up in
+    /// the menu beforehand is never attributed to the raid that follows it.
+    /// </remarks>
+    private void TrackScans(ApplicationRuntimeSnapshot snapshot)
+    {
+        if (snapshot.Raid.RaidId is not { } raidId)
+        {
+            return;
+        }
+
+        if (_scanRaidId != raidId)
+        {
+            _scanRaidId = raidId;
+            _scannedThisRaid.Clear();
+            _lastScanObservedUtc = snapshot.Scan.ObservedUtc;
+            return;
+        }
+
+        var scan = snapshot.Scan;
+        if (!scan.Succeeded
+            || scan.ObservedUtc <= _lastScanObservedUtc
+            || (snapshot.Raid.StartedUtc is { } startedUtc && scan.ObservedUtc < startedUtc))
+        {
+            return;
+        }
+
+        _lastScanObservedUtc = scan.ObservedUtc;
+        _scannedThisRaid.Add(scan.ItemName ?? "Unnamed item");
+    }
+
+    /// <summary>
+    /// Confirms that the finished raid reached the local history database.
+    /// </summary>
+    /// <remarks>
+    /// This is the one part of the summary that cannot be answered from observed state, and
+    /// it is worth answering: it is the difference between a raid the player can still export
+    /// tomorrow and one that was only ever on screen. A failure is reported in the summary
+    /// rather than thrown, because the rest of the summary remains true regardless.
+    /// </remarks>
+    private async Task ConfirmAgainstHistoryAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        if (_raidHistoryService is null)
+        {
+            return;
+        }
+
+        string history;
+        try
+        {
+            var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
+            var entry = raids.FirstOrDefault(candidate => candidate.Id == raidId);
+            history = entry is null
+                ? "This raid has not been written to the local history."
+                : entry.EndedUtc is { } endedUtc
+                    ? string.Create(
+                        CultureInfo.CurrentCulture,
+                        $"Saved to the local history and closed at {endedUtc.ToLocalTime():g}.")
+                    : "Saved to the local history, but its end time has not been written yet.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            history = $"The local raid history could not be read: {exception.Message}";
+        }
+
+        // A raid that finished while this was running has already replaced the summary, and
+        // the older answer must not overwrite the newer one.
+        if (_summaryRaidId == raidId && Summary is { } summary)
+        {
+            Summary = summary with { History = history };
+        }
+    }
+
+    /// <summary>
+    /// Names the map the way the map catalogue does, falling back to the logged token.
+    /// </summary>
+    /// <remarks>
+    /// The game logs tokens such as "bigmap" rather than display names, and the catalogue is
+    /// only loaded once maps have synced, so the raw token has to remain an acceptable answer.
+    /// </remarks>
+    private string ResolveMapName(string? mapId) => string.IsNullOrWhiteSpace(mapId)
+        ? "Unknown map"
+        : Map.Locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+
+    private void DismissSummary()
+    {
+        _summaryRaidId = null;
+        Summary = null;
     }
 
     private static string FormatAge(DateTimeOffset observedUtc, DateTimeOffset nowUtc)
@@ -694,7 +900,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 : null;
 
         Map = map;
-        Raid = new(map);
+        Raid = new(map, raidHistoryService);
         Scanner = new(scanUseCase);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;

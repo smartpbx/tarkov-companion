@@ -59,6 +59,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             LastKnownPosition = enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
             IsManualMapOverride = isManual,
+            // A raid keeps the side it started with; evidence that cannot tell does not
+            // overwrite what an earlier, better-informed line already established.
+            Side = evidence.Side ?? (clearingRaid || enteringNewRaid ? null : Current.Side),
         };
 
         return Current;
