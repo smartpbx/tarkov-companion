@@ -35,6 +35,8 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly ILogger<RaidObservationService> _logger;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _worker;
+    private EftPaths? _watching;
+    private long _eventsSeen;
     private bool _disposed;
 
     public RaidObservationService(
@@ -138,14 +140,9 @@ public sealed class RaidObservationService : IAsyncDisposable
                 continue;
             }
 
-            Publish(new(
-                true,
-                paths.LogRoot is not null,
-                paths.ScreenshotRoot is not null,
-                paths.LogRoot,
-                paths.ScreenshotRoot,
-                paths.Confidence,
-                Describe(paths)));
+            Interlocked.Exchange(ref _eventsSeen, 0);
+            _watching = paths;
+            PublishWatching();
 
             using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var watchers = new List<Task>(2);
@@ -189,6 +186,13 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             await foreach (var evidence in _logWatcher.WatchAsync(logRoot, cancellationToken).ConfigureAwait(false))
             {
+                // Republishing on every line would churn the whole UI state hundreds of
+                // times a raid, so the count is surfaced early and then occasionally.
+                var seen = Interlocked.Increment(ref _eventsSeen);
+                if (seen <= 3 || seen % 25 == 0)
+                {
+                    PublishWatching();
+                }
                 await _coordinator.ApplyEvidenceAsync(evidence, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -222,15 +226,40 @@ public sealed class RaidObservationService : IAsyncDisposable
         }
     }
 
-    private static string Describe(EftPaths paths) => (paths.LogRoot, paths.ScreenshotRoot) switch
+    /// <summary>
+    /// Says which folder is being watched and how much has come out of it.
+    /// </summary>
+    /// <remarks>
+    /// "Observing" on its own was true and useless: it meant a folder had been found, not
+    /// that anything was being read from it. A stale folder that the game no longer writes
+    /// to looked identical to a working one, and the difference cost a raid to discover.
+    /// Naming the folder and counting what has arrived makes that visible at a glance.
+    /// </remarks>
+    private void PublishWatching()
     {
-        (not null, not null) => "Watching the game's log and screenshot folders.",
-        (not null, null) =>
-            "Watching the game's log folder. No screenshot folder was found, so position will not update.",
-        (null, not null) =>
-            "Watching the game's screenshot folder. No log folder was found, so the map and raid state will not update.",
-        _ => "Escape from Tarkov was not found.",
-    };
+        var paths = _watching;
+        if (paths is null)
+        {
+            return;
+        }
+
+        var seen = Interlocked.Read(ref _eventsSeen);
+        var counted = seen == 0
+            ? "nothing read yet"
+            : seen == 1 ? "1 event read" : $"{seen} events read";
+        var detail = paths.LogRoot is null
+            ? $"No log folder was found, so the map and raid state will not update. Screenshots: {paths.ScreenshotRoot}"
+            : $"{counted} from {paths.LogRoot}";
+
+        Publish(new(
+            true,
+            paths.LogRoot is not null,
+            paths.ScreenshotRoot is not null,
+            paths.LogRoot,
+            paths.ScreenshotRoot,
+            paths.Confidence,
+            detail));
+    }
 
     private async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
     {

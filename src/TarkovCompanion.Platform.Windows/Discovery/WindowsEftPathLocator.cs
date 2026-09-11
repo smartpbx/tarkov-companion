@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using TarkovCompanion.Core.Abstractions;
@@ -69,7 +71,8 @@ public sealed class SystemEftPathProbe : IEftPathProbe
             ? Path.Combine(appData, "LocalLow")
             : localAppData;
         var systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
-        var installRoots = RegistryInstallRoots()
+        var installRoots = RunningGameRoots()
+            .Concat(RegistryInstallRoots())
             .Concat(new[]
             {
                 // The launcher's own default is "Battlestate Games\\Escape from Tarkov" on the
@@ -100,6 +103,54 @@ public sealed class SystemEftPathProbe : IEftPathProbe
             Path.Combine(pictures, "Escape from Tarkov"),
         };
         return new(installRoots, logRoots, screenshotRoots);
+    }
+
+    /// <summary>
+    /// Where the game is installed, according to the game itself.
+    /// </summary>
+    /// <remarks>
+    /// A candidate list only ever guesses, and a wrong guess that happens to exist is worse
+    /// than no guess: discovery reports success and then watches a folder the game never
+    /// writes to. If the game is running it can simply be asked, and that answer is right by
+    /// construction whatever drive it was installed on.
+    /// </remarks>
+    [SupportedOSPlatform("windows")]
+    private static IEnumerable<string> RunningGameRoots()
+    {
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName("EscapeFromTarkov");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
+        {
+            yield break;
+        }
+
+        foreach (var process in processes)
+        {
+            string? directory = null;
+            try
+            {
+                directory = Path.GetDirectoryName(process.MainModule?.FileName);
+            }
+            catch (Exception exception) when (exception is Win32Exception
+                                              or InvalidOperationException
+                                              or NotSupportedException)
+            {
+                // A 64-bit game read from a process without rights to it; fall through to
+                // the static candidates rather than failing discovery.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                yield return directory;
+            }
+        }
     }
 
     [SupportedOSPlatform("windows")]
