@@ -119,18 +119,38 @@ public sealed partial class MapView : UserControl
         Dispatcher.UIThread.Post(CentreViewport, DispatcherPriority.Background);
     }
 
+    /// <summary>
+    /// Centres the view on the drawn map rather than on the middle of the tile grid.
+    /// </summary>
+    /// <remarks>
+    /// Upstream bounds extend past the artwork, so the grid's centre can sit well away from
+    /// anything visible. Centring on the loaded tiles is what puts the map in front of the
+    /// player.
+    /// </remarks>
     private void CentreViewport()
     {
-        if (Viewport is null)
+        if (Viewport is null || DataContext is not MapViewModel viewModel)
         {
             return;
         }
 
         var extent = Viewport.Extent;
         var viewport = Viewport.Viewport;
+        var content = viewModel.ContentBounds;
+        if (content.Width <= 0 || content.Height <= 0)
+        {
+            Viewport.Offset = new(
+                Math.Max(0, (extent.Width - viewport.Width) / 2),
+                Math.Max(0, (extent.Height - viewport.Height) / 2));
+            return;
+        }
+
+        var scale = viewModel.ZoomScale;
+        var centreX = (content.X + (content.Width / 2)) * scale;
+        var centreY = (content.Y + (content.Height / 2)) * scale;
         Viewport.Offset = new(
-            Math.Max(0, (extent.Width - viewport.Width) / 2),
-            Math.Max(0, (extent.Height - viewport.Height) / 2));
+            Math.Clamp(centreX - (viewport.Width / 2), 0, Math.Max(0, extent.Width - viewport.Width)),
+            Math.Clamp(centreY - (viewport.Height / 2), 0, Math.Max(0, extent.Height - viewport.Height)));
     }
 
     private async void LocationSelectionChanged(object? sender, SelectionChangedEventArgs eventArgs)

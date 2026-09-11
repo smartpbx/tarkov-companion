@@ -325,7 +325,7 @@ public sealed class ScannerPageViewModel : PageViewModel
     private string _recommendation = "No recommendation without observed evidence.";
     private string _confidence = "Unavailable";
     private string _source = "No capture source";
-    private string _detail = "No OCR-backed scan provider is configured.";
+    private string _detail = "Nothing has been scanned yet.";
 
     public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase)
         : base("Scanner", "Dispatch a user-triggered scan through the configured use case", "Runtime state not loaded")

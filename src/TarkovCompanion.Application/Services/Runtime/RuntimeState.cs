@@ -152,7 +152,12 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                     now,
                     "demo-fixture",
                     "Deterministic demo scan fixture is ready; no live game pixels are used.")
-                : ScanExecutionResult.Unavailable("No OCR-backed scan provider is configured.", now));
+                // Not "no provider is configured": local OCR is composed and initialised on
+                // Windows, and the self-test confirms it. Nothing has been scanned yet, and
+                // saying otherwise told the player their installation was broken.
+                : ScanExecutionResult.Unavailable(
+                    "Nothing has been scanned yet. Press the scan shortcut while the game is in front of you.",
+                    now));
     }
 
     public event EventHandler? Changed;

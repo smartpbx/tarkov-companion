@@ -259,6 +259,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var replaced = _tiles;
             Set(ref _tiles, value);
+            ContentBounds = MeasureContent(value);
             OnPropertyChanged(nameof(HasTiles));
             OnPropertyChanged(nameof(ShowsPlaceholder));
             ReleaseLater(replaced.Select(tile => tile.Image));
@@ -640,6 +641,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Scales the map to the room the panel reports.</summary>
+    /// <summary>
+    /// The part of the canvas that actually has artwork on it.
+    /// </summary>
+    /// <remarks>
+    /// A tile plan covers the upstream bounds, and upstream bounds routinely extend past the
+    /// drawn map: on Customs four of twenty tiles have no image at all. Fitting the whole
+    /// plan therefore scaled the map down to make room for blank space and parked it in a
+    /// corner. Fitting the tiles that actually loaded is what a player means by "fit".
+    /// </remarks>
+    public Rect ContentBounds { get; private set; }
+
     public void ApplyFit(double availableWidth, double availableHeight)
     {
         if (CanvasWidth <= 0 || CanvasHeight <= 0 ||
@@ -649,12 +661,30 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        ZoomScale = ClampZoom(Math.Min(availableWidth / CanvasWidth, availableHeight / CanvasHeight));
+        var content = ContentBounds;
+        var width = content.Width > 0 ? content.Width : CanvasWidth;
+        var height = content.Height > 0 ? content.Height : CanvasHeight;
+        ZoomScale = ClampZoom(Math.Min(availableWidth / width, availableHeight / height));
     }
 
     // A tile grid can be several times the panel's size, so the lower bound has to allow a
     // genuine fit. The previous floor of 0.5 could not show a whole map at once.
     private static double ClampZoom(double scale) => Math.Clamp(scale, 0.05, 8);
+
+    /// <summary>Measures the rectangle the loaded tiles occupy, in canvas coordinates.</summary>
+    private static Rect MeasureContent(IReadOnlyList<MapTileViewModel> tiles)
+    {
+        if (tiles.Count == 0)
+        {
+            return default;
+        }
+
+        var left = tiles.Min(tile => tile.Left);
+        var top = tiles.Min(tile => tile.Top);
+        var right = tiles.Max(tile => tile.Left + tile.Size);
+        var bottom = tiles.Max(tile => tile.Top + tile.Size);
+        return new(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
+    }
 
     public void Dispose()
     {
