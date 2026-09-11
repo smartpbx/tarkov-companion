@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -13,6 +14,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IPlayerProfileService _profileService;
     private readonly RaidActivityCoordinator _raidActivityCoordinator;
     private readonly RaidObservationService _observationService;
+    private readonly IRequirementCatalog _requirementCatalog;
+    private readonly IItemFactCatalog _itemFactCatalog;
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -27,6 +30,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IPlayerProfileService profileService,
         RaidActivityCoordinator raidActivityCoordinator,
         RaidObservationService observationService,
+        IRequirementCatalog requirementCatalog,
+        IItemFactCatalog itemFactCatalog,
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
         ILogger<ApplicationStartupCoordinator> logger,
@@ -37,6 +42,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _profileService = profileService;
         _raidActivityCoordinator = raidActivityCoordinator;
         _observationService = observationService;
+        _requirementCatalog = requirementCatalog;
+        _itemFactCatalog = itemFactCatalog;
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
@@ -125,6 +132,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 new(_options.GameMode, _options.Language, force),
                 timeout.Token).ConfigureAwait(false);
             var cached = await _dataStore.LoadSnapshotAsync(timeout.Token).ConfigureAwait(false);
+
+            // Fresh rows landed, so anything projected from the old ones is now stale.
+            _requirementCatalog.Invalidate();
+            _itemFactCatalog.Invalidate();
+
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             _stateStore.Update(current => current with
             {

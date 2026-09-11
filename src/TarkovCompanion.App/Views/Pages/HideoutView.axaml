@@ -1,11 +1,65 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.HideoutView" x:DataType="vm:HideoutPageViewModel"
-             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.HideoutView"
+             x:DataType="vm:HideoutPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Border Classes="panel" Padding="22">
-    <StackPanel Spacing="10">
-      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
-      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
-      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
-    </StackPanel>
-  </Border>
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <Border Classes="inset" Padding="10">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+      </Border>
+      <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Reload" VerticalAlignment="Stretch" />
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="*,2*" ColumnSpacing="12">
+      <ListBox ItemsSource="{Binding Stations}"
+               SelectedItem="{Binding Selected, Mode=TwoWay}"
+               Background="Transparent"
+               BorderThickness="0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:HideoutStationViewModel">
+            <Border Classes="panel" Margin="0,0,0,8" Padding="12">
+              <StackPanel Spacing="4">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding Progress}" />
+                <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <Border Grid.Column="1" Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+          <TextBlock Classes="sectionTitle" Text="Next level requirements" />
+          <TextBlock Grid.Row="1" Text="{Binding Detail}" TextWrapping="Wrap" />
+          <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding Items}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:HideoutRequirementViewModel">
+                  <Border Classes="inset" Margin="0,0,0,6" Padding="10">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="14">
+                      <TextBlock Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <StackPanel Grid.Column="1" Spacing="1">
+                        <TextBlock Classes="label" Text="Need" />
+                        <TextBlock Text="{Binding Required}" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Spacing="1">
+                        <TextBlock Classes="label" Text="Have" />
+                        <TextBlock Text="{Binding Owned}" />
+                      </StackPanel>
+                      <StackPanel Grid.Column="3" Spacing="1" MinWidth="72">
+                        <TextBlock Classes="label" Text="Still needed" />
+                        <TextBlock Classes="metric ochre" FontSize="14" Text="{Binding Remaining}" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
 </UserControl>

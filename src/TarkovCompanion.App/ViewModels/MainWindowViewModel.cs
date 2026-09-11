@@ -7,6 +7,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Input;
@@ -158,11 +159,6 @@ public sealed class KeysPageViewModel() : ServicePageViewModel(
     "Keys",
     "Key uses and value from structured data and attributed field notes",
     "Key intelligence is unavailable; no curated runtime facts are loaded.");
-
-public sealed class HideoutPageViewModel() : ServicePageViewModel(
-    "Hideout",
-    "Manual station progress that can affect item decisions",
-    "Hideout progress editing is not connected to this runtime view.");
 
 public sealed class EventsPageViewModel() : ServicePageViewModel(
     "Events",
@@ -704,6 +700,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IItemSearchService itemSearchService,
         IItemRepository itemRepository,
         IPriceHistoryService priceHistoryService,
+        IRequirementCatalog requirementCatalog,
+        IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
@@ -735,13 +733,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Quests = quests;
         History = new(raidHistoryService);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
+        Hideout = new(requirementCatalog, profileService, itemRepository);
         Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys);
         _hotkeys.Triggered += ScanHotkeyPressed;
         ServicePages =
         [
             new AmmoPageViewModel(),
             new KeysPageViewModel(),
-            new HideoutPageViewModel(),
             new EventsPageViewModel(),
             new LoadoutPageViewModel(),
         ];
@@ -755,9 +753,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             CreateNavigation("Keys", "⌑", ServicePages[1]),
             CreateNavigation("Flea", "₽", Flea),
             CreateNavigation("Quests", "✓", Quests),
-            CreateNavigation("Hideout", "⌂", ServicePages[2]),
-            CreateNavigation("Events", "⚑", ServicePages[3]),
-            CreateNavigation("Loadout", "▦", ServicePages[4]),
+            CreateNavigation("Hideout", "⌂", Hideout),
+            CreateNavigation("Events", "⚑", ServicePages[2]),
+            CreateNavigation("Loadout", "▦", ServicePages[3]),
             CreateNavigation("History", "◷", History),
             CreateNavigation("Settings", "⚙", Settings),
         ];
@@ -773,6 +771,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public IReadOnlyList<NavigationItem> Navigation { get; }
 
     public FleaPageViewModel Flea { get; }
+
+    public HideoutPageViewModel Hideout { get; }
 
     public IReadOnlyList<ServicePageViewModel> ServicePages { get; }
 
@@ -850,6 +850,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Items.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await History.LoadAsync(cancellationToken).ConfigureAwait(true);
+            await Hideout.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
             await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
@@ -1010,6 +1011,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
         Flea.Apply(snapshot);
+        Hideout.Apply(snapshot);
         Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
         foreach (var page in ServicePages)

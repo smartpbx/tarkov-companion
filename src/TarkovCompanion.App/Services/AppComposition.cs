@@ -6,6 +6,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
@@ -24,6 +25,7 @@ using TarkovCompanion.Core.Domain.Loadouts;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
+using TarkovCompanion.Infrastructure.Events;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.Recognition;
@@ -210,10 +212,33 @@ public static class AppComposition
         services.AddSingleton<ITarkovTrackerIntegrationService>(provider =>
             provider.GetRequiredService<TarkovTrackerIntegrationService>());
         services.AddSingleton<QuestsPageViewModel>();
-        services.AddSingleton<ProfileNeedAggregationService>();
-        services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
-        services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();
-        services.AddSingleton<RecommendationContextService>();
+        services.AddSingleton<SqliteRequirementCatalog>();
+        services.AddSingleton<IRequirementCatalog>(provider => provider.GetRequiredService<SqliteRequirementCatalog>());
+        services.AddSingleton<SqliteItemFactCatalog>();
+        services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
+        services.AddSingleton<IEventCatalog>(_ =>
+            new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
+
+        // The aggregation service takes its requirements as constructor collections, and
+        // nothing ever registered one, so it always answered "0 needed". That silently
+        // disabled the scanner's outstanding-quest, found-in-raid and hideout reasons.
+        // Reading them here is what brings those back.
+        // Transient, not singleton. A singleton captures its requirements the first time it
+        // is resolved, which on a clean install is before the first sync has landed, so it
+        // would stay empty for the life of the process. The catalog caches underneath, so
+        // rebuilding per use costs a dictionary lookup once the data is read.
+        services.AddTransient(provider =>
+        {
+            var catalog = provider.GetRequiredService<IRequirementCatalog>();
+            return new ProfileNeedAggregationService(
+                catalog.GetQuestRequirementsAsync(CancellationToken.None).GetAwaiter().GetResult(),
+                catalog.GetHideoutRequirementsAsync(CancellationToken.None).GetAwaiter().GetResult());
+        });
+        // These wrap the aggregation service and hold no state of their own, so they follow
+        // its lifetime rather than pinning a stale copy of it.
+        services.AddTransient<IQuestProgressService, ProfileQuestProgressService>();
+        services.AddTransient<IHideoutProgressService, ProfileHideoutProgressService>();
+        services.AddTransient<RecommendationContextService>();
         services.AddSingleton<IEventTrackerService, ProfileEventTrackerService>();
         services.AddSingleton<IAmmoIntelligenceService, AmmoIntelligenceService>();
         services.AddSingleton<IKeyIntelligenceService, KeyIntelligenceService>();
