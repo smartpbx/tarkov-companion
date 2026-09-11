@@ -17,7 +17,20 @@ public sealed partial class MapView : UserControl
     private const double ViewportPadding = 16;
 
     private MapViewModel? _boundViewModel;
+    private ScrollViewer? _viewport;
     private bool _subscribedToViewport;
+
+    /// <summary>
+    /// The scrolling viewport, resolved by name rather than through a generated field.
+    /// </summary>
+    /// <remarks>
+    /// Every view here loads its XAML with AvaloniaXamlLoader.Load rather than the generated
+    /// initializer, and that path does not populate x:Name backing fields. The field was
+    /// therefore always null: clicking the map dereferenced it and killed the process, and
+    /// panning could never have worked. Resolving through the name scope is what actually
+    /// finds the control.
+    /// </remarks>
+    private ScrollViewer? Viewport => _viewport ??= this.FindControl<ScrollViewer>("ViewportScrollViewer");
     private bool _isPanning;
     private Point _panStart;
     private Vector _panOffset;
@@ -39,10 +52,10 @@ public sealed partial class MapView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
     {
         base.OnAttachedToVisualTree(eventArgs);
-        if (!_subscribedToViewport && ViewportScrollViewer is not null)
+        if (!_subscribedToViewport && Viewport is not null)
         {
             _subscribedToViewport = true;
-            ViewportScrollViewer.SizeChanged += ViewportSizeChanged;
+            Viewport.SizeChanged += ViewportSizeChanged;
         }
 
         FitAndCentre();
@@ -88,12 +101,12 @@ public sealed partial class MapView : UserControl
             return;
         }
 
-        if (ViewportScrollViewer is null)
+        if (Viewport is null)
         {
             return;
         }
 
-        var available = ViewportScrollViewer.Bounds.Size;
+        var available = Viewport.Bounds.Size;
         if (available.Width <= 0 || available.Height <= 0)
         {
             return;
@@ -108,14 +121,14 @@ public sealed partial class MapView : UserControl
 
     private void CentreViewport()
     {
-        if (ViewportScrollViewer is null)
+        if (Viewport is null)
         {
             return;
         }
 
-        var extent = ViewportScrollViewer.Extent;
-        var viewport = ViewportScrollViewer.Viewport;
-        ViewportScrollViewer.Offset = new(
+        var extent = Viewport.Extent;
+        var viewport = Viewport.Viewport;
+        Viewport.Offset = new(
             Math.Max(0, (extent.Width - viewport.Width) / 2),
             Math.Max(0, (extent.Height - viewport.Height) / 2));
     }
@@ -183,7 +196,7 @@ public sealed partial class MapView : UserControl
 
         _isPanning = true;
         _panStart = eventArgs.GetPosition(this);
-        _panOffset = ViewportScrollViewer?.Offset ?? default;
+        _panOffset = Viewport?.Offset ?? default;
         eventArgs.Pointer.Capture(sender as Control);
         eventArgs.Handled = true;
     }
@@ -195,13 +208,13 @@ public sealed partial class MapView : UserControl
             return;
         }
 
-        if (ViewportScrollViewer is null)
+        if (Viewport is null)
         {
             return;
         }
 
         var current = eventArgs.GetPosition(this);
-        ViewportScrollViewer.Offset = new(
+        Viewport.Offset = new(
             _panOffset.X - (current.X - _panStart.X),
             _panOffset.Y - (current.Y - _panStart.Y));
         eventArgs.Handled = true;
