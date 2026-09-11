@@ -18,7 +18,7 @@ public sealed class RaidObservationServiceTests
     {
         using var harness = new Harness(new(null, null, null, Confidence.Unknown));
 
-        await harness.RunUntilAsync(state => state.IsSupported && !state.IsObserving);
+        await harness.RunUntilAsync(state => state.Detail.Contains("not found", StringComparison.OrdinalIgnoreCase));
 
         var observation = harness.Store.Current.Observation;
         Assert.False(observation.IsObserving);

@@ -66,12 +66,6 @@ public sealed class RaidObservationService : IAsyncDisposable
             return;
         }
 
-        if (!OperatingSystem.IsWindows())
-        {
-            Publish(EftObservationState.Unsupported);
-            return;
-        }
-
         if (_options.DemoMode)
         {
             Publish(EftObservationState.Idle with
@@ -81,6 +75,9 @@ public sealed class RaidObservationService : IAsyncDisposable
             return;
         }
 
+        // The platform gate belongs in composition, which decides whether the real Windows
+        // watchers or the unavailable stand-ins are registered. Keeping it here instead made
+        // the discovery and feeding logic impossible to exercise off Windows.
         _worker = Task.Run(() => RunAsync(_stopping.Token), CancellationToken.None);
     }
 
@@ -247,5 +244,8 @@ public sealed class RaidObservationService : IAsyncDisposable
     }
 
     private void Publish(EftObservationState observation) =>
-        _stateStore.Update(current => current with { Observation = observation });
+        _stateStore.Update(current => current with
+        {
+            Observation = observation with { IsSupported = OperatingSystem.IsWindows() },
+        });
 }
