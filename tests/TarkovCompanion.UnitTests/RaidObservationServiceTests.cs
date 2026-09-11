@@ -4,6 +4,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
@@ -67,7 +68,7 @@ public sealed class RaidObservationServiceTests
             demoMode: true);
 
         harness.Service.Start();
-        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await Task.Delay(50, CancellationToken.None);
 
         Assert.False(harness.Store.Current.Observation.IsObserving);
         Assert.Contains("Demo mode", harness.Store.Current.Observation.Detail, StringComparison.Ordinal);
@@ -125,7 +126,7 @@ public sealed class RaidObservationServiceTests
                     return;
                 }
 
-                await Task.Delay(10, TestContext.Current.CancellationToken);
+                await Task.Delay(10, CancellationToken.None);
             }
 
             Assert.Fail($"Observation never reached the expected state. Detail: {Store.Current.Observation.Detail}");
