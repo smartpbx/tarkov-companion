@@ -1,11 +1,168 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.LoadoutView" x:DataType="vm:LoadoutPageViewModel"
-             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.LoadoutView"
+             x:DataType="vm:LoadoutPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Border Classes="panel" Padding="22">
-    <StackPanel Spacing="10">
-      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
-      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
-      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
-    </StackPanel>
-  </Border>
+  <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
+
+    <!-- The scope of the checks comes first, above any number the page produces. -->
+    <Border Classes="panel ochre" Padding="14">
+      <StackPanel Spacing="6">
+        <TextBlock Classes="sectionTitle" Text="What this page actually checks" />
+        <TextBlock Text="{Binding ChecksExplanation}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding DataExplanation}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <!-- One search box, one slot chooser. Ten separate boxes would be unusable. -->
+    <Grid Grid.Row="1" ColumnDefinitions="210,*,Auto,Auto" ColumnSpacing="10">
+      <ComboBox HorizontalAlignment="Stretch"
+                ItemsSource="{Binding Slots}"
+                SelectedItem="{Binding SelectedSlot, Mode=TwoWay}">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:LoadoutSlotOption">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <TextBox Grid.Column="1"
+               PlaceholderText="Search an item by name or short name"
+               Text="{Binding SearchQuery, Mode=TwoWay}" />
+      <Button Grid.Column="2" Classes="primary" Command="{Binding SearchCommand}" Content="Search" />
+      <Button Grid.Column="3" Command="{Binding ClearCommand}" Content="Empty the kit" />
+    </Grid>
+
+    <Border Grid.Row="2" Classes="inset" Padding="10">
+      <StackPanel Spacing="4">
+        <TextBlock Text="{Binding SearchStatus}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding SelectedSlot.Hint}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="12">
+      <Border Classes="panel" Padding="14">
+        <Grid RowDefinitions="Auto,*" RowSpacing="9">
+          <TextBlock Classes="sectionTitle" Text="Search results" />
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding Results}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LoadoutSearchResultViewModel">
+                  <Border Classes="inset" Margin="0,0,0,7" Padding="11">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                      <StackPanel Spacing="3">
+                        <Grid ColumnDefinitions="*,Auto">
+                          <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Classes="label" Text="{Binding ShortName}" />
+                        </Grid>
+                        <TextBlock Classes="label" Text="{Binding Category}" />
+                        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                          <TextBlock Classes="ochre" Text="{Binding Cost}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Classes="label" Text="{Binding Weight}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="2" Classes="label" Text="{Binding Caliber}" TextWrapping="Wrap" />
+                        </Grid>
+                      </StackPanel>
+                      <Button Grid.Column="1"
+                              Command="{Binding AssignCommand}"
+                              Content="Assign"
+                              VerticalAlignment="Center" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Column="1" RowDefinitions="*,*" RowSpacing="12">
+        <Border Classes="panel" Padding="14">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+            <TextBlock Classes="sectionTitle" Text="The kit" />
+            <TextBlock Grid.Row="1" Classes="label" Text="{Binding AssignmentStatus}" TextWrapping="Wrap" />
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding Assignments}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:LoadoutAssignmentViewModel">
+                    <Border Classes="inset" Margin="0,0,0,6" Padding="10">
+                      <Grid ColumnDefinitions="110,*,Auto" ColumnSpacing="10">
+                        <TextBlock Classes="label" Text="{Binding SlotName}" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Spacing="2">
+                          <TextBlock Text="{Binding ItemName}" TextWrapping="Wrap" />
+                          <TextBlock Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                        </StackPanel>
+                        <Button Grid.Column="2"
+                                Command="{Binding RemoveCommand}"
+                                Content="Remove"
+                                VerticalAlignment="Center" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel" Padding="14">
+          <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="9">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <TextBlock Classes="sectionTitle" Text="Evaluation" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Classes="primary" Command="{Binding EvaluateCommand}" Content="Evaluate" />
+            </Grid>
+            <TextBlock Grid.Row="1" Classes="label" Text="{Binding EvaluationStatus}" TextWrapping="Wrap" />
+            <Border Grid.Row="2" Classes="inset" Padding="11">
+              <StackPanel Spacing="6">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Approximate cost" />
+                  <TextBlock Classes="metric ochre" FontSize="17" Text="{Binding CostSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Total weight" />
+                  <TextBlock Text="{Binding WeightSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="Ammo tier" />
+                  <TextBlock Text="{Binding AmmoTierSummary}" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+
+            <!-- Issues and warnings stay in separate lists: one is a contradiction in the data,
+                 the other is a judgement call. -->
+            <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto">
+              <StackPanel Spacing="10">
+                <StackPanel Spacing="5">
+                  <TextBlock Classes="sectionTitle" FontSize="13" Text="Compatibility issues" />
+                  <TextBlock Classes="label" Text="{Binding IssuesStatus}" TextWrapping="Wrap" />
+                  <ItemsControl ItemsSource="{Binding Issues}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LoadoutFindingViewModel">
+                        <Border Classes="inset coral" Margin="0,0,0,5" Padding="9">
+                          <TextBlock Classes="coral" Text="{Binding Message}" TextWrapping="Wrap" />
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+
+                <StackPanel Spacing="5">
+                  <TextBlock Classes="sectionTitle" FontSize="13" Text="Warnings" />
+                  <TextBlock Classes="label" Text="{Binding WarningsStatus}" TextWrapping="Wrap" />
+                  <ItemsControl ItemsSource="{Binding Warnings}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:LoadoutFindingViewModel">
+                        <Border Classes="inset ochre" Margin="0,0,0,5" Padding="9">
+                          <TextBlock Classes="ochre" Text="{Binding Message}" TextWrapping="Wrap" />
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
 </UserControl>

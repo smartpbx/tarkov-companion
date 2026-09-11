@@ -1,11 +1,80 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.KeysView" x:DataType="vm:KeysPageViewModel"
-             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.KeysView"
+             x:DataType="vm:KeysPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Border Classes="panel" Padding="22">
-    <StackPanel Spacing="10">
-      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
-      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
-      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
-    </StackPanel>
-  </Border>
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
+               PlaceholderText="Filter keys by name" />
+      <Button Grid.Column="1" Classes="primary" Command="{Binding RefreshCommand}" Content="Reload" />
+    </Grid>
+
+    <!-- The missing value ranking is stated once, here, and then the page moves on. -->
+    <Border Grid.Row="1" Classes="inset" Padding="10">
+      <StackPanel Spacing="5">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding ScoringNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding IdentifierNotice}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
+      <ListBox ItemsSource="{Binding Keys}"
+               SelectedItem="{Binding Selected, Mode=TwoWay}"
+               Background="Transparent"
+               BorderThickness="0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:KeyRowViewModel">
+            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
+              <StackPanel Spacing="6">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+
+                <!-- Every cell here is copied from the source. Nothing is weighted, ranked or
+                     combined, which is the whole point of the page. -->
+                <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+                  <StackPanel Spacing="1">
+                    <TextBlock Classes="label" Text="Map id" />
+                    <TextBlock Classes="value" Text="{Binding Map}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="1">
+                    <TextBlock Classes="label" Text="Locks" />
+                    <TextBlock Classes="value" Text="{Binding LockSummary}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="2" Spacing="1">
+                    <TextBlock Classes="label" Text="Uses" />
+                    <TextBlock Classes="value" Text="{Binding MaximumUses}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="3" Spacing="1">
+                    <TextBlock Classes="label" Text="Cost" />
+                    <TextBlock Classes="value ochre" Text="{Binding AcquisitionCost}" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Grid>
+
+                <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <Border Grid.Column="1" Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+          <TextBlock Classes="sectionTitle" Text="Locks opened" />
+          <TextBlock Grid.Row="1" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+          <ScrollViewer Grid.Row="2">
+            <ItemsControl ItemsSource="{Binding SelectedLocks}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:KeyLockViewModel">
+                  <Border Classes="inset" Margin="0,0,0,6" Padding="9">
+                    <TextBlock FontSize="12" Text="{Binding LockId}" TextWrapping="Wrap" />
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
 </UserControl>

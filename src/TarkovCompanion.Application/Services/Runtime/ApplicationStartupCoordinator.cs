@@ -83,6 +83,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 cancellationToken).ConfigureAwait(false);
         }
 
+        await WarmCatalogsAsync(cancellationToken).ConfigureAwait(false);
+
         // Watching the game's own log and screenshot folders is what lets the map follow the
         // player. It starts here rather than on demand because the game is usually launched
         // after the companion, and discovery keeps retrying until it appears.
@@ -136,6 +138,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             // Fresh rows landed, so anything projected from the old ones is now stale.
             _requirementCatalog.Invalidate();
             _itemFactCatalog.Invalidate();
+            await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             _stateStore.Update(current => current with
@@ -236,6 +239,29 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             cached.SyncedEndpointCount,
             cached.LastSuccessUtc,
             stale ? "Usable local data is loaded and marked stale." : "Usable local game data is loaded.");
+    }
+
+    /// <summary>
+    /// Fills the catalog caches before anything needs them synchronously.
+    /// </summary>
+    /// <remarks>
+    /// The need-aggregation service is built per use from these projections, and the only
+    /// place it can be constructed is a synchronous factory. Warming the caches here keeps
+    /// that construction an in-memory lookup; without it the first scan paid for a full
+    /// table read while blocking a thread-pool thread, which was enough to stall the
+    /// diagnostic channel behind it.
+    /// </remarks>
+    private async Task WarmCatalogsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+            await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "The requirement catalog could not be preloaded.");
+        }
     }
 
     private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)

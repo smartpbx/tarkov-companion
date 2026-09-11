@@ -1,11 +1,123 @@
-<UserControl x:Class="TarkovCompanion.App.Views.Pages.AmmoView" x:DataType="vm:AmmoPageViewModel"
-             xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.AmmoView"
+             x:DataType="vm:AmmoPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Border Classes="panel" Padding="22">
-    <StackPanel Spacing="10">
-      <TextBlock Classes="sectionTitle" Text="Runtime availability" />
-      <TextBlock Text="{Binding AvailabilityMessage}" TextWrapping="Wrap" />
-      <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
-    </StackPanel>
-  </Border>
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
+               PlaceholderText="Filter calibers by name" />
+      <Button Grid.Column="1" Classes="primary" Command="{Binding RefreshCommand}" Content="Reload" />
+    </Grid>
+
+    <!-- The two notices sit above the ranking, not under it: a player reads the tier first, so
+         the caveat has to arrive before the number it applies to. -->
+    <Border Grid.Row="1" Classes="inset" Padding="10">
+      <StackPanel Spacing="5">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding HeuristicNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding AvailabilityNotice}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="12">
+      <ListBox ItemsSource="{Binding Calibers}"
+               SelectedItem="{Binding SelectedCaliber, Mode=TwoWay}"
+               Background="Transparent"
+               BorderThickness="0">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:AmmoCaliberViewModel">
+            <Border Classes="panel" Margin="0,0,0,8" Padding="12">
+              <StackPanel Spacing="4">
+                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" RowSpacing="10">
+        <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
+
+        <ListBox Grid.Row="1"
+                 ItemsSource="{Binding Rounds}"
+                 SelectedItem="{Binding SelectedRound, Mode=TwoWay}"
+                 Background="Transparent"
+                 BorderThickness="0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:AmmoRoundViewModel">
+              <Border Classes="panel" Margin="0,0,0,8" Padding="13">
+                <StackPanel Spacing="7">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock FontWeight="SemiBold"
+                               Text="{Binding Name}"
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="label" Text="{Binding Rank}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Classes="metric ochre" FontSize="19" Text="{Binding Tier}" />
+                  </Grid>
+
+                  <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="label" Text="Damage" />
+                      <TextBlock Classes="value" Text="{Binding Damage}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="1">
+                      <TextBlock Classes="label" Text="Penetration" />
+                      <TextBlock Classes="value" Text="{Binding Penetration}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Spacing="1">
+                      <TextBlock Classes="label" Text="Armor damage" />
+                      <TextBlock Classes="value" Text="{Binding ArmorDamage}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" Spacing="1">
+                      <TextBlock Classes="label" Text="Fragmentation" />
+                      <TextBlock Classes="value" Text="{Binding Fragmentation}" />
+                    </StackPanel>
+                  </Grid>
+
+                  <TextBlock Classes="label" Text="{Binding Traits}" TextWrapping="Wrap" />
+
+                  <!-- Six chips, one per armor class. The colour is the rating and nothing more;
+                       it is produced by the same penetration comparison the notice describes. -->
+                  <ItemsControl ItemsSource="{Binding ArmorClasses}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                      </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:AmmoArmorRatingViewModel">
+                        <Border Classes="inset" Padding="8,5" MinWidth="76">
+                          <StackPanel Spacing="1">
+                            <TextBlock Classes="label" Text="{Binding ArmorClass}" />
+                            <TextBlock Classes.sage="{Binding IsStrong}"
+                                       Classes.ochre="{Binding IsMarginal}"
+                                       Classes.coral="{Binding IsWeak}"
+                                       FontSize="12"
+                                       Text="{Binding Rating}" />
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+
+                  <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="2" Classes="panel" Padding="15">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="sectionTitle" Text="{Binding RoundHeading}" />
+            <TextBlock Text="{Binding Advice}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" Text="{Binding Explanation}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </Grid>
 </UserControl>

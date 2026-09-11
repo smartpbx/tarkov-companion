@@ -1,0 +1,424 @@
+using System.Globalization;
+using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Ammo;
+
+namespace TarkovCompanion.App.ViewModels;
+
+public sealed record AmmoCaliberViewModel(string Caliber, string Name, string Summary);
+
+public sealed record AmmoArmorRatingViewModel(
+    string ArmorClass,
+    string Rating,
+    bool IsStrong,
+    bool IsMarginal,
+    bool IsWeak);
+
+public sealed record AmmoRoundViewModel(
+    string ItemId,
+    string Name,
+    string Rank,
+    string Tier,
+    string Damage,
+    string Penetration,
+    string ArmorDamage,
+    string Fragmentation,
+    string Traits,
+    string PracticalAdvice,
+    string LearnModeExplanation,
+    string Provenance,
+    IReadOnlyList<AmmoArmorRatingViewModel> ArmorClasses);
+
+/// <summary>
+/// Ranks the rounds in one caliber so a player can choose ammunition before a raid.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The page builds its own <see cref="AmmoIntelligenceService"/> from the catalog rather than
+/// resolving <c>IAmmoIntelligenceService</c> from the container. The registered instance is
+/// constructed with empty collections, so every lookup through it returns nothing; the catalog
+/// is the only place the synced ballistic rows actually exist. Building the service here also
+/// means a first sync that lands after startup is picked up by the next load instead of the
+/// next restart.
+/// </para>
+/// <para>
+/// Two things the page must not overstate. The tier and the armor ratings are a heuristic:
+/// <see cref="AmmoIntelligenceService"/> compares penetration against the armor class number
+/// and nothing else, and caps its own confidence at 0.80 to say so. And no availability data is
+/// synced at all, so the caliber listing is every cached round, not the rounds a given player
+/// can buy; <c>profile</c> is deliberately passed as null for that reason, because filtering on
+/// a rule the data cannot express would silently hide rounds for no real reason.
+/// </para>
+/// </remarks>
+public sealed class AmmoPageViewModel : PageViewModel
+{
+    private const string CaliberPrefix = "Caliber";
+    private const string NoRoundSelected = "Select a round to see how it ranks and why.";
+
+    private readonly IItemFactCatalog _catalog;
+    private readonly IItemRepository _itemRepository;
+
+    // Resolving a name is a database read per round, and a caliber list re-reads the same rounds
+    // every time the player switches back to it.
+    private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
+
+    private AmmoIntelligenceService? _intelligence;
+    private IReadOnlyList<AmmoCaliberViewModel> _allCalibers = [];
+    private IReadOnlyList<AmmoCaliberViewModel> _calibers = [];
+    private IReadOnlyList<AmmoRoundViewModel> _rounds = [];
+    private AmmoCaliberViewModel? _selectedCaliber;
+    private AmmoRoundViewModel? _selectedRound;
+    private string _searchQuery = string.Empty;
+    private string _status = "Loading the ammunition table…";
+    private string _detail = "Pick a caliber to see its rounds ranked best first.";
+    private string _roundHeading = "No round selected";
+    private string _advice = NoRoundSelected;
+    private string _explanation = string.Empty;
+
+    public AmmoPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
+        : base("Ammo", "Rounds in a caliber, ranked by what gets through armor", "Runtime state not loaded")
+    {
+        _catalog = catalog;
+        _itemRepository = itemRepository;
+        RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    public AsyncDelegateCommand RefreshCommand { get; }
+
+    /// <summary>The one line the page owes a player about where the tier and ratings come from.</summary>
+    public string HeuristicNotice { get; } =
+        "Tier and the armor ratings are a rule of thumb, not a measurement. The app compares a " +
+        "round's penetration number against the armor class number and nothing else, which is why " +
+        "it never rates its own confidence in them above 80%. Plates, durability and where you hit " +
+        "are not modelled.";
+
+    /// <summary>The one line the page owes a player about what is missing from the list.</summary>
+    public string AvailabilityNotice { get; } =
+        "This is every cached round in the caliber. Nothing here knows your level or what your " +
+        "traders stock, so read it as a ranking, not a shopping list.";
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value))
+            {
+                ApplyCaliberFilter();
+            }
+        }
+    }
+
+    public IReadOnlyList<AmmoCaliberViewModel> Calibers
+    {
+        get => _calibers;
+        private set => SetProperty(ref _calibers, value);
+    }
+
+    public IReadOnlyList<AmmoRoundViewModel> Rounds
+    {
+        get => _rounds;
+        private set => SetProperty(ref _rounds, value);
+    }
+
+    public string Status
+    {
+        get => _status;
+        private set => SetProperty(ref _status, value);
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        private set => SetProperty(ref _detail, value);
+    }
+
+    public string RoundHeading
+    {
+        get => _roundHeading;
+        private set => SetProperty(ref _roundHeading, value);
+    }
+
+    public string Advice
+    {
+        get => _advice;
+        private set => SetProperty(ref _advice, value);
+    }
+
+    public string Explanation
+    {
+        get => _explanation;
+        private set => SetProperty(ref _explanation, value);
+    }
+
+    public AmmoCaliberViewModel? SelectedCaliber
+    {
+        get => _selectedCaliber;
+        set
+        {
+            if (SetProperty(ref _selectedCaliber, value) && value is not null)
+            {
+                _ = ShowCaliberAsync(value, CancellationToken.None);
+            }
+        }
+    }
+
+    public AmmoRoundViewModel? SelectedRound
+    {
+        get => _selectedRound;
+        set
+        {
+            if (!SetProperty(ref _selectedRound, value))
+            {
+                return;
+            }
+
+            // Both strings are written by the intelligence service and carried through verbatim:
+            // they are the only place the ranking explains itself, and paraphrasing them here
+            // would let the page drift away from what the service actually computed.
+            RoundHeading = value?.Name ?? "No round selected";
+            Advice = value?.PracticalAdvice ?? NoRoundSelected;
+            Explanation = value?.LearnModeExplanation ?? string.Empty;
+        }
+    }
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
+        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        if (snapshot.Data.ItemCount != 0)
+        {
+            return;
+        }
+
+        // An empty cache means the rows this page was built from are gone, so the ranking is
+        // dropped with them rather than left on screen looking current.
+        Reset();
+        Status = snapshot.Data.Detail;
+    }
+
+    public Task LoadAsync() => LoadAsync(CancellationToken.None);
+
+    public async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            Status = "Reading the ammunition table…";
+            var stats = await _catalog.GetAmmoAsync(cancellationToken).ConfigureAwait(true);
+            if (stats.Count == 0)
+            {
+                Reset();
+                Status = "No ammunition is cached yet. It arrives with the first successful data refresh.";
+                return;
+            }
+
+            // Packs are handed over too so that an ammunition box resolves to the round inside it
+            // rather than reading as an unknown item.
+            var packs = await _catalog.GetAmmoPacksAsync(cancellationToken).ConfigureAwait(true);
+            _intelligence = new AmmoIntelligenceService(stats, packs);
+
+            _allCalibers = stats
+                .GroupBy(stat => stat.Caliber, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new AmmoCaliberViewModel(
+                    group.Key,
+                    DescribeCaliber(group.Key),
+                    $"{Count(group.Count())} round(s) · best penetration {Count(group.Max(stat => stat.Penetration))}"))
+                .OrderBy(caliber => caliber.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+
+            ApplyCaliberFilter();
+            Status =
+                $"{Count(_allCalibers.Count)} caliber(s) across {Count(stats.Count)} cached round(s). " +
+                "Rounds with no caliber, damage or penetration figure were never stored, so they cannot appear here.";
+
+            // A reload has to re-rank whatever is open, or the rounds on screen would still be the
+            // ones the previous service instance produced while the status line claimed a refresh.
+            if (SelectedCaliber is { } current)
+            {
+                await ShowCaliberAsync(current, cancellationToken).ConfigureAwait(true);
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Reset();
+            Status = $"The ammunition table could not be read: {exception.Message}";
+        }
+    }
+
+    private async Task ShowCaliberAsync(AmmoCaliberViewModel caliber, CancellationToken cancellationToken)
+    {
+        var intelligence = _intelligence;
+        if (intelligence is null)
+        {
+            Rounds = [];
+            Detail = "The ammunition table is not loaded yet.";
+            return;
+        }
+
+        try
+        {
+            Detail = $"Ranking {caliber.Name}…";
+
+            // profile is null on purpose. GetCaliberAsync drops rounds the profile cannot obtain,
+            // and no availability rule is ever loaded, so passing a profile would only risk the
+            // list quietly shrinking on a rule the data cannot actually state.
+            var ranked = await intelligence
+                .GetCaliberAsync(caliber.Caliber, profile: null, cancellationToken)
+                .ConfigureAwait(true);
+
+            var rows = new List<AmmoRoundViewModel>(ranked.Count);
+            for (var index = 0; index < ranked.Count; index++)
+            {
+                rows.Add(await DescribeRoundAsync(ranked[index], index + 1, ranked.Count, cancellationToken)
+                    .ConfigureAwait(true));
+            }
+
+            Rounds = rows;
+            SelectedRound = null;
+            Detail = rows.Count == 0
+                ? $"No cached round carries the {caliber.Name} caliber."
+                : $"{Count(rows.Count)} round(s) in {caliber.Name}, highest penetration first.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Rounds = [];
+            Detail = $"That caliber could not be ranked: {exception.Message}";
+        }
+    }
+
+    private async Task<AmmoRoundViewModel> DescribeRoundAsync(
+        AmmoIntelligence round,
+        int rank,
+        int total,
+        CancellationToken cancellationToken)
+    {
+        var stats = round.Stats;
+        return new(
+            stats.ItemId,
+            await ResolveNameAsync(stats.ItemId, cancellationToken).ConfigureAwait(true),
+            $"#{Count(rank)} of {Count(total)}",
+            round.Tier,
+            Count(stats.Damage),
+            Count(stats.Penetration),
+            stats.ArmorDamagePercent is { } armorDamage ? $"{Count(armorDamage)}%" : "not stated",
+            stats.FragmentationChance is { } fragmentation
+                ? fragmentation.ToString("P0", CultureInfo.CurrentCulture)
+                : "not stated",
+            DescribeTraits(stats),
+            round.PracticalAdvice,
+            round.LearnModeExplanation,
+            $"json.tarkov.dev · {Describe(stats.Provenance.SourceUpdatedUtc)} · " +
+            $"confidence {round.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture)}",
+            DescribeArmor(round.ArmorClassRatings));
+    }
+
+    private async Task<string> ResolveNameAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (_names.TryGetValue(itemId, out var cached))
+        {
+            return cached;
+        }
+
+        // Falling back to the id keeps a round whose item row is missing visible with its real
+        // ballistics, instead of dropping it out of a ranking it genuinely belongs in.
+        var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+        var name = item?.Name ?? itemId;
+        _names[itemId] = name;
+        return name;
+    }
+
+    private void ApplyCaliberFilter()
+    {
+        var query = SearchQuery.Trim();
+        Calibers = query.Length == 0
+            ? _allCalibers
+            : _allCalibers
+                .Where(caliber =>
+                    caliber.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase) ||
+                    caliber.Caliber.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+    }
+
+    private void Reset()
+    {
+        _intelligence = null;
+        _allCalibers = [];
+        _names.Clear();
+        Calibers = [];
+        Rounds = [];
+
+        // Clearing the caliber matters as well as the round: the setter only re-ranks on a
+        // non-null value, so a stale selection left behind would sit highlighted over an empty
+        // list and would not re-rank if the same caliber came back.
+        SelectedCaliber = null;
+        SelectedRound = null;
+    }
+
+    private static IReadOnlyList<AmmoArmorRatingViewModel> DescribeArmor(
+        IReadOnlyDictionary<int, ArmorEffectiveness> ratings)
+    {
+        var strip = new List<AmmoArmorRatingViewModel>(6);
+        for (var armorClass = 1; armorClass <= 6; armorClass++)
+        {
+            // A class the service did not rate reads as a gap, not as a bad rating.
+            if (!ratings.TryGetValue(armorClass, out var rating))
+            {
+                strip.Add(new($"Class {armorClass}", "no rating", false, false, false));
+                continue;
+            }
+
+            strip.Add(new(
+                $"Class {armorClass}",
+                rating.ToString(),
+                rating is ArmorEffectiveness.Excellent or ArmorEffectiveness.Good,
+                rating is ArmorEffectiveness.Fair or ArmorEffectiveness.Limited,
+                rating is ArmorEffectiveness.Poor));
+        }
+
+        return strip;
+    }
+
+    private static string DescribeTraits(AmmoStats stats)
+    {
+        var traits = new List<string>(4);
+        if (stats.ProjectileCount > 1)
+        {
+            traits.Add($"{Count(stats.ProjectileCount)} projectiles");
+        }
+
+        if (stats.VelocityMetresPerSecond is { } velocity)
+        {
+            traits.Add($"{velocity.ToString("N0", CultureInfo.CurrentCulture)} m/s");
+        }
+
+        if (stats.IsSubsonic)
+        {
+            traits.Add("subsonic");
+        }
+
+        if (stats.IsTracer)
+        {
+            traits.Add("tracer");
+        }
+
+        return traits.Count == 0 ? "No extra traits are recorded." : string.Join(" · ", traits);
+    }
+
+    /// <summary>Turns the upstream caliber token into something a player can read.</summary>
+    /// <remarks>
+    /// json.tarkov.dev writes calibers as "Caliber556x45NATO". Only the prefix is dropped: the
+    /// digits are left exactly as the source wrote them, because inserting the decimal point a
+    /// player expects would be this app guessing at a value it was never given.
+    /// </remarks>
+    private static string DescribeCaliber(string caliber) =>
+        caliber.StartsWith(CaliberPrefix, StringComparison.OrdinalIgnoreCase) &&
+        caliber.Length > CaliberPrefix.Length
+            ? caliber[CaliberPrefix.Length..]
+            : caliber;
+
+    private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
+
+    private static string Describe(DateTimeOffset? timestamp) =>
+        timestamp is { } value ? value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) : "no timestamp";
+}

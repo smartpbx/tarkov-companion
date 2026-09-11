@@ -1,0 +1,241 @@
+using System.Globalization;
+using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Abstractions;
+
+namespace TarkovCompanion.App.ViewModels;
+
+public sealed record KeyLockViewModel(string LockId);
+
+public sealed record KeyRowViewModel(
+    string ItemId,
+    string Name,
+    string Map,
+    bool HasMap,
+    string LockSummary,
+    string MaximumUses,
+    string AcquisitionCost,
+    string Provenance,
+    IReadOnlyList<KeyLockViewModel> Locks);
+
+/// <summary>
+/// Lists every cached key with the facts the synced data actually states about it.
+/// </summary>
+/// <remarks>
+/// <para>
+/// There is deliberately no tier, no score and no "worth carrying" verdict here, and the page
+/// does not use <c>IKeyIntelligenceService</c> at all. Four of the six inputs that service
+/// weighs (expected loot, lock utility, unique access and route risk) have no source anywhere in
+/// the synced payload and are projected as zero by <c>SqliteItemFactCatalog</c>, whose remarks
+/// say so outright. A tier built on them would not be a weak signal, it would be a fabricated
+/// one, and every key would land in the same low band for a reason that has nothing to do with
+/// the key.
+/// </para>
+/// <para>
+/// What is left is still useful, and all of it is copied rather than inferred: which map the
+/// key's locks are on, how many locks it opens, how many uses it has, and what it costs. Maps
+/// and locks are shown as the identifiers the source uses, because the key projection reads
+/// <c>map_locks</c>, which carries ids and no names.
+/// </para>
+/// </remarks>
+public sealed class KeysPageViewModel : PageViewModel
+{
+    private const string NoKeySelected = "Select a key to see every lock it opens.";
+    private const string UnknownMap = "No single map";
+
+    private readonly IItemFactCatalog _catalog;
+    private readonly IItemRepository _itemRepository;
+    private IReadOnlyList<KeyRowViewModel> _allKeys = [];
+    private IReadOnlyList<KeyRowViewModel> _keys = [];
+    private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
+    private KeyRowViewModel? _selected;
+    private string _searchQuery = string.Empty;
+    private string _status = "Loading the key table…";
+    private string _detail = NoKeySelected;
+
+    public KeysPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
+        : base("Keys", "What each key opens, how many uses it has, and what it costs", "Runtime state not loaded")
+    {
+        _catalog = catalog;
+        _itemRepository = itemRepository;
+        RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    public AsyncDelegateCommand RefreshCommand { get; }
+
+    /// <summary>The one line the page owes a player about the missing value ranking.</summary>
+    public string ScoringNotice { get; } =
+        "No tier or value ranking is shown. Scoring a key needs six inputs and four of them " +
+        "(what the room holds, how useful the lock is, whether the key is the only way in, and how " +
+        "risky the route is) are not in the synced data at all, so any ranking here would be made " +
+        "up. The facts below are copied straight from the source.";
+
+    /// <summary>The one line the page owes a player about map and lock identifiers.</summary>
+    public string IdentifierNotice { get; } =
+        "Maps and locks appear as the source's identifiers. The key data carries no map names or " +
+        "door names to show instead.";
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value))
+            {
+                ApplyFilter();
+            }
+        }
+    }
+
+    public IReadOnlyList<KeyRowViewModel> Keys
+    {
+        get => _keys;
+        private set => SetProperty(ref _keys, value);
+    }
+
+    public IReadOnlyList<KeyLockViewModel> SelectedLocks
+    {
+        get => _selectedLocks;
+        private set => SetProperty(ref _selectedLocks, value);
+    }
+
+    public string Status
+    {
+        get => _status;
+        private set => SetProperty(ref _status, value);
+    }
+
+    public string Detail
+    {
+        get => _detail;
+        private set => SetProperty(ref _detail, value);
+    }
+
+    public KeyRowViewModel? Selected
+    {
+        get => _selected;
+        set
+        {
+            if (!SetProperty(ref _selected, value))
+            {
+                return;
+            }
+
+            // Everything shown for a selection is already on the row, so there is nothing to await
+            // and nothing that can fail here.
+            SelectedLocks = value?.Locks ?? [];
+            Detail = value is null
+                ? NoKeySelected
+                : value.Locks.Count == 0
+                    ? $"No cached lock names {value.Name} as its key. The key is real; the lock rows for it are not synced."
+                    : $"{value.Name} opens {Count(value.Locks.Count)} lock(s), listed by identifier.";
+        }
+    }
+
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
+        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        if (snapshot.Data.ItemCount != 0)
+        {
+            return;
+        }
+
+        // The rows came out of the item cache, so an empty cache means they are gone rather than
+        // merely stale, and leaving them on screen would present them as current.
+        Reset();
+        Status = snapshot.Data.Detail;
+    }
+
+    public Task LoadAsync() => LoadAsync(CancellationToken.None);
+
+    public async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            Status = "Reading the key table…";
+            var facts = await _catalog.GetKeyFactsAsync(cancellationToken).ConfigureAwait(true);
+            if (facts.Count == 0)
+            {
+                Reset();
+                Status = "No keys are cached yet. They arrive with the first successful data refresh.";
+                return;
+            }
+
+            var rows = new List<KeyRowViewModel>(facts.Count);
+            foreach (var fact in facts)
+            {
+                rows.Add(await DescribeAsync(fact, cancellationToken).ConfigureAwait(true));
+            }
+
+            // Keys whose map the projection could not settle on sort last rather than being mixed
+            // in under a name that would read as a real map.
+            _allKeys = rows
+                .OrderByDescending(row => row.HasMap)
+                .ThenBy(row => row.Map, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray();
+            ApplyFilter();
+
+            var withoutMap = _allKeys.Count(row => !row.HasMap);
+            Status = withoutMap == 0
+                ? $"{Count(_allKeys.Count)} cached key(s)."
+                : $"{Count(_allKeys.Count)} cached key(s); {Count(withoutMap)} of them open locks on more than one map, or on none that is cached.";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Reset();
+            Status = $"The key table could not be read: {exception.Message}";
+        }
+    }
+
+    private async Task<KeyRowViewModel> DescribeAsync(KeyFacts facts, CancellationToken cancellationToken)
+    {
+        // Falling back to the id keeps a key whose item row is missing visible with its real locks
+        // and cost, rather than hiding it behind a name lookup that failed.
+        var item = await _itemRepository.GetAsync(facts.ItemId, cancellationToken).ConfigureAwait(true);
+        return new(
+            facts.ItemId,
+            item?.Name ?? facts.ItemId,
+            facts.MapId ?? UnknownMap,
+            facts.MapId is not null,
+            facts.Locks.Count switch
+            {
+                0 => "No cached lock lists this key",
+                1 => "Opens 1 lock",
+                _ => $"Opens {Count(facts.Locks.Count)} locks",
+            },
+            // A key with no stated use count is not the same as a key with unlimited uses; the
+            // source simply does not say, so neither does the page.
+            facts.MaximumUses is { } uses ? $"{Count(uses)} use(s)" : "No use limit is stated",
+            facts.AcquisitionCostRoubles > 0
+                ? Roubles(facts.AcquisitionCostRoubles)
+                : "No price is cached",
+            $"json.tarkov.dev · {Describe(facts.Provenance.SourceUpdatedUtc)}",
+            facts.Locks.Select(lockId => new KeyLockViewModel(lockId)).ToArray());
+    }
+
+    private void ApplyFilter()
+    {
+        var query = SearchQuery.Trim();
+        Keys = query.Length == 0
+            ? _allKeys
+            : _allKeys
+                .Where(row => row.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                .ToArray();
+    }
+
+    private void Reset()
+    {
+        _allKeys = [];
+        Keys = [];
+        Selected = null;
+    }
+
+    private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
+
+    private static string Roubles(long value) => value.ToString("N0", CultureInfo.CurrentCulture) + " ₽";
+
+    private static string Describe(DateTimeOffset? timestamp) =>
+        timestamp is { } value ? value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) : "no timestamp";
+}
