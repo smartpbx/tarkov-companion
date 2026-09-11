@@ -467,6 +467,34 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             : $"{loaded} Skipped {skipped.Count} upstream location(s): {string.Join("; ", skipped)}";
     }
 
+    /// <summary>
+    /// Switches the map to the location the player is currently in.
+    /// </summary>
+    /// <remarks>
+    /// Raid evidence names a location the same way the tarkov.dev catalog does, so the map
+    /// can follow the player into a raid without anyone touching the companion. A location
+    /// the catalog does not carry is ignored rather than clearing the current view.
+    /// </remarks>
+    public async Task FollowRaidAsync(string mapId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
+        if (SelectedLocation is not null &&
+            string.Equals(SelectedLocation.Id, mapId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var location = Locations.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, mapId, StringComparison.OrdinalIgnoreCase));
+        if (location is null)
+        {
+            return;
+        }
+
+        await SelectLocationAsync(location).ConfigureAwait(true);
+        Status = $"Following the current raid on {location.Name}.";
+    }
+
     public async Task SelectLocationAsync(MapLocation location)
     {
         ArgumentNullException.ThrowIfNull(location);

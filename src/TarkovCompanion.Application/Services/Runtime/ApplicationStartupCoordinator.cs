@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
@@ -11,6 +12,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IDataSyncService _dataSyncService;
     private readonly IPlayerProfileService _profileService;
     private readonly RaidActivityCoordinator _raidActivityCoordinator;
+    private readonly RaidObservationService _observationService;
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -24,6 +26,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IDataSyncService dataSyncService,
         IPlayerProfileService profileService,
         RaidActivityCoordinator raidActivityCoordinator,
+        RaidObservationService observationService,
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
         ILogger<ApplicationStartupCoordinator> logger,
@@ -33,6 +36,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _dataSyncService = dataSyncService;
         _profileService = profileService;
         _raidActivityCoordinator = raidActivityCoordinator;
+        _observationService = observationService;
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
@@ -71,6 +75,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                     "Deterministic demo fixture selected Customs."),
                 cancellationToken).ConfigureAwait(false);
         }
+
+        // Watching the game's own log and screenshot folders is what lets the map follow the
+        // player. It starts here rather than on demand because the game is usually launched
+        // after the companion, and discovery keeps retrying until it appears.
+        _observationService.Start();
     }
 
     public void BeginBackgroundRefresh()
@@ -160,6 +169,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
+        await _observationService.DisposeAsync().ConfigureAwait(false);
         if (_backgroundRefresh is not null)
         {
             try

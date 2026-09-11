@@ -691,6 +691,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly SynchronizationContext? _synchronizationContext;
     private readonly ScanHotkeyService _hotkeys;
+    private string? _followedMapId;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
     private IReadOnlyList<StatusChip> _status = [];
@@ -939,6 +940,40 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         }
     }
 
+    /// <summary>
+    /// Moves the map to whichever raid the player is now in.
+    /// </summary>
+    /// <remarks>
+    /// This is the payoff of watching the game's log folder: the companion switches maps on
+    /// its own, which is the whole reason not to alt-tab mid-raid. It fires only when the
+    /// observed map actually changes, so it never fights a map the player chose by hand.
+    /// </remarks>
+    private void FollowRaidMap(ApplicationRuntimeSnapshot snapshot)
+    {
+        var mapId = snapshot.Raid.MapId;
+        if (string.IsNullOrWhiteSpace(mapId) ||
+            snapshot.Raid.IsManualMapOverride ||
+            string.Equals(mapId, _followedMapId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _followedMapId = mapId;
+        _ = FollowRaidMapAsync(mapId);
+    }
+
+    private async Task FollowRaidMapAsync(string mapId)
+    {
+        try
+        {
+            await Map.FollowRaidAsync(mapId).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not follow the raid onto {MapId}.", mapId);
+        }
+    }
+
     private NavigationItem CreateNavigation(string name, string glyph, PageViewModel page) =>
         new(name, glyph, page, Select);
 
@@ -983,6 +1018,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             page.Apply(snapshot);
         }
 
+        FollowRaidMap(snapshot);
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value
             ? $"{value:N0} ₽ · {snapshot.Scan.ValuePerSlotRoubles.GetValueOrDefault():N0} ₽ per slot"
@@ -998,6 +1034,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         DateTimeOffset nowUtc)
     {
         var raid = snapshot.Raid;
+        var observation = snapshot.Observation;
         var dataAge = snapshot.Data.UpdatedUtc is { } updated
             ? FormatAge(updated, nowUtc)
             : "never synced";
@@ -1005,15 +1042,21 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         var scan = snapshot.Scan;
         return
         [
+            // The EFT chip used to be hardcoded to "Not observed" whatever was happening.
+            // It now reports what the observation service is actually doing.
             new(
                 "EFT",
-                snapshot.IsDemoMode ? "Demo fixture" : "Not observed",
-                snapshot.IsDemoMode ? "No live game access" : "No window observation",
-                "#8F9BA6"),
+                snapshot.IsDemoMode
+                    ? "Demo fixture"
+                    : observation.IsObserving ? "Observing" : observation.IsSupported ? "Not found" : "Unsupported",
+                snapshot.IsDemoMode ? "No live game access" : observation.Detail,
+                observation.IsObserving ? "#77B895" : "#8F9BA6"),
             new(
                 "Map",
                 raid.MapId ?? "Unknown",
-                raid.MapId is null ? "No current raid evidence" : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
+                raid.MapId is null
+                    ? observation.IsWatchingLogs ? "Waiting for a raid to start" : "No current raid evidence"
+                    : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
                 "#56B8C6"),
             new(
                 "Raid",
@@ -1023,7 +1066,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             new(
                 "Position",
                 position is null ? "No evidence" : string.Create(CultureInfo.InvariantCulture, $"{position.Position.X:F0}, {position.Position.Z:F0}"),
-                position is null ? "No screenshot observation" : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
+                position is null
+                    ? observation.IsWatchingScreenshots
+                        ? "Take a screenshot in game to place yourself"
+                        : "No screenshot observation"
+                    : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
                 "#56B8C6"),
             new(
                 "Data",

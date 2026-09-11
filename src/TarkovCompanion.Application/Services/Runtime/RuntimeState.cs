@@ -54,6 +54,45 @@ public sealed record ScanExecutionResult(
         detail);
 }
 
+/// <summary>
+/// What the companion is currently able to observe about Escape from Tarkov.
+/// </summary>
+/// <remarks>
+/// Observation is ordinary file watching over the log and screenshot folders the game
+/// already writes to. The companion never reads game memory or inspects traffic, so when
+/// these folders cannot be found there is genuinely nothing to report, and the header must
+/// say so rather than implying the game is simply idle.
+/// </remarks>
+public sealed record EftObservationState(
+    bool IsSupported,
+    bool IsWatchingLogs,
+    bool IsWatchingScreenshots,
+    string? LogRoot,
+    string? ScreenshotRoot,
+    Confidence Confidence,
+    string Detail)
+{
+    public bool IsObserving => IsWatchingLogs || IsWatchingScreenshots;
+
+    public static EftObservationState Unsupported { get; } = new(
+        false,
+        false,
+        false,
+        null,
+        null,
+        Confidence.Unknown,
+        "Observing Escape from Tarkov requires Windows.");
+
+    public static EftObservationState Idle { get; } = new(
+        true,
+        false,
+        false,
+        null,
+        null,
+        Confidence.Unknown,
+        "Looking for the Escape from Tarkov log and screenshot folders.");
+}
+
 public sealed record ApplicationRuntimeSnapshot(
     bool IsDemoMode,
     bool IsOffline,
@@ -61,7 +100,11 @@ public sealed record ApplicationRuntimeSnapshot(
     RuntimeDataState Data,
     PlayerProfile? Profile,
     RaidSnapshot Raid,
-    ScanExecutionResult Scan);
+    ScanExecutionResult Scan)
+{
+    public EftObservationState Observation { get; init; } =
+        OperatingSystem.IsWindows() ? EftObservationState.Idle : EftObservationState.Unsupported;
+}
 
 public interface IRuntimeStateStore
 {

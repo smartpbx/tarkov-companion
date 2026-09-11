@@ -272,7 +272,12 @@ public static class AppComposition
         if (!OperatingSystem.IsWindows())
         {
             services.AddSingleton<IGlobalHotkeyService, UnavailableGlobalHotkeyService>();
+            services.AddSingleton<IEftPathLocator, UnavailableEftPathLocator>();
+            services.AddSingleton<IEftLogWatcher, UnavailableEftLogWatcher>();
+            services.AddSingleton<IScreenshotWatcher, UnavailableScreenshotWatcher>();
         }
+
+        services.AddSingleton<RaidObservationService>();
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
         services.AddSingleton<RaidActivityCoordinator>();
