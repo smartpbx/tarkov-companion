@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
@@ -12,6 +13,9 @@ public sealed partial class EftLogParser
 {
     /// <summary>Location tokens learned from synced map data, when available.</summary>
     private volatile IReadOnlyDictionary<string, string>? _syncedAliases;
+
+    /// <summary>The player's own profile id, learned from the profile-selection line.</summary>
+    private volatile string? _selfProfileId;
 
     /// <summary>
     /// Replaces the built-in token table with the pairing json.tarkov.dev publishes.
@@ -50,11 +54,32 @@ public sealed partial class EftLogParser
             ["woods"] = "woods",
         };
 
+    /// <summary>
+    /// Remembers which profile is the player's own.
+    /// </summary>
+    /// <remarks>
+    /// The game logs notifications about the player and about their teammates in the same
+    /// files. Only a notification carrying this profile id describes the player, so nothing
+    /// is attributed to them without matching it. Teammate notifications are never a source
+    /// of raid state.
+    /// </remarks>
+    public void RememberSelf(string profileId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
+        _selfProfileId = profileId;
+    }
+
     public RaidEvidence? ParseLine(string? line, DateTimeOffset observedUtc)
     {
         if (string.IsNullOrWhiteSpace(line))
         {
             return null;
+        }
+
+        LearnSelfIdentity(line);
+        if (TryParseOwnRaidNotification(line, observedUtc) is { } notification)
+        {
+            return notification;
         }
 
         var mapId = TryExtractMapId(line);
@@ -121,12 +146,17 @@ public sealed partial class EftLogParser
     private string? TryExtractMapId(string line)
     {
         var match = LocationPattern().Match(line);
-        if (!match.Success)
+        return match.Success ? ResolveMapId(match.Groups["map"].Value) : null;
+    }
+
+    private string? ResolveMapId(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
         {
             return null;
         }
 
-        var candidate = match.Groups["map"].Value.Trim().Replace(' ', '_');
+        var candidate = token.Trim().Replace(' ', '_');
         if (_syncedAliases is { } synced && synced.TryGetValue(candidate, out var syncedMapId))
         {
             return syncedMapId;
@@ -134,6 +164,108 @@ public sealed partial class EftLogParser
 
         return FallbackAliases.TryGetValue(candidate, out var mapId) ? mapId : null;
     }
+
+    /// <summary>Picks the player's own profile id out of the profile-selection line.</summary>
+    private void LearnSelfIdentity(string line)
+    {
+        if (_selfProfileId is not null || !line.Contains("SelectedProfile", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var match = SelfProfilePattern().Match(line);
+        if (match.Success)
+        {
+            _selfProfileId = match.Groups["profile"].Value;
+        }
+    }
+
+    /// <summary>
+    /// Reads a raid boundary from the notifications the game logs about the player.
+    /// </summary>
+    /// <remarks>
+    /// These are far better evidence than the surrounding prose. userConfirmed opens a raid
+    /// and userMatchOver closes it, both naming the map and both carrying the profile id, so
+    /// the pair gives an exact start, end and duration for the player specifically. A close
+    /// whose status is Transfer is a move to another map rather than the end of a raid;
+    /// treating the two alike would invent a raid that never happened.
+    ///
+    /// The same files carry notifications describing teammates. Those are never read as the
+    /// player's state: without a matching profile id nothing is attributed at all.
+    /// </remarks>
+    private RaidEvidence? TryParseOwnRaidNotification(string line, DateTimeOffset observedUtc)
+    {
+        if (!line.Contains("userConfirmed", StringComparison.Ordinal) &&
+            !line.Contains("userMatchOver", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var start = line.IndexOf('[');
+        if (start < 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(line[start..]);
+            if (document.RootElement.ValueKind != JsonValueKind.Array ||
+                document.RootElement.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var payload = document.RootElement[0];
+            var type = ReadText(payload, "type");
+            var profileId = ReadText(payload, "profileid");
+            if (profileId is null || _selfProfileId is null ||
+                !string.Equals(profileId, _selfProfileId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            var mapId = ResolveMapId(ReadText(payload, "location"));
+            var status = ReadText(payload, "status");
+            return type switch
+            {
+                "userConfirmed" => new(
+                    RaidEvidenceKind.LogLine,
+                    observedUtc.ToUniversalTime(),
+                    mapId,
+                    RaidLifecycleState.InRaid,
+                    new Confidence(0.98),
+                    mapId is null ? "The game confirmed a raid." : $"The game confirmed a raid on {mapId}."),
+                "userMatchOver" when string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase) => new(
+                    RaidEvidenceKind.LogLine,
+                    observedUtc.ToUniversalTime(),
+                    mapId,
+                    RaidLifecycleState.InRaid,
+                    new Confidence(0.90),
+                    "The game reported a transfer to another map rather than the end of the raid."),
+                "userMatchOver" => new(
+                    RaidEvidenceKind.LogLine,
+                    observedUtc.ToUniversalTime(),
+                    mapId,
+                    RaidLifecycleState.PostRaid,
+                    new Confidence(0.98),
+                    "The game reported the raid as over."),
+                _ => null,
+            };
+        }
+        catch (JsonException)
+        {
+            // A truncated or reshaped notification must not interrupt observation.
+            return null;
+        }
+    }
+
+    private static string? ReadText(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(property, out var value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     private static bool ContainsAny(string line, params string[] markers) =>
         markers.Any(marker => line.Contains(marker, StringComparison.OrdinalIgnoreCase));
@@ -150,4 +282,9 @@ public sealed partial class EftLogParser
         @"(?:location|map)(?:id)?\s*[:=]\s*['""]?(?<map>[a-z0-9_-]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LocationPattern();
+
+    [GeneratedRegex(
+        @"SelectedProfile\s+ProfileId:\s*(?<profile>[A-Za-z0-9]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SelfProfilePattern();
 }

@@ -19,9 +19,16 @@ public sealed class WindowsEftLogWatcher(EftLogParser parser, TimeProvider? time
     /// victim. None of that is needed to tell which map a raid is on, so none of it is opened.
     ///
     /// application carries the map and lifecycle markers. output is the only file still
-    /// written throughout a raid, so it is what can say the player is still in one.
+    /// written throughout a raid, so it is what can say the player is still in one. backend
+    /// carries the userConfirmed and userMatchOver notifications that give an exact raid
+    /// start, end and duration for the player; it is opened for those and nothing else, and
+    /// the parser attributes a notification to the player only when its profile id matches
+    /// theirs, so a teammate's record is never read as the player's own.
+    ///
+    /// push-notifications stays closed. Its group blobs carry teammates' full inventories,
+    /// health and looted dogtags, and nothing here needs them.
     /// </remarks>
-    private static readonly string[] WatchedPrefixes = ["application", "output"];
+    private static readonly string[] WatchedPrefixes = ["application", "output", "backend"];
 
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
