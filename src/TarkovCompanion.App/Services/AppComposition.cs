@@ -114,6 +114,7 @@ public static class AppComposition
         {
             builder.SetMinimumLevel(LogLevel.Information);
             builder.AddProvider(new TraceLoggerProvider());
+            builder.AddProvider(new FileLoggerProvider());
         });
 
         services.AddSingleton<SqliteConnectionFactory>();

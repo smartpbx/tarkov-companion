@@ -117,10 +117,15 @@ public sealed class SystemEftPathProbe : IEftPathProbe
     [SupportedOSPlatform("windows")]
     private static IEnumerable<string> RunningGameRoots()
     {
+        // The game process itself is protected by its anti-cheat and reports an empty path
+        // even to an elevated reader, so it cannot be asked directly. Its anti-cheat sibling
+        // and the launcher are readable and sit in the same install directory.
         Process[] processes;
         try
         {
-            processes = Process.GetProcessesByName("EscapeFromTarkov");
+            processes = Process.GetProcessesByName("EscapeFromTarkov_BE")
+                .Concat(Process.GetProcessesByName("EscapeFromTarkov"))
+                .ToArray();
         }
         catch (Exception exception) when (exception is InvalidOperationException or Win32Exception)
         {

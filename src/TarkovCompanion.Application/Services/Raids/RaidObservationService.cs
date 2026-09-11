@@ -128,6 +128,7 @@ public sealed class RaidObservationService : IAsyncDisposable
 
             if (paths.LogRoot is null && paths.ScreenshotRoot is null)
             {
+                _logger.LogInformation("Escape from Tarkov was not found; retrying discovery.");
                 Publish(new(
                     true,
                     false,
@@ -143,6 +144,11 @@ public sealed class RaidObservationService : IAsyncDisposable
             Interlocked.Exchange(ref _eventsSeen, 0);
             _watching = paths;
             PublishWatching();
+            _logger.LogInformation(
+                "Observing Escape from Tarkov. Logs: {LogRoot}. Screenshots: {ScreenshotRoot}. Confidence {Confidence}.",
+                paths.LogRoot ?? "none",
+                paths.ScreenshotRoot ?? "none",
+                paths.Confidence.Value);
 
             using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             var watchers = new List<Task>(2);
@@ -192,6 +198,12 @@ public sealed class RaidObservationService : IAsyncDisposable
                 if (seen <= 3 || seen % 25 == 0)
                 {
                     PublishWatching();
+                    _logger.LogInformation(
+                        "Read {Count} log event(s); latest is {Summary} (map {MapId}, state {State}).",
+                        seen,
+                        evidence.Summary,
+                        evidence.MapId ?? "none",
+                        evidence.SuggestedState?.ToString() ?? "unchanged");
                 }
                 await _coordinator.ApplyEvidenceAsync(evidence, cancellationToken).ConfigureAwait(false);
             }

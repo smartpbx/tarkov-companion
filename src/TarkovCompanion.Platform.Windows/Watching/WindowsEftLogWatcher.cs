@@ -249,6 +249,8 @@ public sealed class WindowsEftLogWatcher(EftLogParser parser, TimeProvider? time
         }
         catch (IOException)
         {
+            // The game may hold the file exclusively for an instant while it rolls. The next
+            // poll picks it up, so this is a skip rather than a failure.
             yield break;
         }
 
