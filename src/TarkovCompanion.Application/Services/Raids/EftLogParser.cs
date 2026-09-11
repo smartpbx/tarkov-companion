@@ -279,7 +279,9 @@ public sealed partial class EftLogParser
     };
 
     [GeneratedRegex(
-        @"(?:location|map)(?:id)?\s*[:=]\s*['""]?(?<map>[a-z0-9_-]+)",
+        // The closing quote before the colon matters: the game writes the map both as
+        // "Location: Shoreline" in prose and as "location":"Shoreline" inside JSON.
+        @"(?:location|map)(?:id)?['""]?\s*[:=]\s*['""]?(?<map>[a-z0-9_-]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex LocationPattern();
 
