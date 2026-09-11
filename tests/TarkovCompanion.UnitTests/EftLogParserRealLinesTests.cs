@@ -46,7 +46,8 @@ public sealed class EftLogParserRealLinesTests
     [InlineData("Shoreline", "shoreline")]
     [InlineData("factory4_day", "factory")]
     [InlineData("Sandbox", "ground-zero")]
-    [InlineData("Sandbox_high", "ground-zero")]
+    // Ground Zero 21+ is its own location in the map catalog, not an alias of Ground Zero.
+    [InlineData("Sandbox_high", "ground-zero-21")]
     [InlineData("Lighthouse", "lighthouse")]
     public void ResolvesEveryMapTokenSeenOnARealInstall(string token, string expected)
     {
