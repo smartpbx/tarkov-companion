@@ -49,8 +49,11 @@ public sealed class RaidObservationServiceTests
     [Fact]
     public async Task TurnsAScreenshotFilenameIntoALastKnownPosition()
     {
-        using var harness = new Harness(new(@"C:\EFT", null, @"C:\EFT\Screenshots", new Confidence(0.8)));
-        harness.ScreenshotPaths.Add(@"C:\EFT\Screenshots\shot.png");
+        // Built with the running platform's separator: Path.GetFileName only recognises
+        // backslashes on Windows, so a hardcoded Windows path would not be split on Linux.
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        using var harness = new Harness(new("eft", null, screenshotRoot, new Confidence(0.8)));
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "shot.png"));
 
         await harness.RunUntilAsync(_ => harness.Store.Current.Raid.LastKnownPosition is not null);
 
