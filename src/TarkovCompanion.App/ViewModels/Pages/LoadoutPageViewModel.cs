@@ -457,22 +457,36 @@ public sealed class LoadoutPageViewModel : PageViewModel
     }
 
     private LoadoutSelection BuildSelection() => new(
-        Single(LoadoutSlot.Weapon),
-        Single(LoadoutSlot.Ammunition),
-        Many(LoadoutSlot.Magazine),
-        Single(LoadoutSlot.Armor),
-        Many(LoadoutSlot.Plate),
-        Single(LoadoutSlot.Helmet),
-        Single(LoadoutSlot.Headset),
-        Single(LoadoutSlot.Rig),
-        Single(LoadoutSlot.Backpack),
-        Many(LoadoutSlot.Medical));
+        FirstId(LoadoutSlot.Weapon),
+        FirstId(LoadoutSlot.Ammunition),
+        AllIds(LoadoutSlot.Magazine),
+        FirstId(LoadoutSlot.Armor),
+        AllIds(LoadoutSlot.Plate),
+        FirstId(LoadoutSlot.Helmet),
+        FirstId(LoadoutSlot.Headset),
+        FirstId(LoadoutSlot.Rig),
+        FirstId(LoadoutSlot.Backpack),
+        AllIds(LoadoutSlot.Medical));
 
-    private string? Single(LoadoutSlot slot) =>
-        _selection.TryGetValue(slot, out var items) && items.Count > 0 ? items[0].ItemId : null;
+    private string? FirstId(LoadoutSlot slot)
+    {
+        if (_selection.TryGetValue(slot, out var items) && items.Count > 0)
+        {
+            return items[0].ItemId;
+        }
 
-    private IReadOnlyList<string> Many(LoadoutSlot slot) =>
-        _selection.TryGetValue(slot, out var items) ? items.Select(item => item.ItemId).ToArray() : [];
+        return null;
+    }
+
+    private IReadOnlyList<string> AllIds(LoadoutSlot slot)
+    {
+        if (_selection.TryGetValue(slot, out var items))
+        {
+            return items.Select(item => item.ItemId).ToArray();
+        }
+
+        return [];
+    }
 
     private List<string> SelectedItemIds()
     {

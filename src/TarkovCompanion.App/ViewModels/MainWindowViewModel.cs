@@ -134,42 +134,6 @@ public abstract class PageViewModel(string title, string description, string evi
     }
 }
 
-public abstract class ServicePageViewModel(
-    string title,
-    string description,
-    string availabilityMessage) : PageViewModel(title, description, "Runtime state not loaded")
-{
-    public string AvailabilityMessage { get; } = availabilityMessage;
-
-    public void Apply(ApplicationRuntimeSnapshot snapshot)
-    {
-        var profile = snapshot.Profile is null
-            ? "Profile unavailable"
-            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode}";
-        Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items · {profile}";
-    }
-}
-
-public sealed class AmmoPageViewModel() : ServicePageViewModel(
-    "Ammo",
-    "Caliber intelligence from structured data and the active local profile",
-    "Ammo rows are unavailable until a service-backed intelligence data loader is connected.");
-
-public sealed class KeysPageViewModel() : ServicePageViewModel(
-    "Keys",
-    "Key uses and value from structured data and attributed field notes",
-    "Key intelligence is unavailable; no curated runtime facts are loaded.");
-
-public sealed class EventsPageViewModel() : ServicePageViewModel(
-    "Events",
-    "Explicit event rules and local manual progress",
-    "No current event definition is loaded; the app does not infer events from live game activity.");
-
-public sealed class LoadoutPageViewModel() : ServicePageViewModel(
-    "Loadout",
-    "Evaluate a manually selected loadout without reading game inventory",
-    "No loadout selection is active; live inventory is never inspected.");
-
 public sealed class RaidPageViewModel : PageViewModel
 {
     private string _raidState = "No raid evidence";
@@ -701,6 +665,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IItemRepository itemRepository,
         IPriceHistoryService priceHistoryService,
         IRequirementCatalog requirementCatalog,
+        IItemFactCatalog itemFactCatalog,
+        IEventCatalog eventCatalog,
+        IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
@@ -735,27 +702,24 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Hideout = new(requirementCatalog, profileService, itemRepository);
         Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys);
+        Ammo = new(itemFactCatalog, itemRepository);
+        Keys = new(itemFactCatalog, itemRepository);
+        Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
+        Events = new(eventCatalog, eventTracker, itemRepository);
         _hotkeys.Triggered += ScanHotkeyPressed;
-        ServicePages =
-        [
-            new AmmoPageViewModel(),
-            new KeysPageViewModel(),
-            new EventsPageViewModel(),
-            new LoadoutPageViewModel(),
-        ];
 
         Navigation =
         [
             CreateNavigation("Raid", "⌖", Raid),
             CreateNavigation("Scanner", "⌁", Scanner),
             CreateNavigation("Items", "◇", Items),
-            CreateNavigation("Ammo", "◉", ServicePages[0]),
-            CreateNavigation("Keys", "⌑", ServicePages[1]),
+            CreateNavigation("Ammo", "◉", Ammo),
+            CreateNavigation("Keys", "⌑", Keys),
             CreateNavigation("Flea", "₽", Flea),
             CreateNavigation("Quests", "✓", Quests),
             CreateNavigation("Hideout", "⌂", Hideout),
-            CreateNavigation("Events", "⚑", ServicePages[2]),
-            CreateNavigation("Loadout", "▦", ServicePages[3]),
+            CreateNavigation("Events", "⚑", Events),
+            CreateNavigation("Loadout", "▦", Loadout),
             CreateNavigation("History", "◷", History),
             CreateNavigation("Settings", "⚙", Settings),
         ];
@@ -774,7 +738,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
     public HideoutPageViewModel Hideout { get; }
 
-    public IReadOnlyList<ServicePageViewModel> ServicePages { get; }
+    public AmmoPageViewModel Ammo { get; }
+
+    public KeysPageViewModel Keys { get; }
+
+    public LoadoutPageViewModel Loadout { get; }
+
+    public EventsPageViewModel Events { get; }
 
     public IReadOnlyList<StatusChip> Status
     {
@@ -851,6 +821,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await History.LoadAsync(cancellationToken).ConfigureAwait(true);
             await Hideout.LoadAsync(cancellationToken).ConfigureAwait(true);
+            await Ammo.LoadAsync(cancellationToken).ConfigureAwait(true);
+            await Keys.LoadAsync(cancellationToken).ConfigureAwait(true);
+            await Events.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
             await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
@@ -1012,13 +985,12 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Items.Apply(snapshot);
         Flea.Apply(snapshot);
         Hideout.Apply(snapshot);
+        Ammo.Apply(snapshot);
+        Keys.Apply(snapshot);
+        Loadout.Apply(snapshot);
+        Events.Apply(snapshot);
         Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
-        foreach (var page in ServicePages)
-        {
-            page.Apply(snapshot);
-        }
-
         FollowRaidMap(snapshot);
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value

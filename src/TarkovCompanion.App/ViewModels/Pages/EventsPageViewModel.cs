@@ -13,7 +13,7 @@ public sealed record EventSummaryViewModel(
     string Name,
     string Season,
     string Window,
-    string Items,
+    string ItemSummary,
     string Provenance);
 
 /// <summary>One item an event applies to, with the state recorded for it locally.</summary>

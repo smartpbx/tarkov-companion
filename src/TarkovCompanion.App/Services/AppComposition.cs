@@ -239,7 +239,13 @@ public static class AppComposition
         services.AddTransient<IQuestProgressService, ProfileQuestProgressService>();
         services.AddTransient<IHideoutProgressService, ProfileHideoutProgressService>();
         services.AddTransient<RecommendationContextService>();
-        services.AddSingleton<IEventTrackerService, ProfileEventTrackerService>();
+        // Built from the event catalog rather than by type. Registered by type it received an
+        // empty definition list, and it throws KeyNotFoundException for an unknown event id
+        // rather than degrading, so every call failed no matter what the caller passed.
+        services.AddSingleton<IEventTrackerService>(provider => new ProfileEventTrackerService(
+            provider.GetRequiredService<IPlayerProfileService>(),
+            provider.GetRequiredService<IEventCatalog>().GetAsync(CancellationToken.None).GetAwaiter().GetResult(),
+            timeProvider));
         services.AddSingleton<IAmmoIntelligenceService, AmmoIntelligenceService>();
         services.AddSingleton<IKeyIntelligenceService, KeyIntelligenceService>();
         services.AddSingleton<ILoadoutService, LoadoutIntelligenceService>();
