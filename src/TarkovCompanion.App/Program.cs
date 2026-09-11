@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Threading;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -49,6 +50,16 @@ internal static class Program
                 options.DeveloperMode,
                 options.DiagnosticChannelPath,
                 services.GetRequiredService<IRuntimeScanUseCase>());
+            // A UI-thread exception otherwise terminates the process outright. For a
+            // second-monitor companion that is the worst possible failure: the window
+            // vanishes mid-raid with nothing on screen to explain it. Log it, keep the
+            // window, and let the page that failed report its own problem.
+            Dispatcher.UIThread.UnhandledException += (_, arguments) =>
+            {
+                CrashLog.Write("dispatcher-exception", arguments.Exception);
+                arguments.Handled = true;
+            };
+
             CrashLog.Write("lifecycle", "Desktop lifetime starting.");
             try
             {

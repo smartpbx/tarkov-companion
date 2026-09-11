@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Maps;
 
@@ -124,7 +125,7 @@ public sealed partial class MapView : UserControl
         if (DataContext is MapViewModel viewModel && sender is ComboBox { SelectedItem: MapLocation location } &&
             !ReferenceEquals(viewModel.SelectedLocation, location))
         {
-            await viewModel.SelectLocationAsync(location);
+            await RunGuardedAsync(viewModel, () => viewModel.SelectLocationAsync(location));
         }
     }
 
@@ -133,7 +134,7 @@ public sealed partial class MapView : UserControl
         if (DataContext is MapViewModel viewModel && sender is ComboBox { SelectedItem: MapVariant variant } &&
             !ReferenceEquals(viewModel.SelectedVariant, variant))
         {
-            await viewModel.SelectVariantAsync(variant);
+            await RunGuardedAsync(viewModel, () => viewModel.SelectVariantAsync(variant));
         }
     }
 
@@ -142,7 +143,7 @@ public sealed partial class MapView : UserControl
         if (DataContext is MapViewModel viewModel && sender is ComboBox { SelectedItem: MapFloorDefinition floor } &&
             !ReferenceEquals(viewModel.SelectedFloor, floor))
         {
-            await viewModel.SelectFloorAsync(floor);
+            await RunGuardedAsync(viewModel, () => viewModel.SelectFloorAsync(floor));
         }
     }
 
@@ -231,7 +232,7 @@ public sealed partial class MapView : UserControl
     {
         if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
         {
-            await launcher.LaunchUriAsync(viewModel.AttributionUri);
+            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.AttributionUri).AsTask());
         }
     }
 
@@ -239,7 +240,32 @@ public sealed partial class MapView : UserControl
     {
         if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
         {
-            await launcher.LaunchUriAsync(viewModel.LicenseUri);
+            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.LicenseUri).AsTask());
+        }
+    }
+
+    /// <summary>
+    /// Runs an event handler's work without letting a failure kill the application.
+    /// </summary>
+    /// <remarks>
+    /// These are all `async void` handlers, which is what an Avalonia event handler has to
+    /// be. An exception escaping one is raised on the dispatcher and terminates the process,
+    /// so a single unreadable preferences file or a missing browser could take the window
+    /// down mid-raid. The failure belongs in the map's status line instead.
+    /// </remarks>
+    private static async Task RunGuardedAsync(MapViewModel viewModel, Func<Task> work)
+    {
+        try
+        {
+            await work();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            CrashLog.Write("map-interaction", exception);
+            viewModel.ReportInteractionFailure(exception.Message);
         }
     }
 }

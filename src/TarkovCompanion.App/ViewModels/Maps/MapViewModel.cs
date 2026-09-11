@@ -475,6 +475,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// can follow the player into a raid without anyone touching the companion. A location
     /// the catalog does not carry is ignored rather than clearing the current view.
     /// </remarks>
+    /// <summary>Shows a failed interaction in the map status rather than crashing.</summary>
+    public void ReportInteractionFailure(string detail) =>
+        Status = $"That map action failed: {detail}";
+
     public async Task FollowRaidAsync(string mapId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
