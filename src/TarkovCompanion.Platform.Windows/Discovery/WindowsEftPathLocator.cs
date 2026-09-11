@@ -68,18 +68,32 @@ public sealed class SystemEftPathProbe : IEftPathProbe
         var localLow = Directory.GetParent(localAppData)?.FullName is { } appData
             ? Path.Combine(appData, "LocalLow")
             : localAppData;
+        var systemDrive = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
         var installRoots = RegistryInstallRoots()
             .Concat(new[]
             {
+                // The launcher's own default is "Battlestate Games\\Escape from Tarkov" on the
+                // system drive. Only the abbreviated "EFT" folder was listed here, which does
+                // not exist on an ordinary install.
+                Path.Combine(systemDrive, "Battlestate Games", "Escape from Tarkov"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Battlestate Games", "Escape from Tarkov"),
+                Path.Combine(systemDrive, "Battlestate Games", "EFT"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Battlestate Games", "EFT"),
-                Path.Combine(Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\", "Battlestate Games", "EFT"),
             })
             .ToArray();
-        var logRoots = new[]
-        {
-            Path.Combine(localLow, "Battlestate Games", "EscapeFromTarkov", "Logs"),
-            Path.Combine(documents, "Escape from Tarkov", "Logs"),
-        };
+
+        // The game writes its logs inside its own install directory, one folder per launch.
+        // Looking only under LocalLow and Documents found nothing on a real installation, so
+        // raid tracking never started at all. Install-relative paths come first because that
+        // is where the logs actually are.
+        var logRoots = installRoots
+            .Select(root => Path.Combine(root, "Logs"))
+            .Concat(new[]
+            {
+                Path.Combine(localLow, "Battlestate Games", "EscapeFromTarkov", "Logs"),
+                Path.Combine(documents, "Escape from Tarkov", "Logs"),
+            })
+            .ToArray();
         var screenshotRoots = new[]
         {
             Path.Combine(documents, "Escape from Tarkov", "Screenshots"),

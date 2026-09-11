@@ -64,26 +64,37 @@ public sealed partial class EftLogParser
             Summarize(state, mapId));
     }
 
+    /// <summary>
+    /// Recognizes the raid lifecycle from the markers the game actually writes.
+    /// </summary>
+    /// <remarks>
+    /// These were verified against 254 raid records from a real installation. The prose
+    /// phrases this previously matched on ("raid started", "player spawned", "matching
+    /// completed" and seven others) appear nowhere in a real log; the game writes compact
+    /// camel-case markers instead. Only "game stopped" ever fired, and only on an older
+    /// build, so raid state was effectively never detected.
+    ///
+    /// The richest line is TRACE-NetworkGameCreate, which carries the map and the busy/free
+    /// status together and lands about a second before GameStarted, so it is the earliest
+    /// point at which the companion can follow the player onto the right map.
+    /// </remarks>
     private static RaidLifecycleState? SuggestedState(string line)
     {
-        if (ContainsAny(line, "raid ended", "game stopped", "profile status: free", "session end"))
+        // "[Narrate] Game Stopped" was only observed on an older build, so it is kept as a
+        // signal but cannot be relied on alone to detect the end of a raid.
+        if (ContainsAny(line, "game stopped", "status: free"))
         {
             return RaidLifecycleState.PostRaid;
         }
 
-        if (ContainsAny(line, "game started", "raid started", "profile status: busy", "player spawned"))
+        if (ContainsAny(line, "status: busy", "gamestarted", "gamespawn"))
         {
             return RaidLifecycleState.InRaid;
         }
 
-        if (ContainsAny(line, "raid_loading", "loading raid", "matching completed", "loading location"))
+        if (ContainsAny(line, "locationloaded", "trace-networkgamecreate"))
         {
             return RaidLifecycleState.LoadingRaid;
-        }
-
-        if (ContainsAny(line, "entered menu", "main menu", "profile selected"))
-        {
-            return RaidLifecycleState.Menu;
         }
 
         return null;
