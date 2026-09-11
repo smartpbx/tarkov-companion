@@ -33,7 +33,7 @@ public sealed class EftLogParserRealLinesTests
 
         Assert.NotNull(evidence);
         Assert.Equal("shoreline", evidence.MapId);
-        Assert.Equal(RaidLifecycleState.InRaid, evidence.State);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
     }
 
     [Theory]
@@ -73,7 +73,7 @@ public sealed class EftLogParserRealLinesTests
         var evidence = new EftLogParser().ParseLine(line, Observed);
 
         Assert.NotNull(evidence);
-        Assert.Equal(expected, evidence.State);
+        Assert.Equal(expected, evidence.SuggestedState);
     }
 
     [Fact]
