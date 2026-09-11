@@ -14,7 +14,13 @@ using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
 
-public sealed record MapTileViewModel(string LocalPath, Bitmap Image, double Left, double Top, int Size);
+public sealed record MapTileViewModel(
+    string LocalPath,
+    Bitmap Image,
+    double Left,
+    double Top,
+    int Size,
+    bool HasArtwork);
 
 public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted)
 {
@@ -671,18 +677,46 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     // genuine fit. The previous floor of 0.5 could not show a whole map at once.
     private static double ClampZoom(double scale) => Math.Clamp(scale, 0.05, 8);
 
-    /// <summary>Measures the rectangle the loaded tiles occupy, in canvas coordinates.</summary>
+    /// <summary>
+    /// A tile smaller than this carries no drawn map.
+    /// </summary>
+    /// <remarks>
+    /// Upstream serves a valid PNG for every position in the grid, including the ones outside
+    /// the drawn map, so "the tile loaded" says nothing about whether anything is on it. The
+    /// empty ones are about a kilobyte against a hundred for a real tile, which separates them
+    /// cleanly without decoding pixels. A tile misjudged by this only crops the fit slightly;
+    /// it is still drawn.
+    /// </remarks>
+    private const long BlankTileBytes = 8 * 1024;
+
+    private static bool HasArtwork(string path)
+    {
+        try
+        {
+            return new FileInfo(path).Length > BlankTileBytes;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Measures the rectangle the drawn map occupies, in canvas coordinates.</summary>
     private static Rect MeasureContent(IReadOnlyList<MapTileViewModel> tiles)
     {
-        if (tiles.Count == 0)
+        // Measuring every loaded tile was the same as measuring the whole grid, which is what
+        // made Fit shrink the map to make room for empty space.
+        var drawn = tiles.Where(tile => tile.HasArtwork).ToArray();
+        IReadOnlyList<MapTileViewModel> measured = drawn.Length > 0 ? drawn : tiles;
+        if (measured.Count == 0)
         {
             return default;
         }
 
-        var left = tiles.Min(tile => tile.Left);
-        var top = tiles.Min(tile => tile.Top);
-        var right = tiles.Max(tile => tile.Left + tile.Size);
-        var bottom = tiles.Max(tile => tile.Top + tile.Size);
+        var left = measured.Min(tile => tile.Left);
+        var top = measured.Min(tile => tile.Top);
+        var right = measured.Max(tile => tile.Left + tile.Size);
+        var bottom = measured.Max(tile => tile.Top + tile.Size);
         return new(left, top, Math.Max(0, right - left), Math.Max(0, bottom - top));
     }
 
@@ -973,7 +1007,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
                     lock (loaded)
                     {
-                        loaded.Add(new(result.Asset.LocalPath, decoded, tile.Left, tile.Top, tile.Size));
+                        loaded.Add(new(
+                            result.Asset.LocalPath,
+                            decoded,
+                            tile.Left,
+                            tile.Top,
+                            tile.Size,
+                            HasArtwork(result.Asset.LocalPath)));
                     }
                 }
             }
