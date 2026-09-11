@@ -97,11 +97,18 @@ public sealed class SystemEftPathProbe : IEftPathProbe
                 Path.Combine(documents, "Escape from Tarkov", "Logs"),
             })
             .ToArray();
-        var screenshotRoots = new[]
-        {
-            Path.Combine(documents, "Escape from Tarkov", "Screenshots"),
-            Path.Combine(pictures, "Escape from Tarkov"),
-        };
+        // The game keeps its logs inside its own install directory, so its screenshots are
+        // looked for there first too. Only Documents and Pictures were offered before, which
+        // on an install like that finds nothing and leaves position permanently unavailable.
+        var screenshotRoots = installRoots
+            .Select(root => Path.Combine(root, "Screenshots"))
+            .Concat(new[]
+            {
+                Path.Combine(documents, "Escape from Tarkov", "Screenshots"),
+                Path.Combine(pictures, "Escape from Tarkov"),
+                Path.Combine(pictures, "Escape from Tarkov", "Screenshots"),
+            })
+            .ToArray();
         return new(installRoots, logRoots, screenshotRoots);
     }
 

@@ -324,6 +324,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var replaced = _backgroundImage;
             Set(ref _backgroundImage, value);
+            AdoptAspectRatio(value);
             OnPropertyChanged(nameof(HasBackgroundImage));
             OnPropertyChanged(nameof(ShowsPlaceholder));
             if (!ReferenceEquals(replaced, value) && replaced is not null)
@@ -676,6 +677,36 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     // A tile grid can be several times the panel's size, so the lower bound has to allow a
     // genuine fit. The previous floor of 0.5 could not show a whole map at once.
     private static double ClampZoom(double scale) => Math.Clamp(scale, 0.05, 8);
+
+    /// <summary>
+    /// Reshapes the canvas to the artwork's own proportions.
+    /// </summary>
+    /// <remarks>
+    /// The canvas was a fixed 900 by 620 and the image was stretched to fill it, so every map
+    /// whose real shape differed was visibly squashed or pulled. The overlay mapper normalizes
+    /// to the same box, so markers stayed consistent with each other while sitting on a
+    /// distorted map. Taking the shape from the decoded image fixes the picture and keeps the
+    /// mapping correct, because both still describe one rectangle.
+    /// </remarks>
+    private void AdoptAspectRatio(Bitmap? image)
+    {
+        if (image is null || Tiles.Count > 0)
+        {
+            // Tiled maps take their canvas from the tile plan, which is already true to scale.
+            return;
+        }
+
+        var size = image.PixelSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return;
+        }
+
+        const double longestEdge = 1200;
+        var scale = longestEdge / Math.Max(size.Width, size.Height);
+        CanvasWidth = Math.Round(size.Width * scale);
+        CanvasHeight = Math.Round(size.Height * scale);
+    }
 
     /// <summary>
     /// A tile smaller than this carries no drawn map.
