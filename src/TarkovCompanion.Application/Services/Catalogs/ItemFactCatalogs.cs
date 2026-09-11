@@ -55,6 +55,22 @@ public sealed record HideoutStationSummary(
     string Name,
     IReadOnlyList<int> Levels);
 
+/// <summary>
+/// Maps the location token the game logs to the map id the companion uses.
+/// </summary>
+/// <remarks>
+/// json.tarkov.dev publishes both halves of this pairing for every map, so it is synced fact
+/// rather than a hand-maintained table. The previous hardcoded table had three wrong mappings
+/// and was missing four maps outright.
+/// </remarks>
+public interface IMapAliasCatalog
+{
+    /// <summary>Location token to map id, compared without regard to case.</summary>
+    Task<IReadOnlyDictionary<string, string>> GetAsync(CancellationToken cancellationToken);
+
+    void Invalidate();
+}
+
 /// <summary>Hand-authored seasonal event definitions.</summary>
 /// <remarks>
 /// json.tarkov.dev exposes no events endpoint, so these are configured locally rather than

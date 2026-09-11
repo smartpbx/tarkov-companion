@@ -214,6 +214,8 @@ public static class AppComposition
         services.AddSingleton<QuestsPageViewModel>();
         services.AddSingleton<SqliteRequirementCatalog>();
         services.AddSingleton<IRequirementCatalog>(provider => provider.GetRequiredService<SqliteRequirementCatalog>());
+        services.AddSingleton<SqliteMapAliasCatalog>();
+        services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
         services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
         services.AddSingleton<IEventCatalog>(_ =>

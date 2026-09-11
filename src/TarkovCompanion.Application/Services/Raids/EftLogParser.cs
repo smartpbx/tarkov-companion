@@ -10,22 +10,40 @@ namespace TarkovCompanion.Application.Services.Raids;
 /// </summary>
 public sealed partial class EftLogParser
 {
-    private static readonly IReadOnlyDictionary<string, string> MapAliases =
+    /// <summary>Location tokens learned from synced map data, when available.</summary>
+    private volatile IReadOnlyDictionary<string, string>? _syncedAliases;
+
+    /// <summary>
+    /// Replaces the built-in token table with the pairing json.tarkov.dev publishes.
+    /// </summary>
+    /// <remarks>
+    /// Upstream states a map's log token and its normalized name together, so the mapping is
+    /// fact rather than guesswork, and new maps arrive with a sync. The fallback table below
+    /// only has to carry the application until the first refresh completes.
+    /// </remarks>
+    public void UpdateAliases(IReadOnlyDictionary<string, string> aliases)
+    {
+        ArgumentNullException.ThrowIfNull(aliases);
+        _syncedAliases = aliases.Count == 0
+            ? null
+            : new Dictionary<string, string>(aliases, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static readonly IReadOnlyDictionary<string, string> FallbackAliases =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["bigmap"] = "customs",
             ["customs"] = "customs",
             ["factory4_day"] = "factory",
-            ["factory4_night"] = "factory",
+            ["factory4_night"] = "night-factory",
             ["factory"] = "factory",
             ["interchange"] = "interchange",
-            ["laboratory"] = "labs",
-            ["labs"] = "labs",
+            ["laboratory"] = "the-lab",
             ["lighthouse"] = "lighthouse",
             ["rezervbase"] = "reserve",
             ["reserve"] = "reserve",
             ["sandbox"] = "ground-zero",
-            ["sandbox_high"] = "ground-zero",
+            ["sandbox_high"] = "ground-zero-21",
             ["shoreline"] = "shoreline",
             ["tarkovstreets"] = "streets-of-tarkov",
             ["terminal"] = "terminal",
@@ -100,7 +118,7 @@ public sealed partial class EftLogParser
         return null;
     }
 
-    private static string? TryExtractMapId(string line)
+    private string? TryExtractMapId(string line)
     {
         var match = LocationPattern().Match(line);
         if (!match.Success)
@@ -109,7 +127,12 @@ public sealed partial class EftLogParser
         }
 
         var candidate = match.Groups["map"].Value.Trim().Replace(' ', '_');
-        return MapAliases.TryGetValue(candidate, out var mapId) ? mapId : null;
+        if (_syncedAliases is { } synced && synced.TryGetValue(candidate, out var syncedMapId))
+        {
+            return syncedMapId;
+        }
+
+        return FallbackAliases.TryGetValue(candidate, out var mapId) ? mapId : null;
     }
 
     private static bool ContainsAny(string line, params string[] markers) =>

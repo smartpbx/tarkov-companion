@@ -107,6 +107,14 @@ public sealed class TarkovDevMap
 
     public string? NormalizedName { get; init; }
 
+    /// <summary>The internal location token the game writes to its own logs.</summary>
+    /// <remarks>
+    /// This is what lets raid tracking turn a log line into a map without a hand-maintained
+    /// table of guesses. Upstream publishes it alongside the normalized name, so the pairing
+    /// is a fact rather than an assumption, and it gains new maps automatically.
+    /// </remarks>
+    public string? NameId { get; init; }
+
     public int? RaidDuration { get; init; }
 
     public IReadOnlyList<TarkovDevMapSpawn> Spawns { get; init; } = [];

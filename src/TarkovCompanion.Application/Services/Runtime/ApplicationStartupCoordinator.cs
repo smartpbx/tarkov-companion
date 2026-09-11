@@ -16,6 +16,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly RaidActivityCoordinator _raidActivityCoordinator;
     private readonly RaidObservationService _observationService;
     private readonly ProfileNeedAggregationService _needAggregation;
+    private readonly EftLogParser _logParser;
+    private readonly IMapAliasCatalog _mapAliasCatalog;
     private readonly IRequirementCatalog _requirementCatalog;
     private readonly IItemFactCatalog _itemFactCatalog;
     private readonly IRuntimeStateStore _stateStore;
@@ -33,6 +35,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         RaidActivityCoordinator raidActivityCoordinator,
         RaidObservationService observationService,
         ProfileNeedAggregationService needAggregation,
+        EftLogParser logParser,
+        IMapAliasCatalog mapAliasCatalog,
         IRequirementCatalog requirementCatalog,
         IItemFactCatalog itemFactCatalog,
         IRuntimeStateStore stateStore,
@@ -46,6 +50,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _raidActivityCoordinator = raidActivityCoordinator;
         _observationService = observationService;
         _needAggregation = needAggregation;
+        _logParser = logParser;
+        _mapAliasCatalog = mapAliasCatalog;
         _requirementCatalog = requirementCatalog;
         _itemFactCatalog = itemFactCatalog;
         _stateStore = stateStore;
@@ -142,6 +148,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             // Fresh rows landed, so anything projected from the old ones is now stale.
             _requirementCatalog.Invalidate();
             _itemFactCatalog.Invalidate();
+            _mapAliasCatalog.Invalidate();
             await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
@@ -260,6 +267,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
             var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
             _needAggregation.Update(quest, hideout);
+
+            // The game names the map in its log with an internal token; upstream publishes
+            // that token beside the map id, so the parser learns the pairing instead of
+            // carrying a hand-written table of guesses.
+            _logParser.UpdateAliases(await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
