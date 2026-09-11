@@ -116,6 +116,7 @@ jobs:
       - name: Headless self-test on a clean machine
         id: self-test-cold
         continue-on-error: true
+        timeout-minutes: 6
         shell: powershell
         run: |
           $Report = Join-Path $env:GITHUB_WORKSPACE "verification/self-test-cold.json"
@@ -154,6 +155,7 @@ jobs:
       - name: First-run desktop launch probe
         id: launch-probe
         continue-on-error: true
+        timeout-minutes: 8
         shell: powershell
         run: |
           ./scripts/windows-launch-probe.ps1 `
@@ -164,6 +166,7 @@ jobs:
       - name: Headless self-test after first run
         id: self-test-warm
         continue-on-error: true
+        timeout-minutes: 6
         shell: powershell
         run: |
           $Report = Join-Path $env:GITHUB_WORKSPACE "verification/self-test-warm.json"
@@ -223,6 +226,7 @@ jobs:
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
         continue-on-error: true
+        timeout-minutes: 20
         shell: powershell
         run: |
           ./scripts/windows-smoke.ps1 `

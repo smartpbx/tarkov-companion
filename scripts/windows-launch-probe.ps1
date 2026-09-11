@@ -164,8 +164,10 @@ try {
     $Process.Refresh()
 
     if ($Process.HasExited) {
-        Add-Observation -Name "process-alive" -Passed $false -Detail "The application exited early with code $($Process.ExitCode)."
-        throw "The application exited before presenting a window (exit code $($Process.ExitCode))."
+        $EarlyExitCode = $Process.ExitCode
+        $ExitCode = $EarlyExitCode
+        Add-Observation -Name "process-alive" -Passed $false -Detail "The application exited early with code $EarlyExitCode."
+        throw "The application exited before presenting a window (exit code $EarlyExitCode). Check startup.log in the local data directory."
     }
 
     Add-Observation -Name "process-alive" -Passed $true -Detail "PID $($Process.Id) is running."
