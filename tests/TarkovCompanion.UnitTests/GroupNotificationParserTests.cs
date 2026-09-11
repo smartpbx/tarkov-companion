@@ -23,14 +23,17 @@ public sealed class GroupNotificationParserTests
     private static readonly DateTimeOffset Observed = DateTimeOffset.UnixEpoch;
 
     /// <summary>
-    /// Everything the game writes ahead of the payload, including the bracketed event id that
-    /// a naive search for the first '[' would find instead of the JSON.
+    /// Everything the game writes ahead of the notification type, including the bracketed
+    /// event id that a naive search for the first '[' would find instead of the JSON.
     /// </summary>
-    private const string LinePrefix =
+    private const string LineHeader =
         "2026-09-11 22:21:00.000|1.1.5.0.47242|Info|output|backend|WebSocketSharp - " +
-        "message received: NOTIFICATION [EVENTID] groupMatchRaidReady ";
+        "message received: NOTIFICATION [EVENTID] ";
 
-    private static readonly string RaidReadyLine = Line("""
+    /// <summary>The header of a ready notification, for the cases that supply no valid payload.</summary>
+    private const string LinePrefix = LineHeader + "groupMatchRaidReady ";
+
+    private static readonly string RaidReadyLine = Line("groupMatchRaidReady", """
         [{"type":"groupMatchRaidReady","eventId":"ID_1","extendedProfile":{
         "_id":"ID_2","aid":9041989,
         "Info":{"Nickname":"PLAYER_A","Side":"Bear","Level":24,"MemberCategory":2,
@@ -46,11 +49,11 @@ public sealed class GroupNotificationParserTests
         "upd":{"Repairable":{"MaxDurability":93.58,"Durability":92.95},"FireMode":{"FireMode":"single"}}}]}}}}]
         """);
 
-    private static readonly string UserLeaveLine = Line("""
+    private static readonly string UserLeaveLine = Line("groupMatchUserLeave", """
         [{"type":"groupMatchUserLeave","eventId":"ID_1","aid":9041989,"Nickname":"PLAYER_A"}]
         """);
 
-    private static readonly string StartGameLine = Line("""
+    private static readonly string StartGameLine = Line("groupMatchStartGame", """
         [{"type":"groupMatchStartGame","eventId":"ID_1","groupId":"ID_2","estimate":150}]
         """);
 
@@ -59,7 +62,7 @@ public sealed class GroupNotificationParserTests
     /// notifications. Nothing in a real log looks like this; the test exists so that the one
     /// signal separating the player from their squad cannot be removed unnoticed.
     /// </summary>
-    private static readonly string OwnNotificationLine = Line("""
+    private static readonly string OwnNotificationLine = Line("groupMatchRaidReady", """
         [{"type":"groupMatchRaidReady","profileid":"SELF_1","eventId":"ID_1","extendedProfile":{
         "_id":"ID_2","aid":9041989,"Info":{"Nickname":"PLAYER_A","Side":"Bear","Level":24}}}]
         """);
@@ -75,7 +78,7 @@ public sealed class GroupNotificationParserTests
         """);
 
     /// <summary>A squadmate whose own loadout contains a dogtag they looted.</summary>
-    private static readonly string RaidReadyLineWithSquadmateDogtag = Line("""
+    private static readonly string RaidReadyLineWithSquadmateDogtag = Line("groupMatchRaidReady", """
         [{"type":"groupMatchRaidReady","eventId":"ID_1","extendedProfile":{
         "_id":"ID_2","aid":9041989,
         "Info":{"Nickname":"PLAYER_A","Side":"Bear","Level":24},
@@ -179,9 +182,15 @@ public sealed class GroupNotificationParserTests
         var ready = GroupNotificationParser.ParseLine(RaidReadyLine, Observed);
         var left = GroupNotificationParser.ParseLine(UserLeaveLine, Observed);
 
-        Assert.NotNull(ready?.Member);
-        Assert.NotNull(left?.Member);
-        Assert.Equal(ready.Member.Key, left.Member.Key);
+        Assert.NotNull(ready);
+        Assert.NotNull(left);
+
+        var readyMember = ready.Member;
+        var departedMember = left.Member;
+        Assert.NotNull(readyMember);
+        Assert.NotNull(departedMember);
+        Assert.Equal(readyMember.Key, departedMember.Key);
+        Assert.Equal("aid:9041989", readyMember.Key);
     }
 
     [Fact]
@@ -215,15 +224,15 @@ public sealed class GroupNotificationParserTests
     [InlineData("2026-09-11 22:21:00.000|1.1.5.0.47242|Info|backend|groupMatchRaidReady")]
     // A payload truncated mid-write, which is what a tail of a file being appended to sees.
     [InlineData(LinePrefix + "[{\"type\":\"groupMatchRaidReady\",\"extendedProfile\":{\"_id\":")]
-    // Valid JSON of the wrong shape: the root is an object rather than the usual array.
-    [InlineData(LinePrefix + "[{}] trailing")]
+    // Well-formed JSON of the right shape that states no type at all.
+    [InlineData(LinePrefix + "[{}]")]
     public void IgnoresLinesItCannotTrust(string? line) =>
         Assert.Null(GroupNotificationParser.ParseLine(line, Observed));
 
     [Fact]
     public void IgnoresAGroupNotificationTypeItDoesNotKnow()
     {
-        var line = Line("""
+        var line = Line("groupMatchSomethingNew", """
             [{"type":"groupMatchSomethingNew","eventId":"ID_1","extendedProfile":{"_id":"ID_2","aid":9041989}}]
             """);
 
@@ -329,8 +338,9 @@ public sealed class GroupNotificationParserTests
         });
     }
 
-    /// <summary>Wraps a payload in the prefix the game writes ahead of it, on one line.</summary>
-    private static string Line(string payloadJson) => LinePrefix + OneLine(payloadJson);
+    /// <summary>Wraps a payload in the header the game writes ahead of it, on one line.</summary>
+    private static string Line(string notificationType, string payloadJson) =>
+        LineHeader + notificationType + " " + OneLine(payloadJson);
 
     /// <summary>
     /// Folds a payload written across several source lines back onto one.

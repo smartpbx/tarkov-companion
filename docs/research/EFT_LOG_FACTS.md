@@ -24,14 +24,20 @@ Eleven file prefixes exist. In a typical folder: `output`, `backend`, `applicati
 `files-checker`, plus `inventory`, `player` and `objectPool` in some sessions. Sizes vary
 enormously between sessions: one `output_000.log` was 2.4 MB and another 15.6 MB.
 
-## Privacy: two files must never be read or shipped
+## Privacy: what is in these files, and which are opened
 
 `backend_000.log` and `push-notifications_000.log` carry large JSON blobs of real personal
 data, for the player **and for anyone they grouped with**: nicknames, numeric account and
 profile ids, full inventories, health state, and looted dogtags naming a killer and a victim.
 
-The companion reads only `application` and `output`. Nothing in the game's logs is ever
-transmitted, bundled or attached, and these two are not even opened.
+The companion reads `application`, `output` and `backend`. `backend` carries the
+`userConfirmed` and `userMatchOver` notifications that give an exact raid start and end, and
+the group notifications, so it is opened deliberately for those. **`push-notifications` is
+never opened.** Nothing in the game's logs is ever transmitted, bundled or attached.
+
+Reading `backend` means the group blobs are in reach, so the boundary in `docs/SAFETY.md`
+governs what is taken from them: the player's own party and their own looted dogtags, never a
+squadmate's dogtags, which describe players the squadmate killed and the player never met.
 
 ## What is present and usable
 
@@ -67,9 +73,16 @@ stays local-first and manual, as ADR 0004 already specifies.
 **Flea sales.** Only HTTP request and response logging for `ragfair` endpoints, with timing.
 No sale or offer outcome.
 
-**Player side and scav cooldown.** `Side` and `SavageLockTime` do appear, but almost always
-inside group-notification blobs describing *other* players. Reading them would mean reading
-third parties' data to guess at the player's own, so neither is used.
+**Scav cooldown.** `SavageLockTime` appears only inside group-notification blobs describing
+*other* players, so it is read as a squadmate's own fact and never as the player's.
+
+**Player side, corrected.** An earlier reading here said side was not derivable, because the
+only `Side` fields belong to squadmates. That was right about those fields and wrong as a
+conclusion. The account runs raids under two profiles, and only the signed-in one gets a
+profile-selection line, so a raid notification carrying any other profile was a scav run. The
+logs contain no word for this: `scav`, `pmcSide` and `IsScav` appear nowhere as role markers.
+The two profile ids were stable across 33 sessions and five game versions, so this is used,
+and always presented as inferred.
 
 ## One claim tested and refuted
 
