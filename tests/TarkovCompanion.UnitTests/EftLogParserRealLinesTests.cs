@@ -159,30 +159,68 @@ public sealed class EftLogParserRealLinesTests
     }
 
     [Fact]
-    public void NeverReadsATeammatesNotificationAsThePlayersOwn()
+    public void NeverReadsATeammatesNotificationAsARaid()
     {
+        // A teammate's notification carries its ids nested under extendedProfile and has no
+        // top-level profileid. That absence is what marks it as somebody else's.
+        const string teammate =
+            "2026-09-11 22:21:00.000|1.1.5.0.47242|Info|backend|NOTIFICATION eventid groupMatchRaidReady " +
+            "[{\"type\":\"groupMatchRaidReady\",\"eventId\":\"E1\",\"extendedProfile\":{\"_id\":\"OTHER1\"," +
+            "\"aid\":9041989,\"Info\":{\"Nickname\":\"PLAYER_A\",\"Side\":\"Bear\",\"Level\":24}}}]";
+
         var parser = new EftLogParser();
         parser.ParseLine(SelfProfileLine, Observed);
 
-        var evidence = parser.ParseLine(
-            Notification("userConfirmed", "Busy", "Lighthouse", "SOMEONEELSE9"),
-            Observed);
+        var evidence = parser.ParseLine(teammate, Observed);
 
-        // The line still names a location, so the fallback path may report the map. It must
-        // never carry the confident raid state that belongs to the player alone.
         Assert.True(evidence is null || evidence.Confidence.Value < 0.98);
     }
 
     [Fact]
-    public void IgnoresAPlayerNotificationBeforeTheProfileIsKnown()
+    public void ReadsAScavRaidEvenThoughItRunsUnderADifferentProfile()
     {
-        // Attributing a raid before the player's own profile id has been seen would be a
-        // guess at whose raid it is.
-        var evidence = new EftLogParser().ParseLine(
+        // The scav profile never appears in a profile-selection line, so gating on a matching
+        // profile id discarded every scav raid the game logged correctly.
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userConfirmed", "Busy", "TarkovStreets", "SCAVPROFILE9"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal("streets-of-tarkov", evidence.MapId);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
+        Assert.Contains("scav", evidence.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void NamesTheSideFromTheProfileThatRanTheRaid()
+    {
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var pmc = parser.ParseLine(
             Notification("userConfirmed", "Busy", "Shoreline", "SELFPROFILE1"),
             Observed);
 
-        Assert.True(evidence is null || evidence.Confidence.Value < 0.98);
+        Assert.NotNull(pmc);
+        Assert.Contains("PMC", pmc.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HandlesATransferOnAScavRaidToo()
+    {
+        // The observed scav run on Streets ended with Transfer rather than Free.
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Transfer", "TarkovStreets", "SCAVPROFILE9"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
     }
 
     [Fact]

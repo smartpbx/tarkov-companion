@@ -14,8 +14,8 @@ public sealed partial class EftLogParser
     /// <summary>Location tokens learned from synced map data, when available.</summary>
     private volatile IReadOnlyDictionary<string, string>? _syncedAliases;
 
-    /// <summary>The player's own profile id, learned from the profile-selection line.</summary>
-    private volatile string? _selfProfileId;
+    /// <summary>The signed-in profile id, which is the PMC one.</summary>
+    private volatile string? _pmcProfileId;
 
     /// <summary>
     /// Replaces the built-in token table with the pairing json.tarkov.dev publishes.
@@ -66,8 +66,22 @@ public sealed partial class EftLogParser
     public void RememberSelf(string profileId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
-        _selfProfileId = profileId;
+        _pmcProfileId = profileId;
     }
+
+    /// <summary>
+    /// Names which side a raid was played on, from the profile that ran it.
+    /// </summary>
+    /// <remarks>
+    /// The account runs raids under two profiles and the logs contain no word for the
+    /// difference: "scav", "pmcSide" and "IsScav" appear nowhere as role markers. Only the
+    /// profile that is signed in gets a profile-selection line, so that one is the PMC, and a
+    /// raid notification carrying any other profile was run as a scav. Reported as inferred
+    /// rather than stated, because it rests on that one asymmetry.
+    /// </remarks>
+    private string DescribeSide(string profileId) => _pmcProfileId is null
+        ? "raid"
+        : string.Equals(profileId, _pmcProfileId, StringComparison.Ordinal) ? "PMC" : "scav";
 
     public RaidEvidence? ParseLine(string? line, DateTimeOffset observedUtc)
     {
@@ -168,7 +182,7 @@ public sealed partial class EftLogParser
     /// <summary>Picks the player's own profile id out of the profile-selection line.</summary>
     private void LearnSelfIdentity(string line)
     {
-        if (_selfProfileId is not null || !line.Contains("SelectedProfile", StringComparison.Ordinal))
+        if (_pmcProfileId is not null || !line.Contains("SelectedProfile", StringComparison.Ordinal))
         {
             return;
         }
@@ -176,7 +190,7 @@ public sealed partial class EftLogParser
         var match = SelfProfilePattern().Match(line);
         if (match.Success)
         {
-            _selfProfileId = match.Groups["profile"].Value;
+            _pmcProfileId = match.Groups["profile"].Value;
         }
     }
 
@@ -218,15 +232,22 @@ public sealed partial class EftLogParser
 
             var payload = document.RootElement[0];
             var type = ReadText(payload, "type");
+
+            // A top-level "profileid" is what marks a notification as the player's own
+            // session. Notifications about teammates carry "aid" and "_id" nested under
+            // "extendedProfile" and never this key, so its presence is the check rather than
+            // its value. Matching the value against the signed-in profile instead was wrong
+            // and silently discarded every scav raid: a scav run is a different profile, and
+            // it never appears in a profile-selection line.
             var profileId = ReadText(payload, "profileid");
-            if (profileId is null || _selfProfileId is null ||
-                !string.Equals(profileId, _selfProfileId, StringComparison.Ordinal))
+            if (profileId is null)
             {
                 return null;
             }
 
             var mapId = ResolveMapId(ReadText(payload, "location"));
             var status = ReadText(payload, "status");
+            var side = DescribeSide(profileId);
             return type switch
             {
                 "userConfirmed" => new(
@@ -235,21 +256,23 @@ public sealed partial class EftLogParser
                     mapId,
                     RaidLifecycleState.InRaid,
                     new Confidence(0.98),
-                    mapId is null ? "The game confirmed a raid." : $"The game confirmed a raid on {mapId}."),
+                    mapId is null
+                        ? $"The game confirmed a {side} raid."
+                        : $"The game confirmed a {side} raid on {mapId}."),
                 "userMatchOver" when string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase) => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
                     RaidLifecycleState.InRaid,
                     new Confidence(0.90),
-                    "The game reported a transfer to another map rather than the end of the raid."),
+                    $"The game reported a transfer to another map rather than the end of the {side} raid."),
                 "userMatchOver" => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
                     RaidLifecycleState.PostRaid,
                     new Confidence(0.98),
-                    "The game reported the raid as over."),
+                    $"The game reported the {side} raid as over."),
                 _ => null,
             };
         }
