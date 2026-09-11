@@ -101,6 +101,90 @@ public sealed class EftLogParserRealLinesTests
         Assert.True(withState.Confidence.Value > mapOnly.Confidence.Value);
     }
 
+    private const string SelfProfileLine =
+        "2026-09-11 01:48:07.488|1.1.5.0.47242|Info|application|CompleteSelectedProfile " +
+        "ProfileId:SELFPROFILE1 AccountId:SELFACCOUNT1";
+
+    /// <summary>Builds a notification line in the layout the game writes.</summary>
+    private static string Notification(string type, string status, string location, string profileId) =>
+        "2026-09-11 00:42:46.000|1.1.5.0.47242|Info|backend|NOTIFICATION eventid " + type +
+        " [{\"type\":\"" + type + "\",\"eventId\":\"E1\",\"profileid\":\"" + profileId +
+        "\",\"status\":\"" + status + "\",\"location\":\"" + location +
+        "\",\"raidMode\":\"Online\",\"mode\":\"deathmatch\",\"shortId\":\"CCQ5MC\"}]";
+
+    [Fact]
+    public void ReadsARaidStartFromThePlayersOwnConfirmation()
+    {
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userConfirmed", "Busy", "Shoreline", "SELFPROFILE1"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal("shoreline", evidence.MapId);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
+    }
+
+    [Fact]
+    public void ReadsARaidEndFromThePlayersOwnMatchOver()
+    {
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Free", "Woods", "SELFPROFILE1"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal(RaidLifecycleState.PostRaid, evidence.SuggestedState);
+    }
+
+    [Fact]
+    public void TreatsATransferAsStillInTheRaid()
+    {
+        // A transfer moves the player to another map. Reading it as the end of a raid would
+        // end the real one early and record one that never happened.
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Transfer", "TarkovStreets", "SELFPROFILE1"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
+        Assert.Equal("streets-of-tarkov", evidence.MapId);
+    }
+
+    [Fact]
+    public void NeverReadsATeammatesNotificationAsThePlayersOwn()
+    {
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userConfirmed", "Busy", "Lighthouse", "SOMEONEELSE9"),
+            Observed);
+
+        // The line still names a location, so the fallback path may report the map. It must
+        // never carry the confident raid state that belongs to the player alone.
+        Assert.True(evidence is null || evidence.Confidence.Value < 0.98);
+    }
+
+    [Fact]
+    public void IgnoresAPlayerNotificationBeforeTheProfileIsKnown()
+    {
+        // Attributing a raid before the player's own profile id has been seen would be a
+        // guess at whose raid it is.
+        var evidence = new EftLogParser().ParseLine(
+            Notification("userConfirmed", "Busy", "Shoreline", "SELFPROFILE1"),
+            Observed);
+
+        Assert.True(evidence is null || evidence.Confidence.Value < 0.98);
+    }
+
     [Fact]
     public void IgnoresOrdinaryLinesThatNameNoMapAndNoState() =>
         Assert.Null(new EftLogParser().ParseLine(
