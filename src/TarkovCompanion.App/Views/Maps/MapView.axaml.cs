@@ -232,7 +232,7 @@ public sealed partial class MapView : UserControl
     {
         if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
         {
-            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.AttributionUri).AsTask());
+            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.AttributionUri));
         }
     }
 
@@ -240,7 +240,7 @@ public sealed partial class MapView : UserControl
     {
         if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)
         {
-            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.LicenseUri).AsTask());
+            await RunGuardedAsync(viewModel, () => launcher.LaunchUriAsync(viewModel.LicenseUri));
         }
     }
 
