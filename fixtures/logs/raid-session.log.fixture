@@ -1,5 +1,8 @@
-2026-09-04 22:31:02.100|Info|application bootstrap complete
-2026-09-04 22:31:07.220|Info|raid_loading location='bigmap'
-2026-09-04 22:31:09.410|Debug|unknown future field=value should be ignored
-2026-09-04 22:32:15.090|Info|Game started, profile status: Busy, location: bigmap
-2026-09-04 23:04:54.002|Info|Raid ended; profile status: Free
+2026-09-11 00:40:16.000|1.1.5.0.47242|Info|application|Init: pstrGameVersion: Escape from Tarkov 1.1.5.0.47242, uiAddress: 0, usPort: 0
+2026-09-11 00:41:02.100|1.1.5.0.47242|Info|application|CompleteSelectedProfile ProfileId:FIXTUREPROFILE AccountId:FIXTUREACCOUNT
+2026-09-11 00:41:09.410|1.1.5.0.47242|Debug|application|unknown future field=value should be ignored
+2026-09-11 00:42:21.067|1.1.5.0.47242|Debug|application|Matching with group id:
+2026-09-11 00:42:45.803|1.1.5.0.47242|Info|application|LocationLoaded:18 real:24.73 diff:6.72
+2026-09-11 00:42:46.453|1.1.5.0.47242|Info|output|application|TRACE-NetworkGameCreate profileStatus: 'Profileid: FIXTUREPROFILE, Status: Busy, RaidMode: Online, Ip: 0.0.0.0, Port: 17009, Location: bigmap, Sid: FIXTURESID, GameMode: deathmatch, shortId: FIXTUREID'
+2026-09-11 00:43:49.714|1.1.5.0.47242|Info|application|GameStarted:75.58(75.58) real:88.64(88.64) diff:13.05
+2026-09-11 01:13:41.900|1.1.5.0.47242|Info|backend|NOTIFICATION eventid userMatchOver [{"type":"userMatchOver","eventId":"E1","profileid":"FIXTUREPROFILE","status":"Free","ip":"0.0.0.0","port":17009,"sid":"FIXTURESID","version":"live","location":"bigmap","raidMode":"Online","mode":"deathmatch","shortId":"FIXTUREID","additional_info":[]}]

@@ -104,10 +104,16 @@ public sealed class WindowsIntegrationTests
                 .WatchAsync(root, timeout.Token)
                 .GetAsyncEnumerator(timeout.Token);
             var next = enumerator.MoveNextAsync().AsTask();
-            await File.AppendAllTextAsync(path, "raid_loading location=woods\n", timeout.Token);
+            // A real line: the map arrives on the profileStatus notification, not on prose.
+            await File.AppendAllTextAsync(
+                path,
+                "2026-09-11 00:42:46.453|1.1.5.0.47242|Info|output|application|TRACE-NetworkGameCreate " +
+                "profileStatus: 'Profileid: P, Status: Busy, RaidMode: Online, Ip: 0.0.0.0, Port: 17009, " +
+                "Location: Woods, Sid: S, GameMode: deathmatch, shortId: I'\n",
+                timeout.Token);
 
             Assert.True(await next.WaitAsync(timeout.Token));
-            Assert.Equal(RaidLifecycleState.LoadingRaid, enumerator.Current.SuggestedState);
+            Assert.Equal(RaidLifecycleState.InRaid, enumerator.Current.SuggestedState);
             Assert.Equal("woods", enumerator.Current.MapId);
         }
         finally

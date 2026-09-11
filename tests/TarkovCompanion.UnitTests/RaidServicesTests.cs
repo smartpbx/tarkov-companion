@@ -17,11 +17,13 @@ public sealed class RaidServicesTests
             .Cast<RaidEvidence>()
             .ToArray();
 
-        Assert.Equal(3, evidence.Length);
+        // The fixture is a real session: profile selected, matching, location loaded, the
+        // map-bearing profileStatus line, game started, then the raid-over notification.
         Assert.Equal(RaidLifecycleState.LoadingRaid, evidence[0].SuggestedState);
-        Assert.Equal("customs", evidence[0].MapId);
         Assert.Equal(RaidLifecycleState.InRaid, evidence[1].SuggestedState);
-        Assert.Equal(RaidLifecycleState.PostRaid, evidence[2].SuggestedState);
+        Assert.Equal("customs", evidence[1].MapId);
+        Assert.Equal(RaidLifecycleState.PostRaid, evidence[^1].SuggestedState);
+        Assert.Equal("customs", evidence[^1].MapId);
     }
 
     [Fact]
