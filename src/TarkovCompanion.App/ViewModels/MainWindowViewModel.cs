@@ -12,6 +12,7 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Input;
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Core.Domain.Input;
@@ -1138,6 +1139,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
         ScanHotkeyService hotkeys,
+        IGroupSettingsStore groupSettings,
         UpdateService updates,
         UpdateInstaller installer,
         RuntimeOptions options,
@@ -1174,12 +1176,14 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
         Events = new(eventCatalog, eventTracker, itemRepository);
         Squad = new(itemRepository);
+        Group = new(groupSettings);
         _hotkeys.Triggered += ScanHotkeyPressed;
 
         Navigation =
         [
             CreateNavigation("Raid", "⌖", Raid),
             CreateNavigation("Squad", "⚇", Squad),
+            CreateNavigation("Group", "⇄", Group),
             CreateNavigation("Scanner", "⌁", Scanner),
             CreateNavigation("Items", "◇", Items),
             CreateNavigation("Ammo", "◉", Ammo),
@@ -1216,6 +1220,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public EventsPageViewModel Events { get; }
 
     public SquadPageViewModel Squad { get; }
+
+    public GroupPageViewModel Group { get; }
 
     public IReadOnlyList<StatusChip> Status
     {
@@ -1332,6 +1338,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Events.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
             await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
+            await Group.InitializeAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
             await Map.InitializeAsync().ConfigureAwait(true);
         }
@@ -1496,6 +1503,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Loadout.Apply(snapshot);
         Events.Apply(snapshot);
         Squad.Apply(snapshot);
+        Group.Apply(snapshot);
         Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
         FollowRaidMap(snapshot);
@@ -1505,6 +1513,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The extracts a raid actually offers come from the player scanning the list, so the
         // map can mark them out from the ten it knows the map has.
         Map.ShowActiveExtracts(snapshot.Raid.ActiveExtracts);
+        Map.ShowGroup(snapshot.Group.Members);
         HasScan = snapshot.Scan.Succeeded;
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value

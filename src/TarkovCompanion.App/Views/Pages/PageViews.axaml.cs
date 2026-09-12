@@ -53,6 +53,11 @@ public sealed partial class LoadoutView : UserControl
     public LoadoutView() => AvaloniaXamlLoader.Load(this);
 }
 
+public sealed partial class GroupView : UserControl
+{
+    public GroupView() => AvaloniaXamlLoader.Load(this);
+}
+
 public sealed partial class SquadView : UserControl
 {
     public SquadView() => AvaloniaXamlLoader.Load(this);

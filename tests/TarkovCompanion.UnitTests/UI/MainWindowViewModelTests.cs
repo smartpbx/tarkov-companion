@@ -11,6 +11,7 @@ public sealed class MainWindowViewModelTests
     [
         "Raid",
         "Squad",
+        "Group",
         "Scanner",
         "Items",
         "Ammo",

@@ -287,6 +287,46 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- The rest of the group, where they last said they were. Ochre against the
+               player's cyan, so a glance never mistakes somebody else for yourself. -->
+          <ItemsControl
+              ItemsSource="{Binding GroupMarkers}"
+              IsVisible="{Binding HasGroupMarkers}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:GroupMarkerViewModel">
+                <Panel
+                    Width="{Binding Extent}"
+                    Height="{Binding Extent}"
+                    ToolTip.Tip="{Binding Detail}"
+                    RenderTransformOrigin="50%,50%">
+                  <Panel.RenderTransform>
+                    <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <RotateTransform Angle="{Binding BearingDegrees}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Panel.RenderTransform>
+                  <Path Data="{Binding ConeGeometry}" Fill="{Binding ConeColor}" />
+                  <Ellipse
+                      Width="{Binding DotSize}"
+                      Height="{Binding DotSize}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Fill="{Binding FillColor}"
+                      Stroke="{Binding OutlineColor}"
+                      StrokeThickness="2" />
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <!-- Where the player has been this raid, in the order they were there. Broken
                rather than solid, because the points are screenshots minutes apart and a solid
                line between two of them would claim a route that was never observed. -->

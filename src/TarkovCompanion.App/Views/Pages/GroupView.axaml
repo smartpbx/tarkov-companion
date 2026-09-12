@@ -1,0 +1,98 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.GroupView"
+             x:DataType="vm:GroupPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10">
+        <!-- The consent, stated before the switch rather than after it. Somebody about to
+             turn this on should be able to read what it does without hunting for it. -->
+        <Border Classes="panel cyan">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="What this sends" />
+            <TextBlock Classes="prose"
+                       Text="While sharing is on, this sends your display name, which map you are on, whether you are in a raid, PMC or scav, and the position and heading from your own screenshots with their age. It goes to the server you name below and to nobody else."
+                       TextWrapping="Wrap" />
+            <TextBlock Classes="prose"
+                       Text="There is no hosted service. Your group runs the server, so who can see this is a question your group answers. Nothing is sent until you turn it on, and turning it off stops it immediately."
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="10">
+            <TextBlock Classes="label" Text="Your group" />
+            <CheckBox Content="Share this session with my group" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Server address" />
+              <TextBox Text="{Binding ServerUri, Mode=TwoWay}" Watermark="https://tarkov.example.net" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Room" />
+              <TextBox Text="{Binding Room, Mode=TwoWay}" Watermark="the name your group agreed" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Display name" />
+              <TextBox Text="{Binding DisplayName, Mode=TwoWay}" Watermark="what the others see" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Shared secret" />
+              <TextBox PasswordChar="•" Text="{Binding Secret, Mode=TwoWay}" Watermark="the secret your group agreed" />
+              <TextBlock Classes="caption"
+                         Text="Stored as plain text in Config/group.json. It keeps strangers out of a room; it is not a credential to anything of value."
+                         TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border Classes="hairline" />
+            <CheckBox Content="Also share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
+            <CheckBox Content="Also share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
+            <TextBlock Classes="caption"
+                       Text="Both send nothing today. The game does not write your own inventory or quest state anywhere this can read, so these stay empty rather than pretending."
+                       TextWrapping="Wrap" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Classes="primary" Command="{Binding SaveCommand}" Content="Save" />
+            </StackPanel>
+            <TextBlock Classes="caption" Text="{Binding SaveStatus}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Column="1" Classes="panel">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+        <TextBlock Classes="label" Text="Who else is here" />
+        <TextBlock Grid.Row="1" Classes="value" Text="{Binding Status}" TextWrapping="Wrap" />
+        <ScrollViewer Grid.Row="2">
+          <StackPanel Spacing="0">
+            <TextBlock Classes="caption"
+                       IsVisible="{Binding HasNoMembers}"
+                       Text="Anyone else in the room with sharing on appears here within a few seconds."
+                       TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding Members}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GroupMemberRowViewModel">
+                  <Border Classes="inset" Margin="0,0,0,8">
+                    <StackPanel Spacing="3">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1"
+                                   Classes="caption"
+                                   Foreground="{Binding StateColor}"
+                                   Text="{Binding Where}" />
+                      </Grid>
+                      <TextBlock Classes="caption" Text="{Binding Position}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

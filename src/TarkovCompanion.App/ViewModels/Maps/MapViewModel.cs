@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.App.ViewModels.Quests;
@@ -101,6 +102,50 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
         Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
         ShowsNames = !double.IsFinite(zoom) || zoom >= NameThreshold;
     }
+}
+
+/// <summary>
+/// Another member of the group, drawn where they last said they were.
+/// </summary>
+/// <remarks>
+/// Ochre rather than the player's cyan, so a glance never confuses somebody else's last
+/// screenshot with your own. Their name is always shown, unlike a feature's, because a marker
+/// whose whole purpose is to say who it is has nothing to say without it.
+///
+/// Only members on the same map are ever drawn. Projecting a position from another map through
+/// this map's transform would place them somewhere real-looking and entirely wrong.
+/// </remarks>
+/// <param name="Name">The name they chose.</param>
+/// <param name="CenterX">Canvas position, already projected.</param>
+/// <param name="CenterY">Canvas position, already projected.</param>
+/// <param name="BearingDegrees">Their facing, converted into this map's frame.</param>
+/// <param name="Detail">Name and age together, for the tooltip.</param>
+/// <param name="IsStale">Whether their position is old enough that they have certainly moved.</param>
+public sealed record GroupMarkerViewModel(
+    string Name,
+    double CenterX,
+    double CenterY,
+    double BearingDegrees,
+    string Detail,
+    bool IsStale)
+{
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    public double Extent => 46;
+
+    public double Left => CenterX - (Extent / 2);
+
+    public double Top => CenterY - (Extent / 2);
+
+    public double DotSize => 13;
+
+    public string FillColor => IsStale ? "#80C6A15B" : "#FFE0B45C";
+
+    public string OutlineColor => "#FF0B1016";
+
+    public string ConeColor => IsStale ? "#38E0B45C" : "#60E0B45C";
+
+    public string ConeGeometry => "M 23,23 L 10,4 A 17,17 0 0 1 36,4 Z";
 }
 
 /// <summary>What a feature marker stands for, which decides its shape, colour and glyph.</summary>
@@ -562,6 +607,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
+    private IReadOnlyList<GroupMemberView> _groupMembers = [];
+    private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
     private AvaloniaList<Point> _playerTrail = [];
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
@@ -1930,6 +1977,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ReconcileSelection();
         UpdateQuestGeometry();
         UpdatePlayerMarker();
+        UpdateGroupMarkers();
     }
 
     /// <summary>
@@ -1984,6 +2032,92 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _activeExtracts = extracts;
         UpdateOverlayElements();
+    }
+
+    /// <summary>Everyone in the group who is on this map, drawn where they last were.</summary>
+    public IReadOnlyList<GroupMarkerViewModel> GroupMarkers
+    {
+        get => _groupMarkers;
+        private set
+        {
+            Set(ref _groupMarkers, value);
+            OnPropertyChanged(nameof(HasGroupMarkers));
+        }
+    }
+
+    public bool HasGroupMarkers => GroupMarkers.Count > 0;
+
+    /// <summary>
+    /// Takes the group's latest positions, to be drawn alongside the player's own.
+    /// </summary>
+    /// <remarks>
+    /// Called on every runtime snapshot, so it returns immediately when nothing has moved. The
+    /// comparison is on names and positions rather than the list, which is rebuilt every few
+    /// seconds by the group service and would never compare equal.
+    /// </remarks>
+    public void ShowGroup(IReadOnlyList<GroupMemberView> members)
+    {
+        ArgumentNullException.ThrowIfNull(members);
+        if (_groupMembers.Count == members.Count &&
+            _groupMembers.Zip(members).All(pair =>
+                string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal) &&
+                Nullable.Equals(pair.First.Position?.X, pair.Second.Position?.X) &&
+                Nullable.Equals(pair.First.Position?.Z, pair.Second.Position?.Z)))
+        {
+            return;
+        }
+
+        _groupMembers = members;
+        UpdateGroupMarkers();
+    }
+
+    private void UpdateGroupMarkers()
+    {
+        var mapper = CreateCanvasMapper();
+        if (_renderModel is null || mapper is null || _groupMembers.Count == 0)
+        {
+            GroupMarkers = [];
+            return;
+        }
+
+        var rotation = _renderModel.Variant.Transform?.RotationDegrees ?? 0;
+        var markers = new List<GroupMarkerViewModel>();
+        foreach (var member in _groupMembers)
+        {
+            // Somebody on another map is not on this one. Projecting their position through
+            // this map's transform would place them somewhere plausible and wrong.
+            if (member.Position is not { } position ||
+                !string.Equals(member.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase) ||
+                !_renderModel.TryMapPosition(position, out var mapPoint))
+            {
+                continue;
+            }
+
+            var point = mapper(mapPoint);
+            if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+            {
+                continue;
+            }
+
+            var bearing = member.HeadingDegrees is { } heading
+                ? ((heading - rotation) % 360 + 360) % 360
+                : 0;
+            var age = member.PositionAge ?? TimeSpan.MaxValue;
+            markers.Add(new(
+                member.Name,
+                point.X,
+                point.Y,
+                bearing,
+                string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{member.Name} · from a screenshot {(age < TimeSpan.FromMinutes(1) ? $"{(int)age.TotalSeconds}s" : $"{(int)age.TotalMinutes}m")} ago"),
+                age > PlayerMarkerFreshFor)
+            {
+                Scale = _markerScale,
+            });
+        }
+
+        GroupMarkers = markers;
     }
 
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)

@@ -43,6 +43,9 @@
     <DataTemplate DataType="{x:Type vm:LoadoutPageViewModel}">
       <pages:LoadoutView />
     </DataTemplate>
+    <DataTemplate DataType="{x:Type vm:GroupPageViewModel}">
+      <pages:GroupView />
+    </DataTemplate>
     <DataTemplate DataType="{x:Type vm:SquadPageViewModel}">
       <pages:SquadView />
     </DataTemplate>
