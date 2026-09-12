@@ -166,6 +166,13 @@ public sealed class TarkovDevMapExtract
 
     public TarkovDevMapPosition? Position { get; init; }
 
+    /// <summary>Which side may use it: pmc, scav, or shared.</summary>
+    /// <remarks>
+    /// Worth carrying because a scav extract a PMC cannot take is worse than no marker at all:
+    /// it sends the player somewhere they cannot leave from.
+    /// </remarks>
+    public string? Faction { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }

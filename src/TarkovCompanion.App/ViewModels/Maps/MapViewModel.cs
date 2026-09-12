@@ -232,6 +232,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly TarkovDevMapAssetCache _assetCache;
     private readonly MapVariantSelectionService _selectionService;
     private readonly IPlayerProfileService? _profileService;
+    private readonly IMapFeatureCatalog? _featureCatalog;
     private readonly IQuestReadService? _questReadService;
     private readonly QuestMapProjectionService? _questProjectionService;
     private readonly MapPresentationService _presentationService = new();
@@ -275,7 +276,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         MapVariantSelectionService selectionService,
         IPlayerProfileService profileService,
         IQuestReadService questReadService,
-        QuestMapProjectionService questProjectionService)
+        QuestMapProjectionService questProjectionService,
+        IMapFeatureCatalog? featureCatalog = null)
         : this(
             null,
             catalogClient,
@@ -283,7 +285,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             selectionService,
             profileService,
             questReadService,
-            questProjectionService)
+            questProjectionService,
+            featureCatalog)
     {
     }
 
@@ -294,9 +297,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         MapVariantSelectionService selectionService,
         IPlayerProfileService? profileService,
         IQuestReadService? questReadService,
-        QuestMapProjectionService? questProjectionService)
+        QuestMapProjectionService? questProjectionService,
+        IMapFeatureCatalog? featureCatalog = null)
     {
         _ownedHttpClient = ownedHttpClient;
+        _featureCatalog = featureCatalog;
         _catalogClient = catalogClient;
         _assetCache = assetCache;
         _selectionService = selectionService;
@@ -1166,7 +1171,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
             if (variant.TilePath is not null)
             {
-                _renderModel = _presentationService.Create(location, variant);
+                _renderModel = _presentationService.Create(
+                    location,
+                    variant,
+                    companionElements: await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true));
                 await LoadTilesAsync(variant, cancellationToken).ConfigureAwait(true);
             }
             else
@@ -1180,7 +1188,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     variant,
                     cached.Asset?.LocalPath,
                     availability,
-                    cached.Message);
+                    cached.Message,
+                    await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true));
                 BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
                 Status = cached.Asset is not null
                     ? $"{cached.Message} SVG rendered from the retained original; floor groups remain separate from companion overlays."
@@ -1514,6 +1523,39 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 bearing,
                 age > PlayerMarkerFreshFor),
         ];
+    }
+
+    /// <summary>
+    /// Loads the map's extracts, spawns and locked doors, and places them.
+    /// </summary>
+    /// <remarks>
+    /// This data has been downloaded and stored since the first sync and nothing ever drew it,
+    /// so the map showed tiles and street names while everything a player actually looks for
+    /// sat unused in the database beside them. Extracts are the point: deciding where to leave
+    /// from is the question this panel exists to answer.
+    ///
+    /// A failure here costs the markers and not the map. Tiles and position are worth more
+    /// than annotations, and losing the map to a bad catalog row would be a poor trade.
+    /// </remarks>
+    private async Task<IReadOnlyList<MapOverlayElement>> LoadFeaturesAsync(
+        MapLocation location,
+        MapVariant variant,
+        CancellationToken cancellationToken)
+    {
+        if (_featureCatalog is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            var features = await _featureCatalog.GetAsync(location.Id, cancellationToken).ConfigureAwait(true);
+            return MapFeatureProjection.Project(variant, features);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return [];
+        }
     }
 
     private Func<MapPoint, Point>? CreateCanvasMapper()

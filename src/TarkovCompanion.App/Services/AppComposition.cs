@@ -252,6 +252,8 @@ public static class AppComposition
         services.AddSingleton<ILoadoutService, LoadoutIntelligenceService>();
         services.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 
+        services.AddSingleton<SqliteMapFeatureCatalog>();
+        services.AddSingleton<IMapFeatureCatalog>(provider => provider.GetRequiredService<SqliteMapFeatureCatalog>());
         services.AddSingleton<IMapDefinitionCache, InMemoryMapDefinitionCache>();
         services.AddSingleton<IMapDataService, MapDataService>();
         services.AddSingleton<IMapTransformService, MapTransformService>();
