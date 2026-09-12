@@ -104,6 +104,20 @@ public sealed record RecognitionResult(
     DateTimeOffset ObservedUtc,
     string? DiagnosticCode = null)
 {
+    /// <summary>
+    /// Why the recogniser reached this answer, in enough detail to act on.
+    /// </summary>
+    /// <remarks>
+    /// The diagnostic code says what happened; this says why. "context_unknown" on its own is
+    /// true of a screenshot of a wall, a screenshot the text engine could not read at all, and
+    /// a screenshot where two contexts scored equally, and those three call for entirely
+    /// different work. The detector already establishes the difference and used to discard it.
+    ///
+    /// An init property rather than another positional parameter, because this record is
+    /// constructed in several places that have nothing to add here.
+    /// </remarks>
+    public string? Detail { get; init; }
+
     public RecognitionCandidate? Selected
     {
         get

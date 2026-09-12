@@ -42,20 +42,24 @@ public sealed class RecognitionService : IRecognitionService
         CancellationToken cancellationToken)
     {
         var coordinated = await _coordinator.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
+        var detail = Describe(image, coordinated);
         if (!coordinated.FullFrame.IsAvailable)
         {
-            return new(ScanContext.Unknown, [], image.CapturedUtc, "ocr_provider_unavailable");
+            return new RecognitionResult(ScanContext.Unknown, [], image.CapturedUtc, "ocr_provider_unavailable")
+            {
+                Detail = detail,
+            };
         }
 
         var context = coordinated.Detection.Context;
         if (context == ScanContext.Unknown)
         {
-            return new(context, [], image.CapturedUtc, "context_unknown");
+            return new RecognitionResult(context, [], image.CapturedUtc, "context_unknown") { Detail = detail };
         }
 
         if (context == ScanContext.ExtractList)
         {
-            return new(context, [], image.CapturedUtc, "extract_context");
+            return new RecognitionResult(context, [], image.CapturedUtc, "extract_context") { Detail = detail };
         }
 
         var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -67,7 +71,7 @@ public sealed class RecognitionService : IRecognitionService
             .Take(5)
             .ToList();
 
-        var result = new RecognitionResult(context, candidates, image.CapturedUtc);
+        var result = new RecognitionResult(context, candidates, image.CapturedUtc) { Detail = detail };
         var diagnostic = candidates.Count == 0
             ? "no_match"
             : result.Selected is not null
@@ -81,6 +85,22 @@ public sealed class RecognitionService : IRecognitionService
                 };
         return result with { DiagnosticCode = diagnostic };
     }
+
+    /// <summary>
+    /// Says what the text engine saw and how the contexts scored, in one line.
+    /// </summary>
+    /// <remarks>
+    /// The line count is the part that separates the two ways a scan comes back empty. Zero
+    /// lines means the picture was never read, which is a text-engine problem and nothing to do
+    /// with anchors. Plenty of lines and no winner means it was read and looked like nothing we
+    /// recognise, which is an anchor problem. Guessing between those cost a night already.
+    ///
+    /// The frame size is carried because the game is not always played on one ordinary screen,
+    /// and a very wide frame makes the text small relative to it.
+    /// </remarks>
+    private static string Describe(CapturedImage image, CoordinatedOcrResult coordinated) =>
+        $"{coordinated.FullFrame.Lines.Count} text line(s) read from {image.Width}x{image.Height} " +
+        $"by {coordinated.FullFrame.Engine}; {coordinated.Detection.Evidence}";
 
     private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(
         OcrResult result,

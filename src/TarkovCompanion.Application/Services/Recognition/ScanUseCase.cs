@@ -132,11 +132,12 @@ public sealed class ScanUseCase : IScanUseCase
     {
         var recognition = await _recognition.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
         _logger?.LogInformation(
-            "Scan {ScanId} recognised context {Context} with {Candidates} candidate(s). {Diagnostic}",
+            "Scan {ScanId} recognised context {Context} with {Candidates} candidate(s). {Diagnostic} {Detail}",
             scanId,
             recognition.Context,
             recognition.Candidates.Count,
-            recognition.DiagnosticCode ?? "No diagnostic.");
+            recognition.DiagnosticCode ?? "No diagnostic.",
+            recognition.Detail ?? "No detail.");
 
         var evidence = new List<ScanEvidence>
         {
