@@ -5,7 +5,10 @@ using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Platform.Windows.Watching;
 
-public sealed class WindowsEftLogWatcher(EftLogParser parser, TimeProvider? timeProvider = null) : IEftLogWatcher
+public sealed class WindowsEftLogWatcher(
+    EftLogParser parser,
+    IGroupObservationSink? groupSink = null,
+    TimeProvider? timeProvider = null) : IEftLogWatcher
 {
     /// <summary>
     /// The log files this watcher will read.
@@ -83,10 +86,21 @@ public sealed class WindowsEftLogWatcher(EftLogParser parser, TimeProvider? time
                 await foreach (var line in ReadAppendedLinesAsync(path, offsets, cancellationToken)
                                    .ConfigureAwait(false))
                 {
-                    var evidence = parser.ParseLine(line, _timeProvider.GetUtcNow());
+                    var observedUtc = _timeProvider.GetUtcNow();
+                    var evidence = parser.ParseLine(line, observedUtc);
                     if (evidence is not null)
                     {
                         yield return evidence;
+                    }
+
+                    // The party arrives on the same lines as the raid but describes something
+                    // else, so it goes to its own sink rather than through raid evidence. The
+                    // parser rejects non-group lines on one substring scan, so this costs
+                    // almost nothing on the lines that are not about the party.
+                    if (groupSink is not null &&
+                        GroupNotificationParser.ParseLine(line, observedUtc) is { } group)
+                    {
+                        groupSink.Observe(group);
                     }
                 }
             }

@@ -1,0 +1,94 @@
+<UserControl x:Class="TarkovCompanion.App.Views.Pages.SquadView"
+             x:DataType="vm:SquadPageViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+    <Border Classes="inset" Padding="10">
+      <StackPanel Spacing="3">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding Queue}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="2*,*" ColumnSpacing="12">
+      <Border Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,*" RowSpacing="10">
+          <TextBlock Classes="sectionTitle" Text="Party" />
+          <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="0">
+              <TextBlock
+                  Classes="label"
+                  IsVisible="{Binding HasNoMembers}"
+                  TextWrapping="Wrap"
+                  Text="The game writes a notification whenever somebody joins, readies up or leaves. Nothing has arrived yet, so there is nothing to show." />
+              <ItemsControl ItemsSource="{Binding Members}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SquadMemberViewModel">
+                    <Border Classes="inset" Margin="0,0,0,8" Padding="12">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
+                        <StackPanel Spacing="4">
+                          <TextBlock FontWeight="SemiBold" Text="{Binding Nickname}" TextWrapping="Wrap" />
+                          <TextBlock Classes="label" Text="{Binding Role}" />
+                          <ItemsControl IsVisible="{Binding HasGear}" ItemsSource="{Binding Gear}" Margin="0,4,0,0">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate x:DataType="vm:SquadGearViewModel">
+                                <TextBlock Classes="label" Text="{Binding Text}" TextWrapping="Wrap" />
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4" MinWidth="150">
+                          <TextBlock
+                              Classes="metric"
+                              FontSize="14"
+                              Foreground="{Binding ReadinessColor}"
+                              Text="{Binding Readiness}" />
+                          <TextBlock Classes="label" Text="{Binding Level}" />
+                          <TextBlock Classes="label" Text="{Binding Scav}" />
+                        </StackPanel>
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+
+      <Border Grid.Column="1" Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
+          <TextBlock Classes="sectionTitle" Text="Dogtags you are carrying" />
+          <TextBlock
+              Grid.Row="1"
+              Classes="label"
+              TextWrapping="Wrap"
+              Text="Only tags in your own bag. A squadmate's tags name players you never met, so they are not read." />
+          <ScrollViewer Grid.Row="2">
+            <StackPanel Spacing="0">
+              <TextBlock
+                  Classes="label"
+                  IsVisible="{Binding HasNoDogtags}"
+                  TextWrapping="Wrap"
+                  Text="No dogtags observed." />
+              <ItemsControl ItemsSource="{Binding Dogtags}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:DogtagViewModel">
+                    <Border Classes="inset" Margin="0,0,0,6" Padding="10">
+                      <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding Victim}" TextWrapping="Wrap" />
+                        <TextBlock Classes="label" Text="{Binding Killer}" TextWrapping="Wrap" />
+                        <TextBlock Classes="label" Text="{Binding When}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

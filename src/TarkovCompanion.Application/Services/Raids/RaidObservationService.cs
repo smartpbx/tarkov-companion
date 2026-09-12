@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Raids;
 
@@ -30,6 +31,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotWatcher _screenshotWatcher;
     private readonly IScreenshotFilenameParser _filenameParser;
     private readonly RaidActivityCoordinator _coordinator;
+    private readonly SquadStateService _squad;
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly ILogger<RaidObservationService> _logger;
@@ -45,6 +47,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         IScreenshotWatcher screenshotWatcher,
         IScreenshotFilenameParser filenameParser,
         RaidActivityCoordinator coordinator,
+        SquadStateService squad,
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
         ILogger<RaidObservationService> logger)
@@ -54,6 +57,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _screenshotWatcher = screenshotWatcher;
         _filenameParser = filenameParser;
         _coordinator = coordinator;
+        _squad = squad;
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
@@ -142,6 +146,9 @@ public sealed class RaidObservationService : IAsyncDisposable
             }
 
             Interlocked.Exchange(ref _eventsSeen, 0);
+            // A new watching session means a new game session, and the party from the last one
+            // is no longer known to be standing there.
+            PublishSquad(_squad.Clear());
             _watching = paths;
             PublishWatching();
             _logger.LogInformation(
@@ -151,10 +158,11 @@ public sealed class RaidObservationService : IAsyncDisposable
                 paths.Confidence.Value);
 
             using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            var watchers = new List<Task>(2);
+            var watchers = new List<Task>(3);
             if (paths.LogRoot is not null)
             {
                 watchers.Add(WatchLogsAsync(paths.LogRoot, session.Token));
+                watchers.Add(PublishSquadAsync(session.Token));
             }
 
             if (paths.ScreenshotRoot is not null)
@@ -214,6 +222,40 @@ public sealed class RaidObservationService : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>How often the party is copied into runtime state.</summary>
+    /// <remarks>
+    /// The party is deliberately not published as its own notifications arrive. A readiness
+    /// toggle republishes every member with their whole inventory, so they land in bursts of
+    /// hundreds, and pushing each one at the interface would redraw the squad list continuously
+    /// while nobody had actually done anything. Copying the collapsed state on a slow tick
+    /// gives the same information at a cost that does not scale with how restless the party is.
+    /// </remarks>
+    private static readonly TimeSpan SquadPublishInterval = TimeSpan.FromSeconds(2);
+
+    private async Task PublishSquadAsync(CancellationToken cancellationToken)
+    {
+        var published = _squad.Current.UpdatedUtc;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await DelayAsync(SquadPublishInterval, cancellationToken).ConfigureAwait(false);
+            var squad = _squad.Current;
+            if (squad.UpdatedUtc == published)
+            {
+                continue;
+            }
+
+            published = squad.UpdatedUtc;
+            PublishSquad(squad);
+            _logger.LogInformation(
+                "The party now has {Members} member(s) and {Dogtags} dogtag(s).",
+                squad.Members.Count,
+                squad.Dogtags.Count);
+        }
+    }
+
+    private void PublishSquad(SquadSnapshot squad) =>
+        _stateStore.Update(current => current with { Squad = squad });
 
     private async Task WatchScreenshotsAsync(string screenshotRoot, CancellationToken cancellationToken)
     {

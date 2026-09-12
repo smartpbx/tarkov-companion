@@ -102,10 +102,13 @@ public sealed class RaidObservationServiceTests
                 new StubScreenshotWatcher(this),
                 new StubFilenameParser(),
                 coordinator,
+                Squad,
                 Store,
                 options,
                 NullLogger<RaidObservationService>.Instance);
         }
+
+        public SquadStateService Squad { get; } = new();
 
         public RuntimeStateStore Store { get; }
 
@@ -178,6 +181,8 @@ public sealed class RaidObservationServiceTests
     {
         public bool TryParse(string filename, TimeSpan localUtcOffset, out ScreenshotPosition? position)
         {
+            // The real parser records the bare name whatever it is handed, and the service
+            // now hands it a full path so the file's own timestamp can be read.
             position = new(
                 DateTimeOffset.UnixEpoch,
                 new WorldPosition(1, 2, 3),
@@ -185,7 +190,7 @@ public sealed class RaidObservationServiceTests
                 90,
                 null,
                 null,
-                filename);
+                Path.GetFileName(filename));
             return true;
         }
 

@@ -912,11 +912,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
         Events = new(eventCatalog, eventTracker, itemRepository);
+        Squad = new(itemRepository);
         _hotkeys.Triggered += ScanHotkeyPressed;
 
         Navigation =
         [
             CreateNavigation("Raid", "⌖", Raid),
+            CreateNavigation("Squad", "⚇", Squad),
             CreateNavigation("Scanner", "⌁", Scanner),
             CreateNavigation("Items", "◇", Items),
             CreateNavigation("Ammo", "◉", Ammo),
@@ -951,6 +953,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public LoadoutPageViewModel Loadout { get; }
 
     public EventsPageViewModel Events { get; }
+
+    public SquadPageViewModel Squad { get; }
 
     public IReadOnlyList<StatusChip> Status
     {
@@ -1195,6 +1199,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Keys.Apply(snapshot);
         Loadout.Apply(snapshot);
         Events.Apply(snapshot);
+        Squad.Apply(snapshot);
         Quests.ApplyRuntime(snapshot);
         Settings.Apply(snapshot);
         FollowRaidMap(snapshot);

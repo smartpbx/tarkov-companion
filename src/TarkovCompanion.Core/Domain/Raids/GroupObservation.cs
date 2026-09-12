@@ -176,3 +176,36 @@ public sealed record GroupObservation(
     GroupMember? Member,
     string? GroupId = null,
     TimeSpan? QueueEstimate = null);
+
+/// <summary>
+/// The player's party as it currently stands, assembled from many notifications.
+/// </summary>
+/// <remarks>
+/// Group notifications are a stream of restatements rather than a list: a readiness toggle
+/// republishes the whole member, inventory and all, and does so hundreds of times a session.
+/// This is the collapsed form the product actually wants, one entry per person, which is what
+/// <see cref="GroupNotificationParser"/> asks its callers to keep.
+///
+/// The party is the one set of other players the companion may describe, because the game
+/// already shows the player every one of them. A party survives the raid it was formed for,
+/// so this is not emptied when a raid ends; it is emptied when the game is relaunched, which
+/// is the point at which the companion stops knowing who is still there.
+/// </remarks>
+/// <param name="Members">Everyone currently in the party, leader first.</param>
+/// <param name="Dogtags">Dogtags the player is carrying, newest kill first.</param>
+/// <param name="MatchStartedUtc">When the party last entered matchmaking together.</param>
+/// <param name="QueueEstimate">The queue time the game predicted for that match.</param>
+/// <param name="UpdatedUtc">When any of this last changed.</param>
+public sealed record SquadSnapshot(
+    IReadOnlyList<GroupMember> Members,
+    IReadOnlyList<DogtagObservation> Dogtags,
+    DateTimeOffset? MatchStartedUtc,
+    TimeSpan? QueueEstimate,
+    DateTimeOffset UpdatedUtc)
+{
+    /// <summary>No party observed yet, which is the state before and between raids.</summary>
+    public static SquadSnapshot Empty { get; } =
+        new([], [], null, null, DateTimeOffset.UnixEpoch);
+
+    public bool HasMembers => Members.Count > 0;
+}

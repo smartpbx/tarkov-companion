@@ -104,6 +104,9 @@ public sealed record ApplicationRuntimeSnapshot(
 {
     public EftObservationState Observation { get; init; } =
         OperatingSystem.IsWindows() ? EftObservationState.Idle : EftObservationState.Unsupported;
+
+    /// <summary>The player's party, as the game's own group notifications describe it.</summary>
+    public SquadSnapshot Squad { get; init; } = SquadSnapshot.Empty;
 }
 
 public interface IRuntimeStateStore
