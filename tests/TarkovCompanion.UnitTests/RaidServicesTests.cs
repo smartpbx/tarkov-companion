@@ -27,8 +27,11 @@ public sealed class RaidServicesTests
         Assert.Equal("customs", evidence[^1].MapId);
     }
 
+    /// <summary>
+    /// Evidence keeps what an earlier line established when it says nothing itself.
+    /// </summary>
     [Fact]
-    public void RaidStateRetainsEvidenceAndRejectsOutOfOrderUpdates()
+    public void RaidStateRetainsWhatLaterEvidenceDoesNotRestate()
     {
         var service = new RaidStateService();
         var started = new DateTimeOffset(2026, 9, 4, 22, 0, 0, TimeSpan.Zero);
@@ -39,18 +42,57 @@ public sealed class RaidServicesTests
             RaidLifecycleState.InRaid,
             new Confidence(0.95),
             "fixture"));
-        var stale = service.Apply(new(
+        var later = service.Apply(new(
             RaidEvidenceKind.LogLine,
-            started.AddSeconds(-1),
+            started.AddSeconds(30),
             null,
-            RaidLifecycleState.Menu,
-            Confidence.Certain,
-            "late delivery"));
+            RaidLifecycleState.InRaid,
+            new Confidence(0.95),
+            "still running"));
 
         Assert.NotNull(active.RaidId);
         Assert.Equal(started, active.StartedUtc);
-        Assert.Equal(RaidLifecycleState.InRaid, stale.State);
-        Assert.Equal("customs", stale.MapId);
+        Assert.Equal(RaidLifecycleState.InRaid, later.State);
+        Assert.Equal("customs", later.MapId);
+    }
+
+    /// <summary>
+    /// A clock that steps backwards must not stop the raid being tracked.
+    /// </summary>
+    /// <remarks>
+    /// This asserted the opposite until a live machine's clock moved back four hours during a
+    /// session. Evidence older than the raid clock was discarded, which on that step would
+    /// have silently dropped four hours of raids while everything else kept working, because
+    /// discarding is what the guard was built to do. A time-zone correction or an NTP resync
+    /// does this, so it is an ordinary event rather than a strange one.
+    ///
+    /// What the guard was protecting against cannot happen on this path: log evidence arrives
+    /// from one sequential loop, so arrival order is the log's own order.
+    /// </remarks>
+    [Fact]
+    public void KeepsTrackingTheRaidWhenTheSystemClockStepsBackwards()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 4, 22, 0, 0, TimeSpan.Zero);
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started,
+            "customs",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.95),
+            "raid running"));
+
+        var afterTheStep = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started.AddHours(-4),
+            "customs",
+            RaidLifecycleState.PostRaid,
+            new Confidence(0.98),
+            "the game reported the raid as over"));
+
+        Assert.Equal(RaidLifecycleState.PostRaid, afterTheStep.State);
+        // The clock the player reads never rewinds, even though the evidence behind it did.
+        Assert.Equal(started, afterTheStep.UpdatedUtc);
     }
 
     /// <summary>

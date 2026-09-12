@@ -28,12 +28,20 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             return Current;
         }
 
+        // Evidence is applied in the order it arrives, and is never refused for being older
+        // than the raid clock.
+        //
+        // It used to be, and that made raid tracking depend on the system clock only ever
+        // moving forward. A clock that steps backwards, which a time-zone correction or an
+        // NTP resync will do, then silently discarded every piece of raid evidence until real
+        // time caught up: on a four-hour step, four hours of raids. Nothing surfaced, because
+        // discarding evidence is how the guard was supposed to behave.
+        //
+        // The guard was protecting against reordering that cannot happen here. Log evidence
+        // reaches this from a single sequential loop, so arrival order is the log's own order,
+        // and the streams that genuinely can arrive out of order carry their own comparisons:
+        // a screenshot is judged against the last screenshot, not against this clock.
         var observedUtc = evidence.ObservedUtc.ToUniversalTime();
-        if (observedUtc < Current.UpdatedUtc)
-        {
-            return Current;
-        }
-
         var targetState = evidence.SuggestedState ?? Current.State;
         var enteringNewRaid = targetState == RaidLifecycleState.LoadingRaid
             && Current.State != RaidLifecycleState.LoadingRaid;
@@ -54,7 +62,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             State = targetState,
             MapId = mapId,
             StartedUtc = enteringRaid ? observedUtc : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
-            UpdatedUtc = observedUtc,
+            // Shown to the player as how recently the raid was seen, so it never runs
+            // backwards even when the clock behind it does.
+            UpdatedUtc = Later(observedUtc),
             Confidence = evidence.Confidence,
             LastKnownPosition = enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
@@ -106,7 +116,7 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             LastKnownPosition = position,
             // The raid clock only ever moves forward. A screenshot that is genuinely older
             // than the last log line records its position without rewinding the raid.
-            UpdatedUtc = observedUtc > Current.UpdatedUtc ? observedUtc : Current.UpdatedUtc,
+            UpdatedUtc = Later(observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.80)),
         };
         return Current;
@@ -116,10 +126,6 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
     {
         ArgumentNullException.ThrowIfNull(extracts);
         observedUtc = observedUtc.ToUniversalTime();
-        if (observedUtc < Current.UpdatedUtc)
-        {
-            return Current;
-        }
 
         if (Current.State != RaidLifecycleState.InRaid)
         {
@@ -135,9 +141,21 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         Current = Current with
         {
             ActiveExtracts = extracts.ToArray(),
-            UpdatedUtc = observedUtc,
+            UpdatedUtc = Later(observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.85)),
         };
         return Current;
     }
+
+    /// <summary>
+    /// The later of an observation's time and the raid clock, so the clock never rewinds.
+    /// </summary>
+    /// <remarks>
+    /// The raid clock is read by the player as how recently anything was seen. Letting it move
+    /// backwards would show a raid updating in the future and then ageing, which is worse than
+    /// a clock that pauses. Nothing is discarded to achieve this; only what is displayed is
+    /// held steady.
+    /// </remarks>
+    private DateTimeOffset Later(DateTimeOffset observedUtc) =>
+        observedUtc > Current.UpdatedUtc ? observedUtc : Current.UpdatedUtc;
 }
