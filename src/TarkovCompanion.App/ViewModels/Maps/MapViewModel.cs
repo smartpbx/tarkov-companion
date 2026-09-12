@@ -154,38 +154,66 @@ public static class MapCanvasCoordinateMapper
 /// evidence rather than tracking: the game writes the position into the screenshot's filename,
 /// and only when the player chooses to take one. The marker is therefore always labelled with
 /// how old it is, and it points the way the player was facing at that moment.
+///
+/// Everything is laid out inside a fixed square centred on the position, and the whole square
+/// is rotated about its own centre. An earlier version rotated the facing arrow about its own
+/// bottom edge while the arrow sat above the dot, so it spun on the spot instead of swinging
+/// around the player, which is why the direction looked wrong or absent.
 /// </remarks>
 /// <param name="Label">What the marker is and when it was taken, for the tooltip.</param>
 /// <param name="CenterX">Canvas position, already projected through the map's transform.</param>
 /// <param name="CenterY">Canvas position, already projected through the map's transform.</param>
-/// <param name="HeadingDegrees">Which way the player was facing, clockwise from north.</param>
+/// <param name="BearingDegrees">
+/// Which way the player was facing, in the map's own frame rather than the world's, clockwise
+/// from the top of the map.
+/// </param>
 /// <param name="IsStale">Whether the screenshot is old enough that the player has likely moved.</param>
 public sealed record PlayerMarkerViewModel(
     string Label,
     double CenterX,
     double CenterY,
-    double HeadingDegrees,
+    double BearingDegrees,
     bool IsStale)
 {
-    public double Size => 26;
+    /// <summary>The square the whole marker is drawn inside, big enough for the facing cone.</summary>
+    public double Extent => 52;
 
-    public double Left => CenterX - (Size / 2);
+    public double Left => CenterX - (Extent / 2);
 
-    public double Top => CenterY - (Size / 2);
+    public double Top => CenterY - (Extent / 2);
 
-    public double CornerRadius => Size / 2;
+    /// <summary>The dot itself, drawn as an ellipse so it is round whatever the theme does.</summary>
+    /// <remarks>
+    /// This was a bordered rectangle with its corner radius bound from a number, which does
+    /// not convert, so it rendered as a square. An ellipse cannot be anything but round.
+    /// </remarks>
+    public double DotSize => 15;
+
+    /// <summary>
+    /// The facing cone, drawn from the centre of the square pointing straight up.
+    /// </summary>
+    /// <remarks>
+    /// A cone rather than an arrow. On a busy satellite map a thin arrow disappears into the
+    /// detail, and a cone reads as "looking that way" at a glance while still being legible
+    /// when the marker is small.
+    /// </remarks>
+    public string ConeGeometry => "M 26,26 L 11,4 A 19,19 0 0 1 41,4 Z";
 
     /// <summary>A fresh position is worth trusting; a stale one is drawn as a faded hint.</summary>
-    public string FillColor => IsStale ? "#8056B8C6" : "#FF4DD0E1";
+    public string FillColor => IsStale ? "#8056B8C6" : "#FF34D3E8";
 
-    public string BorderColor => IsStale ? "#A0E6EDF2" : "#FFFFFFFF";
+    /// <summary>
+    /// The outline, which is what keeps the marker visible on light and dark artwork alike.
+    /// </summary>
+    /// <remarks>
+    /// A white marker vanishes over pale ground and a dark one vanishes over shadow, which is
+    /// why it could not always be seen. A dark ring around a bright fill reads on both.
+    /// </remarks>
+    public string OutlineColor => "#FF0B1016";
 
-    /// <summary>The facing arrow sits just outside the dot, rotated about the dot's centre.</summary>
-    public double ArrowSize => 14;
+    public string ConeColor => IsStale ? "#4034D3E8" : "#7034D3E8";
 
-    public double ArrowLeft => CenterX - (ArrowSize / 2);
-
-    public double ArrowTop => CenterY - Size;
+    public double DotBorderThickness => 2.5;
 }
 
 public sealed record QuestMapAssociationViewModel(
@@ -1365,6 +1393,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // The heading the screenshot records is a bearing in the world, and the map is drawn
+        // with the world turned by its own rotation, so the two differ by exactly that
+        // rotation. Drawing the raw heading pointed the cone the wrong way by however much the
+        // map was turned, which on some maps is a quarter or a half turn.
+        var rotation = _renderModel.Variant.Transform?.RotationDegrees ?? 0;
+        var bearing = ((position.HeadingDegrees - rotation) % 360 + 360) % 360;
         var age = DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime();
         var taken = position.Timestamp.ToLocalTime().ToString("T", CultureInfo.CurrentCulture);
         PlayerMarkers =
@@ -1372,10 +1406,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             new(
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"Your last screenshot position · {taken} · facing {position.HeadingDegrees:F0}°"),
+                    $"Your last screenshot position · {taken} · facing {bearing:F0}° on this map"),
                 canvasPoint.X,
                 canvasPoint.Y,
-                position.HeadingDegrees,
+                bearing,
                 age > PlayerMarkerFreshFor),
         ];
     }

@@ -12,7 +12,7 @@
        raid, the layer chips more rarely, the attribution never. So they sit in the corners
        and leave the middle of the map clear. -->
   <Panel>
-    <Border Classes="panel" ClipToBounds="True" Background="#171E26">
+    <Border Classes="panel mapGround" ClipToBounds="True" Padding="0">
       <ScrollViewer
           x:Name="ViewportScrollViewer"
           HorizontalScrollBarVisibility="Auto"
@@ -125,10 +125,8 @@
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:MapOverlayElementViewModel">
                 <Border
-                    Padding="4,2"
-                    Background="#CC11151B"
+                    Classes="mapLabel"
                     BorderBrush="{Binding BorderColor}"
-                    BorderThickness="1"
                     RenderTransformOrigin="50%,50%">
                   <Border.RenderTransform>
                     <TransformGroup>
@@ -155,75 +153,73 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:PlayerMarkerViewModel">
-                <Panel ToolTip.Tip="{Binding Label}">
-                  <Path
-                      Data="M 7,0 L 14,14 L 7,10 L 0,14 Z"
-                      Fill="{Binding BorderColor}"
-                      Width="{Binding ArrowSize}"
-                      Height="{Binding ArrowSize}"
-                      RenderTransformOrigin="50%,100%">
-                    <Path.RenderTransform>
-                      <TransformGroup>
-                        <RotateTransform Angle="{Binding HeadingDegrees}" />
-                        <TranslateTransform X="{Binding ArrowLeft}" Y="{Binding ArrowTop}" />
-                      </TransformGroup>
-                    </Path.RenderTransform>
-                  </Path>
-                  <Border
-                      Width="{Binding Size}"
-                      Height="{Binding Size}"
-                      CornerRadius="{Binding CornerRadius}"
-                      Background="{Binding FillColor}"
-                      BorderBrush="{Binding BorderColor}"
-                      BorderThickness="3">
-                    <Border.RenderTransform>
+                <!-- The dot and its facing cone sit in one square that is rotated about its
+                     own centre, so the cone swings around the player rather than spinning on
+                     the spot. The square is then moved so its centre lands on the position. -->
+                <Panel
+                    Width="{Binding Extent}"
+                    Height="{Binding Extent}"
+                    ToolTip.Tip="{Binding Label}"
+                    RenderTransformOrigin="50%,50%">
+                  <Panel.RenderTransform>
+                    <TransformGroup>
+                      <RotateTransform Angle="{Binding BearingDegrees}" />
                       <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
-                    </Border.RenderTransform>
-                  </Border>
+                    </TransformGroup>
+                  </Panel.RenderTransform>
+                  <Path Data="{Binding ConeGeometry}" Fill="{Binding ConeColor}" />
+                  <Ellipse
+                      Width="{Binding DotSize}"
+                      Height="{Binding DotSize}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Fill="{Binding FillColor}"
+                      Stroke="{Binding OutlineColor}"
+                      StrokeThickness="{Binding DotBorderThickness}" />
                 </Panel>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
           <Border
+              Classes="mapPlaceholder"
               Canvas.Left="16"
               Canvas.Top="16"
-              Padding="10,6"
-              Background="#DD11151B"
               IsVisible="{Binding ShowsPlaceholder}">
-            <TextBlock MaxWidth="520" Text="{Binding Status}" TextWrapping="Wrap" />
+            <TextBlock Classes="label" MaxWidth="520" Text="{Binding Status}" TextWrapping="Wrap" />
           </Border>
         </Canvas>
         </Border>
       </ScrollViewer>
     </Border>
 
-    <!-- Top left: what is being looked at. Top right: how it is being looked at. -->
+    <!-- Top left: what is being looked at. Top right: how it is being looked at.
+         The map chooser carries no label and is set larger than the other two, because the
+         name of the map is the one thing on this bar worth reading from across the room; the
+         view and the floor are qualifiers and are labelled as such. -->
     <StackPanel Margin="12" HorizontalAlignment="Left" VerticalAlignment="Top" Spacing="7">
-      <Border Classes="floating" Padding="10,7">
-        <StackPanel Orientation="Horizontal" Spacing="14">
+      <Border Classes="floating" Padding="8,6">
+        <StackPanel Orientation="Horizontal" Spacing="12">
+          <ComboBox
+              x:Name="LocationChooser"
+              Classes="chooser primary"
+              MinWidth="168"
+              ItemsSource="{Binding Locations}"
+              SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
+              SelectionChanged="LocationSelectionChanged"
+              ToolTip.Tip="Map">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="maps:MapLocation">
+                <TextBlock Text="{Binding Name}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Classes="chooserLabel" Text="MAP" />
-            <ComboBox
-                x:Name="LocationChooser"
-                Classes="chooser"
-                MinWidth="150"
-                ItemsSource="{Binding Locations}"
-                SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
-                SelectionChanged="LocationSelectionChanged">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="maps:MapLocation">
-                  <TextBlock Text="{Binding Name}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Classes="chooserLabel" Text="VIEW" />
+            <TextBlock Classes="chooserLabel" Text="View" />
             <ComboBox
                 x:Name="VariantChooser"
                 Classes="chooser"
-                MinWidth="130"
+                MinWidth="124"
                 ItemsSource="{Binding Variants}"
                 SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
                 SelectionChanged="VariantSelectionChanged">
@@ -235,11 +231,11 @@
             </ComboBox>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Classes="chooserLabel" Text="FLOOR" />
+            <TextBlock Classes="chooserLabel" Text="Floor" />
             <ComboBox
                 x:Name="FloorChooser"
                 Classes="chooser"
-                MinWidth="110"
+                MinWidth="100"
                 ItemsSource="{Binding Floors}"
                 SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
                 SelectionChanged="FloorSelectionChanged">
@@ -310,9 +306,9 @@
       <StackPanel Spacing="6" MaxWidth="490">
         <TextBlock Classes="label" Text="{Binding TransformStatus}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding QuestLayerStatus}" TextWrapping="Wrap" />
-        <StackPanel Orientation="Horizontal" Spacing="6">
-          <Button Click="AttributionClick" Content="{Binding AttributionText}" />
-          <Button Click="LicenseClick" Content="License" />
+        <StackPanel Orientation="Horizontal" Spacing="4">
+          <Button Classes="quiet" Click="AttributionClick" Content="{Binding AttributionText}" />
+          <Button Classes="quiet" Click="LicenseClick" Content="Licence" />
         </StackPanel>
         <ScrollViewer MaxHeight="170" VerticalScrollBarVisibility="Auto">
           <ItemsControl ItemsSource="{Binding QuestAssociations}">
@@ -320,12 +316,12 @@
               <DataTemplate x:DataType="vm:QuestMapAssociationViewModel">
                 <Border Classes="inset" Padding="9,6" Margin="0,0,0,5">
                   <StackPanel Spacing="2">
-                    <TextBlock FontWeight="SemiBold" Text="{Binding Title}" TextWrapping="Wrap" />
-                    <TextBlock Foreground="#C6A15B" IsVisible="{Binding IsUnsupported}" Text="Unsupported objective details" />
-                    <TextBlock Foreground="#71808C" IsVisible="{Binding IsFloorFiltered}" Text="Hidden by selected floor" />
+                    <TextBlock Classes="value" Text="{Binding Title}" TextWrapping="Wrap" />
+                    <TextBlock Classes="label ochre" IsVisible="{Binding IsUnsupported}" Text="Unsupported objective details" />
+                    <TextBlock Classes="label" IsVisible="{Binding IsFloorFiltered}" Text="Hidden by the selected floor" />
                     <TextBlock Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
                     <TextBlock Classes="label" Text="{Binding Items}" TextWrapping="Wrap" />
-                    <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
+                    <TextBlock Classes="caption" Text="{Binding Evidence}" TextWrapping="Wrap" />
                   </StackPanel>
                 </Border>
               </DataTemplate>
