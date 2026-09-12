@@ -258,6 +258,9 @@ public static class AppComposition
         services.AddSingleton<IStrategyModel, StrategyModel>();
         services.AddSingleton<IRoutePlanner, RoutePlanner>();
         services.AddSingleton<IScreenshotFilenameParser, ScreenshotFilenameParser>();
+        // The game's own screenshot key drives a scan, so one press gives the position and
+        // whatever the picture shows rather than needing a second shortcut.
+        services.AddSingleton<IScreenshotImageLoader, SkiaScreenshotImageLoader>();
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
         services.AddSingleton<FleaSaleStateService>();

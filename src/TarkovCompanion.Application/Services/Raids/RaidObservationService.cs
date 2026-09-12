@@ -3,6 +3,7 @@ using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.Raids;
 
@@ -30,6 +31,8 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IEftLogWatcher _logWatcher;
     private readonly IScreenshotWatcher _screenshotWatcher;
     private readonly IScreenshotFilenameParser _filenameParser;
+    private readonly IScreenshotImageLoader? _imageLoader;
+    private readonly IScanUseCase? _scanUseCase;
     private readonly RaidActivityCoordinator _coordinator;
     private readonly SquadStateService _squad;
     private readonly FleaSaleStateService _fleaSales;
@@ -52,13 +55,20 @@ public sealed class RaidObservationService : IAsyncDisposable
         FleaSaleStateService fleaSales,
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
-        ILogger<RaidObservationService> logger)
+        ILogger<RaidObservationService> logger,
+        // Optional so the service still composes where there is nothing to scan with, which is
+        // every platform but Windows. Defaults rather than a null object, because a null object
+        // here would have to pretend a scan happened.
+        IScreenshotImageLoader? imageLoader = null,
+        IScanUseCase? scanUseCase = null)
     {
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
         _screenshotWatcher = screenshotWatcher;
         _filenameParser = filenameParser;
         _coordinator = coordinator;
+        _imageLoader = imageLoader;
+        _scanUseCase = scanUseCase;
         _squad = squad;
         _fleaSales = fleaSales;
         _stateStore = stateStore;
@@ -304,6 +314,13 @@ public sealed class RaidObservationService : IAsyncDisposable
             await foreach (var path in _screenshotWatcher.WatchAsync(screenshotRoot, cancellationToken)
                                .ConfigureAwait(false))
             {
+                // The picture is read whether or not the name carries coordinates, because a
+                // screenshot of an item or an extract list is worth reading wherever it was
+                // taken. This is what makes the game's own screenshot key do the whole job:
+                // one press gives the position when there is one, and whatever the picture
+                // shows either way, with no second shortcut and no window needing focus.
+                await ScanScreenshotAsync(path, cancellationToken).ConfigureAwait(false);
+
                 if (!_filenameParser.TryParseFile(path, offset, out var position) || position is null)
                 {
                     // Menu and hideout screenshots carry no coordinates. That is ordinary and
@@ -325,6 +342,43 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             _logger.LogWarning(exception, "The Escape from Tarkov screenshot watcher stopped.");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Reads a screenshot the player took, as though they had asked for a scan.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately unable to interrupt observation. A picture that cannot be decoded, or a
+    /// recogniser that fails on it, must not stop the companion following the raid; losing a
+    /// scan is a much smaller thing than losing the map.
+    /// </remarks>
+    private async Task ScanScreenshotAsync(string path, CancellationToken cancellationToken)
+    {
+        if (_imageLoader is null || _scanUseCase is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var image = await _imageLoader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
+            if (image is null)
+            {
+                _logger.LogInformation("The screenshot {Filename} could not be read as a picture.", Path.GetFileName(path));
+                return;
+            }
+
+            var outcome = await _scanUseCase.ScanImageAsync(image, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Read {Filename} as {Context} with status {Status}.",
+                Path.GetFileName(path),
+                outcome.Context,
+                outcome.Status);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not scan the screenshot {Filename}.", Path.GetFileName(path));
         }
     }
 

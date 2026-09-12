@@ -412,6 +412,22 @@ public interface IRecognitionCatalogRepository
 public interface IScanUseCase
 {
     Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Reads a picture the player already took, instead of capturing the screen.</summary>
+    Task<ScanOutcome> ScanImageAsync(CapturedImage image, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Turns a screenshot on disk into pixels the recogniser can read.
+/// </summary>
+/// <remarks>
+/// The game writes a full-resolution picture of exactly what the player was looking at, which
+/// is a better thing to read than a capture taken afterwards from a window that may no longer
+/// show it. The file is the player's own; it is read and discarded, never copied or sent.
+/// </remarks>
+public interface IScreenshotImageLoader
+{
+    Task<CapturedImage?> LoadAsync(string path, CancellationToken cancellationToken);
 }
 
 public interface IScanEventRepository

@@ -99,6 +99,37 @@ public sealed class ScanUseCase : IScanUseCase
             image.Height,
             image.Source);
 
+        return await ReadAsync(scanId, image, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Scans a picture the player already took, rather than capturing the screen.
+    /// </summary>
+    /// <remarks>
+    /// The game's own screenshot key is a better trigger than a shortcut of ours. It is a key
+    /// the player already presses, it needs no window to be found and no application to hold
+    /// focus, and the resulting file is exactly what was on their screen at the moment they
+    /// chose. One press then yields the position from the filename and whatever the picture
+    /// shows, instead of two keys doing half the job each.
+    ///
+    /// The pixels are the player's own file, read and discarded. Nothing is written back and
+    /// nothing leaves the machine, which is the same promise the screen capture makes.
+    /// </remarks>
+    public Task<ScanOutcome> ScanImageAsync(CapturedImage image, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var scanId = Guid.NewGuid();
+        _logger?.LogInformation(
+            "Scan {ScanId} reading {Width}x{Height} from {Source}.",
+            scanId,
+            image.Width,
+            image.Height,
+            image.Source);
+        return ReadAsync(scanId, image, cancellationToken);
+    }
+
+    private async Task<ScanOutcome> ReadAsync(Guid scanId, CapturedImage image, CancellationToken cancellationToken)
+    {
         var recognition = await _recognition.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
         _logger?.LogInformation(
             "Scan {ScanId} recognised context {Context} with {Candidates} candidate(s). {Diagnostic}",
