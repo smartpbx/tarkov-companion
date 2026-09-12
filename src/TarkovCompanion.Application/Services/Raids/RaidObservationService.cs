@@ -200,6 +200,11 @@ public sealed class RaidObservationService : IAsyncDisposable
 
     private async Task WatchLogsAsync(string logRoot, CancellationToken cancellationToken)
     {
+        // Every lifecycle change is logged whatever the throttle says. Diagnosing "the raid
+        // did not end" from a log that only samples one line in twenty-five means proving a
+        // negative from an incomplete record; one line per transition makes it a single
+        // lookup instead.
+        var lastState = RaidLifecycleState.Unknown;
         try
         {
             await foreach (var evidence in _logWatcher.WatchAsync(logRoot, cancellationToken).ConfigureAwait(false))
@@ -207,17 +212,38 @@ public sealed class RaidObservationService : IAsyncDisposable
                 // Republishing on every line would churn the whole UI state hundreds of
                 // times a raid, so the count is surfaced early and then occasionally.
                 var seen = Interlocked.Increment(ref _eventsSeen);
-                if (seen <= 3 || seen % 25 == 0)
+                var logThisEvent = seen <= 3 || seen % 25 == 0;
+                if (logThisEvent)
                 {
                     PublishWatching();
+                }
+
+                var current = await _coordinator.ApplyEvidenceAsync(evidence, cancellationToken).ConfigureAwait(false);
+                if (current.State != lastState)
+                {
                     _logger.LogInformation(
-                        "Read {Count} log event(s); latest is {Summary} (map {MapId}, state {State}).",
+                        "Raid state moved from {Previous} to {State} on map {MapId}. Evidence: {Summary}",
+                        lastState,
+                        current.State,
+                        current.MapId ?? "none",
+                        evidence.Summary);
+                    lastState = current.State;
+                }
+
+                if (logThisEvent)
+                {
+                    // The map reported here is the one the raid now holds, not the one this
+                    // single line happened to name. Most lines name no map and the state
+                    // rightly keeps the last one, so logging the line's own map printed
+                    // "map none" in the middle of a raid on a known map and read like the map
+                    // had been lost. It had not, and working that out cost real time.
+                    _logger.LogInformation(
+                        "Read {Count} log event(s); latest is {Summary} (raid map {MapId}, state {State}).",
                         seen,
                         evidence.Summary,
-                        evidence.MapId ?? "none",
-                        evidence.SuggestedState?.ToString() ?? "unchanged");
+                        current.MapId ?? "none",
+                        current.State);
                 }
-                await _coordinator.ApplyEvidenceAsync(evidence, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

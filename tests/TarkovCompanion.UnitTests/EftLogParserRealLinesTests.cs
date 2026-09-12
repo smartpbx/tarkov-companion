@@ -144,11 +144,19 @@ public sealed class EftLogParserRealLinesTests
         Assert.Equal(RaidLifecycleState.PostRaid, evidence.SuggestedState);
     }
 
+    /// <summary>
+    /// A transfer ends the raid, and the earlier reading that it did not was wrong.
+    /// </summary>
+    /// <remarks>
+    /// This test asserted the opposite until a Streets raid was watched ending with this
+    /// status and nothing following it. A quarter of all raid ends carry it, 34 of 134 across
+    /// 33 sessions, so holding the raid open lost the end of one raid in four. The status is
+    /// still named in the summary, because a player who really did transit is owed an
+    /// explanation for why a summary appeared.
+    /// </remarks>
     [Fact]
-    public void TreatsATransferAsStillInTheRaid()
+    public void TreatsATransferAsTheEndOfTheRaid()
     {
-        // A transfer moves the player to another map. Reading it as the end of a raid would
-        // end the real one early and record one that never happened.
         var parser = new EftLogParser();
         parser.ParseLine(SelfProfileLine, Observed);
 
@@ -157,8 +165,9 @@ public sealed class EftLogParserRealLinesTests
             Observed);
 
         Assert.NotNull(evidence);
-        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
+        Assert.Equal(RaidLifecycleState.PostRaid, evidence.SuggestedState);
         Assert.Equal("streets-of-tarkov", evidence.MapId);
+        Assert.Contains("Transfer", evidence.Summary, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -212,9 +221,10 @@ public sealed class EftLogParserRealLinesTests
     }
 
     [Fact]
-    public void HandlesATransferOnAScavRaidToo()
+    public void EndsAScavRaidOnATransferToo()
     {
-        // The observed scav run on Streets ended with Transfer rather than Free.
+        // The observed scav run on Streets ended with Transfer rather than Free, and a scav
+        // raid is the case where the old behaviour was least likely to be noticed.
         var parser = new EftLogParser();
         parser.ParseLine(SelfProfileLine, Observed);
 
@@ -223,7 +233,8 @@ public sealed class EftLogParserRealLinesTests
             Observed);
 
         Assert.NotNull(evidence);
-        Assert.Equal(RaidLifecycleState.InRaid, evidence.SuggestedState);
+        Assert.Equal(RaidLifecycleState.PostRaid, evidence.SuggestedState);
+        Assert.Equal("scav", evidence.Side);
     }
 
     [Fact]

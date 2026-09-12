@@ -269,13 +269,29 @@ public sealed partial class EftLogParser
                 {
                     Side = side,
                 },
+                // A transfer ends the raid like any other userMatchOver.
+                //
+                // This used to hold the raid open, on the reading that Transfer meant transit
+                // to another map with the raid continuing. Against a live installation that
+                // was wrong in a way that mattered: a quarter of all raid ends carry this
+                // status, 34 of 134 across 33 sessions, and one of them was watched ending a
+                // Streets raid with nothing following it for the rest of the session. Holding
+                // the raid open lost the end of one raid in four, which is most of what raid
+                // tracking is for.
+                //
+                // What Transfer actually means is not established. The behaviour above is,
+                // and is what this branches on. A plausible reading is that it marks a scav
+                // extract, where the player transfers their loot out, which would make it a
+                // second signal for side; that is untested and deliberately not relied on
+                // here. The status is named in the summary rather than hidden, so a player
+                // who reads it has the same fact this comment does.
                 "userMatchOver" when string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase) => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
-                    RaidLifecycleState.InRaid,
-                    new Confidence(0.90),
-                    $"The game reported a transfer to another map rather than the end of the {sideWord} raid.")
+                    RaidLifecycleState.PostRaid,
+                    new Confidence(0.95),
+                    $"The game reported the {sideWord} raid as over, with status Transfer.")
                 {
                     Side = side,
                 },
