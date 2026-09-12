@@ -145,7 +145,11 @@ public sealed class SquadPageViewModel : PageViewModel
                     $"Queued together at {queued.ToLocalTime():T}; the game estimated {estimate.TotalSeconds:F0}s.")
                 : string.Create(CultureInfo.CurrentCulture, $"Queued together at {queued.ToLocalTime():T}.")
             : "No match has been queued from this party yet.";
-        Evidence = $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
+        // A party that has never been observed has no update time, and printing the epoch as
+        // one showed "updated 12:00:00 AM" on a page that had seen nothing at all.
+        Evidence = squad.UpdatedUtc == DateTimeOffset.UnixEpoch
+            ? "Read from the game's own group notifications. Nothing observed yet."
+            : $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
         _ = ResolveGearNamesAsync(squad);
     }
 

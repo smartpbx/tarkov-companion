@@ -125,7 +125,11 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private LoadoutSlotOption _selectedSlot = SlotOptions[0];
     private string _searchQuery = string.Empty;
-    private string _searchStatus = "Pick a slot, search an item, and assign it.";
+    /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
+    private const string ReadyToSearch = "Pick a slot, search an item, and assign it.";
+
+    private bool _showingNoData;
+    private string _searchStatus = ReadyToSearch;
     private string _assignmentStatus = "Nothing is assigned yet.";
     private string _evaluationStatus = "Assign at least one item, then evaluate.";
     private string _costSummary = "No cost yet.";
@@ -282,7 +286,15 @@ public sealed class LoadoutPageViewModel : PageViewModel
         if (snapshot.Data.ItemCount == 0)
         {
             Results = [];
+            _showingNoData = true;
             SearchStatus = snapshot.Data.Detail;
+        }
+        else if (_showingNoData)
+        {
+            // Said before the item cache had loaded and never taken back, so the page insisted
+            // no data was available while the header counted five thousand cached items.
+            _showingNoData = false;
+            SearchStatus = ReadyToSearch;
         }
     }
 

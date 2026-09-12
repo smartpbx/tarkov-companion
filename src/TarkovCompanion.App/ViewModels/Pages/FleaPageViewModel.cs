@@ -59,7 +59,11 @@ public sealed class FleaPageViewModel : PageViewModel
     private string _salesStatus = SalesNotObserved;
     private DateTimeOffset _renderedSales = DateTimeOffset.MinValue;
     private string _searchQuery = string.Empty;
-    private string _searchStatus = "Search an item to see what it is worth and where to sell it.";
+    /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
+    private const string ReadyToSearch = "Search an item to see what it is worth and where to sell it.";
+
+    private bool _showingNoData;
+    private string _searchStatus = ReadyToSearch;
     private string _historyStatus = "Select an item to see the observations stored locally.";
     private IReadOnlyList<FleaPriceViewModel> _results = [];
     private IReadOnlyList<FleaHistoryPointViewModel> _history = [];
@@ -146,7 +150,16 @@ public sealed class FleaPageViewModel : PageViewModel
         {
             Results = [];
             History = [];
+            _showingNoData = true;
             SearchStatus = snapshot.Data.Detail;
+        }
+        else if (_showingNoData)
+        {
+            // The page is built before the item cache has loaded, so it says there is no data
+            // and then never takes it back. That left it insisting no data was available while
+            // the header counted five thousand cached items, which reads as a broken page.
+            _showingNoData = false;
+            SearchStatus = ReadyToSearch;
         }
 
         ApplySales(snapshot.FleaSales);

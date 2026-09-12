@@ -439,7 +439,11 @@ public sealed class ItemsPageViewModel : PageViewModel
     private readonly IItemSearchService _searchService;
     private readonly IItemRepository _itemRepository;
     private string _searchQuery = string.Empty;
-    private string _searchStatus = "Load local data, then search by item name or short name.";
+    /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
+    private const string ReadyToSearch = "Load local data, then search by item name or short name.";
+
+    private bool _showingNoData;
+    private string _searchStatus = ReadyToSearch;
     private IReadOnlyList<ItemSearchResultViewModel> _results = [];
     private ApplicationRuntimeSnapshot? _snapshot;
 
@@ -478,7 +482,15 @@ public sealed class ItemsPageViewModel : PageViewModel
         if (snapshot.Data.ItemCount == 0)
         {
             Results = [];
+            _showingNoData = true;
             SearchStatus = snapshot.Data.Detail;
+        }
+        else if (_showingNoData)
+        {
+            // Said before the item cache had loaded and never taken back, so the page insisted
+            // no data was available while the header counted five thousand cached items.
+            _showingNoData = false;
+            SearchStatus = ReadyToSearch;
         }
     }
 

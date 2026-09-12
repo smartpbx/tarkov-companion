@@ -21,8 +21,7 @@ public sealed class SelfTestIntegrationTests
                 DeveloperMode: false,
                 OutputPath: outputPath,
                 DemoFixturePath: null,
-                DiagnosticChannelPath: null,
-                StartPage: null);
+                DiagnosticChannelPath: null);
             var report = await SelfTestRunner.RunAsync(
                 outputPath,
                 commandLine,
