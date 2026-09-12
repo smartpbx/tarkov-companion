@@ -60,7 +60,47 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
         }
     }
 
-    public void Follow(double zoom) => Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
+    /// <summary>
+    /// Whether a marker's name is worth showing at the current zoom.
+    /// </summary>
+    /// <remarks>
+    /// Customs carries around twenty extracts and transits, and at a zoom that fits the whole
+    /// map their names overlap each other and the place names underneath until none of them
+    /// can be read. The discs stay legible at any zoom because they are counter-scaled, so the
+    /// map reads as "here are the exits" when pulled back and names them once somebody leans
+    /// in. This is the same judgement the spawn and door markers already make permanently.
+    /// </remarks>
+    public bool ShowsNames
+    {
+        get => _showsNames;
+        private set
+        {
+            if (_showsNames == value)
+            {
+                return;
+            }
+
+            _showsNames = value;
+            PropertyChanged?.Invoke(this, new(nameof(ShowsNames)));
+        }
+    }
+
+    /// <summary>
+    /// The zoom at which names start being drawn.
+    /// </summary>
+    /// <remarks>
+    /// Chosen so that fitting a large map hides them and fitting a small one does not, since a
+    /// map that fits at a high zoom has few enough markers for its names to sit apart.
+    /// </remarks>
+    private const double NameThreshold = 0.95;
+
+    private bool _showsNames = true;
+
+    public void Follow(double zoom)
+    {
+        Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
+        ShowsNames = !double.IsFinite(zoom) || zoom >= NameThreshold;
+    }
 }
 
 /// <summary>What a feature marker stands for, which decides its shape, colour and glyph.</summary>

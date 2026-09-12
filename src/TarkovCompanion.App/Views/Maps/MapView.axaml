@@ -233,10 +233,14 @@
                         Data="{Binding Glyph}"
                         IsVisible="{Binding HasGlyph}" />
                   </Panel>
+                  <!-- Hidden when the map is pulled back far enough for twenty names to
+                       collide. The disc still reads, so the map answers "where are the exits"
+                       at any zoom and names them once somebody leans in. -->
                   <Border
                       Classes="markerName"
                       Classes.quiet="{Binding IsNameQuiet}"
                       Classes.offered="{Binding IsOffered}"
+                      IsVisible="{Binding Scale.ShowsNames}"
                       Margin="{Binding NameInset}">
                     <TextBlock Classes="markerNameText" Text="{Binding Label}" />
                   </Border>
