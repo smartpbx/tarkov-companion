@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -43,6 +44,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         RuntimeOptions options,
         ILogger<ApplicationStartupCoordinator> logger,
         IOcrEngineStatus? ocrStatus = null,
+        // Optional so every test that builds this by hand keeps compiling, and so a
+        // composition without sharing is a valid composition rather than a broken one.
+        GroupSessionService? groupSession = null,
         TimeProvider? timeProvider = null)
     {
         _dataStore = dataStore;
@@ -50,6 +54,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _profileService = profileService;
         _raidActivityCoordinator = raidActivityCoordinator;
         _observationService = observationService;
+        _groupSession = groupSession;
         _needAggregation = needAggregation;
         _logParser = logParser;
         _mapAliasCatalog = mapAliasCatalog;
@@ -63,6 +68,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     }
 
     private readonly IOcrEngineStatus? _ocrStatus;
+    private readonly GroupSessionService? _groupSession;
 
     public Task? BackgroundRefresh => _backgroundRefresh;
 
@@ -145,6 +151,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         // player. It starts here rather than on demand because the game is usually launched
         // after the companion, and discovery keeps retrying until it appears.
         _observationService.Start();
+        // Started unconditionally, and does nothing at all until the player has turned sharing
+        // on. Starting it only when enabled would mean a restart to begin sharing, and the
+        // service's own first act is to check whether it should send anything.
+        _groupSession?.Start();
     }
 
     public void BeginBackgroundRefresh()

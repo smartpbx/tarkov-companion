@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Maps;
@@ -31,7 +32,26 @@ public sealed partial class MapView : UserControl
     /// finds the control.
     /// </remarks>
     private ScrollViewer? Viewport => _viewport ??= this.FindControl<ScrollViewer>("ViewportScrollViewer");
-    private bool _isPanning;
+
+    /// <summary>The unscaled map canvas, resolved by name for the same reason as the viewport.</summary>
+    private Canvas? Surface => _surface ??= this.FindControl<Canvas>("MapSurface");
+
+    /// <summary>
+    /// How far the pointer may move before a press is a drag rather than a click.
+    /// </summary>
+    /// <remarks>
+    /// Without this a click on a marker that moved the pointer by a pixel panned the map by a
+    /// pixel and selected nothing, which is most clicks.
+    /// </remarks>
+    private const double DragThreshold = 3;
+
+    /// <summary>Created on first use, after the platform is up, and kept for the window's life.</summary>
+    private static readonly Lazy<Cursor> PanningCursor = new(() => new Cursor(StandardCursorType.SizeAll));
+
+    private Canvas? _surface;
+    private bool _pointerDown;
+    private bool _dragging;
+    private MapOverlayElementViewModel? _pressedMarker;
     private Point _panStart;
     private Vector _panOffset;
 
@@ -260,13 +280,57 @@ public sealed partial class MapView : UserControl
 
     private void ViewportPointerWheelChanged(object? sender, PointerWheelEventArgs eventArgs)
     {
-        if (DataContext is MapViewModel viewModel)
+        if (Viewport is null)
         {
-            viewModel.ChangeZoom(eventArgs.Delta.Y);
-            eventArgs.Handled = true;
+            return;
         }
+
+        ZoomAbout(eventArgs.GetPosition(Viewport), eventArgs.Delta.Y);
+        eventArgs.Handled = true;
     }
 
+    /// <summary>
+    /// Zooms so that the point under the pointer stays under the pointer.
+    /// </summary>
+    /// <remarks>
+    /// Zooming about the corner of the viewport, which is what changing the scale alone does,
+    /// sends whatever the player was looking at off the screen and leaves them dragging it
+    /// back. Anchoring the zoom on the pointer is the single biggest difference between a map
+    /// that is operated and one that is fought with.
+    ///
+    /// The scrollable extent only grows once the resized canvas has been laid out, and an
+    /// offset set before that is clamped to the old extent, which is what made zooming in near
+    /// an edge jump. Laying out first is what makes the new offset land.
+    /// </remarks>
+    private void ZoomAbout(Point viewportPoint, double wheelDelta)
+    {
+        if (DataContext is not MapViewModel viewModel || Viewport is null)
+        {
+            return;
+        }
+
+        var anchor = Surface is { } surface ? Viewport.TranslatePoint(viewportPoint, surface) : null;
+        viewModel.ChangeZoom(wheelDelta);
+        if (anchor is not { } content)
+        {
+            return;
+        }
+
+        Viewport.UpdateLayout();
+        var scale = viewModel.ZoomScale;
+        Viewport.Offset = new(
+            (content.X * scale) - viewportPoint.X,
+            (content.Y * scale) - viewportPoint.Y);
+    }
+
+    /// <summary>
+    /// Starts a press that will turn out to be a drag, a click on a marker, or a click on
+    /// bare map, and can only be told apart on release.
+    /// </summary>
+    /// <remarks>
+    /// The marker is read off the pressed element's data context now rather than on release,
+    /// because by then the pointer is captured by the canvas and the source is the canvas.
+    /// </remarks>
     private void ViewportPointerPressed(object? sender, PointerPressedEventArgs eventArgs)
     {
         if (!eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
@@ -274,7 +338,19 @@ public sealed partial class MapView : UserControl
             return;
         }
 
-        _isPanning = true;
+        if (eventArgs.ClickCount == 2)
+        {
+            // A double click is the fastest way back to the whole map from wherever a drag
+            // and a zoom have left it.
+            _pointerDown = false;
+            (DataContext as MapViewModel)?.RequestFit();
+            eventArgs.Handled = true;
+            return;
+        }
+
+        _pointerDown = true;
+        _dragging = false;
+        _pressedMarker = (eventArgs.Source as StyledElement)?.DataContext as MapOverlayElementViewModel;
         _panStart = eventArgs.GetPosition(this);
         _panOffset = Viewport?.Offset ?? default;
         eventArgs.Pointer.Capture(sender as Control);
@@ -283,41 +359,79 @@ public sealed partial class MapView : UserControl
 
     private void ViewportPointerMoved(object? sender, PointerEventArgs eventArgs)
     {
-        if (!_isPanning)
-        {
-            return;
-        }
-
-        if (Viewport is null)
+        if (!_pointerDown || Viewport is null)
         {
             return;
         }
 
         var current = eventArgs.GetPosition(this);
-        Viewport.Offset = new(
-            _panOffset.X - (current.X - _panStart.X),
-            _panOffset.Y - (current.Y - _panStart.Y));
+        var deltaX = current.X - _panStart.X;
+        var deltaY = current.Y - _panStart.Y;
+        if (!_dragging)
+        {
+            if (Math.Abs(deltaX) < DragThreshold && Math.Abs(deltaY) < DragThreshold)
+            {
+                return;
+            }
+
+            // The cursor changes only once a drag is under way, so a click never flashes it.
+            _dragging = true;
+            if (sender is Control surface)
+            {
+                surface.Cursor = PanningCursor.Value;
+            }
+        }
+
+        Viewport.Offset = new(_panOffset.X - deltaX, _panOffset.Y - deltaY);
         (DataContext as MapViewModel)?.ReportManualPan();
         eventArgs.Handled = true;
     }
 
     private void ViewportPointerReleased(object? sender, PointerReleasedEventArgs eventArgs)
     {
-        if (!_isPanning)
+        if (!_pointerDown)
         {
             return;
         }
 
-        _isPanning = false;
+        _pointerDown = false;
         eventArgs.Pointer.Capture(null);
+        if (sender is Control surface)
+        {
+            surface.ClearValue(CursorProperty);
+        }
+
+        if (!_dragging && DataContext is MapViewModel viewModel)
+        {
+            if (_pressedMarker is { } marker)
+            {
+                viewModel.SelectMarker(marker);
+            }
+            else
+            {
+                viewModel.ClearSelection();
+            }
+        }
+
+        _dragging = false;
+        _pressedMarker = null;
         eventArgs.Handled = true;
     }
 
-    private void ZoomInClick(object? sender, RoutedEventArgs eventArgs) =>
-        (DataContext as MapViewModel)?.ChangeZoom(1);
+    /// <summary>The buttons zoom about the middle of the panel, which is where the eye is.</summary>
+    private void ZoomInClick(object? sender, RoutedEventArgs eventArgs) => ZoomFromButton(1);
 
-    private void ZoomOutClick(object? sender, RoutedEventArgs eventArgs) =>
-        (DataContext as MapViewModel)?.ChangeZoom(-1);
+    private void ZoomOutClick(object? sender, RoutedEventArgs eventArgs) => ZoomFromButton(-1);
+
+    private void ZoomFromButton(double wheelDelta)
+    {
+        if (Viewport is null)
+        {
+            return;
+        }
+
+        ZoomAbout(new Point(Viewport.Bounds.Width / 2, Viewport.Bounds.Height / 2), wheelDelta);
+    }
 
     /// <summary>
     /// Turns following on or off, and moves to the player immediately when turned on.

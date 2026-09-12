@@ -9,8 +9,14 @@
        Rows of chrome stacked above and below cost about a third of the height, and on a map
        the size of Streets that was the difference between reading a street name and guessing
        at it. None of these controls is needed continuously: the choosers are touched once a
-       raid, the layer chips more rarely, the attribution never. So they sit in the corners
-       and leave the middle of the map clear. -->
+       raid, the layer list more rarely, the attribution never. So they sit in the corners
+       and leave the middle of the map clear.
+
+       Everything drawn on the map lives inside one canvas that is scaled as a whole. The
+       artwork should scale, and does; a marker or a name should not, so each of those undoes
+       the zoom with a scale of its own, read from one shared object on the view model. That
+       is what keeps a marker twenty pixels wide whether the whole map is on screen or one
+       building is. -->
   <Panel>
     <Border Classes="panel mapGround" ClipToBounds="True" Padding="0">
       <ScrollViewer
@@ -18,9 +24,19 @@
           HorizontalScrollBarVisibility="Auto"
           VerticalScrollBarVisibility="Auto">
         <Border Width="{Binding ViewportWidth}" Height="{Binding ViewportHeight}">
+        <!-- The canvas is pinned to the wrapper's corner. Its own size is the unscaled map and
+             the wrapper's is the scaled one, and a child left to the default alignment is
+             centred in its slot, so at any zoom but one the artwork sat half the size
+             difference away from where the scroll offsets said it was. The ground is
+             transparent rather than unset so a press on bare map still reaches the pan and
+             click handlers instead of falling through. -->
         <Canvas
+            x:Name="MapSurface"
             Width="{Binding CanvasWidth}"
             Height="{Binding CanvasHeight}"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Background="Transparent"
             RenderTransformOrigin="0%,0%"
             PointerPressed="ViewportPointerPressed"
             PointerMoved="ViewportPointerMoved"
@@ -65,6 +81,8 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Quest regions are areas on the ground, so unlike everything after them they
+               scale with the artwork: a zone that grows as the map grows is the truth. -->
           <ItemsControl
               ItemsSource="{Binding QuestRegions}"
               Width="{Binding CanvasWidth}"
@@ -86,6 +104,58 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Place names, lettered straight onto the map. Each sits in a generous box
+               centred on its point so it can be turned the way the catalog asks without being
+               cut by its own bounds, and the box takes no pointer events so a name never
+               stands between the pointer and a marker or the ground. The four dark copies
+               behind the text are its halo. -->
+          <ItemsControl
+              ItemsSource="{Binding PlaceNames}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapPlaceNameViewModel">
+                <Panel
+                    Classes="placeName"
+                    Classes.dimmed="{Binding IsDimmed}"
+                    Width="{Binding Width}"
+                    Height="{Binding Height}"
+                    IsHitTestVisible="False"
+                    RenderTransformOrigin="50%,50%">
+                  <Panel.RenderTransform>
+                    <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <RotateTransform Angle="{Binding RotationDegrees}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Panel.RenderTransform>
+                  <!-- The copies are laid out from the corner of this inner panel rather than
+                       centred, because a centred child moves by only half its margin. -->
+                  <Panel HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock Classes="placeNameHalo" Text="{Binding Text}" FontSize="{Binding FontSize}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-1,0,0,0" />
+                    <TextBlock Classes="placeNameHalo" Text="{Binding Text}" FontSize="{Binding FontSize}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="1,0,0,0" />
+                    <TextBlock Classes="placeNameHalo" Text="{Binding Text}" FontSize="{Binding FontSize}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-1,0,0" />
+                    <TextBlock Classes="placeNameHalo" Text="{Binding Text}" FontSize="{Binding FontSize}" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,1,0,0" />
+                    <TextBlock
+                        Classes="placeNameText"
+                        Classes.highlighted="{Binding IsHighlighted}"
+                        Text="{Binding Text}"
+                        FontSize="{Binding FontSize}"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top" />
+                  </Panel>
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- Quest points are drawn as ellipses because a bordered rectangle with its corner
+               radius bound from a number does not convert, and rendered as a square. -->
           <ItemsControl
               ItemsSource="{Binding QuestPoints}"
               Width="{Binding CanvasWidth}"
@@ -97,24 +167,32 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:QuestMapPointViewModel">
-                <Border
+                <Ellipse
                     Width="{Binding Size}"
                     Height="{Binding Size}"
-                    CornerRadius="{Binding CornerRadius}"
-                    Background="{Binding FillColor}"
-                    BorderBrush="{Binding BorderColor}"
-                    BorderThickness="{Binding BorderThickness}"
-                    ToolTip.Tip="{Binding Label}">
-                  <Border.RenderTransform>
-                    <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
-                  </Border.RenderTransform>
-                </Border>
+                    Fill="{Binding FillColor}"
+                    Stroke="{Binding BorderColor}"
+                    StrokeThickness="{Binding BorderThickness}"
+                    ToolTip.Tip="{Binding Label}"
+                    RenderTransformOrigin="50%,50%">
+                  <Ellipse.RenderTransform>
+                    <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Ellipse.RenderTransform>
+                </Ellipse>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Extracts, transits, spawns and locked doors. Each is a fixed box centred on its
+               feature: a disc with a glyph at the centre and the name below it. The kind
+               classes pick the disc's colour, size and glyph colour from the styles, so the
+               view carries no colours of its own and the key in the layer list can be drawn
+               from the same rules. -->
           <ItemsControl
-              ItemsSource="{Binding OverlayElements}"
+              ItemsSource="{Binding Markers}"
               Width="{Binding CanvasWidth}"
               Height="{Binding CanvasHeight}">
             <ItemsControl.ItemsPanel>
@@ -124,18 +202,83 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:MapOverlayElementViewModel">
-                <Border
-                    Classes="mapLabel"
-                    BorderBrush="{Binding BorderColor}"
+                <Panel
+                    Classes="marker"
+                    Classes.dimmed="{Binding IsDimmed}"
+                    Width="{Binding Width}"
+                    Height="{Binding Height}"
                     RenderTransformOrigin="50%,50%">
-                  <Border.RenderTransform>
+                  <Panel.RenderTransform>
                     <TransformGroup>
-                      <RotateTransform Angle="{Binding RotationDegrees}" />
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
                       <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
                     </TransformGroup>
-                  </Border.RenderTransform>
-                  <TextBlock Text="{Binding Label}" FontSize="{Binding FontSize}" />
-                </Border>
+                  </Panel.RenderTransform>
+                  <Panel
+                      Width="{Binding DiscBox}"
+                      Height="{Binding DiscBox}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center">
+                    <Ellipse Classes="markerHalo" IsVisible="{Binding IsOffered}" />
+                    <Ellipse
+                        Classes="markerDisc"
+                        Classes.transit="{Binding IsTransit}"
+                        Classes.locked="{Binding IsLock}"
+                        Classes.spawn="{Binding IsSpawn}"
+                        Classes.offered="{Binding IsOffered}"
+                        Classes.highlighted="{Binding IsHighlighted}" />
+                    <Path
+                        Classes="markerGlyph"
+                        Classes.transit="{Binding IsTransit}"
+                        Data="{Binding Glyph}"
+                        IsVisible="{Binding HasGlyph}" />
+                  </Panel>
+                  <Border
+                      Classes="markerName"
+                      Classes.quiet="{Binding IsNameQuiet}"
+                      Classes.offered="{Binding IsOffered}"
+                      Margin="{Binding NameInset}">
+                    <TextBlock Classes="markerNameText" Text="{Binding Label}" />
+                  </Border>
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <!-- The clicked marker: a ring on it, a leader up and to the right, and a card on
+               the end of the leader saying what it is. Drawn as its own layer so selecting one
+               marker does not rebuild the rest. -->
+          <ItemsControl
+              ItemsSource="{Binding SelectedMarkers}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapMarkerSelectionViewModel">
+                <Panel
+                    Width="{Binding Width}"
+                    Height="{Binding Height}"
+                    IsHitTestVisible="False"
+                    RenderTransformOrigin="50%,50%">
+                  <Panel.RenderTransform>
+                    <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Panel.RenderTransform>
+                  <Ellipse Classes="selectionRing" />
+                  <Line Classes="selectionLeader" StartPoint="{Binding LeaderStart}" EndPoint="{Binding LeaderEnd}" />
+                  <Border Classes="callout" Margin="{Binding CardInset}">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="value" Text="{Binding Title}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </Panel>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
@@ -146,8 +289,9 @@
           <Polyline
               Points="{Binding PlayerTrail}"
               IsVisible="{Binding HasPlayerTrail}"
+              IsHitTestVisible="False"
               Stroke="#B034D3E8"
-              StrokeThickness="2.5"
+              StrokeThickness="{Binding PlayerTrailThickness}"
               StrokeDashArray="1,2.2"
               StrokeLineCap="Round"
               StrokeJoin="Round" />
@@ -175,6 +319,7 @@
                     RenderTransformOrigin="50%,50%">
                   <Panel.RenderTransform>
                     <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
                       <RotateTransform Angle="{Binding BearingDegrees}" />
                       <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
                     </TransformGroup>
@@ -262,35 +407,47 @@
       </Border>
 
       <!-- Collapsed by default. A row of layer chips permanently across the top was the
-           single largest piece of chrome and is the one touched least. -->
-      <Expander Classes="floating" Header="Layers" IsExpanded="False" MaxWidth="430">
-        <ItemsControl ItemsSource="{Binding Overlays}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel Orientation="Horizontal" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
+           single largest piece of chrome and is the one touched least. Open, it is a key as
+           much as a set of switches: each row is drawn with the disc its markers use, in the
+           order they matter, with a count of what is on the layer. -->
+      <Expander Classes="floating" Header="Layers" IsExpanded="False">
+        <ItemsControl ItemsSource="{Binding Overlays}" MinWidth="220">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:MapOverlayViewModel">
-              <!-- One chip per layer rather than two separate buttons. The name toggles the
-                   layer; the trailing target button highlights it. -->
-              <Border Classes="chip" Margin="0,0,6,6">
-                <StackPanel Orientation="Horizontal">
-                  <ToggleButton
-                      Classes="chipToggle"
-                      Tag="{Binding Kind}"
-                      Content="{Binding Name}"
-                      IsChecked="{Binding IsVisible, Mode=OneWay}"
-                      Click="OverlayVisibilityChanged" />
-                  <Button
-                      Classes="chipFocus"
-                      Classes.on="{Binding IsHighlighted}"
-                      Tag="{Binding Kind}"
-                      Content="&#x25CE;"
-                      ToolTip.Tip="{Binding HighlightLabel}"
-                      Click="OverlayHighlightClick" />
-                </StackPanel>
-              </Border>
+              <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                <ToggleButton
+                    Classes="layerRow"
+                    Tag="{Binding Kind}"
+                    IsChecked="{Binding IsVisible, Mode=OneWay}"
+                    Click="OverlayVisibilityChanged">
+                  <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="8">
+                    <Panel Width="16" Height="16" VerticalAlignment="Center">
+                      <Ellipse
+                          Classes="markerDisc"
+                          Classes.spawn="{Binding IsSpawns}"
+                          Classes.locked="{Binding IsKeys}"
+                          Classes.quest="{Binding IsQuestObjectives}"
+                          IsVisible="{Binding HasDiscSwatch}" />
+                      <TextBlock
+                          Classes="swatchText"
+                          Text="Aa"
+                          IsVisible="{Binding IsLabels}"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                    </Panel>
+                    <TextBlock Grid.Column="1" Classes="layerName" Text="{Binding DisplayName}" />
+                    <TextBlock Grid.Column="2" Classes="layerCount" Text="{Binding CountText}" />
+                  </Grid>
+                </ToggleButton>
+                <Button
+                    Grid.Column="1"
+                    Classes="chipFocus"
+                    Classes.on="{Binding IsHighlighted}"
+                    Tag="{Binding Kind}"
+                    Content="&#x25CE;"
+                    ToolTip.Tip="{Binding HighlightLabel}"
+                    Click="OverlayHighlightClick" />
+              </Grid>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -300,7 +457,7 @@
     <Border Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
       <StackPanel Orientation="Horizontal" Spacing="4">
         <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
-        <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it" />
+        <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
         <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
         <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
         <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />

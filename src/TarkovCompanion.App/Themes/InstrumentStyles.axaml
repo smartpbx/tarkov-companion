@@ -39,8 +39,17 @@
     <SolidColorBrush x:Key="FloatingBrush" Color="#E014191F" />
     <SolidColorBrush x:Key="FloatingLineBrush" Color="#4A5865" />
     <SolidColorBrush x:Key="MapGroundBrush" Color="#171E26" />
-    <SolidColorBrush x:Key="MapLabelBrush" Color="#CC11151B" />
     <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DD11151B" />
+    <!-- Markers: a dark ring keeps every disc visible on pale and dark artwork alike; the
+         hollow fill is for a transit; the offered pair is the one bright thing on the map. -->
+    <SolidColorBrush x:Key="MarkerRingBrush" Color="#0B1016" />
+    <SolidColorBrush x:Key="MarkerHollowBrush" Color="#B311151B" />
+    <SolidColorBrush x:Key="MarkerOfferedBrush" Color="#A9E4C3" />
+    <SolidColorBrush x:Key="MarkerHaloBrush" Color="#5577B895" />
+    <!-- Lettering on the map: a name sits on a strip of the ground colour, a place name is
+         haloed in it. -->
+    <SolidColorBrush x:Key="MapNameTagBrush" Color="#BF11151B" />
+    <SolidColorBrush x:Key="MapHaloBrush" Color="#E011151B" />
   </Styles.Resources>
 
   <!-- ===== Type scale ==================================================================
@@ -340,19 +349,168 @@
 
   <!-- ===== Map instruments =============================================================
        The map's ground is a shade lighter than the canvas so the edge of the artwork reads
-       against it, and the labels drawn on the artwork are translucent so the terrain shows
-       through them. -->
+       against it. -->
   <Style Selector="Border.mapGround">
     <Setter Property="Background" Value="{StaticResource MapGroundBrush}" />
-  </Style>
-  <Style Selector="Border.mapLabel">
-    <Setter Property="Background" Value="{StaticResource MapLabelBrush}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="Padding" Value="4,2" />
   </Style>
   <Style Selector="Border.mapPlaceholder">
     <Setter Property="Background" Value="{StaticResource MapPlaceholderBrush}" />
     <Setter Property="Padding" Value="10,6" />
+  </Style>
+
+  <!-- ===== Map markers =================================================================
+       A marker is a disc with a stroked glyph, and everything about its look is decided
+       here from the kind classes the view model sets. Exits are sage because sage means
+       safe; a transit is an exit too, drawn hollow so the two read apart before the glyph
+       does. A locked door is ochre because ochre means something of value. A spawn is a
+       small grey dot with no glyph: it is context, and colour on it would compete with the
+       exits. Every disc carries a dark ring so it reads on pale artwork as well as shadow.
+
+       Order matters in this section. Avalonia applies styles in the order they are declared,
+       so the hover and highlight rules sit after the kind rules they have to beat. -->
+  <Style Selector="Panel.marker">
+    <Setter Property="Cursor" Value="Hand" />
+  </Style>
+  <!-- Highlighting one layer fades every other, which is what makes the highlight read. -->
+  <Style Selector="Panel.marker.dimmed">
+    <Setter Property="Opacity" Value="0.3" />
+  </Style>
+  <Style Selector="Ellipse.markerHalo">
+    <Setter Property="Fill" Value="{StaticResource MarkerHaloBrush}" />
+    <Setter Property="Width" Value="34" />
+    <Setter Property="Height" Value="34" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc">
+    <Setter Property="Fill" Value="{StaticResource SageBrush}" />
+    <Setter Property="Stroke" Value="{StaticResource MarkerRingBrush}" />
+    <Setter Property="StrokeThickness" Value="1.5" />
+    <Setter Property="Width" Value="20" />
+    <Setter Property="Height" Value="20" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.transit">
+    <Setter Property="Fill" Value="{StaticResource MarkerHollowBrush}" />
+    <Setter Property="Stroke" Value="{StaticResource SageBrush}" />
+    <Setter Property="StrokeThickness" Value="2" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.locked">
+    <Setter Property="Fill" Value="{StaticResource OchreBrush}" />
+    <Setter Property="Width" Value="16" />
+    <Setter Property="Height" Value="16" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.spawn">
+    <Setter Property="Fill" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="StrokeThickness" Value="1.2" />
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+  </Style>
+  <!-- The key's swatch for quest objectives, drawn in the colours the quest points use. -->
+  <Style Selector="Ellipse.markerDisc.quest">
+    <Setter Property="Fill" Value="{StaticResource CyanBrush}" />
+    <Setter Property="Stroke" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <!-- The one place the map is loud: an extract the player was actually offered. -->
+  <Style Selector="Ellipse.markerDisc.offered">
+    <Setter Property="Fill" Value="{StaticResource MarkerOfferedBrush}" />
+    <Setter Property="Width" Value="24" />
+    <Setter Property="Height" Value="24" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.highlighted">
+    <Setter Property="Stroke" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="StrokeThickness" Value="2" />
+  </Style>
+  <Style Selector="Path.markerGlyph">
+    <Setter Property="Stroke" Value="{StaticResource MarkerRingBrush}" />
+    <Setter Property="StrokeThickness" Value="1.6" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Width" Value="12" />
+    <Setter Property="Height" Value="12" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Path.markerGlyph.transit">
+    <Setter Property="Stroke" Value="{StaticResource SageBrush}" />
+  </Style>
+  <!-- The name under a marker is lettered on a strip of the ground colour rather than boxed,
+       so it reads as a caption on the map and not as a control laid over it. It takes no
+       pointer events, so pointing at it cannot make it appear on its own. -->
+  <Style Selector="Border.markerName">
+    <Setter Property="Background" Value="{StaticResource MapNameTagBrush}" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="5,1" />
+    <Setter Property="Opacity" Value="0.92" />
+    <Setter Property="MaxWidth" Value="220" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Top" />
+    <Setter Property="IsHitTestVisible" Value="False" />
+  </Style>
+  <Style Selector="Border.markerName.quiet">
+    <Setter Property="Opacity" Value="0" />
+  </Style>
+  <Style Selector="TextBlock.markerNameText">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="Border.markerName.offered TextBlock.markerNameText">
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <!-- Pointing at a marker rings it in white and brings its name up. -->
+  <Style Selector="Panel.marker:pointerover Ellipse.markerDisc">
+    <Setter Property="Stroke" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="StrokeThickness" Value="2" />
+  </Style>
+  <Style Selector="Panel.marker:pointerover Border.markerName">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="Panel.marker:pointerover TextBlock.markerNameText">
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <!-- The selected marker: a white ring, a leader, and a card in the floating chrome's
+       material so it belongs with the corner controls rather than with the artwork. -->
+  <Style Selector="Ellipse.selectionRing">
+    <Setter Property="Stroke" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="Width" Value="34" />
+    <Setter Property="Height" Value="34" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Line.selectionLeader">
+    <Setter Property="Stroke" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="StrokeThickness" Value="1.5" />
+  </Style>
+  <Style Selector="Border.callout">
+    <Setter Property="Background" Value="{StaticResource FloatingBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource FloatingLineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="MaxWidth" Value="260" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="VerticalAlignment" Value="Bottom" />
+  </Style>
+  <!-- Place names are lettering, not chips: bright ink over a one pixel halo of the ground
+       colour, drawn in four directions behind it. That keeps them legible over pale and dark
+       artwork alike without a render effect on every one of a hundred labels. -->
+  <Style Selector="Panel.placeName.dimmed">
+    <Setter Property="Opacity" Value="0.3" />
+  </Style>
+  <Style Selector="TextBlock.placeNameText">
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="TextBlock.placeNameText.highlighted">
+    <Setter Property="Foreground" Value="{StaticResource OchreBrush}" />
+  </Style>
+  <Style Selector="TextBlock.placeNameHalo">
+    <Setter Property="Foreground" Value="{StaticResource MapHaloBrush}" />
+    <Setter Property="FontWeight" Value="Medium" />
   </Style>
 
   <!-- Controls that sit on top of the map. Translucent rather than opaque so the map is
@@ -425,34 +583,63 @@
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
 
-  <!-- Layer chips: one object per layer, the name toggles it, the target highlights it. -->
-  <Style Selector="Border.chip">
-    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="14" />
-    <Setter Property="ClipToBounds" Value="True" />
-  </Style>
-  <Style Selector="ToggleButton.chipToggle">
+  <!-- The layer list doubles as the map's key. Each row opens with the same disc its markers
+       are drawn with, the row toggles the layer, the count says how much is on it, and the
+       target at the end brings that layer forward. A layer that is off keeps its swatch and
+       name but ghosted, so the key still teaches what the colours mean while it is hidden. -->
+  <Style Selector="ToggleButton.layerRow">
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
     <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="CornerRadius" Value="0" />
-    <Setter Property="Padding" Value="12,5" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="6,3" />
     <Setter Property="MinHeight" Value="26" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
   </Style>
-  <Style Selector="ToggleButton.chipToggle:pointerover /template/ ContentPresenter">
+  <Style Selector="ToggleButton.layerRow:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
-    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrush}" />
   </Style>
-  <Style Selector="ToggleButton.chipToggle:checked /template/ ContentPresenter">
-    <Setter Property="Background" Value="{StaticResource CyanDimBrush}" />
-    <Setter Property="TextElement.Foreground" Value="#7FD3DF" />
+  <!-- The theme paints a checked toggle in its accent; here the swatch and the name carry
+       the state, so the checked ground stays quiet. -->
+  <Style Selector="ToggleButton.layerRow:checked /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
   </Style>
-  <Style Selector="ToggleButton.chipToggle:checked:pointerover /template/ ContentPresenter">
-    <Setter Property="Background" Value="#24515C" />
-    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
+  <Style Selector="ToggleButton.layerRow:checked:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.layerRow Ellipse.markerDisc">
+    <Setter Property="Width" Value="11" />
+    <Setter Property="Height" Value="11" />
+    <Setter Property="StrokeThickness" Value="1" />
+    <Setter Property="Opacity" Value="0.3" />
+  </Style>
+  <Style Selector="ToggleButton.layerRow:checked Ellipse.markerDisc">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="TextBlock.swatchText">
+    <Setter Property="FontSize" Value="10" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="Opacity" Value="0.3" />
+  </Style>
+  <Style Selector="ToggleButton.layerRow:checked TextBlock.swatchText">
+    <Setter Property="Opacity" Value="1" />
+  </Style>
+  <Style Selector="TextBlock.layerName">
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ToggleButton.layerRow:checked TextBlock.layerName">
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.layerCount">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />
+    <Setter Property="MinWidth" Value="24" />
+    <Setter Property="TextAlignment" Value="Right" />
+    <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
   <Style Selector="Button.chipFocus">
     <Setter Property="Background" Value="Transparent" />

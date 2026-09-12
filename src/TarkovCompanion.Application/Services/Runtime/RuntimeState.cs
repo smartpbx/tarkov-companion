@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
@@ -131,6 +132,16 @@ public sealed record ApplicationRuntimeSnapshot(
 
     /// <summary>Flea offers the game reported as sold since the companion started.</summary>
     public FleaSalesSnapshot FleaSales { get; init; } = FleaSalesSnapshot.Empty;
+
+    /// <summary>
+    /// The group the player is sharing with, when they have chosen to share at all.
+    /// </summary>
+    /// <remarks>
+    /// Starts switched off, and stays off until somebody turns it on. This is the only part of
+    /// the application that sends anything anywhere, so its default is the one default worth
+    /// being deliberate about.
+    /// </remarks>
+    public GroupSnapshot Group { get; init; } = GroupSnapshot.Off;
 }
 
 public interface IRuntimeStateStore

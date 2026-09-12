@@ -24,20 +24,281 @@ public sealed record MapTileViewModel(
     int Size,
     bool HasArtwork);
 
-public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted)
+/// <summary>
+/// The counter-scale that keeps a marker the same size on screen at every zoom.
+/// </summary>
+/// <remarks>
+/// Everything on the map sits inside one canvas that is scaled as a whole, so a marker drawn
+/// twenty pixels wide was three pixels when the map was fitted and a hundred and sixty when a
+/// building was read up close, and its name went from unreadable to a billboard. Each marker
+/// undoes the zoom with a scale of its own, and every one of them reads that scale from this
+/// single object, so a turn of the wheel is one property change rather than a rebuild of
+/// every marker on the map.
+/// </remarks>
+public sealed class MapMarkerScale : INotifyPropertyChanged
 {
-    public string HighlightLabel => IsHighlighted ? "Highlighted" : "Highlight";
+    private double _inverse = 1;
+
+    /// <summary>A scale that never changes, for a marker built without a map to follow.</summary>
+    public static MapMarkerScale Unscaled { get; } = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>One over the map's zoom, applied to the marker's own transform.</summary>
+    public double Inverse
+    {
+        get => _inverse;
+        private set
+        {
+            if (_inverse.Equals(value))
+            {
+                return;
+            }
+
+            _inverse = value;
+            PropertyChanged?.Invoke(this, new(nameof(Inverse)));
+        }
+    }
+
+    public void Follow(double zoom) => Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
 }
 
+/// <summary>What a feature marker stands for, which decides its shape, colour and glyph.</summary>
+public enum MapMarkerKind
+{
+    Extract,
+    Transit,
+    Spawn,
+    Lock,
+}
+
+/// <summary>
+/// The fixed box every feature marker is drawn in, in screen pixels.
+/// </summary>
+/// <remarks>
+/// A marker is a disc with a name under it, and the name is often wider than the disc. Layout
+/// clips a child to its slot rather than letting it overflow, so the box has to be wide enough
+/// for the longest name and tall enough for the name to sit clear of the disc. The disc is at
+/// the exact centre so that the whole box can be scaled and positioned about one point, which
+/// is the feature's position.
+/// </remarks>
+internal static class MapMarkerLayout
+{
+    public const double Width = 240;
+
+    public const double Height = 84;
+
+    /// <summary>The square the disc, its halo and its glyph share, centred in the box.</summary>
+    public const double DiscBox = 34;
+}
+
+public sealed record MapOverlayViewModel(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted, int Count)
+{
+    public string HighlightLabel => IsHighlighted ? "Highlighted" : "Highlight";
+
+    /// <summary>The catalog calls them labels; a player calls them place names.</summary>
+    public string DisplayName => Kind == MapOverlayKind.Labels ? "Place names" : Name;
+
+    /// <summary>
+    /// Whether the layer earns a row in the list.
+    /// </summary>
+    /// <remarks>
+    /// The render model carries layers for routes, traffic and filters that nothing yet draws.
+    /// A toggle that changes nothing teaches the player that toggles change nothing, so a layer
+    /// is listed only when it has something on it. Quest objectives are the exception: their
+    /// geometry lives outside this count and turning the layer on is what fetches it.
+    /// </remarks>
+    public bool IsListed => Kind == MapOverlayKind.QuestObjectives || Count > 0;
+
+    /// <summary>Extracts first, because they are what the map is for; place names last.</summary>
+    public int Rank => Kind switch
+    {
+        MapOverlayKind.Extracts => 0,
+        MapOverlayKind.QuestObjectives => 1,
+        MapOverlayKind.Keys => 2,
+        MapOverlayKind.Spawns => 3,
+        MapOverlayKind.Labels => 4,
+        _ => 5,
+    };
+
+    public string CountText => Count > 0 ? Count.ToString(CultureInfo.InvariantCulture) : string.Empty;
+
+    public bool IsExtracts => Kind == MapOverlayKind.Extracts;
+
+    public bool IsSpawns => Kind == MapOverlayKind.Spawns;
+
+    public bool IsKeys => Kind == MapOverlayKind.Keys;
+
+    public bool IsLabels => Kind == MapOverlayKind.Labels;
+
+    public bool IsQuestObjectives => Kind == MapOverlayKind.QuestObjectives;
+
+    /// <summary>Whether the row's swatch is a disc drawn like the markers, so the list is also the key.</summary>
+    public bool HasDiscSwatch => Kind is MapOverlayKind.Extracts or MapOverlayKind.Spawns or MapOverlayKind.Keys or MapOverlayKind.QuestObjectives;
+}
+
+/// <summary>
+/// One fixed feature on the map: an extract, a transit, a spawn or a locked door.
+/// </summary>
+/// <remarks>
+/// Colour, size and shape belong to the styles and are chosen there by the kind flags; this
+/// carries only what the styles cannot decide, which is where the marker goes, what it says
+/// and which kind it is. The box is positioned by its corner and scaled about its centre, so
+/// the centre is what has to land on the feature.
+/// </remarks>
+/// <param name="Name">The feature's own label, without any mark the map adds to it.</param>
+/// <param name="IsDimmed">Whether another layer is being highlighted, so this one recedes.</param>
+/// <param name="IsOffered">Whether this is an extract the player was actually offered this raid.</param>
 public sealed record MapOverlayElementViewModel(
-    string Label,
-    double Left,
-    double Top,
+    string Name,
+    double CenterX,
+    double CenterY,
+    MapMarkerKind Kind,
+    bool IsHighlighted,
+    bool IsDimmed,
+    bool IsOffered)
+{
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    /// <summary>The name as drawn, starred when it is one the player can use now.</summary>
+    public string Label => IsOffered ? "★ " + Name : Name;
+
+    public double Width => MapMarkerLayout.Width;
+
+    public double Height => MapMarkerLayout.Height;
+
+    public double DiscBox => MapMarkerLayout.DiscBox;
+
+    public double Left => CenterX - (Width / 2);
+
+    public double Top => CenterY - (Height / 2);
+
+    /// <summary>Pushes the name below the disc, whatever size the styles give the disc.</summary>
+    public Thickness NameInset => new(0, ((Height + DiscBox) / 2) + 2, 0, 0);
+
+    public bool IsExtract => Kind == MapMarkerKind.Extract;
+
+    public bool IsTransit => Kind == MapMarkerKind.Transit;
+
+    public bool IsSpawn => Kind == MapMarkerKind.Spawn;
+
+    public bool IsLock => Kind == MapMarkerKind.Lock;
+
+    /// <summary>
+    /// The outline drawn on the disc, in a twelve pixel box.
+    /// </summary>
+    /// <remarks>
+    /// Drawn as strokes rather than filled shapes so that one path can carry a doorway and an
+    /// arrow, or a shackle and a body, without the open parts being filled in as if closed. A
+    /// spawn is a plain dot: it is context rather than a target, and a glyph would make it
+    /// compete with the exits.
+    /// </remarks>
+    public string? Glyph => Kind switch
+    {
+        MapMarkerKind.Extract => "M 4,1.5 H 1.5 V 10.5 H 4 M 4.5,6 H 11 M 8.5,3.5 L 11,6 L 8.5,8.5",
+        MapMarkerKind.Transit => "M 2.5,2.5 L 6,6 L 2.5,9.5 M 6.5,2.5 L 10,6 L 6.5,9.5",
+        MapMarkerKind.Lock => "M 3.5,5.5 V 4 A 2.5,2.5 0 0 1 8.5,4 V 5.5 M 2,5.5 H 10 V 10.5 H 2 Z",
+        _ => null,
+    };
+
+    public bool HasGlyph => Glyph is not null;
+
+    /// <summary>
+    /// Whether the name waits for the pointer rather than sitting on the map.
+    /// </summary>
+    /// <remarks>
+    /// An extract's name is the answer to "which one is that"; a spawn's or a door's is detail
+    /// that fifty markers' worth of text would bury the map under. Those show their name when
+    /// pointed at.
+    /// </remarks>
+    public bool IsNameQuiet => Kind is MapMarkerKind.Spawn or MapMarkerKind.Lock;
+
+    public string KindName => Kind switch
+    {
+        MapMarkerKind.Extract => "Extract",
+        MapMarkerKind.Transit => "Transit to another map",
+        MapMarkerKind.Spawn => "Spawn",
+        _ => "Locked door",
+    };
+
+    /// <summary>
+    /// Whether two markers stand for the same feature, across a rebuild of the list.
+    /// </summary>
+    /// <remarks>
+    /// Compared on kind, name and position rather than on the record, because the record also
+    /// carries highlight and offered state, and a selection should survive a scan turning the
+    /// selected extract into an offered one.
+    /// </remarks>
+    public bool IsSameFeatureAs(MapOverlayElementViewModel other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return Kind == other.Kind &&
+            string.Equals(Name, other.Name, StringComparison.Ordinal) &&
+            CenterX.Equals(other.CenterX) &&
+            CenterY.Equals(other.CenterY);
+    }
+}
+
+/// <summary>
+/// A place name printed on the map, from the catalog's own label list.
+/// </summary>
+/// <remarks>
+/// Drawn as lettering rather than as a chip: a boxed label reads as a control, and sixty of
+/// them read as a form laid over the map. The box here is generous and centred on the point so
+/// the text can be rotated the way the catalog asks without being cut by its own bounds.
+/// </remarks>
+public sealed record MapPlaceNameViewModel(
+    string Text,
+    double CenterX,
+    double CenterY,
     double RotationDegrees,
     double FontSize,
-    bool IsHighlighted)
+    bool IsHighlighted,
+    bool IsDimmed)
 {
-    public string BorderColor => IsHighlighted ? "#FFC6A15B" : "#8056B8C6";
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    public double Width => 400;
+
+    public double Height => 48;
+
+    public double Left => CenterX - (Width / 2);
+
+    public double Top => CenterY - (Height / 2);
+}
+
+/// <summary>
+/// The ring and callout drawn on the marker the player clicked.
+/// </summary>
+/// <remarks>
+/// A separate layer rather than a state on the marker, so selecting one does not rebuild the
+/// hundred others. The leader runs up and to the right and the card hangs off its end, which
+/// keeps the card clear of the marker's own name below the disc.
+/// </remarks>
+public sealed record MapMarkerSelectionViewModel(
+    string Title,
+    string Subtitle,
+    double CenterX,
+    double CenterY)
+{
+    private const double LeaderRun = 28;
+
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    public double Width => 640;
+
+    public double Height => 300;
+
+    public double Left => CenterX - (Width / 2);
+
+    public double Top => CenterY - (Height / 2);
+
+    public Point LeaderStart => new(Width / 2, Height / 2);
+
+    public Point LeaderEnd => new((Width / 2) + LeaderRun, (Height / 2) - LeaderRun);
+
+    /// <summary>Puts the card's bottom-left corner on the end of the leader.</summary>
+    public Thickness CardInset => new((Width / 2) + LeaderRun, 0, 0, (Height / 2) + LeaderRun);
 }
 
 public sealed record QuestMapPointViewModel(
@@ -47,13 +308,13 @@ public sealed record QuestMapPointViewModel(
     bool IsPinned,
     bool IsHighlighted)
 {
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
     public double Size => IsHighlighted ? IsPinned ? 24 : 22 : IsPinned ? 18 : 14;
 
     public double Left => CenterX - (Size / 2);
 
     public double Top => CenterY - (Size / 2);
-
-    public double CornerRadius => Size / 2;
 
     public double BorderThickness => IsHighlighted ? IsPinned ? 4 : 3 : IsPinned ? 3 : 2;
 
@@ -175,6 +436,8 @@ public sealed record PlayerMarkerViewModel(
     double BearingDegrees,
     bool IsStale)
 {
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
     /// <summary>The square the whole marker is drawn inside, big enough for the facing cone.</summary>
     public double Extent => 52;
 
@@ -242,7 +505,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<MapVariant> _variants = [];
     private IReadOnlyList<MapFloorDefinition> _floors = [];
     private IReadOnlyList<MapOverlayViewModel> _overlays = [];
-    private IReadOnlyList<MapOverlayElementViewModel> _overlayElements = [];
+    private IReadOnlyList<MapPlaceNameViewModel> _placeNames = [];
+    private IReadOnlyList<MapOverlayElementViewModel> _markers = [];
+    private IReadOnlyList<MapMarkerSelectionViewModel> _selectedMarkers = [];
+    private MapOverlayElementViewModel? _selectedMarker;
+    private readonly MapMarkerScale _markerScale = new();
     private IReadOnlyList<MapTileViewModel> _tiles = [];
     private IReadOnlyList<QuestMapPointViewModel> _questPoints = [];
     private IReadOnlyList<QuestMapRegionViewModel> _questRegions = [];
@@ -337,10 +604,31 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         private set => Set(ref _overlays, value);
     }
 
-    public IReadOnlyList<MapOverlayElementViewModel> OverlayElements
+    public IReadOnlyList<MapPlaceNameViewModel> PlaceNames
     {
-        get => _overlayElements;
-        private set => Set(ref _overlayElements, value);
+        get => _placeNames;
+        private set => Set(ref _placeNames, value);
+    }
+
+    /// <summary>The extracts, transits, spawns and locked doors on the visible layers.</summary>
+    public IReadOnlyList<MapOverlayElementViewModel> Markers
+    {
+        get => _markers;
+        private set => Set(ref _markers, value);
+    }
+
+    /// <summary>
+    /// The marker the player clicked, as a list of at most one.
+    /// </summary>
+    /// <remarks>
+    /// A list for the same reason the player marker is one: the layer is bound like every
+    /// other and disappears on its own when nothing is selected, with no null to guard in the
+    /// view.
+    /// </remarks>
+    public IReadOnlyList<MapMarkerSelectionViewModel> SelectedMarkers
+    {
+        get => _selectedMarkers;
+        private set => Set(ref _selectedMarkers, value);
     }
 
     public IReadOnlyList<MapTileViewModel> Tiles
@@ -415,6 +703,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>A trail needs two points before it is a trail.</summary>
     public bool HasPlayerTrail => PlayerTrail.Count > 1;
+
+    /// <summary>
+    /// The trail's stroke in canvas units, so it is two and a half pixels at any zoom.
+    /// </summary>
+    /// <remarks>
+    /// The trail is drawn inside the scaled canvas like everything else, so a fixed thickness
+    /// vanished when the map was fitted and became a rope when a building was read up close.
+    /// The dash pattern is measured in stroke widths and so follows on its own.
+    /// </remarks>
+    public double PlayerTrailThickness => 2.5 / Math.Max(ZoomScale, 0.01);
 
     /// <summary>
     /// Whether the view moves to the player when a new screenshot arrives.
@@ -523,8 +821,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         private set
         {
             Set(ref _zoomScale, value);
+            _markerScale.Follow(value);
             OnPropertyChanged(nameof(ViewportWidth));
             OnPropertyChanged(nameof(ViewportHeight));
+            OnPropertyChanged(nameof(PlayerTrailThickness));
         }
     }
 
@@ -753,6 +1053,70 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _renderModel = _renderModel.HighlightLayer(kind);
         UpdateOverlays();
+    }
+
+    /// <summary>
+    /// Selects a marker, or puts the selected one away when it is clicked again.
+    /// </summary>
+    /// <remarks>
+    /// One gesture for both, because a second control to dismiss a callout is one more thing
+    /// to find on a panel that is glanced at. Clicking bare map also clears it.
+    /// </remarks>
+    public void SelectMarker(MapOverlayElementViewModel marker)
+    {
+        ArgumentNullException.ThrowIfNull(marker);
+        _selectedMarker = _selectedMarker is { } selected && selected.IsSameFeatureAs(marker) ? null : marker;
+        UpdateSelection();
+    }
+
+    public void ClearSelection()
+    {
+        if (_selectedMarker is null)
+        {
+            return;
+        }
+
+        _selectedMarker = null;
+        UpdateSelection();
+    }
+
+    /// <summary>
+    /// Keeps the selection on the same feature after the markers are rebuilt.
+    /// </summary>
+    /// <remarks>
+    /// The markers are rebuilt whenever a layer, a floor or a scan changes. The selection is
+    /// re-pointed at whichever new marker stands for the same feature, and dropped when that
+    /// feature is no longer on the map, so a callout never hangs over a marker that has gone.
+    /// </remarks>
+    private void ReconcileSelection()
+    {
+        if (_selectedMarker is { } selected)
+        {
+            _selectedMarker = Markers.FirstOrDefault(marker => marker.IsSameFeatureAs(selected));
+        }
+
+        UpdateSelection();
+    }
+
+    private void UpdateSelection()
+    {
+        if (_selectedMarker is not { } marker)
+        {
+            SelectedMarkers = [];
+            return;
+        }
+
+        SelectedMarkers =
+        [
+            new(
+                marker.Name,
+                marker.IsOffered ? marker.KindName + ", offered this raid" : marker.KindName,
+                marker.CenterX,
+                marker.CenterY)
+            {
+                Scale = _markerScale,
+            },
+        ];
     }
 
     /// <summary>
@@ -1404,8 +1768,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private void UpdateOverlays()
     {
+        var elements = _renderModel?.OverlayElements ?? [];
         Overlays = _renderModel?.Overlays
-            .Select(layer => new MapOverlayViewModel(layer.Kind, layer.Name, layer.IsVisible, layer.IsHighlighted))
+            .Select(layer => new MapOverlayViewModel(
+                layer.Kind,
+                layer.Name,
+                layer.IsVisible,
+                layer.IsHighlighted,
+                elements.Count(element => element.Layer == layer.Kind)))
+            .Where(layer => layer.IsListed)
+            .OrderBy(layer => layer.Rank)
             .ToArray() ?? [];
         UpdateOverlayElements();
     }
@@ -1413,32 +1785,95 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private void UpdateOverlayElements()
     {
         var mapper = CreateCanvasMapper();
-        if (mapper is null)
+        if (mapper is null || _renderModel is null)
         {
-            OverlayElements = [];
+            PlaceNames = [];
+            Markers = [];
+            ReconcileSelection();
             UpdateQuestGeometry();
             UpdatePlayerMarker();
             return;
         }
 
-        OverlayElements = _renderModel?.VisibleOverlayElements.Select(element =>
+        // Highlighting a layer is a request to see it, and the clearest way to show one layer
+        // is to fade the rest, so every element knows whether some other layer has the floor.
+        var layers = _renderModel.Overlays;
+        var anyHighlighted = layers.Any(layer => layer.IsHighlighted);
+        var placeNames = new List<MapPlaceNameViewModel>();
+        var markers = new List<MapOverlayElementViewModel>();
+        foreach (var element in _renderModel.VisibleOverlayElements)
         {
-            var layer = _renderModel.Overlays.Single(item => item.Kind == element.Layer);
+            var layer = layers.Single(item => item.Kind == element.Layer);
             var canvasPoint = mapper(element.Position);
-            // An extract the player was actually offered reads as highlighted whether or not
-            // its layer is, because that is the one they are looking for.
+            if (!double.IsFinite(canvasPoint.X) || !double.IsFinite(canvasPoint.Y))
+            {
+                continue;
+            }
+
+            var isDimmed = anyHighlighted && !layer.IsHighlighted;
+            if (element.Layer == MapOverlayKind.Labels)
+            {
+                placeNames.Add(new(
+                    element.Label,
+                    canvasPoint.X,
+                    canvasPoint.Y,
+                    element.RotationDegrees,
+                    PlaceNameFontSize(element.SizePercent),
+                    layer.IsHighlighted,
+                    isDimmed)
+                {
+                    Scale = _markerScale,
+                });
+                continue;
+            }
+
+            // An extract the player was actually offered stays bright whatever is highlighted,
+            // because that is the one they are looking for.
             var isOffered = element.Layer == MapOverlayKind.Extracts && IsOffered(element.Label);
-            return new MapOverlayElementViewModel(
-                isOffered ? "★ " + element.Label : element.Label,
+            markers.Add(new(
+                element.Label,
                 canvasPoint.X,
                 canvasPoint.Y,
-                element.RotationDegrees,
-                Math.Clamp((isOffered ? element.SizePercent * 1.2 : element.SizePercent) / 7, 9, 18),
-                layer.IsHighlighted || isOffered);
-        }).ToArray() ?? [];
+                KindOf(element),
+                layer.IsHighlighted,
+                isDimmed && !isOffered,
+                isOffered)
+            {
+                Scale = _markerScale,
+            });
+        }
+
+        PlaceNames = placeNames;
+        Markers = markers;
+        ReconcileSelection();
         UpdateQuestGeometry();
         UpdatePlayerMarker();
     }
+
+    /// <summary>
+    /// A place name's size on screen, from the catalog's percentage.
+    /// </summary>
+    /// <remarks>
+    /// Names now hold their size on screen rather than scaling with the map, so the range is
+    /// tighter than it was: the smallest has to stay readable from a second monitor and the
+    /// largest, a region name, must not cover a district when the map is fitted.
+    /// </remarks>
+    private static double PlaceNameFontSize(double sizePercent) =>
+        Math.Clamp(12 * sizePercent / 100, 10, 20);
+
+    /// <summary>
+    /// Tells a transit from an extract on the same layer.
+    /// </summary>
+    /// <remarks>
+    /// The projection files both under the extracts layer and marks a transit only by the
+    /// arrow it appends to the label, so the arrow is the one signal there is to read.
+    /// </remarks>
+    private static MapMarkerKind KindOf(MapOverlayElement element) => element.Layer switch
+    {
+        MapOverlayKind.Keys => MapMarkerKind.Lock,
+        MapOverlayKind.Spawns => MapMarkerKind.Spawn,
+        _ => element.Label.EndsWith('→') ? MapMarkerKind.Transit : MapMarkerKind.Extract,
+    };
 
     /// <summary>
     /// Takes the position from the player's latest screenshot, or clears it.
@@ -1546,7 +1981,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 canvasPoint.X,
                 canvasPoint.Y,
                 bearing,
-                age > PlayerMarkerFreshFor),
+                age > PlayerMarkerFreshFor)
+            {
+                Scale = _markerScale,
+            },
         ];
     }
 
@@ -1635,7 +2073,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     point.X,
                     point.Y,
                     objective.IsPinned,
-                    questLayerHighlighted);
+                    questLayerHighlighted)
+                {
+                    Scale = _markerScale,
+                };
             })
             .ToArray();
         QuestRegions = _questProjection.Objectives

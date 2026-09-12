@@ -14,6 +14,7 @@ using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
+using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Application.Services.Strategy;
@@ -175,6 +176,11 @@ public static class AppComposition
         services.AddSingleton<TarkovDevMapAssetCache>();
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
+        // Sharing with a group is the only part of this application that sends anything
+        // anywhere, so it is composed here explicitly rather than discovered.
+        services.AddSingleton<IGroupSettingsStore>(_ =>
+            new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")));
+        services.AddSingleton<GroupSessionService>();
         services.AddSingleton<IHotkeySettingsStore>(_ =>
             new JsonFileHotkeySettingsStore(Path.Combine(paths.Config, "hotkeys.json")));
         services.AddSingleton<ScanHotkeyService>();
