@@ -355,7 +355,7 @@
     <Setter Property="Padding" Value="10,6" />
   </Style>
 
-       Controls that sit on top of the map. Translucent rather than opaque so the map is
+  <!-- Controls that sit on top of the map. Translucent rather than opaque so the map is
        still readable underneath, and darker than the panels elsewhere so they read as
        floating above the artwork rather than as holes cut in it. -->
   <Style Selector="Border.floating">
