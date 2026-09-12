@@ -11,22 +11,20 @@ namespace TarkovCompanion.Application.Services.Group;
 /// </remarks>
 /// <param name="IsEnabled">Whether anything is sent at all.</param>
 /// <param name="ServerUri">The group's own server. There is no default and no hosted service.</param>
-/// <param name="Room">The room the group agreed between themselves.</param>
 /// <param name="DisplayName">The name the others see. Whatever the player types.</param>
-/// <param name="Secret">The secret the group shares.</param>
+/// <param name="Key">The one thing the group agrees between themselves.</param>
 /// <param name="SharesLoadout">Whether the kit they are carrying goes too.</param>
 /// <param name="SharesQuests">Whether the quests they are working on go too.</param>
 public sealed record GroupSharingSettings(
     bool IsEnabled,
     string? ServerUri,
-    string? Room,
     string? DisplayName,
-    string? Secret,
+    string? Key,
     bool SharesLoadout,
     bool SharesQuests)
 {
     /// <summary>Sharing nothing, which is where every installation starts.</summary>
-    public static GroupSharingSettings Off { get; } = new(false, null, null, null, null, false, false);
+    public static GroupSharingSettings Off { get; } = new(false, null, null, null, false, false);
 
     /// <summary>
     /// Whether this is complete enough to try, as opposed to merely switched on.
@@ -39,18 +37,26 @@ public sealed record GroupSharingSettings(
         IsEnabled &&
         Uri.TryCreate(ServerUri, UriKind.Absolute, out var uri) &&
         (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
-        !string.IsNullOrWhiteSpace(Room) &&
         !string.IsNullOrWhiteSpace(DisplayName) &&
-        !string.IsNullOrWhiteSpace(Secret);
+        IsKeyLongEnough;
+
+    /// <summary>
+    /// The key is the only thing between a group and a stranger who guesses it.
+    /// </summary>
+    /// <remarks>
+    /// Eight characters, matching the server, and checked here as well so somebody is told
+    /// before they try rather than by a refusal afterwards.
+    /// </remarks>
+    public bool IsKeyLongEnough => Key is not null && Key.Trim().Length >= 8;
 
     /// <summary>Says what is missing, in the order a person would fill it in.</summary>
     public string? MissingPiece =>
         !IsEnabled ? null
         : string.IsNullOrWhiteSpace(ServerUri) ? "the group's server address"
         : !Uri.TryCreate(ServerUri, UriKind.Absolute, out _) ? "a valid server address"
-        : string.IsNullOrWhiteSpace(Room) ? "a room name"
         : string.IsNullOrWhiteSpace(DisplayName) ? "a display name"
-        : string.IsNullOrWhiteSpace(Secret) ? "the group's shared secret"
+        : string.IsNullOrWhiteSpace(Key) ? "the group's key"
+        : !IsKeyLongEnough ? "a group key of at least eight characters"
         : null;
 }
 

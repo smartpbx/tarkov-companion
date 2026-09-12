@@ -11,11 +11,10 @@ namespace TarkovCompanion.Infrastructure.Settings;
 /// who wants to know what this application is configured to send should be able to open a file
 /// and read it.
 ///
-/// The shared secret is stored in plain text, and that is a deliberate choice stated rather
-/// than hidden. It is a password a group of friends agreed between themselves to keep
-/// strangers out of a room, not a credential to anything of value, and encrypting it here
-/// would need a key stored beside it, which protects nobody and implies a guarantee this does
-/// not make.
+/// The group key is stored in plain text, and that is a deliberate choice stated rather than
+/// hidden. It is a word a group of friends agreed between themselves, not a credential to
+/// anything of value, and encrypting it here would need a key stored beside it, which protects
+/// nobody and implies a guarantee this does not make.
 ///
 /// An unreadable file falls back to sharing nothing. Failing closed is the only safe direction
 /// for a setting that decides whether data leaves the machine.
@@ -42,9 +41,14 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
                 : new(
                     document.Enabled,
                     document.ServerUri,
-                    document.Room,
                     document.DisplayName,
-                    document.Secret,
+                    // Migration, silent and one way. Settings written before the room and the
+                    // secret became one value carry both; the secret is the thing that was
+                    // actually secret, so it becomes the key and the room name is dropped.
+                    // Somebody who upgrades keeps working without retyping anything, and
+                    // everyone in a group migrates to the same room because they all had the
+                    // same secret.
+                    document.Key ?? document.Secret,
                     document.ShareLoadout,
                     document.ShareQuests);
         }
@@ -63,9 +67,13 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
             var document = new GroupDocument(
                 settings.IsEnabled,
                 settings.ServerUri,
-                settings.Room,
                 settings.DisplayName,
-                settings.Secret,
+                settings.Key,
+                // Written as null so an upgraded file stops carrying the old pair. Reading
+                // still accepts them, because a file written by an older build is exactly the
+                // case migration exists for.
+                null,
+                null,
                 settings.SharesLoadout,
                 settings.SharesQuests);
             Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
@@ -105,8 +113,9 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
     private sealed record GroupDocument(
         bool Enabled,
         string? ServerUri,
-        string? Room,
         string? DisplayName,
+        string? Key,
+        string? Room,
         string? Secret,
         bool ShareLoadout,
         bool ShareQuests);
