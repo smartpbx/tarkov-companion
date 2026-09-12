@@ -1,6 +1,5 @@
 using System.Net;
 using System.Text;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
@@ -381,7 +380,6 @@ public sealed class RuntimeCompositionTests
 
     private static void Cleanup(string root)
     {
-        SqliteConnection.ClearAllPools();
         TemporaryDirectory.Remove(root);
     }
 

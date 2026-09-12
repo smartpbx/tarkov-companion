@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace TarkovCompanion.IntegrationTests;
 
 /// <summary>
@@ -13,6 +15,11 @@ namespace TarkovCompanion.IntegrationTests;
 /// reports a defect that does not exist and hides whatever the test was actually checking, which
 /// is worse than leaving a directory behind for the operating system to sweep up. So this
 /// retries briefly and then gives up quietly.
+///
+/// Clearing the connection pool is part of the job rather than the caller's business. A pooled
+/// connection holds the database file open indefinitely, so on Windows no amount of retrying
+/// gets past it; four tests failed that way while every one of their assertions passed. Putting
+/// it here means the next test to need a scratch directory cannot forget.
 /// </remarks>
 internal static class TemporaryDirectory
 {
@@ -22,6 +29,7 @@ internal static class TemporaryDirectory
 
     public static void Remove(string path)
     {
+        SqliteConnection.ClearAllPools();
         for (var attempt = 1; attempt <= Attempts; attempt++)
         {
             if (!Directory.Exists(path))
