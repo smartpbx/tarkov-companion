@@ -61,7 +61,14 @@ cp "${TASK_PROJECT_ROOT}/scripts/windows-smoke.ps1" "${TASK_PUBLISH_DIR}/windows
 
 TASK_COMMIT="$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD)"
 TASK_BUILT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-printf 'version=1.0.0\ncommit=%s\nbuilt_utc=%s\n' \
+# The build's own version, which must be the one the installer ships under. These were two
+# separate numbers: this file said 1.0.0 for every build ever made while the installer said
+# 1.0.<run>, so a report of "version 1.0.0" named no particular build and the two disagreed
+# on the machine. TARKOV_BUILD_VERSION is set by CI from the run number; a local build with
+# nothing set stays 1.0.0-dev, which at least does not claim to be a release.
+readonly TASK_VERSION="${TARKOV_BUILD_VERSION:-1.0.0-dev}"
+printf 'version=%s\ncommit=%s\nbuilt_utc=%s\n' \
+    "${TASK_VERSION}" \
     "${TASK_COMMIT}" \
     "${TASK_BUILT_UTC}" \
     > "${TASK_PUBLISH_DIR}/BUILD_INFO.txt"
@@ -108,7 +115,7 @@ TASK_BRANCH="${GITHUB_REF_NAME:-$(git -C "${TASK_PROJECT_ROOT}" rev-parse --abbr
 TASK_RUN="${GITHUB_RUN_ID:-local}"
 cat > "${TASK_PROJECT_ROOT}/dist/update.json" <<MANIFEST
 {
-  "version": "1.0.0",
+  "version": "${TASK_VERSION}",
   "commit": "${TASK_COMMIT}",
   "builtUtc": "${TASK_BUILT_UTC}",
   "asset": "$(basename "${TASK_PACKAGE}")",

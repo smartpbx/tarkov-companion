@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - smartpbx/v1-windows-build
+      - main
 
 permissions:
   contents: write
@@ -130,6 +130,12 @@ jobs:
       - name: Package self-contained win-x64
         id: package
         shell: bash
+        env:
+          # The build's version, decided here and used by both the stamp inside the package
+          # and the installer that delivers it. They were separate numbers, so BUILD_INFO.txt
+          # read "1.0.0" on every build ever made while the installer said 1.0.<run>, and a
+          # report of "version 1.0.0" named no particular build.
+          TARKOV_BUILD_VERSION: 1.0.${{ github.run_number }}
         run: ./scripts/package-windows.sh
 
       - name: Extract package the way a user would
@@ -347,6 +353,8 @@ jobs:
           set -euo pipefail
           dotnet tool install --global vpk
           export PATH="$PATH:$HOME/.dotnet/tools"
+          # Must match the version the packaging script stamped into BUILD_INFO.txt, or the
+          # file inside the install and the installer that delivered it name different builds.
           VERSION="1.0.${{ github.run_number }}"
           echo "VELOPACK_VERSION=$VERSION" >> "$GITHUB_ENV"
           # Packs what verification actually launched, not a fresh build of it.
