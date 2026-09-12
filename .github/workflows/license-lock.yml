@@ -18,6 +18,11 @@ on:
       - 'Directory.Packages.props'
       - 'scripts/audit-licenses.sh'
       - '.github/workflows/license-lock.yml'
+      # The mapping decides how a package is described in the lock, so editing it
+      # invalidates the lock just as surely as adding the package did. Leaving this out
+      # meant adding a dependency and describing it in two commits regenerated nothing on
+      # the second, and the audit then failed on a branch with no way to fix it from there.
+      - 'licenses/dependency-license-map.json'
 
 permissions:
   contents: read
