@@ -1,12 +1,28 @@
 # What Escape from Tarkov's logs actually contain
 
-Established on 2026-09-11 against a live installation: 33 log folders, 254 raid records,
+Established on 2026-09-11 against a live installation: 33 log folders, 254 raid record *lines*,
 game build 1.1.5.0.47242. Everything here was measured, not assumed. Several entries record
 an *absence*, which is as useful as a presence and stops the same ground being re-covered.
 
 Nothing here was taken from another tool's source. A third-party tool's published feature
 list was used to decide what to look for; every claim below was then confirmed or refuted
 against real logs.
+
+## Count unique events, not matching lines
+
+Every notification is written **twice**, once into `output_000.log` and once into
+`backend_000.log`, carrying the same `eventId` both times. A count of matching lines is
+therefore double the number of things that happened, and two conclusions in this note were
+originally stated at twice their true size before anyone noticed.
+
+Deduplicate on `eventId` before counting. The real figure for the window described above is
+**66 raids**, not the 254 raid record lines the header quotes; relative shapes such as the
+per-map distribution survive the correction, absolute counts do not.
+
+This matters to the reader as well as to the code. The companion watches both files and so
+sees each notification twice; that is harmless because every consumer is idempotent, keyed on
+the offer, the member or the raid rather than on arrival, but anything new that counts
+arrivals has to account for it.
 
 ## Where the logs are
 
@@ -103,6 +119,28 @@ logs contain no word for this: `scav`, `pmcSide` and `IsScav` appear nowhere as 
 The two profile ids were stable across 33 sessions and five game versions, so this is used,
 and always presented as inferred.
 
+**A second side signal, one-way.** The `status` on `userMatchOver` is either `Free` or
+`Transfer`, and across 66 deduplicated raids they fall out like this:
+
+| | PMC | scav |
+| --- | --- | --- |
+| `Free` | 39 | 11 |
+| `Transfer` | 0 | 16 |
+
+So `Transfer` proves a scav run, 16 times out of 16, and is the only thing in these files that
+establishes side outright rather than by inference. The converse does not hold: 11 of the 27
+scav raids ended `Free`, so `Free` proves nothing about either side. The companion uses the
+implication in the one direction it holds, and reports a disagreement rather than resolving it
+when the status says scav and the profile says PMC.
+
+What `Transfer` means in the game is still unknown. It appears on a bit over half of scav runs
+and on no PMC run at all, which is the shape of a particular kind of scav exit rather than of
+scav runs in general. That is a guess and nothing depends on it.
+
+**`Transfer` ends the raid.** It was read here as transit to another map with the raid
+continuing, and a Streets raid was then watched ending with it and nothing following for the
+rest of the session. Roughly one raid end in four carries it.
+
 ## One claim tested and refuted
 
 A third-party tool states that the logs are not written while a raid is in progress. That is
@@ -146,5 +184,5 @@ Four map tokens were never observed because those maps were not played in the lo
 `laboratory`, `terminal`, and the `Sandbox` variants beyond `Sandbox` and `Sandbox_high`.
 The pairing now comes from synced data, so this matters less than it did.
 
-Every `profileStatus` line, on all 254 records, reads `GameMode: deathmatch`, including on
+Every `profileStatus` line, on all 254 record lines, reads `GameMode: deathmatch`, including on
 ordinary raids. Unexplained. Nothing branches on it.

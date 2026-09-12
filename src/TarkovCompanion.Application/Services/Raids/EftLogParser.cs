@@ -251,9 +251,23 @@ public sealed partial class EftLogParser
 
             var mapId = ResolveMapId(ReadText(payload, "location"));
             var status = ReadText(payload, "status");
+            var transferred = string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase);
+
+            // A transfer proves the raid was a scav run, and is the only thing in these logs
+            // that proves side outright.
+            //
+            // Measured over 66 raids: all 16 transfers were scav, and all 39 PMC raids ended
+            // Free. The converse does not hold, because 11 of the 27 scav raids also ended
+            // Free, so Free proves nothing and side there still comes from which profile ran
+            // the raid. One-way, but it is the one direction that is certain, and it is a
+            // check on the profile inference rather than a replacement for it: the two
+            // disagreeing means one of them is wrong, and the summary says so rather than
+            // quietly picking a winner.
+            var inferred = DescribeSide(profileId);
+            var contradicted = transferred && string.Equals(inferred, "PMC", StringComparison.Ordinal);
             // Two forms deliberately: the recorded value stays null when the side is not yet
             // knowable, while the sentence still reads naturally.
-            var side = DescribeSide(profileId);
+            var side = transferred ? "scav" : inferred;
             var sideWord = side ?? "raid";
             return type switch
             {
@@ -273,25 +287,27 @@ public sealed partial class EftLogParser
                 //
                 // This used to hold the raid open, on the reading that Transfer meant transit
                 // to another map with the raid continuing. Against a live installation that
-                // was wrong in a way that mattered: a quarter of all raid ends carry this
-                // status, 34 of 134 across 33 sessions, and one of them was watched ending a
-                // Streets raid with nothing following it for the rest of the session. Holding
-                // the raid open lost the end of one raid in four, which is most of what raid
-                // tracking is for.
+                // was wrong in a way that mattered: 16 of 66 raid ends carry this status, and
+                // one of them was watched ending a Streets raid with nothing following it for
+                // the rest of the session. Holding the raid open lost the end of roughly one
+                // raid in four, which is most of what raid tracking is for.
                 //
-                // What Transfer actually means is not established. The behaviour above is,
-                // and is what this branches on. A plausible reading is that it marks a scav
-                // extract, where the player transfers their loot out, which would make it a
-                // second signal for side; that is untested and deliberately not relied on
-                // here. The status is named in the summary rather than hidden, so a player
-                // who reads it has the same fact this comment does.
-                "userMatchOver" when string.Equals(status, "Transfer", StringComparison.OrdinalIgnoreCase) => new(
+                // What Transfer means in the game is still not established. It lands only on
+                // scav runs and on a bit over half of those, which is the shape of a
+                // particular kind of scav exit rather than of scav runs in general; that is a
+                // guess and is not written down as more. The status is named in the summary
+                // rather than hidden, so a player who reads it has the same fact this
+                // comment does.
+                "userMatchOver" when transferred => new(
                     RaidEvidenceKind.LogLine,
                     observedUtc.ToUniversalTime(),
                     mapId,
                     RaidLifecycleState.PostRaid,
                     new Confidence(0.95),
-                    $"The game reported the {sideWord} raid as over, with status Transfer.")
+                    contradicted
+                        ? "The game reported the raid as over with status Transfer, which means a scav run, "
+                            + "but the profile that ran it is the one used for PMC raids. The two disagree."
+                        : $"The game reported the {sideWord} raid as over, with status Transfer.")
                 {
                     Side = side,
                 },

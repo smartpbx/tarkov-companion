@@ -220,6 +220,68 @@ public sealed class EftLogParserRealLinesTests
         Assert.Contains("PMC", pmc.Summary, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A transfer proves the raid was a scav run even when nothing else says so.
+    /// </summary>
+    /// <remarks>
+    /// Over 66 raids every transfer was a scav run and every PMC raid ended Free, so the
+    /// status settles side on its own. Here the profile is one the parser has never seen, so
+    /// the usual inference can say nothing and the status is the only signal there is.
+    /// </remarks>
+    [Fact]
+    public void ReadsSideFromATransferWhenTheProfileSaysNothing()
+    {
+        var parser = new EftLogParser();
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Transfer", "TarkovStreets", "NEVERSEENBEFORE"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Equal("scav", evidence.Side);
+    }
+
+    /// <summary>
+    /// Free proves nothing, because both sides produce it.
+    /// </summary>
+    /// <remarks>
+    /// 11 of 27 scav raids ended Free alongside all 39 PMC raids, so reading Free as PMC
+    /// would be wrong two times in five. Side there still comes from the profile.
+    /// </remarks>
+    [Fact]
+    public void ReadsNoSideFromAFreeEndingWhenTheProfileSaysNothing()
+    {
+        var parser = new EftLogParser();
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Free", "TarkovStreets", "NEVERSEENBEFORE"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Null(evidence.Side);
+    }
+
+    /// <summary>
+    /// When the status and the profile disagree, the summary says so.
+    /// </summary>
+    /// <remarks>
+    /// A transfer is proof of a scav run and the signed-in profile is proof of a PMC one, so
+    /// both cannot be right. Picking a winner silently would present a guess as a fact.
+    /// </remarks>
+    [Fact]
+    public void SaysSoWhenTheStatusAndTheProfileDisagreeAboutSide()
+    {
+        var parser = new EftLogParser();
+        parser.ParseLine(SelfProfileLine, Observed);
+
+        var evidence = parser.ParseLine(
+            Notification("userMatchOver", "Transfer", "TarkovStreets", "SELFPROFILE1"),
+            Observed);
+
+        Assert.NotNull(evidence);
+        Assert.Contains("disagree", evidence.Summary, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void EndsAScavRaidOnATransferToo()
     {
