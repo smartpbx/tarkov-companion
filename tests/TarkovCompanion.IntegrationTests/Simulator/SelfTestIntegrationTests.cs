@@ -75,7 +75,7 @@ public sealed class SelfTestIntegrationTests
             SqliteConnection.ClearAllPools();
             if (Directory.Exists(root))
             {
-                Directory.Delete(root, true);
+                TemporaryDirectory.Remove(root);
             }
         }
     }

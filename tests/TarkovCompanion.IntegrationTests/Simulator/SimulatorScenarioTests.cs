@@ -68,7 +68,7 @@ public sealed class SimulatorScenarioTests
         }
         finally
         {
-            Directory.Delete(root, true);
+            TemporaryDirectory.Remove(root);
         }
     }
 

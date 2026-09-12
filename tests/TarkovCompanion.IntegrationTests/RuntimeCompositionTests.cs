@@ -382,10 +382,7 @@ public sealed class RuntimeCompositionTests
     private static void Cleanup(string root)
     {
         SqliteConnection.ClearAllPools();
-        if (Directory.Exists(root))
-        {
-            Directory.Delete(root, true);
-        }
+        TemporaryDirectory.Remove(root);
     }
 
     private sealed class FailIfUsedHandler : HttpMessageHandler

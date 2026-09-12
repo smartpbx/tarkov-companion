@@ -173,7 +173,7 @@ public sealed class QuestProgressExchangeTests
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            TemporaryDirectory.Remove(directory);
         }
     }
 
@@ -697,7 +697,7 @@ public sealed class QuestProgressExchangeTests
         {
             _profileService.Dispose();
             SqliteConnection.ClearAllPools();
-            System.IO.Directory.Delete(Directory, recursive: true);
+            TemporaryDirectory.Remove(Directory);
             return ValueTask.CompletedTask;
         }
     }
