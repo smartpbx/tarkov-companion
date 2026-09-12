@@ -7,6 +7,7 @@
     "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
     "src/TarkovCompanion.Core/TarkovCompanion.Core.csproj",
     "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+    "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj",
     "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
     "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
   ],
