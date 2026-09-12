@@ -40,6 +40,7 @@ using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
 using TarkovCompanion.Platform.Windows.Hotkeys;
 using TarkovCompanion.Platform.Windows.Security;
+using TarkovCompanion.Platform.Windows.Storage;
 using TarkovCompanion.Platform.Windows.Watching;
 using RecognitionScanContract = TarkovCompanion.Core.Abstractions.IScanUseCase;
 using RecognitionScanUseCase = TarkovCompanion.Application.Services.Recognition.ScanUseCase;
@@ -183,6 +184,12 @@ public static class AppComposition
         services.AddSingleton<GroupSessionService>();
         services.AddSingleton<IHotkeySettingsStore>(_ =>
             new JsonFileHotkeySettingsStore(Path.Combine(paths.Config, "hotkeys.json")));
+        // Keeping the game's screenshot folder from growing without limit. Composed here
+        // rather than discovered because it is the other half of the application that touches
+        // files it did not create, and that should be visible in one place.
+        services.AddSingleton<IScreenshotRetentionStore>(_ =>
+            new JsonFileScreenshotRetentionStore(Path.Combine(paths.Config, "screenshots.json")));
+        services.AddSingleton<ScreenshotRetentionService>();
         services.AddSingleton<ScanHotkeyService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -293,6 +300,7 @@ public static class AppComposition
             services.AddSingleton<IEftPathLocator, WindowsEftPathLocator>();
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
             services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
+            services.AddSingleton<IRecycleBin, WindowsRecycleBin>();
             services.AddSingleton<IGlobalHotkeyService, WindowsGlobalHotkeyService>();
             services.AddSingleton<IScreenCaptureService, GdiScreenCaptureService>();
             services.AddSingleton<ExtractRecognitionService>();
@@ -321,6 +329,7 @@ public static class AppComposition
             services.AddSingleton<IEftPathLocator, UnavailableEftPathLocator>();
             services.AddSingleton<IEftLogWatcher, UnavailableEftLogWatcher>();
             services.AddSingleton<IScreenshotWatcher, UnavailableScreenshotWatcher>();
+            services.AddSingleton<IRecycleBin, UnavailableRecycleBin>();
         }
 
         services.AddSingleton<RaidObservationService>();

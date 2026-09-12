@@ -33,6 +33,8 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotFilenameParser _filenameParser;
     private readonly IScreenshotImageLoader? _imageLoader;
     private readonly IScanUseCase? _scanUseCase;
+    private readonly ScreenshotRetentionService? _retention;
+    private readonly IScreenshotRetentionStore? _retentionSettings;
     private readonly RaidActivityCoordinator _coordinator;
     private readonly SquadStateService _squad;
     private readonly FleaSaleStateService _fleaSales;
@@ -60,7 +62,9 @@ public sealed class RaidObservationService : IAsyncDisposable
         // every platform but Windows. Defaults rather than a null object, because a null object
         // here would have to pretend a scan happened.
         IScreenshotImageLoader? imageLoader = null,
-        IScanUseCase? scanUseCase = null)
+        IScanUseCase? scanUseCase = null,
+        ScreenshotRetentionService? retention = null,
+        IScreenshotRetentionStore? retentionSettings = null)
     {
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
@@ -69,6 +73,8 @@ public sealed class RaidObservationService : IAsyncDisposable
         _coordinator = coordinator;
         _imageLoader = imageLoader;
         _scanUseCase = scanUseCase;
+        _retention = retention;
+        _retentionSettings = retentionSettings;
         _squad = squad;
         _fleaSales = fleaSales;
         _stateStore = stateStore;
@@ -182,6 +188,7 @@ public sealed class RaidObservationService : IAsyncDisposable
             if (paths.ScreenshotRoot is not null)
             {
                 watchers.Add(WatchScreenshotsAsync(paths.ScreenshotRoot, session.Token));
+                watchers.Add(TidyScreenshotsAsync(paths.ScreenshotRoot, session.Token));
             }
 
             try
@@ -342,6 +349,62 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             _logger.LogWarning(exception, "The Escape from Tarkov screenshot watcher stopped.");
             throw;
+        }
+    }
+
+    /// <summary>How often the screenshot folder is swept.</summary>
+    /// <remarks>
+    /// Hourly, which is far more often than needed to hold a folder steady and rare enough to
+    /// cost nothing. The first sweep is delayed rather than run at startup so that launching
+    /// the companion is never the moment files disappear; somebody who has just opened it to
+    /// look at yesterday's screenshot gets to look at it.
+    /// </remarks>
+    private static readonly TimeSpan TidyInterval = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Tidies old screenshots out of the game's folder, on a slow timer.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in its own service because this is the one place that knows where the
+    /// game keeps its screenshots, and because the folder is only worth sweeping while the
+    /// companion is watching it. The settings are read on each sweep rather than cached, so
+    /// turning the feature off in the interface takes effect at the next sweep instead of at
+    /// the next restart.
+    /// </remarks>
+    private async Task TidyScreenshotsAsync(string screenshotRoot, CancellationToken cancellationToken)
+    {
+        if (_retention is null || _retentionSettings is null)
+        {
+            return;
+        }
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await DelayAsync(TidyInterval, cancellationToken).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            try
+            {
+                var settings = await _retentionSettings.GetAsync(cancellationToken).ConfigureAwait(false);
+                var tidied = _retention.Tidy(screenshotRoot, settings);
+                if (tidied > 0)
+                {
+                    _logger.LogInformation(
+                        "Moved {Count} screenshot(s) older than {Hours}h to the recycle bin from {Folder}.",
+                        tidied,
+                        settings.SafeRetentionHours,
+                        screenshotRoot);
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // Never worth stopping observation for. A folder that could not be tidied this
+                // hour is tidied the next one.
+                _logger.LogWarning(exception, "Could not tidy the screenshot folder.");
+            }
         }
     }
 

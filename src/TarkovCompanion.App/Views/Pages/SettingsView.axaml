@@ -49,6 +49,27 @@
                      Text="Offline mode never contacts the network; Sync now reports the local cache state instead." />
         </StackPanel>
       </Border>
+      <!-- The one place this application removes a file it did not create, so it says so in
+           full: what goes, when, and where it goes so it can be got back. -->
+      <Border Classes="panel" IsVisible="{Binding CanTidyScreenshots}">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sectionTitle" Text="Screenshot folder" />
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Keep screenshots for" />
+            <TextBlock Classes="value" Text="{Binding RetentionDisplay}" />
+          </StackPanel>
+          <TextBlock Classes="prose" Text="{Binding RetentionStatus}" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Command="{Binding ToggleScreenshotTidyingCommand}"
+                    Content="{Binding ScreenshotTidyingLabel}" />
+            <Button Command="{Binding ChooseRetentionCommand}"
+                    Content="Keep longer"
+                    IsEnabled="{Binding TidiesScreenshots}" />
+          </StackPanel>
+          <TextBlock Classes="note"
+                     Text="Only files the game named as screenshots are tidied, and they go to the recycle bin rather than being deleted. To keep one for good, move it somewhere else." />
+        </StackPanel>
+      </Border>
       <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Profile" />

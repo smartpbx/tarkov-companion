@@ -13,6 +13,7 @@ using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Core.Domain.Input;
@@ -765,6 +766,10 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly ScanHotkeyService _hotkeys;
+    private readonly IScreenshotRetentionStore _retentionSettings;
+    private readonly IRecycleBin _recycleBin;
+    private ScreenshotRetentionSettings _retention = ScreenshotRetentionSettings.Default;
+    private string _retentionStatus = "Reading how long screenshots are kept…";
     private readonly UpdateService? _updates;
     private readonly UpdateInstaller? _installer;
     private PublishedBuild? _offered;
@@ -788,14 +793,20 @@ public sealed class SettingsPageViewModel : PageViewModel
         AppCommandLine commandLine,
         IOcrEngineStatus ocrStatus,
         ScanHotkeyService hotkeys,
+        IScreenshotRetentionStore retentionSettings,
+        IRecycleBin recycleBin,
         UpdateService? updates = null,
         UpdateInstaller? installer = null)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
         ArgumentNullException.ThrowIfNull(hotkeys);
+        ArgumentNullException.ThrowIfNull(retentionSettings);
+        ArgumentNullException.ThrowIfNull(recycleBin);
         _startupCoordinator = startupCoordinator;
         _hotkeys = hotkeys;
+        _retentionSettings = retentionSettings;
+        _recycleBin = recycleBin;
         _updates = updates;
         _installer = installer;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
@@ -822,6 +833,9 @@ public sealed class SettingsPageViewModel : PageViewModel
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
         ApplyHotkeyCommand = new AsyncDelegateCommand(ApplyHotkeyAsync);
         ResetHotkeyCommand = new AsyncDelegateCommand(ResetHotkeyAsync);
+        ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
+        ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
+        _ = LoadRetentionAsync();
     }
 
     public bool IsOffline { get; }
@@ -964,6 +978,111 @@ public sealed class SettingsPageViewModel : PageViewModel
         {
             UpdateStatus = $"The update could not be started: {exception.Message}";
         }
+    }
+
+    /// <summary>
+    /// Tidying the game's screenshot folder, which is the one folder this application empties.
+    /// </summary>
+    /// <remarks>
+    /// Every screenshot is the player's own file, taken deliberately, and the companion only
+    /// reads them. Tidying them is therefore stated plainly on this page rather than done
+    /// quietly: what will go, when it will go, and where it goes so it can be got back.
+    ///
+    /// The choice of a day as the default is the shortest span that still covers an evening's
+    /// play and the following morning, which is when somebody actually goes looking for the
+    /// screenshot they meant to keep.
+    /// </remarks>
+    public AsyncDelegateCommand ToggleScreenshotTidyingCommand { get; }
+
+    public AsyncDelegateCommand ChooseRetentionCommand { get; }
+
+    /// <summary>Whether the folder is swept at all.</summary>
+    public bool TidiesScreenshots => _retention.IsEnabled;
+
+    public string ScreenshotTidyingLabel => TidiesScreenshots ? "Stop tidying" : "Start tidying";
+
+    /// <summary>How long screenshots are kept, in the player's words rather than in hours.</summary>
+    public string RetentionDisplay => _retention.SafeRetentionHours switch
+    {
+        24 => "24 hours",
+        72 => "3 days",
+        168 => "7 days",
+        var hours when hours % 24 == 0 => $"{hours / 24} days",
+        var hours => $"{hours} hours",
+    };
+
+    public string RetentionStatus
+    {
+        get => _retentionStatus;
+        private set => SetProperty(ref _retentionStatus, value);
+    }
+
+    /// <summary>Whether tidying can happen at all on this machine.</summary>
+    public bool CanTidyScreenshots => _recycleBin.IsAvailable;
+
+    private async Task LoadRetentionAsync()
+    {
+        try
+        {
+            ApplyRetention(await _retentionSettings.GetAsync(CancellationToken.None).ConfigureAwait(true));
+            RetentionStatus = Describe();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RetentionStatus = $"The screenshot setting could not be read: {exception.Message}";
+        }
+    }
+
+    private Task ToggleScreenshotTidyingAsync() =>
+        SaveRetentionAsync(_retention with { IsEnabled = !_retention.IsEnabled });
+
+    /// <summary>
+    /// Moves to the next span, which is a button rather than a list because there are four.
+    /// </summary>
+    private Task ChooseRetentionAsync() => SaveRetentionAsync(_retention with
+    {
+        RetentionHours = _retention.SafeRetentionHours switch
+        {
+            24 => 72,
+            72 => 168,
+            168 => 720,
+            _ => 24,
+        },
+    });
+
+    private async Task SaveRetentionAsync(ScreenshotRetentionSettings settings)
+    {
+        try
+        {
+            await _retentionSettings.SaveAsync(settings, CancellationToken.None).ConfigureAwait(true);
+            ApplyRetention(settings);
+            RetentionStatus = Describe();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            RetentionStatus = $"The screenshot setting could not be saved: {exception.Message}";
+        }
+    }
+
+    private void ApplyRetention(ScreenshotRetentionSettings settings)
+    {
+        _retention = settings;
+        OnPropertyChanged(nameof(TidiesScreenshots));
+        OnPropertyChanged(nameof(ScreenshotTidyingLabel));
+        OnPropertyChanged(nameof(RetentionDisplay));
+    }
+
+    private string Describe()
+    {
+        if (!_recycleBin.IsAvailable)
+        {
+            return "There is no recycle bin on this system, so nothing is tidied.";
+        }
+
+        return _retention.IsEnabled
+            ? $"Screenshots older than {RetentionDisplay} go to the recycle bin. The newest one is always kept, "
+                + "and anything you move out of the folder is never touched."
+            : "Screenshots are left alone, and the folder will grow for as long as you keep taking them.";
     }
 
     public string RecognitionProvider { get; }
@@ -1140,6 +1259,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IOcrEngineStatus ocrStatus,
         ScanHotkeyService hotkeys,
         IGroupSettingsStore groupSettings,
+        IScreenshotRetentionStore retentionSettings,
+        IRecycleBin recycleBin,
         UpdateService updates,
         UpdateInstaller installer,
         RuntimeOptions options,
@@ -1170,7 +1291,17 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         History = new(raidHistoryService);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Hideout = new(requirementCatalog, profileService, itemRepository);
-        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys, updates, installer);
+        Settings = new(
+            startupCoordinator,
+            options,
+            paths,
+            commandLine,
+            ocrStatus,
+            hotkeys,
+            retentionSettings,
+            recycleBin,
+            updates,
+            installer);
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
