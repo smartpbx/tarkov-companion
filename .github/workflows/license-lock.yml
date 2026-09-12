@@ -17,6 +17,7 @@ on:
       - 'TarkovCompanion.sln'
       - 'Directory.Packages.props'
       - 'scripts/audit-licenses.sh'
+      - '.github/workflows/license-lock.yml'
 
 permissions:
   contents: read
