@@ -30,12 +30,59 @@ public enum MapFeatureKind
 /// apply. A scav extract a PMC cannot take is worse than no marker, so this is not dropped.
 /// </param>
 /// <param name="Detail">A sentence for the tooltip, where there is more worth saying.</param>
+/// <summary>Who a map feature belongs to, where the upstream data says.</summary>
+/// <remarks>
+/// Taking the wrong extract is not possible, so which side an exit is for is the single most
+/// useful thing a map can say about it. The feed already carries this and it was being folded
+/// into a sentence nobody read, which is why every marker looked the same.
+/// </remarks>
+public enum MapFeatureFaction
+{
+    Unknown,
+    Pmc,
+    Scav,
+    Shared,
+}
+
 public sealed record MapFeature(
     MapFeatureKind Kind,
     string Name,
     WorldPosition Position,
     string? Faction = null,
-    string? Detail = null);
+    string? Detail = null)
+{
+    /// <summary>
+    /// <see cref="Faction"/> reduced to something that can be drawn.
+    /// </summary>
+    /// <remarks>
+    /// The upstream feed says it two different ways and both arrive here. An extract carries a
+    /// single word, lower case: "pmc", "scav" or "shared". A spawn carries its list of sides
+    /// joined together, so "Pmc, Scav" means either may start there and is the same claim that
+    /// "shared" makes for an exit. Reading both here means nothing downstream has to know that.
+    /// </remarks>
+    public MapFeatureFaction Side
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Faction))
+            {
+                return MapFeatureFaction.Unknown;
+            }
+
+            var pmc = Faction.Contains("pmc", StringComparison.OrdinalIgnoreCase);
+            var scav = Faction.Contains("scav", StringComparison.OrdinalIgnoreCase);
+            return (pmc, scav) switch
+            {
+                (true, true) => MapFeatureFaction.Shared,
+                (true, false) => MapFeatureFaction.Pmc,
+                (false, true) => MapFeatureFaction.Scav,
+                _ => Faction.Contains("shared", StringComparison.OrdinalIgnoreCase)
+                    ? MapFeatureFaction.Shared
+                    : MapFeatureFaction.Unknown,
+            };
+        }
+    }
+}
 
 /// <summary>Reads the fixed features of a map out of the local catalog.</summary>
 public interface IMapFeatureCatalog

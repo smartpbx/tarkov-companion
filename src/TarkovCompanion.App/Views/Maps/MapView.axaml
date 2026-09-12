@@ -225,11 +225,16 @@
                         Classes.transit="{Binding IsTransit}"
                         Classes.locked="{Binding IsLock}"
                         Classes.spawn="{Binding IsSpawn}"
+                        Classes.pmc="{Binding IsPmc}"
+                        Classes.scav="{Binding IsScav}"
+                        Classes.shared="{Binding IsShared}"
                         Classes.offered="{Binding IsOffered}"
                         Classes.highlighted="{Binding IsHighlighted}" />
                     <Path
                         Classes="markerGlyph"
                         Classes.transit="{Binding IsTransit}"
+                        Classes.scav="{Binding IsScav}"
+                        Classes.shared="{Binding IsShared}"
                         Data="{Binding Glyph}"
                         IsVisible="{Binding HasGlyph}" />
                   </Panel>

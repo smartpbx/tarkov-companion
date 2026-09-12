@@ -423,6 +423,39 @@
     <Setter Property="Width" Value="9" />
     <Setter Property="Height" Value="9" />
   </Style>
+  <!-- Which side a feature is for. Reported as "it doesn't distinguish scav vs player
+       extracts and spawns easily at all, they are all the same color and symbol", and they
+       were: the feed has carried the faction all along and no part of this project read it.
+
+       Placed after the kind rules and before offered/highlighted on purpose. Faction says
+       whose exit it is; being offered this raid says you can use it now, and that is the more
+       urgent fact, so it still wins the disc.
+
+       The glyph changes too, never the colour alone. Colour alone fails for a colourblind
+       player, and it fails for everyone at the zoom where a marker is twelve pixels wide. -->
+  <Style Selector="Ellipse.markerDisc.pmc">
+    <Setter Property="Fill" Value="{StaticResource CyanBrush}" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.scav">
+    <Setter Property="Fill" Value="{StaticResource OchreBrush}" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.shared">
+    <Setter Property="Fill" Value="{StaticResource SageBrush}" />
+  </Style>
+  <!-- A spawn is context rather than a target, so it keeps its small size and only takes the
+       colour; without these the faction fill above would override the size rules. -->
+  <Style Selector="Ellipse.markerDisc.spawn.pmc">
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.spawn.scav">
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+  </Style>
+  <Style Selector="Ellipse.markerDisc.spawn.shared">
+    <Setter Property="Width" Value="9" />
+    <Setter Property="Height" Value="9" />
+  </Style>
   <!-- The key's swatch for quest objectives, drawn in the colours the quest points use. -->
   <Style Selector="Ellipse.markerDisc.quest">
     <Setter Property="Fill" Value="{StaticResource CyanBrush}" />

@@ -55,7 +55,10 @@ public static class MapFeatureProjection
                 // The height is the floor filter's input, and a feature sits at one height
                 // rather than spanning a range.
                 MinimumHeight: feature.Position.Y,
-                MaximumHeight: feature.Position.Y));
+                MaximumHeight: feature.Position.Y)
+            {
+                Faction = feature.Side,
+            });
         }
 
         return elements;

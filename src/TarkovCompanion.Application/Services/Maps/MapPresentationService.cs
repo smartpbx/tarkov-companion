@@ -53,6 +53,13 @@ public sealed record MapOverlayElement(
     double? MinimumHeight = null,
     double? MaximumHeight = null)
 {
+    /// <summary>Which side this is for, so the map can draw it differently.</summary>
+    /// <remarks>
+    /// An init property rather than another positional parameter, because most elements are
+    /// not features and have nothing to say here.
+    /// </remarks>
+    public MapFeatureFaction Faction { get; init; } = MapFeatureFaction.Unknown;
+
     /// <summary>
     /// Whether this is one the player has actually been offered this raid.
     /// </summary>

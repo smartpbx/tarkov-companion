@@ -245,6 +245,26 @@ public sealed record MapOverlayElementViewModel(
 {
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
 
+    /// <summary>
+    /// Which side this feature is for, where the data says.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "it doesn't distinguish scav vs player extracts and spawns easily at all,
+    /// they are all the same color and symbol". They were: the feed has carried this all along
+    /// and the whole App project contained no reference to it.
+    ///
+    /// Both the colour and the glyph change, never colour alone. Colour alone fails for a
+    /// colourblind player, and it fails for everybody at the zoom where a marker is twelve
+    /// pixels across, which is most of the time.
+    /// </remarks>
+    public MapFeatureFaction Faction { get; init; } = MapFeatureFaction.Unknown;
+
+    public bool IsPmc => Faction == MapFeatureFaction.Pmc;
+
+    public bool IsScav => Faction == MapFeatureFaction.Scav;
+
+    public bool IsShared => Faction == MapFeatureFaction.Shared;
+
     /// <summary>The name as drawn, starred when it is one the player can use now.</summary>
     public string Label => IsOffered ? "★ " + Name : Name;
 
@@ -280,9 +300,21 @@ public sealed record MapOverlayElementViewModel(
     /// </remarks>
     public string? Glyph => Kind switch
     {
-        MapMarkerKind.Extract => "M 4,1.5 H 1.5 V 10.5 H 4 M 4.5,6 H 11 M 8.5,3.5 L 11,6 L 8.5,8.5",
+        // A doorway with an arrow through it, and the arrow's tail says who may use it: one
+        // stroke for a PMC exit, two for a scav one, a full bar for an exit either side can
+        // take. That reads at twelve pixels and it survives being printed in grey.
+        MapMarkerKind.Extract => Faction switch
+        {
+            MapFeatureFaction.Scav => "M 4,1.5 H 1.5 V 10.5 H 4 M 4.5,6 H 11 M 8.5,3.5 L 11,6 L 8.5,8.5 M 5.5,4 V 8 M 7,4 V 8",
+            MapFeatureFaction.Shared => "M 4,1.5 H 1.5 V 10.5 H 4 M 4.5,6 H 11 M 8.5,3.5 L 11,6 L 8.5,8.5 M 5.5,3.5 V 8.5",
+            _ => "M 4,1.5 H 1.5 V 10.5 H 4 M 4.5,6 H 11 M 8.5,3.5 L 11,6 L 8.5,8.5",
+        },
         MapMarkerKind.Transit => "M 2.5,2.5 L 6,6 L 2.5,9.5 M 6.5,2.5 L 10,6 L 6.5,9.5",
         MapMarkerKind.Lock => "M 3.5,5.5 V 4 A 2.5,2.5 0 0 1 8.5,4 V 5.5 M 2,5.5 H 10 V 10.5 H 2 Z",
+        // A spawn is context rather than a target, so it stays a plain dot and says who it is
+        // for with colour only. A shared spawn gets a ring, because "either side starts here"
+        // is worth seeing before a raid.
+        MapMarkerKind.Spawn when Faction == MapFeatureFaction.Shared => "M 6,2.5 A 3.5,3.5 0 1 1 5.99,2.5 Z",
         _ => null,
     };
 
@@ -298,11 +330,17 @@ public sealed record MapOverlayElementViewModel(
     /// </remarks>
     public bool IsNameQuiet => Kind is MapMarkerKind.Spawn or MapMarkerKind.Lock;
 
-    public string KindName => Kind switch
+    public string KindName => (Kind, Faction) switch
     {
-        MapMarkerKind.Extract => "Extract",
-        MapMarkerKind.Transit => "Transit to another map",
-        MapMarkerKind.Spawn => "Spawn",
+        (MapMarkerKind.Extract, MapFeatureFaction.Pmc) => "PMC extract",
+        (MapMarkerKind.Extract, MapFeatureFaction.Scav) => "Scav extract",
+        (MapMarkerKind.Extract, MapFeatureFaction.Shared) => "Extract, either side",
+        (MapMarkerKind.Extract, _) => "Extract",
+        (MapMarkerKind.Transit, _) => "Transit to another map",
+        (MapMarkerKind.Spawn, MapFeatureFaction.Pmc) => "PMC spawn",
+        (MapMarkerKind.Spawn, MapFeatureFaction.Scav) => "Scav spawn",
+        (MapMarkerKind.Spawn, MapFeatureFaction.Shared) => "Spawn, either side",
+        (MapMarkerKind.Spawn, _) => "Spawn",
         _ => "Locked door",
     };
 
@@ -1988,6 +2026,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 isOffered)
             {
                 Scale = _markerScale,
+                Faction = element.Faction,
             });
         }
 
