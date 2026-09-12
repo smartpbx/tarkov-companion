@@ -10,6 +10,7 @@ public sealed class MainWindowViewModelTests
     private static readonly string[] ExpectedDestinations =
     [
         "Raid",
+        "Squad",
         "Scanner",
         "Items",
         "Ammo",

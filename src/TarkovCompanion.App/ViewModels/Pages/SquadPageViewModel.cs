@@ -37,14 +37,8 @@ public sealed record SquadMemberViewModel(
     public bool HasNoGear => Gear.Count == 0;
 }
 
-/// <summary>One dogtag the player is carrying.</summary>
-/// <param name="Victim">Who the tag names, with their side and level where stated.</param>
-/// <param name="Killer">Who killed them.</param>
-/// <param name="When">When the kill happened, in the player's own time zone.</param>
-public sealed record DogtagViewModel(string Victim, string Killer, string When);
-
 /// <summary>
-/// The player's party, and the dogtags they are carrying.
+/// The player's party: who they are running with, and what those people are bringing.
 /// </summary>
 /// <remarks>
 /// These are other real people, so the boundary in docs/SAFETY.md decides what appears here.
@@ -52,8 +46,11 @@ public sealed record DogtagViewModel(string Victim, string Killer, string When);
 /// on its own party screen; this is the same list, on a second monitor, so it does not have to
 /// be alt-tabbed to. Numeric account and profile ids never reach this layer at all.
 ///
-/// Nothing here is ever transmitted, exported or written to a file. A squadmate's own looted
-/// dogtags are not read, because those name players this player never met.
+/// There is no kill list here, and there cannot be one. The only dogtags these logs contain
+/// sit inside squadmates' inventories, naming players this player never met, and the player's
+/// own inventory is never written at all. docs/research/EFT_LOG_FACTS.md records the counts.
+///
+/// Nothing here is ever transmitted, exported or written to a file.
 /// </remarks>
 public sealed class SquadPageViewModel : PageViewModel
 {
@@ -79,7 +76,6 @@ public sealed class SquadPageViewModel : PageViewModel
     private readonly IItemRepository _items;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private IReadOnlyList<SquadMemberViewModel> _members = [];
-    private IReadOnlyList<DogtagViewModel> _dogtags = [];
     private string _status = "No party observed. Group up in game and members appear here.";
     private string _queue = "No match has been queued from this party yet.";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
@@ -99,12 +95,6 @@ public sealed class SquadPageViewModel : PageViewModel
         private set => SetProperty(ref _members, value);
     }
 
-    public IReadOnlyList<DogtagViewModel> Dogtags
-    {
-        get => _dogtags;
-        private set => SetProperty(ref _dogtags, value);
-    }
-
     public string Status
     {
         get => _status;
@@ -120,10 +110,6 @@ public sealed class SquadPageViewModel : PageViewModel
     public bool HasMembers => Members.Count > 0;
 
     public bool HasNoMembers => Members.Count == 0;
-
-    public bool HasDogtags => Dogtags.Count > 0;
-
-    public bool HasNoDogtags => Dogtags.Count == 0;
 
     /// <summary>
     /// Renders the party from the latest runtime snapshot.
@@ -144,11 +130,8 @@ public sealed class SquadPageViewModel : PageViewModel
 
         _rendered = squad.UpdatedUtc;
         Members = squad.Members.Select(Describe).ToArray();
-        Dogtags = squad.Dogtags.Select(Describe).ToArray();
         OnPropertyChanged(nameof(HasMembers));
         OnPropertyChanged(nameof(HasNoMembers));
-        OnPropertyChanged(nameof(HasDogtags));
-        OnPropertyChanged(nameof(HasNoDogtags));
         Status = squad.Members.Count switch
         {
             0 => "No party observed. Group up in game and members appear here.",
@@ -165,17 +148,6 @@ public sealed class SquadPageViewModel : PageViewModel
         Evidence = $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
         _ = ResolveGearNamesAsync(squad);
     }
-
-    private static DogtagViewModel Describe(DogtagObservation dogtag) => new(
-        dogtag.VictimSide is { } side
-            ? dogtag.VictimLevel is { } level
-                ? string.Create(CultureInfo.CurrentCulture, $"{dogtag.VictimNickname} · {side} · level {level}")
-                : $"{dogtag.VictimNickname} · {side}"
-            : dogtag.VictimNickname,
-        dogtag.KillerNickname is { } killer ? $"Killed by {killer}" : "Killer not stated",
-        dogtag.KilledAt is { } killedAt
-            ? string.Create(CultureInfo.CurrentCulture, $"{killedAt.ToLocalTime():g}")
-            : "Time of death not stated");
 
     private SquadMemberViewModel Describe(GroupMember member) => new(
         member.Nickname ?? "Unnamed member",

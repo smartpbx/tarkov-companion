@@ -67,16 +67,6 @@ public sealed class GroupNotificationParserTests
         "_id":"ID_2","aid":9041989,"Info":{"Nickname":"PLAYER_A","Side":"Bear","Level":24}}}]
         """);
 
-    private static readonly string EquipmentItemsWithDogtag = OneLine("""
-        [{"_id":"ID_6","_tpl":"55d7217a4bdc2d86028b456d"},
-        {"_id":"ID_5","_tpl":"6a354a30652075cf460944c6","parentId":"ID_6","slotId":"main",
-        "upd":{"SpawnedInSession":true,"Dogtag":{
-        "AccountId":"ID_7","ProfileId":"ID_8","Nickname":"VICTIM_NAME","Side":"Bear","Level":23,
-        "Time":"2026-09-11T03:25:09.419+03:00","Status":"Killed by",
-        "KillerAccountId":"ID_9","KillerProfileId":"ID_10","KillerName":"KILLER_NAME",
-        "WeaponName":"59ff346386f77477562ff5e2 ShortName","CarriedByGroupMember":false}}}]
-        """);
-
     /// <summary>A squadmate whose own loadout contains a dogtag they looted.</summary>
     private static readonly string RaidReadyLineWithSquadmateDogtag = Line("groupMatchRaidReady", """
         [{"type":"groupMatchRaidReady","eventId":"ID_1","extendedProfile":{
@@ -250,80 +240,17 @@ public sealed class GroupNotificationParserTests
     }
 
     [Fact]
-    public void ReadsALootedDogtagOutOfAnEquipmentItemsArray()
-    {
-        using var document = JsonDocument.Parse(EquipmentItemsWithDogtag);
-
-        var dogtag = Assert.Single(GroupNotificationParser.ReadDogtags(document.RootElement));
-
-        Assert.Equal("VICTIM_NAME", dogtag.VictimNickname);
-        Assert.Equal("Bear", dogtag.VictimSide);
-        Assert.Equal(23, dogtag.VictimLevel);
-        Assert.Equal("KILLER_NAME", dogtag.KillerNickname);
-        Assert.False(dogtag.CarriedByGroupMember);
-        Assert.Equal("ID_5", dogtag.SourceItemId);
-    }
-
-    [Fact]
-    public void KeepsTheMoscowOffsetOnADogtagRatherThanReadingItAsLocalTime()
-    {
-        using var document = JsonDocument.Parse(EquipmentItemsWithDogtag);
-
-        var dogtag = Assert.Single(GroupNotificationParser.ReadDogtags(document.RootElement));
-
-        Assert.NotNull(dogtag.KilledAt);
-        Assert.Equal(
-            new DateTimeOffset(2026, 9, 11, 3, 25, 9, 419, TimeSpan.FromHours(3)),
-            dogtag.KilledAt);
-
-        // DateTimeOffset equality compares instants, so the offset itself is asserted
-        // separately: it is what proves the timestamp was not read as a local wall clock.
-        Assert.Equal(TimeSpan.FromHours(3), dogtag.KilledAt.Value.Offset);
-    }
-
-    [Fact]
-    public void ExposesTheWeaponAsATemplateIdAndNeverAsAName()
-    {
-        // The game writes "<template id> ShortName", an unresolved localisation key. Showing
-        // that string to a player would show them the key; the id is what a caller resolves.
-        using var document = JsonDocument.Parse(EquipmentItemsWithDogtag);
-
-        var dogtag = Assert.Single(GroupNotificationParser.ReadDogtags(document.RootElement));
-
-        Assert.Equal("59ff346386f77477562ff5e2", dogtag.WeaponTemplateId);
-        Assert.DoesNotContain("ShortName", dogtag.WeaponTemplateId, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ReadsADogtagFromASingleItemAsWellAsFromAWholeArray()
-    {
-        using var document = JsonDocument.Parse(EquipmentItemsWithDogtag);
-        var item = document.RootElement[1];
-
-        var dogtag = Assert.Single(GroupNotificationParser.ReadDogtags(item));
-
-        Assert.Equal("VICTIM_NAME", dogtag.VictimNickname);
-    }
-
-    [Fact]
-    public void FindsNoDogtagsInAnOrdinaryLoadout()
-    {
-        using var document = JsonDocument.Parse("""
-            [{"_id":"ID_3","_tpl":"55d7217a4bdc2d86028b456d"},
-            {"_id":"ID_4","_tpl":"59ff346386f77477562ff5e2","parentId":"ID_3","slotId":"FirstPrimaryWeapon",
-            "upd":{"Repairable":{"MaxDurability":93.58,"Durability":92.95}}}]
-            """);
-
-        Assert.Empty(GroupNotificationParser.ReadDogtags(document.RootElement));
-    }
-
-    [Fact]
     public void NeverHarvestsDogtagsOutOfASquadmatesLoadout()
     {
         // A squadmate's dogtags name players the reader never met, which docs/SAFETY.md puts
         // out of bounds. The dogtag item still appears in the loadout as an ordinary item,
         // because the game shows the reader what their squad is carrying; what it must not
         // carry is the names printed inside it.
+        //
+        // There is no code left that can read those names, and this is what keeps it that
+        // way: the reader that could was removed once it was established that the player's
+        // own inventory is never written to these logs, so every dogtag they contain belongs
+        // to somebody else.
         var observation = GroupNotificationParser.ParseLine(RaidReadyLineWithSquadmateDogtag, Observed);
 
         Assert.NotNull(observation);

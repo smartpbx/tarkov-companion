@@ -110,50 +110,6 @@ public sealed record GroupMember(
 }
 
 /// <summary>
-/// A dogtag looted from a body, as the item itself records it.
-/// </summary>
-/// <remarks>
-/// This describes a player the reader has not necessarily met, so it may only be read from an
-/// inventory the player owns: the dogtag they are carrying prints these names on its face in
-/// game, which is what makes it theirs to see. Reading the same structure out of somebody
-/// else's inventory would describe a player the reader never encountered, and is out of
-/// bounds. Nothing here is ever transmitted or written into an exported file.
-///
-/// The victim's and killer's account and profile ids are all present in the source and
-/// deliberately not carried here. Nicknames are what the item shows; the numeric ids are what
-/// would let records be joined across raids into a picture of somebody, which is the line
-/// this project does not cross.
-/// </remarks>
-/// <param name="VictimNickname">The dead player's nickname, as printed on the tag.</param>
-/// <param name="VictimSide">Bear or Usec, verbatim from the game.</param>
-/// <param name="VictimLevel">The dead player's level at the time.</param>
-/// <param name="KillerNickname">Who killed them, which is usually but not always the reader.</param>
-/// <param name="KilledAt">
-/// When the kill happened, as an instant. The game writes this with a +03:00 offset rather
-/// than in the reader's time zone, so it is kept as a <see cref="DateTimeOffset"/> and
-/// converted for display rather than being read as a local wall clock.
-/// </param>
-/// <param name="WeaponTemplateId">
-/// The template id of the weapon used, or null when the game stated something that was not a
-/// template id. The game writes this field as an unresolved localisation key, not a name, so
-/// a caller resolves the id against synced item data; there is no weapon name to display here.
-/// </param>
-/// <param name="CarriedByGroupMember">The game's own flag, passed through unchanged.</param>
-/// <param name="SourceItemId">
-/// The inventory item id the tag came from, when stated. It is the natural key for keeping one
-/// entry per tag while the same inventory is restated over and over.
-/// </param>
-public sealed record DogtagObservation(
-    string VictimNickname,
-    string? VictimSide,
-    int? VictimLevel,
-    string? KillerNickname,
-    DateTimeOffset? KilledAt,
-    string? WeaponTemplateId,
-    bool CarriedByGroupMember,
-    string? SourceItemId = null);
-
-/// <summary>
 /// One group notification, read into the smallest form the product needs.
 /// </summary>
 /// <remarks>
@@ -192,20 +148,51 @@ public sealed record GroupObservation(
 /// is the point at which the companion stops knowing who is still there.
 /// </remarks>
 /// <param name="Members">Everyone currently in the party, leader first.</param>
-/// <param name="Dogtags">Dogtags the player is carrying, newest kill first.</param>
 /// <param name="MatchStartedUtc">When the party last entered matchmaking together.</param>
 /// <param name="QueueEstimate">The queue time the game predicted for that match.</param>
 /// <param name="UpdatedUtc">When any of this last changed.</param>
 public sealed record SquadSnapshot(
     IReadOnlyList<GroupMember> Members,
-    IReadOnlyList<DogtagObservation> Dogtags,
     DateTimeOffset? MatchStartedUtc,
     TimeSpan? QueueEstimate,
     DateTimeOffset UpdatedUtc)
 {
     /// <summary>No party observed yet, which is the state before and between raids.</summary>
     public static SquadSnapshot Empty { get; } =
-        new([], [], null, null, DateTimeOffset.UnixEpoch);
+        new([], null, null, DateTimeOffset.UnixEpoch);
 
     public bool HasMembers => Members.Count > 0;
+}
+
+/// <summary>
+/// A flea market offer the game says has sold.
+/// </summary>
+/// <remarks>
+/// The game posts one of these while the player is in the lobby or in a raid, which is
+/// precisely when they cannot see the message. Showing it on a second monitor is the whole
+/// point of the feature.
+///
+/// Only what the notification states is carried. There is no price or currency field in it,
+/// so no revenue figure is offered and none is estimated from cached prices: that would be a
+/// guess presented as a receipt.
+/// </remarks>
+/// <param name="OfferId">The game's own id for the offer, used to keep one row per sale.</param>
+/// <param name="HandbookItemId">
+/// The item that sold, as an id rather than a name. Whether it resolves against synced item
+/// data is not assumed; a caller that cannot resolve it says so rather than inventing a name.
+/// </param>
+/// <param name="Count">How many sold.</param>
+/// <param name="ObservedUtc">When the line was read, not when the sale happened.</param>
+public sealed record FleaSaleObservation(
+    string OfferId,
+    string? HandbookItemId,
+    int Count,
+    DateTimeOffset ObservedUtc);
+
+/// <summary>Flea sales seen this session, newest first.</summary>
+/// <param name="Sales">Every sale observed, at most one row per offer.</param>
+/// <param name="UpdatedUtc">When the list last changed.</param>
+public sealed record FleaSalesSnapshot(IReadOnlyList<FleaSaleObservation> Sales, DateTimeOffset UpdatedUtc)
+{
+    public static FleaSalesSnapshot Empty { get; } = new([], DateTimeOffset.UnixEpoch);
 }

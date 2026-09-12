@@ -107,6 +107,9 @@ public sealed record ApplicationRuntimeSnapshot(
 
     /// <summary>The player's party, as the game's own group notifications describe it.</summary>
     public SquadSnapshot Squad { get; init; } = SquadSnapshot.Empty;
+
+    /// <summary>Flea offers the game reported as sold since the companion started.</summary>
+    public FleaSalesSnapshot FleaSales { get; init; } = FleaSalesSnapshot.Empty;
 }
 
 public interface IRuntimeStateStore

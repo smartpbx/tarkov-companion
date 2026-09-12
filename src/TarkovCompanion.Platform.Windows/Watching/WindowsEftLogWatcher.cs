@@ -7,7 +7,7 @@ namespace TarkovCompanion.Platform.Windows.Watching;
 
 public sealed class WindowsEftLogWatcher(
     EftLogParser parser,
-    IGroupObservationSink? groupSink = null,
+    IEftLogObserver? observer = null,
     TimeProvider? timeProvider = null) : IEftLogWatcher
 {
     /// <summary>
@@ -93,14 +93,24 @@ public sealed class WindowsEftLogWatcher(
                         yield return evidence;
                     }
 
-                    // The party arrives on the same lines as the raid but describes something
-                    // else, so it goes to its own sink rather than through raid evidence. The
-                    // parser rejects non-group lines on one substring scan, so this costs
-                    // almost nothing on the lines that are not about the party.
-                    if (groupSink is not null &&
-                        GroupNotificationParser.ParseLine(line, observedUtc) is { } group)
+                    // The party and the flea arrive on the same lines as the raid but describe
+                    // something else, so they go to their own observer rather than through
+                    // raid evidence. Each parser rejects lines that are not its own on a
+                    // single substring scan, so this costs almost nothing on the vast
+                    // majority of lines, which are neither.
+                    if (observer is null)
                     {
-                        groupSink.Observe(group);
+                        continue;
+                    }
+
+                    if (GroupNotificationParser.ParseLine(line, observedUtc) is { } group)
+                    {
+                        observer.Observe(group);
+                    }
+
+                    if (FleaSaleParser.ParseLine(line, observedUtc) is { } sale)
+                    {
+                        observer.Observe(sale);
                     }
                 }
             }

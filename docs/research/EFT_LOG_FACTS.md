@@ -70,8 +70,27 @@ outcome, and that is correct rather than a gap. Duration is still derivable from
 stack frame, and the only literal quest strings are two UI settings echoes. Quest tracking
 stays local-first and manual, as ADR 0004 already specifies.
 
-**Flea sales.** Only HTTP request and response logging for `ragfair` endpoints, with timing.
-No sale or offer outcome.
+**Flea sales are present, and an earlier entry here was wrong.** This note previously said
+only `ragfair` HTTP traffic existed and no sale outcome. That came from searching for the
+phrase "offer sold", which never appears; the notification type is one word. There are 52
+`RagfairOfferSold` notifications, carrying `offerId`, `handbookId` and `count`. So which item
+sold and how many is recoverable. No price or currency field is present, so revenue is not.
+
+**The player's own inventory.** Measured across 1390 notification lines in the six newest log
+folders. 182 carry a top-level lowercase `profileid`, which is the marker that a notification
+is the signed-in player's own; not one of those also carries an `Items` array or a `Dogtag`
+object. Ten lines contain a `Dogtag`, and not one of those carries `profileid`. Every shape
+that carries an inventory hangs it under `extendedProfile`, which is the squadmate envelope.
+
+The split is structural rather than incidental, and it settles a feature: there is no kill
+list to build. The only dogtags in these files are inside other people's bags, naming players
+this player never met, which `docs/SAFETY.md` puts out of bounds. The reader that could have
+parsed them has been removed rather than left to be pointed at the wrong inventory later.
+
+A caution on method, because the first pass got this wrong: a case-insensitive search for
+`profileid` also matches `ProfileId` and `KillerProfileId` inside dogtag objects, which makes
+squadmate blobs look like they carry the player's own marker. The distinction is case
+sensitive.
 
 **Scav cooldown.** `SavageLockTime` appears only inside group-notification blobs describing
 *other* players, so it is read as a squadmate's own fact and never as the player's.

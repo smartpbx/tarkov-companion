@@ -58,37 +58,23 @@
       </Border>
 
       <Border Grid.Column="1" Classes="panel" Padding="15">
-        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
-          <TextBlock Classes="sectionTitle" Text="Dogtags you are carrying" />
+        <StackPanel Spacing="10">
+          <TextBlock Classes="sectionTitle" Text="What is not here" />
           <TextBlock
-              Grid.Row="1"
               Classes="label"
               TextWrapping="Wrap"
-              Text="Only tags in your own bag. A squadmate's tags name players you never met, so they are not read." />
-          <ScrollViewer Grid.Row="2">
-            <StackPanel Spacing="0">
-              <TextBlock
-                  Classes="label"
-                  IsVisible="{Binding HasNoDogtags}"
-                  TextWrapping="Wrap"
-                  Text="No dogtags observed." />
-              <ItemsControl ItemsSource="{Binding Dogtags}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:DogtagViewModel">
-                    <Border Classes="inset" Margin="0,0,0,6" Padding="10">
-                      <StackPanel Spacing="3">
-                        <TextBlock Text="{Binding Victim}" TextWrapping="Wrap" />
-                        <TextBlock Classes="label" Text="{Binding Killer}" TextWrapping="Wrap" />
-                        <TextBlock Classes="label" Text="{Binding When}" />
-                      </StackPanel>
-                    </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </ScrollViewer>
-        </Grid>
+              Text="There is no kill list, and there cannot be one. The game never writes your own inventory to its logs, so the dogtags you are carrying are not readable at all." />
+          <TextBlock
+              Classes="label"
+              TextWrapping="Wrap"
+              Text="The only dogtags the logs contain sit inside your squadmates' bags. Those name players you never met, so they are left unread." />
+          <TextBlock
+              Classes="label"
+              TextWrapping="Wrap"
+              Text="Everything above comes from the party notifications the game writes while you are in the lobby. None of it leaves this machine." />
+        </StackPanel>
       </Border>
+
     </Grid>
   </Grid>
 </UserControl>

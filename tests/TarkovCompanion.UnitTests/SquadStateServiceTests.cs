@@ -103,30 +103,6 @@ public sealed class SquadStateServiceTests
         Assert.Equal(TimeSpan.FromSeconds(90), snapshot.QueueEstimate);
     }
 
-    /// <summary>
-    /// The same inventory is restated constantly, so a tag must not multiply.
-    /// </summary>
-    [Fact]
-    public void KeepsOneRowPerDogtag()
-    {
-        var service = new SquadStateService();
-        var dogtag = new DogtagObservation(
-            "Vagrant",
-            "Usec",
-            31,
-            "Kestrel",
-            Observed,
-            WeaponTemplateId: null,
-            CarriedByGroupMember: false,
-            SourceItemId: "item-1");
-
-        service.ApplyDogtags([dogtag], Observed);
-        service.ApplyDogtags([dogtag], Observed.AddSeconds(30));
-
-        var recorded = Assert.Single(service.Current.Dogtags);
-        Assert.Equal("Vagrant", recorded.VictimNickname);
-    }
-
     [Fact]
     public void ForgetsThePartyWhenObservationRestarts()
     {

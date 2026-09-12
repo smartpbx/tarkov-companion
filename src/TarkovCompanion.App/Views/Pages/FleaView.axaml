@@ -39,7 +39,28 @@
         </ListBox.ItemTemplate>
       </ListBox>
 
-      <Border Grid.Column="1" Classes="panel" Padding="15">
+      <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12">
+      <Border Classes="panel" Padding="15">
+        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+          <TextBlock Classes="sectionTitle" Text="Sold while you were playing" />
+          <TextBlock Grid.Row="1" Classes="label" Text="{Binding SalesStatus}" TextWrapping="Wrap" />
+          <ItemsControl Grid.Row="2" IsVisible="{Binding HasSales}" ItemsSource="{Binding Sales}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FleaSaleViewModel">
+                <Border Classes="inset" Margin="0,0,0,6" Padding="9">
+                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock Text="{Binding Item}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Classes="metric ochre" FontSize="13" Text="{Binding Quantity}" />
+                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Observed}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Grid>
+      </Border>
+
+      <Border Grid.Row="1" Classes="panel" Padding="15">
         <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
           <TextBlock Classes="sectionTitle" Text="Local observations" />
           <TextBlock Grid.Row="1" Classes="label" Text="{Binding HistoryStatus}" TextWrapping="Wrap" />
@@ -62,6 +83,7 @@
           </ScrollViewer>
         </Grid>
       </Border>
+      </Grid>
     </Grid>
   </Grid>
 </UserControl>

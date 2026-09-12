@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -30,16 +29,6 @@ public static class GroupNotificationParser
     /// before any JSON work happens.
     /// </summary>
     private const string GroupTypeMarker = "groupMatch";
-
-    /// <summary>
-    /// The literal the game appends to the weapon field of a dogtag.
-    /// </summary>
-    /// <remarks>
-    /// The game writes "&lt;template id&gt; ShortName": a localisation key it never resolved.
-    /// The part before the suffix is the template id, and the suffix is the proof that the
-    /// value is an id rather than a display name.
-    /// </remarks>
-    private const string UnresolvedNameSuffix = " ShortName";
 
     /// <summary>The largest queue estimate that is worth believing, in seconds.</summary>
     private const double MaxQueueSeconds = 86_400;
@@ -93,56 +82,6 @@ public static class GroupNotificationParser
         {
             return ReadPayload(document.RootElement, observedUtc.ToUniversalTime());
         }
-    }
-
-    /// <summary>
-    /// Reads every looted dogtag out of an inventory.
-    /// </summary>
-    /// <remarks>
-    /// Deliberately separate from <see cref="ParseLine"/>, and deliberately not called by it.
-    /// A dogtag names a player the reader may never have met, and it is only theirs to see
-    /// because they are carrying the item; harvesting the same structure out of a squadmate's
-    /// inventory would describe players the reader never encountered. So this takes an
-    /// inventory and asks no questions about whose it is, and the one caller allowed to hand
-    /// it anything is the one holding the player's own.
-    ///
-    /// A dogtag is an ordinary item that happens to carry a "Dogtag" object inside its "upd"
-    /// block, so detection is by that block rather than by template id, which changes between
-    /// factions and wipes.
-    /// </remarks>
-    /// <param name="itemOrItems">
-    /// Either a whole inventory "Items" array or a single item object from one. The array is
-    /// flat, so no descent is needed.
-    /// </param>
-    /// <returns>Every dogtag found, in the order the inventory listed them.</returns>
-    public static IReadOnlyList<DogtagObservation> ReadDogtags(JsonElement itemOrItems)
-    {
-        if (itemOrItems.ValueKind == JsonValueKind.Object)
-        {
-            var single = ReadDogtag(itemOrItems);
-            if (single is null)
-            {
-                return [];
-            }
-
-            return [single];
-        }
-
-        if (itemOrItems.ValueKind != JsonValueKind.Array)
-        {
-            return [];
-        }
-
-        var found = new List<DogtagObservation>();
-        foreach (var item in itemOrItems.EnumerateArray())
-        {
-            if (ReadDogtag(item) is { } dogtag)
-            {
-                found.Add(dogtag);
-            }
-        }
-
-        return found;
     }
 
     private static GroupObservation? ReadPayload(JsonElement root, DateTimeOffset observedUtc)
@@ -316,52 +255,6 @@ public static class GroupNotificationParser
         return loadout;
     }
 
-    private static DogtagObservation? ReadDogtag(JsonElement item)
-    {
-        if (!TryGetObject(item, "upd", out var upd) || !TryGetObject(upd, "Dogtag", out var dogtag))
-        {
-            return null;
-        }
-
-        // A tag with no name on it identifies nobody and is worth nothing to show. Dropping it
-        // is also what keeps the record from ever being rendered against the wrong person.
-        var victim = ReadText(dogtag, "Nickname");
-        if (string.IsNullOrWhiteSpace(victim))
-        {
-            return null;
-        }
-
-        return new DogtagObservation(
-            victim,
-            ReadText(dogtag, "Side"),
-            ReadInt32(dogtag, "Level"),
-            ReadText(dogtag, "KillerName"),
-            ReadTimestamp(dogtag, "Time"),
-            ReadTemplateIdFromUnresolvedName(dogtag, "WeaponName"),
-            ReadBool(dogtag, "CarriedByGroupMember") ?? false,
-            ReadText(item, "_id"));
-    }
-
-    /// <summary>
-    /// Recovers the template id the game left inside an unresolved localisation key.
-    /// </summary>
-    /// <remarks>
-    /// Returns null when the suffix is absent, because then the value is not demonstrably a
-    /// template id, and handing a caller a display name through a field named for an id would
-    /// have them look it up and find nothing.
-    /// </remarks>
-    private static string? ReadTemplateIdFromUnresolvedName(JsonElement element, string property)
-    {
-        var stated = ReadText(element, property);
-        if (stated is null || !stated.EndsWith(UnresolvedNameSuffix, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var templateId = stated[..^UnresolvedNameSuffix.Length].Trim();
-        return templateId.Length == 0 ? null : templateId;
-    }
-
     /// <summary>Reads a Unix-seconds field as an instant, treating 0 as "no lock".</summary>
     private static DateTimeOffset? ReadUnixSeconds(JsonElement element, string property)
     {
@@ -370,24 +263,6 @@ public static class GroupNotificationParser
             ? DateTimeOffset.FromUnixTimeSeconds(seconds.Value)
             : null;
     }
-
-    /// <summary>
-    /// Reads an ISO 8601 timestamp, keeping the offset the game stated.
-    /// </summary>
-    /// <remarks>
-    /// The game writes these with a +03:00 offset, which is Moscow rather than the reader's
-    /// time zone. Parsing as <see cref="DateTimeOffset"/> keeps the instant exact and leaves
-    /// the conversion to display where it belongs; reading it as a local wall clock would move
-    /// every kill by hours.
-    /// </remarks>
-    private static DateTimeOffset? ReadTimestamp(JsonElement element, string property) =>
-        DateTimeOffset.TryParse(
-            ReadText(element, property),
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out var value)
-            ? value
-            : null;
 
     private static bool TryGetObject(JsonElement element, string property, out JsonElement value)
     {

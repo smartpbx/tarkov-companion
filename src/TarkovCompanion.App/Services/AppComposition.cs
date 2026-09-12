@@ -254,7 +254,8 @@ public static class AppComposition
         services.AddSingleton<IScreenshotFilenameParser, ScreenshotFilenameParser>();
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
-        services.AddSingleton<IGroupObservationSink>(provider => provider.GetRequiredService<SquadStateService>());
+        services.AddSingleton<FleaSaleStateService>();
+        services.AddSingleton<IEftLogObserver, EftLogObservers>();
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();

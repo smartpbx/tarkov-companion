@@ -32,6 +32,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotFilenameParser _filenameParser;
     private readonly RaidActivityCoordinator _coordinator;
     private readonly SquadStateService _squad;
+    private readonly FleaSaleStateService _fleaSales;
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly ILogger<RaidObservationService> _logger;
@@ -48,6 +49,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         IScreenshotFilenameParser filenameParser,
         RaidActivityCoordinator coordinator,
         SquadStateService squad,
+        FleaSaleStateService fleaSales,
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
         ILogger<RaidObservationService> logger)
@@ -58,6 +60,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _filenameParser = filenameParser;
         _coordinator = coordinator;
         _squad = squad;
+        _fleaSales = fleaSales;
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
@@ -146,9 +149,10 @@ public sealed class RaidObservationService : IAsyncDisposable
             }
 
             Interlocked.Exchange(ref _eventsSeen, 0);
-            // A new watching session means a new game session, and the party from the last one
-            // is no longer known to be standing there.
+            // A new watching session means a new game session, and neither the party from the
+            // last one nor its sales belong to this one.
             PublishSquad(_squad.Clear());
+            PublishFleaSales(_fleaSales.Clear());
             _watching = paths;
             PublishWatching();
             _logger.LogInformation(
@@ -162,7 +166,7 @@ public sealed class RaidObservationService : IAsyncDisposable
             if (paths.LogRoot is not null)
             {
                 watchers.Add(WatchLogsAsync(paths.LogRoot, session.Token));
-                watchers.Add(PublishSquadAsync(session.Token));
+                watchers.Add(PublishObservationsAsync(session.Token));
             }
 
             if (paths.ScreenshotRoot is not null)
@@ -223,7 +227,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         }
     }
 
-    /// <summary>How often the party is copied into runtime state.</summary>
+    /// <summary>How often the party and the sale list are copied into runtime state.</summary>
     /// <remarks>
     /// The party is deliberately not published as its own notifications arrive. A readiness
     /// toggle republishes every member with their whole inventory, so they land in bursts of
@@ -233,29 +237,36 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// </remarks>
     private static readonly TimeSpan SquadPublishInterval = TimeSpan.FromSeconds(2);
 
-    private async Task PublishSquadAsync(CancellationToken cancellationToken)
+    private async Task PublishObservationsAsync(CancellationToken cancellationToken)
     {
-        var published = _squad.Current.UpdatedUtc;
+        var publishedSquad = _squad.Current.UpdatedUtc;
+        var publishedSales = _fleaSales.Current.UpdatedUtc;
         while (!cancellationToken.IsCancellationRequested)
         {
             await DelayAsync(SquadPublishInterval, cancellationToken).ConfigureAwait(false);
             var squad = _squad.Current;
-            if (squad.UpdatedUtc == published)
+            if (squad.UpdatedUtc != publishedSquad)
             {
-                continue;
+                publishedSquad = squad.UpdatedUtc;
+                PublishSquad(squad);
+                _logger.LogInformation("The party now has {Members} member(s).", squad.Members.Count);
             }
 
-            published = squad.UpdatedUtc;
-            PublishSquad(squad);
-            _logger.LogInformation(
-                "The party now has {Members} member(s) and {Dogtags} dogtag(s).",
-                squad.Members.Count,
-                squad.Dogtags.Count);
+            var sales = _fleaSales.Current;
+            if (sales.UpdatedUtc != publishedSales)
+            {
+                publishedSales = sales.UpdatedUtc;
+                PublishFleaSales(sales);
+                _logger.LogInformation("{Sales} flea sale(s) observed this session.", sales.Sales.Count);
+            }
         }
     }
 
     private void PublishSquad(SquadSnapshot squad) =>
         _stateStore.Update(current => current with { Squad = squad });
+
+    private void PublishFleaSales(FleaSalesSnapshot sales) =>
+        _stateStore.Update(current => current with { FleaSales = sales });
 
     private async Task WatchScreenshotsAsync(string screenshotRoot, CancellationToken cancellationToken)
     {

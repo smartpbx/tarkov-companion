@@ -103,12 +103,15 @@ public sealed class RaidObservationServiceTests
                 new StubFilenameParser(),
                 coordinator,
                 Squad,
+                FleaSales,
                 Store,
                 options,
                 NullLogger<RaidObservationService>.Instance);
         }
 
         public SquadStateService Squad { get; } = new();
+
+        public FleaSaleStateService FleaSales { get; } = new();
 
         public RuntimeStateStore Store { get; }
 
