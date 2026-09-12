@@ -97,6 +97,29 @@
       <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
+    <!-- Controls that sit on top of the map.
+         Translucent rather than opaque so the map is still readable underneath, and darker
+         than the panels elsewhere so they read as floating above the artwork rather than as
+         holes cut in it. -->
+    <Style Selector="Border.floating">
+      <Setter Property="Background" Value="#E014191F" />
+      <Setter Property="BorderBrush" Value="#4A5865" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="Expander.floating">
+      <Setter Property="Background" Value="#E014191F" />
+      <Setter Property="BorderBrush" Value="#4A5865" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style Selector="Expander.floating /template/ ToggleButton">
+      <Setter Property="MinHeight" Value="0" />
+      <Setter Property="Padding" Value="10,6" />
+    </Style>
+
     <!-- Layer chips: one object per layer, the name toggles it, the target highlights it -->
     <Style Selector="Border.chip">
       <Setter Property="Background" Value="#1A212A" />

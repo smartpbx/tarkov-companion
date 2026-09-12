@@ -111,6 +111,16 @@ public sealed record StatusChip(string Label, string Value, string Evidence, str
 
 public abstract class PageViewModel(string title, string description, string evidence) : BindableViewModel
 {
+    /// <summary>
+    /// Whether the shell draws its title block above this page.
+    /// </summary>
+    /// <remarks>
+    /// A page that is mostly one large picture wants the height more than it wants a heading
+    /// that repeats what the picture already says. The map page names the current map on the
+    /// map itself, so the shell's copy of it was eighty pixels spent saying it twice.
+    /// </remarks>
+    public virtual bool ShowsPageHeader => true;
+
     private string _title = title;
     private string _description = description;
     private string _evidence = evidence;
@@ -136,6 +146,13 @@ public abstract class PageViewModel(string title, string description, string evi
 
 public sealed class RaidPageViewModel : PageViewModel
 {
+    /// <inheritdoc />
+    /// <remarks>
+    /// The map is the page. Everything the header would have said is either on the map or in
+    /// the status chips along the top of the window.
+    /// </remarks>
+    public override bool ShowsPageHeader => false;
+
     private readonly IRaidHistoryService? _raidHistoryService;
     private readonly List<string> _scannedThisRaid = [];
     private string _raidState = "No raid evidence";
@@ -858,6 +875,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private IReadOnlyList<StatusChip> _status = [];
     private string _modeLabel = "External read-only companion";
     private string _lastScanName = "No item scanned";
+    private bool _hasScan;
     private string _lastScanValue = "Unavailable";
     private string _lastScanAdvice = "No recommendation without observed evidence.";
     private string _lastScanEvidence = "No scan evidence";
@@ -993,6 +1011,28 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         get => _lastScanName;
         private set => SetProperty(ref _lastScanName, value);
     }
+
+    /// <summary>
+    /// Whether a scan has actually produced a result to read.
+    /// </summary>
+    /// <remarks>
+    /// Drives the scan readout between its one-line resting state and its full one. Before the
+    /// first scan the detailed readout has nothing in it but the words "no item scanned", and
+    /// the height it occupies is worth more to the map.
+    /// </remarks>
+    public bool HasScan
+    {
+        get => _hasScan;
+        private set
+        {
+            if (SetProperty(ref _hasScan, value))
+            {
+                OnPropertyChanged(nameof(HasNoScan));
+            }
+        }
+    }
+
+    public bool HasNoScan => !HasScan;
 
     public string LastScanValue
     {
@@ -1206,6 +1246,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The map's own marker comes straight off the raid snapshot, so a screenshot taken
         // mid-raid appears without the player having to touch the map page.
         Map.ShowPlayer(snapshot.Raid.LastKnownPosition);
+        HasScan = snapshot.Scan.Succeeded;
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value
             ? $"{value:N0} ₽ · {snapshot.Scan.ValuePerSlotRoubles.GetValueOrDefault():N0} ₽ per slot"

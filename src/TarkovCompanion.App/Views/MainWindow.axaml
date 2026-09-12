@@ -57,7 +57,7 @@
     </DataTemplate>
   </Window.DataTemplates>
 
-  <Grid RowDefinitions="76,*,110" ColumnDefinitions="184,*,334">
+  <Grid RowDefinitions="76,*,Auto" ColumnDefinitions="184,*,334">
     <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,0,1">
       <Grid ColumnDefinitions="184,*,Auto" Margin="16,0">
         <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
@@ -120,9 +120,11 @@
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="70,*" Margin="16,10,16,14">
-      <Grid Margin="2,0,2,10" ColumnDefinitions="*,Auto">
-        <StackPanel VerticalAlignment="Center" Spacing="2">
+    <!-- The header row is Auto rather than a fixed height so that a page which declines it
+         gives the height back to the page instead of leaving a gap. -->
+    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="Auto,*" Margin="16,10,16,12">
+      <Grid Margin="2,0,2,10" ColumnDefinitions="*,Auto" IsVisible="{Binding CurrentPage.ShowsPageHeader}">
+        <StackPanel VerticalAlignment="Center" Spacing="2" MinHeight="60">
           <TextBlock FontSize="23" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding CurrentPage.Title}" />
           <TextBlock Classes="label" Text="{Binding CurrentPage.Description}" />
         </StackPanel>
@@ -133,27 +135,40 @@
       <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
     </Grid>
 
-    <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="18,12">
-      <Grid ColumnDefinitions="184,260,*,300">
-        <StackPanel Grid.Column="0" Spacing="3">
-          <TextBlock Classes="label" Text="Last observed scan" />
-          <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding LastScanName}" />
-        </StackPanel>
-        <StackPanel Grid.Column="1" Spacing="3">
-          <TextBlock Classes="label" Text="Economy" />
-          <TextBlock Foreground="#C6A15B" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanValue}" />
-        </StackPanel>
-        <StackPanel Grid.Column="2" Spacing="3" Margin="16,0">
-          <TextBlock Classes="label" Text="Recommendation and reason" />
-          <TextBlock Foreground="#77B895" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanAdvice}" />
-          <TextBlock Foreground="#71808C" FontSize="11" Text="{Binding LastScanEvidence}" />
-        </StackPanel>
-        <StackPanel Grid.Column="3" Spacing="3">
+    <!-- The scan readout at rest is one line, and opens to the full readout once something
+         has actually been scanned. It held ninety pixels across the bottom of every page to
+         say that nothing had been scanned yet, which is the least useful thing on screen and
+         was taking that height from the map. The privacy statement stays visible in both
+         states, because it is a promise rather than a result. -->
+    <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="18,7">
+      <Panel>
+      <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasScan}">
+        <Grid ColumnDefinitions="184,260,*">
+          <StackPanel Grid.Column="0" Spacing="3">
+            <TextBlock Classes="label" Text="Last observed scan" />
+            <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding LastScanName}" />
+          </StackPanel>
+          <StackPanel Grid.Column="1" Spacing="3">
+            <TextBlock Classes="label" Text="Economy" />
+            <TextBlock Foreground="#C6A15B" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanValue}" />
+          </StackPanel>
+          <StackPanel Grid.Column="2" Spacing="3" Margin="16,0">
+            <TextBlock Classes="label" Text="Recommendation and reason" />
+            <TextBlock Foreground="#77B895" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanAdvice}" />
+            <TextBlock Foreground="#71808C" FontSize="11" Text="{Binding LastScanEvidence}" />
+          </StackPanel>
+        </Grid>
+        <StackPanel Grid.Column="1" Spacing="3" MinWidth="300">
           <TextBlock Classes="label" Text="Capture privacy" />
           <TextBlock FontSize="13" Text="In memory · discarded after analysis" />
           <TextBlock Foreground="#71808C" FontSize="11" Text="Debug capture is off" />
         </StackPanel>
       </Grid>
+      <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasNoScan}">
+        <TextBlock Classes="label" VerticalAlignment="Center" Text="{Binding LastScanEvidence}" TextWrapping="NoWrap" />
+        <TextBlock Grid.Column="1" Classes="label" VerticalAlignment="Center" Text="Captures stay in memory and are discarded after analysis" />
+      </Grid>
+      </Panel>
     </Border>
   </Grid>
 </Window>

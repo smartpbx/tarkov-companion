@@ -4,6 +4,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -221,6 +222,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapVariant? _selectedVariant;
     private MapFloorDefinition? _selectedFloor;
     private MapRenderModel? _renderModel;
+    private PixelRect _backgroundDrawnPixels;
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
@@ -755,9 +757,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void AdoptAspectRatio(Bitmap? image)
     {
-        if (image is null || Tiles.Count > 0)
+        if (Tiles.Count > 0)
         {
-            // Tiled maps take their canvas from the tile plan, which is already true to scale.
+            // Tiled maps take their canvas from the tile plan, which is already true to scale,
+            // and measure their drawn area from the tiles that carry artwork.
+            return;
+        }
+
+        if (image is null)
+        {
+            ContentBounds = default;
             return;
         }
 
@@ -771,6 +780,127 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var scale = longestEdge / Math.Max(size.Width, size.Height);
         CanvasWidth = Math.Round(size.Width * scale);
         CanvasHeight = Math.Round(size.Height * scale);
+        ContentBounds = DrawnBounds(scale);
+    }
+
+    /// <summary>
+    /// Where the drawn map sits inside the canvas, in canvas coordinates.
+    /// </summary>
+    /// <remarks>
+    /// An upstream SVG's own bounds routinely enclose far more than it draws: Streets renders
+    /// into roughly two thirds of the box it declares, and the rest is transparent. Fitting
+    /// the declared box therefore scaled the map down to make room for empty space and then
+    /// centred the view on that space, which is what "the scaling is wrong" looked like on
+    /// screen. Fitting what was actually drawn is what a player means by fit.
+    ///
+    /// Only fitting and centring use this. The world-to-canvas projection still spans the full
+    /// canvas, because that is the rectangle the map's own transform describes, and moving it
+    /// would put every marker in the wrong place to make the picture bigger.
+    /// </remarks>
+    private Rect DrawnBounds(double scale)
+    {
+        var drawn = _backgroundDrawnPixels;
+        return drawn.Width <= 0 || drawn.Height <= 0
+            ? default
+            : new Rect(
+                Math.Round(drawn.X * scale),
+                Math.Round(drawn.Y * scale),
+                Math.Round(drawn.Width * scale),
+                Math.Round(drawn.Height * scale));
+    }
+
+    /// <summary>
+    /// Finds the part of a decoded map image that has anything drawn on it.
+    /// </summary>
+    /// <remarks>
+    /// A pixel counts as drawn when any of its four bytes is set. The artwork is rasterized
+    /// onto a surface cleared to transparent and kept premultiplied, so an untouched pixel is
+    /// four zero bytes in every format this could be decoded into; that makes the test
+    /// independent of channel order, which reading the alpha byte by position would not be.
+    ///
+    /// Rows and columns holding only a handful of pixels are ignored, so one stray mark in a
+    /// corner cannot drag the measured rectangle back out to the full image and undo the
+    /// whole point of measuring.
+    /// </remarks>
+    private static PixelRect MeasureDrawnPixels(Bitmap image)
+    {
+        var size = image.PixelSize;
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            return default;
+        }
+
+        var stride = size.Width * 4;
+        var length = stride * size.Height;
+        var buffer = Marshal.AllocHGlobal(length);
+        try
+        {
+            image.CopyPixels(new PixelRect(0, 0, size.Width, size.Height), buffer, length, stride);
+            var pixels = new byte[length];
+            Marshal.Copy(buffer, pixels, 0, length);
+
+            var rowCounts = new int[size.Height];
+            var columnCounts = new int[size.Width];
+            for (var y = 0; y < size.Height; y++)
+            {
+                var row = y * stride;
+                for (var x = 0; x < size.Width; x++)
+                {
+                    var at = row + (x * 4);
+                    if ((pixels[at] | pixels[at + 1] | pixels[at + 2] | pixels[at + 3]) != 0)
+                    {
+                        rowCounts[y]++;
+                        columnCounts[x]++;
+                    }
+                }
+            }
+
+            var rowFloor = Math.Max(1, size.Width / 200);
+            var columnFloor = Math.Max(1, size.Height / 200);
+            var top = FirstAbove(rowCounts, rowFloor);
+            var bottom = LastAbove(rowCounts, rowFloor);
+            var left = FirstAbove(columnCounts, columnFloor);
+            var right = LastAbove(columnCounts, columnFloor);
+            return top < 0 || left < 0
+                ? default
+                : new PixelRect(left, top, right - left + 1, bottom - top + 1);
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException)
+        {
+            // A format this cannot read is not worth failing a map load over; the fit simply
+            // falls back to the whole canvas, which is what it did before.
+            return default;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    private static int FirstAbove(int[] counts, int floor)
+    {
+        for (var index = 0; index < counts.Length; index++)
+        {
+            if (counts[index] >= floor)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int LastAbove(int[] counts, int floor)
+    {
+        for (var index = counts.Length - 1; index >= 0; index--)
+        {
+            if (counts[index] >= floor)
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>
@@ -868,6 +998,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// Loads the map artwork and measures how much of it is actually drawn on.
+    /// </summary>
+    /// <remarks>
+    /// The measurement walks every pixel, so it runs on a worker thread beside the decode
+    /// rather than on the interface thread. It happens once per map load, against an image no
+    /// larger than a few megabytes, and only for the single background; tiles are already true
+    /// to scale and are not measured.
+    /// </remarks>
+    private async Task<Bitmap?> LoadArtworkAsync(string? path, CancellationToken cancellationToken)
+    {
+        var image = await LoadBitmapAsync(path, cancellationToken).ConfigureAwait(true);
+        _backgroundDrawnPixels = image is null
+            ? default
+            : await Task.Run(() => MeasureDrawnPixels(image), cancellationToken).ConfigureAwait(true);
+        return image;
+    }
+
+    /// <summary>
     /// Disposes replaced artwork once the current render pass has finished with it.
     /// </summary>
     private static void ReleaseLater(IEnumerable<Bitmap> images)
@@ -935,7 +1083,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     cached.Asset?.LocalPath,
                     availability,
                     cached.Message);
-                BackgroundImage = await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
+                BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
                 Status = cached.Asset is not null
                     ? $"{cached.Message} SVG rendered from the retained original; floor groups remain separate from companion overlays."
                     : cached.Message ?? "Map artwork unavailable.";
@@ -975,7 +1123,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                         cached.Message),
                 SelectedFloor = floor,
             };
-        BackgroundImage = await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
+        BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
         Status = cached.Asset is not null
             ? $"{cached.Message} SVG floor rendered from the retained original."
             : cached.Message ?? $"Floor '{floor.Name}' is unavailable.";
