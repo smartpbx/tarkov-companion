@@ -74,12 +74,26 @@ public static class MapFeatureProjection
     /// <summary>
     /// Labels a marker with what somebody needs to read at a glance, and nothing else.
     /// </summary>
+    /// <summary>
+    /// What a marker is called on the map.
+    /// </summary>
+    /// <remarks>
+    /// The side used to be appended in words, so an exit read "Dorms V-Ex (pmc)" and a spawn
+    /// read "ZoneScav · Pmc, Scav". That was the only way to tell a scav exit from a PMC one,
+    /// because every marker was drawn identically, and it made the longest labels on the map
+    /// longer still. They collide: names sit at a fixed offset under their disc, so on Customs
+    /// "Sniper Roadblock (scav)" lands across the marker above it and the label below it.
+    ///
+    /// The disc colour and the glyph now carry the side, so the words are saying a second time
+    /// what the shape already said, at the cost of the width that makes them unreadable. The
+    /// full description is still one hover away.
+    ///
+    /// This does not fix the collisions, which need real de-collision rather than shorter
+    /// text. It removes the part of them that was redundant.
+    /// </remarks>
     private static string Describe(MapFeature feature) => feature.Kind switch
     {
-        MapFeatureKind.Extract when feature.Faction is { Length: > 0 } faction
-            => $"{feature.Name} ({faction})",
         MapFeatureKind.Transit => $"{feature.Name} →",
-        MapFeatureKind.Spawn when feature.Faction is { Length: > 0 } sides => $"{feature.Name} · {sides}",
         _ => feature.Name,
     };
 }
