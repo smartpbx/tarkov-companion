@@ -33,17 +33,42 @@ public sealed class MapFeatureProjectionTests
     }
 
     /// <summary>
-    /// An extract a player cannot use is worse than no marker, so the side is on the label.
+    /// An extract a player cannot use is worse than no marker, so the side always survives.
     /// </summary>
+    /// <remarks>
+    /// It used to survive by being appended to the label in words, because every marker was
+    /// drawn identically and the text was the only way to tell them apart. It now survives as
+    /// a value the map draws with, which is why this asserts the field rather than the
+    /// sentence. The requirement did not change; the way it is met did.
+    /// </remarks>
     [Fact]
-    public void NamesWhichSideAnExtractIsFor()
+    public void CarriesWhichSideAnExtractIsFor()
     {
         var elements = MapFeatureProjection.Project(Variant(), [
             new(MapFeatureKind.Extract, "Smugglers' Boat", new(10, 2, 20), "scav"),
         ]);
 
-        Assert.Contains("scav", Assert.Single(elements).Label, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Smugglers' Boat", elements[0].Label, StringComparison.Ordinal);
+        var element = Assert.Single(elements);
+        Assert.Equal(MapFeatureFaction.Scav, element.Faction);
+        Assert.Equal("Smugglers' Boat", element.Label);
+    }
+
+    /// <summary>
+    /// A spawn either side can use says so, and the two spellings mean the same thing.
+    /// </summary>
+    /// <remarks>
+    /// The feed writes an exit's side as one lower-case word and a spawn's as its list of
+    /// sides joined together, so "Pmc, Scav" is the same claim "shared" makes for an exit.
+    /// </remarks>
+    [Fact]
+    public void ReadsBothSpellingsOfEitherSide()
+    {
+        var elements = MapFeatureProjection.Project(Variant(), [
+            new(MapFeatureKind.Spawn, "ZoneScav", new(10, 2, 20), "Pmc, Scav"),
+            new(MapFeatureKind.Extract, "Crossroads", new(12, 2, 22), "shared"),
+        ]);
+
+        Assert.All(elements, element => Assert.Equal(MapFeatureFaction.Shared, element.Faction));
     }
 
     /// <summary>
