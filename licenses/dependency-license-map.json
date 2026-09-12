@@ -22,7 +22,7 @@
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright 2013-2026 © The AvaloniaUI Project",
+      "copyrightNotice": "Copyright 2013-2026 \u00a9 The AvaloniaUI Project",
       "purpose": "Cross-platform desktop UI, themes, rendering integration, and platform backends.",
       "authoritativeSource": "https://github.com/AvaloniaUI/Avalonia/tree/d3c867a9e2de379249b03dbeb3495bd7f076a81a",
       "licenseFiles": [
@@ -33,7 +33,9 @@
     },
     {
       "name": "Avalonia ANGLE Windows native payload",
-      "ids": ["Avalonia.Angle.Windows.Natives"],
+      "ids": [
+        "Avalonia.Angle.Windows.Natives"
+      ],
       "version": "2.1.27548.20260419",
       "scope": "runtime",
       "ships": true,
@@ -41,17 +43,21 @@
       "copyrightNotice": "Copyright 2018 The ANGLE Project Authors. All rights reserved.",
       "purpose": "Windows OpenGL ES renderer used by Avalonia.",
       "authoritativeSource": "https://github.com/AvaloniaUI/angle/tree/1c89805903c1482166356d3b950d474973180e61",
-      "licenseFiles": ["LICENSES/ANGLE-BSD-3-Clause.txt"],
+      "licenseFiles": [
+        "LICENSES/ANGLE-BSD-3-Clause.txt"
+      ],
       "noticeKey": "angle"
     },
     {
       "name": "Avalonia.BuildServices",
-      "ids": ["Avalonia.BuildServices"],
+      "ids": [
+        "Avalonia.BuildServices"
+      ],
       "version": "11.3.2",
       "scope": "build",
       "ships": false,
       "license": "MIT",
-      "copyrightNotice": "Copyright © The AvaloniaUI Project",
+      "copyrightNotice": "Copyright \u00a9 The AvaloniaUI Project",
       "purpose": "Avalonia build-time XAML tooling; absent from the release archive.",
       "authoritativeSource": "https://www.nuget.org/packages/Avalonia.BuildServices/11.3.2",
       "licenseFiles": [],
@@ -59,20 +65,41 @@
     },
     {
       "name": "CommunityToolkit.Mvvm",
-      "ids": ["CommunityToolkit.Mvvm"],
+      "ids": [
+        "CommunityToolkit.Mvvm"
+      ],
       "version": "8.4.2",
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright © .NET Foundation and Contributors. All rights reserved.",
+      "copyrightNotice": "Copyright \u00a9 .NET Foundation and Contributors. All rights reserved.",
       "purpose": "MVVM observable and command infrastructure.",
       "authoritativeSource": "https://github.com/CommunityToolkit/dotnet/tree/35dfe7b12da0e64384bfaec7ebc0883196a89f9f",
-      "licenseFiles": ["LICENSES/CommunityToolkit-MIT.md"],
+      "licenseFiles": [
+        "LICENSES/CommunityToolkit-MIT.md"
+      ],
       "noticeKey": "communitytoolkit"
     },
     {
+      "name": "coverlet.collector",
+      "ids": [
+        "coverlet.collector"
+      ],
+      "version": "10.0.1",
+      "scope": "test",
+      "ships": false,
+      "license": "MIT",
+      "copyrightNotice": "Copyright (c) 2018 Toni Solarin-Sodara",
+      "purpose": "Build/test-only coverage collector.",
+      "authoritativeSource": "https://www.nuget.org/packages/coverlet.collector/10.0.1",
+      "licenseFiles": [],
+      "noticeKey": "build-test"
+    },
+    {
       "name": "ExCSS",
-      "ids": ["ExCSS"],
+      "ids": [
+        "ExCSS"
+      ],
       "version": "4.3.1",
       "scope": "runtime",
       "ships": true,
@@ -80,12 +107,17 @@
       "copyrightNotice": "Copyright (c) 2024 Tyler Brinks",
       "purpose": "CSS parsing used by the SVG rendering stack.",
       "authoritativeSource": "https://github.com/TylerBrinks/ExCSS/tree/c97e84d6126bb2e42658cf5af627d52e697c8779",
-      "licenseFiles": ["LICENSES/ExCSS-MIT.txt"],
+      "licenseFiles": [
+        "LICENSES/ExCSS-MIT.txt"
+      ],
       "noticeKey": "svg-stack"
     },
     {
       "name": "HarfBuzzSharp",
-      "ids": ["HarfBuzzSharp", "HarfBuzzSharp.NativeAssets.Win32"],
+      "ids": [
+        "HarfBuzzSharp",
+        "HarfBuzzSharp.NativeAssets.Win32"
+      ],
       "version": "8.3.1.3",
       "scope": "runtime",
       "ships": true,
@@ -118,28 +150,55 @@
     },
     {
       "name": "MicroCom.Runtime",
-      "ids": ["MicroCom.Runtime"],
+      "ids": [
+        "MicroCom.Runtime"
+      ],
       "version": "0.11.6",
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright 2021 © Nikita Tsukanov",
+      "copyrightNotice": "Copyright 2021 \u00a9 Nikita Tsukanov",
       "purpose": "COM interop runtime used by Avalonia.",
       "authoritativeSource": "https://github.com/kekekeks/MicroCom/tree/76785efcafd91b5902fd19dd11145f6dd655b7b4",
-      "licenseFiles": ["LICENSES/MicroCom-MIT.txt"],
+      "licenseFiles": [
+        "LICENSES/MicroCom-MIT.txt"
+      ],
       "noticeKey": "microcom"
     },
     {
+      "name": "Microsoft test platform",
+      "ids": [
+        "Microsoft.CodeCoverage",
+        "Microsoft.NET.Test.Sdk",
+        "Microsoft.TestPlatform.ObjectModel",
+        "Microsoft.TestPlatform.TestHost"
+      ],
+      "version": "18.10.0",
+      "scope": "test",
+      "ships": false,
+      "license": "MIT",
+      "copyrightNotice": "\u00a9 Microsoft Corporation. All rights reserved.",
+      "purpose": "Build/test-only test host and coverage tooling.",
+      "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
+      "licenseFiles": [],
+      "noticeKey": "build-test"
+    },
+    {
       "name": "Microsoft.Data.Sqlite",
-      "ids": ["Microsoft.Data.Sqlite", "Microsoft.Data.Sqlite.Core"],
+      "ids": [
+        "Microsoft.Data.Sqlite",
+        "Microsoft.Data.Sqlite.Core"
+      ],
       "version": "10.0.12",
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+      "copyrightNotice": "\u00a9 Microsoft Corporation. All rights reserved.",
       "purpose": "Managed SQLite data access.",
       "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
-      "licenseFiles": ["LICENSES/Dotnet-Runtime-MIT.txt"],
+      "licenseFiles": [
+        "LICENSES/Dotnet-Runtime-MIT.txt"
+      ],
       "noticeKey": "microsoft-dotnet"
     },
     {
@@ -168,15 +227,20 @@
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
+      "copyrightNotice": "\u00a9 Microsoft Corporation. All rights reserved.",
       "purpose": "Configuration, dependency injection, HTTP, logging, options, diagnostics, and file-provider infrastructure.",
       "authoritativeSource": "https://github.com/dotnet/dotnet/tree/95017c711e6afc1085133d440e42b4bd78155701",
-      "licenseFiles": ["LICENSES/Dotnet-Runtime-MIT.txt"],
+      "licenseFiles": [
+        "LICENSES/Dotnet-Runtime-MIT.txt"
+      ],
       "noticeKey": "microsoft-dotnet"
     },
     {
       "name": "SkiaSharp",
-      "ids": ["SkiaSharp", "SkiaSharp.NativeAssets.Win32"],
+      "ids": [
+        "SkiaSharp",
+        "SkiaSharp.NativeAssets.Win32"
+      ],
       "version": "3.119.4",
       "scope": "runtime",
       "ships": true,
@@ -229,6 +293,23 @@
       "noticeKey": "sqlite"
     },
     {
+      "name": "Svg.Custom",
+      "ids": [
+        "Svg.Custom"
+      ],
+      "version": "4.9.1",
+      "scope": "runtime",
+      "ships": true,
+      "license": "MS-PL",
+      "copyrightNotice": "Copyright \u00a9 Wies\u0142aw \u0160olt\u00e9s 2026",
+      "purpose": "Custom SVG document model used transitively by Svg.Skia.",
+      "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/blob/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037/src/Svg.Custom/LICENSE.TXT",
+      "licenseFiles": [
+        "LICENSES/SvgCustom-MS-PL.txt"
+      ],
+      "noticeKey": "svg-stack"
+    },
+    {
       "name": "Svg.Skia stack",
       "ids": [
         "ShimSkiaSharp",
@@ -241,28 +322,19 @@
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
+      "copyrightNotice": "Copyright \u00a9 Wies\u0142aw \u0160olt\u00e9s 2026",
       "purpose": "Validated SVG parsing, scene graph, and Skia rendering for runtime-cached map art.",
       "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/tree/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037",
-      "licenseFiles": ["LICENSES/SvgSkia-MIT.txt"],
-      "noticeKey": "svg-stack"
-    },
-    {
-      "name": "Svg.Custom",
-      "ids": ["Svg.Custom"],
-      "version": "4.9.1",
-      "scope": "runtime",
-      "ships": true,
-      "license": "MS-PL",
-      "copyrightNotice": "Copyright © Wiesław Šoltés 2026",
-      "purpose": "Custom SVG document model used transitively by Svg.Skia.",
-      "authoritativeSource": "https://github.com/wieslawsoltes/Svg.Skia/blob/8b23ee1e01b1f2ba90eb74b71ab8c7f27d49f037/src/Svg.Custom/LICENSE.TXT",
-      "licenseFiles": ["LICENSES/SvgCustom-MS-PL.txt"],
+      "licenseFiles": [
+        "LICENSES/SvgSkia-MIT.txt"
+      ],
       "noticeKey": "svg-stack"
     },
     {
       "name": "TesseractOCR",
-      "ids": ["TesseractOCR"],
+      "ids": [
+        "TesseractOCR"
+      ],
       "version": "5.5.2",
       "scope": "runtime",
       "ships": true,
@@ -278,7 +350,9 @@
     },
     {
       "name": "Tmds.DBus.Protocol",
-      "ids": ["Tmds.DBus.Protocol"],
+      "ids": [
+        "Tmds.DBus.Protocol"
+      ],
       "version": "0.94.1",
       "scope": "runtime",
       "ships": true,
@@ -286,39 +360,23 @@
       "copyrightNotice": "Copyright 2006 Alp Toker; Copyright 2010 Other Contributors; Copyright 2016 Tom Deseyn",
       "purpose": "D-Bus protocol support resolved by Avalonia Desktop.",
       "authoritativeSource": "https://github.com/tmds/Tmds.DBus/tree/b4a7fed0b878f74cb54f7cca84d2889af4e596ba",
-      "licenseFiles": ["LICENSES/Tmds-DBus-MIT.txt"],
+      "licenseFiles": [
+        "LICENSES/Tmds-DBus-MIT.txt"
+      ],
       "noticeKey": "tmds-dbus"
     },
     {
-      "name": "Microsoft test platform",
+      "name": "Velopack",
       "ids": [
-        "Microsoft.CodeCoverage",
-        "Microsoft.NET.Test.Sdk",
-        "Microsoft.TestPlatform.ObjectModel",
-        "Microsoft.TestPlatform.TestHost"
+        "Velopack",
+        "Velopack.NuGet",
+        "Velopack.Vpk"
       ],
-      "version": "18.10.0",
-      "scope": "test",
-      "ships": false,
+      "scope": "runtime",
+      "ships": true,
       "license": "MIT",
-      "copyrightNotice": "© Microsoft Corporation. All rights reserved.",
-      "purpose": "Build/test-only test host and coverage tooling.",
-      "authoritativeSource": "https://www.nuget.org/packages/Microsoft.NET.Test.Sdk/18.10.0",
-      "licenseFiles": [],
-      "noticeKey": "build-test"
-    },
-    {
-      "name": "coverlet.collector",
-      "ids": ["coverlet.collector"],
-      "version": "10.0.1",
-      "scope": "test",
-      "ships": false,
-      "license": "MIT",
-      "copyrightNotice": "Copyright (c) 2018 Toni Solarin-Sodara",
-      "purpose": "Build/test-only coverage collector.",
-      "authoritativeSource": "https://www.nuget.org/packages/coverlet.collector/10.0.1",
-      "licenseFiles": [],
-      "noticeKey": "build-test"
+      "copyrightNotice": "Copyright (c) 2024 Caelan Sayler",
+      "purpose": "Installs the application and updates it in place, replacing a hand-written swap script."
     },
     {
       "name": "xUnit.net",
@@ -377,7 +435,9 @@
       "copyrightNotice": "Copyright (c) 2016-2020 The Inter Project Authors. Inter is a trademark of Rasmus Andersson.",
       "purpose": "Embedded default application typeface in Avalonia.Fonts.Inter.dll.",
       "authoritativeSource": "https://github.com/rsms/inter/blob/0a5106e0b/LICENSE.txt",
-      "licenseFiles": ["LICENSES/Inter-OFL-1.1.txt"],
+      "licenseFiles": [
+        "LICENSES/Inter-OFL-1.1.txt"
+      ],
       "noticeKey": "inter-font"
     },
     {
@@ -389,7 +449,9 @@
       "copyrightNotice": "Copyright 2018 The ANGLE Project Authors. All rights reserved.",
       "purpose": "av_libglesv2.dll graphics translation layer.",
       "authoritativeSource": "https://www.nuget.org/packages/Avalonia.Angle.Windows.Natives/2.1.27548.20260419",
-      "licenseFiles": ["LICENSES/ANGLE-BSD-3-Clause.txt"],
+      "licenseFiles": [
+        "LICENSES/ANGLE-BSD-3-Clause.txt"
+      ],
       "noticeKey": "angle"
     },
     {
@@ -398,10 +460,12 @@
       "version": "8.3.1 (HarfBuzzSharp payload 8.3.1.3)",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright © 1998-2012 Google, Mozilla, Codethink, Nokia, Red Hat, and individual HarfBuzz contributors; complete notice retained verbatim.",
+      "copyrightNotice": "Copyright \u00a9 1998-2012 Google, Mozilla, Codethink, Nokia, Red Hat, and individual HarfBuzz contributors; complete notice retained verbatim.",
       "purpose": "libHarfBuzzSharp.dll text shaping engine.",
       "authoritativeSource": "https://www.nuget.org/packages/HarfBuzzSharp.NativeAssets.Win32/8.3.1.3",
-      "licenseFiles": ["LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"],
+      "licenseFiles": [
+        "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+      ],
       "noticeKey": "harfbuzz"
     },
     {
@@ -413,7 +477,9 @@
       "copyrightNotice": "Copyright (c) 2011 Google Inc. All rights reserved; complete transitive notices retained verbatim.",
       "purpose": "libSkiaSharp.dll 2D graphics engine.",
       "authoritativeSource": "https://www.nuget.org/packages/SkiaSharp.NativeAssets.Win32/3.119.4",
-      "licenseFiles": ["LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"],
+      "licenseFiles": [
+        "LICENSES/SkiaSharp-HarfBuzzSharp-THIRD-PARTY-NOTICES.txt"
+      ],
       "noticeKey": "skia"
     },
     {
@@ -425,8 +491,12 @@
       "copyrightNotice": "The SQLite authors disclaim copyright; the authoritative blessing is retained verbatim.",
       "purpose": "e_sqlite3.dll embedded database engine.",
       "authoritativeSource": "https://github.com/ericsink/SQLitePCL.raw/blob/v2.1.12/NOTICE.TXT",
-      "artifactSha256": ["b7385d722c83fb52142a00477a726723745916d22a555711ee89834c1111fb2e"],
-      "licenseFiles": ["LICENSES/SQLitePCLRaw-NOTICE.txt"],
+      "artifactSha256": [
+        "b7385d722c83fb52142a00477a726723745916d22a555711ee89834c1111fb2e"
+      ],
+      "licenseFiles": [
+        "LICENSES/SQLitePCLRaw-NOTICE.txt"
+      ],
       "noticeKey": "sqlite"
     },
     {
@@ -435,14 +505,16 @@
       "version": "5.5.1",
       "ships": true,
       "license": "Apache-2.0",
-      "copyrightNotice": "Copyright © Tesseract OCR contributors",
+      "copyrightNotice": "Copyright \u00a9 Tesseract OCR contributors",
       "purpose": "x86 and x64 tesseract55.dll OCR engines.",
       "authoritativeSource": "https://github.com/tesseract-ocr/tesseract/tree/5.5.1",
       "artifactSha256": [
         "e9903623e901f2d754eb49eea4dbff229f599a8817055a3e3f1c292216670ca9",
         "5fb5b163e9b78e584a8d320df7a75d3713ba6c925ba274ab35ba0cce15567ff8"
       ],
-      "licenseFiles": ["LICENSES/Apache-2.0.txt"],
+      "licenseFiles": [
+        "LICENSES/Apache-2.0.txt"
+      ],
       "noticeKey": "ocr"
     },
     {
@@ -458,7 +530,9 @@
         "64bb1d584bce83db5e5c3625f1857e4bc12993625699cabd0a9b8b76e393bd01",
         "424162e2a630c3591d451f98bf73e9bf1caaed3dcd2e198ceb053f4ef8f41f33"
       ],
-      "licenseFiles": ["LICENSES/Leptonica-BSD-2-Clause.txt"],
+      "licenseFiles": [
+        "LICENSES/Leptonica-BSD-2-Clause.txt"
+      ],
       "noticeKey": "ocr-codecs"
     },
     {
@@ -467,7 +541,7 @@
       "version": "2.0.6",
       "ships": true,
       "license": "IJG AND BSD-3-Clause AND Zlib",
-      "copyrightNotice": "Copyright (C) 2009-2020 D. R. Commander; Copyright (C) 2015 Viktor Szathmáry; Independent JPEG Group notices retained verbatim.",
+      "copyrightNotice": "Copyright (C) 2009-2020 D. R. Commander; Copyright (C) 2015 Viktor Szathm\u00e1ry; Independent JPEG Group notices retained verbatim.",
       "purpose": "Statically bundled JPEG support in leptonica-1.85.0.dll.",
       "authoritativeSource": "https://github.com/libjpeg-turbo/libjpeg-turbo/tree/2.0.6",
       "licenseFiles": [
@@ -485,7 +559,9 @@
       "copyrightNotice": "Copyright (c) 1995-2019 The PNG Reference Library Authors and named contributors; complete notice retained verbatim.",
       "purpose": "Statically bundled PNG support in leptonica-1.85.0.dll.",
       "authoritativeSource": "https://github.com/pnggroup/libpng/blob/v1.6.37/LICENSE",
-      "licenseFiles": ["LICENSES/libpng-LICENSE.txt"],
+      "licenseFiles": [
+        "LICENSES/libpng-LICENSE.txt"
+      ],
       "noticeKey": "ocr-codecs"
     },
     {
@@ -497,7 +573,9 @@
       "copyrightNotice": "Copyright (c) 1988-1997 Sam Leffler; Copyright (c) 1991-1997 Silicon Graphics, Inc.",
       "purpose": "Statically bundled TIFF support in leptonica-1.85.0.dll.",
       "authoritativeSource": "https://github.com/libsdl-org/libtiff/blob/v4.3.0/COPYRIGHT",
-      "licenseFiles": ["LICENSES/libtiff-COPYRIGHT.txt"],
+      "licenseFiles": [
+        "LICENSES/libtiff-COPYRIGHT.txt"
+      ],
       "noticeKey": "ocr-codecs"
     },
     {
@@ -509,7 +587,9 @@
       "copyrightNotice": "Copyright (C) 1995-2017 Jean-loup Gailly and Mark Adler",
       "purpose": "Statically bundled compression support in leptonica-1.85.0.dll.",
       "authoritativeSource": "https://github.com/madler/zlib/blob/v1.2.11/README",
-      "licenseFiles": ["LICENSES/zlib-README.txt"],
+      "licenseFiles": [
+        "LICENSES/zlib-README.txt"
+      ],
       "noticeKey": "ocr-codecs"
     },
     {
@@ -518,11 +598,15 @@
       "version": "commit 87416418657359cb625c412a48b6e1d6d41c29bd",
       "ships": true,
       "license": "Apache-2.0",
-      "copyrightNotice": "Copyright © Tesseract OCR contributors",
+      "copyrightNotice": "Copyright \u00a9 Tesseract OCR contributors",
       "purpose": "Embedded English LSTM recognition model.",
       "authoritativeSource": "https://github.com/tesseract-ocr/tessdata_fast/tree/87416418657359cb625c412a48b6e1d6d41c29bd",
-      "artifactSha256": ["7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"],
-      "licenseFiles": ["LICENSES/Apache-2.0.txt"],
+      "artifactSha256": [
+        "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      ],
+      "licenseFiles": [
+        "LICENSES/Apache-2.0.txt"
+      ],
       "noticeKey": "ocr-model"
     }
   ]

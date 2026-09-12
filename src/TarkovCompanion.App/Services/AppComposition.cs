@@ -16,7 +16,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
-using TarkovCompanion.Application.Services.Updates;
+using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -193,9 +193,11 @@ public static class AppComposition
         services.AddSingleton<ScanHotkeyService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
-        services.AddSingleton(_ => UpdateOptions.CreateDefault(AppContext.BaseDirectory, paths.Cache));
-        services.AddSingleton<UpdateService>();
-        services.AddSingleton<UpdateInstaller>();
+        // Updating from inside the application. Velopack owns the install location and the
+        // restart, which is what the hand-written swap script could never do: it had to
+        // replace files in a folder a sync client held open, and on a real machine that never
+        // once succeeded.
+        services.AddSingleton<VelopackUpdateGateway>();
         services.AddSingleton<MapVariantSelectionService>();
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();

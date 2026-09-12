@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Application.Services.Runtime;
+using Velopack;
 
 namespace TarkovCompanion.App;
 
@@ -17,6 +18,18 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // First, before anything. Velopack runs the install, update and uninstall hooks here
+        // and exits the process for some of them, so any work done before this call is work
+        // done during an install the user is waiting on, and any window shown before it is a
+        // window that flashes up during an upgrade.
+        //
+        // This replaces a hand-written batch script that mirrored the install directory in
+        // place. That approach could not be made to work: the application lived in a
+        // OneDrive-synced folder where the sync client holds file handles continuously, so
+        // the swap either failed on a locked executable or refused to start at all. The fix
+        // is not a better script, it is not installing there.
+        VelopackApp.Build().Run();
+
         try
         {
             var options = AppCommandLine.Parse(args);

@@ -329,6 +329,37 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: warn
 
+      # Velopack turns the verified publish directory into an installer plus a delta feed.
+      #
+      # This replaced a hand-written swap script that never once completed on a real machine.
+      # The application was unpacked from a zip onto a OneDrive-synced Desktop, where the sync
+      # client holds handles on the folder continuously, so a directory rename could not
+      # succeed and mirroring file by file only moved the failure to whichever file was locked
+      # when it arrived. Velopack installs per user under LocalAppData, which nothing syncs,
+      # and it owns the restart, so the process is gone before its files are touched.
+      #
+      # The version carries the run number so every verified build is strictly newer than the
+      # last one. Velopack compares versions and will not offer a build it considers older.
+      - name: Pack the installer and the update feed
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool install --global vpk
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          VERSION="1.0.${{ github.run_number }}"
+          echo "VELOPACK_VERSION=$VERSION" >> "$GITHUB_ENV"
+          # Packs what verification actually launched, not a fresh build of it.
+          vpk pack \
+            --packId TarkovCompanion \
+            --packVersion "$VERSION" \
+            --packDir artifacts/win-x64 \
+            --mainExe TarkovCompanion.exe \
+            --packTitle "Tarkov Companion" \
+            --packAuthors "Clayton Mannerow" \
+            --outputDir dist/velopack
+          ls -la dist/velopack
+
       # One rolling pre-release, replaced on every verified build, so the application has a
       # fixed place to look for a newer version of itself. Only reached when every check above
       # passed, so nothing that failed verification is ever offered as an update.
@@ -343,5 +374,5 @@ jobs:
           # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
           test -s dist/update.json
           gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}."             --prerelease             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
+          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
 

@@ -1,9 +1,6 @@
-using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Threading;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Net.Http;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services;
@@ -15,7 +12,7 @@ using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
-using TarkovCompanion.Application.Services.Updates;
+using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
@@ -770,10 +767,7 @@ public sealed class SettingsPageViewModel : PageViewModel
     private readonly IRecycleBin _recycleBin;
     private ScreenshotRetentionSettings _retention = ScreenshotRetentionSettings.Default;
     private string _retentionStatus = "Reading how long screenshots are kept…";
-    private readonly UpdateService? _updates;
-    private readonly UpdateInstaller? _installer;
-    private PublishedBuild? _offered;
-    private string? _stagedDirectory;
+    private readonly VelopackUpdateGateway? _updates;
     private string _updateStatus = "Updates have not been checked this session.";
     private string _installedBuild = "Build unknown";
     private bool _isBusyWithUpdate;
@@ -795,8 +789,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         ScanHotkeyService hotkeys,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
-        UpdateService? updates = null,
-        UpdateInstaller? installer = null)
+        VelopackUpdateGateway? updates = null)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
@@ -808,16 +801,17 @@ public sealed class SettingsPageViewModel : PageViewModel
         _retentionSettings = retentionSettings;
         _recycleBin = recycleBin;
         _updates = updates;
-        _installer = installer;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
         if (_updates is not null)
         {
-            var installed = _updates.ReadInstalled();
-            _installedBuild = installed.Commit is null
-                ? $"Version {installed.Version}, built from source"
-                : $"Version {installed.Version} · {installed.ShortCommit}";
+            _installedBuild = _updates.InstalledBuild;
+            if (!_updates.IsInstalled)
+            {
+                _updateStatus = "This copy was run from a folder rather than installed, "
+                    + "so it cannot update itself.";
+            }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
         // reads very differently from an unsupported architecture - but until now only the
@@ -887,7 +881,7 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public bool IsUpdateIdle => !IsBusyWithUpdate;
 
-    public bool SupportsUpdates => _updates is not null && _installer is not null;
+    public bool SupportsUpdates => _updates is not null;
 
     private async Task CheckForUpdateAsync()
     {
@@ -898,13 +892,10 @@ public sealed class SettingsPageViewModel : PageViewModel
 
         IsBusyWithUpdate = true;
         CanDownloadUpdate = false;
-        UpdateStatus = "Checking for a newer verified build…";
+        UpdateStatus = "Checking for a newer build…";
         try
         {
-            var check = await _updates.CheckAsync(CancellationToken.None).ConfigureAwait(true);
-            UpdateStatus = check.Detail;
-            _offered = check.Availability == UpdateAvailability.Available ? check.Published : null;
-            CanDownloadUpdate = _offered is not null;
+            Apply(await _updates.CheckAsync(CancellationToken.None).ConfigureAwait(true));
         }
         finally
         {
@@ -914,37 +905,17 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     private async Task DownloadUpdateAsync()
     {
-        if (_updates is null || _installer is null || _offered is not { } offered || IsBusyWithUpdate)
+        if (_updates is null || IsBusyWithUpdate)
         {
             return;
         }
 
         IsBusyWithUpdate = true;
         CanDownloadUpdate = false;
-        UpdateStatus = "Downloading the new build…";
+        UpdateStatus = "Downloading…";
         try
         {
-            var archive = await _updates.DownloadAsync(offered, CancellationToken.None).ConfigureAwait(true);
-            UpdateStatus = "Checksum matched. Unpacking…";
-            var staged = await Task.Run(() => _installer.Stage(archive)).ConfigureAwait(true);
-            if (!UpdateInstaller.LooksRunnable(staged))
-            {
-                UpdateStatus = "The downloaded build has no application in it. Nothing was changed.";
-                return;
-            }
-
-            _stagedDirectory = staged;
-            CanRestartForUpdate = true;
-            UpdateStatus = "Ready to install. The swap happens when the application closes, "
-                + "and the build you are running now is kept alongside it.";
-        }
-        catch (Exception exception) when (exception is InvalidOperationException
-                                          or HttpRequestException
-                                          or IOException
-                                          or UnauthorizedAccessException)
-        {
-            UpdateStatus = $"The update was not applied: {exception.Message}";
-            CanDownloadUpdate = _offered is not null;
+            Apply(await _updates.DownloadAsync(CancellationToken.None).ConfigureAwait(true));
         }
         finally
         {
@@ -952,137 +923,40 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
     }
 
+    private void Apply(UpdateProgress progress)
+    {
+        UpdateStatus = progress.Status;
+        CanDownloadUpdate = progress.CanDownload;
+        CanRestartForUpdate = progress.CanApply;
+    }
+
+    /// <summary>
+    /// Installs and reopens. Normally does not return.
+    /// </summary>
+    /// <remarks>
+    /// Closing is no longer this application's job. The updater replaces the files and starts
+    /// the new build itself, which is the part the previous hand-written swap script could
+    /// never do reliably: it had to wait for a process to release a folder that a file-sync
+    /// client was holding open, and on a real machine that never happened.
+    /// </remarks>
     private void RestartForUpdate()
     {
-        if (_installer is null || _stagedDirectory is null)
+        if (_updates is null)
         {
             return;
         }
 
         try
         {
-            var script = _installer.BeginApply(_stagedDirectory);
             CanRestartForUpdate = false;
-            UpdateStatus = "Installing. The application will close and reopen on the new build. "
-                + $"If it does not, run {script} once it has closed.";
-
-            // Closing is this application's job rather than the player's. Leaving it to them
-            // meant the swap script sat waiting while the folder it wanted was still held
-            // open, which is not what "install and restart" promises.
-            Dispatcher.UIThread.Post(
-                () => (Avalonia.Application.Current?.ApplicationLifetime
-                    as IClassicDesktopStyleApplicationLifetime)?.Shutdown(),
-                DispatcherPriority.Background);
+            UpdateStatus = "Installing. The application will close and reopen on the new build.";
+            _updates.ApplyAndRestart();
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             UpdateStatus = $"The update could not be started: {exception.Message}";
+            CanRestartForUpdate = true;
         }
-    }
-
-    /// <summary>
-    /// Tidying the game's screenshot folder, which is the one folder this application empties.
-    /// </summary>
-    /// <remarks>
-    /// Every screenshot is the player's own file, taken deliberately, and the companion only
-    /// reads them. Tidying them is therefore stated plainly on this page rather than done
-    /// quietly: what will go, when it will go, and where it goes so it can be got back.
-    ///
-    /// The choice of a day as the default is the shortest span that still covers an evening's
-    /// play and the following morning, which is when somebody actually goes looking for the
-    /// screenshot they meant to keep.
-    /// </remarks>
-    public AsyncDelegateCommand ToggleScreenshotTidyingCommand { get; }
-
-    public AsyncDelegateCommand ChooseRetentionCommand { get; }
-
-    /// <summary>Whether the folder is swept at all.</summary>
-    public bool TidiesScreenshots => _retention.IsEnabled;
-
-    public string ScreenshotTidyingLabel => TidiesScreenshots ? "Stop tidying" : "Start tidying";
-
-    /// <summary>How long screenshots are kept, in the player's words rather than in hours.</summary>
-    public string RetentionDisplay => _retention.SafeRetentionHours switch
-    {
-        24 => "24 hours",
-        72 => "3 days",
-        168 => "7 days",
-        var hours when hours % 24 == 0 => $"{hours / 24} days",
-        var hours => $"{hours} hours",
-    };
-
-    public string RetentionStatus
-    {
-        get => _retentionStatus;
-        private set => SetProperty(ref _retentionStatus, value);
-    }
-
-    /// <summary>Whether tidying can happen at all on this machine.</summary>
-    public bool CanTidyScreenshots => _recycleBin.IsAvailable;
-
-    private async Task LoadRetentionAsync()
-    {
-        try
-        {
-            ApplyRetention(await _retentionSettings.GetAsync(CancellationToken.None).ConfigureAwait(true));
-            RetentionStatus = Describe();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            RetentionStatus = $"The screenshot setting could not be read: {exception.Message}";
-        }
-    }
-
-    private Task ToggleScreenshotTidyingAsync() =>
-        SaveRetentionAsync(_retention with { IsEnabled = !_retention.IsEnabled });
-
-    /// <summary>
-    /// Moves to the next span, which is a button rather than a list because there are four.
-    /// </summary>
-    private Task ChooseRetentionAsync() => SaveRetentionAsync(_retention with
-    {
-        RetentionHours = _retention.SafeRetentionHours switch
-        {
-            24 => 72,
-            72 => 168,
-            168 => 720,
-            _ => 24,
-        },
-    });
-
-    private async Task SaveRetentionAsync(ScreenshotRetentionSettings settings)
-    {
-        try
-        {
-            await _retentionSettings.SaveAsync(settings, CancellationToken.None).ConfigureAwait(true);
-            ApplyRetention(settings);
-            RetentionStatus = Describe();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            RetentionStatus = $"The screenshot setting could not be saved: {exception.Message}";
-        }
-    }
-
-    private void ApplyRetention(ScreenshotRetentionSettings settings)
-    {
-        _retention = settings;
-        OnPropertyChanged(nameof(TidiesScreenshots));
-        OnPropertyChanged(nameof(ScreenshotTidyingLabel));
-        OnPropertyChanged(nameof(RetentionDisplay));
-    }
-
-    private string Describe()
-    {
-        if (!_recycleBin.IsAvailable)
-        {
-            return "There is no recycle bin on this system, so nothing is tidied.";
-        }
-
-        return _retention.IsEnabled
-            ? $"Screenshots older than {RetentionDisplay} go to the recycle bin. The newest one is always kept, "
-                + "and anything you move out of the folder is never touched."
-            : "Screenshots are left alone, and the folder will grow for as long as you keep taking them.";
     }
 
     public string RecognitionProvider { get; }
@@ -1261,8 +1135,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IGroupSettingsStore groupSettings,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
-        UpdateService updates,
-        UpdateInstaller installer,
+        VelopackUpdateGateway updates,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,
@@ -1300,8 +1173,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             hotkeys,
             retentionSettings,
             recycleBin,
-            updates,
-            installer);
+            updates);
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
