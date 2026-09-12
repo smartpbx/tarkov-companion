@@ -40,7 +40,25 @@ public sealed record MapBackground(
     Uri SourceUri,
     string? CachedPath,
     MapAssetAvailability Availability,
-    string? Message);
+    string? Message)
+{
+    /// <summary>
+    /// Which level of the tile pyramid is actually loaded.
+    /// </summary>
+    /// <remarks>
+    /// This exists because the level is a choice now rather than a constant. It used to be
+    /// the pyramid's own minimum on both sides of the map: the loader fetched the coarsest
+    /// level there is, and the coordinate mapper independently assumed the same number. They
+    /// agreed, so the markers were in the right places, and the map was a thumbnail magnified
+    /// by a scale transform. Zooming in never fetched anything sharper, which is why one map
+    /// reads as a flat brown mass.
+    ///
+    /// Now that the loader picks a level, the mapper has to be told which one, because the
+    /// canvas is 2^zoom world units across and everything drawn on it is placed in that
+    /// space. If these two ever disagree again, every marker moves and the artwork does not.
+    /// </remarks>
+    public int? TileZoom { get; init; }
+}
 
 public sealed record MapOverlayLayer(MapOverlayKind Kind, string Name, bool IsVisible, bool IsHighlighted);
 

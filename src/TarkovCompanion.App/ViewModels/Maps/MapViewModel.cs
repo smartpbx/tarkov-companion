@@ -469,7 +469,46 @@ public static class MapCanvasCoordinateMapper
     /// upstream bounds need more than a four-by-four grid rendered nothing at all. Customs
     /// needs twenty.
     /// </remarks>
-    public const int MaximumTilesPerView = 64;
+    /// <summary>
+    /// How many tiles one map may hold at once.
+    /// </summary>
+    /// <remarks>
+    /// This was sixteen, then sixty-four because Customs needs twenty at its coarsest level,
+    /// and it is now the budget that decides how sharp a map can be rather than merely whether
+    /// it renders at all. Each step up the pyramid doubles the resolution and quadruples the
+    /// count, so sixty-four could not afford a single step for most maps and every map was
+    /// drawn at the blurriest level it publishes.
+    ///
+    /// Two hundred and fifty-six tiles of 256 pixels is about 67 MB of decoded bitmap, which
+    /// is affordable for one map on a desktop and buys two whole levels, four times the linear
+    /// detail. That is the difference between Factory reading as a flat brown mass and reading
+    /// as a floor plan.
+    /// </remarks>
+    public const int MaximumTilesPerView = 256;
+
+    /// <summary>
+    /// Picks the sharpest pyramid level that fits the tile budget.
+    /// </summary>
+    /// <remarks>
+    /// Highest first, because the point is detail; the loop stops at the first level that
+    /// fits, and falls back to the minimum so a map that fits nothing still draws.
+    /// </remarks>
+    public static int ChooseTileZoom(MapVariant variant, int budget = MaximumTilesPerView)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        var minimum = variant.MinimumZoom ?? 0;
+        var maximum = variant.MaximumZoom ?? minimum;
+        for (var zoom = maximum; zoom > minimum; zoom--)
+        {
+            var plan = MapTilePlanner.Plan(variant, zoom, budget);
+            if (plan.IsValid)
+            {
+                return zoom;
+            }
+        }
+
+        return minimum;
+    }
 
     public static Func<MapPoint, Point>? Create(
         MapRenderModel renderModel,
@@ -485,7 +524,10 @@ public static class MapCanvasCoordinateMapper
             return null;
         }
 
-        if (renderModel.Background?.Kind == MapBackgroundKind.TileTemplate && variant.MinimumZoom is { } zoom)
+        // The level the loader actually fetched, not the pyramid's minimum. These must be the
+        // same number or every marker lands in a different coordinate space from the artwork.
+        if (renderModel.Background?.Kind == MapBackgroundKind.TileTemplate
+            && (renderModel.Background.TileZoom ?? variant.MinimumZoom) is { } zoom)
         {
             var plan = MapTilePlanner.Plan(variant, zoom, MaximumTilesPerView);
             if (plan.IsValid)
@@ -1873,13 +1915,21 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task LoadTilesAsync(MapVariant variant, CancellationToken cancellationToken)
     {
-        var zoom = variant.MinimumZoom ?? 0;
+        var zoom = MapCanvasCoordinateMapper.ChooseTileZoom(variant);
         var plan = MapTilePlanner.Plan(variant, zoom, MapCanvasCoordinateMapper.MaximumTilesPerView);
         if (!plan.IsValid)
         {
             Tiles = [];
             Status = plan.Error ?? "PNG tile plan unavailable.";
             return;
+        }
+
+        // Tell the coordinate mapper which level this is before anything is placed on it.
+        // Everything drawn on the canvas is positioned in 2^zoom space, so a mapper still
+        // assuming the pyramid's minimum would put every marker in the wrong place.
+        if (_renderModel?.Background is { } background)
+        {
+            _renderModel = _renderModel with { Background = background with { TileZoom = zoom } };
         }
 
         var loaded = new List<MapTileViewModel>();
