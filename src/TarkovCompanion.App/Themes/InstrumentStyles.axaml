@@ -258,8 +258,18 @@
   </Style>
 
   <!-- Navigation rail. The glyph is grey until its page is open, so the rail shows one cyan
-       mark and the eye finds the current page without reading thirteen names. -->
+       mark and the eye finds the current page without reading thirteen names.
+
+       HorizontalAlignment is load-bearing. Without it a button is only as wide as its own
+       label, so the selected fill and the hover fill were a different width on every row:
+       measured off the rendered pages, 79px on Flea, 81 on Raid, 84 on Keys, 88 on Items,
+       97 on Events. The rail looked ragged and nobody could say why. Stretch makes the
+       highlight and the click target the width of the rail on every row.
+
+       HorizontalContentAlignment is a different property and was already set; it aligns the
+       content inside the button and was never the problem. -->
   <Style Selector="Button.nav">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
@@ -282,8 +292,14 @@
     <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
     <Setter Property="FontWeight" Value="Medium" />
   </Style>
+  <!-- Hovering a selected tab used to fall through to the base theme's ContentPresenter
+       rules, which outrank the control-level setters above, so a hovered selected tab
+       rendered with the same background and text colour as a hovered unselected one. Four
+       states, three of them styled, one left to a theme we did not write. Fill it in. -->
   <Style Selector="Button.nav.selected:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
   </Style>
   <Style Selector="TextBlock.navGlyph">
     <Setter Property="FontSize" Value="14" />
