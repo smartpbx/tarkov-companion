@@ -106,6 +106,22 @@ public sealed class UpdateInstaller(UpdateOptions options)
 
             echo Updating Tarkov Companion...
 
+            rem Wait for the application to go before touching its folder. Mirroring over a
+            rem running executable fails on the one file that matters, and the new copy would
+            rem then start while the old one still held the single-instance lock and exit
+            rem again, leaving nothing running at all. Sixty seconds is far longer than
+            rem teardown takes; past that, proceed and let robocopy's retries do their work.
+            echo Waiting for it to close...
+            set /a TRIES=0
+            :waitloop
+            tasklist /FI "IMAGENAME eq TarkovCompanion.exe" /NH 2>nul | find /I "TarkovCompanion.exe" >nul
+            if errorlevel 1 goto closed
+            set /a TRIES+=1
+            if %TRIES% GEQ 60 goto closed
+            ping -n 2 127.0.0.1 >nul
+            goto waitloop
+            :closed
+
             rem The rollback is made first, by copying, so it exists before anything changes.
             robocopy "%INSTALL%" "%PREVIOUS%" /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
             if errorlevel 8 (

@@ -44,6 +44,23 @@ internal static class Program
                 return RunHeadlessDemo(options);
             }
 
+            // Only the ordinary launch is guarded. A self-test, a headless demo, a page
+            // screenshot and a developer build are all deliberate, short-lived, and sometimes
+            // run beside each other on purpose; refusing those would break verification to
+            // prevent a problem none of them have.
+            using var instance = IsOrdinaryLaunch(options)
+                ? SingleInstance.TryAcquire("TarkovCompanion.SingleInstance")
+                : null;
+            if (IsOrdinaryLaunch(options) && instance is null)
+            {
+                const string Message =
+                    "Tarkov Companion is already running. Look for its window on your other "
+                    + "monitor; it may be behind the game.";
+                CrashLog.Write("lifecycle", Message);
+                Console.Error.WriteLine(Message);
+                return 0;
+            }
+
             var services = AppComposition.Build(options);
             var app = new App(services);
             var diagnosticChannel = DiagnosticCommandChannel.Start(
@@ -84,6 +101,14 @@ internal static class Program
                 : 3;
         }
     }
+
+    /// <summary>Whether this is a player starting the companion, rather than a tool running it.</summary>
+    private static bool IsOrdinaryLaunch(AppCommandLine options) =>
+        !options.SelfTest
+        && !options.Headless
+        && !options.Demo
+        && !options.DeveloperMode
+        && options.StartPage is null;
 
     public static AppBuilder BuildAvaloniaApp(App app) =>
         AppBuilder.Configure(() => app)
