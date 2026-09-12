@@ -38,6 +38,18 @@ public sealed record RaidEvidence(
     /// </remarks>
     public string? Side { get; init; }
 
+    /// <summary>
+    /// Whether this evidence is the game announcing that a raid is beginning.
+    /// </summary>
+    /// <remarks>
+    /// Only the game's own confirmation sets this. It exists because a raid can no longer be
+    /// recognised by the state changing: loading markers are ignored while a raid is running,
+    /// which stopped them flapping, but it also meant a second raid beginning before the first
+    /// was seen to end would be treated as a continuation of it and keep the old raid's map,
+    /// start time and trail.
+    /// </remarks>
+    public bool StartsNewRaid { get; init; }
+
     /// <summary>How <see cref="Side"/> was established, in the player's own words.</summary>
     /// <remarks>
     /// There are two routes and they differ in kind. Which profile ran the raid is an

@@ -61,7 +61,12 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
                 : suggested;
         var enteringNewRaid = targetState == RaidLifecycleState.LoadingRaid
             && Current.State != RaidLifecycleState.LoadingRaid;
-        var enteringRaid = targetState == RaidLifecycleState.InRaid && Current.State != RaidLifecycleState.InRaid;
+        // A raid begins either because the state changed into one, or because the game said so
+        // while this still believed the previous raid was running. Without the second case, a
+        // raid that starts before the last one was seen to end inherits its map, its start time
+        // and its trail, which is worse than having no raid at all.
+        var enteringRaid = targetState == RaidLifecycleState.InRaid
+            && (Current.State != RaidLifecycleState.InRaid || evidence.StartsNewRaid);
         var clearingRaid = targetState == RaidLifecycleState.Menu;
         var isManual = evidence.Kind == RaidEvidenceKind.ManualOverride && evidence.MapId is not null
             ? true
@@ -82,9 +87,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             // backwards even when the clock behind it does.
             UpdatedUtc = Later(observedUtc),
             Confidence = evidence.Confidence,
-            LastKnownPosition = enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
+            LastKnownPosition = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
             // The trail belongs to the raid it was walked in, so a new one starts empty.
-            PositionTrail = enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,
+            PositionTrail = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not

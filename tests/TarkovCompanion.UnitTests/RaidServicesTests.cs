@@ -336,16 +336,62 @@ public sealed class RaidServicesTests
         var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
         service.ApplyPosition(Position(started) with { Filename = "one.png" });
 
+        // The game's own confirmation, which is what begins a raid. A loading marker would
+        // not, because those are ignored while a raid is believed to be running.
         service.Apply(new(
             RaidEvidenceKind.LogLine,
             started.AddMinutes(20),
             "customs",
-            RaidLifecycleState.LoadingRaid,
-            new Confidence(0.9),
-            "the next raid is loading"));
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "The game confirmed a raid on customs.")
+        {
+            StartsNewRaid = true,
+        });
 
         Assert.Empty(service.Current.PositionTrail);
         Assert.Null(service.Current.LastKnownPosition);
+        Assert.Equal("customs", service.Current.MapId);
+    }
+
+    /// <summary>
+    /// A raid beginning before the last one was seen to end is still a new raid.
+    /// </summary>
+    /// <remarks>
+    /// Ignoring loading markers during a raid stopped the state flapping, but it also meant
+    /// nothing was left to mark a second raid starting when the first one's end was missed.
+    /// The game's own confirmation carries that, so it is what this turns on.
+    /// </remarks>
+    [Fact]
+    public void StartsAFreshRaidWhenTheGameConfirmsOneWhileAnotherIsBelievedRunning()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        var first = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started,
+            "streets-of-tarkov",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "The game confirmed a raid on streets-of-tarkov.")
+        {
+            StartsNewRaid = true,
+        });
+
+        var second = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started.AddMinutes(30),
+            "customs",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "The game confirmed a raid on customs.")
+        {
+            StartsNewRaid = true,
+        });
+
+        Assert.NotEqual(first.RaidId, second.RaidId);
+        Assert.Equal("customs", second.MapId);
+        Assert.Equal(started.AddMinutes(30), second.StartedUtc);
     }
 
     [Fact]
