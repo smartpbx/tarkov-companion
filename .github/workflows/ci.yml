@@ -44,7 +44,16 @@ jobs:
           path: '**/TestResults/*.trx'
           if-no-files-found: ignore
 
-  windows-publish:
+  # Builds, tests and packages on Windows, and deliberately publishes nothing.
+  #
+  # This job used to upload the package under the same artifact name as the Windows
+  # verification workflow, so two different binaries for the same commit existed under one
+  # name and which one got installed depended on somebody reading the workflow name off the
+  # run. Only the verification workflow launches the package it builds and screenshots it
+  # running, so that is the only one whose output may be installed. Packaging still happens
+  # here, because a packaging failure is worth catching on a pull request; the result is
+  # thrown away on purpose.
+  windows-build:
     runs-on: windows-latest
     timeout-minutes: 25
     env:
@@ -66,12 +75,6 @@ jobs:
         run: |
           dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
           dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
-      - name: Audit and package self-contained win-x64
+      - name: Audit and package self-contained win-x64, then discard it
         shell: bash
         run: ./scripts/package-windows.sh
-      - uses: actions/upload-artifact@v5
-        with:
-          name: TarkovCompanion-win-x64
-          path: |
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
-            dist/SHA256SUMS.txt
