@@ -19,6 +19,14 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
+  # Branch work is verified before it reaches the trunk, not after. The publishing steps
+  # below are gated on the ref, so a pull request gets the whole gauntlet - build, test,
+  # launch, photograph every page - and publishes nothing.
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -347,7 +355,7 @@ jobs:
       # The version carries the run number so every verified build is strictly newer than the
       # last one. Velopack compares versions and will not offer a build it considers older.
       - name: Pack the installer and the update feed
-        if: success()
+        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: bash
         run: |
           set -euo pipefail
@@ -382,11 +390,24 @@ jobs:
           ( cd dist/velopack && sha256sum * > ../VELOPACK-SHA256SUMS.txt )
           cat dist/VELOPACK-SHA256SUMS.txt
 
+      # A tag cuts a release that stays. The rolling pre-release below is what the group
+      # actually runs and is replaced constantly; a tagged release is a build somebody
+      # decided to keep, and it is never deleted or moved.
+      - name: Publish a tagged release
+        if: success() && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release create "$TAG"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "$TAG"             --notes "Verified on Windows: built, tested, launched, and every page photographed. Install with TarkovCompanionDesktop-win-Setup.exe."             --verify-tag             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/SHA256SUMS.txt
+
       # One rolling pre-release, replaced on every verified build, so the application has a
       # fixed place to look for a newer version of itself. Only reached when every check above
       # passed, so nothing that failed verification is ever offered as an update.
       - name: Publish the verified build for in-app update
-        if: success()
+        if: success() && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
