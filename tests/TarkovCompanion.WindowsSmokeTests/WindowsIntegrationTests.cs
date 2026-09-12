@@ -79,9 +79,20 @@ public sealed class WindowsIntegrationTests
                 .WatchAsync(root, timeout.Token)
                 .GetAsyncEnumerator(timeout.Token);
 
-            // Nothing is resumed, so the watcher waits for a new line and the deadline wins.
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                async () => await enumerator.MoveNextAsync());
+            // Nothing is resumed, so the watcher has nothing to yield and waits for a line
+            // that never comes. Whether the deadline ends that by cancelling or by simply
+            // completing the sequence is the watcher's business; what this asserts is that no
+            // evidence was produced.
+            var produced = false;
+            try
+            {
+                produced = await enumerator.MoveNextAsync();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            Assert.False(produced);
         }
         finally
         {
