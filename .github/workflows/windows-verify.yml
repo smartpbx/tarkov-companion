@@ -46,6 +46,22 @@ jobs:
         run: ./scripts/audit-safety.sh
       - name: Secret-pattern audit
         run: ./scripts/scan-secrets.sh
+      # The group server ships self-contained so the machine hosting it needs no .NET
+      # installed and no runtime kept in step with the build. One directory, one unit file.
+      - name: Publish the group server for Linux
+        run: |
+          dotnet publish src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj \
+            --configuration Release \
+            --runtime linux-x64 \
+            --self-contained true \
+            -p:PublishSingleFile=false \
+            --output artifacts/group-server
+      - uses: actions/upload-artifact@v5
+        with:
+          name: TarkovCompanion-GroupServer-linux-x64
+          path: artifacts/group-server/**
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v5
         if: always()
         with:
