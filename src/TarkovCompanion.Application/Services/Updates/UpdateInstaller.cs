@@ -9,27 +9,23 @@ namespace TarkovCompanion.Application.Services.Updates;
 /// <remarks>
 /// A running application cannot replace its own files, so the swap is done by a short script
 /// that waits for this process to exit and then moves directories. The order matters: the
-/// running build is moved to a holding name, the new build takes its place, and only once that
-/// has succeeded is the previous fallback replaced. A failure at any point leaves either the
-/// old build or the new one, never a mixture, and never without a fallback.
+/// A rollback copy is made first, so it exists before anything changes, then the new build is
+/// mirrored over the install. The result is checked for an application and a build stamp, and
+/// the previous build is mirrored back if either is missing. A failure therefore leaves a
+/// runnable build and always a fallback.
 ///
 /// The build is unpacked and checked before this application is asked to close, so the last
 /// thing between the player and a working install is two renames rather than a download.
 /// </remarks>
 public sealed class UpdateInstaller(UpdateOptions options)
 {
-    /// <summary>How long the swap script keeps trying before giving up and saying so.</summary>
+    /// <summary>How many times a single busy file is retried before the update gives up.</summary>
     /// <remarks>
-    /// Measured rather than guessed. Ninety seconds was not enough on a real machine: the
-    /// application exited the same second the script started, and the folder was still held
-    /// for longer than that. The install sits on a OneDrive-synced desktop, and a sync client
-    /// rescans a tree after three hundred files change underneath it.
-    ///
-    /// The cost of waiting too long is a command window that sits there; the cost of giving up
-    /// too early is a download that cannot be applied and a player who has to be told why. The
-    /// first is cheaper, so this is set well past what was observed.
+    /// Per file rather than for the whole operation, which is the difference between this and
+    /// the approach it replaces. A sync client holding one file for a moment costs a retry;
+    /// holding the directory cost the entire update.
     /// </remarks>
-    private const int WaitSeconds = 420;
+    private const int FileRetries = 8;
 
     /// <summary>
     /// Unpacks a verified download and hands back where it went.
@@ -87,67 +83,60 @@ public sealed class UpdateInstaller(UpdateOptions options)
 
         var install = options.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var previous = install + "-previous";
-        var holding = install + "-updating";
         var scriptPath = Path.Combine(options.StagingDirectory, "apply-update.cmd");
 
-        // The order here is the whole safety property, and the first version had it wrong.
+        // The install is replaced file by file rather than by renaming folders.
         //
-        // It deleted the previous build before attempting the risky move, so when that move
-        // failed it had already destroyed the only fallback, and then printed that nothing had
-        // been changed. On a real machine that message was read by two readers as meaning the
-        // net was still there. It was not.
+        // Renaming was the obvious approach and it does not work here. A directory rename
+        // fails while anything holds a handle on the directory or any file beneath it, and the
+        // install sits on a OneDrive-synced desktop where the sync client holds handles more
+        // or less continuously. Waiting longer does not help: on a real machine it never
+        // succeeded, and a longer timeout only made the failure slower.
         //
-        // So the running build is moved to a holding name first, the new build goes in, and
-        // only once that has succeeded is the old fallback replaced. The fallback is never
-        // deleted before the replacement has landed, and every message below says what is
-        // actually true at the point it is printed.
+        // Mirroring copes, because it works on one file at a time and retries the few that are
+        // momentarily busy. It costs the atomicity a rename gave, so the new build is checked
+        // afterwards and the previous one is mirrored back if the check fails. The rollback is
+        // made by copying before anything is touched, so it exists throughout.
         var script = $"""
             @echo off
-            setlocal enabledelayedexpansion
+            setlocal
             set "INSTALL={install}"
             set "STAGED={stagedDirectory}"
             set "PREVIOUS={previous}"
-            set "HOLD={holding}"
 
-            echo Waiting for Tarkov Companion to close...
-            if exist "%HOLD%" rmdir /S /Q "%HOLD%"
+            echo Updating Tarkov Companion...
 
-            set /a attempt=0
-            :retry
-            move "%INSTALL%" "%HOLD%" >nul 2>&1
-            if not errorlevel 1 goto moved
-            set /a attempt+=1
-            if !attempt! GEQ {WaitSeconds} (
+            rem The rollback is made first, by copying, so it exists before anything changes.
+            robocopy "%INSTALL%" "%PREVIOUS%" /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
+            if errorlevel 8 (
                 echo.
-                echo Tarkov Companion did not release its folder within {WaitSeconds} seconds.
-                echo Nothing has been changed. The build you were running is still installed
-                echo and the previous one is still beside it.
-                echo Close the application and run this file again:
-                echo   {scriptPath}
-                echo.
-                pause
-                exit /b 1
-            )
-            timeout /t 1 /nobreak >nul
-            goto retry
-
-            :moved
-            move "%STAGED%" "%INSTALL%" >nul 2>&1
-            if errorlevel 1 (
-                echo.
-                echo Could not put the new build in place. Restoring the one you were running.
-                move "%HOLD%" "%INSTALL%" >nul 2>&1
-                echo The previous build has not been touched.
+                echo Could not set a rollback copy aside. Nothing has been changed.
                 pause
                 exit /b 1
             )
 
-            rem The new build is in place, so the old fallback may be replaced now and not before.
-            if exist "%PREVIOUS%" rmdir /S /Q "%PREVIOUS%"
-            move "%HOLD%" "%PREVIOUS%" >nul 2>&1
+            robocopy "%STAGED%" "%INSTALL%" /MIR /R:{FileRetries} /W:2 /NFL /NDL /NJH /NJS /NP >nul
+            if errorlevel 8 goto restore
+            if not exist "%INSTALL%\TarkovCompanion.exe" goto restore
+            if not exist "%INSTALL%\BUILD_INFO.txt" goto restore
 
+            rmdir /S /Q "%STAGED%" 2>nul
             start "" "%INSTALL%\TarkovCompanion.exe"
             endlocal
+            exit /b 0
+
+            :restore
+            echo.
+            echo The new build could not be put in place. Restoring the one you were running.
+            robocopy "%PREVIOUS%" "%INSTALL%" /MIR /R:2 /W:1 /NFL /NDL /NJH /NJS /NP >nul
+            if errorlevel 8 (
+                echo The restore also failed. Your previous build is intact at:
+                echo   %PREVIOUS%
+            ) else (
+                echo Restored. You are back on the build you were running.
+            )
+            pause
+            exit /b 1
             """;
         File.WriteAllText(scriptPath, script);
 
