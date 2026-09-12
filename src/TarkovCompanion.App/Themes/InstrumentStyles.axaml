@@ -123,12 +123,16 @@
     <Setter Property="BorderBrush" Value="#D8F5F7" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
+  <!-- Content is centred because these carry a MinHeight larger than a line of text, and
+       the default top alignment left every search box looking as though its placeholder had
+       been clipped by the border. -->
   <Style Selector="TextBox">
     <Setter Property="Background" Value="#151B22" />
     <Setter Property="Foreground" Value="#E4EAEE" />
     <Setter Property="BorderBrush" Value="#3B4855" />
     <Setter Property="CornerRadius" Value="2" />
     <Setter Property="MinHeight" Value="38" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
   <Style Selector="ComboBox">
     <Setter Property="Background" Value="#202933" />
@@ -136,5 +140,6 @@
     <Setter Property="BorderBrush" Value="#3B4855" />
     <Setter Property="CornerRadius" Value="2" />
     <Setter Property="MinHeight" Value="38" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
 </Styles>

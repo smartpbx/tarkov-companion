@@ -65,19 +65,38 @@
           <TextBlock Classes="label" Text="{Binding ModeLabel}" />
         </StackPanel>
 
+        <!-- Every chip is capped and trims, with the full text on hover.
+             One chip's evidence line can run to a full sentence, and an untrimmed sentence
+             took the width of four chips and pushed the last one off the edge of the window.
+             Losing the Scan chip because the EFT chip had a lot to say is the wrong trade at
+             any window size. -->
         <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
           <ItemsControl ItemsSource="{Binding Status}" HorizontalAlignment="Center">
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate>
-                <StackPanel Orientation="Horizontal" Spacing="25" />
+                <StackPanel Orientation="Horizontal" Spacing="18" />
               </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:StatusChip">
-                <StackPanel VerticalAlignment="Center" MinWidth="92" Spacing="1">
+                <StackPanel
+                    VerticalAlignment="Center"
+                    MinWidth="86"
+                    MaxWidth="168"
+                    Spacing="1"
+                    ToolTip.Tip="{Binding Evidence}">
                   <TextBlock Classes="label" Text="{Binding Label}" />
-                  <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="{Binding Color}" Text="{Binding Value}" />
-                  <TextBlock FontSize="11" Foreground="#71808C" Text="{Binding Evidence}" />
+                  <TextBlock
+                      FontSize="13"
+                      FontWeight="SemiBold"
+                      Foreground="{Binding Color}"
+                      Text="{Binding Value}"
+                      TextTrimming="CharacterEllipsis" />
+                  <TextBlock
+                      FontSize="11"
+                      Foreground="#71808C"
+                      Text="{Binding Evidence}"
+                      TextTrimming="CharacterEllipsis" />
                 </StackPanel>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
