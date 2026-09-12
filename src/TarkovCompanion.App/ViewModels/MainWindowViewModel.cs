@@ -123,6 +123,28 @@ public sealed record StatusChip(string Label, string Value, string Evidence, str
     public bool IsPrimary { get; init; }
 }
 
+/// <summary>
+/// Says what the game is doing, in the words a player would use.
+/// </summary>
+/// <remarks>
+/// These used to reach the interface through ToString(), so the readout a player glances at
+/// mid-raid said "InRaid", "PostRaid" and, best of all, "LauncherOrGameDetected". Those are
+/// names for the code's benefit. Nobody playing the game calls it that, and the longest one
+/// appears exactly when somebody is first wondering whether the companion is working.
+/// </remarks>
+public static class RaidStateText
+{
+    public static string Describe(RaidLifecycleState state) => state switch
+    {
+        RaidLifecycleState.InRaid => "In raid",
+        RaidLifecycleState.LoadingRaid => "Loading into a raid",
+        RaidLifecycleState.PostRaid => "Raid over",
+        RaidLifecycleState.Menu => "In the menus",
+        RaidLifecycleState.LauncherOrGameDetected => "Game running",
+        _ => "Not observed",
+    };
+}
+
 public abstract class PageViewModel(string title, string description, string evidence) : BindableViewModel
 {
     /// <summary>
@@ -256,7 +278,7 @@ public sealed class RaidPageViewModel : PageViewModel
         Title = raid.MapId is null ? "Raid reference" : $"{raid.MapId} raid";
         RaidState = raid.State == RaidLifecycleState.Unknown
             ? "No raid state has been observed."
-            : $"{raid.State} · {FormatAge(raid.UpdatedUtc, nowUtc)}";
+            : $"{RaidStateText.Describe(raid.State)} · {FormatAge(raid.UpdatedUtc, nowUtc)}";
         Position = raid.LastKnownPosition is null
             ? "No position yet"
             : string.Create(
@@ -1674,7 +1696,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             },
             new(
                 "Raid",
-                raid.State.ToString(),
+                RaidStateText.Describe(raid.State),
                 raid.StartedUtc is null ? "No active session" : $"Started {raid.StartedUtc.Value.ToLocalTime():T}",
                 raid.State switch
                 {

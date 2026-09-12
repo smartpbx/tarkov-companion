@@ -187,7 +187,18 @@ public sealed class QuestTaskViewModel
 
     public string RecordedState => Model.RecordedState.ToString();
 
-    public string Eligibility => Model.Eligibility.State.ToString();
+    /// <summary>Whether this quest can be picked up, in the player's words.</summary>
+    /// <remarks>
+    /// "Indeterminate" is the reason this exists. It is an accurate name for a state the
+    /// evaluator can reach and a useless thing to show somebody deciding what to do next.
+    /// </remarks>
+    public string Eligibility => Model.Eligibility.State switch
+    {
+        QuestEligibilityState.Available => "Available now",
+        QuestEligibilityState.Locked => "Locked",
+        QuestEligibilityState.Delayed => "Waiting on a timer",
+        _ => "Not known",
+    };
 
     public string EligibilityDetail => Model.Eligibility.Reasons.Count == 0
         ? "No catalog eligibility warnings."
