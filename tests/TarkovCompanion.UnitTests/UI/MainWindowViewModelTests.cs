@@ -79,6 +79,6 @@ public sealed class MainWindowViewModelTests
     }
 
     private static ServiceProvider CreateServices() => AppComposition.Build(
-        new AppCommandLine(false, true, false, false, null, null, null),
+        new AppCommandLine(false, true, false, false, null, null, null, null),
         new(DataRoot: Path.Combine(Path.GetTempPath(), $"tarkov-ui-{Guid.NewGuid():N}"), Offline: true));
 }

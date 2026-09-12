@@ -163,6 +163,20 @@ jobs:
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
+      # Opens every destination in turn and photographs it. Seven pages were shipped
+      # without anyone seeing them rendered; compiled bindings make a mistyped property a
+      # load-time failure on whichever page holds it, and nothing else here visits them.
+      - name: Photograph every destination
+        id: page-gallery
+        continue-on-error: true
+        timeout-minutes: 12
+        shell: powershell
+        run: |
+          ./scripts/windows-page-gallery.ps1 `
+            -AppPath $env:TC_APP `
+            -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/page-gallery.json") `
+            -ScreenshotDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/pages")
+
       - name: Headless self-test after first run
         id: self-test-warm
         continue-on-error: true
@@ -260,6 +274,7 @@ jobs:
             "self-test-cold" = "${{ steps.self-test-cold.outcome }}"
             "demo-replay" = "${{ steps.demo-replay.outcome }}"
             "launch-probe" = "${{ steps.launch-probe.outcome }}"
+            "page-gallery" = "${{ steps.page-gallery.outcome }}"
             "self-test-warm" = "${{ steps.self-test-warm.outcome }}"
             "scan-hotkey" = "${{ steps.hotkey.outcome }}"
             "developer-smoke" = "${{ steps.developer-smoke.outcome }}"

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.Views;
@@ -21,6 +22,17 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
+
+            // Opening straight onto a named page exists so the Windows verification job can
+            // photograph every destination in turn. Seven pages were written and shipped
+            // without anyone ever seeing them rendered, and a broken binding on one of them
+            // only shows when somebody navigates there.
+            if (services.GetService<AppCommandLine>()?.StartPage is { } startPage &&
+                !viewModel.Navigate(startPage))
+            {
+                throw new ArgumentException($"No destination is named '{startPage}'.");
+            }
+
             desktop.MainWindow = new MainWindow
             {
                 DataContext = viewModel,

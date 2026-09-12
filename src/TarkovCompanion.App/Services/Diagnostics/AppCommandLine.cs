@@ -1,5 +1,8 @@
 namespace TarkovCompanion.App.Services.Diagnostics;
 
+/// <param name="StartPage">
+/// A destination to open instead of the default one, by the name shown in the sidebar.
+/// </param>
 public sealed record AppCommandLine(
     bool SelfTest,
     bool Demo,
@@ -7,7 +10,8 @@ public sealed record AppCommandLine(
     bool DeveloperMode,
     string? OutputPath,
     string? DemoFixturePath,
-    string? DiagnosticChannelPath)
+    string? DiagnosticChannelPath,
+    string? StartPage)
 {
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
@@ -20,7 +24,8 @@ public sealed record AppCommandLine(
             HasFlag(args, "--developer-mode"),
             GetValue(args, "--output"),
             GetValue(args, "--demo-fixture"),
-            GetValue(args, "--diagnostic-channel"));
+            GetValue(args, "--diagnostic-channel"),
+            GetValue(args, "--page"));
     }
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
