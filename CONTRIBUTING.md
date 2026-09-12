@@ -31,6 +31,19 @@ each other:
 The database, cache and logs live in `%LOCALAPPDATA%\TarkovCompanion`, outside every
 worktree, so two checkouts never fight over them.
 
+## Branches must be current with the trunk
+
+A branch has to be up to date with `main` before it can merge, and that is not bureaucracy.
+
+It has already bitten. One branch added a log line naming the room; another removed the room
+because the group key now decides it. They touched different lines, so git merged them cleanly
+into code referencing a property that no longer exists. Both pull requests were green, because
+each was verified against a `main` that did not yet contain the other.
+
+Green plus green is not green. The trunk runs the same verification a pull request does for
+exactly this reason, and branches are now required to be current so the collision is found
+before the merge rather than after it.
+
 ## Issues
 
 Everything requested and not yet done is an issue. That is deliberate: this list was kept
