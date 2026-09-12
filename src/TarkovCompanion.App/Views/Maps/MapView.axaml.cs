@@ -447,6 +447,14 @@ public sealed partial class MapView : UserControl
         }
     }
 
+    private void AutoFloorClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            viewModel.ToggleAutoFloor();
+        }
+    }
+
     private void FollowClick(object? sender, RoutedEventArgs eventArgs)
     {
         if (DataContext is not MapViewModel viewModel)

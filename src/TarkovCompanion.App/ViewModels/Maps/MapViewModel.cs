@@ -693,6 +693,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
     private bool _prefersDrawing;
+    private bool _autoSelectsFloor = true;
+    private bool _isLoadingVariant;
+    private string? _flooredPositionFilename;
     private bool _hasArtworkChoice;
     private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
@@ -1135,7 +1138,21 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public Task SelectVariantAsync(MapVariant variant) => LoadVariantAsync(variant, persist: true);
 
-    public async Task SelectFloorAsync(MapFloorDefinition floor)
+    /// <summary>
+    /// Changes floor because the player asked, which also stops the map choosing for them.
+    /// </summary>
+    /// <remarks>
+    /// A map that yanks itself to another floor while somebody is reading one is worse than a
+    /// map that does nothing, so a deliberate choice wins until they turn following back on.
+    /// This mirrors how zooming by hand switches off automatic fitting.
+    /// </remarks>
+    public Task SelectFloorAsync(MapFloorDefinition floor)
+    {
+        AutoSelectsFloor = false;
+        return SelectFloorAsync(floor, automatic: false);
+    }
+
+    private async Task SelectFloorAsync(MapFloorDefinition floor, bool automatic)
     {
         ArgumentNullException.ThrowIfNull(floor);
         if (SelectedLocation is not { } location || SelectedVariant is not { } variant ||
@@ -1318,6 +1335,23 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _isAutoFit;
         private set => Set(ref _isAutoFit, value);
     }
+
+    /// <summary>
+    /// Whether the map follows the player up and down as well as across.
+    /// </summary>
+    /// <remarks>
+    /// The function that answers "which floor is this position on" has existed and been
+    /// correct since floors were added, and nothing ever called it. So the map knew the
+    /// player's height, knew which floor that height belonged to, and drew the wrong one until
+    /// somebody changed it by hand.
+    /// </remarks>
+    public bool AutoSelectsFloor
+    {
+        get => _autoSelectsFloor;
+        private set => Set(ref _autoSelectsFloor, value);
+    }
+
+    public void ToggleAutoFloor() => AutoSelectsFloor = !AutoSelectsFloor;
 
     public void ChangeZoom(double wheelDelta)
     {
@@ -1728,6 +1762,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // Held for the whole load so automatic floor following stays out of the way. Both
+        // paths cancel the same token source, and a screenshot landing mid-load would cancel
+        // the variant out from under itself. A raid starting is exactly when both happen at
+        // once: the map switches and a position arrives moments later.
+        _isLoadingVariant = true;
+        // A new map means the floor the last one settled on says nothing about this one.
+        _flooredPositionFilename = null;
         _selectionLoad?.Cancel();
         _selectionLoad?.Dispose();
         _selectionLoad = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
@@ -1799,6 +1840,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception)
         {
             Status = $"Map unavailable: {exception.Message}";
+        }
+        finally
+        {
+            // In a finally because a cancelled load is the common case, not the exception: one
+            // map selection supersedes another every time a raid starts. Leaving this set
+            // would switch automatic floor following off silently and permanently.
+            _isLoadingVariant = false;
         }
     }
 
@@ -2228,12 +2276,50 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         GroupMarkers = markers;
     }
 
+    /// <summary>
+    /// Moves to the floor the player is standing on.
+    /// </summary>
+    /// <remarks>
+    /// Only when the floor would actually change, and only when the map is not already loading
+    /// something. Both matter: floor selection and variant selection share one cancellation
+    /// source, so calling this on every screenshot regardless would turn a race that needs a
+    /// human clicking during a load into one that happens by itself.
+    ///
+    /// The dead band is the filename. A position arrives once per screenshot and the same
+    /// screenshot is delivered more than once, so acting on the file rather than the position
+    /// means a stairwell cannot make the map flap between two floors on repeats of one frame.
+    ///
+    /// A floor whose extents do not contain the player leaves the map alone rather than
+    /// falling back to the default. Falling back would drag somebody out of a building because
+    /// the building's own layer stopped matching at its edge.
+    /// </remarks>
+    private void FollowFloor(ScreenshotPosition? position)
+    {
+        if (!AutoSelectsFloor || position is null || _isLoadingVariant ||
+            SelectedVariant is not { } variant || variant.Floors.Count <= 1 ||
+            string.Equals(_flooredPositionFilename, position.Filename, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _flooredPositionFilename = position.Filename;
+        var target = _presentationService.SelectFloor(variant, position.Position);
+        if (target is null || SelectedFloor is null ||
+            string.Equals(target.Id, SelectedFloor.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _ = SelectFloorAsync(target, automatic: true);
+    }
+
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
         ArgumentNullException.ThrowIfNull(trail);
         _playerPosition = position;
         _playerTrailPositions = trail;
         UpdatePlayerMarker();
+        FollowFloor(position);
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
