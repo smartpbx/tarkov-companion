@@ -43,35 +43,65 @@ public sealed class VelopackUpdateGateway
     public const string ReleaseRepository = "https://github.com/smartpbx/tarkov-companion";
 
     private readonly ILogger<VelopackUpdateGateway>? _logger;
-    private readonly UpdateManager _manager;
+    private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
 
     public VelopackUpdateGateway(ILogger<VelopackUpdateGateway>? logger = null)
     {
         _logger = logger;
-        // Pre-releases included: the rolling build is how this reaches the people who use it,
-        // and there has never been a stable channel to hold back for.
-        _manager = new UpdateManager(new GithubSource(ReleaseRepository, null, prerelease: true));
+        _manager = new Lazy<UpdateManager?>(CreateManager);
+    }
+
+    /// <summary>
+    /// Builds the updater, or decides there is not one.
+    /// </summary>
+    /// <remarks>
+    /// Lazy and forgiving, for a specific reason. Constructing an UpdateManager throws unless
+    /// VelopackApp.Build().Run() has already run, and that only happens in the real entry
+    /// point. Building it eagerly in the constructor therefore took down anything that
+    /// resolved this type without a full application around it, which is every test that
+    /// composes the main window, and it did so at composition time where the failure looks
+    /// like the whole container is broken rather than like updates being unavailable.
+    ///
+    /// An application that cannot update itself is a small loss. An application that will not
+    /// start is a total one, so this never throws.
+    /// </remarks>
+    private UpdateManager? CreateManager()
+    {
+        try
+        {
+            // Pre-releases included: the rolling build is how this reaches the people who use
+            // it, and there has never been a stable channel to hold back for.
+            return new UpdateManager(new GithubSource(ReleaseRepository, null, prerelease: true));
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogInformation(
+                exception,
+                "Updates are unavailable in this process; it was not started by the installed application.");
+            return null;
+        }
     }
 
     /// <summary>Whether this copy was installed, as opposed to run out of a folder.</summary>
-    public bool IsInstalled => _manager.IsInstalled;
+    public bool IsInstalled => _manager.Value?.IsInstalled == true;
 
     /// <summary>The running version, or a plain statement that there is not one.</summary>
-    public string InstalledBuild => _manager.IsInstalled && _manager.CurrentVersion is { } version
+    public string InstalledBuild => _manager.Value is { IsInstalled: true } manager
+        && manager.CurrentVersion is { } version
         ? $"Version {version}"
         : "Running from a folder, not installed";
 
     public async Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
     {
-        if (!IsInstalled)
+        if (_manager.Value is not { IsInstalled: true } manager)
         {
             return new("This copy was run from a folder rather than installed, so it cannot update itself.");
         }
 
         try
         {
-            _pending = await _manager.CheckForUpdatesAsync().ConfigureAwait(true);
+            _pending = await manager.CheckForUpdatesAsync().ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             return _pending is null
                 ? new("You are on the newest build.")
@@ -86,14 +116,14 @@ public sealed class VelopackUpdateGateway
 
     public async Task<UpdateProgress> DownloadAsync(CancellationToken cancellationToken)
     {
-        if (_pending is not { } update)
+        if (_pending is not { } update || _manager.Value is not { } manager)
         {
             return new("Check for updates first.");
         }
 
         try
         {
-            await _manager.DownloadUpdatesAsync(update).ConfigureAwait(true);
+            await manager.DownloadUpdatesAsync(update).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             return new(
                 $"Version {update.TargetFullRelease.Version} is ready. It installs when the application closes.",
@@ -111,12 +141,12 @@ public sealed class VelopackUpdateGateway
     /// </summary>
     public void ApplyAndRestart()
     {
-        if (_pending is not { } update)
+        if (_pending is not { } update || _manager.Value is not { } manager)
         {
             return;
         }
 
         _logger?.LogInformation("Applying version {Version} and restarting.", update.TargetFullRelease.Version);
-        _manager.ApplyUpdatesAndRestart(update);
+        manager.ApplyUpdatesAndRestart(update);
     }
 }
