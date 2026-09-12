@@ -1,0 +1,39 @@
+# Regenerates the locked third-party inventory.
+#
+# The licence audit is fail-closed: it rebuilds the inventory from the dependency graph and
+# fails if the committed copy differs, so a new dependency cannot arrive unreviewed. That is
+# the right behaviour and it leaves one question, which is how to produce the new copy when
+# nobody may run .NET outside CI. Hence this: run it, read the diff, commit the result.
+name: License lock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - name: Restore
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+      - name: Rewrite the locked inventory
+        run: ./scripts/audit-licenses.sh --write
+      - name: Show what changed
+        run: git --no-pager diff --stat -- docs/THIRD_PARTY_INVENTORY.json
+      # Published rather than committed. A workflow that can push to the branch is a bigger
+      # thing to own than a file somebody downloads and commits after reading the diff, and
+      # reading the diff is the point of the audit being fail-closed in the first place.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: third-party-inventory
+          path: docs/THIRD_PARTY_INVENTORY.json
+          if-no-files-found: error
