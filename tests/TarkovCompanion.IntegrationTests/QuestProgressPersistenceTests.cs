@@ -458,7 +458,7 @@ public sealed class QuestProgressPersistenceTests
             SqliteConnection.ClearAllPools();
             if (System.IO.Directory.Exists(_directory))
             {
-                TemporaryDirectory.Remove(_directory);
+                ScratchDirectory.Remove(_directory);
             }
 
             return ValueTask.CompletedTask;

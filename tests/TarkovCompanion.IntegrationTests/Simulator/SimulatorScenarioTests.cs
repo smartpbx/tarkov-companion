@@ -68,7 +68,7 @@ public sealed class SimulatorScenarioTests
         }
         finally
         {
-            TemporaryDirectory.Remove(root);
+            ScratchDirectory.Remove(root);
         }
     }
 

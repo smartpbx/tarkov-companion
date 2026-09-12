@@ -39,7 +39,7 @@ public sealed class ProfilePersistenceTests
         {
             if (Directory.Exists(directory))
             {
-                TemporaryDirectory.Remove(directory);
+                ScratchDirectory.Remove(directory);
             }
         }
     }
@@ -94,7 +94,7 @@ public sealed class ProfilePersistenceTests
         {
             if (Directory.Exists(directory))
             {
-                TemporaryDirectory.Remove(directory);
+                ScratchDirectory.Remove(directory);
             }
         }
     }

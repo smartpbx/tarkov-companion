@@ -129,7 +129,7 @@ public sealed class DiagnosticChannelTests
         {
             if (Directory.Exists(root))
             {
-                TemporaryDirectory.Remove(root);
+                ScratchDirectory.Remove(root);
             }
         }
     }

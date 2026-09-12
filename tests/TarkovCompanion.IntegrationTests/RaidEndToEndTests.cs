@@ -153,5 +153,5 @@ public sealed class RaidEndToEndTests
     private static string TemporaryRoot() =>
         Path.Combine(Path.GetTempPath(), $"tarkov-raid-e2e-{Guid.NewGuid():N}");
 
-    private static void Cleanup(string root) => TemporaryDirectory.Remove(root);
+    private static void Cleanup(string root) => ScratchDirectory.Remove(root);
 }

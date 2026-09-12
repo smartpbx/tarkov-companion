@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace TarkovCompanion.IntegrationTests;
 
 /// <summary>
-/// Removes a temporary directory without letting the attempt fail a test.
+/// Removes a test's scratch directory without letting the attempt fail the test.
 /// </summary>
 /// <remarks>
 /// A composition test failed in CI with "Directory not empty" while deleting its own scratch
@@ -21,7 +21,7 @@ namespace TarkovCompanion.IntegrationTests;
 /// gets past it; four tests failed that way while every one of their assertions passed. Putting
 /// it here means the next test to need a scratch directory cannot forget.
 /// </remarks>
-internal static class TemporaryDirectory
+internal static class ScratchDirectory
 {
     private const int Attempts = 5;
 

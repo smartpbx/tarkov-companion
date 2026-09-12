@@ -380,7 +380,7 @@ public sealed class RuntimeCompositionTests
 
     private static void Cleanup(string root)
     {
-        TemporaryDirectory.Remove(root);
+        ScratchDirectory.Remove(root);
     }
 
     private sealed class FailIfUsedHandler : HttpMessageHandler

@@ -323,7 +323,7 @@ public sealed class TarkovTrackerIntegrationTests
             _apiClient.Dispose();
             _profileService.Dispose();
             SqliteConnection.ClearAllPools();
-            TemporaryDirectory.Remove(_directory);
+            ScratchDirectory.Remove(_directory);
             return ValueTask.CompletedTask;
         }
 
