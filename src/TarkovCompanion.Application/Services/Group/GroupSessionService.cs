@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Net;
+using System.Net.Http;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Maps;
@@ -39,6 +41,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     private readonly IRuntimeStateStore _stateStore;
     private readonly HttpClient _httpClient;
     private readonly ILogger<GroupSessionService> _logger;
+    private int _published;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _worker;
     private bool _disposed;
@@ -73,9 +76,17 @@ public sealed class GroupSessionService : IAsyncDisposable
             {
                 // Deliberately swallowed after reporting. The group is an extra; a server that
                 // is down must not take the map with it.
+                //
+                // Reported to the log as well as to the interface, which it was not. Sharing
+                // wrote no line of any kind, so when a member's state was being refused there
+                // was nothing to read: the whole diagnosis had to come from reading a config
+                // file on the machine and probing the server from outside. Every other part of
+                // this application says what it did; this one was silent.
+                var detail = Explain(exception);
+                _logger.LogWarning(exception, "Group publish failed: {Detail}", detail);
                 Publish(GroupSnapshot.Off with
                 {
-                    Detail = $"The group server could not be reached: {exception.Message}",
+                    Detail = detail,
                     UpdatedUtc = DateTimeOffset.UtcNow,
                 });
             }
@@ -90,6 +101,30 @@ public sealed class GroupSessionService : IAsyncDisposable
             }
         }
     }
+
+    /// <summary>
+    /// Says what went wrong in terms of what to do about it.
+    /// </summary>
+    /// <remarks>
+    /// "The group server could not be reached" was the message for every failure including the
+    /// one that actually happened, which was that the server understood perfectly and refused
+    /// the credentials. Somebody reading that goes looking at their network, and the server is
+    /// fine and the network is fine and the thing that is wrong is a value they typed.
+    /// </remarks>
+    private static string Explain(Exception exception) => exception switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
+            "The group server refused the secret. Everyone in a group has to type the same one.",
+        HttpRequestException { StatusCode: HttpStatusCode.BadRequest } =>
+            "The group server rejected the room or display name. Both are required, and neither may be long.",
+        HttpRequestException { StatusCode: { } status } =>
+            $"The group server answered {(int)status}.",
+        HttpRequestException =>
+            $"The group server could not be reached: {exception.Message}",
+        TaskCanceledException =>
+            "The group server did not answer in time.",
+        _ => $"Sharing failed: {exception.Message}",
+    };
 
     private async Task PublishOnceAsync(CancellationToken cancellationToken)
     {
@@ -135,6 +170,19 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         var room = await response.Content.ReadFromJsonAsync<RoomStateDto>(Json, cancellationToken).ConfigureAwait(false);
         var members = (room?.Members ?? []).Select(Read).ToArray();
+        // Occasionally, not every five seconds. Three lines at the start answer "is it working
+        // at all", which is the question, and one every ten minutes after that shows it still
+        // is, without filling an evening's log.
+        if (Interlocked.Increment(ref _published) is 1 or 2 or 3 || _published % 120 == 0)
+        {
+            _logger.LogInformation(
+                "Group publish {Count} succeeded as {Name} in room {Room}; {Members} other member(s) present.",
+                _published,
+                settings.DisplayName,
+                settings.Room,
+                members.Length);
+        }
+
         Publish(new(
             true,
             members,
