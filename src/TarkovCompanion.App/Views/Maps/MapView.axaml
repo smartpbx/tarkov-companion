@@ -140,6 +140,18 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Where the player has been this raid, in the order they were there. Broken
+               rather than solid, because the points are screenshots minutes apart and a solid
+               line between two of them would claim a route that was never observed. -->
+          <Polyline
+              Points="{Binding PlayerTrail}"
+              IsVisible="{Binding HasPlayerTrail}"
+              Stroke="#B034D3E8"
+              StrokeThickness="2.5"
+              StrokeDashArray="1,2.2"
+              StrokeLineCap="Round"
+              StrokeJoin="Round" />
+
           <!-- Where the player last was, from their own screenshot. Held as a list of at
                most one so the layer simply disappears when there is no evidence. -->
           <ItemsControl
@@ -287,6 +299,7 @@
 
     <Border Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
       <StackPanel Orientation="Horizontal" Spacing="4">
+        <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
         <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it" />
         <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
         <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />

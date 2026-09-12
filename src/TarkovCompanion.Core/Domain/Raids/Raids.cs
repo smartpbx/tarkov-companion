@@ -65,6 +65,19 @@ public sealed record RaidSnapshot(
 
     /// <summary>How that was established, carried through so the summary can say.</summary>
     public string? SideBasis { get; init; }
+
+    /// <summary>
+    /// Every screenshot position of this raid, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// A single point says where the player was; the sequence says where they have been, which
+    /// is the more useful thing on a map. It belongs to one raid and is emptied when the next
+    /// one begins, so a trail never crosses from a map the player has left.
+    ///
+    /// These are the same screenshots the player took themselves, so the trail is a record of
+    /// their own evidence rather than any kind of tracking.
+    /// </remarks>
+    public IReadOnlyList<ScreenshotPosition> PositionTrail { get; init; } = [];
 }
 
 public sealed record RaidHistoryEntry(

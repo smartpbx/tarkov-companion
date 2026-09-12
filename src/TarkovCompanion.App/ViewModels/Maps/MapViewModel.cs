@@ -252,6 +252,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapRenderModel? _renderModel;
     private PixelRect _backgroundDrawnPixels;
     private ScreenshotPosition? _playerPosition;
+    private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
+    private AvaloniaList<Point> _playerTrail = [];
+    private string? _followedPositionFilename;
+    private bool _followsPlayer = true;
     private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
     private QuestMapProjectionReadModel? _questProjection;
@@ -384,6 +388,46 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public bool HasPlayerMarker => PlayerMarkers.Count > 0;
+
+    /// <summary>
+    /// Where the player has been this raid, projected onto the map.
+    /// </summary>
+    /// <remarks>
+    /// Drawn as a broken line rather than a solid one, because the points are screenshots
+    /// minutes apart and the line between two of them is an assumption about a route, not a
+    /// route. A dotted line reads as "these places, in this order", which is all that is known.
+    /// </remarks>
+    public AvaloniaList<Point> PlayerTrail
+    {
+        get => _playerTrail;
+        private set
+        {
+            Set(ref _playerTrail, value);
+            OnPropertyChanged(nameof(HasPlayerTrail));
+        }
+    }
+
+    /// <summary>A trail needs two points before it is a trail.</summary>
+    public bool HasPlayerTrail => PlayerTrail.Count > 1;
+
+    /// <summary>
+    /// Whether the view moves to the player when a new screenshot arrives.
+    /// </summary>
+    /// <remarks>
+    /// On by default, because the whole point of this panel is to be looked at without being
+    /// operated. It switches itself off the moment the player pans or zooms by hand, on the
+    /// principle that a deliberate action should not be undone by the next screenshot.
+    /// </remarks>
+    public bool FollowsPlayer
+    {
+        get => _followsPlayer;
+        private set => Set(ref _followsPlayer, value);
+    }
+
+    /// <summary>Asks the view to put the player in the middle of the panel.</summary>
+    public event EventHandler? PlayerFollowRequested;
+
+    public void ToggleFollowPlayer() => FollowsPlayer = !FollowsPlayer;
 
     public MapLocation? SelectedLocation
     {
@@ -732,13 +776,39 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public void SetZoom(double scale)
     {
         IsAutoFit = false;
+        FollowsPlayer = false;
         ZoomScale = ClampZoom(scale);
+    }
+
+    /// <summary>
+    /// Zooms because the view is following the player, without cancelling the following.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the deliberate zoom, which switches following off. This one is the
+    /// consequence of following rather than an instruction from the player.
+    /// </remarks>
+    public void SetFollowZoom(double scale)
+    {
+        IsAutoFit = false;
+        ZoomScale = ClampZoom(scale);
+    }
+
+    /// <summary>Records that the player moved the map themselves.</summary>
+    /// <remarks>
+    /// Panning is a deliberate act, and the next screenshot should not undo it. Fit and the
+    /// follow control both turn following back on, so this is recoverable with one click.
+    /// </remarks>
+    public void ReportManualPan()
+    {
+        IsAutoFit = false;
+        FollowsPlayer = false;
     }
 
     /// <summary>Asks the view to scale the whole map into the panel and centre it.</summary>
     public void RequestFit()
     {
         IsAutoFit = true;
+        FollowsPlayer = false;
         FitRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -1365,10 +1435,26 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// only redrawn when the screenshot itself changes; the age in its label is refreshed by
     /// the same snapshot tick that refreshes every other age on screen.
     /// </remarks>
-    public void ShowPlayer(ScreenshotPosition? position)
+    public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
+        ArgumentNullException.ThrowIfNull(trail);
         _playerPosition = position;
+        _playerTrailPositions = trail;
         UpdatePlayerMarker();
+
+        // Following happens once per screenshot rather than on every snapshot, or the view
+        // would fight the player for control of the map several times a second.
+        if (position is null || !FollowsPlayer ||
+            string.Equals(_followedPositionFilename, position.Filename, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _followedPositionFilename = position.Filename;
+        if (HasPlayerMarker)
+        {
+            PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>
@@ -1383,8 +1469,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             !_renderModel.TryMapPosition(position.Position, out var mapPoint))
         {
             PlayerMarkers = [];
+            PlayerTrail = [];
             return;
         }
+
+        var trail = new AvaloniaList<Point>();
+        foreach (var step in _playerTrailPositions)
+        {
+            if (_renderModel.TryMapPosition(step.Position, out var stepPoint))
+            {
+                var projected = mapper(stepPoint);
+                if (double.IsFinite(projected.X) && double.IsFinite(projected.Y))
+                {
+                    trail.Add(projected);
+                }
+            }
+        }
+
+        PlayerTrail = trail;
 
         var canvasPoint = mapper(mapPoint);
         if (!double.IsFinite(canvasPoint.X) || !double.IsFinite(canvasPoint.Y))

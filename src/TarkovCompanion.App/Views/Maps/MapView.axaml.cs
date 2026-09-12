@@ -66,12 +66,14 @@ public sealed partial class MapView : UserControl
         if (_boundViewModel is not null)
         {
             _boundViewModel.FitRequested -= FitRequested;
+            _boundViewModel.PlayerFollowRequested -= PlayerFollowRequested;
         }
 
         _boundViewModel = DataContext as MapViewModel;
         if (_boundViewModel is not null)
         {
             _boundViewModel.FitRequested += FitRequested;
+            _boundViewModel.PlayerFollowRequested += PlayerFollowRequested;
             FitAndCentre();
         }
     }
@@ -85,6 +87,64 @@ public sealed partial class MapView : UserControl
     }
 
     private void FitRequested(object? sender, EventArgs eventArgs) => FitAndCentre();
+
+    private void PlayerFollowRequested(object? sender, EventArgs eventArgs) => CentreOnPlayer();
+
+    /// <summary>
+    /// Puts the player in the middle of the panel, at a readable scale.
+    /// </summary>
+    /// <remarks>
+    /// A whole map fitted to the panel is the right view before a raid and the wrong one during
+    /// it: at that scale the player is a dot among street names. When a screenshot arrives the
+    /// view moves to them and zooms to something a person can actually read, which is what
+    /// makes this a panel you glance at rather than one you operate.
+    ///
+    /// It only zooms in, never out. Somebody who has deliberately zoomed further in to read a
+    /// building should not be pulled back out by the next screenshot.
+    /// </remarks>
+    private void CentreOnPlayer()
+    {
+        if (Viewport is null || DataContext is not MapViewModel viewModel ||
+            viewModel.PlayerMarkers.Count == 0)
+        {
+            return;
+        }
+
+        if (viewModel.ZoomScale < PlayerFollowZoom)
+        {
+            viewModel.SetFollowZoom(PlayerFollowZoom);
+        }
+
+        // The scaled content has to be measured before the offset means anything, exactly as
+        // it does when fitting.
+        Dispatcher.UIThread.Post(
+            () =>
+            {
+                if (Viewport is null || DataContext is not MapViewModel model ||
+                    model.PlayerMarkers.Count == 0)
+                {
+                    return;
+                }
+
+                var marker = model.PlayerMarkers[0];
+                var scale = model.ZoomScale;
+                var viewport = Viewport.Viewport;
+                var extent = Viewport.Extent;
+                Viewport.Offset = new(
+                    Math.Clamp((marker.CenterX * scale) - (viewport.Width / 2), 0, Math.Max(0, extent.Width - viewport.Width)),
+                    Math.Clamp((marker.CenterY * scale) - (viewport.Height / 2), 0, Math.Max(0, extent.Height - viewport.Height)));
+            },
+            DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// The scale the view settles on when it follows the player.
+    /// </summary>
+    /// <remarks>
+    /// Chosen so street names and building labels are legible from a second monitor, which is
+    /// the distance this is read from.
+    /// </remarks>
+    private const double PlayerFollowZoom = 1.0;
 
     /// <summary>
     /// Scales the map to the panel and puts the middle of it in the middle of the view.
@@ -237,6 +297,7 @@ public sealed partial class MapView : UserControl
         Viewport.Offset = new(
             _panOffset.X - (current.X - _panStart.X),
             _panOffset.Y - (current.Y - _panStart.Y));
+        (DataContext as MapViewModel)?.ReportManualPan();
         eventArgs.Handled = true;
     }
 
@@ -257,6 +318,27 @@ public sealed partial class MapView : UserControl
 
     private void ZoomOutClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.ChangeZoom(-1);
+
+    /// <summary>
+    /// Turns following on or off, and moves to the player immediately when turned on.
+    /// </summary>
+    /// <remarks>
+    /// Waiting for the next screenshot before honouring the button would make it look broken,
+    /// since a player may not take another for several minutes.
+    /// </remarks>
+    private void FollowClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is not MapViewModel viewModel)
+        {
+            return;
+        }
+
+        viewModel.ToggleFollowPlayer();
+        if (viewModel.FollowsPlayer)
+        {
+            CentreOnPlayer();
+        }
+    }
 
     private void FitClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.RequestFit();

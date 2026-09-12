@@ -83,6 +83,8 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             UpdatedUtc = Later(observedUtc),
             Confidence = evidence.Confidence,
             LastKnownPosition = enteringNewRaid || clearingRaid ? null : Current.LastKnownPosition,
+            // The trail belongs to the raid it was walked in, so a new one starts empty.
+            PositionTrail = enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not
@@ -130,12 +132,37 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         Current = Current with
         {
             LastKnownPosition = position,
+            PositionTrail = Extend(Current.PositionTrail, position),
             // The raid clock only ever moves forward. A screenshot that is genuinely older
             // than the last log line records its position without rewinding the raid.
             UpdatedUtc = Later(observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.80)),
         };
         return Current;
+    }
+
+    /// <summary>How many points of a raid's trail are kept.</summary>
+    /// <remarks>
+    /// A player takes a handful of screenshots in a raid, not hundreds, so this is a guard
+    /// against something unexpected rather than a limit anyone will meet. The oldest go first,
+    /// because where somebody is heading matters more than where they started.
+    /// </remarks>
+    private const int MaximumTrailPoints = 240;
+
+    private static IReadOnlyList<ScreenshotPosition> Extend(
+        IReadOnlyList<ScreenshotPosition> trail,
+        ScreenshotPosition position)
+    {
+        // The same screenshot read twice is one place the player stood, not two.
+        if (trail.Count > 0 && string.Equals(trail[^1].Filename, position.Filename, StringComparison.OrdinalIgnoreCase))
+        {
+            return trail;
+        }
+
+        var extended = new List<ScreenshotPosition>(trail) { position };
+        return extended.Count > MaximumTrailPoints
+            ? extended.Skip(extended.Count - MaximumTrailPoints).ToArray()
+            : extended;
     }
 
     public RaidSnapshot ApplyExtracts(IReadOnlyList<ActiveExtract> extracts, DateTimeOffset observedUtc)

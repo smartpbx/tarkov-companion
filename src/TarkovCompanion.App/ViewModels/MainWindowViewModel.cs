@@ -1501,7 +1501,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         FollowRaidMap(snapshot);
         // The map's own marker comes straight off the raid snapshot, so a screenshot taken
         // mid-raid appears without the player having to touch the map page.
-        Map.ShowPlayer(snapshot.Raid.LastKnownPosition);
+        Map.ShowPlayer(snapshot.Raid.LastKnownPosition, snapshot.Raid.PositionTrail);
         HasScan = snapshot.Scan.Succeeded;
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value

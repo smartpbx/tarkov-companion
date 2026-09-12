@@ -281,6 +281,73 @@ public sealed class RaidServicesTests
         Assert.Equal(RaidLifecycleState.LoadingRaid, snapshot.State);
     }
 
+    /// <summary>
+    /// The trail is where the player has been this raid, in the order they were there.
+    /// </summary>
+    [Fact]
+    public void RecordsEveryPositionOfTheRaidInOrder()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+
+        service.ApplyPosition(Position(started) with { Filename = "one.png" });
+        service.ApplyPosition(Position(started.AddMinutes(2)) with
+        {
+            Position = new(90, 1.4, -40),
+            Filename = "two.png",
+        });
+
+        var trail = service.Current.PositionTrail;
+        Assert.Equal(2, trail.Count);
+        Assert.Equal(80.02, trail[0].Position.X, 3);
+        Assert.Equal(90, trail[1].Position.X, 3);
+    }
+
+    /// <summary>
+    /// The same screenshot read twice is one place the player stood, not two.
+    /// </summary>
+    /// <remarks>
+    /// The watcher can report a file more than once, and a trail that doubled its points every
+    /// time would draw a line that went nowhere.
+    /// </remarks>
+    [Fact]
+    public void DoesNotRepeatAPositionReadTwice()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+
+        service.ApplyPosition(Position(started) with { Filename = "one.png" });
+        service.ApplyPosition(Position(started) with { Filename = "one.png" });
+
+        Assert.Single(service.Current.PositionTrail);
+    }
+
+    /// <summary>
+    /// A trail belongs to the raid it was walked in.
+    /// </summary>
+    /// <remarks>
+    /// Carrying it into the next raid would draw a line across a map the player has left, and
+    /// on a different map entirely it would be drawn somewhere meaningless.
+    /// </remarks>
+    [Fact]
+    public void StartsANewTrailWithTheNextRaid()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        service.ApplyPosition(Position(started) with { Filename = "one.png" });
+
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started.AddMinutes(20),
+            "customs",
+            RaidLifecycleState.LoadingRaid,
+            new Confidence(0.9),
+            "the next raid is loading"));
+
+        Assert.Empty(service.Current.PositionTrail);
+        Assert.Null(service.Current.LastKnownPosition);
+    }
+
     [Fact]
     public void ProductionStateIgnoresSimulatorEvidence()
     {
