@@ -301,6 +301,15 @@
     <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
     <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
   </Style>
+  <!-- Sage, because it marks something available rather than something wrong. Coral here
+       would read as a fault, and a waiting update is good news. -->
+  <Style Selector="Ellipse.navNotice">
+    <Setter Property="Fill" Value="{StaticResource SageBrush}" />
+    <Setter Property="Width" Value="7" />
+    <Setter Property="Height" Value="7" />
+    <Setter Property="Margin" Value="0,0,2,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
   <Style Selector="TextBlock.navGlyph">
     <Setter Property="FontSize" Value="14" />
     <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />

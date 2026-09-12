@@ -86,6 +86,7 @@ public sealed class AsyncDelegateCommand(Func<Task> execute) : ICommand
 public sealed class NavigationItem : BindableViewModel
 {
     private bool _isSelected;
+    private bool _hasNotice;
 
     internal NavigationItem(string name, string glyph, PageViewModel page, Action<NavigationItem> select)
     {
@@ -102,6 +103,21 @@ public sealed class NavigationItem : BindableViewModel
     public PageViewModel Page { get; }
 
     public ICommand SelectCommand { get; }
+
+    /// <summary>
+    /// Whether this destination is asking to be visited.
+    /// </summary>
+    /// <remarks>
+    /// One mark, on the rail, so it is visible from whatever page somebody is on. Putting the
+    /// news inside the page it concerns means the only way to learn there is news is to go
+    /// looking for it, which is the state this replaces: a new build could sit in the feed for
+    /// days because nobody opened Settings.
+    /// </remarks>
+    public bool HasNotice
+    {
+        get => _hasNotice;
+        set => SetProperty(ref _hasNotice, value);
+    }
 
     public bool IsSelected
     {
@@ -875,18 +891,75 @@ public sealed class SettingsPageViewModel : PageViewModel
         private set => SetProperty(ref _updateStatus, value);
     }
 
+    /// <summary>Raised when a build starts or stops waiting, so the rail can mark itself.</summary>
+    public event EventHandler<bool>? UpdateWaitingChanged;
+
     /// <summary>Whether an offered build has not yet been fetched.</summary>
     public bool CanDownloadUpdate
     {
         get => _canDownloadUpdate;
-        private set => SetProperty(ref _canDownloadUpdate, value);
+        private set
+        {
+            if (SetProperty(ref _canDownloadUpdate, value))
+            {
+                UpdateWaitingChanged?.Invoke(this, value || CanRestartForUpdate);
+            }
+        }
     }
 
     /// <summary>Whether a build is unpacked and waiting for the application to close.</summary>
     public bool CanRestartForUpdate
     {
         get => _canRestartForUpdate;
-        private set => SetProperty(ref _canRestartForUpdate, value);
+        private set
+        {
+            if (SetProperty(ref _canRestartForUpdate, value))
+            {
+                UpdateWaitingChanged?.Invoke(this, value || CanDownloadUpdate);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Looks for a newer build, on a timer, without anybody asking.
+    /// </summary>
+    /// <remarks>
+    /// The only way to learn a build existed was to open this page and press a button, so one
+    /// could sit in the feed for days. This checks shortly after launch and every few hours
+    /// after that.
+    ///
+    /// Delayed rather than immediate at startup because it is a network call and startup is
+    /// already doing the work somebody is waiting on. Hours rather than minutes because builds
+    /// land a few times a day at most, and the check exists to be noticed between raids rather
+    /// than during one.
+    /// </remarks>
+    public async Task WatchForUpdatesAsync(CancellationToken cancellationToken)
+    {
+        if (_updates is null || !_updates.IsInstalled)
+        {
+            return;
+        }
+
+        var delay = TimeSpan.FromMinutes(2);
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            delay = TimeSpan.FromHours(4);
+            if (IsBusyWithUpdate || CanRestartForUpdate)
+            {
+                continue;
+            }
+
+            Apply(await _updates.CheckAsync(cancellationToken).ConfigureAwait(true));
+        }
     }
 
     public bool IsBusyWithUpdate
@@ -1212,6 +1285,9 @@ public sealed class SettingsPageViewModel : PageViewModel
 
 public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 {
+    /// <summary>Cancelled when the window goes, so background watchers stop with it.</summary>
+    private readonly CancellationTokenSource _lifetime = new();
+
     private readonly IRuntimeStateStore _stateStore;
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly RuntimeOptions _options;
@@ -1327,6 +1403,11 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         _currentPage = Navigation[0].Page;
         Navigation[0].IsSelected = true;
+
+        // The rail carries the news, so it is visible from whatever page somebody is on.
+        var settingsItem = Navigation.First(item => ReferenceEquals(item.Page, Settings));
+        Settings.UpdateWaitingChanged += (_, waiting) => settingsItem.HasNotice = waiting;
+
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);
     }
@@ -1465,6 +1546,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Keys.LoadAsync(cancellationToken).ConfigureAwait(true);
             await Events.LoadAsync(cancellationToken).ConfigureAwait(true);
             _startupCoordinator.BeginBackgroundRefresh();
+            // Fire and forget, deliberately. Looking for a newer build must never be something
+            // startup waits on, and a check that fails is not worth reporting at launch: the
+            // gateway already reports a failure next to the button for anyone who goes looking.
+            _ = Settings.WatchForUpdatesAsync(_lifetime.Token);
             await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
             await Group.InitializeAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
@@ -1511,6 +1596,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _disposed = true;
         _stateStore.Changed -= RuntimeStateChanged;
         _hotkeys.Triggered -= ScanHotkeyPressed;
+        // Stops the update watcher, which otherwise outlives the window it reports to and
+        // keeps making network calls for a process on its way out.
+        _lifetime.Cancel();
+        _lifetime.Dispose();
         _initializationLock.Dispose();
     }
 
