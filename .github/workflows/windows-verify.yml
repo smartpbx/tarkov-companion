@@ -256,32 +256,13 @@ jobs:
           path: verification/**
           if-no-files-found: warn
 
-      - name: Publish the verified package
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: TarkovCompanion-win-x64
-          path: |
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
-            dist/SHA256SUMS.txt
-          if-no-files-found: warn
-
-      # One rolling pre-release, replaced on every verified build, so the application has a
-      # fixed place to look for a newer version of itself. Only reached when every check above
-      # passed, so nothing that failed verification is ever offered as an update.
-      - name: Publish the verified build for in-app update
-        if: success()
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # The manifest is written by the packaging script, from the same values it stamped
-          # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
-          test -s dist/update.json
-          gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}."             --prerelease             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
-
+      # The gate, and deliberately ahead of every publish step.
+      #
+      # Each verification above is continue-on-error, so it records its result and lets the
+      # job carry on. That meant the job's own success() was still true when the release was
+      # published, and a build whose developer smoke had failed was offered as an update while
+      # this step was still to run. Publishing before the gate makes "only verified builds are
+      # offered" a claim rather than a property.
       - name: Summarize and fail on any unverified step
         if: always()
         shell: powershell
@@ -309,3 +290,29 @@ jobs:
           }
 
           Write-Host "Every Windows verification step passed."
+      - name: Publish the verified package
+        if: success()
+        uses: actions/upload-artifact@v5
+        with:
+          name: TarkovCompanion-win-x64
+          path: |
+            dist/TarkovCompanion-v1.0.0-win-x64.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: warn
+
+      # One rolling pre-release, replaced on every verified build, so the application has a
+      # fixed place to look for a newer version of itself. Only reached when every check above
+      # passed, so nothing that failed verification is ever offered as an update.
+      - name: Publish the verified build for in-app update
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The manifest is written by the packaging script, from the same values it stamped
+          # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
+          test -s dist/update.json
+          gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
+          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}."             --prerelease             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
+
