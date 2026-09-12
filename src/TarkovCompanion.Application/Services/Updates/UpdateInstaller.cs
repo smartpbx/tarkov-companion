@@ -9,9 +9,9 @@ namespace TarkovCompanion.Application.Services.Updates;
 /// <remarks>
 /// A running application cannot replace its own files, so the swap is done by a short script
 /// that waits for this process to exit and then moves directories. The order matters: the
-/// current install is renamed aside first, and only then does the new one take its place, so a
-/// failure at any point leaves either the old build or the new one and never a half-written
-/// mixture of the two. If the second move fails the script puts the old one back.
+/// running build is moved to a holding name, the new build takes its place, and only once that
+/// has succeeded is the previous fallback replaced. A failure at any point leaves either the
+/// old build or the new one, never a mixture, and never without a fallback.
 ///
 /// The build is unpacked and checked before this application is asked to close, so the last
 /// thing between the player and a working install is two renames rather than a download.
@@ -82,30 +82,41 @@ public sealed class UpdateInstaller(UpdateOptions options)
 
         var install = options.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var previous = install + "-previous";
+        var holding = install + "-updating";
         var scriptPath = Path.Combine(options.StagingDirectory, "apply-update.cmd");
 
-        // The script waits by retrying the move rather than by watching for the process to
-        // exit. Watching meant asking whether a process id was still in the task list, which
-        // reported the application gone while Windows still held its directory open, so the
-        // first move failed and the script gave up with the install untouched. Retrying the
-        // move asks the only question that matters, which is whether the folder can be moved
-        // yet, and it answers itself the moment it can.
+        // The order here is the whole safety property, and the first version had it wrong.
+        //
+        // It deleted the previous build before attempting the risky move, so when that move
+        // failed it had already destroyed the only fallback, and then printed that nothing had
+        // been changed. On a real machine that message was read by two readers as meaning the
+        // net was still there. It was not.
+        //
+        // So the running build is moved to a holding name first, the new build goes in, and
+        // only once that has succeeded is the old fallback replaced. The fallback is never
+        // deleted before the replacement has landed, and every message below says what is
+        // actually true at the point it is printed.
         var script = $"""
             @echo off
             setlocal enabledelayedexpansion
-            echo Waiting for Tarkov Companion to close...
+            set "INSTALL={install}"
+            set "STAGED={stagedDirectory}"
+            set "PREVIOUS={previous}"
+            set "HOLD={holding}"
 
-            if exist "{previous}" rmdir /S /Q "{previous}"
+            echo Waiting for Tarkov Companion to close...
+            if exist "%HOLD%" rmdir /S /Q "%HOLD%"
 
             set /a attempt=0
             :retry
-            move "{install}" "{previous}" >nul 2>&1
+            move "%INSTALL%" "%HOLD%" >nul 2>&1
             if not errorlevel 1 goto moved
             set /a attempt+=1
             if !attempt! GEQ {WaitSeconds} (
                 echo.
                 echo Tarkov Companion did not release its folder within {WaitSeconds} seconds.
-                echo Nothing was changed and the installed build is untouched.
+                echo Nothing has been changed. The build you were running is still installed
+                echo and the previous one is still beside it.
                 echo Close the application and run this file again:
                 echo   {scriptPath}
                 echo.
@@ -116,16 +127,21 @@ public sealed class UpdateInstaller(UpdateOptions options)
             goto retry
 
             :moved
-            move "{stagedDirectory}" "{install}" >nul 2>&1
+            move "%STAGED%" "%INSTALL%" >nul 2>&1
             if errorlevel 1 (
                 echo.
-                echo Could not put the new build in place. Restoring the previous one.
-                move "{previous}" "{install}" >nul 2>&1
+                echo Could not put the new build in place. Restoring the one you were running.
+                move "%HOLD%" "%INSTALL%" >nul 2>&1
+                echo The previous build has not been touched.
                 pause
                 exit /b 1
             )
 
-            start "" "{Path.Combine(install, "TarkovCompanion.exe")}"
+            rem The new build is in place, so the old fallback may be replaced now and not before.
+            if exist "%PREVIOUS%" rmdir /S /Q "%PREVIOUS%"
+            move "%HOLD%" "%PREVIOUS%" >nul 2>&1
+
+            start "" "%INSTALL%\TarkovCompanion.exe"
             endlocal
             """;
         File.WriteAllText(scriptPath, script);
