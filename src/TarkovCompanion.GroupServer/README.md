@@ -19,30 +19,47 @@ sent is listed in `GroupContracts.cs` in full so the promise can be read rather 
 
 ## Access
 
-One secret, shared between the group, in the `X-Group-Secret` header. Rooms are named by the
-group. That is the whole access model: it suits friends and it is not an account system, which
-is said plainly here so nobody mistakes it for one.
+One value: the group key. Whoever types the same key is in the same group.
 
-`GROUP_SECRET` has no default. The server refuses to start without it rather than run open,
-because what it relays is people's live positions.
+The server holds no secrets and has nothing to check a key against. It hashes what it is given
+and buckets members by the result, so a key nobody else uses names a room nobody else is in
+rather than being refused. The key itself is never stored, never logged, and never leaves the
+member's machine in readable form.
+
+This replaced a room name plus a secret set in the server's environment. That arrangement was
+worse in every way: a member could not choose the secret, the person running the container had
+to hand it out, and anyone who typed a different one was refused with a 401 and saw an empty
+list with no reason given. Two values meant two ways to be wrong and the failure looked the
+same either way.
+
+What is genuinely different: a stranger who reaches this server can invent a key and have a
+room of their own, exactly as they could have invented a room name before. What they cannot do
+is join a group whose key they do not know, because the room is the hash of that key and is not
+discoverable from outside. The part that was protecting the group still is; the part that was
+ceremony is gone.
+
+Keys shorter than eight characters are refused. That is not access control, since there is
+nothing to check against. It stops somebody believing that `a` keeps strangers out.
 
 ## Running it
 
 ```
-GROUP_SECRET=<the group's secret> dotnet run --project src/TarkovCompanion.GroupServer
+dotnet run --project src/TarkovCompanion.GroupServer
 ```
 
-Behind a reverse proxy that terminates TLS. It listens on plain HTTP and should never be
-exposed directly. It reads nothing about the caller beyond the shared secret, so it needs no
-forwarded-header handling and does not log who connected.
+No configuration. Behind a reverse proxy that terminates TLS; it listens on plain HTTP and
+should never be exposed directly.
 
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
-| `POST` | `/rooms/{room}/state` | Publish yourself, receive everyone else |
-| `DELETE` | `/rooms/{room}/state/{name}` | Leave immediately rather than timing out |
+| `POST` | `/state` | Publish yourself, receive everyone else |
+| `DELETE` | `/state/{name}` | Leave immediately rather than timing out |
+
+Both carry the group key in an `X-Group-Key` header. The room is not in the URL because the
+key decides it.
 
 One exchange does both halves, so there is no connection to hold open and no subscription to
 leak. A companion that is not running sends nothing and therefore shows nothing.

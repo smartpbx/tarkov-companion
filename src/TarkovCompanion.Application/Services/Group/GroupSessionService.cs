@@ -149,11 +149,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         var payload = Describe(snapshot, settings);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            new Uri(new Uri(settings.ServerUri!), $"rooms/{Uri.EscapeDataString(settings.Room!)}/state"))
+            new Uri(new Uri(settings.ServerUri!), "state"))
         {
             Content = JsonContent.Create(payload, options: Json),
         };
-        request.Headers.Add("X-Group-Secret", settings.Secret);
+        request.Headers.Add("X-Group-Key", settings.Key!.Trim());
 
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -175,11 +175,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         // is, without filling an evening's log.
         if (Interlocked.Increment(ref _published) is 1 or 2 or 3 || _published % 120 == 0)
         {
+            // The key is never logged. It is the only thing protecting the group now that it
+            // is also the room, and a log file is the easiest place to read one out of.
             _logger.LogInformation(
-                "Group publish {Count} succeeded as {Name} in room {Room}; {Members} other member(s) present.",
+                "Group publish {Count} succeeded as {Name}; {Members} other member(s) present.",
                 _published,
                 settings.DisplayName,
-                settings.Room,
                 members.Length);
         }
 
@@ -188,9 +189,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             members,
             members.Length switch
             {
-                0 => $"Sharing as {settings.DisplayName}. Nobody else is in {settings.Room} right now.",
-                1 => $"Sharing as {settings.DisplayName}. One other person in {settings.Room}.",
-                var count => $"Sharing as {settings.DisplayName}. {count} others in {settings.Room}.",
+                0 => $"Sharing as {settings.DisplayName}. Nobody else has this key open right now.",
+                1 => $"Sharing as {settings.DisplayName}. One other person sharing.",
+                var count => $"Sharing as {settings.DisplayName}. {count} others sharing.",
             },
             DateTimeOffset.UtcNow));
     }
