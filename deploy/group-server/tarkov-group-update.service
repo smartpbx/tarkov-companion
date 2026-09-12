@@ -1,0 +1,8 @@
+[Unit]
+Description=Update the Tarkov Companion group relay to the newest verified build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/tarkov-group-update.sh

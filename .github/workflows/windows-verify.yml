@@ -70,6 +70,25 @@ jobs:
           name: TarkovCompanion-GroupServer-linux-x64
           path: artifacts/group-server/**
           if-no-files-found: error
+      # Also packed as a release asset, because a CI artifact needs a token to download and the
+      # server has to be able to fetch its own updates unattended. There is no interface to log
+      # into it and press a button, so if it cannot reach a build without a person it will
+      # simply fall behind the client, and the two now have to speak the same protocol.
+      - name: Pack the group server for release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -C artifacts/group-server -czf dist/TarkovCompanion-GroupServer-linux-x64.tar.gz .
+          ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
+          cat dist/GROUPSERVER-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: group-server-release
+          path: |
+            dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
+            dist/GROUPSERVER-SHA256SUMS.txt
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v5
         if: always()
@@ -354,6 +373,13 @@ jobs:
       #
       # The version carries the run number so every verified build is strictly newer than the
       # last one. Velopack compares versions and will not offer a build it considers older.
+      - name: Collect the group server build
+        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: actions/download-artifact@v5
+        with:
+          name: group-server-release
+          path: dist
+
       - name: Pack the installer and the update feed
         if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         shell: bash
@@ -417,5 +443,5 @@ jobs:
           # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
           test -s dist/update.json
           gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
+          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/TarkovCompanion-GroupServer-linux-x64.tar.gz             dist/GROUPSERVER-SHA256SUMS.txt             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
 
