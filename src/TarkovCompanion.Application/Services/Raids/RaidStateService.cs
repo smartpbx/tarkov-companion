@@ -42,7 +42,23 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         // and the streams that genuinely can arrive out of order carry their own comparisons:
         // a screenshot is judged against the last screenshot, not against this clock.
         var observedUtc = evidence.ObservedUtc.ToUniversalTime();
-        var targetState = evidence.SuggestedState ?? Current.State;
+        var suggested = evidence.SuggestedState ?? Current.State;
+
+        // A raid does not go back to loading. The game interleaves loading-ish and in-raid-ish
+        // lines throughout a raid, and reading them one at a time flipped the state between
+        // the two on every line: nine transitions in two seconds was measured on a live
+        // machine, five of them inside one second and some 200 microseconds apart. Anything
+        // that fires on entering a state fired repeatedly, and the state the raid came to rest
+        // in was decided by which line happened to end a buffer rather than by the game.
+        //
+        // Loading is reachable from not being in a raid, which is the only time it means
+        // anything. A genuinely new raid that begins while this still believes the last one is
+        // running is corrected by its own confirmation line, which carries the map and is
+        // authoritative in a way that a loading marker is not.
+        var targetState = suggested == RaidLifecycleState.LoadingRaid
+            && Current.State == RaidLifecycleState.InRaid
+                ? RaidLifecycleState.InRaid
+                : suggested;
         var enteringNewRaid = targetState == RaidLifecycleState.LoadingRaid
             && Current.State != RaidLifecycleState.LoadingRaid;
         var enteringRaid = targetState == RaidLifecycleState.InRaid && Current.State != RaidLifecycleState.InRaid;

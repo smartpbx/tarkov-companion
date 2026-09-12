@@ -101,13 +101,20 @@ sha256sum "${TASK_PACKAGE}" > "${TASK_PROJECT_ROOT}/dist/SHA256SUMS.txt"
 # between packaging and publishing. Harmless while only the commit is compared, and
 # exactly the kind of skew that stays invisible until something compares the other field.
 TASK_SHA256="$(awk '{print $1}' "${TASK_PROJECT_ROOT}/dist/SHA256SUMS.txt" | head -1)"
+# The branch and run are carried so a published build can be traced back to the workflow run
+# that verified it, from the manifest alone. That is what let a bad publish be caught from the
+# feed rather than by searching runs by commit, so dropping them cost auditability.
+TASK_BRANCH="${GITHUB_REF_NAME:-$(git -C "${TASK_PROJECT_ROOT}" rev-parse --abbrev-ref HEAD)}"
+TASK_RUN="${GITHUB_RUN_ID:-local}"
 cat > "${TASK_PROJECT_ROOT}/dist/update.json" <<MANIFEST
 {
   "version": "1.0.0",
   "commit": "${TASK_COMMIT}",
   "builtUtc": "${TASK_BUILT_UTC}",
   "asset": "$(basename "${TASK_PACKAGE}")",
-  "sha256": "${TASK_SHA256}"
+  "sha256": "${TASK_SHA256}",
+  "branch": "${TASK_BRANCH}",
+  "run": "${TASK_RUN}"
 }
 MANIFEST
 printf 'Windows package created: %s\n' "${TASK_PACKAGE}"

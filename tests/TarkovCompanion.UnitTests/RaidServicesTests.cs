@@ -221,6 +221,66 @@ public sealed class RaidServicesTests
         Assert.Equal("Inferred from which profile ran the raid.", snapshot.SideBasis);
     }
 
+    /// <summary>
+    /// A raid does not go back to loading, however the log lines are interleaved.
+    /// </summary>
+    /// <remarks>
+    /// Measured on a live machine: nine transitions in two seconds, five of them inside one
+    /// second and some two hundred microseconds apart, as a buffered batch of lines was
+    /// applied one at a time and each flipped the state. Anything that fires on entering a
+    /// state fired repeatedly, and the raid came to rest in whichever state ended the batch.
+    /// </remarks>
+    [Fact]
+    public void DoesNotFallBackToLoadingWhileTheRaidIsRunning()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started,
+            "streets-of-tarkov",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "The game confirmed a raid on streets-of-tarkov."));
+
+        // The interleaving that caused the thrash, applied line by line as it arrives.
+        for (var line = 0; line < 5; line++)
+        {
+            service.Apply(new(
+                RaidEvidenceKind.LogLine,
+                started.AddMilliseconds(line),
+                null,
+                RaidLifecycleState.LoadingRaid,
+                new Confidence(0.90),
+                "Log indicates LoadingRaid."));
+        }
+
+        var snapshot = service.Current;
+        Assert.Equal(RaidLifecycleState.InRaid, snapshot.State);
+        // The raid is the same one throughout, so nothing that keys on it restarts.
+        Assert.Equal("streets-of-tarkov", snapshot.MapId);
+        Assert.Equal(started, snapshot.StartedUtc);
+    }
+
+    /// <summary>
+    /// Loading still means something when no raid is running, which is when it is reported.
+    /// </summary>
+    [Fact]
+    public void StillEntersLoadingFromOutsideARaid()
+    {
+        var service = new RaidStateService();
+
+        var snapshot = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero),
+            null,
+            RaidLifecycleState.LoadingRaid,
+            new Confidence(0.90),
+            "Log indicates LoadingRaid."));
+
+        Assert.Equal(RaidLifecycleState.LoadingRaid, snapshot.State);
+    }
+
     [Fact]
     public void ProductionStateIgnoresSimulatorEvidence()
     {
