@@ -20,11 +20,16 @@ public sealed class UpdateInstaller(UpdateOptions options)
 {
     /// <summary>How long the swap script keeps trying before giving up and saying so.</summary>
     /// <remarks>
-    /// Generous on purpose. The install can sit in a synced folder, where releasing a handle
-    /// is not instant, and a script that gives up early leaves the player with a download they
-    /// cannot apply and no explanation.
+    /// Measured rather than guessed. Ninety seconds was not enough on a real machine: the
+    /// application exited the same second the script started, and the folder was still held
+    /// for longer than that. The install sits on a OneDrive-synced desktop, and a sync client
+    /// rescans a tree after three hundred files change underneath it.
+    ///
+    /// The cost of waiting too long is a command window that sits there; the cost of giving up
+    /// too early is a download that cannot be applied and a player who has to be told why. The
+    /// first is cheaper, so this is set well past what was observed.
     /// </remarks>
-    private const int WaitSeconds = 90;
+    private const int WaitSeconds = 420;
 
     /// <summary>
     /// Unpacks a verified download and hands back where it went.

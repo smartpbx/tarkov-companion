@@ -53,7 +53,19 @@ jobs:
           path: '**/TestResults/*.trx'
           if-no-files-found: ignore
 
+  # Waits for the checks rather than running beside them.
+  #
+  # The two jobs were independent, and they do not build the same thing: this one publishes
+  # only the application for win-x64, while the checks compile the test projects too. So a
+  # compile error in a test failed the checks and left this job green, and it published a
+  # build that had failed its run to the feed the application updates itself from. That
+  # happened twice. Moving the gate inside this job did not help, because the failure was
+  # never in this job.
+  #
+  # Serialising costs the few minutes the checks take. A build that failed its run reaching
+  # somebody's machine costs more than that.
   windows-verify:
+    needs: checks
     runs-on: windows-latest
     timeout-minutes: 60
     env:
