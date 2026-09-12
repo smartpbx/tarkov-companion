@@ -32,10 +32,21 @@ public sealed record RaidEvidence(
 {
     /// <summary>"PMC" or "scav", where the source could tell them apart.</summary>
     /// <remarks>
-    /// Inferred from which profile ran the raid, because the logs carry no word for it.
     /// Optional so evidence from sources that cannot know stays silent rather than guessing.
+    /// How it was established is carried separately in <see cref="SideBasis"/>, because the
+    /// two ways of knowing are not equally strong and a reader is owed the difference.
     /// </remarks>
     public string? Side { get; init; }
+
+    /// <summary>How <see cref="Side"/> was established, in the player's own words.</summary>
+    /// <remarks>
+    /// There are two routes and they differ in kind. Which profile ran the raid is an
+    /// inference from an asymmetry in the logs; a transfer on the ending notification is
+    /// proof, because it has never once appeared on a PMC raid. Presenting the second as the
+    /// first would understate it, and the first as the second would be a lie, so the basis
+    /// travels with the value rather than being reconstructed by whoever displays it.
+    /// </remarks>
+    public string? SideBasis { get; init; }
 }
 
 public sealed record RaidSnapshot(
@@ -51,6 +62,9 @@ public sealed record RaidSnapshot(
 {
     /// <summary>Whether the raid was run as a PMC or a scav, where known.</summary>
     public string? Side { get; init; }
+
+    /// <summary>How that was established, carried through so the summary can say.</summary>
+    public string? SideBasis { get; init; }
 }
 
 public sealed record RaidHistoryEntry(

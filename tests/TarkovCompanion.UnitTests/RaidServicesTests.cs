@@ -116,6 +116,69 @@ public sealed class RaidServicesTests
         null,
         "screenshot.png");
 
+    /// <summary>
+    /// How the side was established travels with the side itself.
+    /// </summary>
+    /// <remarks>
+    /// Two routes exist and they are not equally strong: the profile that ran the raid is an
+    /// inference, a transfer on the ending notification is proof. The summary describes
+    /// whichever applied, so the basis has to survive the trip through raid state rather than
+    /// being reconstructed by whoever displays it.
+    /// </remarks>
+    [Fact]
+    public void CarriesHowTheSideWasEstablishedAlongsideIt()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+
+        var snapshot = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started,
+            "streets-of-tarkov",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "The game confirmed a scav raid on streets-of-tarkov.")
+        {
+            Side = "scav",
+            SideBasis = "Inferred from which profile ran the raid.",
+        });
+
+        Assert.Equal("scav", snapshot.Side);
+        Assert.Equal("Inferred from which profile ran the raid.", snapshot.SideBasis);
+    }
+
+    /// <summary>
+    /// Evidence that cannot tell the side does not overwrite what an earlier line established.
+    /// </summary>
+    [Fact]
+    public void KeepsTheSideAndItsBasisWhenALaterLineCannotTell()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started,
+            "streets-of-tarkov",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.98),
+            "confirmed")
+        {
+            Side = "scav",
+            SideBasis = "Inferred from which profile ran the raid.",
+        });
+
+        var snapshot = service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started.AddMinutes(1),
+            null,
+            RaidLifecycleState.InRaid,
+            new Confidence(0.95),
+            "still running"));
+
+        Assert.Equal("scav", snapshot.Side);
+        Assert.Equal("Inferred from which profile ran the raid.", snapshot.SideBasis);
+    }
+
     [Fact]
     public void ProductionStateIgnoresSimulatorEvidence()
     {

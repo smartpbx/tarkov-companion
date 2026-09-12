@@ -269,6 +269,11 @@ public sealed partial class EftLogParser
             // knowable, while the sentence still reads naturally.
             var side = transferred ? "scav" : inferred;
             var sideWord = side ?? "raid";
+            var sideBasis = side is null
+                ? null
+                : transferred
+                    ? "The game ended this raid with status Transfer, which has only ever appeared on scav runs."
+                    : "Inferred from which profile ran the raid. The game records no side directly.";
             return type switch
             {
                 "userConfirmed" => new(
@@ -282,6 +287,7 @@ public sealed partial class EftLogParser
                         : $"The game confirmed a {sideWord} raid on {mapId}.")
                 {
                     Side = side,
+                    SideBasis = sideBasis,
                 },
                 // A transfer ends the raid like any other userMatchOver.
                 //
@@ -310,6 +316,7 @@ public sealed partial class EftLogParser
                         : $"The game reported the {sideWord} raid as over, with status Transfer.")
                 {
                     Side = side,
+                    SideBasis = sideBasis,
                 },
                 "userMatchOver" => new(
                     RaidEvidenceKind.LogLine,
@@ -320,6 +327,7 @@ public sealed partial class EftLogParser
                     $"The game reported the {sideWord} raid as over.")
                 {
                     Side = side,
+                    SideBasis = sideBasis,
                 },
                 _ => null,
             };

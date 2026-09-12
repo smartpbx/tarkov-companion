@@ -24,7 +24,7 @@ namespace TarkovCompanion.App.ViewModels;
 /// <param name="Duration">Exact elapsed time between those two notifications.</param>
 /// <param name="Timing">Why the duration is exact rather than estimated.</param>
 /// <param name="Mode">The game mode the local profile is set to, which is not the PMC/scav side.</param>
-/// <param name="Side">Why PMC or scav is not stated.</param>
+/// <param name="Side">Which side ran the raid and how that was established.</param>
 /// <param name="Outcome">The plain statement that survival is not recorded anywhere.</param>
 /// <param name="Scans">What the player scanned while this raid was open.</param>
 /// <param name="LastKnownPosition">The last screenshot-derived position, if any was taken.</param>
@@ -60,23 +60,26 @@ public sealed record RaidSummaryViewModel(
     /// Why the summary declines to name the side.
     /// </summary>
     /// <remarks>
-    /// The log reader does infer PMC against scav, from the asymmetry that only the
-    /// signed-in profile gets a profile-selection line. That inference lives in the evidence
-    /// summary string and is not carried on the raid snapshot this page receives, so naming
-    /// a side here would be inventing one.
+    /// Reached when neither route could tell: the profile that ran the raid was not one the
+    /// reader recognises, and the raid did not end with a transfer. Naming a side here would
+    /// be inventing one.
     /// </remarks>
     public const string SideNotCarried =
         "PMC or scav was not established for this raid.";
 
-    /// <summary>Describes the side, always marked as inferred rather than stated.</summary>
+    /// <summary>Describes the side, together with how it came to be known.</summary>
     /// <remarks>
-    /// The game writes no word for this. It is deduced from which profile ran the raid, since
-    /// only the signed-in profile gets a profile-selection line and a scav run uses another,
-    /// so the claim is only as good as that asymmetry and is labelled accordingly.
+    /// The two ways of knowing are not equally strong. Which profile ran the raid is an
+    /// inference from an asymmetry in the logs; a transfer on the ending notification is
+    /// proof, having never once appeared on a PMC raid. This used to describe every side as
+    /// inferred from the profile, which stopped being true the moment the second route
+    /// existed, so the basis is carried here rather than assumed.
     /// </remarks>
-    private static string DescribeSide(string? side) => string.IsNullOrWhiteSpace(side)
+    private static string DescribeSide(string? side, string? basis) => string.IsNullOrWhiteSpace(side)
         ? SideNotCarried
-        : $"{side} raid, inferred from the profile that ran it. The game records no side directly.";
+        : string.IsNullOrWhiteSpace(basis)
+            ? $"{side} raid. How that was established was not recorded."
+            : $"{side} raid. {basis}";
 
     private const int MaximumScansListed = 8;
 
@@ -102,6 +105,7 @@ public sealed record RaidSummaryViewModel(
         DateTimeOffset endedUtc,
         string? gameMode,
         string? side,
+        string? sideBasis,
         IReadOnlyList<string> scannedItems,
         ScreenshotPosition? lastKnownPosition,
         string history)
@@ -136,7 +140,7 @@ public sealed record RaidSummaryViewModel(
             string.IsNullOrWhiteSpace(gameMode)
                 ? "Game mode is unknown; no local profile is loaded."
                 : $"{gameMode} · the mode the local profile is set to.",
-            DescribeSide(side),
+            DescribeSide(side, sideBasis),
             OutcomeNotRecorded,
             DescribeScans(scannedItems),
             DescribePosition(lastKnownPosition),

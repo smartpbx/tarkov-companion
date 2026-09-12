@@ -60,8 +60,12 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not
-            // overwrite what an earlier, better-informed line already established.
+            // overwrite what an earlier, better-informed line already established. The basis
+            // moves with the value so the two can never describe different things.
             Side = evidence.Side ?? (clearingRaid || enteringNewRaid ? null : Current.Side),
+            SideBasis = evidence.Side is not null
+                ? evidence.SideBasis
+                : clearingRaid || enteringNewRaid ? null : Current.SideBasis,
         };
 
         return Current;

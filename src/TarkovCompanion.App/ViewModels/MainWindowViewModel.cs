@@ -299,7 +299,11 @@ public sealed class RaidPageViewModel : PageViewModel
             lastInRaid.StartedUtc,
             raid.UpdatedUtc,
             _lastInRaidMode ?? snapshot.Profile?.GameMode.ToString(),
-            lastInRaid.Side,
+            // The ending notification is preferred over the raid's own record, because a
+            // transfer establishes the side outright and only arrives on the line that ends
+            // the raid. The raid's own record is the fallback for every other ending.
+            raid.Side ?? lastInRaid.Side,
+            raid.Side is not null ? raid.SideBasis : lastInRaid.SideBasis,
             _scannedThisRaid.ToArray(),
             lastInRaid.LastKnownPosition,
             _raidHistoryService is null
