@@ -376,6 +376,7 @@ public sealed class RaidServicesTests
             "The game confirmed a raid on streets-of-tarkov.")
         {
             StartsNewRaid = true,
+            EventId = "EVENT_1",
         });
 
         var second = service.Apply(new(
@@ -387,12 +388,62 @@ public sealed class RaidServicesTests
             "The game confirmed a raid on customs.")
         {
             StartsNewRaid = true,
+            EventId = "EVENT_2",
         });
 
         Assert.NotEqual(first.RaidId, second.RaidId);
         Assert.Equal("customs", second.MapId);
         Assert.Equal(started.AddMinutes(30), second.StartedUtc);
     }
+
+    /// <summary>
+    /// The same confirmation delivered twice is one raid, not two.
+    /// </summary>
+    /// <remarks>
+    /// Every notification is written into two log files, so the companion sees each one twice.
+    /// Without the event id the second copy started a second raid and discarded the identity,
+    /// start time and trail the first had just created.
+    /// </remarks>
+    [Fact]
+    public void TreatsARepeatedConfirmationAsTheSameRaid()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        var first = service.Apply(Confirmation(started, "streets-of-tarkov", "EVENT_1"));
+        service.ApplyPosition(Position(started.AddMinutes(1)) with { Filename = "one.png" });
+
+        var repeat = service.Apply(Confirmation(started.AddMilliseconds(40), "streets-of-tarkov", "EVENT_1"));
+
+        Assert.Equal(first.RaidId, repeat.RaidId);
+        Assert.Equal(started, repeat.StartedUtc);
+        Assert.Single(repeat.PositionTrail);
+    }
+
+    /// <summary>A different confirmation is a different raid, however soon it arrives.</summary>
+    [Fact]
+    public void TreatsADifferentConfirmationAsANewRaid()
+    {
+        var service = new RaidStateService();
+        var started = new DateTimeOffset(2026, 9, 11, 23, 0, 0, TimeSpan.Zero);
+        var first = service.Apply(Confirmation(started, "streets-of-tarkov", "EVENT_1"));
+
+        var second = service.Apply(Confirmation(started.AddMinutes(30), "customs", "EVENT_2"));
+
+        Assert.NotEqual(first.RaidId, second.RaidId);
+        Assert.Equal("customs", second.MapId);
+    }
+
+    private static RaidEvidence Confirmation(DateTimeOffset observedUtc, string mapId, string eventId) => new(
+        RaidEvidenceKind.LogLine,
+        observedUtc,
+        mapId,
+        RaidLifecycleState.InRaid,
+        new Confidence(0.98),
+        $"The game confirmed a raid on {mapId}.")
+    {
+        StartsNewRaid = true,
+        EventId = eventId,
+    };
 
     [Fact]
     public void ProductionStateIgnoresSimulatorEvidence()

@@ -291,6 +291,7 @@ public sealed partial class EftLogParser
                     // The game's own confirmation is the one thing that unambiguously begins a
                     // raid, which matters when the end of the previous one was never seen.
                     StartsNewRaid = true,
+                    EventId = ReadText(payload, "eventId"),
                 },
                 // A transfer ends the raid like any other userMatchOver.
                 //

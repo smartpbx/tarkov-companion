@@ -50,6 +50,17 @@ public sealed record RaidEvidence(
     /// </remarks>
     public bool StartsNewRaid { get; init; }
 
+    /// <summary>
+    /// The game's own id for the notification this came from, where it had one.
+    /// </summary>
+    /// <remarks>
+    /// Every notification is written into two log files, so the companion sees each one twice.
+    /// That was harmless until a confirmation began a raid, at which point the second copy
+    /// began a second raid and threw away the first one's identity, start time and trail. The
+    /// id is how one event is told from two.
+    /// </remarks>
+    public string? EventId { get; init; }
+
     /// <summary>How <see cref="Side"/> was established, in the player's own words.</summary>
     /// <remarks>
     /// There are two routes and they differ in kind. Which profile ran the raid is an
@@ -77,6 +88,9 @@ public sealed record RaidSnapshot(
 
     /// <summary>How that was established, carried through so the summary can say.</summary>
     public string? SideBasis { get; init; }
+
+    /// <summary>The notification that began this raid, so a repeat of it does not begin another.</summary>
+    public string? StartedByEventId { get; init; }
 
     /// <summary>
     /// Every screenshot position of this raid, oldest first.

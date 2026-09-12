@@ -79,6 +79,7 @@ public sealed class SquadPageViewModel : PageViewModel
     private string _status = "No party observed. Group up in game and members appear here.";
     private string _queue = "No match has been queued from this party yet.";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
+    private RaidLifecycleState _renderedState = RaidLifecycleState.Unknown;
 
     public SquadPageViewModel(IItemRepository items)
         : base(
@@ -123,12 +124,15 @@ public sealed class SquadPageViewModel : PageViewModel
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var squad = snapshot.Squad;
-        if (squad.UpdatedUtc == _rendered)
+        // The raid state matters as much as the party here, because what the page has to
+        // explain changes when a raid starts even though the party does not.
+        if (squad.UpdatedUtc == _rendered && snapshot.Raid.State == _renderedState)
         {
             return;
         }
 
         _rendered = squad.UpdatedUtc;
+        _renderedState = snapshot.Raid.State;
         Members = squad.Members.Select(Describe).ToArray();
         OnPropertyChanged(nameof(HasMembers));
         OnPropertyChanged(nameof(HasNoMembers));
@@ -147,9 +151,15 @@ public sealed class SquadPageViewModel : PageViewModel
             : "No match has been queued from this party yet.";
         // A party that has never been observed has no update time, and printing the epoch as
         // one showed "updated 12:00:00 AM" on a page that had seen nothing at all.
+        // Saying why it is not changing is the difference between a page that looks broken and
+        // one that is simply reporting the last thing that was true. The game publishes party
+        // changes in the lobby and stops dead when a raid starts, which from inside a raid is
+        // indistinguishable from the feature having failed.
         Evidence = squad.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "Read from the game's own group notifications. Nothing observed yet."
-            : $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
+            : snapshot.Raid.State == RaidLifecycleState.InRaid
+                ? $"Last updated in the lobby at {squad.UpdatedUtc.ToLocalTime():t}. The game does not publish party changes during a raid."
+                : $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
         _ = ResolveGearNamesAsync(squad);
     }
 

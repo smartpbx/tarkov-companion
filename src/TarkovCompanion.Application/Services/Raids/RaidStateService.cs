@@ -65,8 +65,14 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         // while this still believed the previous raid was running. Without the second case, a
         // raid that starts before the last one was seen to end inherits its map, its start time
         // and its trail, which is worse than having no raid at all.
+        // The same confirmation arrives twice, because every notification is written into two
+        // log files. Beginning a raid on its id rather than on its content means the second
+        // copy is recognised as the event that already started this raid, instead of throwing
+        // away the identity, start time and trail it just created.
+        var repeatOfThisRaid = evidence.EventId is { Length: > 0 }
+            && string.Equals(evidence.EventId, Current.StartedByEventId, StringComparison.Ordinal);
         var enteringRaid = targetState == RaidLifecycleState.InRaid
-            && (Current.State != RaidLifecycleState.InRaid || evidence.StartsNewRaid);
+            && (Current.State != RaidLifecycleState.InRaid || (evidence.StartsNewRaid && !repeatOfThisRaid));
         var clearingRaid = targetState == RaidLifecycleState.Menu;
         var isManual = evidence.Kind == RaidEvidenceKind.ManualOverride && evidence.MapId is not null
             ? true
@@ -80,6 +86,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         Current = Current with
         {
             RaidId = enteringRaid ? Guid.NewGuid() : clearingRaid || enteringNewRaid ? null : Current.RaidId,
+            StartedByEventId = enteringRaid
+                ? evidence.EventId
+                : clearingRaid || enteringNewRaid ? null : Current.StartedByEventId,
             State = targetState,
             MapId = mapId,
             StartedUtc = enteringRaid ? observedUtc : clearingRaid || enteringNewRaid ? null : Current.StartedUtc,
