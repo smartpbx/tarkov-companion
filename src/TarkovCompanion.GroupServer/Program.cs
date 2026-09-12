@@ -7,18 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
 
-// The proxy terminates TLS and is the only thing that should be reaching this, so the real
-// client address arrives in a header rather than on the connection.
-builder.Services.Configure<Microsoft.AspNetCore.HttpOverrides.ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
-        | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
-});
-
 var app = builder.Build();
-app.UseForwardedHeaders();
 
 // The one secret the group shares. Set it in the environment; there is no default, because a
 // default secret is no secret and this relays people's live positions.

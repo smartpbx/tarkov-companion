@@ -32,8 +32,9 @@ because what it relays is people's live positions.
 GROUP_SECRET=<the group's secret> dotnet run --project src/TarkovCompanion.GroupServer
 ```
 
-Behind a reverse proxy that terminates TLS, which is what the forwarded-header handling
-expects. It listens on plain HTTP and should never be exposed directly.
+Behind a reverse proxy that terminates TLS. It listens on plain HTTP and should never be
+exposed directly. It reads nothing about the caller beyond the shared secret, so it needs no
+forwarded-header handling and does not log who connected.
 
 ## Endpoints
 
