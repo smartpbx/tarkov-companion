@@ -350,8 +350,16 @@ jobs:
           VERSION="1.0.${{ github.run_number }}"
           echo "VELOPACK_VERSION=$VERSION" >> "$GITHUB_ENV"
           # Packs what verification actually launched, not a fresh build of it.
+          # The pack id is the INSTALL DIRECTORY NAME, and it must not be the name the
+          # application already uses for its data. Velopack installs to
+          # %LOCALAPPDATA%\<packId>, and AppDataPaths.Resolve puts the database, cache,
+          # config and logs in %LOCALAPPDATA%\TarkovCompanion. Naming the pack
+          # "TarkovCompanion" pointed both at one directory, so installing renamed the
+          # player's data aside to make room for the program. It did that for real, to a
+          # 114 MB database, and only a failed install left the rename target behind to
+          # recover from. A successful one would have been worse.
           vpk pack \
-            --packId TarkovCompanion \
+            --packId TarkovCompanionDesktop \
             --packVersion "$VERSION" \
             --packDir artifacts/win-x64 \
             --mainExe TarkovCompanion.exe \
@@ -359,6 +367,12 @@ jobs:
             --packAuthors "Clayton Mannerow" \
             --outputDir dist/velopack
           ls -la dist/velopack
+
+          # Every published file gets a checksum, not just the legacy zip. A corrupt
+          # download is otherwise discovered halfway through an install, with the data
+          # directory already renamed aside; that is exactly how this was found.
+          ( cd dist/velopack && sha256sum * > ../VELOPACK-SHA256SUMS.txt )
+          cat dist/VELOPACK-SHA256SUMS.txt
 
       # One rolling pre-release, replaced on every verified build, so the application has a
       # fixed place to look for a newer version of itself. Only reached when every check above
@@ -374,5 +388,5 @@ jobs:
           # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
           test -s dist/update.json
           gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
+          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
 
