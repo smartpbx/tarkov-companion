@@ -83,6 +83,10 @@ public sealed class ScanHotkeyService : IAsyncDisposable
             {
                 await _hotkeys.RegisterAsync(binding.ToGesture(), cancellationToken).ConfigureAwait(false);
                 _registered = true;
+                // Logged because a shortcut that never registers and a shortcut that registers
+                // and is never pressed look identical from outside, and "the scan is not
+                // working" covers both.
+                _logger.LogInformation("The {Binding} scan shortcut is registered.", binding.DisplayName);
                 Current = new(binding, true, true, $"{binding.DisplayName} is active while the companion is running.");
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
@@ -140,5 +144,9 @@ public sealed class ScanHotkeyService : IAsyncDisposable
         await _hotkeys.UnregisterAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private void OnPressed(object? sender, EventArgs arguments) => Triggered?.Invoke(this, EventArgs.Empty);
+    private void OnPressed(object? sender, EventArgs arguments)
+    {
+        _logger.LogInformation("The scan shortcut was pressed.");
+        Triggered?.Invoke(this, EventArgs.Empty);
+    }
 }

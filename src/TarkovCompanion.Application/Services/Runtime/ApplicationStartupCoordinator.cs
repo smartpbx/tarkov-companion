@@ -42,6 +42,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IRuntimeStateStore stateStore,
         RuntimeOptions options,
         ILogger<ApplicationStartupCoordinator> logger,
+        IOcrEngineStatus? ocrStatus = null,
         TimeProvider? timeProvider = null)
     {
         _dataStore = dataStore;
@@ -57,10 +58,54 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
+        _ocrStatus = ocrStatus;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    private readonly IOcrEngineStatus? _ocrStatus;
+
     public Task? BackgroundRefresh => _backgroundRefresh;
+
+    /// <summary>
+    /// Says whether scanning can run at all, before anyone has tried it.
+    /// </summary>
+    /// <remarks>
+    /// The scanner used to start life described as unavailable, on the grounds that nothing
+    /// had been scanned yet. Those are not the same thing, and the interface said the scanner
+    /// was unavailable from the moment the application opened whether it worked or not, so a
+    /// player with a perfectly good scanner and a player missing its native dependency were
+    /// shown the same word. The engine knows which it is, and knows why, so it is asked.
+    ///
+    /// The reason matters more than the verdict. The recogniser's most likely failure is a
+    /// missing Visual C++ runtime, which the package does not carry, and that is something a
+    /// player can fix in two minutes if anybody tells them.
+    /// </remarks>
+    private ScanExecutionResult DescribeScanner()
+    {
+        var now = _timeProvider.GetUtcNow();
+        if (_ocrStatus is null)
+        {
+            return ScanExecutionResult.Unavailable(
+                "Scanning is not available on this platform.",
+                now);
+        }
+
+        var availability = _ocrStatus.Availability;
+        _logger.LogInformation(
+            "The {Provider} recogniser is {State}. {Reason}",
+            availability.Provider,
+            availability.IsAvailable ? "available" : "unavailable",
+            availability.Reason ?? "No reason was reported.");
+        return availability.IsAvailable
+            ? ScanExecutionResult.Ready(
+                "Ready. Press the scan shortcut while the game is in front of you.",
+                now)
+            : ScanExecutionResult.Unavailable(
+                availability.Reason is { } reason
+                    ? $"Scanning cannot run: {reason}"
+                    : $"Scanning cannot run; {availability.Provider} did not start.",
+                now);
+    }
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -77,6 +122,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             DatabaseReady = true,
             Data = Describe(cached),
             Profile = profile,
+            Scan = DescribeScanner(),
         });
 
         if (_options.DemoMode)

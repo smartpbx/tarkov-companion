@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Items;
@@ -20,6 +21,7 @@ public sealed class ScanUseCase : IScanUseCase
     private readonly IScanRecommendationContextProvider _recommendationContext;
     private readonly IScanEventRepository _events;
     private readonly IScanResultPublisher _publisher;
+    private readonly ILogger<ScanUseCase>? _logger;
     private readonly TimeProvider _timeProvider;
 
     public ScanUseCase(
@@ -35,6 +37,7 @@ public sealed class ScanUseCase : IScanUseCase
         IScanRecommendationContextProvider recommendationContext,
         IScanEventRepository events,
         IScanResultPublisher publisher,
+        ILogger<ScanUseCase>? logger = null,
         TimeProvider? timeProvider = null)
     {
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
@@ -48,6 +51,7 @@ public sealed class ScanUseCase : IScanUseCase
         _recommendations = recommendations ?? throw new ArgumentNullException(nameof(recommendations));
         _recommendationContext = recommendationContext ?? throw new ArgumentNullException(nameof(recommendationContext));
         _events = events ?? throw new ArgumentNullException(nameof(events));
+        _logger = logger;
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
@@ -57,12 +61,21 @@ public sealed class ScanUseCase : IScanUseCase
         ArgumentNullException.ThrowIfNull(request);
         var scanId = Guid.NewGuid();
         CapturedImage image;
+        // A scan is logged at every step it can fail at.
+        //
+        // It used to log nothing at all, on success or failure, so "the scan is not working"
+        // could not be told apart from the shortcut never firing, the capture never happening,
+        // or the recogniser reading the screen and finding nothing. Somebody reading the log
+        // from outside could establish none of it, and neither could I. The raid path had the
+        // same hole earlier tonight and logging every transition closed it in one line.
+        _logger?.LogInformation("Scan {ScanId} requested for {Capture}.", scanId, request.Capture);
         try
         {
             image = await _capture.CaptureAsync(request.Capture, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is InvalidOperationException or PlatformNotSupportedException)
         {
+            _logger?.LogWarning(exception, "Scan {ScanId} could not capture the screen.", scanId);
             var observedUtc = _timeProvider.GetUtcNow();
             var unavailable = new ScanOutcome(
                 scanId,
@@ -79,7 +92,21 @@ public sealed class ScanUseCase : IScanUseCase
             return await FinishAsync(unavailable, null, cancellationToken).ConfigureAwait(false);
         }
 
+        _logger?.LogInformation(
+            "Scan {ScanId} captured {Width}x{Height} from {Source}.",
+            scanId,
+            image.Width,
+            image.Height,
+            image.Source);
+
         var recognition = await _recognition.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
+        _logger?.LogInformation(
+            "Scan {ScanId} recognised context {Context} with {Candidates} candidate(s). {Diagnostic}",
+            scanId,
+            recognition.Context,
+            recognition.Candidates.Count,
+            recognition.DiagnosticCode ?? "No diagnostic.");
+
         var evidence = new List<ScanEvidence>
         {
             new(

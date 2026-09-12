@@ -52,6 +52,27 @@ public sealed record ScanExecutionResult(
         observedUtc.ToUniversalTime(),
         "unavailable",
         detail);
+
+    /// <summary>
+    /// The scanner can run and has not been asked to yet.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from unavailable, which used to cover both and so told a player whose scanner
+    /// worked perfectly the same thing it told one whose scanner could not start. "Nothing has
+    /// been scanned yet" is a description of the player's evening, not of the software.
+    /// </remarks>
+    public static ScanExecutionResult Ready(string detail, DateTimeOffset observedUtc) => new(
+        true,
+        false,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Confidence.Unknown,
+        observedUtc.ToUniversalTime(),
+        "ready",
+        detail);
 }
 
 /// <summary>
@@ -161,8 +182,11 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 // Not "no provider is configured": local OCR is composed and initialised on
                 // Windows, and the self-test confirms it. Nothing has been scanned yet, and
                 // saying otherwise told the player their installation was broken.
+                // Deliberately unavailable until startup asks the recogniser whether it can
+                // actually run. Claiming ready before anything has been checked would be a
+                // guess, and this is replaced within a second of the window appearing.
                 : ScanExecutionResult.Unavailable(
-                    "Nothing has been scanned yet. Press the scan shortcut while the game is in front of you.",
+                    "Checking whether the scanner can run…",
                     now));
     }
 
