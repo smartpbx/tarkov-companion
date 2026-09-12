@@ -18,6 +18,14 @@ namespace TarkovCompanion.Application.Services.Updates;
 /// </remarks>
 public sealed class UpdateInstaller(UpdateOptions options)
 {
+    /// <summary>How long the swap script keeps trying before giving up and saying so.</summary>
+    /// <remarks>
+    /// Generous on purpose. The install can sit in a synced folder, where releasing a handle
+    /// is not instant, and a script that gives up early leaves the player with a download they
+    /// cannot apply and no explanation.
+    /// </remarks>
+    private const int WaitSeconds = 90;
+
     /// <summary>
     /// Unpacks a verified download and hands back where it went.
     /// </summary>
@@ -59,8 +67,10 @@ public sealed class UpdateInstaller(UpdateOptions options)
     /// Writes the swap script and starts it, then leaves it to run after this process exits.
     /// </summary>
     /// <remarks>
-    /// Returns the script's path so a caller can say where it went. It waits on this process
-    /// id rather than on a fixed delay, so a slow shutdown does not race it.
+    /// Returns the script's path so a caller can name it if the swap has to be run by hand.
+    /// The caller is expected to close the application immediately afterwards; the script
+    /// waits for the folder to be released rather than for any particular moment, so starting
+    /// it slightly early is harmless.
     /// </remarks>
     public string BeginApply(string stagedDirectory)
     {
@@ -73,29 +83,44 @@ public sealed class UpdateInstaller(UpdateOptions options)
         var install = options.InstallDirectory.TrimEnd(Path.DirectorySeparatorChar);
         var previous = install + "-previous";
         var scriptPath = Path.Combine(options.StagingDirectory, "apply-update.cmd");
+
+        // The script waits by retrying the move rather than by watching for the process to
+        // exit. Watching meant asking whether a process id was still in the task list, which
+        // reported the application gone while Windows still held its directory open, so the
+        // first move failed and the script gave up with the install untouched. Retrying the
+        // move asks the only question that matters, which is whether the folder can be moved
+        // yet, and it answers itself the moment it can.
         var script = $"""
             @echo off
-            setlocal
+            setlocal enabledelayedexpansion
             echo Waiting for Tarkov Companion to close...
-            :wait
-            tasklist /FI "PID eq {Environment.ProcessId}" 2>nul | find "{Environment.ProcessId}" >nul
-            if not errorlevel 1 (
-                timeout /t 1 /nobreak >nul
-                goto wait
-            )
 
             if exist "{previous}" rmdir /S /Q "{previous}"
-            move "{install}" "{previous}" >nul
-            if errorlevel 1 (
-                echo Could not set the current build aside. Nothing was changed.
+
+            set /a attempt=0
+            :retry
+            move "{install}" "{previous}" >nul 2>&1
+            if not errorlevel 1 goto moved
+            set /a attempt+=1
+            if !attempt! GEQ {WaitSeconds} (
+                echo.
+                echo Tarkov Companion did not release its folder within {WaitSeconds} seconds.
+                echo Nothing was changed and the installed build is untouched.
+                echo Close the application and run this file again:
+                echo   {scriptPath}
+                echo.
                 pause
                 exit /b 1
             )
+            timeout /t 1 /nobreak >nul
+            goto retry
 
-            move "{stagedDirectory}" "{install}" >nul
+            :moved
+            move "{stagedDirectory}" "{install}" >nul 2>&1
             if errorlevel 1 (
+                echo.
                 echo Could not put the new build in place. Restoring the previous one.
-                move "{previous}" "{install}" >nul
+                move "{previous}" "{install}" >nul 2>&1
                 pause
                 exit /b 1
             )
