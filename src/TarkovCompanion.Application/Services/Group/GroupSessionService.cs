@@ -175,11 +175,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         // is, without filling an evening's log.
         if (Interlocked.Increment(ref _published) is 1 or 2 or 3 || _published % 120 == 0)
         {
+            // The key is never logged. It is the only thing protecting the group now that it
+            // is also the room, and a log file is the easiest place to read one out of.
             _logger.LogInformation(
-                "Group publish {Count} succeeded as {Name} in room {Room}; {Members} other member(s) present.",
+                "Group publish {Count} succeeded as {Name}; {Members} other member(s) present.",
                 _published,
                 settings.DisplayName,
-                settings.Room,
                 members.Length);
         }
 
