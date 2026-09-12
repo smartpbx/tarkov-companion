@@ -17,6 +17,16 @@ public interface IEftPathProbe
     EftPathCandidates GetCandidates();
 
     bool DirectoryExists(string path);
+
+    /// <summary>
+    /// When the newest image in a folder was written, or null when the folder holds none.
+    /// </summary>
+    /// <remarks>
+    /// An install leaves several plausible screenshot folders in place and only writes to one
+    /// of them. Taking whichever exists first can land on an empty folder the game abandoned,
+    /// and then position never appears and discovery still reports success.
+    /// </remarks>
+    DateTimeOffset? NewestImageWrite(string path) => null;
 }
 
 public sealed class WindowsEftPathLocator(IEftPathProbe? probe = null) : IEftPathLocator
@@ -29,7 +39,7 @@ public sealed class WindowsEftPathLocator(IEftPathProbe? probe = null) : IEftPat
         var candidates = _probe.GetCandidates();
         var install = FirstExisting(candidates.InstallRoots);
         var logs = FirstExisting(candidates.LogRoots);
-        var screenshots = FirstExisting(candidates.ScreenshotRoots);
+        var screenshots = BestScreenshotRoot(candidates.ScreenshotRoots);
         var foundCount = new[] { install, logs, screenshots }.Count(path => path is not null);
         var confidence = foundCount switch
         {
@@ -42,13 +52,47 @@ public sealed class WindowsEftPathLocator(IEftPathProbe? probe = null) : IEftPat
     }
 
     private string? FirstExisting(IEnumerable<string> paths) =>
+        Existing(paths).FirstOrDefault();
+
+    /// <summary>
+    /// Picks the screenshot folder the game is actually using.
+    /// </summary>
+    /// <remarks>
+    /// Where more than one candidate exists, the one holding the most recent screenshot wins.
+    /// Ordering the candidates by hand cannot settle this: which folder the game writes to
+    /// depends on the player's own settings. When none of them holds an image there is nothing
+    /// to choose between, so the usual first-existing order stands.
+    /// </remarks>
+    private string? BestScreenshotRoot(IEnumerable<string> paths)
+    {
+        var existing = Existing(paths).ToArray();
+        if (existing.Length <= 1)
+        {
+            return existing.FirstOrDefault();
+        }
+
+        var newest = existing
+            .Select(path => (Path: path, Written: _probe.NewestImageWrite(path)))
+            .Where(entry => entry.Written is not null)
+            .OrderByDescending(entry => entry.Written!.Value)
+            .Select(entry => entry.Path)
+            .FirstOrDefault();
+        return newest ?? existing[0];
+    }
+
+    private IEnumerable<string> Existing(IEnumerable<string> paths) =>
         paths.Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault(_probe.DirectoryExists);
+            .Where(_probe.DirectoryExists);
 }
 
 public sealed class SystemEftPathProbe : IEftPathProbe
 {
+    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png", ".jpg", ".jpeg",
+    };
+
     public EftPathCandidates GetCandidates()
     {
         if (!OperatingSystem.IsWindows())
@@ -60,6 +104,25 @@ public sealed class SystemEftPathProbe : IEftPathProbe
     }
 
     public bool DirectoryExists(string path) => Directory.Exists(path);
+
+    public DateTimeOffset? NewestImageWrite(string path)
+    {
+        try
+        {
+            var newest = new DirectoryInfo(path)
+                .EnumerateFiles()
+                .Where(file => ImageExtensions.Contains(file.Extension))
+                .Select(file => file.LastWriteTimeUtc)
+                .DefaultIfEmpty(DateTime.MinValue)
+                .Max();
+            return newest == DateTime.MinValue ? null : new DateTimeOffset(newest, TimeSpan.Zero);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
 
     [SupportedOSPlatform("windows")]
     private static EftPathCandidates GetWindowsCandidates()

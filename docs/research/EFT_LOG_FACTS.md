@@ -96,6 +96,31 @@ watch `application` for the map and lifecycle, and `output` for liveness.
 Live in-raid state is therefore possible: still-in-raid, connection quality, elapsed time.
 Outcome and quest progress are not, and no amount of parsing will change that.
 
+## The screenshot filenames, which are a separate source
+
+The logs never carry the player's position. The screenshot filenames do, and only when the
+player takes one. Measured against the same installation on 2026-09-11:
+
+```
+2026-09-11[19-16]_80.02, 1.39, -51.06_-0.00242, 0.84404, 0.00393, 0.53626_9.91 (0).png
+2024-02-08[20-26]_-185.0, 5.0, -412.7_0.0, -0.8, 0.1, -0.6 (0).png
+2024-02-08[22-19] (0).png
+```
+
+Three shapes, all real. Position, then a facing quaternion; current builds add a further float
+after the quaternion that older files do not have; and a screenshot taken outside a raid has no
+coordinates at all, which is ordinary rather than a parse failure.
+
+**The time in the name is not usable.** It ran hours away from when the file was written, and
+the zone it is in was never established. Take the coordinates from the name, because only the
+name has them, and take the time from the filesystem. Getting this wrong is not cosmetic: every
+position arrived looking older than the raid already on screen and was discarded, so the
+feature appeared dead while working correctly.
+
+**The folder is not fixed either.** An install leaves more than one plausible screenshots
+folder on disk and writes to one of them, so the one holding the newest image is the one to
+watch. As with the logs, change notifications cannot be relied on; the folder is polled.
+
 ## Still unknown
 
 Four map tokens were never observed because those maps were not played in the logged window:

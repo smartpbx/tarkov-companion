@@ -67,11 +67,21 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         return Current;
     }
 
+    /// <summary>
+    /// Records where the player was, from a screenshot the player chose to take.
+    /// </summary>
+    /// <remarks>
+    /// Ordering is judged against the last position and not against the raid's own clock. A
+    /// live raid writes log lines every few seconds, so the raid clock is almost always ahead
+    /// of the screenshot that just landed; comparing against it silently discarded every
+    /// position taken during a raid, which is the only time positions exist. A screenshot
+    /// older than one already recorded is still refused, which is what the guard was for.
+    /// </remarks>
     public RaidSnapshot ApplyPosition(ScreenshotPosition position)
     {
         ArgumentNullException.ThrowIfNull(position);
         var observedUtc = position.Timestamp.ToUniversalTime();
-        if (observedUtc < Current.UpdatedUtc)
+        if (Current.LastKnownPosition is { } previous && observedUtc < previous.Timestamp.ToUniversalTime())
         {
             return Current;
         }
@@ -90,7 +100,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         Current = Current with
         {
             LastKnownPosition = position,
-            UpdatedUtc = observedUtc,
+            // The raid clock only ever moves forward. A screenshot that is genuinely older
+            // than the last log line records its position without rewinding the raid.
+            UpdatedUtc = observedUtc > Current.UpdatedUtc ? observedUtc : Current.UpdatedUtc,
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.80)),
         };
         return Current;

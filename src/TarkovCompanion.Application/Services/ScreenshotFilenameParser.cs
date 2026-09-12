@@ -71,6 +71,38 @@ public sealed partial class ScreenshotFilenameParser : IScreenshotFilenameParser
         return true;
     }
 
+    /// <inheritdoc />
+    public bool TryParseFile(string path, TimeSpan localUtcOffset, out ScreenshotPosition? position)
+    {
+        if (!TryParse(path, localUtcOffset, out position) || position is null)
+        {
+            return false;
+        }
+
+        // A missing or unreadable file leaves the name's own time in place. That is worse
+        // than the file's, but it is the only one available and the position is still real.
+        var written = LastWrittenUtc(path);
+        if (written is { } moment)
+        {
+            position = position with { Timestamp = moment };
+        }
+
+        return true;
+    }
+
+    private static DateTimeOffset? LastWrittenUtc(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero) : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
     public static double HeadingDegrees(QuaternionOrientation orientation)
     {
         var q = orientation.Normalize();

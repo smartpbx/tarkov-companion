@@ -188,6 +188,9 @@ public sealed class RaidObservationServiceTests
                 filename);
             return true;
         }
+
+        public bool TryParseFile(string path, TimeSpan localUtcOffset, out ScreenshotPosition? position) =>
+            TryParse(path, localUtcOffset, out position);
     }
 
     private sealed class StubProfileService : IPlayerProfileService

@@ -37,6 +37,69 @@ public sealed class ScreenshotFilenameParserTests
         Assert.False(parser.TryParse(filename, TimeSpan.Zero, out _));
     }
 
+    /// <summary>
+    /// A menu or hideout screenshot has no coordinates in its name, which is ordinary.
+    /// </summary>
+    [Fact]
+    public void ReportsNoPositionForAScreenshotTakenOutsideARaid()
+    {
+        var parser = new ScreenshotFilenameParser();
+
+        Assert.False(parser.TryParse("2024-02-08[22-19] (0).png", TimeSpan.FromHours(-4), out var position));
+        Assert.Null(position);
+    }
+
+    /// <summary>
+    /// The time in the name is not in a zone the companion can identify; the file's is.
+    /// </summary>
+    /// <remarks>
+    /// On a live installation the two ran hours apart, and every position was then thrown away
+    /// as older than the raid already on screen. The coordinates still come from the name,
+    /// because only the name has them.
+    /// </remarks>
+    [Fact]
+    public void TakesTheTimeFromTheFileAndTheCoordinatesFromTheName()
+    {
+        var parser = new ScreenshotFilenameParser();
+        var directory = Directory.CreateTempSubdirectory("tarkov-screenshot-time");
+        try
+        {
+            var path = Path.Combine(
+                directory.FullName,
+                "2026-09-11[19-16]_80.02, 1.39, -51.06_-0.00242, 0.84404, 0.00393, 0.53626_9.91 (0).png");
+            File.WriteAllBytes(path, [0]);
+            var written = new DateTime(2026, 9, 11, 23, 16, 42, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(path, written);
+
+            Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-4), out var position));
+            Assert.NotNull(position);
+            Assert.Equal(new DateTimeOffset(written, TimeSpan.Zero), position.Timestamp);
+            Assert.Equal(80.02, position.Position.X, 3);
+            Assert.Equal(-51.06, position.Position.Z, 3);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// With no file to ask, the name's own time is the only one there is.
+    /// </summary>
+    [Fact]
+    public void FallsBackToTheNameWhenTheFileIsGone()
+    {
+        var parser = new ScreenshotFilenameParser();
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            "tarkov-companion-absent",
+            "2026-09-04[18-33]_7.86, 38.06, -27.57_-0.03307, -0.13322, 0.00384, -0.99053_21.87 (0).png");
+
+        Assert.True(parser.TryParseFile(path, TimeSpan.FromHours(-4), out var position));
+        Assert.NotNull(position);
+        Assert.Equal(new DateTimeOffset(2026, 9, 4, 18, 33, 0, TimeSpan.FromHours(-4)), position.Timestamp);
+    }
+
     [Fact]
     public void ConvertsKnownQuarterTurnToHeading()
     {

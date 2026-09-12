@@ -3,6 +3,7 @@ using Avalonia.Collections;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -144,6 +145,48 @@ public static class MapCanvasCoordinateMapper
     }
 }
 
+/// <summary>
+/// Where the player was when they last took a screenshot, drawn on the map.
+/// </summary>
+/// <remarks>
+/// This is the one thing the companion can say about the player's own location, and it is
+/// evidence rather than tracking: the game writes the position into the screenshot's filename,
+/// and only when the player chooses to take one. The marker is therefore always labelled with
+/// how old it is, and it points the way the player was facing at that moment.
+/// </remarks>
+/// <param name="Label">What the marker is and when it was taken, for the tooltip.</param>
+/// <param name="CenterX">Canvas position, already projected through the map's transform.</param>
+/// <param name="CenterY">Canvas position, already projected through the map's transform.</param>
+/// <param name="HeadingDegrees">Which way the player was facing, clockwise from north.</param>
+/// <param name="IsStale">Whether the screenshot is old enough that the player has likely moved.</param>
+public sealed record PlayerMarkerViewModel(
+    string Label,
+    double CenterX,
+    double CenterY,
+    double HeadingDegrees,
+    bool IsStale)
+{
+    public double Size => 26;
+
+    public double Left => CenterX - (Size / 2);
+
+    public double Top => CenterY - (Size / 2);
+
+    public double CornerRadius => Size / 2;
+
+    /// <summary>A fresh position is worth trusting; a stale one is drawn as a faded hint.</summary>
+    public string FillColor => IsStale ? "#8056B8C6" : "#FF4DD0E1";
+
+    public string BorderColor => IsStale ? "#A0E6EDF2" : "#FFFFFFFF";
+
+    /// <summary>The facing arrow sits just outside the dot, rotated about the dot's centre.</summary>
+    public double ArrowSize => 14;
+
+    public double ArrowLeft => CenterX - (ArrowSize / 2);
+
+    public double ArrowTop => CenterY - Size;
+}
+
 public sealed record QuestMapAssociationViewModel(
     string Title,
     string Detail,
@@ -178,6 +221,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapVariant? _selectedVariant;
     private MapFloorDefinition? _selectedFloor;
     private MapRenderModel? _renderModel;
+    private ScreenshotPosition? _playerPosition;
+    private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
     private QuestMapProjectionReadModel? _questProjection;
     private Bitmap? _backgroundImage;
@@ -289,6 +334,26 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         get => _questAssociations;
         private set => Set(ref _questAssociations, value);
     }
+
+    /// <summary>
+    /// Where the player last was: at most one marker, and none when nothing can be placed.
+    /// </summary>
+    /// <remarks>
+    /// Held as a list rather than a nullable so the layer is bound like every other overlay
+    /// and disappears on its own when there is no evidence, with no converter and no parent
+    /// lookup in the view.
+    /// </remarks>
+    public IReadOnlyList<PlayerMarkerViewModel> PlayerMarkers
+    {
+        get => _playerMarkers;
+        private set
+        {
+            Set(ref _playerMarkers, value);
+            OnPropertyChanged(nameof(HasPlayerMarker));
+        }
+    }
+
+    public bool HasPlayerMarker => PlayerMarkers.Count > 0;
 
     public MapLocation? SelectedLocation
     {
@@ -1096,6 +1161,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             OverlayElements = [];
             UpdateQuestGeometry();
+            UpdatePlayerMarker();
             return;
         }
 
@@ -1112,6 +1178,58 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 layer.IsHighlighted);
         }).ToArray() ?? [];
         UpdateQuestGeometry();
+        UpdatePlayerMarker();
+    }
+
+    /// <summary>
+    /// Takes the position from the player's latest screenshot, or clears it.
+    /// </summary>
+    /// <remarks>
+    /// Called on every runtime snapshot, so it has to be cheap and idempotent. The marker is
+    /// only redrawn when the screenshot itself changes; the age in its label is refreshed by
+    /// the same snapshot tick that refreshes every other age on screen.
+    /// </remarks>
+    public void ShowPlayer(ScreenshotPosition? position)
+    {
+        _playerPosition = position;
+        UpdatePlayerMarker();
+    }
+
+    /// <summary>
+    /// A screenshot older than this is drawn faded, because the player has moved since.
+    /// </summary>
+    private static readonly TimeSpan PlayerMarkerFreshFor = TimeSpan.FromMinutes(2);
+
+    private void UpdatePlayerMarker()
+    {
+        var mapper = CreateCanvasMapper();
+        if (_playerPosition is not { } position || _renderModel is null || mapper is null ||
+            !_renderModel.TryMapPosition(position.Position, out var mapPoint))
+        {
+            PlayerMarkers = [];
+            return;
+        }
+
+        var canvasPoint = mapper(mapPoint);
+        if (!double.IsFinite(canvasPoint.X) || !double.IsFinite(canvasPoint.Y))
+        {
+            PlayerMarkers = [];
+            return;
+        }
+
+        var age = DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime();
+        var taken = position.Timestamp.ToLocalTime().ToString("T", CultureInfo.CurrentCulture);
+        PlayerMarkers =
+        [
+            new(
+                string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Your last screenshot position · {taken} · facing {position.HeadingDegrees:F0}°"),
+                canvasPoint.X,
+                canvasPoint.Y,
+                position.HeadingDegrees,
+                age > PlayerMarkerFreshFor),
+        ];
     }
 
     private Func<MapPoint, Point>? CreateCanvasMapper()

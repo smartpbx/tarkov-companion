@@ -232,6 +232,49 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Where the player last was, from their own screenshot. Held as a list of at
+               most one so the layer simply disappears when there is no evidence. -->
+          <ItemsControl
+              ItemsSource="{Binding PlayerMarkers}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:PlayerMarkerViewModel">
+                <Panel ToolTip.Tip="{Binding Label}">
+                  <Path
+                      Data="M 7,0 L 14,14 L 7,10 L 0,14 Z"
+                      Fill="{Binding BorderColor}"
+                      Width="{Binding ArrowSize}"
+                      Height="{Binding ArrowSize}"
+                      RenderTransformOrigin="50%,100%">
+                    <Path.RenderTransform>
+                      <TransformGroup>
+                        <RotateTransform Angle="{Binding HeadingDegrees}" />
+                        <TranslateTransform X="{Binding ArrowLeft}" Y="{Binding ArrowTop}" />
+                      </TransformGroup>
+                    </Path.RenderTransform>
+                  </Path>
+                  <Border
+                      Width="{Binding Size}"
+                      Height="{Binding Size}"
+                      CornerRadius="{Binding CornerRadius}"
+                      Background="{Binding FillColor}"
+                      BorderBrush="{Binding BorderColor}"
+                      BorderThickness="3">
+                    <Border.RenderTransform>
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </Border.RenderTransform>
+                  </Border>
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <Border
               Canvas.Left="16"
               Canvas.Top="16"

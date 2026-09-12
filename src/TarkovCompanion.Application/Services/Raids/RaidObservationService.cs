@@ -225,10 +225,21 @@ public sealed class RaidObservationService : IAsyncDisposable
             await foreach (var path in _screenshotWatcher.WatchAsync(screenshotRoot, cancellationToken)
                                .ConfigureAwait(false))
             {
-                if (_filenameParser.TryParse(Path.GetFileName(path), offset, out var position) && position is not null)
+                if (!_filenameParser.TryParseFile(path, offset, out var position) || position is null)
                 {
-                    await _coordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
+                    // Menu and hideout screenshots carry no coordinates. That is ordinary and
+                    // is not worth a warning every time the player photographs their stash.
+                    continue;
                 }
+
+                _logger.LogInformation(
+                    "Read a position from {Filename}: X {X:F1}, Y {Y:F1}, Z {Z:F1} at {Taken:O}.",
+                    position.Filename,
+                    position.Position.X,
+                    position.Position.Y,
+                    position.Position.Z,
+                    position.Timestamp);
+                await _coordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)

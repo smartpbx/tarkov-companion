@@ -360,6 +360,18 @@ public interface IScreenshotWatcher
 public interface IScreenshotFilenameParser
 {
     bool TryParse(string filename, TimeSpan localUtcOffset, out ScreenshotPosition? position);
+
+    /// <summary>
+    /// Reads a screenshot that exists on disk, taking its time from the file rather than its name.
+    /// </summary>
+    /// <remarks>
+    /// The coordinates only exist in the name, but the time in the name is not in a zone the
+    /// companion can identify: on a live installation it ran hours away from when the file was
+    /// actually written, and every position that arrived was then discarded as older than the
+    /// raid already on screen. The filesystem knows exactly when the game wrote the file, so
+    /// that is the time used whenever there is a real file to ask.
+    /// </remarks>
+    bool TryParseFile(string path, TimeSpan localUtcOffset, out ScreenshotPosition? position);
 }
 
 public interface IMapDataService
