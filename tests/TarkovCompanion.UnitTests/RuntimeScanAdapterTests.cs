@@ -94,5 +94,15 @@ public sealed class RuntimeScanAdapterTests
             Assert.Equal("EscapeFromTarkov", request.Capture.WindowSelector);
             return Task.FromResult(outcome);
         }
+
+        /// <summary>
+        /// The screenshot path is not what this adapter exercises, so it is not stubbed.
+        /// </summary>
+        /// <remarks>
+        /// Throwing rather than returning the same outcome, so a future test that reaches it
+        /// by accident fails loudly instead of quietly asserting against the wrong path.
+        /// </remarks>
+        public Task<ScanOutcome> ScanImageAsync(CapturedImage image, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("This adapter test only covers the capture path.");
     }
 }
