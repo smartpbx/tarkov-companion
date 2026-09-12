@@ -565,6 +565,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private AvaloniaList<Point> _playerTrail = [];
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
+    private bool _prefersDrawing;
+    private bool _hasArtworkChoice;
     private IReadOnlyList<PlayerMarkerViewModel> _playerMarkers = [];
     private MapCatalogProvenance? _mapCatalogProvenance;
     private QuestMapProjectionReadModel? _questProjection;
@@ -1214,6 +1216,38 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         FollowsPlayer = false;
     }
 
+    /// <summary>Whether this map publishes both a tile set and a drawing.</summary>
+    public bool HasArtworkChoice
+    {
+        get => _hasArtworkChoice;
+        private set => Set(ref _hasArtworkChoice, value);
+    }
+
+    /// <summary>Whether the drawing is being shown rather than the tiles.</summary>
+    public bool PrefersDrawing
+    {
+        get => _prefersDrawing;
+        private set => Set(ref _prefersDrawing, value);
+    }
+
+    /// <summary>
+    /// Switches between the tile set and the drawing, and remembers the answer for this map.
+    /// </summary>
+    /// <remarks>
+    /// Reloads the variant, because the two are different artwork rather than two views of the
+    /// same thing, and the canvas takes its shape from whichever is loaded.
+    /// </remarks>
+    public async Task ToggleArtworkAsync()
+    {
+        if (!HasArtworkChoice || SelectedLocation is not { } location || SelectedVariant is not { } variant)
+        {
+            return;
+        }
+
+        await _selectionService.ChooseArtworkAsync(location.Id, !PrefersDrawing, _lifetime.Token).ConfigureAwait(true);
+        await LoadVariantAsync(variant, persist: false).ConfigureAwait(true);
+    }
+
     /// <summary>Asks the view to scale the whole map into the panel and centre it.</summary>
     public void RequestFit()
     {
@@ -1574,7 +1608,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             ZoomScale = 1;
             Status = $"Loading {location.Name} · {variant.DisplayName}…";
 
-            if (variant.TilePath is not null)
+            // Several maps publish both a photographic tile set and a drawing, and which reads
+            // better depends on the map rather than on a preference anyone can set once. An
+            // aerial photograph suits a city and renders an interior as a flat brown mass, so
+            // the choice is offered per map and only where there is actually a choice.
+            HasArtworkChoice = variant.TilePath is not null && variant.SvgPath is not null;
+            PrefersDrawing = HasArtworkChoice &&
+                await _selectionService.PrefersDrawingAsync(location.Id, cancellationToken).ConfigureAwait(true);
+
+            if (variant.TilePath is not null && !PrefersDrawing)
             {
                 _renderModel = _presentationService.Create(
                     location,

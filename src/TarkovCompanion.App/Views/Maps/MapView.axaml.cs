@@ -439,6 +439,14 @@ public sealed partial class MapView : UserControl
     /// Waiting for the next screenshot before honouring the button would make it look broken,
     /// since a player may not take another for several minutes.
     /// </remarks>
+    private async void ArtworkClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            await RunGuardedAsync(viewModel, viewModel.ToggleArtworkAsync);
+        }
+    }
+
     private void FollowClick(object? sender, RoutedEventArgs eventArgs)
     {
         if (DataContext is not MapViewModel viewModel)

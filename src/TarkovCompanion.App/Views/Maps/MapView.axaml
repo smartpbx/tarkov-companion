@@ -460,6 +460,14 @@
 
     <Border Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
       <StackPanel Orientation="Horizontal" Spacing="4">
+        <!-- Only shown where the map actually publishes both, which is a minority of them. -->
+        <Button
+            Classes="viewControl"
+            Classes.on="{Binding PrefersDrawing}"
+            Click="ArtworkClick"
+            Content="Drawing"
+            IsVisible="{Binding HasArtworkChoice}"
+            ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
         <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
         <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
         <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
