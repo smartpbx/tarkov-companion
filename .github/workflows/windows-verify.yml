@@ -1,9 +1,10 @@
 name: Windows verification
 
 # Behavioral verification of the packaged Windows build on a GitHub-hosted
-# Windows runner. Clayton's workstation must never build or run this project,
-# and CT 114 is Linux, so a hosted Windows runner is the only sanctioned place
-# to prove that the shipped package actually starts and works.
+# Windows runner. The maintainer's workstation must never build or run this
+# project, and the remote development container is Linux, so a hosted Windows
+# runner is the only sanctioned place to prove that the shipped package
+# actually starts and works.
 #
 # Escape from Tarkov is not installed on the runner and is not required. Nothing
 # here reads game memory, sends input to another process, or inspects network

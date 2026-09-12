@@ -33,8 +33,9 @@ GET-only TarkovTracker import, and fail-closed dependency licensing/packaging.
 Inspect this worktree with Git-only commands before continuing. Do not restart
 its local agent or bootstrap/build/test inside it. Continue through direct file
 edits, push a small branch/PR, and let GitHub Actions perform validation. If a
-required check cannot run in CI, prepare CT 114 deliberately after verifying its
-checkout and current load; never fall back to the workstation.
+required check cannot run in CI, prepare the remote development container
+deliberately after verifying its checkout and current load; never fall back to
+the workstation.
 
 ## Fastest safe completion path
 

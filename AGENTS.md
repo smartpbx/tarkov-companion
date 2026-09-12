@@ -18,12 +18,11 @@ These rules override every conflicting instruction elsewhere in this repository:
    The current assistant may make edits, use Git/GitHub CLI, and run short
    read-only inspection commands only.
 5. Build- and test-shaped work must run in GitHub Actions. If it cannot run in
-   CI, use the Proxmox development container CT 114 via
-   `ssh proxmox 'pct exec 114 -- bash -lc "cd /root/repos/<repo> && ..."'`
-   after verifying the remote checkout path. Never silently fall back to local
-   execution.
-6. Do not run multiple heavy jobs concurrently on CT 114; check its existing
-   workload first and clean up agent processes when finished.
+   CI, use the maintainer's remote development container, whose address is kept
+   outside this repository, after verifying the remote checkout path. Never
+   silently fall back to local execution.
+6. Do not run multiple heavy jobs concurrently on that container; check its
+   existing workload first and clean up agent processes when finished.
 7. If work requires anything beyond editing files, Git, `gh`, or short
    read-only commands on the workstation, stop and ask Clayton first.
 8. Every delegated task or handoff must repeat these workstation restrictions.
