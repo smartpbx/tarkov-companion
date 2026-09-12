@@ -5,6 +5,7 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Infrastructure.Persistence;
 
 namespace TarkovCompanion.IntegrationTests;
 
@@ -34,7 +35,7 @@ public sealed class RaidEndToEndTests
         var root = TemporaryRoot();
         try
         {
-            await using var services = Build(root);
+            await using var services = await BuildAsync(root);
             var parser = services.GetRequiredService<EftLogParser>();
             var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
             var store = services.GetRequiredService<IRuntimeStateStore>();
@@ -70,7 +71,7 @@ public sealed class RaidEndToEndTests
         var root = TemporaryRoot();
         try
         {
-            await using var services = Build(root);
+            await using var services = await BuildAsync(root);
             var parser = services.GetRequiredService<EftLogParser>();
             var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
             var store = services.GetRequiredService<IRuntimeStateStore>();
@@ -103,7 +104,7 @@ public sealed class RaidEndToEndTests
         var root = TemporaryRoot();
         try
         {
-            await using var services = Build(root);
+            await using var services = await BuildAsync(root);
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
             var parser = services.GetRequiredService<EftLogParser>();
             var coordinator = services.GetRequiredService<RaidActivityCoordinator>();
@@ -143,12 +144,31 @@ public sealed class RaidEndToEndTests
         "2026-09-12 01:23:54.000|1.1.5.0.47242|Info|backend|NOTIFICATION [EVENTID] " + type + " " +
         $$"""[{"type":"{{type}}","eventId":"E1","profileid":"SELFPROFILE1","location":"TarkovStreets","status":"{{status}}"}]""";
 
-    private static ServiceProvider Build(string root) => AppComposition.Build(
+    /// <summary>
+    /// Builds the application's own container, with its database schema in place.
+    /// </summary>
+    /// <remarks>
+    /// The migrations have to run. Without them the first raid start reaches the profile
+    /// table, fails on a table that does not exist, and the whole exercise proves nothing.
+    ///
+    /// That mistake nearly went unnoticed, because the exception was raised inside the try
+    /// block and then thrown away by a teardown that failed in the finally. The test reported
+    /// the teardown fault, the real one never surfaced, and it read as a pass with a messy
+    /// cleanup. Teardown that can throw is how a failing test disguises itself, which is a
+    /// second reason the scratch directory helper now refuses to.
+    /// </remarks>
+    private static async Task<ServiceProvider> BuildAsync(string root)
+    {
         // Demo mode is how every other test builds the window view model headlessly. It
         // changes nothing this exercises: the raid state service only treats it as permission
         // to accept simulator evidence, and everything here is an ordinary log line.
-        new AppCommandLine(false, true, true, false, null, null, null),
-        new(DataRoot: root, Offline: true));
+        var services = AppComposition.Build(
+            new AppCommandLine(false, true, true, false, null, null, null),
+            new(DataRoot: root, Offline: true));
+        await services.GetRequiredService<SqliteMigrationRunner>()
+            .ApplyAsync(TestContext.Current.CancellationToken);
+        return services;
+    }
 
     private static string TemporaryRoot() =>
         Path.Combine(Path.GetTempPath(), $"tarkov-raid-e2e-{Guid.NewGuid():N}");
