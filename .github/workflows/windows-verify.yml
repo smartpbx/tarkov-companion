@@ -20,7 +20,7 @@ on:
       - smartpbx/v1-windows-build
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # Runs alongside the Windows job so a compile error or a failing test surfaces without
@@ -265,6 +265,31 @@ jobs:
             dist/TarkovCompanion-v1.0.0-win-x64.zip
             dist/SHA256SUMS.txt
           if-no-files-found: warn
+
+      # One rolling pre-release, replaced on every verified build, so the application has a
+      # fixed place to look for a newer version of itself. Only reached when every check above
+      # passed, so nothing that failed verification is ever offered as an update.
+      - name: Publish the verified build for in-app update
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          checksum=$(awk '{print $1}' dist/SHA256SUMS.txt | head -1)
+          cat > dist/update.json <<JSON
+          {
+            "version": "1.0.0",
+            "commit": "${{ github.sha }}",
+            "builtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "asset": "TarkovCompanion-v1.0.0-win-x64.zip",
+            "sha256": "${checksum}",
+            "branch": "${{ github.ref_name }}",
+            "run": "${{ github.run_id }}"
+          }
+          JSON
+          gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
+          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}."             --prerelease             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
 
       - name: Summarize and fail on any unverified step
         if: always()

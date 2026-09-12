@@ -15,6 +15,7 @@ using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -177,6 +178,11 @@ public static class AppComposition
         services.AddSingleton<IHotkeySettingsStore>(_ =>
             new JsonFileHotkeySettingsStore(Path.Combine(paths.Config, "hotkeys.json")));
         services.AddSingleton<ScanHotkeyService>();
+        // Updating from inside the application, so a fix does not need somebody to download an
+        // artifact and swap a folder by hand.
+        services.AddSingleton(_ => UpdateOptions.CreateDefault(AppContext.BaseDirectory, paths.Cache));
+        services.AddSingleton<UpdateService>();
+        services.AddSingleton<UpdateInstaller>();
         services.AddSingleton<MapVariantSelectionService>();
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();

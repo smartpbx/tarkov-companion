@@ -5,6 +5,33 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
     <StackPanel Spacing="10">
+      <!-- Updating from inside the application. Only builds that passed Windows verification
+           are offered, and a download whose checksum does not match what was published is
+           thrown away rather than installed. -->
+      <Border Classes="panel cyan" Padding="15" IsVisible="{Binding SupportsUpdates}">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sectionTitle" Text="Application updates" />
+          <TextBlock Classes="label" Text="Installed build" />
+          <TextBlock Text="{Binding InstalledBuild}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Command="{Binding CheckForUpdateCommand}"
+                    Content="Check for updates"
+                    IsEnabled="{Binding IsUpdateIdle}" />
+            <Button Classes="primary"
+                    Command="{Binding DownloadUpdateCommand}"
+                    Content="Download"
+                    IsVisible="{Binding CanDownloadUpdate}" />
+            <Button Classes="primary"
+                    Command="{Binding RestartForUpdateCommand}"
+                    Content="Install and restart"
+                    IsVisible="{Binding CanRestartForUpdate}" />
+          </StackPanel>
+          <TextBlock Classes="label"
+                     Text="Only builds that passed Windows verification are offered. The download is checked against its published checksum before anything is unpacked, and the build you are running is kept alongside the new one."
+                     TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
       <Border Classes="panel" Padding="15">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Persistent runtime" />

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Net.Http;
 using System.Windows.Input;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.App.Services;
@@ -10,6 +11,7 @@ using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
@@ -710,8 +712,30 @@ public sealed class HistoryPageViewModel : PageViewModel
 
 public sealed class SettingsPageViewModel : PageViewModel
 {
+    /// <summary>
+    /// Updating the application from inside it, rather than by hand.
+    /// </summary>
+    /// <remarks>
+    /// Every build reached its machine tonight because a person downloaded an artifact,
+    /// checked a hash and swapped a folder. That is a great deal of ceremony to change one
+    /// line, and it means a fix only arrives while somebody is awake to carry it.
+    ///
+    /// Only builds that passed Windows verification are ever offered, and the download is
+    /// refused unless its checksum matches what was published, so the shortcut does not come
+    /// at the cost of the checks.
+    /// </remarks>
+
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly ScanHotkeyService _hotkeys;
+    private readonly UpdateService? _updates;
+    private readonly UpdateInstaller? _installer;
+    private PublishedBuild? _offered;
+    private string? _stagedDirectory;
+    private string _updateStatus = "Updates have not been checked this session.";
+    private string _installedBuild = "Build unknown";
+    private bool _isBusyWithUpdate;
+    private bool _canDownloadUpdate;
+    private bool _canRestartForUpdate;
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
@@ -725,13 +749,27 @@ public sealed class SettingsPageViewModel : PageViewModel
         AppDataPaths paths,
         AppCommandLine commandLine,
         IOcrEngineStatus ocrStatus,
-        ScanHotkeyService hotkeys)
+        ScanHotkeyService hotkeys,
+        UpdateService? updates = null,
+        UpdateInstaller? installer = null)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
         ArgumentNullException.ThrowIfNull(hotkeys);
         _startupCoordinator = startupCoordinator;
         _hotkeys = hotkeys;
+        _updates = updates;
+        _installer = installer;
+        CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
+        DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
+        RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
+        if (_updates is not null)
+        {
+            var installed = _updates.ReadInstalled();
+            _installedBuild = installed.Commit is null
+                ? $"Version {installed.Version}, built from source"
+                : $"Version {installed.Version} · {installed.ShortCommit}";
+        }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
         // reads very differently from an unsupported architecture - but until now only the
         // headless self-test ever read that reason, so the user saw a bare "Unavailable".
@@ -749,6 +787,137 @@ public sealed class SettingsPageViewModel : PageViewModel
     }
 
     public bool IsOffline { get; }
+
+    public AsyncDelegateCommand CheckForUpdateCommand { get; }
+
+    public AsyncDelegateCommand DownloadUpdateCommand { get; }
+
+    public DelegateCommand RestartForUpdateCommand { get; }
+
+    /// <summary>Which build is running, so a report of a bug can name it.</summary>
+    public string InstalledBuild
+    {
+        get => _installedBuild;
+        private set => SetProperty(ref _installedBuild, value);
+    }
+
+    public string UpdateStatus
+    {
+        get => _updateStatus;
+        private set => SetProperty(ref _updateStatus, value);
+    }
+
+    /// <summary>Whether an offered build has not yet been fetched.</summary>
+    public bool CanDownloadUpdate
+    {
+        get => _canDownloadUpdate;
+        private set => SetProperty(ref _canDownloadUpdate, value);
+    }
+
+    /// <summary>Whether a build is unpacked and waiting for the application to close.</summary>
+    public bool CanRestartForUpdate
+    {
+        get => _canRestartForUpdate;
+        private set => SetProperty(ref _canRestartForUpdate, value);
+    }
+
+    public bool IsBusyWithUpdate
+    {
+        get => _isBusyWithUpdate;
+        private set
+        {
+            if (SetProperty(ref _isBusyWithUpdate, value))
+            {
+                OnPropertyChanged(nameof(IsUpdateIdle));
+            }
+        }
+    }
+
+    public bool IsUpdateIdle => !IsBusyWithUpdate;
+
+    public bool SupportsUpdates => _updates is not null && _installer is not null;
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (_updates is null || IsBusyWithUpdate)
+        {
+            return;
+        }
+
+        IsBusyWithUpdate = true;
+        CanDownloadUpdate = false;
+        UpdateStatus = "Checking for a newer verified build…";
+        try
+        {
+            var check = await _updates.CheckAsync(CancellationToken.None).ConfigureAwait(true);
+            UpdateStatus = check.Detail;
+            _offered = check.Availability == UpdateAvailability.Available ? check.Published : null;
+            CanDownloadUpdate = _offered is not null;
+        }
+        finally
+        {
+            IsBusyWithUpdate = false;
+        }
+    }
+
+    private async Task DownloadUpdateAsync()
+    {
+        if (_updates is null || _installer is null || _offered is not { } offered || IsBusyWithUpdate)
+        {
+            return;
+        }
+
+        IsBusyWithUpdate = true;
+        CanDownloadUpdate = false;
+        UpdateStatus = "Downloading the new build…";
+        try
+        {
+            var archive = await _updates.DownloadAsync(offered, CancellationToken.None).ConfigureAwait(true);
+            UpdateStatus = "Checksum matched. Unpacking…";
+            var staged = await Task.Run(() => _installer.Stage(archive)).ConfigureAwait(true);
+            if (!UpdateInstaller.LooksRunnable(staged))
+            {
+                UpdateStatus = "The downloaded build has no application in it. Nothing was changed.";
+                return;
+            }
+
+            _stagedDirectory = staged;
+            CanRestartForUpdate = true;
+            UpdateStatus = "Ready to install. The swap happens when the application closes, "
+                + "and the build you are running now is kept alongside it.";
+        }
+        catch (Exception exception) when (exception is InvalidOperationException
+                                          or HttpRequestException
+                                          or IOException
+                                          or UnauthorizedAccessException)
+        {
+            UpdateStatus = $"The update was not applied: {exception.Message}";
+            CanDownloadUpdate = _offered is not null;
+        }
+        finally
+        {
+            IsBusyWithUpdate = false;
+        }
+    }
+
+    private void RestartForUpdate()
+    {
+        if (_installer is null || _stagedDirectory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _installer.BeginApply(_stagedDirectory);
+            UpdateStatus = "Close the application to finish. It will reopen on the new build.";
+            CanRestartForUpdate = false;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
+        {
+            UpdateStatus = $"The update could not be started: {exception.Message}";
+        }
+    }
 
     public string RecognitionProvider { get; }
 
@@ -913,6 +1082,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
         ScanHotkeyService hotkeys,
+        UpdateService updates,
+        UpdateInstaller installer,
         RuntimeOptions options,
         AppDataPaths paths,
         AppCommandLine commandLine,
@@ -941,7 +1112,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         History = new(raidHistoryService);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Hideout = new(requirementCatalog, profileService, itemRepository);
-        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys);
+        Settings = new(startupCoordinator, options, paths, commandLine, ocrStatus, hotkeys, updates, installer);
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
