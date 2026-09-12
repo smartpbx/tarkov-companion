@@ -67,26 +67,20 @@
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Raid" />
               <TextBlock Classes="value" Text="{Binding RaidState}" TextWrapping="Wrap" />
-              <TextBlock Classes="caption" Text="{Binding Evidence}" TextWrapping="Wrap" />
             </StackPanel>
             <Border Classes="hairline" />
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Last-known position" />
               <TextBlock Classes="value" Text="{Binding Position}" TextWrapping="Wrap" />
-              <TextBlock Classes="caption" Text="From your own screenshots, never live tracking." TextWrapping="Wrap" />
-            </StackPanel>
+              </StackPanel>
             <Border Classes="hairline" />
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Extracts" />
               <TextBlock Classes="value" Text="{Binding Extracts}" TextWrapping="Wrap" />
-              <TextBlock Classes="caption" Text="Only an extract observed externally or chosen by hand is marked active." TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
         </Border>
 
-        <!-- Routes are a promise about the future and a promise about what is never done, and
-             neither needs a panel. -->
-        <TextBlock Classes="note" Margin="4,0" Text="Routes are not available until a validated route graph is loaded. No enemy, traffic or live-player detection is performed." />
       </StackPanel>
     </ScrollViewer>
   </Grid>

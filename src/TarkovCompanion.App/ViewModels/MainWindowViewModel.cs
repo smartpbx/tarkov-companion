@@ -258,7 +258,7 @@ public sealed class RaidPageViewModel : PageViewModel
             ? "No raid state has been observed."
             : $"{raid.State} · {FormatAge(raid.UpdatedUtc, nowUtc)}";
         Position = raid.LastKnownPosition is null
-            ? "No last-known position; the map remains reference-only."
+            ? "No position yet"
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"X {raid.LastKnownPosition.Position.X:F1}, Y {raid.LastKnownPosition.Position.Y:F1}, Z {raid.LastKnownPosition.Position.Z:F1} · screenshot {FormatAge(raid.LastKnownPosition.Timestamp, nowUtc)}");
@@ -1211,7 +1211,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
     private IReadOnlyList<StatusChip> _status = [];
-    private string _modeLabel = "External read-only companion";
+    private string _modeLabel = string.Empty;
     private string _lastScanName = "No item scanned";
     private bool _hasScan;
     private string _lastScanValue = "Unavailable";
@@ -1596,8 +1596,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         ModeLabel = snapshot.IsDemoMode
             ? "Deterministic local fixture · no live game access"
             : snapshot.IsOffline
-                ? "External read-only companion · offline"
-                : "External read-only companion";
+                ? "Offline"
+                : string.Empty;
         Status = CreateStatus(snapshot, now);
         Raid.Apply(snapshot, now);
         Scanner.Apply(snapshot.Scan);
@@ -1690,7 +1690,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 position is null ? "No evidence" : string.Create(CultureInfo.InvariantCulture, $"{position.Position.X:F0}, {position.Position.Z:F0}"),
                 position is null
                     ? observation.IsWatchingScreenshots
-                        ? "Take a screenshot in game to place yourself"
+                        ? "Screenshot to place yourself"
                         : "No screenshot observation"
                     : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
                 position is null ? RestingColor : CyanColor)

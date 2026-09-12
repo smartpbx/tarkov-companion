@@ -68,7 +68,8 @@
       <Grid ColumnDefinitions="172,*,Auto" Margin="16,0">
         <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
           <TextBlock Classes="sectionTitle" Text="Tarkov Companion" />
-          <TextBlock Classes="caption" Text="{Binding ModeLabel}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="caption" Text="{Binding ModeLabel}" TextTrimming="CharacterEllipsis"
+                     IsVisible="{Binding ModeLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
 
         <!-- Each chip is capped and trims, with the full evidence on hover, so one chip with a
@@ -137,7 +138,6 @@
       <Grid Margin="0,0,0,12" ColumnDefinitions="*,Auto" ColumnSpacing="16" IsVisible="{Binding CurrentPage.ShowsPageHeader}">
         <StackPanel VerticalAlignment="Center" Spacing="2" MinHeight="56">
           <TextBlock Classes="title" Text="{Binding CurrentPage.Title}" />
-          <TextBlock Classes="label" Text="{Binding CurrentPage.Description}" />
         </StackPanel>
         <Border Grid.Column="1" Classes="inset" Padding="10,6" MaxWidth="460" VerticalAlignment="Center">
           <TextBlock Classes="label" Text="{Binding CurrentPage.Evidence}" TextTrimming="CharacterEllipsis" />
@@ -170,13 +170,11 @@
               <TextBlock Classes="lede sage" Text="{Binding LastScanAdvice}" TextWrapping="Wrap" />
             </StackPanel>
           </Grid>
-          <TextBlock Grid.Column="2" Classes="caption" Text="Captures stay in memory and are discarded after analysis" VerticalAlignment="Center" />
         </Grid>
         <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12" IsVisible="{Binding HasNoScan}">
           <TextBlock Grid.Column="0" Classes="label" Text="Scan shortcut" VerticalAlignment="Center" />
           <TextBlock Grid.Column="1" Classes="mono ochre" FontWeight="SemiBold" Text="{Binding Settings.PendingHotkeyDisplay}" VerticalAlignment="Center" />
           <TextBlock Grid.Column="2" Classes="label" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="3" Classes="caption" Text="Captures stay in memory and are discarded after analysis" VerticalAlignment="Center" />
         </Grid>
       </Panel>
     </Border>
