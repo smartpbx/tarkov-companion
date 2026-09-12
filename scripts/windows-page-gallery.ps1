@@ -25,7 +25,7 @@ param(
     [string] $ScreenshotDirectory = (Join-Path $PWD "pages"),
 
     [string[]] $Pages = @(
-        "Raid", "Squad", "Scanner", "Items", "Ammo", "Keys",
+        "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings"),
 
     [int] $WindowTimeoutSeconds = 90,
