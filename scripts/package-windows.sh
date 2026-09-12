@@ -59,9 +59,11 @@ cp "${TASK_PROJECT_ROOT}/scripts/windows-smoke.ps1" "${TASK_PUBLISH_DIR}/windows
 "${TASK_PROJECT_ROOT}/scripts/audit-licenses.sh" \
     --output "${TASK_PUBLISH_DIR}/THIRD_PARTY_INVENTORY.json"
 
+TASK_COMMIT="$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD)"
+TASK_BUILT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf 'version=1.0.0\ncommit=%s\nbuilt_utc=%s\n' \
-    "$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD)" \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "${TASK_COMMIT}" \
+    "${TASK_BUILT_UTC}" \
     > "${TASK_PUBLISH_DIR}/BUILD_INFO.txt"
 
 if [[ -e "${TASK_PUBLISH_DIR}/Data" || -e "${TASK_PUBLISH_DIR}/portable.flag" ]]; then
@@ -92,4 +94,20 @@ fi
 
 mv "${TASK_TEMP_PACKAGE}" "${TASK_PACKAGE}"
 sha256sum "${TASK_PACKAGE}" > "${TASK_PROJECT_ROOT}/dist/SHA256SUMS.txt"
+
+# The update manifest is written here, from the same values that went into
+# BUILD_INFO.txt, rather than assembled later at publish time. Stamping it separately
+# left the two disagreeing about when the same commit was built, by the three minutes
+# between packaging and publishing. Harmless while only the commit is compared, and
+# exactly the kind of skew that stays invisible until something compares the other field.
+TASK_SHA256="$(awk '{print $1}' "${TASK_PROJECT_ROOT}/dist/SHA256SUMS.txt" | head -1)"
+cat > "${TASK_PROJECT_ROOT}/dist/update.json" <<MANIFEST
+{
+  "version": "1.0.0",
+  "commit": "${TASK_COMMIT}",
+  "builtUtc": "${TASK_BUILT_UTC}",
+  "asset": "$(basename "${TASK_PACKAGE}")",
+  "sha256": "${TASK_SHA256}"
+}
+MANIFEST
 printf 'Windows package created: %s\n' "${TASK_PACKAGE}"

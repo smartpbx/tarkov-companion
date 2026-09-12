@@ -276,18 +276,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          checksum=$(awk '{print $1}' dist/SHA256SUMS.txt | head -1)
-          cat > dist/update.json <<JSON
-          {
-            "version": "1.0.0",
-            "commit": "${{ github.sha }}",
-            "builtUtc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "asset": "TarkovCompanion-v1.0.0-win-x64.zip",
-            "sha256": "${checksum}",
-            "branch": "${{ github.ref_name }}",
-            "run": "${{ github.run_id }}"
-          }
-          JSON
+          # The manifest is written by the packaging script, from the same values it stamped
+          # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
+          test -s dist/update.json
           gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
           gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}."             --prerelease             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
 
