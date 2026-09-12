@@ -5,22 +5,19 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-      <Border Classes="inset" Padding="10">
-        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+      <Border Classes="inset">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
       </Border>
-      <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Reload" VerticalAlignment="Stretch" />
+      <Button Grid.Column="1" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" VerticalAlignment="Stretch" />
     </Grid>
 
     <Grid Grid.Row="1" ColumnDefinitions="*,2*" ColumnSpacing="12">
-      <ListBox ItemsSource="{Binding Stations}"
-               SelectedItem="{Binding Selected, Mode=TwoWay}"
-               Background="Transparent"
-               BorderThickness="0">
+      <ListBox ItemsSource="{Binding Stations}" SelectedItem="{Binding Selected, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:HideoutStationViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="12">
-              <StackPanel Spacing="4">
-                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+            <Border Classes="panel" Padding="12">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding Progress}" />
                 <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
               </StackPanel>
@@ -29,28 +26,28 @@
         </ListBox.ItemTemplate>
       </ListBox>
 
-      <Border Grid.Column="1" Classes="panel" Padding="15">
+      <Border Grid.Column="1" Classes="panel">
         <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
           <TextBlock Classes="sectionTitle" Text="Next level requirements" />
-          <TextBlock Grid.Row="1" Text="{Binding Detail}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="1" Classes="prose" Text="{Binding Detail}" />
           <ScrollViewer Grid.Row="2">
             <ItemsControl ItemsSource="{Binding Items}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:HideoutRequirementViewModel">
-                  <Border Classes="inset" Margin="0,0,0,6" Padding="10">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="14">
+                  <Border Classes="inset" Margin="0,0,0,6">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
                       <TextBlock Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                      <StackPanel Grid.Column="1" Spacing="1">
+                      <StackPanel Grid.Column="1" Spacing="1" MinWidth="48">
                         <TextBlock Classes="label" Text="Need" />
-                        <TextBlock Text="{Binding Required}" />
+                        <TextBlock Classes="value" Text="{Binding Required}" />
                       </StackPanel>
-                      <StackPanel Grid.Column="2" Spacing="1">
+                      <StackPanel Grid.Column="2" Spacing="1" MinWidth="48">
                         <TextBlock Classes="label" Text="Have" />
-                        <TextBlock Text="{Binding Owned}" />
+                        <TextBlock Classes="value" Text="{Binding Owned}" />
                       </StackPanel>
-                      <StackPanel Grid.Column="3" Spacing="1" MinWidth="72">
+                      <StackPanel Grid.Column="3" Spacing="1" MinWidth="80">
                         <TextBlock Classes="label" Text="Still needed" />
-                        <TextBlock Classes="metric ochre" FontSize="14" Text="{Binding Remaining}" />
+                        <TextBlock Classes="value ochre" Text="{Binding Remaining}" />
                       </StackPanel>
                     </Grid>
                   </Border>

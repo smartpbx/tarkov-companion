@@ -4,7 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Border Classes="inset" Padding="10">
+    <Border Classes="inset">
       <StackPanel Spacing="3">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding Queue}" TextWrapping="Wrap" />
@@ -12,23 +12,21 @@
     </Border>
 
     <Grid Grid.Row="1" ColumnDefinitions="2*,*" ColumnSpacing="12">
-      <Border Classes="panel" Padding="15">
+      <Border Classes="panel">
         <Grid RowDefinitions="Auto,*" RowSpacing="10">
           <TextBlock Classes="sectionTitle" Text="Party" />
           <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="0">
-              <TextBlock
-                  Classes="label"
-                  IsVisible="{Binding HasNoMembers}"
-                  TextWrapping="Wrap"
-                  Text="The game writes a notification whenever somebody joins, readies up or leaves. Nothing has arrived yet, so there is nothing to show." />
+            <StackPanel>
+              <TextBlock Classes="note"
+                         IsVisible="{Binding HasNoMembers}"
+                         Text="Nobody has joined yet. Members appear here as the game announces them." />
               <ItemsControl ItemsSource="{Binding Members}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:SquadMemberViewModel">
                     <Border Classes="inset" Margin="0,0,0,8" Padding="12">
                       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="14">
-                        <StackPanel Spacing="4">
-                          <TextBlock FontWeight="SemiBold" Text="{Binding Nickname}" TextWrapping="Wrap" />
+                        <StackPanel Spacing="3">
+                          <TextBlock Classes="lede" Text="{Binding Nickname}" TextWrapping="Wrap" />
                           <TextBlock Classes="label" Text="{Binding Role}" />
                           <ItemsControl IsVisible="{Binding HasGear}" ItemsSource="{Binding Gear}" Margin="0,4,0,0">
                             <ItemsControl.ItemTemplate>
@@ -38,12 +36,8 @@
                             </ItemsControl.ItemTemplate>
                           </ItemsControl>
                         </StackPanel>
-                        <StackPanel Grid.Column="1" Spacing="4" MinWidth="150">
-                          <TextBlock
-                              Classes="metric"
-                              FontSize="14"
-                              Foreground="{Binding ReadinessColor}"
-                              Text="{Binding Readiness}" />
+                        <StackPanel Grid.Column="1" Spacing="3" MinWidth="150">
+                          <TextBlock Classes="value" Foreground="{Binding ReadinessColor}" Text="{Binding Readiness}" />
                           <TextBlock Classes="label" Text="{Binding Level}" />
                           <TextBlock Classes="label" Text="{Binding Scav}" />
                         </StackPanel>
@@ -57,24 +51,20 @@
         </Grid>
       </Border>
 
-      <Border Grid.Column="1" Classes="panel" Padding="15">
+      <!-- What the page does not do is stated once, quietly, beside the party. It is the
+           safety boundary in the player's terms, and it is worth a column rather than a
+           footnote because "where is the kill list" is the first question anyone asks. -->
+      <Border Grid.Column="1" Classes="panel">
         <StackPanel Spacing="10">
           <TextBlock Classes="sectionTitle" Text="What is not here" />
-          <TextBlock
-              Classes="label"
-              TextWrapping="Wrap"
-              Text="There is no kill list, and there cannot be one. The game never writes your own inventory to its logs, so the dogtags you are carrying are not readable at all." />
-          <TextBlock
-              Classes="label"
-              TextWrapping="Wrap"
-              Text="The only dogtags the logs contain sit inside your squadmates' bags. Those name players you never met, so they are left unread." />
-          <TextBlock
-              Classes="label"
-              TextWrapping="Wrap"
-              Text="Everything above comes from the party notifications the game writes while you are in the lobby. None of it leaves this machine." />
+          <TextBlock Classes="note"
+                     Text="There is no kill list, and there cannot be one. The game never writes your own inventory to its logs, so the dogtags you are carrying cannot be read." />
+          <TextBlock Classes="note"
+                     Text="The only dogtags in the logs are inside your squadmates' bags. They name players you never met, so they are left unread." />
+          <TextBlock Classes="note"
+                     Text="Everything here comes from the party notifications the game writes in the lobby. None of it leaves this machine." />
         </StackPanel>
       </Border>
-
     </Grid>
   </Grid>
 </UserControl>

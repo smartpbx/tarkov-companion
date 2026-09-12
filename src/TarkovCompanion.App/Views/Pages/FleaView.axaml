@@ -6,33 +6,30 @@
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
-               PlaceholderText="Search an item by name or short name" />
-      <Button Grid.Column="1" Classes="primary" Command="{Binding SearchCommand}" Content="Look up value" />
+               PlaceholderText="Search by item name or short name" />
+      <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding SearchCommand}" Content="Look up value" />
     </Grid>
 
-    <Border Grid.Row="1" Classes="inset" Padding="10">
+    <Border Grid.Row="1" Classes="inset">
       <TextBlock Text="{Binding SearchStatus}" TextWrapping="Wrap" />
     </Border>
 
     <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
-      <ListBox ItemsSource="{Binding Results}"
-               SelectedItem="{Binding Selected, Mode=TwoWay}"
-               Background="Transparent"
-               BorderThickness="0">
+      <ListBox ItemsSource="{Binding Results}" SelectedItem="{Binding Selected, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:FleaPriceViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
-              <StackPanel Spacing="5">
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+            <Border Classes="panel">
+              <StackPanel Spacing="4">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
                   <TextBlock Grid.Column="1" Classes="label" Text="{Binding ShortName}" />
                 </Grid>
-                <TextBlock Classes="metric ochre" FontSize="19" Text="{Binding FleaPrice}" />
+                <TextBlock Classes="metric ochre" Text="{Binding FleaPrice}" />
                 <TextBlock Text="{Binding BestSale}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding DailyBand}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding ValuePerSlot}" />
                 <TextBlock Classes="label" Text="{Binding Dimensions}" />
-                <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Provenance}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </DataTemplate>
@@ -40,49 +37,49 @@
       </ListBox>
 
       <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="12">
-      <Border Classes="panel" Padding="15">
-        <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
-          <TextBlock Classes="sectionTitle" Text="Sold while you were playing" />
-          <TextBlock Grid.Row="1" Classes="label" Text="{Binding SalesStatus}" TextWrapping="Wrap" />
-          <ItemsControl Grid.Row="2" IsVisible="{Binding HasSales}" ItemsSource="{Binding Sales}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:FleaSaleViewModel">
-                <Border Classes="inset" Margin="0,0,0,6" Padding="9">
-                  <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                    <TextBlock Text="{Binding Item}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Classes="metric ochre" FontSize="13" Text="{Binding Quantity}" />
-                    <TextBlock Grid.Column="2" Classes="label" Text="{Binding Observed}" />
-                  </Grid>
-                </Border>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </Grid>
-      </Border>
-
-      <Border Grid.Row="1" Classes="panel" Padding="15">
-        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
-          <TextBlock Classes="sectionTitle" Text="Local observations" />
-          <TextBlock Grid.Row="1" Classes="label" Text="{Binding HistoryStatus}" TextWrapping="Wrap" />
-          <ScrollViewer Grid.Row="2">
-            <ItemsControl ItemsSource="{Binding History}">
+        <Border Classes="panel">
+          <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="8">
+            <TextBlock Classes="sectionTitle" Text="Sold while you were playing" />
+            <TextBlock Grid.Row="1" Classes="note" Text="{Binding SalesStatus}" />
+            <ItemsControl Grid.Row="2" IsVisible="{Binding HasSales}" ItemsSource="{Binding Sales}">
               <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:FleaHistoryPointViewModel">
+                <DataTemplate x:DataType="vm:FleaSaleViewModel">
                   <Border Classes="inset" Margin="0,0,0,6" Padding="9">
-                    <StackPanel Spacing="3">
-                      <TextBlock Classes="label" Text="{Binding Observed}" />
-                      <Grid ColumnDefinitions="*,*">
-                        <TextBlock Text="{Binding FleaPrice}" />
-                        <TextBlock Grid.Column="1" Classes="label" Text="{Binding TraderValue}" />
-                      </Grid>
-                    </StackPanel>
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                      <TextBlock Text="{Binding Item}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Classes="value ochre" Text="{Binding Quantity}" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Observed}" VerticalAlignment="Center" />
+                    </Grid>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
-          </ScrollViewer>
-        </Grid>
-      </Border>
+          </Grid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="panel">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+            <TextBlock Classes="sectionTitle" Text="Local observations" />
+            <TextBlock Grid.Row="1" Classes="note" Text="{Binding HistoryStatus}" />
+            <ScrollViewer Grid.Row="2">
+              <ItemsControl ItemsSource="{Binding History}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:FleaHistoryPointViewModel">
+                    <Border Classes="inset" Margin="0,0,0,6" Padding="9">
+                      <StackPanel Spacing="3">
+                        <TextBlock Classes="caption" Text="{Binding Observed}" />
+                        <Grid ColumnDefinitions="*,*">
+                          <TextBlock Classes="value" Text="{Binding FleaPrice}" />
+                          <TextBlock Grid.Column="1" Classes="label" Text="{Binding TraderValue}" />
+                        </Grid>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Grid>
+        </Border>
       </Grid>
     </Grid>
   </Grid>

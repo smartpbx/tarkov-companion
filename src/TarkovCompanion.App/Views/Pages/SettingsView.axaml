@@ -8,12 +8,14 @@
       <!-- Updating from inside the application. Only builds that passed Windows verification
            are offered, and a download whose checksum does not match what was published is
            thrown away rather than installed. -->
-      <Border Classes="panel cyan" Padding="15" IsVisible="{Binding SupportsUpdates}">
+      <Border Classes="panel cyan" IsVisible="{Binding SupportsUpdates}">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Application updates" />
-          <TextBlock Classes="label" Text="Installed build" />
-          <TextBlock Text="{Binding InstalledBuild}" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap" />
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Installed build" />
+            <TextBlock Classes="value" Text="{Binding InstalledBuild}" TextWrapping="Wrap" />
+          </StackPanel>
+          <TextBlock Classes="prose" Text="{Binding UpdateStatus}" />
           <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Command="{Binding CheckForUpdateCommand}"
                     Content="Check for updates"
@@ -27,53 +29,44 @@
                     Content="Install and restart"
                     IsVisible="{Binding CanRestartForUpdate}" />
           </StackPanel>
-          <TextBlock Classes="label"
-                     Text="Only builds that passed Windows verification are offered. The download is checked against its published checksum before anything is unpacked, and the build you are running is kept alongside the new one."
-                     TextWrapping="Wrap" />
+          <TextBlock Classes="note"
+                     Text="Only builds that passed Windows verification are offered. The download is checked against its published checksum before anything is unpacked, and the build you are running is kept alongside the new one." />
         </StackPanel>
       </Border>
-      <Border Classes="panel" Padding="15">
+      <Border Classes="panel">
         <StackPanel Spacing="8">
-          <TextBlock Classes="sectionTitle" Text="Persistent runtime" />
-          <TextBlock Classes="label" Text="Database" />
-          <TextBlock Text="{Binding DatabasePath}" TextWrapping="Wrap" />
-          <TextBlock Classes="label" Text="Data state" />
-          <TextBlock Text="{Binding DataStatus}" TextWrapping="Wrap" />
+          <TextBlock Classes="sectionTitle" Text="Local data" />
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Database" />
+            <TextBlock Classes="caption mono" Text="{Binding DatabasePath}" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Data state" />
+            <TextBlock Classes="value" Text="{Binding DataStatus}" TextWrapping="Wrap" />
+          </StackPanel>
           <Button Classes="primary" Command="{Binding SyncCommand}" Content="Sync now" HorizontalAlignment="Left" />
-          <TextBlock Classes="label"
-                     Text="Offline mode never contacts the network; Sync now reports the local-cache state instead."
-                     TextWrapping="Wrap" />
+          <TextBlock Classes="note"
+                     Text="Offline mode never contacts the network; Sync now reports the local cache state instead." />
         </StackPanel>
       </Border>
-      <Border Classes="panel" Padding="15">
+      <Border Classes="panel">
         <StackPanel Spacing="8">
-          <TextBlock Classes="sectionTitle" Text="Active profile context" />
-          <TextBlock Text="{Binding ProfileContext}" TextWrapping="Wrap" />
-          <TextBlock Classes="label"
-                     Text="Profile state is local and manual; the app never reads live inventory or account data."
-                     TextWrapping="Wrap" />
+          <TextBlock Classes="sectionTitle" Text="Profile" />
+          <TextBlock Classes="value" Text="{Binding ProfileContext}" TextWrapping="Wrap" />
+          <TextBlock Classes="note"
+                     Text="Profile state is local and set by hand; the app never reads live inventory or account data." />
         </StackPanel>
       </Border>
     </StackPanel>
     <StackPanel Grid.Column="1" Spacing="10">
-      <Border Classes="panel cyan" Padding="15">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="sectionTitle" Text="Scan provider" />
-          <TextBlock Text="{Binding ScanProvider}" TextWrapping="Wrap" />
-          <TextBlock Classes="label" Text="Recognition provider" />
-          <TextBlock Text="{Binding RecognitionProvider}" TextWrapping="Wrap" />
-          <TextBlock Classes="label"
-                     Text="Local OCR needs the Microsoft Visual C++ 2015-2022 x64 runtime, which is not part of this archive."
-                     TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-      <Border Classes="panel ochre" Padding="15">
+      <!-- The shortcut is the one thing on this page a player comes back for, so it is the
+           one thing on this page set large. -->
+      <Border Classes="panel ochre">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Scan shortcut" />
-          <TextBlock Classes="label"
-                     Text="Works while Escape from Tarkov has focus, so you never have to leave the raid."
-                     TextWrapping="Wrap" />
-          <Border Classes="readout" Padding="12,10">
+          <TextBlock Classes="note"
+                     Text="Works while Escape from Tarkov has focus, so you never have to leave the raid." />
+          <Border Classes="readout">
             <TextBlock Classes="hotkey" Text="{Binding PendingHotkeyDisplay}" />
           </Border>
           <StackPanel Orientation="Horizontal" Spacing="8">
@@ -84,21 +77,34 @@
             <Button Command="{Binding ApplyHotkeyCommand}" Content="Apply" />
             <Button Command="{Binding ResetHotkeyCommand}" Content="Reset" />
           </StackPanel>
-          <TextBlock Text="{Binding HotkeyStatus}" TextWrapping="Wrap" />
+          <TextBlock Classes="prose" Text="{Binding HotkeyStatus}" />
         </StackPanel>
       </Border>
-      <Border Classes="panel" Padding="15">
+      <Border Classes="panel">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sectionTitle" Text="Scan provider" />
+          <TextBlock Classes="prose" Text="{Binding ScanProvider}" />
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Recognition provider" />
+            <TextBlock Classes="value" Text="{Binding RecognitionProvider}" TextWrapping="Wrap" />
+          </StackPanel>
+          <TextBlock Classes="note"
+                     Text="Local OCR needs the Microsoft Visual C++ 2015-2022 x64 runtime, which is not part of this archive." />
+        </StackPanel>
+      </Border>
+      <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Developer diagnostics" />
-          <TextBlock Text="{Binding DiagnosticChannel}" TextWrapping="Wrap" />
-          <TextBlock Classes="label" Text="Diagnostic scan commands delegate to the same scan use case as the UI." TextWrapping="Wrap" />
+          <TextBlock Classes="prose" Text="{Binding DiagnosticChannel}" />
+          <TextBlock Classes="note" Text="Diagnostic scan commands go through the same scan use case as the button." />
         </StackPanel>
       </Border>
-      <Border Classes="panel coral" Padding="15">
+      <!-- A promise, not a risk, so it is not bordered in coral. -->
+      <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Safety boundary" />
-          <TextBlock Text="External and read-only: no game memory, network interception, renderer hooks, input generation, or live-player tracking."
-                     TextWrapping="Wrap" />
+          <TextBlock Classes="prose"
+                     Text="External and read-only: no game memory, network interception, renderer hooks, input generation, or live-player tracking." />
         </StackPanel>
       </Border>
     </StackPanel>

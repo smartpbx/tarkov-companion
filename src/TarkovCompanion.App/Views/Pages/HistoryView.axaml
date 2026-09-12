@@ -4,33 +4,35 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Grid ColumnDefinitions="*,Auto">
-      <TextBlock VerticalAlignment="Center" Text="{Binding Status}" TextWrapping="Wrap" />
-      <Button Grid.Column="1" Classes="tool" Command="{Binding RefreshCommand}" Content="Reload local history" />
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+      <Border Classes="inset">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
+      </Border>
+      <Button Grid.Column="1" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" VerticalAlignment="Stretch" />
     </Grid>
     <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
       <ItemsControl ItemsSource="{Binding Entries}">
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:RaidHistoryEntryViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
+            <Border Classes="panel" Margin="0,0,0,8">
               <Grid ColumnDefinitions="1.2*,1.1*,1.1*,1.1*,1.2*" ColumnSpacing="12">
-                <StackPanel>
-                  <TextBlock FontWeight="SemiBold" Text="{Binding Map}" />
+                <StackPanel Spacing="1">
+                  <TextBlock Classes="lede" Text="{Binding Map}" />
                   <TextBlock Classes="label" Text="{Binding Mode}" />
                 </StackPanel>
-                <StackPanel Grid.Column="1">
+                <StackPanel Grid.Column="1" Spacing="1">
                   <TextBlock Classes="label" Text="Started" />
-                  <TextBlock Text="{Binding Started}" />
+                  <TextBlock Classes="value" Text="{Binding Started}" />
                 </StackPanel>
-                <StackPanel Grid.Column="2">
+                <StackPanel Grid.Column="2" Spacing="1">
                   <TextBlock Classes="label" Text="Ended" />
-                  <TextBlock Text="{Binding Ended}" />
+                  <TextBlock Classes="value" Text="{Binding Ended}" />
                 </StackPanel>
-                <StackPanel Grid.Column="3">
+                <StackPanel Grid.Column="3" Spacing="1">
                   <TextBlock Classes="label" Text="Outcome" />
-                  <TextBlock Text="{Binding Outcome}" />
+                  <TextBlock Classes="value" Text="{Binding Outcome}" />
                 </StackPanel>
-                <StackPanel Grid.Column="4">
+                <StackPanel Grid.Column="4" Spacing="1">
                   <TextBlock Classes="label" Text="Notes" />
                   <TextBlock Text="{Binding Notes}" TextWrapping="Wrap" />
                 </StackPanel>

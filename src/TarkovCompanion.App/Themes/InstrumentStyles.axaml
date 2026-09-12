@@ -1,145 +1,475 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The instrument system: every colour, size and surface the application uses, in one
+       place. The views refer to these by class and never carry a hex value or a font size of
+       their own; a new size or colour belongs here, as a named class, so that it is a decision
+       rather than an accumulation.
+
+       The direction is a survey instrument beside a map, not the game's own rusted chrome: a
+       dark ground, two greys for words, and four accents that each mean exactly one thing.
+       Grey is the resting state everywhere. A page with nothing to report is therefore quiet,
+       and a page with something to report is the only one with colour on it, which is what
+       lets a change be noticed from across a desk. -->
   <Styles.Resources>
+    <!-- Ground: one material at four heights. -->
     <SolidColorBrush x:Key="CanvasBrush" Color="#11151B" />
     <SolidColorBrush x:Key="ChromeBrush" Color="#151B22" />
     <SolidColorBrush x:Key="SurfaceBrush" Color="#1A212A" />
-    <SolidColorBrush x:Key="InsetBrush" Color="#171E26" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#303B47" />
-    <SolidColorBrush x:Key="TextBrush" Color="#C6D0D8" />
-    <SolidColorBrush x:Key="MutedBrush" Color="#8F9BA6" />
+    <SolidColorBrush x:Key="InsetBrush" Color="#161C24" />
+    <SolidColorBrush x:Key="ControlBrush" Color="#202933" />
+    <SolidColorBrush x:Key="ControlHoverBrush" Color="#28323D" />
+    <!-- Lines: a hairline groups, a strong line marks something pressable. -->
+    <SolidColorBrush x:Key="LineBrush" Color="#2A3541" />
+    <SolidColorBrush x:Key="LineStrongBrush" Color="#3B4855" />
+    <!-- Ink: bright for headings and values, plain for prose, muted for captions, faint for
+         provenance. -->
+    <SolidColorBrush x:Key="InkBrightBrush" Color="#E6EDF2" />
+    <SolidColorBrush x:Key="InkBrush" Color="#C6D0D8" />
+    <SolidColorBrush x:Key="InkMutedBrush" Color="#8F9BA6" />
+    <SolidColorBrush x:Key="InkFaintBrush" Color="#6B7884" />
+    <!-- Accents, one meaning each, as docs/DESIGN_SYSTEM.md sets out: cyan is a place, ochre
+         is a value or a warning, coral is a fault or a risk, sage is something live or safe. -->
     <SolidColorBrush x:Key="CyanBrush" Color="#56B8C6" />
+    <SolidColorBrush x:Key="CyanDimBrush" Color="#1E3A42" />
+    <SolidColorBrush x:Key="CyanDeepBrush" Color="#28515A" />
     <SolidColorBrush x:Key="OchreBrush" Color="#C6A15B" />
     <SolidColorBrush x:Key="CoralBrush" Color="#DF6A62" />
     <SolidColorBrush x:Key="SageBrush" Color="#77B895" />
+    <!-- The map's floating chrome is translucent so the artwork stays readable through it. -->
+    <SolidColorBrush x:Key="FloatingBrush" Color="#E014191F" />
+    <SolidColorBrush x:Key="FloatingLineBrush" Color="#4A5865" />
+    <SolidColorBrush x:Key="MapGroundBrush" Color="#171E26" />
+    <SolidColorBrush x:Key="MapLabelBrush" Color="#CC11151B" />
+    <SolidColorBrush x:Key="MapPlaceholderBrush" Color="#DD11151B" />
   </Styles.Resources>
 
+  <!-- ===== Type scale ==================================================================
+       Seven sizes. Body is 14 and comes from the window; everything else is a class.
+         caption 11 · label 12 · body 14 · sectionTitle 15 · lede 16 · metric 20 · title 22 · display 26
+       Weights: Regular for prose, Medium for a value, SemiBold for a heading or a number. -->
+  <Style Selector="TextBlock.display">
+    <Setter Property="FontSize" Value="26" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.title">
+    <Setter Property="FontSize" Value="22" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.metric">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.lede">
+    <Setter Property="FontSize" Value="16" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.sectionTitle">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.value">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="TextBlock.label">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+  </Style>
+  <Style Selector="TextBlock.caption">
+    <Setter Property="FontSize" Value="11" />
+    <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />
+  </Style>
+  <!-- Prose is capped at roughly ninety characters. A sentence that ran the full width of a
+       1920 pixel window was over two hundred characters long, and nobody reads that from a
+       second monitor. -->
+  <Style Selector="TextBlock.prose">
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxWidth" Value="640" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="LineHeight" Value="20" />
+  </Style>
+  <!-- A note is a caveat: muted, capped, and given a little more leading so it reads as an
+       aside rather than as the content. -->
+  <Style Selector="TextBlock.note">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+    <Setter Property="MaxWidth" Value="620" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="LineHeight" Value="17" />
+  </Style>
+  <Style Selector="TextBlock.mono">
+    <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace" />
+  </Style>
+  <Style Selector="TextBlock.hotkey">
+    <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace" />
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{StaticResource OchreBrush}" />
+  </Style>
+
+  <!-- Text accents. The colour classes come after the size classes so that a TextBlock
+       carrying both, such as "metric ochre", takes its colour from the accent. -->
+  <Style Selector="TextBlock.cyan">
+    <Setter Property="Foreground" Value="{StaticResource CyanBrush}" />
+  </Style>
+  <Style Selector="TextBlock.ochre">
+    <Setter Property="Foreground" Value="{StaticResource OchreBrush}" />
+  </Style>
+  <Style Selector="TextBlock.coral">
+    <Setter Property="Foreground" Value="{StaticResource CoralBrush}" />
+  </Style>
+  <Style Selector="TextBlock.sage">
+    <Setter Property="Foreground" Value="{StaticResource SageBrush}" />
+  </Style>
+
+  <!-- ===== Surfaces ====================================================================
+       Two radii: 4 for a surface, 3 for anything inside one or anything pressable. -->
+  <Style Selector="Border.panel">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="Padding" Value="14" />
+  </Style>
+  <Style Selector="Border.inset">
+    <Setter Property="Background" Value="{StaticResource InsetBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="10" />
+  </Style>
+  <Style Selector="Border.readout">
+    <Setter Property="Background" Value="{StaticResource CanvasBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="12,10" />
+  </Style>
+  <!-- The shell's chrome: the status bar, the navigation rail and the scan readout share one
+       surface and are separated from the canvas by a hairline on the side that faces it. -->
+  <Style Selector="Border.chrome">
+    <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+  </Style>
+  <Style Selector="Border.chrome.top">
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="Border.chrome.rail">
+    <Setter Property="BorderThickness" Value="0,0,1,0" />
+  </Style>
+  <Style Selector="Border.chrome.bottom">
+    <Setter Property="BorderThickness" Value="0,1,0,0" />
+  </Style>
+  <!-- One cell of the raid readout on the status bar, ruled off from its neighbour. -->
+  <Style Selector="Border.chipCell">
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1,0,0,0" />
+    <Setter Property="Padding" Value="16,0,10,0" />
+  </Style>
+  <!-- A hairline between readouts inside one panel. -->
+  <Style Selector="Border.hairline">
+    <Setter Property="Height" Value="1" />
+    <Setter Property="Background" Value="{StaticResource LineBrush}" />
+  </Style>
+  <!-- A caveat with a rule down its left edge, for the notices that must come before the
+       numbers they qualify. It is deliberately not a boxed panel: a boxed, accent-bordered
+       explanation was the loudest thing on the loadout page. -->
+  <Style Selector="Border.aside">
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="BorderThickness" Value="2,0,0,0" />
+    <Setter Property="Padding" Value="12,2,0,2" />
+  </Style>
+  <!-- Accent borders. On a panel they say what kind of information it carries; on an aside
+       they say how seriously to take it. -->
+  <Style Selector="Border.cyan">
+    <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+  </Style>
+  <Style Selector="Border.ochre">
+    <Setter Property="BorderBrush" Value="{StaticResource OchreBrush}" />
+  </Style>
+  <Style Selector="Border.coral">
+    <Setter Property="BorderBrush" Value="{StaticResource CoralBrush}" />
+  </Style>
+  <Style Selector="Border.sage">
+    <Setter Property="BorderBrush" Value="{StaticResource SageBrush}" />
+  </Style>
+
+  <!-- ===== Controls ====================================================================
+       Every button is visible by default. The theme's unstyled button was a dark grey on a
+       dark ground, and four pages had a Reload or Refresh that could not be seen. -->
+  <Style Selector="Button">
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="FontWeight" Value="Medium" />
+  </Style>
+  <Style Selector="Button:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InkFaintBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="Button.primary">
+    <Setter Property="Background" Value="{StaticResource CyanDeepBrush}" />
+    <Setter Property="Foreground" Value="#E7FBFC" />
+    <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+    <Setter Property="Padding" Value="14,8" />
+    <Setter Property="MinHeight" Value="38" />
+  </Style>
+  <Style Selector="Button.primary:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#2F626D" />
+    <Setter Property="BorderBrush" Value="#7FD3DF" />
+    <Setter Property="TextElement.Foreground" Value="#FFFFFF" />
+  </Style>
+  <!-- A quiet button is for the actions that should not compete with content: dismiss,
+       attribution, licence. -->
+  <Style Selector="Button.quiet">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="MinHeight" Value="28" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+  </Style>
+  <Style Selector="Button.quiet:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+
+  <!-- Navigation rail. The glyph is grey until its page is open, so the rail shows one cyan
+       mark and the eye finds the current page without reading thirteen names. -->
   <Style Selector="Button.nav">
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Background" Value="Transparent" />
-    <Setter Property="Foreground" Value="#AAB5BE" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
     <Setter Property="BorderBrush" Value="Transparent" />
-    <Setter Property="BorderThickness" Value="2,0,0,0" />
+    <Setter Property="BorderThickness" Value="3,0,0,0" />
     <Setter Property="CornerRadius" Value="0" />
-    <Setter Property="Padding" Value="12,9" />
-    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="Padding" Value="11,9" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="Normal" />
   </Style>
   <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
-    <Setter Property="Background" Value="#202A34" />
-    <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
   </Style>
   <Style Selector="Button.nav.selected">
-    <Setter Property="Background" Value="#202B34" />
-    <Setter Property="BorderBrush" Value="#56B8C6" />
-    <Setter Property="Foreground" Value="#E8EEF2" />
-  </Style>
-
-  <Style Selector="Border.panel">
-    <Setter Property="Background" Value="#1A212A" />
-    <Setter Property="BorderBrush" Value="#303B47" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="3" />
-  </Style>
-  <Style Selector="Border.inset">
-    <Setter Property="Background" Value="#171E26" />
-    <Setter Property="BorderBrush" Value="#303B47" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="2" />
-  </Style>
-  <Style Selector="Border.reading">
-    <Setter Property="Background" Value="#151B22" />
-    <Setter Property="BorderBrush" Value="#303B47" />
-    <Setter Property="BorderThickness" Value="0,1,0,0" />
-  </Style>
-  <Style Selector="Border.cyan">
-    <Setter Property="BorderBrush" Value="#56B8C6" />
-  </Style>
-  <Style Selector="Border.ochre">
-    <Setter Property="BorderBrush" Value="#C6A15B" />
-  </Style>
-  <Style Selector="Border.coral">
-    <Setter Property="BorderBrush" Value="#DF6A62" />
-  </Style>
-  <Style Selector="Border.sage">
-    <Setter Property="BorderBrush" Value="#77B895" />
-  </Style>
-
-  <Style Selector="TextBlock.sectionTitle">
-    <Setter Property="FontSize" Value="16" />
-    <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Foreground" Value="#E6EDF2" />
-  </Style>
-  <Style Selector="TextBlock.label">
-    <Setter Property="Foreground" Value="#8F9BA6" />
-    <Setter Property="FontSize" Value="12" />
-  </Style>
-  <Style Selector="TextBlock.value">
-    <Setter Property="Foreground" Value="#E4EAEE" />
-    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
     <Setter Property="FontWeight" Value="Medium" />
   </Style>
-  <Style Selector="TextBlock.metric">
-    <Setter Property="Foreground" Value="#E4EAEE" />
-    <Setter Property="FontSize" Value="24" />
-    <Setter Property="FontWeight" Value="SemiBold" />
+  <Style Selector="Button.nav.selected:pointerover /template/ ContentPresenter">
+    <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
   </Style>
-  <Style Selector="TextBlock.cyan">
-    <Setter Property="Foreground" Value="#56B8C6" />
+  <Style Selector="TextBlock.navGlyph">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
-  <Style Selector="TextBlock.ochre">
-    <Setter Property="Foreground" Value="#C6A15B" />
-  </Style>
-  <Style Selector="TextBlock.coral">
-    <Setter Property="Foreground" Value="#DF6A62" />
-  </Style>
-  <Style Selector="TextBlock.sage">
-    <Setter Property="Foreground" Value="#77B895" />
+  <Style Selector="Button.nav.selected TextBlock.navGlyph">
+    <Setter Property="Foreground" Value="{StaticResource CyanBrush}" />
   </Style>
 
-  <Style Selector="Button.tool, ToggleButton.tool">
-    <Setter Property="Background" Value="#202933" />
-    <Setter Property="Foreground" Value="#C6D0D8" />
-    <Setter Property="BorderBrush" Value="#3B4855" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="2" />
-    <Setter Property="Padding" Value="11,7" />
-    <Setter Property="MinHeight" Value="36" />
-  </Style>
-  <Style Selector="ToggleButton.tool:checked">
-    <Setter Property="Background" Value="#24434A" />
-    <Setter Property="Foreground" Value="#D8F5F7" />
-    <Setter Property="BorderBrush" Value="#56B8C6" />
-  </Style>
-  <Style Selector="Button.primary">
-    <Setter Property="Background" Value="#28515A" />
-    <Setter Property="Foreground" Value="#E7FBFC" />
-    <Setter Property="BorderBrush" Value="#56B8C6" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="2" />
-    <Setter Property="Padding" Value="14,8" />
+  <!-- Text entry. Content is centred because these carry a MinHeight larger than a line of
+       text, and the default top alignment left every search box looking as though its
+       placeholder had been clipped by the border. -->
+  <Style Selector="TextBox">
+    <Setter Property="Background" Value="{StaticResource ChromeBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="CornerRadius" Value="3" />
     <Setter Property="MinHeight" Value="38" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ComboBox">
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource InkBrightBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
   <Style Selector="Button:focus-visible, ToggleButton:focus-visible, TextBox:focus-visible, ComboBox:focus-visible">
     <Setter Property="BorderBrush" Value="#D8F5F7" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
-  <!-- Content is centred because these carry a MinHeight larger than a line of text, and
-       the default top alignment left every search box looking as though its placeholder had
-       been clipped by the border. -->
-  <Style Selector="TextBox">
-    <Setter Property="Background" Value="#151B22" />
-    <Setter Property="Foreground" Value="#E4EAEE" />
-    <Setter Property="BorderBrush" Value="#3B4855" />
-    <Setter Property="CornerRadius" Value="2" />
-    <Setter Property="MinHeight" Value="38" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
+
+  <!-- Lists of cards. The item chrome is removed so the card is the row, and selection is
+       shown by the card's own border turning cyan rather than by a highlight behind it. -->
+  <Style Selector="ListBox">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
   </Style>
-  <Style Selector="ComboBox">
-    <Setter Property="Background" Value="#202933" />
-    <Setter Property="Foreground" Value="#E4EAEE" />
-    <Setter Property="BorderBrush" Value="#3B4855" />
-    <Setter Property="CornerRadius" Value="2" />
-    <Setter Property="MinHeight" Value="38" />
-    <Setter Property="VerticalContentAlignment" Value="Center" />
+  <Style Selector="ListBoxItem">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,0,0,8" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+  <Style Selector="ListBoxItem:pointerover Border.panel">
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+  </Style>
+  <Style Selector="ListBoxItem:selected Border.panel">
+    <Setter Property="BorderBrush" Value="{StaticResource CyanBrush}" />
+  </Style>
+  <Style Selector="GridSplitter">
+    <Setter Property="Background" Value="{StaticResource LineBrush}" />
+  </Style>
+
+  <!-- ===== Map instruments =============================================================
+       The map's ground is a shade lighter than the canvas so the edge of the artwork reads
+       against it, and the labels drawn on the artwork are translucent so the terrain shows
+       through them. -->
+  <Style Selector="Border.mapGround">
+    <Setter Property="Background" Value="{StaticResource MapGroundBrush}" />
+  </Style>
+  <Style Selector="Border.mapLabel">
+    <Setter Property="Background" Value="{StaticResource MapLabelBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="4,2" />
+  </Style>
+  <Style Selector="Border.mapPlaceholder">
+    <Setter Property="Background" Value="{StaticResource MapPlaceholderBrush}" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+
+       Controls that sit on top of the map. Translucent rather than opaque so the map is
+       still readable underneath, and darker than the panels elsewhere so they read as
+       floating above the artwork rather than as holes cut in it. -->
+  <Style Selector="Border.floating">
+    <Setter Property="Background" Value="{StaticResource FloatingBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource FloatingLineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+  <Style Selector="Expander.floating">
+    <Setter Property="Background" Value="{StaticResource FloatingBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource FloatingLineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="4" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="Expander.floating /template/ ToggleButton">
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="10,6" />
+  </Style>
+  <Style Selector="TextBlock.chooserLabel">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ComboBox.chooser">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- The map chooser is the one thing on the map worth reading from a distance, so it is
+       set larger and heavier than the view and floor choosers beside it. -->
+  <Style Selector="ComboBox.chooser.primary">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="MinHeight" Value="32" />
+  </Style>
+  <Style Selector="Button.viewControl">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="3" />
+    <Setter Property="Padding" Value="10,4" />
+    <Setter Property="MinWidth" Value="32" />
+    <Setter Property="MinHeight" Value="30" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.viewControl:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineStrongBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="Button.viewControl.on /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource CyanDimBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource CyanBrush}" />
+  </Style>
+  <Style Selector="TextBlock.zoomReadout">
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="MinWidth" Value="46" />
+    <Setter Property="TextAlignment" Value="Center" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+
+  <!-- Layer chips: one object per layer, the name toggles it, the target highlights it. -->
+  <Style Selector="Border.chip">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="ToggleButton.chipToggle">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="12,5" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="FontSize" Value="12" />
+  </Style>
+  <Style Selector="ToggleButton.chipToggle:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrush}" />
+  </Style>
+  <Style Selector="ToggleButton.chipToggle:checked /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource CyanDimBrush}" />
+    <Setter Property="TextElement.Foreground" Value="#7FD3DF" />
+  </Style>
+  <Style Selector="ToggleButton.chipToggle:checked:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="#24515C" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
+  </Style>
+  <Style Selector="Button.chipFocus">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="7,5" />
+    <Setter Property="MinWidth" Value="0" />
+    <Setter Property="MinHeight" Value="26" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="FontWeight" Value="Normal" />
+  </Style>
+  <Style Selector="Button.chipFocus:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+    <Setter Property="TextElement.Foreground" Value="{StaticResource OchreBrush}" />
+  </Style>
+  <Style Selector="Button.chipFocus.on /template/ ContentPresenter">
+    <Setter Property="TextElement.Foreground" Value="{StaticResource OchreBrush}" />
   </Style>
 </Styles>

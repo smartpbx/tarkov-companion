@@ -4,7 +4,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels"
              xmlns:maps="using:TarkovCompanion.App.Views.Maps">
-  <Grid ColumnDefinitions="*,316" ColumnSpacing="12">
+  <Grid ColumnDefinitions="*,300" ColumnSpacing="12">
     <maps:MapView Grid.Column="0" DataContext="{Binding Map}" />
 
     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
@@ -12,84 +12,81 @@
         <!-- The raid that just finished, shown first so it is read without going looking for
              it. It stays until the player dismisses it or the next raid ends. Nothing about
              survival, kills or loot appears here because the game logs none of it. -->
-        <Border Classes="panel" IsVisible="{Binding HasSummary}" Padding="14">
-          <StackPanel Spacing="8">
+        <Border Classes="panel sage" IsVisible="{Binding HasSummary}">
+          <StackPanel Spacing="10">
             <Grid ColumnDefinitions="*,Auto">
-              <TextBlock Classes="sectionTitle" Text="Last raid" VerticalAlignment="Center" />
+              <TextBlock Classes="label" Text="Last raid" VerticalAlignment="Center" />
               <Button Grid.Column="1"
-                      Classes="viewControl"
+                      Classes="quiet"
                       Command="{Binding DismissSummaryCommand}"
                       Content="Dismiss" />
             </Grid>
             <TextBlock Classes="metric" Text="{Binding Summary.Headline}" TextWrapping="Wrap" />
-            <Border Classes="readout" Padding="11">
-              <StackPanel Spacing="7">
-                <StackPanel Spacing="2">
+            <Border Classes="readout">
+              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+                <StackPanel Spacing="1">
                   <TextBlock Classes="label" Text="Started" />
-                  <TextBlock Text="{Binding Summary.Started}" TextWrapping="Wrap" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Started}" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel Spacing="2">
+                <StackPanel Grid.Column="1" Spacing="1">
                   <TextBlock Classes="label" Text="Ended" />
-                  <TextBlock Text="{Binding Summary.Ended}" TextWrapping="Wrap" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Ended}" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel Spacing="2">
+                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="1">
                   <TextBlock Classes="label" Text="Duration" />
-                  <TextBlock Text="{Binding Summary.Duration}" TextWrapping="Wrap" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Duration}" TextWrapping="Wrap" />
                 </StackPanel>
-              </StackPanel>
+              </Grid>
             </Border>
-            <TextBlock Classes="label" Text="{Binding Summary.Timing}" TextWrapping="Wrap" />
-            <StackPanel Spacing="2">
+            <TextBlock Classes="caption" Text="{Binding Summary.Timing}" TextWrapping="Wrap" />
+            <StackPanel Spacing="1">
               <TextBlock Classes="label" Text="Scanned during the raid" />
               <TextBlock Text="{Binding Summary.Scans}" TextWrapping="Wrap" />
             </StackPanel>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="1">
               <TextBlock Classes="label" Text="Last-known position" />
               <TextBlock Text="{Binding Summary.LastKnownPosition}" TextWrapping="Wrap" />
             </StackPanel>
-            <StackPanel Spacing="2">
+            <StackPanel Spacing="1">
               <TextBlock Classes="label" Text="Game mode" />
               <TextBlock Text="{Binding Summary.Mode}" TextWrapping="Wrap" />
             </StackPanel>
             <TextBlock Text="{Binding Summary.Outcome}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding Summary.Side}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding Summary.History}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="{Binding Summary.Side}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="{Binding Summary.History}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
-        <Border Classes="panel cyan" Padding="14">
-          <StackPanel Spacing="7">
-            <TextBlock Classes="sectionTitle" Text="Raid state" />
-            <TextBlock Text="{Binding RaidState}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding Evidence}" TextWrapping="Wrap" />
+
+        <!-- One instrument with three readouts, rather than three boxes. Each readout is a
+             label, a value and a caption, and none carries an accent border: at rest all
+             three say "nothing observed", and three accent-bordered boxes saying that made
+             the sidebar the loudest thing on a page whose point is the map. The colour that
+             marks a live observation is on the status bar, where it is read first. -->
+        <Border Classes="panel">
+          <StackPanel Spacing="12">
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Raid" />
+              <TextBlock Classes="value" Text="{Binding RaidState}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="{Binding Evidence}" TextWrapping="Wrap" />
+            </StackPanel>
+            <Border Classes="hairline" />
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Last-known position" />
+              <TextBlock Classes="value" Text="{Binding Position}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="From your own screenshots, never live tracking." TextWrapping="Wrap" />
+            </StackPanel>
+            <Border Classes="hairline" />
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Extracts" />
+              <TextBlock Classes="value" Text="{Binding Extracts}" TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="Only an extract observed externally or chosen by hand is marked active." TextWrapping="Wrap" />
+            </StackPanel>
           </StackPanel>
         </Border>
-        <Border Classes="panel" Padding="14">
-          <StackPanel Spacing="7">
-            <TextBlock Classes="sectionTitle" Text="Last-known position" />
-            <TextBlock Text="{Binding Position}" TextWrapping="Wrap" />
-            <TextBlock Classes="label"
-                       Text="Position is historical screenshot evidence, never live player tracking."
-                       TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-        <Border Classes="panel sage" Padding="14">
-          <StackPanel Spacing="7">
-            <TextBlock Classes="sectionTitle" Text="Observed extracts" />
-            <TextBlock Text="{Binding Extracts}" TextWrapping="Wrap" />
-            <TextBlock Classes="label"
-                       Text="Only externally observed or manually selected extracts may be presented as active."
-                       TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-        <Border Classes="panel coral" Padding="14">
-          <StackPanel Spacing="7">
-            <TextBlock Classes="sectionTitle" Text="Strategy and routes" />
-            <TextBlock Text="Unavailable until a validated service-backed route graph is loaded." TextWrapping="Wrap" />
-            <TextBlock Classes="label"
-                       Text="No enemy, traffic, or live-player detection is performed."
-                       TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
+
+        <!-- Routes are a promise about the future and a promise about what is never done, and
+             neither needs a panel. -->
+        <TextBlock Classes="note" Margin="4,0" Text="Routes are not available until a validated route graph is loaded. No enemy, traffic or live-player detection is performed." />
       </StackPanel>
     </ScrollViewer>
   </Grid>

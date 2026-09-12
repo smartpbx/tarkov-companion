@@ -7,67 +7,66 @@
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
                PlaceholderText="Filter keys by name" />
-      <Button Grid.Column="1" Classes="primary" Command="{Binding RefreshCommand}" Content="Reload" />
+      <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" />
     </Grid>
 
     <!-- The missing value ranking is stated once, here, and then the page moves on. -->
-    <Border Grid.Row="1" Classes="inset" Padding="10">
+    <Border Grid.Row="1" Classes="inset">
       <StackPanel Spacing="5">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
-        <TextBlock Classes="label" Text="{Binding ScoringNotice}" TextWrapping="Wrap" />
-        <TextBlock Classes="label" Text="{Binding IdentifierNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="note" Text="{Binding ScoringNotice}" />
+        <TextBlock Classes="note" Text="{Binding IdentifierNotice}" />
       </StackPanel>
     </Border>
 
     <Grid Grid.Row="2" ColumnDefinitions="2*,*" ColumnSpacing="12">
-      <ListBox ItemsSource="{Binding Keys}"
-               SelectedItem="{Binding Selected, Mode=TwoWay}"
-               Background="Transparent"
-               BorderThickness="0">
+      <ListBox ItemsSource="{Binding Keys}" SelectedItem="{Binding Selected, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:KeyRowViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="13">
-              <StackPanel Spacing="6">
-                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+            <Border Classes="panel">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="lede" Text="{Binding Name}" TextWrapping="Wrap" />
 
                 <!-- Every cell here is copied from the source. Nothing is weighted, ranked or
-                     combined, which is the whole point of the page. -->
-                <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
+                     combined, which is the whole point of the page. The map is a raw source
+                     identifier, so it is set as one, small and monospaced, rather than as a
+                     headline value that wraps onto two lines. -->
+                <Grid ColumnDefinitions="*,*,*,1.6*" ColumnSpacing="12">
                   <StackPanel Spacing="1">
-                    <TextBlock Classes="label" Text="Map id" />
-                    <TextBlock Classes="value" Text="{Binding Map}" TextWrapping="Wrap" />
-                  </StackPanel>
-                  <StackPanel Grid.Column="1" Spacing="1">
                     <TextBlock Classes="label" Text="Locks" />
                     <TextBlock Classes="value" Text="{Binding LockSummary}" TextWrapping="Wrap" />
                   </StackPanel>
-                  <StackPanel Grid.Column="2" Spacing="1">
+                  <StackPanel Grid.Column="1" Spacing="1">
                     <TextBlock Classes="label" Text="Uses" />
                     <TextBlock Classes="value" Text="{Binding MaximumUses}" TextWrapping="Wrap" />
                   </StackPanel>
-                  <StackPanel Grid.Column="3" Spacing="1">
+                  <StackPanel Grid.Column="2" Spacing="1">
                     <TextBlock Classes="label" Text="Cost" />
                     <TextBlock Classes="value ochre" Text="{Binding AcquisitionCost}" TextWrapping="Wrap" />
                   </StackPanel>
+                  <StackPanel Grid.Column="3" Spacing="1">
+                    <TextBlock Classes="label" Text="Map id" />
+                    <TextBlock Classes="caption mono" Text="{Binding Map}" TextTrimming="CharacterEllipsis" />
+                  </StackPanel>
                 </Grid>
 
-                <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Provenance}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
 
-      <Border Grid.Column="1" Classes="panel" Padding="15">
+      <Border Grid.Column="1" Classes="panel">
         <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
           <TextBlock Classes="sectionTitle" Text="Locks opened" />
-          <TextBlock Grid.Row="1" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="1" Classes="note" Text="{Binding Detail}" />
           <ScrollViewer Grid.Row="2">
             <ItemsControl ItemsSource="{Binding SelectedLocks}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:KeyLockViewModel">
                   <Border Classes="inset" Margin="0,0,0,6" Padding="9">
-                    <TextBlock FontSize="12" Text="{Binding LockId}" TextWrapping="Wrap" />
+                    <TextBlock Classes="label mono" Text="{Binding LockId}" TextWrapping="Wrap" />
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>

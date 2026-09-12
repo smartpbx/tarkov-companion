@@ -12,9 +12,6 @@
     MinWidth="1120"
     MinHeight="720"
     Background="#11151B">
-  <Window.Styles>
-    <StyleInclude Source="avares://TarkovCompanion/Themes/InstrumentStyles.axaml" />
-  </Window.Styles>
   <Window.DataTemplates>
     <DataTemplate DataType="{x:Type vm:RaidPageViewModel}">
       <pages:RaidView />
@@ -57,136 +54,127 @@
     </DataTemplate>
   </Window.DataTemplates>
 
-  <Grid RowDefinitions="76,*,Auto" ColumnDefinitions="184,*,334">
-    <Border Grid.Row="0" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,0,1">
-      <Grid ColumnDefinitions="184,*,Auto" Margin="16,0">
-        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-          <TextBlock FontSize="17" FontWeight="SemiBold" Foreground="#E6EDF2" Text="Tarkov Companion" />
-          <TextBlock Classes="label" Text="{Binding ModeLabel}" />
+  <Grid RowDefinitions="66,*,Auto" ColumnDefinitions="188,*">
+
+    <!-- The status bar has two tiers. Map, raid and position are the raid readout: they are
+         set at reading size because they are what a player glances at mid-raid. Observation,
+         data and scan are the health strip: they are small and grey until something is wrong,
+         at which point their colour is the only colour on the bar. Six chips of one size and
+         four permanent accent colours had made the bar as loud at rest as it could ever get. -->
+    <Border Grid.Row="0" Grid.ColumnSpan="2" Classes="chrome top">
+      <Grid ColumnDefinitions="172,*,Auto" Margin="16,0">
+        <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="1">
+          <TextBlock Classes="sectionTitle" Text="Tarkov Companion" />
+          <TextBlock Classes="caption" Text="{Binding ModeLabel}" TextTrimming="CharacterEllipsis" />
         </StackPanel>
 
-        <!-- Every chip is capped and trims, with the full text on hover.
-             One chip's evidence line can run to a full sentence, and an untrimmed sentence
-             took the width of four chips and pushed the last one off the edge of the window.
-             Losing the Scan chip because the EFT chip had a lot to say is the wrong trade at
-             any window size. -->
-        <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
-          <ItemsControl ItemsSource="{Binding Status}" HorizontalAlignment="Center">
-            <ItemsControl.ItemsPanel>
-              <ItemsPanelTemplate>
-                <StackPanel Orientation="Horizontal" Spacing="18" />
-              </ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:StatusChip">
-                <StackPanel
-                    VerticalAlignment="Center"
-                    MinWidth="86"
-                    MaxWidth="168"
-                    Spacing="1"
-                    ToolTip.Tip="{Binding Evidence}">
-                  <TextBlock Classes="label" Text="{Binding Label}" />
-                  <TextBlock
-                      FontSize="13"
-                      FontWeight="SemiBold"
-                      Foreground="{Binding Color}"
-                      Text="{Binding Value}"
-                      TextTrimming="CharacterEllipsis" />
-                  <TextBlock
-                      FontSize="11"
-                      Foreground="#71808C"
-                      Text="{Binding Evidence}"
-                      TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-
-        <Border Grid.Column="2" Padding="10,6" BorderBrush="#43515E" BorderThickness="1" CornerRadius="2" VerticalAlignment="Center">
-          <StackPanel Spacing="1">
-            <TextBlock Foreground="#B9C5CD" FontSize="12" Text="Read-only / external" />
-            <TextBlock Foreground="#71808C" FontSize="11" Text="No game input or memory access" />
-          </StackPanel>
-        </Border>
-      </Grid>
-    </Border>
-
-    <Border Grid.Row="1" Grid.Column="0" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,0,1,0" Padding="8,12">
-      <Grid RowDefinitions="*,Auto">
-        <ItemsControl ItemsSource="{Binding Navigation}">
+        <!-- Each chip is capped and trims, with the full evidence on hover, so one chip with a
+             lot to say cannot push the others off the edge of the window. -->
+        <ItemsControl Grid.Column="1" ItemsSource="{Binding PrimaryStatus}" VerticalAlignment="Center" HorizontalAlignment="Left" MaxWidth="690">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <!-- Three equal cells rather than a row, so each chip has a real width to trim
+                   against and a narrow window shortens the chips instead of overlapping the
+                   health strip. -->
+              <UniformGrid Columns="3" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
           <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:NavigationItem">
-              <Button Classes.nav="True"
-                      Classes.selected="{Binding IsSelected}"
-                      Command="{Binding SelectCommand}"
-                      Margin="0,1">
-                <Grid ColumnDefinitions="28,*">
-                  <TextBlock Grid.Column="0" Foreground="#56B8C6" FontSize="15" Text="{Binding Glyph}" VerticalAlignment="Center" />
-                  <TextBlock Grid.Column="1" FontSize="13" Text="{Binding Name}" VerticalAlignment="Center" />
-                </Grid>
-              </Button>
+            <DataTemplate x:DataType="vm:StatusChip">
+              <Border Classes="chipCell" ToolTip.Tip="{Binding Evidence}">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock Classes="label" Text="{Binding Label}" />
+                  <TextBlock Classes="lede" Foreground="{Binding Color}" Text="{Binding Value}" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Classes="caption" Text="{Binding Evidence}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <Border Grid.Row="1" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="12,12,8,2">
-          <StackPanel Spacing="3">
-            <TextBlock Classes="label" Text="Display role" />
-            <TextBlock FontSize="12" TextWrapping="Wrap" Text="Second screen · calm at rest" />
-          </StackPanel>
-        </Border>
+        <ItemsControl Grid.Column="2" ItemsSource="{Binding SecondaryStatus}" VerticalAlignment="Center">
+          <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+              <StackPanel Orientation="Horizontal" Spacing="18" />
+            </ItemsPanelTemplate>
+          </ItemsControl.ItemsPanel>
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:StatusChip">
+              <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" ToolTip.Tip="{Binding Evidence}">
+                <Ellipse Width="8" Height="8" Fill="{Binding Color}" VerticalAlignment="Center" />
+                <TextBlock Classes="label" Text="{Binding Label}" VerticalAlignment="Center" />
+                <TextBlock Classes="label" FontWeight="Medium" Foreground="{Binding Color}" Text="{Binding Value}" MaxWidth="110" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
       </Grid>
+    </Border>
+
+    <Border Grid.Row="1" Grid.Column="0" Classes="chrome rail" Padding="0,10">
+      <ItemsControl ItemsSource="{Binding Navigation}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:NavigationItem">
+            <Button Classes.nav="True"
+                    Classes.selected="{Binding IsSelected}"
+                    Command="{Binding SelectCommand}">
+              <Grid ColumnDefinitions="26,*">
+                <TextBlock Grid.Column="0" Classes="navGlyph" Text="{Binding Glyph}" />
+                <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
     </Border>
 
     <!-- The header row is Auto rather than a fixed height so that a page which declines it
          gives the height back to the page instead of leaving a gap. -->
-    <Grid Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" RowDefinitions="Auto,*" Margin="16,10,16,12">
-      <Grid Margin="2,0,2,10" ColumnDefinitions="*,Auto" IsVisible="{Binding CurrentPage.ShowsPageHeader}">
-        <StackPanel VerticalAlignment="Center" Spacing="2" MinHeight="60">
-          <TextBlock FontSize="23" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding CurrentPage.Title}" />
+    <Grid Grid.Row="1" Grid.Column="1" RowDefinitions="Auto,*" Margin="18,12,18,12">
+      <Grid Margin="0,0,0,12" ColumnDefinitions="*,Auto" ColumnSpacing="16" IsVisible="{Binding CurrentPage.ShowsPageHeader}">
+        <StackPanel VerticalAlignment="Center" Spacing="2" MinHeight="56">
+          <TextBlock Classes="title" Text="{Binding CurrentPage.Title}" />
           <TextBlock Classes="label" Text="{Binding CurrentPage.Description}" />
         </StackPanel>
-        <Border Grid.Column="1" Classes="inset" Padding="10,6" VerticalAlignment="Center">
-          <TextBlock Classes="label" Text="{Binding CurrentPage.Evidence}" />
+        <Border Grid.Column="1" Classes="inset" Padding="10,6" MaxWidth="460" VerticalAlignment="Center">
+          <TextBlock Classes="label" Text="{Binding CurrentPage.Evidence}" TextTrimming="CharacterEllipsis" />
         </Border>
       </Grid>
       <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
     </Grid>
 
-    <!-- The scan readout at rest is one line, and opens to the full readout once something
-         has actually been scanned. It held ninety pixels across the bottom of every page to
-         say that nothing had been scanned yet, which is the least useful thing on screen and
-         was taking that height from the map. The privacy statement stays visible in both
-         states, because it is a promise rather than a result. -->
-    <Border Grid.Row="2" Grid.ColumnSpan="3" Background="#151B22" BorderBrush="#303B47" BorderThickness="0,1,0,0" Padding="18,7">
+    <!-- The scan readout. At rest it is one line naming the shortcut, because that is the
+         thing a player at the game needs from this bar; the readout that used to sit here said
+         "no item scanned" in four different ways. Once something has been scanned the item
+         name is set large enough to read from the game's monitor, which is the point of the
+         shortcut. The privacy statement stays in both states because it is a promise rather
+         than a result. -->
+    <Border Grid.Row="2" Grid.ColumnSpan="2" Classes="chrome bottom" Padding="18,8">
       <Panel>
-      <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasScan}">
-        <Grid ColumnDefinitions="184,260,*">
-          <StackPanel Grid.Column="0" Spacing="3">
-            <TextBlock Classes="label" Text="Last observed scan" />
-            <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding LastScanName}" />
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="20" IsVisible="{Binding HasScan}">
+          <StackPanel Grid.Column="0" Spacing="2" VerticalAlignment="Center">
+            <TextBlock Classes="label" Text="Last scan" />
+            <TextBlock Classes="display" Text="{Binding LastScanName}" TextTrimming="CharacterEllipsis" MaxWidth="420" />
+            <TextBlock Classes="caption" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" MaxWidth="420" />
           </StackPanel>
-          <StackPanel Grid.Column="1" Spacing="3">
-            <TextBlock Classes="label" Text="Economy" />
-            <TextBlock Foreground="#C6A15B" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanValue}" />
-          </StackPanel>
-          <StackPanel Grid.Column="2" Spacing="3" Margin="16,0">
-            <TextBlock Classes="label" Text="Recommendation and reason" />
-            <TextBlock Foreground="#77B895" FontSize="13" TextWrapping="Wrap" Text="{Binding LastScanAdvice}" />
-            <TextBlock Foreground="#71808C" FontSize="11" Text="{Binding LastScanEvidence}" />
-          </StackPanel>
+          <Grid Grid.Column="1" ColumnDefinitions="Auto,*" ColumnSpacing="24" VerticalAlignment="Center">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Value" />
+              <TextBlock Classes="lede ochre" Text="{Binding LastScanValue}" TextWrapping="Wrap" MaxWidth="280" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="label" Text="Recommendation" />
+              <TextBlock Classes="lede sage" Text="{Binding LastScanAdvice}" TextWrapping="Wrap" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Grid.Column="2" Classes="caption" Text="Captures stay in memory and are discarded after analysis" VerticalAlignment="Center" />
         </Grid>
-        <StackPanel Grid.Column="1" Spacing="3" MinWidth="300">
-          <TextBlock Classes="label" Text="Capture privacy" />
-          <TextBlock FontSize="13" Text="In memory · discarded after analysis" />
-          <TextBlock Foreground="#71808C" FontSize="11" Text="Debug capture is off" />
-        </StackPanel>
-      </Grid>
-      <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasNoScan}">
-        <TextBlock Classes="label" VerticalAlignment="Center" Text="{Binding LastScanEvidence}" TextWrapping="NoWrap" />
-        <TextBlock Grid.Column="1" Classes="label" VerticalAlignment="Center" Text="Captures stay in memory and are discarded after analysis" />
-      </Grid>
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12" IsVisible="{Binding HasNoScan}">
+          <TextBlock Grid.Column="0" Classes="label" Text="Scan shortcut" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="mono ochre" FontWeight="SemiBold" Text="{Binding Settings.PendingHotkeyDisplay}" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="2" Classes="label" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="3" Classes="caption" Text="Captures stay in memory and are discarded after analysis" VerticalAlignment="Center" />
+        </Grid>
       </Panel>
     </Border>
   </Grid>

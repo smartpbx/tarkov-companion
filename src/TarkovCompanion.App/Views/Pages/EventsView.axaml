@@ -5,12 +5,13 @@
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-      <Border Classes="inset" Padding="10">
-        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+      <Border Classes="inset">
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
       </Border>
       <Button Grid.Column="1"
+              MinWidth="120"
               Command="{Binding RefreshCommand}"
-              Content="Reload definitions"
+              Content="Reload"
               VerticalAlignment="Stretch" />
     </Grid>
 
@@ -19,52 +20,49 @@
     <Border Grid.Row="1"
             Classes="panel"
             IsVisible="{Binding HasNoEvents}"
-            Padding="22"
+            Padding="22,18"
             VerticalAlignment="Top">
-      <StackPanel Spacing="10">
+      <StackPanel Spacing="8">
         <TextBlock Classes="sectionTitle" Text="No event is configured" />
-        <TextBlock Text="{Binding EmptyGuidance}" TextWrapping="Wrap" />
+        <TextBlock Classes="prose" Text="{Binding EmptyGuidance}" />
       </StackPanel>
     </Border>
 
     <Grid Grid.Row="1" ColumnDefinitions="*,2*" ColumnSpacing="12" IsVisible="{Binding HasEvents}">
-      <ListBox Background="Transparent"
-               BorderThickness="0"
-               ItemsSource="{Binding Events}"
-               SelectedItem="{Binding Selected, Mode=TwoWay}">
+      <ListBox ItemsSource="{Binding Events}" SelectedItem="{Binding Selected, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:EventSummaryViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="12">
-              <StackPanel Spacing="4">
-                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
-                <TextBlock Classes="ochre" Text="{Binding Season}" TextWrapping="Wrap" />
+            <Border Classes="panel" Padding="12">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                <TextBlock Classes="label ochre" Text="{Binding Season}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding Window}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding ItemSummary}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Provenance}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
 
-      <Border Grid.Column="1" Classes="panel" Padding="15">
+      <Border Grid.Column="1" Classes="panel">
         <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="9">
           <TextBlock Classes="sectionTitle" Text="Applicable items" />
-          <TextBlock Grid.Row="1" Text="{Binding Detail}" TextWrapping="Wrap" />
-          <Border Grid.Row="2" Classes="inset" Padding="10">
-            <TextBlock Classes="metric" FontSize="15" Text="{Binding Progress}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="1" Classes="prose" Text="{Binding Detail}" />
+          <Border Grid.Row="2" Classes="inset">
+            <TextBlock Classes="lede" Text="{Binding Progress}" TextWrapping="Wrap" />
           </Border>
-          <TextBlock Grid.Row="3" Classes="label" Text="{Binding StateGuidance}" TextWrapping="Wrap" />
+          <TextBlock Grid.Row="3" Classes="note" Text="{Binding StateGuidance}" />
           <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{Binding Items}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:EventItemViewModel">
-                  <Border Classes="inset" Margin="0,0,0,6" Padding="10">
-                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="6">
-                      <TextBlock Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                  <Border Classes="inset" Margin="0,0,0,6">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto" RowSpacing="8">
+                      <TextBlock Classes="value" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
                       <StackPanel Grid.Column="1" Spacing="1" MinWidth="80">
                         <TextBlock Classes="label" Text="Recorded" />
-                        <TextBlock Text="{Binding StateLabel}" />
+                        <TextBlock Classes="value" Text="{Binding StateLabel}" />
                       </StackPanel>
                       <WrapPanel Grid.Row="1" Grid.ColumnSpan="2" Orientation="Horizontal">
                         <Button Command="{Binding MarkSafeCommand}"

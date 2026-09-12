@@ -1,3 +1,5 @@
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -109,7 +111,18 @@ public sealed class NavigationItem : BindableViewModel
     }
 }
 
-public sealed record StatusChip(string Label, string Value, string Evidence, string Color);
+public sealed record StatusChip(string Label, string Value, string Evidence, string Color)
+{
+    /// <summary>
+    /// Whether the chip belongs to the raid readout rather than the health strip.
+    /// </summary>
+    /// <remarks>
+    /// Map, raid and position are what a player glances at mid-raid. Whether the game is
+    /// being observed, how old the data is and whether a scan is possible only matter when
+    /// they are wrong, so the shell draws those smaller and lets their colour do the talking.
+    /// </remarks>
+    public bool IsPrimary { get; init; }
+}
 
 public abstract class PageViewModel(string title, string description, string evidence) : BindableViewModel
 {
@@ -567,6 +580,7 @@ public sealed class ScannerPageViewModel : PageViewModel
     private string _confidence = "Unavailable";
     private string _source = "No capture source";
     private string _detail = "Nothing has been scanned yet.";
+    private bool _hasResult;
 
     public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase)
         : base("Scanner", "Dispatch a user-triggered scan through the configured use case", "Runtime state not loaded")
@@ -613,6 +627,28 @@ public sealed class ScannerPageViewModel : PageViewModel
         private set => SetProperty(ref _detail, value);
     }
 
+    /// <summary>
+    /// Whether the last scan produced something to read.
+    /// </summary>
+    /// <remarks>
+    /// The page at rest and the page after a scan want different layouts. Before anything has
+    /// been scanned, a readout whose every row says "unavailable" tells the player less than
+    /// one line naming the shortcut does, and it repeated the same sentence four times.
+    /// </remarks>
+    public bool HasResult
+    {
+        get => _hasResult;
+        private set
+        {
+            if (SetProperty(ref _hasResult, value))
+            {
+                OnPropertyChanged(nameof(HasNoResult));
+            }
+        }
+    }
+
+    public bool HasNoResult => !HasResult;
+
     public Task ScanAsync() => ScanAsync(CancellationToken.None);
 
     public async Task ScanAsync(CancellationToken cancellationToken)
@@ -629,6 +665,7 @@ public sealed class ScannerPageViewModel : PageViewModel
 
     public void Apply(ScanExecutionResult scan)
     {
+        HasResult = scan.Succeeded;
         ItemName = scan.Succeeded ? scan.ItemName ?? "Unnamed item" : "No item scanned";
         Value = scan.Succeeded && scan.ValueRoubles is { } value
             ? $"{value:N0} ₽ · {scan.ValuePerSlotRoubles.GetValueOrDefault():N0} ₽ / slot"
@@ -909,9 +946,18 @@ public sealed class SettingsPageViewModel : PageViewModel
 
         try
         {
-            _installer.BeginApply(_stagedDirectory);
-            UpdateStatus = "Close the application to finish. It will reopen on the new build.";
+            var script = _installer.BeginApply(_stagedDirectory);
             CanRestartForUpdate = false;
+            UpdateStatus = "Installing. The application will close and reopen on the new build. "
+                + $"If it does not, run {script} once it has closed.";
+
+            // Closing is this application's job rather than the player's. Leaving it to them
+            // meant the swap script sat waiting while the folder it wanted was still held
+            // open, which is not what "install and restart" promises.
+            Dispatcher.UIThread.Post(
+                () => (Avalonia.Application.Current?.ApplicationLifetime
+                    as IClassicDesktopStyleApplicationLifetime)?.Shutdown(),
+                DispatcherPriority.Background);
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
         {
@@ -1054,6 +1100,16 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly SynchronizationContext? _synchronizationContext;
     private readonly ScanHotkeyService _hotkeys;
+
+    // The chip palette mirrors Themes/InstrumentStyles.axaml. Grey is the resting state, and
+    // each accent is reserved for one meaning so a glance at the bar reads the same way every
+    // time: sage is live, cyan is a place, ochre is a value or a warning, coral is a fault.
+    private const string RestingColor = "#8F9BA6";
+    private const string InkColor = "#C6D0D8";
+    private const string CyanColor = "#56B8C6";
+    private const string OchreColor = "#C6A15B";
+    private const string SageColor = "#77B895";
+    private const string CoralColor = "#DF6A62";
     private string? _followedMapId;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
@@ -1164,8 +1220,21 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public IReadOnlyList<StatusChip> Status
     {
         get => _status;
-        private set => SetProperty(ref _status, value);
+        private set
+        {
+            if (SetProperty(ref _status, value))
+            {
+                OnPropertyChanged(nameof(PrimaryStatus));
+                OnPropertyChanged(nameof(SecondaryStatus));
+            }
+        }
     }
+
+    /// <summary>The raid readout: map, raid state and position.</summary>
+    public IReadOnlyList<StatusChip> PrimaryStatus => Status.Where(chip => chip.IsPrimary).ToArray();
+
+    /// <summary>The health strip: observation, data freshness and scan readiness.</summary>
+    public IReadOnlyList<StatusChip> SecondaryStatus => Status.Where(chip => !chip.IsPrimary).ToArray();
 
     public PageViewModel CurrentPage
     {
@@ -1444,6 +1513,15 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         LastScanEvidence = snapshot.Scan.Detail;
     }
 
+    /// <summary>
+    /// Builds the six chips along the top of the window.
+    /// </summary>
+    /// <remarks>
+    /// A chip is grey until it has something to say. Four of the six used to carry their
+    /// accent colour permanently, so at rest the bar was as colourful as it ever got and
+    /// nothing changing could stand out. Now colour means an observation: sage for something
+    /// live, cyan for a place, ochre for a value or a warning, coral for a fault.
+    /// </remarks>
     private static IReadOnlyList<StatusChip> CreateStatus(
         ApplicationRuntimeSnapshot snapshot,
         DateTimeOffset nowUtc)
@@ -1465,19 +1543,30 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                     ? "Demo fixture"
                     : observation.IsObserving ? "Observing" : observation.IsSupported ? "Not found" : "Unsupported",
                 snapshot.IsDemoMode ? "No live game access" : observation.Detail,
-                observation.IsObserving ? "#77B895" : "#8F9BA6"),
+                observation.IsObserving ? SageColor : observation.IsSupported || snapshot.IsDemoMode ? RestingColor : OchreColor),
             new(
                 "Map",
                 raid.MapId ?? "Unknown",
                 raid.MapId is null
                     ? observation.IsWatchingLogs ? "Waiting for a raid to start" : "No current raid evidence"
                     : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
-                "#56B8C6"),
+                raid.MapId is null ? RestingColor : CyanColor)
+            {
+                IsPrimary = true,
+            },
             new(
                 "Raid",
                 raid.State.ToString(),
                 raid.StartedUtc is null ? "No active session" : $"Started {raid.StartedUtc.Value.ToLocalTime():T}",
-                "#C6A15B"),
+                raid.State switch
+                {
+                    RaidLifecycleState.InRaid => SageColor,
+                    RaidLifecycleState.Unknown => RestingColor,
+                    _ => InkColor,
+                })
+            {
+                IsPrimary = true,
+            },
             new(
                 "Position",
                 position is null ? "No evidence" : string.Create(CultureInfo.InvariantCulture, $"{position.Position.X:F0}, {position.Position.Z:F0}"),
@@ -1486,17 +1575,25 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                         ? "Take a screenshot in game to place yourself"
                         : "No screenshot observation"
                     : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
-                "#56B8C6"),
+                position is null ? RestingColor : CyanColor)
+            {
+                IsPrimary = true,
+            },
             new(
                 "Data",
                 snapshot.Data.Availability.ToString(),
                 $"{snapshot.Data.ItemCount:N0} items · {dataAge}",
-                "#77B895"),
+                snapshot.Data.Availability switch
+                {
+                    DataAvailability.Error => CoralColor,
+                    DataAvailability.Unavailable => OchreColor,
+                    _ => RestingColor,
+                }),
             new(
                 "Scan",
                 scan.IsAvailable ? scan.Succeeded ? "Observed" : "Ready" : "Unavailable",
                 scan.Detail,
-                "#C6A15B"),
+                scan.IsAvailable ? scan.Succeeded ? OchreColor : RestingColor : OchreColor),
         ];
     }
 

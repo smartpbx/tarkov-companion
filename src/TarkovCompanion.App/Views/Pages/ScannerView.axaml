@@ -3,57 +3,64 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
+  <!-- Two layouts, one per state. Before anything has been scanned the page says so once,
+       names the action, and stops; the earlier layout said "nothing scanned" in four places
+       and laid out a table of "unavailable" under it. After a scan the item name is the
+       headline, because a player who has just pressed the shortcut from inside the game is
+       reading this from the other monitor. -->
   <Grid RowDefinitions="Auto,*" RowSpacing="12">
-    <Border Classes="panel cyan" Padding="18">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
-        <StackPanel Spacing="6">
-          <TextBlock Classes="sectionTitle" Text="User-triggered scan" />
-          <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
-          <TextBlock Classes="label"
-                     Text="Captured pixels are not persisted; production recognition remains unavailable until a provider is configured."
-                     TextWrapping="Wrap" />
+    <Border Classes="panel" IsVisible="{Binding HasNoResult}" Padding="22,18">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
+        <StackPanel Spacing="8" VerticalAlignment="Center">
+          <TextBlock Classes="lede" Text="{Binding Detail}" TextWrapping="Wrap" MaxWidth="640" HorizontalAlignment="Left" />
+          <TextBlock Classes="note" Text="Point the game at an item and press the shortcut. The capture is read in memory and discarded once the item is recognised; recognition is unavailable until a provider is configured." />
         </StackPanel>
         <Button Grid.Column="1"
                 Classes="primary"
-                MinWidth="148"
+                MinWidth="140"
                 Command="{Binding ScanCommand}"
-                Content="Run configured scan"
+                Content="Scan now"
                 VerticalAlignment="Center" />
       </Grid>
     </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="1.2*,0.8*" ColumnSpacing="12">
-      <Border Classes="panel" Padding="18">
+    <Border Classes="panel ochre" IsVisible="{Binding HasResult}" Padding="22,18">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
         <StackPanel Spacing="12">
-          <TextBlock Classes="sectionTitle" Text="Last result" />
-          <TextBlock FontSize="23" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding ItemName}" />
-          <Grid ColumnDefinitions="150,*">
-            <TextBlock Classes="label" Text="Observed value" />
-            <TextBlock Grid.Column="1" Classes="ochre" Text="{Binding Value}" />
+          <StackPanel Spacing="2">
+            <TextBlock Classes="label" Text="Last result" />
+            <TextBlock Classes="display" Text="{Binding ItemName}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="{Binding Evidence}" TextWrapping="Wrap" />
+          </StackPanel>
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="32" RowDefinitions="Auto,Auto" RowSpacing="12">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Observed value" />
+              <TextBlock Classes="metric ochre" Text="{Binding Value}" TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Spacing="2">
+              <TextBlock Classes="label" Text="Recommendation" />
+              <TextBlock Classes="lede sage" Text="{Binding Recommendation}" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left" />
+            </StackPanel>
+            <StackPanel Grid.Row="1" Spacing="2">
+              <TextBlock Classes="label" Text="Confidence" />
+              <TextBlock Classes="value" Text="{Binding Confidence}" />
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="1" Spacing="2">
+              <TextBlock Classes="label" Text="Source" />
+              <TextBlock Classes="value" Text="{Binding Source}" TextWrapping="Wrap" />
+            </StackPanel>
           </Grid>
-          <Grid ColumnDefinitions="150,*">
-            <TextBlock Classes="label" Text="Recommendation" />
-            <TextBlock Grid.Column="1" Text="{Binding Recommendation}" TextWrapping="Wrap" />
-          </Grid>
-          <Grid ColumnDefinitions="150,*">
-            <TextBlock Classes="label" Text="Confidence" />
-            <TextBlock Grid.Column="1" Text="{Binding Confidence}" />
-          </Grid>
-          <Grid ColumnDefinitions="150,*">
-            <TextBlock Classes="label" Text="Source" />
-            <TextBlock Grid.Column="1" Text="{Binding Source}" TextWrapping="Wrap" />
-          </Grid>
+          <TextBlock Classes="note" Text="{Binding Detail}" />
         </StackPanel>
-      </Border>
-      <Border Grid.Column="1" Classes="panel" Padding="18">
-        <StackPanel Spacing="9">
-          <TextBlock Classes="sectionTitle" Text="Evidence" />
-          <TextBlock Text="{Binding Evidence}" TextWrapping="Wrap" />
-          <TextBlock Classes="label"
-                     Text="Unavailable results never produce item identity, value, confidence, or keep/sell advice."
-                     TextWrapping="Wrap" />
-        </StackPanel>
-      </Border>
-    </Grid>
+        <Button Grid.Column="1"
+                Classes="primary"
+                MinWidth="140"
+                Command="{Binding ScanCommand}"
+                Content="Scan again"
+                VerticalAlignment="Top" />
+      </Grid>
+    </Border>
+
+    <TextBlock Grid.Row="1" Classes="note" VerticalAlignment="Top" Text="A result that cannot be read never produces an item name, a value, a confidence or advice. Captured pixels are never written to disk." />
   </Grid>
 </UserControl>

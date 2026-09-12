@@ -1,177 +1,24 @@
 <Application
     x:Class="TarkovCompanion.App.App"
     xmlns="https://github.com/avaloniaui"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedThemeVariant="Dark">
+  <!-- The theme variant is pinned to Dark rather than following the desktop. The window has
+       always painted itself dark, but every control the theme draws on its own, which is the
+       buttons, the combo box popups, the text box placeholders, the tooltips and the scroll
+       bars, took its colours from the desktop's variant. On a light desktop that put light
+       grey placeholder text on a near-black box and made an unstyled button all but invisible.
+
+       All styling lives in Themes/InstrumentStyles.axaml, included once here so that it
+       applies to every window and every view. -->
   <Application.Styles>
     <FluentTheme DensityStyle="Compact" />
+    <StyleInclude Source="avares://TarkovCompanion/Themes/InstrumentStyles.axaml" />
     <Style Selector="Window">
       <Setter Property="Background" Value="#11151B" />
       <Setter Property="Foreground" Value="#C6D0D8" />
       <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter" />
-    </Style>
-    <Style Selector="Button.nav">
-      <Setter Property="HorizontalContentAlignment" Value="Left" />
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#93A0AA" />
-      <Setter Property="CornerRadius" Value="3" />
-      <Setter Property="Padding" Value="14,10" />
-    </Style>
-    <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#242E39" />
-      <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
-    </Style>
-    <Style Selector="Border.panel">
-      <Setter Property="Background" Value="#1A212A" />
-      <Setter Property="BorderBrush" Value="#303B47" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="4" />
-    </Style>
-    <Style Selector="TextBlock.label">
-      <Setter Property="Foreground" Value="#8F9BA6" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="TextBlock.metric">
-      <Setter Property="Foreground" Value="#E4EAEE" />
-      <Setter Property="FontSize" Value="20" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-    <Style Selector="TextBlock.sectionTitle">
-      <Setter Property="Foreground" Value="#E4EAEE" />
-      <Setter Property="FontSize" Value="15" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-    <!-- Accent classes encode which kind of information a panel carries, following the
-         tokens in docs/DESIGN_SYSTEM.md: cyan for position and navigation, ochre for
-         economy and value. -->
-    <Style Selector="Border.panel.cyan">
-      <Setter Property="BorderBrush" Value="#2F5E68" />
-    </Style>
-    <Style Selector="Border.panel.ochre">
-      <Setter Property="BorderBrush" Value="#6A5731" />
-    </Style>
-    <Style Selector="Border.readout">
-      <Setter Property="Background" Value="#11151B" />
-      <Setter Property="BorderBrush" Value="#303B47" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="3" />
-    </Style>
-    <!-- Map instrument row -->
-    <Style Selector="TextBlock.chooserLabel">
-      <Setter Property="Foreground" Value="#6F7C88" />
-      <Setter Property="FontSize" Value="10" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="ComboBox.chooser">
-      <Setter Property="Background" Value="#1A212A" />
-      <Setter Property="BorderBrush" Value="#303B47" />
-      <Setter Property="CornerRadius" Value="3" />
-      <Setter Property="Padding" Value="10,5" />
-      <Setter Property="MinHeight" Value="30" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Button.viewControl">
-      <Setter Property="Background" Value="#1A212A" />
-      <Setter Property="Foreground" Value="#93A0AA" />
-      <Setter Property="BorderBrush" Value="#303B47" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="3" />
-      <Setter Property="Padding" Value="10,5" />
-      <Setter Property="MinWidth" Value="32" />
-      <Setter Property="MinHeight" Value="30" />
-      <Setter Property="HorizontalContentAlignment" Value="Center" />
-    </Style>
-    <Style Selector="Button.viewControl:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#242E39" />
-      <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
-    </Style>
-    <Style Selector="Button.viewControl.on /template/ ContentPresenter">
-      <Setter Property="Background" Value="#1E3A42" />
-      <Setter Property="TextElement.Foreground" Value="#56B8C6" />
-    </Style>
-    <Style Selector="TextBlock.zoomReadout">
-      <Setter Property="Foreground" Value="#8F9BA6" />
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="MinWidth" Value="46" />
-      <Setter Property="TextAlignment" Value="Center" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-
-    <!-- Controls that sit on top of the map.
-         Translucent rather than opaque so the map is still readable underneath, and darker
-         than the panels elsewhere so they read as floating above the artwork rather than as
-         holes cut in it. -->
-    <Style Selector="Border.floating">
-      <Setter Property="Background" Value="#E014191F" />
-      <Setter Property="BorderBrush" Value="#4A5865" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="4" />
-    </Style>
-    <Style Selector="Expander.floating">
-      <Setter Property="Background" Value="#E014191F" />
-      <Setter Property="BorderBrush" Value="#4A5865" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="4" />
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="Expander.floating /template/ ToggleButton">
-      <Setter Property="MinHeight" Value="0" />
-      <Setter Property="Padding" Value="10,6" />
-    </Style>
-
-    <!-- Layer chips: one object per layer, the name toggles it, the target highlights it -->
-    <Style Selector="Border.chip">
-      <Setter Property="Background" Value="#1A212A" />
-      <Setter Property="BorderBrush" Value="#303B47" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="14" />
-      <Setter Property="ClipToBounds" Value="True" />
-    </Style>
-    <Style Selector="ToggleButton.chipToggle">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#7A8894" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="12,5" />
-      <Setter Property="MinHeight" Value="26" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="ToggleButton.chipToggle:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#242E39" />
-      <Setter Property="TextElement.Foreground" Value="#C6D0D8" />
-    </Style>
-    <Style Selector="ToggleButton.chipToggle:checked /template/ ContentPresenter">
-      <Setter Property="Background" Value="#1E3A42" />
-      <Setter Property="TextElement.Foreground" Value="#7FD3DF" />
-    </Style>
-    <Style Selector="ToggleButton.chipToggle:checked:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#24515C" />
-      <Setter Property="TextElement.Foreground" Value="#E8EEF2" />
-    </Style>
-    <Style Selector="Button.chipFocus">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="#5C6874" />
-      <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="CornerRadius" Value="0" />
-      <Setter Property="Padding" Value="7,5" />
-      <Setter Property="MinWidth" Value="0" />
-      <Setter Property="MinHeight" Value="26" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-    <Style Selector="Button.chipFocus:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="#242E39" />
-      <Setter Property="TextElement.Foreground" Value="#C6A15B" />
-    </Style>
-    <Style Selector="Button.chipFocus.on /template/ ContentPresenter">
-      <Setter Property="TextElement.Foreground" Value="#C6A15B" />
-    </Style>
-
-    <Style Selector="TextBlock.hotkey">
-      <Setter Property="Foreground" Value="#C6A15B" />
-      <Setter Property="FontSize" Value="18" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="FontFamily" Value="Consolas, Cascadia Mono, monospace" />
+      <Setter Property="FontSize" Value="14" />
     </Style>
   </Application.Styles>
 </Application>

@@ -344,8 +344,27 @@ public sealed class QuestsPageViewModel : PageViewModel
     public QuestTaskViewModel? SelectedTask
     {
         get => _selectedTask;
-        private set => SetProperty(ref _selectedTask, value);
+        private set
+        {
+            if (SetProperty(ref _selectedTask, value))
+            {
+                OnPropertyChanged(nameof(HasSelectedTask));
+                OnPropertyChanged(nameof(HasNoSelectedTask));
+            }
+        }
     }
+
+    /// <summary>
+    /// Whether the detail column has a task to describe.
+    /// </summary>
+    /// <remarks>
+    /// Bound through a null task, every chip and button in the detail column still rendered,
+    /// as a row of empty boxes above a row of verbs with nothing to act on. The column is
+    /// hidden outright until there is a task, and one line says why.
+    /// </remarks>
+    public bool HasSelectedTask => SelectedTask is not null;
+
+    public bool HasNoSelectedTask => SelectedTask is null;
 
     public IReadOnlyList<string> OrphanedProgress
     {

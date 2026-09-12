@@ -6,10 +6,10 @@
   <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
-               PlaceholderText="Search local item name or short name" />
-      <Button Grid.Column="1" Classes="primary" Command="{Binding SearchCommand}" Content="Search local cache" />
+               PlaceholderText="Search by item name or short name" />
+      <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding SearchCommand}" Content="Search" />
     </Grid>
-    <Border Grid.Row="1" Classes="inset" Padding="10">
+    <Border Grid.Row="1" Classes="inset">
       <TextBlock Text="{Binding SearchStatus}" TextWrapping="Wrap" />
     </Border>
     <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled">
@@ -21,18 +21,18 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:ItemSearchResultViewModel">
-            <Border Classes="panel" Width="308" Margin="0,0,10,10" Padding="13">
-              <StackPanel Spacing="6">
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
+            <Border Classes="panel" Width="308" Margin="0,0,10,10">
+              <StackPanel Spacing="5">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
                   <TextBlock Grid.Column="1" Classes="label" Text="{Binding ShortName}" />
                 </Grid>
                 <TextBlock Classes="label" Text="{Binding Category}" />
                 <TextBlock Classes="label" Text="{Binding Dimensions}" />
-                <TextBlock Classes="metric ochre" FontSize="18" Text="{Binding Price}" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding PriceSource}" />
-                <TextBlock Classes="label" Text="{Binding Match}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding Updated}" TextWrapping="Wrap" />
+                <TextBlock Classes="metric ochre" Text="{Binding Price}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding PriceSource}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Match}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Updated}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
           </DataTemplate>

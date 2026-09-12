@@ -8,42 +8,42 @@
     <StackPanel Spacing="8">
       <Border Classes="inset" Padding="12,9">
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-          <StackPanel Spacing="3">
-            <TextBlock FontWeight="SemiBold" Text="{Binding ScopeStatus}" TextWrapping="Wrap" />
+          <StackPanel Spacing="2">
+            <TextBlock Classes="value" Text="{Binding ScopeStatus}" TextWrapping="Wrap" />
             <TextBlock Classes="label" Text="{Binding CatalogStatus}" TextWrapping="Wrap" />
             <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
           </StackPanel>
-          <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Refresh local view" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Center" />
         </Grid>
       </Border>
 
-      <Expander Header="Project JSON import / export">
+      <Expander Header="Import and export progress as JSON">
         <Border Classes="inset" Padding="12,9">
           <StackPanel Spacing="7">
-            <TextBlock Classes="label" Text="Local file only · exact profile, mode, and generation · preview required before apply" TextWrapping="Wrap" />
+            <TextBlock Classes="note" Text="Local file only. The file must match the exact profile, mode and generation, and an import is previewed before it is applied." />
             <TextBox PlaceholderText="Quest progress JSON file path" Text="{Binding ExchangePath}" />
             <WrapPanel Orientation="Horizontal">
-              <Button Command="{Binding ExportProgressCommand}" Content="Export v2" Margin="0,0,6,6" />
+              <Button Command="{Binding ExportProgressCommand}" Content="Export" Margin="0,0,6,6" />
               <Button Command="{Binding PreviewImportCommand}" Content="Preview import" Margin="0,0,6,6" />
               <Button Command="{Binding KeepLocalConflictsCommand}" Content="Keep local conflicts" Margin="0,0,6,6" />
               <Button Command="{Binding UseIncomingConflictsCommand}" Content="Use incoming conflicts" Margin="0,0,6,6" />
-              <Button Command="{Binding ApplyImportCommand}" Content="Apply confirmed preview" Margin="0,0,6,6" />
+              <Button Classes="primary" Command="{Binding ApplyImportCommand}" Content="Apply confirmed preview" Margin="0,0,6,6" />
               <Button Command="{Binding UndoLastImportCommand}" Content="Undo last import" Margin="0,0,6,6" />
             </WrapPanel>
-            <TextBlock FontWeight="SemiBold" Text="{Binding ImportPreviewSummary}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding ExchangeStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="value" Text="{Binding ImportPreviewSummary}" TextWrapping="Wrap" />
+            <TextBlock Classes="note" Text="{Binding ExchangeStatus}" />
             <ScrollViewer IsVisible="{Binding HasImportProposals}" MaxHeight="170" VerticalScrollBarVisibility="Auto">
               <ItemsControl ItemsSource="{Binding ImportProposals}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:QuestImportProposalViewModel">
                     <Border Classes="panel" Padding="8" Margin="0,0,0,5">
                       <Grid ColumnDefinitions="160,*,120" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="3">
-                        <TextBlock FontWeight="SemiBold" Text="{Binding Classification}" TextWrapping="Wrap" />
+                        <TextBlock Classes="value" Text="{Binding Classification}" TextWrapping="Wrap" />
                         <TextBlock Grid.Column="1" Text="{Binding Entity}" TextWrapping="Wrap" />
                         <TextBlock Grid.Column="2" Classes="label" Text="{Binding Resolution}" TextWrapping="Wrap" />
                         <Grid Grid.Row="1" Grid.ColumnSpan="3" ColumnDefinitions="*,*" ColumnSpacing="12">
-                          <TextBlock Foreground="#C6A15B" Text="{Binding LocalValue}" TextWrapping="Wrap" />
-                          <TextBlock Grid.Column="1" Foreground="#8EC9A8" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
+                          <TextBlock Classes="ochre" Text="{Binding LocalValue}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Classes="sage" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
                         </Grid>
                         <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
                       </Grid>
@@ -56,15 +56,13 @@
         </Border>
       </Expander>
 
-      <Expander Header="Optional TarkovTracker read-only import">
+      <Expander Header="Optional TarkovTracker import">
         <Border Classes="inset" Padding="12,9">
           <StackPanel Spacing="7">
-            <TextBlock Classes="label"
-                       Text="Disconnected by default · network only after Connect or Refresh · canonical api.tarkovtracker.org GET /token and GET /progress only · no team access, writes, uploads, telemetry, or automatic apply"
-                       TextWrapping="Wrap" />
-            <TextBlock Classes="label"
-                       Text="Tokens are mode-scoped and stored only with Windows protected storage. Fetch time is not TarkovTracker edit time, and the API does not expose a profile generation."
-                       TextWrapping="Wrap" />
+            <TextBlock Classes="note"
+                       Text="Disconnected by default, and the network is only used after Connect or Refresh. Only GET /token and GET /progress on api.tarkovtracker.org are called: no team access, writes, uploads, telemetry, or automatic apply." />
+            <TextBlock Classes="note"
+                       Text="Tokens are mode-scoped and stored only with Windows protected storage. Fetch time is not TarkovTracker edit time, and the API does not expose a profile generation." />
             <TextBox IsEnabled="{Binding CanConnectTarkovTracker}"
                      PasswordChar="●"
                      PlaceholderText="Paste a PVP_, PVE_, or SZN_ token with GP permission"
@@ -83,8 +81,8 @@
                       IsEnabled="{Binding CanDisconnectTarkovTracker}"
                       Margin="0,0,6,6" />
             </WrapPanel>
-            <TextBlock Classes="label" Text="Use the shared conflict buttons, Apply confirmed preview, and Undo last import above after reviewing a fetched snapshot." TextWrapping="Wrap" />
-            <TextBlock FontWeight="SemiBold" Text="{Binding TarkovTrackerStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="note" Text="After reviewing a fetched snapshot, use the conflict buttons, Apply confirmed preview and Undo last import above." />
+            <TextBlock Classes="value" Text="{Binding TarkovTrackerStatus}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
       </Expander>
@@ -106,10 +104,10 @@
                 <DataTemplate x:DataType="vm:QuestTaskViewModel">
                   <Button Command="{Binding SelectCommand}" HorizontalContentAlignment="Stretch" Margin="0,0,0,7" Padding="10">
                     <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="3">
-                      <TextBlock FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
                       <TextBlock Grid.Column="1" Classes="label" Text="{Binding RecordedState}" Margin="8,0,0,0" />
                       <TextBlock Grid.Row="1" Classes="label" Text="{Binding ObjectiveSummary}" TextWrapping="Wrap" />
-                      <TextBlock Grid.Row="2" Classes="label" Text="{Binding Source}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="2" Classes="caption" Text="{Binding Source}" TextWrapping="Wrap" />
                     </Grid>
                   </Button>
                 </DataTemplate>
@@ -119,73 +117,81 @@
         </Grid>
       </Border>
 
-      <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="#303B47" />
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
 
-      <Border Grid.Column="2" Classes="panel" Padding="14">
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Spacing="12">
-            <TextBlock FontSize="20" FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding SelectedTask.Name}" />
-            <WrapPanel Orientation="Horizontal">
-              <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Text="{Binding SelectedTask.RecordedState}" /></Border>
-              <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Text="{Binding SelectedTask.Eligibility}" /></Border>
-              <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Text="{Binding SelectedTask.ObjectiveSummary}" /></Border>
-            </WrapPanel>
-            <TextBlock Classes="label" Text="{Binding SelectedTask.Source}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding SelectedTask.Trader}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding SelectedTask.Map}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding SelectedTask.Prerequisites}" TextWrapping="Wrap" />
-            <TextBlock Foreground="#C6A15B" Text="{Binding SelectedTask.EligibilityDetail}" TextWrapping="Wrap" />
-            <TextBlock Foreground="#C6A15B" IsVisible="{Binding SelectedTask.HasBranchNotes}" Text="{Binding SelectedTask.BranchNotes}" TextWrapping="Wrap" />
+      <!-- The detail column is hidden until a task is chosen. Bound through a null task it
+           still drew every chip and button, as a row of empty boxes above a row of verbs
+           with nothing to act on. -->
+      <Border Grid.Column="2" Classes="panel">
+        <Panel>
+          <TextBlock Classes="note" IsVisible="{Binding HasNoSelectedTask}" Text="Choose a task to see its objectives and record progress against them." />
+          <ScrollViewer IsVisible="{Binding HasSelectedTask}" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+              <TextBlock Classes="title" Text="{Binding SelectedTask.Name}" TextWrapping="Wrap" />
+              <WrapPanel Orientation="Horizontal">
+                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.RecordedState}" /></Border>
+                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.Eligibility}" /></Border>
+                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.ObjectiveSummary}" /></Border>
+              </WrapPanel>
+              <StackPanel Spacing="3">
+                <TextBlock Classes="label" Text="{Binding SelectedTask.Source}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding SelectedTask.Trader}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding SelectedTask.Map}" TextWrapping="Wrap" />
+                <TextBlock Classes="label" Text="{Binding SelectedTask.Prerequisites}" TextWrapping="Wrap" />
+              </StackPanel>
+              <TextBlock Classes="note ochre" Text="{Binding SelectedTask.EligibilityDetail}" />
+              <TextBlock Classes="note ochre" IsVisible="{Binding SelectedTask.HasBranchNotes}" Text="{Binding SelectedTask.BranchNotes}" />
 
-            <WrapPanel Orientation="Horizontal">
-              <Button Command="{Binding SelectedTask.SetUnknownCommand}" Content="Unknown" Margin="0,0,6,6" />
-              <Button Command="{Binding SelectedTask.SetNotStartedCommand}" Content="Not started" Margin="0,0,6,6" />
-              <Button Command="{Binding SelectedTask.SetActiveCommand}" Content="Active" Margin="0,0,6,6" />
-              <Button Command="{Binding SelectedTask.SetCompletedCommand}" Content="Completed" Margin="0,0,6,6" />
-              <Button Command="{Binding SelectedTask.SetFailedCommand}" Content="Failed" Margin="0,0,6,6" />
-              <Button Command="{Binding SelectedTask.TogglePinCommand}" Content="{Binding SelectedTask.PinLabel}" Margin="0,0,6,6" />
-            </WrapPanel>
+              <WrapPanel Orientation="Horizontal">
+                <Button Command="{Binding SelectedTask.SetUnknownCommand}" Content="Unknown" Margin="0,0,6,6" />
+                <Button Command="{Binding SelectedTask.SetNotStartedCommand}" Content="Not started" Margin="0,0,6,6" />
+                <Button Command="{Binding SelectedTask.SetActiveCommand}" Content="Active" Margin="0,0,6,6" />
+                <Button Command="{Binding SelectedTask.SetCompletedCommand}" Content="Completed" Margin="0,0,6,6" />
+                <Button Command="{Binding SelectedTask.SetFailedCommand}" Content="Failed" Margin="0,0,6,6" />
+                <Button Command="{Binding SelectedTask.TogglePinCommand}" Content="{Binding SelectedTask.PinLabel}" Margin="0,0,6,6" />
+              </WrapPanel>
 
-            <TextBlock Classes="sectionTitle" Text="Objectives" />
-            <ItemsControl ItemsSource="{Binding SelectedTask.Objectives}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="vm:QuestObjectiveViewModel">
-                  <Border Classes="inset" Padding="12" Margin="0,0,0,9">
-                    <StackPanel Spacing="6">
-                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                        <TextBlock FontWeight="SemiBold" Foreground="#E6EDF2" Text="{Binding Description}" TextWrapping="Wrap" />
-                        <TextBlock Grid.Column="1" Classes="label" Text="{Binding Kind}" />
-                      </Grid>
-                      <WrapPanel Orientation="Horizontal">
-                        <TextBlock Foreground="#C6A15B" IsVisible="{Binding IsUnsupported}" Text="Unsupported details · " />
-                        <TextBlock Classes="label" IsVisible="{Binding IsOptional}" Text="Optional · " />
-                        <TextBlock Text="{Binding Status}" />
-                      </WrapPanel>
-                      <TextBlock Classes="label" Text="{Binding Maps}" TextWrapping="Wrap" />
-                      <TextBlock Classes="label" IsVisible="{Binding HasItems}" Text="{Binding Items}" TextWrapping="Wrap" />
-                      <TextBlock Classes="label" IsVisible="{Binding HasFoundInRaidRule}" Text="{Binding FoundInRaidRule}" TextWrapping="Wrap" />
-                      <TextBlock Classes="label" Text="{Binding Source}" TextWrapping="Wrap" />
-                      <WrapPanel Orientation="Horizontal">
-                        <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,5,5" />
-                        <Button Command="{Binding SetInProgressCommand}" Content="In progress" Margin="0,0,5,5" />
-                        <Button Command="{Binding SetCompletedCommand}" Content="Complete" Margin="0,0,5,5" />
-                        <Button Command="{Binding DecrementCommand}" Content="− count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
-                        <Button Command="{Binding IncrementCommand}" Content="+ count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
-                        <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,5,5" />
-                      </WrapPanel>
-                    </StackPanel>
-                  </Border>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </StackPanel>
-        </ScrollViewer>
+              <TextBlock Classes="sectionTitle" Text="Objectives" />
+              <ItemsControl ItemsSource="{Binding SelectedTask.Objectives}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestObjectiveViewModel">
+                    <Border Classes="inset" Padding="12" Margin="0,0,0,9">
+                      <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                          <TextBlock Classes="value" Text="{Binding Description}" TextWrapping="Wrap" />
+                          <TextBlock Grid.Column="1" Classes="label" Text="{Binding Kind}" />
+                        </Grid>
+                        <WrapPanel Orientation="Horizontal">
+                          <TextBlock Classes="label ochre" IsVisible="{Binding IsUnsupported}" Text="Unsupported details · " />
+                          <TextBlock Classes="label" IsVisible="{Binding IsOptional}" Text="Optional · " />
+                          <TextBlock Classes="label" Text="{Binding Status}" />
+                        </WrapPanel>
+                        <TextBlock Classes="label" Text="{Binding Maps}" TextWrapping="Wrap" />
+                        <TextBlock Classes="label" IsVisible="{Binding HasItems}" Text="{Binding Items}" TextWrapping="Wrap" />
+                        <TextBlock Classes="label" IsVisible="{Binding HasFoundInRaidRule}" Text="{Binding FoundInRaidRule}" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" Text="{Binding Source}" TextWrapping="Wrap" />
+                        <WrapPanel Orientation="Horizontal">
+                          <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,5,5" />
+                          <Button Command="{Binding SetInProgressCommand}" Content="In progress" Margin="0,0,5,5" />
+                          <Button Command="{Binding SetCompletedCommand}" Content="Complete" Margin="0,0,5,5" />
+                          <Button Command="{Binding DecrementCommand}" Content="− count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
+                          <Button Command="{Binding IncrementCommand}" Content="+ count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
+                          <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,5,5" />
+                        </WrapPanel>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+        </Panel>
       </Border>
     </Grid>
 
     <Border Grid.Row="2" Classes="inset" IsVisible="{Binding HasOrphanedProgress}" Padding="10,7">
       <StackPanel Spacing="3">
-        <TextBlock Foreground="#C6A15B" FontWeight="SemiBold" Text="Orphaned local progress" />
+        <TextBlock Classes="value ochre" Text="Orphaned local progress" />
         <ItemsControl ItemsSource="{Binding OrphanedProgress}">
           <ItemsControl.ItemTemplate>
             <DataTemplate>

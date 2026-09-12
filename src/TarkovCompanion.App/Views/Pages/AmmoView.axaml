@@ -7,29 +7,27 @@
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <TextBox Text="{Binding SearchQuery, Mode=TwoWay}"
                PlaceholderText="Filter calibers by name" />
-      <Button Grid.Column="1" Classes="primary" Command="{Binding RefreshCommand}" Content="Reload" />
+      <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" />
     </Grid>
 
     <!-- The two notices sit above the ranking, not under it: a player reads the tier first, so
-         the caveat has to arrive before the number it applies to. -->
-    <Border Grid.Row="1" Classes="inset" Padding="10">
+         the caveat has to arrive before the number it applies to. They are set as notes so
+         that they are read once and then stop competing with the ranking. -->
+    <Border Grid.Row="1" Classes="inset">
       <StackPanel Spacing="5">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
-        <TextBlock Classes="label" Text="{Binding HeuristicNotice}" TextWrapping="Wrap" />
-        <TextBlock Classes="label" Text="{Binding AvailabilityNotice}" TextWrapping="Wrap" />
+        <TextBlock Classes="note" Text="{Binding HeuristicNotice}" />
+        <TextBlock Classes="note" Text="{Binding AvailabilityNotice}" />
       </StackPanel>
     </Border>
 
     <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="12">
-      <ListBox ItemsSource="{Binding Calibers}"
-               SelectedItem="{Binding SelectedCaliber, Mode=TwoWay}"
-               Background="Transparent"
-               BorderThickness="0">
+      <ListBox ItemsSource="{Binding Calibers}" SelectedItem="{Binding SelectedCaliber, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:AmmoCaliberViewModel">
-            <Border Classes="panel" Margin="0,0,0,8" Padding="12">
-              <StackPanel Spacing="4">
-                <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextWrapping="Wrap" />
+            <Border Classes="panel" Padding="12">
+              <StackPanel Spacing="3">
+                <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
                 <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
               </StackPanel>
             </Border>
@@ -38,24 +36,17 @@
       </ListBox>
 
       <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" RowSpacing="10">
-        <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" />
+        <TextBlock Classes="note" Text="{Binding Detail}" />
 
-        <ListBox Grid.Row="1"
-                 ItemsSource="{Binding Rounds}"
-                 SelectedItem="{Binding SelectedRound, Mode=TwoWay}"
-                 Background="Transparent"
-                 BorderThickness="0">
+        <ListBox Grid.Row="1" ItemsSource="{Binding Rounds}" SelectedItem="{Binding SelectedRound, Mode=TwoWay}">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:AmmoRoundViewModel">
-              <Border Classes="panel" Margin="0,0,0,8" Padding="13">
-                <StackPanel Spacing="7">
+              <Border Classes="panel">
+                <StackPanel Spacing="8">
                   <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
-                    <TextBlock FontWeight="SemiBold"
-                               Text="{Binding Name}"
-                               TextWrapping="Wrap"
-                               VerticalAlignment="Center" />
+                    <TextBlock Classes="lede" Text="{Binding Name}" TextWrapping="Wrap" VerticalAlignment="Center" />
                     <TextBlock Grid.Column="1" Classes="label" Text="{Binding Rank}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Classes="metric ochre" FontSize="19" Text="{Binding Tier}" />
+                    <TextBlock Grid.Column="2" Classes="metric ochre" Text="{Binding Tier}" />
                   </Grid>
 
                   <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="12">
@@ -92,10 +83,11 @@
                         <Border Classes="inset" Padding="8,5" MinWidth="76">
                           <StackPanel Spacing="1">
                             <TextBlock Classes="label" Text="{Binding ArmorClass}" />
-                            <TextBlock Classes.sage="{Binding IsStrong}"
+                            <TextBlock Classes="label"
+                                       Classes.sage="{Binding IsStrong}"
                                        Classes.ochre="{Binding IsMarginal}"
                                        Classes.coral="{Binding IsWeak}"
-                                       FontSize="12"
+                                       FontWeight="Medium"
                                        Text="{Binding Rating}" />
                           </StackPanel>
                         </Border>
@@ -103,18 +95,18 @@
                     </ItemsControl.ItemTemplate>
                   </ItemsControl>
 
-                  <TextBlock Classes="label" Text="{Binding Provenance}" TextWrapping="Wrap" />
+                  <TextBlock Classes="caption" Text="{Binding Provenance}" TextWrapping="Wrap" />
                 </StackPanel>
               </Border>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
 
-        <Border Grid.Row="2" Classes="panel" Padding="15">
+        <Border Grid.Row="2" Classes="panel">
           <StackPanel Spacing="6">
             <TextBlock Classes="sectionTitle" Text="{Binding RoundHeading}" />
-            <TextBlock Text="{Binding Advice}" TextWrapping="Wrap" />
-            <TextBlock Classes="label" Text="{Binding Explanation}" TextWrapping="Wrap" />
+            <TextBlock Classes="prose" Text="{Binding Advice}" />
+            <TextBlock Classes="note" Text="{Binding Explanation}" />
           </StackPanel>
         </Border>
       </Grid>
