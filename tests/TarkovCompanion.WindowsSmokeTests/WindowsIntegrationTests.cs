@@ -15,6 +15,126 @@ namespace TarkovCompanion.WindowsSmokeTests;
 
 public sealed class WindowsIntegrationTests
 {
+    /// <summary>
+    /// A companion started after the raid began still knows which map the player is on.
+    /// </summary>
+    /// <remarks>
+    /// Tailing alone cannot do this. The notification carrying the map is written when the
+    /// raid starts, so a companion launched sixty-nine seconds later never sees it, infers the
+    /// raid only from ongoing chatter that names no map, and shows "map none" for the rest of
+    /// it. That is what happened on a live machine.
+    /// </remarks>
+    [Fact]
+    public async Task ResumesARaidThatStartedBeforeTheCompanionDid()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tarkov-resume-{Guid.NewGuid():N}");
+        var session = Path.Combine(root, "log_2026.09.11_21-59-06_1.1.5.0.47242");
+        Directory.CreateDirectory(session);
+        await File.WriteAllTextAsync(
+            Path.Combine(session, "application.log"),
+            "2026-09-11 21:59:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Busy, RaidMode: Online, Ip: 0.0.0.0, Port: 17009, " +
+            "Location: TarkovStreets, Sid: S, GameMode: deathmatch, shortId: I'\n",
+            CancellationToken.None);
+        try
+        {
+            using var timeout = new CancellationTokenSource();
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            await using var enumerator = new WindowsEftLogWatcher(new EftLogParser())
+                .WatchAsync(root, timeout.Token)
+                .GetAsyncEnumerator(timeout.Token);
+
+            Assert.True(await enumerator.MoveNextAsync());
+            Assert.Equal(RaidLifecycleState.InRaid, enumerator.Current.SuggestedState);
+            Assert.Equal("streets-of-tarkov", enumerator.Current.MapId);
+            Assert.Contains("already running", enumerator.Current.Summary, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A finished session is not replayed as though the player were still in it.
+    /// </summary>
+    [Fact]
+    public async Task DoesNotResumeARaidThatHasAlreadyEnded()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tarkov-resume-{Guid.NewGuid():N}");
+        var session = Path.Combine(root, "log_2026.09.11_21-59-06_1.1.5.0.47242");
+        Directory.CreateDirectory(session);
+        await File.WriteAllTextAsync(
+            Path.Combine(session, "application.log"),
+            "2026-09-11 21:59:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Busy, Location: TarkovStreets'\n" +
+            "2026-09-11 22:20:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Free, Location: TarkovStreets'\n",
+            CancellationToken.None);
+        try
+        {
+            using var timeout = new CancellationTokenSource();
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            await using var enumerator = new WindowsEftLogWatcher(new EftLogParser())
+                .WatchAsync(root, timeout.Token)
+                .GetAsyncEnumerator(timeout.Token);
+
+            // Nothing is resumed, so the watcher waits for a new line and the deadline wins.
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await enumerator.MoveNextAsync());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The live session is chosen by the name the game stamped on the folder, not by mtime.
+    /// </summary>
+    /// <remarks>
+    /// On a machine whose clock stepped back four hours mid-session, the previous session's
+    /// files carried timestamps in the future, so a newest-by-time sort picked the dead folder
+    /// over the live one. The folder's name is written once at creation and cannot drift.
+    /// </remarks>
+    [Fact]
+    public async Task ChoosesTheLiveSessionWhenAStaleOneHasNewerFileTimes()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"tarkov-resume-{Guid.NewGuid():N}");
+        var stale = Path.Combine(root, "log_2026.09.11_21-29-04_1.1.5.0.47242");
+        var live = Path.Combine(root, "log_2026.09.11_21-59-06_1.1.5.0.47242");
+        Directory.CreateDirectory(stale);
+        Directory.CreateDirectory(live);
+        var stalePath = Path.Combine(stale, "application.log");
+        await File.WriteAllTextAsync(
+            stalePath,
+            "2026-09-11 21:29:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Busy, Location: Woods'\n",
+            CancellationToken.None);
+        await File.WriteAllTextAsync(
+            Path.Combine(live, "application.log"),
+            "2026-09-11 21:59:10.000|1.1.5.0.47242|Info|application|TRACE-NetworkGameCreate " +
+            "profileStatus: 'Profileid: P, Status: Busy, Location: TarkovStreets'\n",
+            CancellationToken.None);
+        // The dead session's file is stamped four hours into the future, as the clock step did.
+        File.SetLastWriteTimeUtc(stalePath, DateTime.UtcNow.AddHours(4));
+        try
+        {
+            using var timeout = new CancellationTokenSource();
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            await using var enumerator = new WindowsEftLogWatcher(new EftLogParser())
+                .WatchAsync(root, timeout.Token)
+                .GetAsyncEnumerator(timeout.Token);
+
+            Assert.True(await enumerator.MoveNextAsync());
+            Assert.Equal("streets-of-tarkov", enumerator.Current.MapId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task ProductionWindowDiscoveryIgnoresSimulator()
     {

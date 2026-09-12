@@ -1,11 +1,13 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Platform.Windows.Watching;
 
-public sealed class WindowsEftLogWatcher(
+public sealed partial class WindowsEftLogWatcher(
     EftLogParser parser,
     IEftLogObserver? observer = null,
     TimeProvider? timeProvider = null) : IEftLogWatcher
@@ -68,8 +70,13 @@ public sealed class WindowsEftLogWatcher(
         // The player signs in before starting the companion in the ordinary case, so the line
         // naming their profile is already in the file and would never be tailed. Without it
         // no notification can be attributed to them and raid start and end never fire, so the
-        // newest session is read once up front purely to learn who they are.
-        await LearnIdentityAsync(logRoot, cancellationToken).ConfigureAwait(false);
+        // current session is read once up front to learn who they are, and to catch up on a
+        // raid that is already running.
+        var resumed = await ReadCurrentSessionAsync(logRoot, cancellationToken).ConfigureAwait(false);
+        if (resumed is not null)
+        {
+            yield return resumed;
+        }
 
         using var woken = new SemaphoreSlim(0, 1);
         using var watcher = CreateChangeSignal(logRoot, woken);
@@ -119,22 +126,122 @@ public sealed class WindowsEftLogWatcher(
         }
     }
 
-    private async Task LearnIdentityAsync(string logRoot, CancellationToken cancellationToken)
+    /// <summary>
+    /// Reads the current game session once, to learn the player and to catch up on a raid
+    /// that is already running.
+    /// </summary>
+    /// <remarks>
+    /// Two things are recovered here and neither can be got by tailing.
+    ///
+    /// The profile id, because the player signs in before starting the companion, so the line
+    /// naming them is already in the file and would never be tailed. Without it no
+    /// notification can be attributed to them.
+    ///
+    /// And the raid in progress. A companion started sixty-nine seconds into a raid missed the
+    /// notification that carries the map, inferred the raid only from ongoing in-raid chatter,
+    /// which names no map, and sat on "map none" for the rest of it. Replaying the session into
+    /// a private state machine recovers what the player is actually in the middle of; it is
+    /// returned only when that state machine ends in a raid, so a session whose last raid
+    /// finished replays nothing.
+    /// </remarks>
+    private async Task<RaidEvidence?> ReadCurrentSessionAsync(string logRoot, CancellationToken cancellationToken)
     {
-        var newest = EnumerateWatched(logRoot)
-            .Where(path => Path.GetFileNameWithoutExtension(path)
-                .Contains("application", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
-        if (newest is null)
+        var folder = CurrentSessionFolder(logRoot);
+        if (folder is null)
         {
-            return;
+            return null;
         }
 
+        // output is skipped. It is the largest file by far, it is mostly keepalives, and every
+        // notification it carries is duplicated into backend, which is small.
+        var files = EnumerateWatched(folder)
+            .Where(path => !Path.GetFileNameWithoutExtension(path)
+                .Contains("output", StringComparison.OrdinalIgnoreCase))
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var recovery = new RaidStateService();
+        foreach (var path in files)
+        {
+            await ReplayAsync(path, recovery, cancellationToken).ConfigureAwait(false);
+        }
+
+        var current = recovery.Current;
+        if (current.State is not (RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid))
+        {
+            return null;
+        }
+
+        return new RaidEvidence(
+            RaidEvidenceKind.LogLine,
+            _timeProvider.GetUtcNow(),
+            current.MapId,
+            current.State,
+            current.Confidence,
+            current.MapId is null
+                ? "A raid was already running when the companion started."
+                : $"A raid on {current.MapId} was already running when the companion started.")
+        {
+            Side = current.Side,
+            SideBasis = current.SideBasis,
+        };
+    }
+
+    /// <summary>
+    /// Names the folder the game is writing to now, from the folder's own name.
+    /// </summary>
+    /// <remarks>
+    /// Not by modification time. The game stamps each folder with the session's start time
+    /// when it creates it, and that name cannot drift afterwards; file timestamps can and do.
+    /// On a machine whose clock stepped back four hours mid-session, the previous session's
+    /// files carried timestamps in the future and a newest-by-time sort chose the dead folder
+    /// over the live one. Reading a finished session as though it were current is the same
+    /// class of error as reading no session at all, and harder to notice.
+    ///
+    /// Falls back to the root itself when no folder name parses, which is what an installation
+    /// writing logs directly into the root looks like.
+    /// </remarks>
+    private static string? CurrentSessionFolder(string logRoot)
+    {
+        try
+        {
+            var newest = Directory.EnumerateDirectories(logRoot)
+                .Select(path => (Path: path, Started: SessionStart(Path.GetFileName(path))))
+                .Where(entry => entry.Started is not null)
+                .OrderByDescending(entry => entry.Started!.Value)
+                .Select(entry => entry.Path)
+                .FirstOrDefault();
+            return newest ?? logRoot;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return logRoot;
+        }
+    }
+
+    private static DateTime? SessionStart(string? folderName)
+    {
+        if (folderName is null)
+        {
+            return null;
+        }
+
+        var match = SessionFolderPattern().Match(folderName);
+        return match.Success && DateTime.TryParseExact(
+            match.Groups["stamp"].Value,
+            "yyyy.MM.dd_HH-mm-ss",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out var started)
+                ? started
+                : null;
+    }
+
+    private async Task ReplayAsync(string path, RaidStateService recovery, CancellationToken cancellationToken)
+    {
         try
         {
             await using var stream = new FileStream(
-                newest,
+                path,
                 FileMode.Open,
                 FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete,
@@ -143,9 +250,12 @@ public sealed class WindowsEftLogWatcher(
             using var reader = new StreamReader(stream, leaveOpen: true);
             while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
             {
-                // Parsed for the side effect of learning the profile id. Any evidence this
-                // produces describes a finished session and is deliberately discarded.
-                _ = parser.ParseLine(line, _timeProvider.GetUtcNow());
+                // Parsed for two side effects: the parser learns the profile id, and the
+                // private state machine works out what the player is in the middle of.
+                if (parser.ParseLine(line, _timeProvider.GetUtcNow()) is { } evidence)
+                {
+                    recovery.Apply(evidence);
+                }
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -221,6 +331,10 @@ public sealed class WindowsEftLogWatcher(
             }
         }
     }
+
+    /// <summary>The session start the game writes into each log folder's name.</summary>
+    [GeneratedRegex(@"^log_(?<stamp>\d{4}\.\d{2}\.\d{2}_\d{2}-\d{2}-\d{2})", RegexOptions.CultureInvariant)]
+    private static partial Regex SessionFolderPattern();
 
     private static long SafeLength(string path)
     {
