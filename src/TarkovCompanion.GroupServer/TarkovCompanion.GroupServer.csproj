@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TarkovCompanion.GroupServer</RootNamespace>
+    <AssemblyName>TarkovCompanion.GroupServer</AssemblyName>
+    <UserSecretsId>tarkov-companion-group-server</UserSecretsId>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TarkovCompanion.Core\TarkovCompanion.Core.csproj" />
+  </ItemGroup>
+
+</Project>
