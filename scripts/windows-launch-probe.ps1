@@ -75,6 +75,47 @@ function Measure-Directory {
     }
 }
 
+function Expand-DesktopResolution {
+    <#
+    .SYNOPSIS
+        Raises the session's display resolution so the whole window is captured.
+    .DESCRIPTION
+        A hosted runner presents a 1024x768 desktop and this application asks for
+        1500x900, with a 1120x720 minimum it will not go below. The screenshot was
+        therefore a crop of the top-left corner of the window, which is the one part
+        of the evidence a person actually reads, and it hid the layout below and to
+        the right of it.
+
+        Best effort on purpose. A runner image without this cmdlet, or one that
+        refuses the mode, still produces a screenshot; it is just the old crop. This
+        is evidence quality, not a thing to fail a build over.
+    #>
+    param(
+        [int] $Width = 1920,
+        [int] $Height = 1080
+    )
+
+    Add-Type -AssemblyName System.Windows.Forms
+    $Before = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    if ($Before.Width -ge $Width -and $Before.Height -ge $Height) {
+        return "$($Before.Width)x$($Before.Height) (already large enough)"
+    }
+
+    if (-not (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue)) {
+        return "$($Before.Width)x$($Before.Height) (Set-DisplayResolution is unavailable)"
+    }
+
+    try {
+        Set-DisplayResolution -Width $Width -Height $Height -Force
+        Start-Sleep -Seconds 2
+        $After = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        return "$($Before.Width)x$($Before.Height) to $($After.Width)x$($After.Height)"
+    }
+    catch {
+        return "$($Before.Width)x$($Before.Height) (unchanged: $($_.Exception.Message))"
+    }
+}
+
 function Save-PrimaryScreenImage {
     param([string] $Path)
 
@@ -106,6 +147,10 @@ function Save-PrimaryScreenImage {
 
     return "$($Bounds.Width)x$($Bounds.Height)"
 }
+
+# Done before the application starts so it lays out for the larger desktop rather
+# than being resized under it.
+$DesktopGeometry = Expand-DesktopResolution
 
 $ResolvedAppPath = (Resolve-Path -LiteralPath $AppPath).Path
 $PackageDirectory = Split-Path -Parent $ResolvedAppPath
@@ -205,7 +250,7 @@ try {
 
     try {
         $ScreenGeometry = Save-PrimaryScreenImage -Path $ScreenshotPath
-        Add-Observation -Name "screenshot" -Passed $true -Detail "Captured $ScreenGeometry desktop to $ScreenshotPath." -Required:$false
+        Add-Observation -Name "screenshot" -Passed $true -Detail "Captured $ScreenGeometry desktop to $ScreenshotPath. Display: $DesktopGeometry." -Required:$false
     }
     catch {
         Add-Observation -Name "screenshot" -Passed $false -Detail $_.Exception.Message -Required:$false
