@@ -1927,9 +1927,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // Tell the coordinate mapper which level this is before anything is placed on it.
         // Everything drawn on the canvas is positioned in 2^zoom space, so a mapper still
         // assuming the pyramid's minimum would put every marker in the wrong place.
-        if (_renderModel?.Background is { } background)
+        if (_renderModel?.Background is { } planned)
         {
-            _renderModel = _renderModel with { Background = background with { TileZoom = zoom } };
+            _renderModel = _renderModel with { Background = planned with { TileZoom = zoom } };
         }
 
         var loaded = new List<MapTileViewModel>();
