@@ -152,7 +152,8 @@ public sealed class MapPresentationService
         string? cachedAssetPath = null,
         MapAssetAvailability assetAvailability = MapAssetAvailability.Available,
         string? assetMessage = null,
-        IEnumerable<MapOverlayElement>? companionElements = null)
+        IEnumerable<MapOverlayElement>? companionElements = null,
+        MapBackgroundKind? artwork = null)
     {
         ArgumentNullException.ThrowIfNull(location);
         ArgumentNullException.ThrowIfNull(variant);
@@ -161,7 +162,7 @@ public sealed class MapPresentationService
             throw new ArgumentException("The map variant does not belong to the requested location.", nameof(variant));
         }
 
-        var background = CreateBackground(variant, cachedAssetPath, assetAvailability, assetMessage);
+        var background = CreateBackground(variant, cachedAssetPath, assetAvailability, assetMessage, artwork);
         var transformAvailability = variant.Transform switch
         {
             null => MapTransformAvailability.Unavailable,
@@ -205,12 +206,45 @@ public sealed class MapPresentationService
             ?? variant.Floors.FirstOrDefault(floor => floor.IsVisibleByDefault);
     }
 
+    /// <summary>
+    /// Says which artwork the map is actually showing.
+    /// </summary>
+    /// <remarks>
+    /// This used to answer from what the variant PUBLISHES rather than from what was LOADED,
+    /// and it gave tiles unconditional priority. Seven maps publish both a tile pyramid and a
+    /// hand-drawn plan, so on every one of them, choosing the drawing produced a render model
+    /// that still said "tiles". The caller then went on to display the drawing anyway, and the
+    /// coordinate mapper, reading the model, projected every marker through tile pixel space
+    /// onto SVG artwork. That is the reported fault: on the drawing, all the icons are in the
+    /// wrong place while the picture itself looks correct, because the picture is stretched to
+    /// fill whatever canvas it is given and cannot betray the mismatch.
+    ///
+    /// The contradiction was visible in the result and nobody read it: a background of kind
+    /// TileTemplate whose SourceUri was the tile template and whose CachedAssetPath pointed at
+    /// an SVG. A background that describes two different things is proof its kind was inferred
+    /// rather than chosen.
+    ///
+    /// So the choice is now passed in. An explicit request wins when the variant can honour
+    /// it; otherwise this falls back to the old order, which is still correct for the many
+    /// maps that publish only one artwork.
+    /// </remarks>
     private static MapBackground? CreateBackground(
         MapVariant variant,
         string? cachedAssetPath,
         MapAssetAvailability availability,
-        string? message)
+        string? message,
+        MapBackgroundKind? artwork)
     {
+        if (artwork == MapBackgroundKind.Svg && variant.SvgPath is not null)
+        {
+            return new(MapBackgroundKind.Svg, variant.SvgPath, cachedAssetPath, availability, message);
+        }
+
+        if (artwork == MapBackgroundKind.TileTemplate && variant.TilePath is not null)
+        {
+            return new(MapBackgroundKind.TileTemplate, variant.TilePath, cachedAssetPath, availability, message);
+        }
+
         if (variant.TilePath is not null)
         {
             return new(MapBackgroundKind.TileTemplate, variant.TilePath, cachedAssetPath, availability, message);

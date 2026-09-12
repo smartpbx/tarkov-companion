@@ -1071,8 +1071,22 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             SelectedFloor = floor;
-            _renderModel = (_renderModel ?? _presentationService.Create(location, variant)).SelectFloor(floor.Id);
-            if (floor.TilePath is not null)
+            _renderModel = (_renderModel ?? _presentationService.Create(
+                location,
+                variant,
+                artwork: PrefersDrawing ? MapBackgroundKind.Svg : null)).SelectFloor(floor.Id);
+
+            // A floor with tiles normally wins, because most floors only have tiles. The
+            // exception is a floor the SVG branch below would actually accept while the player
+            // has asked for the drawing; without that test, choosing the drawing on a map like
+            // Customs would load tiles for a floor and put the markers back into the wrong
+            // space. The test has to mirror the else-if exactly: gating this on PrefersDrawing
+            // alone drops floors that have tiles and no SVG layer straight through to the final
+            // else, which sets Background to null and shows an empty map.
+            var drawingWinsThisFloor = PrefersDrawing
+                && variant.SvgPath is not null
+                && (string.Equals(floor.Id, "base", StringComparison.Ordinal) || floor.SvgLayer is not null);
+            if (floor.TilePath is not null && !drawingWinsThisFloor)
             {
                 Tiles = [];
                 BackgroundImage = null;
@@ -1668,7 +1682,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 _renderModel = _presentationService.Create(
                     location,
                     variant,
-                    companionElements: await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true));
+                    companionElements: await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true),
+                    artwork: MapBackgroundKind.TileTemplate);
                 await LoadTilesAsync(variant, cancellationToken).ConfigureAwait(true);
             }
             else
@@ -1677,13 +1692,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     ? new MapAssetCacheResult(null, "No upstream artwork is configured for this variant.")
                     : await _assetCache.GetSvgAsync(variant, SelectedFloor, cancellationToken).ConfigureAwait(true);
                 var availability = cached.Asset?.Availability ?? MapAssetAvailability.Unavailable;
+                // Say which artwork is on screen. Left to be inferred, this branch produced a
+                // render model claiming tiles while displaying the drawing, and every marker
+                // was then projected through tile pixel space onto it.
                 _renderModel = _presentationService.Create(
                     location,
                     variant,
                     cached.Asset?.LocalPath,
                     availability,
                     cached.Message,
-                    await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true));
+                    await LoadFeaturesAsync(location, variant, cancellationToken).ConfigureAwait(true),
+                    artwork: MapBackgroundKind.Svg);
                 BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
                 Status = cached.Asset is not null
                     ? $"{cached.Message} SVG rendered from the retained original; floor groups remain separate from companion overlays."
