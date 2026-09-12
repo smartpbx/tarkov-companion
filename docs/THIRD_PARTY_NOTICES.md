@@ -54,6 +54,16 @@ This document records the third-party components resolved for the `net10.0` sour
 - Authoritative source: [commit `35dfe7b12da0e64384bfaec7ebc0883196a89f9f`](https://github.com/CommunityToolkit/dotnet/tree/35dfe7b12da0e64384bfaec7ebc0883196a89f9f), recorded by the locked package.
 - Ships: yes. See `LICENSES/CommunityToolkit-MIT.md`, copied from the locked package.
 
+<!-- notice:velopack -->
+### Velopack
+
+- Component/version: `Velopack` 1.2.0.
+- Copyright/notice: Copyright © 2021 Caelan Sayler; Copyright © 2024 Velopack Ltd.
+- License: MIT.
+- Purpose: installs the application and updates it in place. On `net10.0` it declares no dependencies of its own.
+- Authoritative source: [velopack/velopack](https://github.com/velopack/velopack).
+- Ships: yes. See `LICENSES/Velopack-MIT.txt`, copied from the project.
+
 <!-- notice:microsoft-dotnet -->
 ### Microsoft managed libraries
 

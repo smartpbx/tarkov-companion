@@ -368,15 +368,19 @@
     {
       "name": "Velopack",
       "ids": [
-        "Velopack",
-        "Velopack.NuGet",
-        "Velopack.Vpk"
+        "Velopack"
       ],
+      "version": "1.2.0",
       "scope": "runtime",
       "ships": true,
       "license": "MIT",
-      "copyrightNotice": "Copyright (c) 2024 Caelan Sayler",
-      "purpose": "Installs the application and updates it in place, replacing a hand-written swap script."
+      "copyrightNotice": "Copyright \u00a9 2021 Caelan Sayler; Copyright \u00a9 2024 Velopack Ltd.",
+      "purpose": "Installs the application and updates it in place, replacing a hand-written swap script. On net10.0 it declares no dependencies of its own.",
+      "authoritativeSource": "https://github.com/velopack/velopack",
+      "licenseFiles": [
+        "LICENSES/Velopack-MIT.txt"
+      ],
+      "noticeKey": "velopack"
     },
     {
       "name": "xUnit.net",
