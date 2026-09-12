@@ -1502,6 +1502,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The map's own marker comes straight off the raid snapshot, so a screenshot taken
         // mid-raid appears without the player having to touch the map page.
         Map.ShowPlayer(snapshot.Raid.LastKnownPosition, snapshot.Raid.PositionTrail);
+        // The extracts a raid actually offers come from the player scanning the list, so the
+        // map can mark them out from the ten it knows the map has.
+        Map.ShowActiveExtracts(snapshot.Raid.ActiveExtracts);
         HasScan = snapshot.Scan.Succeeded;
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value

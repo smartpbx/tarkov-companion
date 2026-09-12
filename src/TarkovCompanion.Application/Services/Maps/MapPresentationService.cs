@@ -51,7 +51,21 @@ public sealed record MapOverlayElement(
     double RotationDegrees = 0,
     double SizePercent = 100,
     double? MinimumHeight = null,
-    double? MaximumHeight = null);
+    double? MaximumHeight = null)
+{
+    /// <summary>
+    /// Whether this is one the player has actually been offered this raid.
+    /// </summary>
+    /// <remarks>
+    /// Every map has ten or so extracts and a raid offers a handful of them, chosen when it
+    /// starts. Showing all of them equally is the difference between a reference diagram and
+    /// an answer: the player wants the ones they can use now, and the rest are context.
+    ///
+    /// Only an extract list the player scanned sets this. Nothing infers which extracts are
+    /// open, because the game does not write that down anywhere the companion can read.
+    /// </remarks>
+    public bool IsActive { get; init; }
+}
 
 public sealed record MapRenderModel(
     MapLocation Location,

@@ -254,6 +254,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private PixelRect _backgroundDrawnPixels;
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
+    private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private AvaloniaList<Point> _playerTrail = [];
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
@@ -1424,13 +1425,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var layer = _renderModel.Overlays.Single(item => item.Kind == element.Layer);
             var canvasPoint = mapper(element.Position);
+            // An extract the player was actually offered reads as highlighted whether or not
+            // its layer is, because that is the one they are looking for.
+            var isOffered = element.Layer == MapOverlayKind.Extracts && IsOffered(element.Label);
             return new MapOverlayElementViewModel(
-                element.Label,
+                isOffered ? "★ " + element.Label : element.Label,
                 canvasPoint.X,
                 canvasPoint.Y,
                 element.RotationDegrees,
-                Math.Clamp(element.SizePercent / 7, 9, 18),
-                layer.IsHighlighted);
+                Math.Clamp((isOffered ? element.SizePercent * 1.2 : element.SizePercent) / 7, 9, 18),
+                layer.IsHighlighted || isOffered);
         }).ToArray() ?? [];
         UpdateQuestGeometry();
         UpdatePlayerMarker();
@@ -1444,6 +1448,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// only redrawn when the screenshot itself changes; the age in its label is refreshed by
     /// the same snapshot tick that refreshes every other age on screen.
     /// </remarks>
+    /// <summary>
+    /// Marks the extracts the player has been offered this raid, from their own scan.
+    /// </summary>
+    /// <remarks>
+    /// A map's ten extracts are a reference; the handful a raid actually offers is an answer.
+    /// Nothing here guesses which are open, because the game writes that nowhere the companion
+    /// can read it; this is only ever the extract list the player scanned.
+    /// </remarks>
+    public void ShowActiveExtracts(IReadOnlyList<ActiveExtract> extracts)
+    {
+        ArgumentNullException.ThrowIfNull(extracts);
+        if (_activeExtracts.Count == extracts.Count &&
+            _activeExtracts.Select(extract => extract.Name).SequenceEqual(extracts.Select(extract => extract.Name), StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _activeExtracts = extracts;
+        UpdateOverlayElements();
+    }
+
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
         ArgumentNullException.ThrowIfNull(trail);
@@ -1556,6 +1581,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             return [];
         }
+    }
+
+    /// <summary>
+    /// Whether a marker names an extract the scan reported as available.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the name rather than an id, because the scan reads names off the screen and
+    /// has no id to give. Comparison is loose at both ends: the marker carries the faction in
+    /// brackets and optical recognition rarely returns a name character for character.
+    /// </remarks>
+    private bool IsOffered(string label)
+    {
+        if (_activeExtracts.Count == 0)
+        {
+            return false;
+        }
+
+        var name = label.Split('(')[0].Trim();
+        return _activeExtracts.Any(extract =>
+            name.Contains(extract.Name, StringComparison.OrdinalIgnoreCase) ||
+            extract.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
     }
 
     private Func<MapPoint, Point>? CreateCanvasMapper()
