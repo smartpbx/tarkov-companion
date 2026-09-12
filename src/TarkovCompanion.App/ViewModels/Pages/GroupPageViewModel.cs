@@ -40,9 +40,8 @@ public sealed class GroupPageViewModel : PageViewModel
     private string _saveStatus = "Fill these in and turn sharing on when the group is ready.";
     private bool _isEnabled;
     private string _serverUri = string.Empty;
-    private string _room = string.Empty;
     private string _displayName = string.Empty;
-    private string _secret = string.Empty;
+    private string _key = string.Empty;
     private bool _sharesLoadout;
     private bool _sharesQuests;
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
@@ -99,22 +98,27 @@ public sealed class GroupPageViewModel : PageViewModel
         set => SetProperty(ref _serverUri, value);
     }
 
-    public string Room
-    {
-        get => _room;
-        set => SetProperty(ref _room, value);
-    }
-
     public string DisplayName
     {
         get => _displayName;
         set => SetProperty(ref _displayName, value);
     }
 
-    public string Secret
+    /// <summary>
+    /// The one thing a group agrees between themselves.
+    /// </summary>
+    /// <remarks>
+    /// There used to be a room name and a secret. Two values meant two ways to be wrong and
+    /// the failure looked identical either way, which is exactly what happened: a member typed
+    /// their own secret, every publish was refused, and the list was simply empty.
+    ///
+    /// This is now both at once. Whoever types the same key is in the same group, and a key
+    /// nobody else uses is a room nobody else is in rather than a refusal.
+    /// </remarks>
+    public string Key
     {
-        get => _secret;
-        set => SetProperty(ref _secret, value);
+        get => _key;
+        set => SetProperty(ref _key, value);
     }
 
     public bool SharesLoadout
@@ -135,9 +139,8 @@ public sealed class GroupPageViewModel : PageViewModel
         var stored = await _settings.GetAsync(cancellationToken).ConfigureAwait(true);
         IsEnabled = stored.IsEnabled;
         ServerUri = stored.ServerUri ?? string.Empty;
-        Room = stored.Room ?? string.Empty;
         DisplayName = stored.DisplayName ?? string.Empty;
-        Secret = stored.Secret ?? string.Empty;
+        Key = stored.Key ?? string.Empty;
         SharesLoadout = stored.SharesLoadout;
         SharesQuests = stored.SharesQuests;
     }
@@ -147,9 +150,8 @@ public sealed class GroupPageViewModel : PageViewModel
         var settings = new GroupSharingSettings(
             IsEnabled,
             string.IsNullOrWhiteSpace(ServerUri) ? null : ServerUri.Trim(),
-            string.IsNullOrWhiteSpace(Room) ? null : Room.Trim(),
             string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim(),
-            string.IsNullOrWhiteSpace(Secret) ? null : Secret,
+            string.IsNullOrWhiteSpace(Key) ? null : Key.Trim(),
             SharesLoadout,
             SharesQuests);
 

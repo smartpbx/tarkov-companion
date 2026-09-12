@@ -114,11 +114,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         var payload = Describe(snapshot, settings);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
-            new Uri(new Uri(settings.ServerUri!), $"rooms/{Uri.EscapeDataString(settings.Room!)}/state"))
+            new Uri(new Uri(settings.ServerUri!), "state"))
         {
             Content = JsonContent.Create(payload, options: Json),
         };
-        request.Headers.Add("X-Group-Secret", settings.Secret);
+        request.Headers.Add("X-Group-Key", settings.Key!.Trim());
 
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -140,9 +140,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             members,
             members.Length switch
             {
-                0 => $"Sharing as {settings.DisplayName}. Nobody else is in {settings.Room} right now.",
-                1 => $"Sharing as {settings.DisplayName}. One other person in {settings.Room}.",
-                var count => $"Sharing as {settings.DisplayName}. {count} others in {settings.Room}.",
+                0 => $"Sharing as {settings.DisplayName}. Nobody else has this key open right now.",
+                1 => $"Sharing as {settings.DisplayName}. One other person sharing.",
+                var count => $"Sharing as {settings.DisplayName}. {count} others sharing.",
             },
             DateTimeOffset.UtcNow));
     }
