@@ -6,8 +6,17 @@
 # nobody may run .NET outside CI. Hence this: run it, read the diff, commit the result.
 name: License lock
 
+# Runs when the dependency graph could have changed, which is exactly when the lock needs
+# rewriting, rather than on demand. Dispatch only works from the default branch, and the work
+# that invalidates this lock happens on feature branches.
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '**/*.csproj'
+      - 'TarkovCompanion.sln'
+      - 'Directory.Packages.props'
+      - 'scripts/audit-licenses.sh'
 
 permissions:
   contents: read
