@@ -51,6 +51,26 @@ public sealed class DelegateCommand(Action execute) : ICommand
     public void Execute(object? parameter) => execute();
 }
 
+/// <summary>A command that acts on the row it was invoked from.</summary>
+/// <remarks>
+/// <see cref="DelegateCommand"/> discards its parameter, which is right for a button that means
+/// one thing and wrong for a button inside a list, where which row it sat in is the whole of
+/// what it meant.
+/// </remarks>
+public sealed class ParameterCommand<T>(Action<T?> execute) : ICommand
+    where T : class
+{
+    public event EventHandler? CanExecuteChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public bool CanExecute(object? parameter) => true;
+
+    public void Execute(object? parameter) => execute(parameter as T);
+}
+
 public sealed class AsyncDelegateCommand(Func<Task> execute) : ICommand
 {
     private bool _isRunning;
@@ -2035,6 +2055,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         // The map knows where somebody clicked; the group session knows how to tell anybody.
         Map.GroupMarkRequested += (_, request) => _ = MarkForGroupAsync(request);
+        Map.GroupMarkRemoveRequested += (_, id) => _ = RemoveGroupMarkAsync(id);
+        Map.GroupMarksClearRequested += (_, reachedOnly) => _ = ClearGroupMarksAsync(reachedOnly);
         // The History page asks; the shell decides where a replay is drawn and is the only
         // thing that can also move the player to the page holding the map.
         History.ReplayRequested += (_, request) =>
@@ -2061,9 +2083,33 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private async Task MarkForGroupAsync(GroupMarkRequest request)
     {
         var sent = await _group
-            .MarkAsync(request.MapId, request.Position, null, request.IsPing, CancellationToken.None)
+            .MarkAsync(request.MapId, request.Position, request.Label, request.IsPing, CancellationToken.None)
             .ConfigureAwait(true);
         Map.ReportMark(request.IsPing, sent);
+    }
+
+    /// <summary>
+    /// Takes a mark off the group's map and says whether it went.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is removed locally, the same rule as marking. The next exchange brings back a
+    /// room without it, so one code path draws every mark and a remover never sees a map the
+    /// group does not have — which also means a failed removal quietly leaves the mark where
+    /// it was rather than taking it off one screen and nobody else's.
+    /// </remarks>
+    private async Task RemoveGroupMarkAsync(long id)
+    {
+        var removed = await _group.RemoveMarkAsync(id, CancellationToken.None).ConfigureAwait(true);
+        Map.ReportMarkRemoved(removed);
+    }
+
+    /// <summary>Clears the group's marks on the open map, either the reached ones or all.</summary>
+    private async Task ClearGroupMarksAsync(bool reachedOnly)
+    {
+        var cleared = await _group
+            .ClearMarksAsync(Map.SelectedLocation?.Id, reachedOnly, CancellationToken.None)
+            .ConfigureAwait(true);
+        Map.ReportMarksCleared(reachedOnly, cleared);
     }
 
     public bool IsDemoMode => _options.DemoMode;
