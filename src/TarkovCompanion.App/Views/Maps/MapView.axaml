@@ -292,6 +292,48 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- What the group has marked. Waypoints stay, pings fade, and the server expires
+               pings so whatever arrives is current. Drawn beneath the member markers, because
+               where somebody actually is matters more than where they pointed. -->
+          <ItemsControl
+              ItemsSource="{Binding GroupMarks}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemContainerStyle>
+              <Style Selector="ContentPresenter">
+                <Setter Property="Canvas.Left" Value="{Binding Left}" />
+                <Setter Property="Canvas.Top" Value="{Binding Top}" />
+              </Style>
+            </ItemsControl.ItemContainerStyle>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:GroupMarkViewModel">
+                <Panel
+                    Width="{Binding Extent}"
+                    Height="{Binding Extent}"
+                    RenderTransformOrigin="50%,50%"
+                    ToolTip.Tip="{Binding Detail}">
+                  <Panel.RenderTransform>
+                    <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                  </Panel.RenderTransform>
+                  <Ellipse
+                      Width="{Binding PinSize}"
+                      Height="{Binding PinSize}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Fill="{Binding FillColor}"
+                      Stroke="{Binding OutlineColor}"
+                      StrokeThickness="{Binding OutlineWidth}" />
+                  <Border Classes="markerName" IsVisible="{Binding HasLabel}" Margin="{Binding LabelInset}">
+                    <TextBlock Classes="markerNameText" Text="{Binding Label}" />
+                  </Border>
+                </Panel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <!-- The rest of the group, where they last said they were. Ochre against the
                player's cyan, so a glance never mistakes somebody else for yourself. -->
           <ItemsControl
