@@ -74,15 +74,23 @@ public sealed partial class WindowsRecycleBin : IRecycleBin
     private static partial int ShellFileOperation(ref ShellFileOperationRequest request);
 
     /// <summary>
-    /// <c>SHFILEOPSTRUCTW</c>, which shellapi.h declares inside a byte-packed region.
+    /// <c>SHFILEOPSTRUCTW</c>, laid out the way shellapi.h actually declares it.
     /// </summary>
     /// <remarks>
-    /// <see cref="StructLayout"/> with <c>Pack = 1</c> is load-bearing. Without it the compiler
-    /// pads after <see cref="Flags"/> and every field beyond it lands at the wrong offset, so
-    /// the shell reads rubbish where the abort flag should be.
+    /// This was written with <c>Pack = 1</c> and that took the whole application down. The
+    /// header wraps this struct in <c>pshpack8.h</c>, not <c>pshpack1.h</c>, and on x64 eight
+    /// byte packing is just natural alignment: the shell expects four bytes of padding between
+    /// <see cref="Function"/> and <see cref="From"/>, two after <see cref="Flags"/>, and four
+    /// after <see cref="AnyOperationsAborted"/>. Packed to one byte, every field from
+    /// <see cref="From"/> onward sat four bytes early, so the shell read its source path out of
+    /// the back half of one pointer and the front half of the next, then dereferenced it.
+    ///
+    /// That is an access violation inside the shell, which no managed <c>catch</c> can see, so
+    /// the process was killed outright on a background timer thread with nothing in the log.
+    /// The layout is pinned by a test for that reason.
     /// </remarks>
-    [StructLayout(LayoutKind.Sequential, Pack = 1)]
-    private struct ShellFileOperationRequest
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ShellFileOperationRequest
     {
         public IntPtr WindowHandle;
         public uint Function;
