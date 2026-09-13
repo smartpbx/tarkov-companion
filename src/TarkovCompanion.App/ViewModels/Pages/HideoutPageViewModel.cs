@@ -32,6 +32,8 @@ public sealed record HideoutRequirementViewModel(
 /// </remarks>
 public sealed class HideoutPageViewModel : PageViewModel
 {
+    private int? _knownItemCount;
+
     private readonly IRequirementCatalog _requirements;
     private readonly IPlayerProfileService _profileService;
     private readonly IItemRepository _itemRepository;
@@ -91,8 +93,36 @@ public sealed class HideoutPageViewModel : PageViewModel
         }
     }
 
-    public void Apply(ApplicationRuntimeSnapshot snapshot) =>
+    /// <summary>Takes what the sync produced, rebuilding when the catalog actually changed.</summary>
+    /// <remarks>
+    /// The count is the change signal, not merely a zero check. On a fresh install this page
+    /// loads from an empty cache, the sync then fills it, and nothing here noticed: the old
+    /// code acted only on ItemCount == 0, so 0 -> N did nothing and the page went on saying it
+    /// had nothing cached until somebody pressed Reload. Copied from LoadoutPageViewModel,
+    /// which is the one page that had it right.
+    ///
+    /// Fire and forget, because Apply is called from the shell's state pass and must not block
+    /// it on a database read.
+    /// </remarks>
+    public void Apply(ApplicationRuntimeSnapshot snapshot)
+    {
         Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
+        if (_knownItemCount == snapshot.Data.ItemCount)
+        {
+            return;
+        }
+
+        _knownItemCount = snapshot.Data.ItemCount;
+        if (snapshot.Data.ItemCount == 0)
+        {
+            Stations = [];
+            Items = [];
+            Status = snapshot.Data.Detail;
+            return;
+        }
+
+        _ = LoadAsync();
+    }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 

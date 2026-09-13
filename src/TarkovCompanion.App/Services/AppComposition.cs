@@ -341,6 +341,11 @@ public static class AppComposition
         services.AddSingleton<IOcrEngineStatus>(provider => provider.GetRequiredService<TesseractOcrEngine>());
 #endif
         services.AddSingleton<CanonicalItemResolverCache>();
+        // The same instance, also offered as something a sync invalidates. Without this it is
+        // built from whatever the item table held at startup and kept for the life of the
+        // process, so a scan before the first sync returned no_match until a restart.
+        services.AddSingleton<IInvalidatableProjection>(provider =>
+            provider.GetRequiredService<CanonicalItemResolverCache>());
         services.AddSingleton<ScanContextDetector>();
         services.AddSingleton<OcrCoordinator>();
         services.AddSingleton<RecognitionService>();

@@ -54,6 +54,8 @@ public sealed record AmmoRoundViewModel(
 /// </remarks>
 public sealed class AmmoPageViewModel : PageViewModel
 {
+    private int? _knownItemCount;
+
     private const string CaliberPrefix = "Caliber";
     private const string NoRoundSelected = "Select a round to see how it ranks and why.";
 
@@ -182,18 +184,36 @@ public sealed class AmmoPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>Takes what the sync produced, rebuilding when the catalog actually changed.</summary>
+    /// <remarks>
+    /// The count is the change signal, not merely a zero check. On a fresh install this page
+    /// loads from an empty cache, the sync then fills it, and nothing here noticed: the old
+    /// code acted only on ItemCount == 0, so 0 -> N did nothing and the page went on saying it
+    /// had nothing cached until somebody pressed Reload. Copied from LoadoutPageViewModel,
+    /// which is the one page that had it right.
+    ///
+    /// Fire and forget, because Apply is called from the shell's state pass and must not block
+    /// it on a database read.
+    /// </remarks>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items";
-        if (snapshot.Data.ItemCount != 0)
+        if (_knownItemCount == snapshot.Data.ItemCount)
         {
             return;
         }
 
-        // An empty cache means the rows this page was built from are gone, so the ranking is
-        // dropped with them rather than left on screen looking current.
-        Reset();
-        Status = snapshot.Data.Detail;
+        _knownItemCount = snapshot.Data.ItemCount;
+        if (snapshot.Data.ItemCount == 0)
+        {
+            // An empty cache means the rows this page was built from are gone, so the
+            // ranking is dropped with them rather than left on screen looking current.
+            Reset();
+            Status = snapshot.Data.Detail;
+            return;
+        }
+
+        _ = LoadAsync();
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
