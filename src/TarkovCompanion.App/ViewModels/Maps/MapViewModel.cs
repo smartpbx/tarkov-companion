@@ -2946,12 +2946,58 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             }
 
             placement.IsVisible = true;
+            // A name whose tag would hang off the edge of the map is pulled back onto it.
+            // Reported as "ministration Gate" beside "ry Checkpoint": those are the extracts
+            // Administration Gate and Military Checkpoint, at the western end of Customs, each
+            // with its first characters cut off by the canvas. The tag is centred on the disc
+            // and a disc near the edge puts half of it outside, where the canvas clips it.
+            //
+            // The margin is in screen pixels, like the vertical offset beside it: the marker's
+            // box is counter-scaled, so its inside renders one to one whatever the zoom. And a
+            // centred child moves by half its margin, which is why the shift is doubled.
+            var shift = HorizontalShiftFor(arranged[index]);
             placement.Inset = new(
-                0,
+                Math.Max(0, shift * 2),
                 (MapMarkerLayout.Height / 2) + MapLabelLayout.TopOffsetFor(slot, MapOverlayElementViewModel.NameHeight),
-                0,
+                Math.Max(0, -shift * 2),
                 0);
         }
+    }
+
+    /// <summary>
+    /// How far a marker's name has to move sideways to stay on the map, in screen pixels.
+    /// </summary>
+    /// <remarks>
+    /// Positive is right. The tag is centred on the disc, so the disc's own position decides
+    /// whether half a name falls off the edge; at 23% zoom a marker twenty canvas units from
+    /// the west edge of Customs is five screen pixels in, and a hundred-pixel name loses its
+    /// first word.
+    ///
+    /// Nothing moves unless it would otherwise be cut, and then only as far as it takes: a name
+    /// a few pixels inboard still names the disc it sits under, and half a name names nothing.
+    /// A name too wide for the whole map is left centred, because there is nowhere for it to go
+    /// and shifting it would only choose which end to lose.
+    /// </remarks>
+    private double HorizontalShiftFor(MapOverlayElementViewModel marker) =>
+        HorizontalShift(marker.EstimatedNameWidth, marker.CenterX, CanvasWidth, ZoomScale);
+
+    /// <summary>The rule on its own, so it can be checked without standing up a map.</summary>
+    public static double HorizontalShift(double nameWidth, double centerX, double canvasWidth, double zoom)
+    {
+        var half = nameWidth / 2;
+        var centre = centerX * zoom;
+        var width = canvasWidth * zoom;
+        if (!double.IsFinite(width) || width <= 0 || nameWidth >= width)
+        {
+            return 0;
+        }
+
+        if (centre - half < 0)
+        {
+            return half - centre;
+        }
+
+        return centre + half > width ? width - centre - half : 0;
     }
 
     /// <summary>
