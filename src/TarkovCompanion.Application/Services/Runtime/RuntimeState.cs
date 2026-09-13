@@ -1,8 +1,8 @@
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
-using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
