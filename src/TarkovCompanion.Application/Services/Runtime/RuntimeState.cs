@@ -62,11 +62,11 @@ public sealed record ScanExecutionResult(
             ScanCompletionStatus.Unavailable =>
                 $"Scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
             _ when selected is not null && recommendation is null =>
-                $"Resolved {selected.DisplayName}; no recommendation, because the item-context evidence it needs was not there. No pixels were persisted.",
+                $"Resolved {selected.DisplayName}; recommendation withheld because required item-context evidence was unavailable. No pixels were persisted.",
             _ when selected is not null =>
-                $"Resolved {selected.DisplayName}; no pixels were persisted.",
+                $"Resolved {selected.DisplayName} from an in-memory scan; no pixels were persisted.",
             _ =>
-                $"{outcome.Context} scan finished with {outcome.Status}; nothing was auto-selected and no pixels were persisted.",
+                $"{outcome.Context} scan finished with {outcome.Status}; no item was auto-selected and no pixels were persisted.",
         };
 
         return new(
