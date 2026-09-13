@@ -336,6 +336,53 @@ public sealed record GroupTrailViewModel(string Name, AvaloniaList<Point> Points
     public bool HasPath => Points.Count > 1;
 }
 
+/// <summary>
+/// A place another player started this raid, drawn on the map with a line to you.
+/// </summary>
+/// <remarks>
+/// A list says "40 m NE"; a line says which way without reading anything, and in the first
+/// ninety seconds of a raid that is the difference. It fades with the raid, because where
+/// everybody spawned stops being where everybody is.
+/// </remarks>
+public sealed record SpawnThreatViewModel(
+    string Name,
+    double CenterX,
+    double CenterY,
+    AvaloniaList<Point> LineToPlayer,
+    double Strength)
+{
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    public double Extent => 30;
+
+    public double Left => CenterX - (Extent / 2);
+
+    public double Top => CenterY - (Extent / 2);
+
+    public double PinSize => 12;
+
+    /// <summary>
+    /// Red, which on this map means only this.
+    /// </summary>
+    /// <remarks>
+    /// Nothing else here is red: extracts are cyan, ochre and sage by faction, group marks are
+    /// violet, the player is cyan. A place somebody else may be standing right now is the one
+    /// thing on the map worth a colour of its own.
+    /// </remarks>
+    public string FillColor => Alpha("#FFE05C5C", Strength);
+
+    public string LineColor => Alpha("#FFE05C5C", Strength * 0.55);
+
+    public string OutlineColor => "#FF0B1016";
+
+    public bool HasLine => LineToPlayer.Count > 1;
+
+    private static string Alpha(string rgb, double strength)
+    {
+        var value = (int)Math.Round(Math.Clamp(strength, 0, 1) * 255);
+        return "#" + value.ToString("X2", CultureInfo.InvariantCulture) + rgb[3..];
+    }
+
 /// <summary>One floor of a map drawn in the stacked view.</summary>
 /// <param name="Name">What the floor is called, for the tooltip.</param>
 /// <param name="Image">Its artwork, the same picture the flat view draws.</param>
@@ -1015,6 +1062,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
     private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
+    private IReadOnlyList<SpawnThreatViewModel> _spawnThreats = [];
     private IReadOnlyList<FloorLayerViewModel> _floorLayers = [];
     private bool _isStacked;
     private string _spawnPanelDetail = string.Empty;
@@ -3098,11 +3146,37 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// Rebuilt on a new screenshot, a change of side and a change of map, which is every input
     /// it has. It is cheap: a few hundred points filtered and sorted, once per screenshot.
     /// </remarks>
+    /// <summary>Where the other players started, drawn on the map with a line to the player.</summary>
+    public IReadOnlyList<SpawnThreatViewModel> SpawnThreats
+    {
+        get => _spawnThreats;
+        private set
+        {
+            Set(ref _spawnThreats, value);
+            OnPropertyChanged(nameof(HasSpawnThreats));
+        }
+    }
+
+    public bool HasSpawnThreats => _spawnThreats.Count > 0;
+
+    /// <summary>
+    /// How long a spawn stays worth drawing, measured from the raid's first screenshot.
+    /// </summary>
+    /// <remarks>
+    /// Full strength for three minutes and gone by eight. Where everybody spawned is the most
+    /// useful thing on the map at the start of a raid and noise by the middle of it, and a
+    /// layer that never turns itself off is a layer somebody turns off once and never back on.
+    /// </remarks>
+    private static readonly TimeSpan ThreatsFullFor = TimeSpan.FromMinutes(3);
+
+    private static readonly TimeSpan ThreatsGoneAfter = TimeSpan.FromMinutes(8);
+
     private void UpdateSpawnPanel()
     {
         if (_mapFeatures.Count == 0 || _playerTrailPositions.Count == 0)
         {
             SpawnPanel = [];
+            SpawnThreats = [];
             SpawnPanelDetail = string.Empty;
             return;
         }
@@ -3113,6 +3187,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             anchor.Position,
             _playerPosition?.Position,
             _side);
+        UpdateSpawnThreats(near, anchor);
         SpawnPanel = near
             .Select(spawn => new SpawnPanelViewModel(
                 spawn.Name,
@@ -3124,6 +3199,71 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         SpawnPanelDetail = near.Count == 0
             ? string.Empty
             : $"Measured from your first screenshot of this raid, {anchor.Timestamp.ToLocalTime():t}.";
+    }
+
+    /// <summary>
+    /// Draws the nearby spawns and joins each to the player, fading as the raid goes on.
+    /// </summary>
+    /// <remarks>
+    /// The line is the point. A panel answers "how far and which one"; a line answers "which
+    /// way" without reading anything, which is the question in the first ninety seconds.
+    ///
+    /// Dashed, like every other line this map draws from evidence rather than observation: a
+    /// spawn is where somebody probably started, not a route anybody walked.
+    /// </remarks>
+    private void UpdateSpawnThreats(IReadOnlyList<NearbySpawn> near, ScreenshotPosition anchor)
+    {
+        var mapper = CreateCanvasMapper();
+        var elapsed = DateTimeOffset.UtcNow - anchor.Timestamp.ToUniversalTime();
+        var strength = elapsed <= ThreatsFullFor
+            ? 1
+            : elapsed >= ThreatsGoneAfter
+                ? 0
+                : 1 - ((elapsed - ThreatsFullFor) / (ThreatsGoneAfter - ThreatsFullFor));
+        if (near.Count == 0 || _renderModel is null || mapper is null || strength <= 0)
+        {
+            SpawnThreats = [];
+            return;
+        }
+
+        Point? player = null;
+        if (_playerPosition is { } position && _renderModel.TryMapPosition(position.Position, out var playerPoint))
+        {
+            var projected = mapper(playerPoint);
+            if (double.IsFinite(projected.X) && double.IsFinite(projected.Y))
+            {
+                player = projected;
+            }
+        }
+
+        var threats = new List<SpawnThreatViewModel>();
+        foreach (var spawn in near)
+        {
+            if (!_renderModel.TryMapPosition(spawn.Position, out var mapPoint))
+            {
+                continue;
+            }
+
+            var point = mapper(mapPoint);
+            if (!double.IsFinite(point.X) || !double.IsFinite(point.Y))
+            {
+                continue;
+            }
+
+            var line = new AvaloniaList<Point>();
+            if (player is { } end)
+            {
+                line.Add(point);
+                line.Add(end);
+            }
+
+            threats.Add(new(spawn.Name, point.X, point.Y, line, strength)
+            {
+                Scale = _markerScale,
+            });
+        }
+
+        SpawnThreats = threats;
     }
 
     public void ShowGroup(IReadOnlyList<GroupMemberView> members)
