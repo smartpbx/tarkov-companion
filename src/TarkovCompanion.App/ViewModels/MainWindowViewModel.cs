@@ -207,6 +207,12 @@ public abstract class PageViewModel(string title, string description, string evi
     }
 }
 
+/// <summary>One extract this raid is offering, as a row.</summary>
+/// <param name="Name">What the game calls it.</param>
+/// <param name="Confidence">How sure the reading was, because a poor match is worth a second look.</param>
+/// <param name="Evidence">Which engine read it and when, for when the reading turns out wrong.</param>
+public sealed record ActiveExtractViewModel(string Name, string Confidence, string Evidence);
+
 public sealed class RaidPageViewModel : PageViewModel
 {
     /// <inheritdoc />
@@ -220,7 +226,7 @@ public sealed class RaidPageViewModel : PageViewModel
     private readonly List<string> _scannedThisRaid = [];
     private string _raidState = "No raid evidence";
     private string _position = "No last-known position";
-    private string _extracts = "None observed";
+    private IReadOnlyList<ActiveExtractViewModel> _extracts = [];
     private RaidSummaryViewModel? _summary;
     private RaidSnapshot? _lastInRaid;
     private string? _lastInRaidMode;
@@ -293,11 +299,37 @@ public sealed class RaidPageViewModel : PageViewModel
         private set => SetProperty(ref _position, value);
     }
 
-    public string Extracts
+    /// <summary>
+    /// The extracts this raid is offering, one per row.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "extracts were detected but they format pretty useless for a human", with a
+    /// screenshot of this:
+    ///
+    /// <code>
+    /// Bridge V-Ex (99%, ocr:tesseract-5.5.1-wrapper-5.5.2; map=woods; status=Active;
+    /// observedUtc=2026-09-13T03:12:22.8604023+00:00), Power Line Passage (Flare) (81%, ...)
+    /// </code>
+    ///
+    /// That is the recognition's own diagnostic, printed verbatim and joined with commas into
+    /// a paragraph. It says which engine read it and at what instant, neither of which is a
+    /// thing anybody reads while deciding where to leave from. The name is, and the confidence
+    /// is, because a 60% match is worth a second look before running across a map.
+    ///
+    /// The diagnostic is kept on the row as a tooltip rather than deleted. It is exactly what
+    /// is wanted when a recognised extract turns out to be the wrong one.
+    /// </remarks>
+    public IReadOnlyList<ActiveExtractViewModel> Extracts
     {
         get => _extracts;
-        private set => SetProperty(ref _extracts, value);
+        private set
+        {
+            SetProperty(ref _extracts, value);
+            OnPropertyChanged(nameof(HasExtracts));
+        }
     }
+
+    public bool HasExtracts => Extracts.Count > 0;
 
     public void Apply(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc)
     {
@@ -311,12 +343,12 @@ public sealed class RaidPageViewModel : PageViewModel
             : string.Create(
                 CultureInfo.InvariantCulture,
                 $"X {raid.LastKnownPosition.Position.X:F1}, Y {raid.LastKnownPosition.Position.Y:F1}, Z {raid.LastKnownPosition.Position.Z:F1} · screenshot {FormatAge(raid.LastKnownPosition.Timestamp, nowUtc)}");
-        Extracts = raid.ActiveExtracts.Count == 0
-            ? "None observed"
-            : string.Join(
-                ", ",
-                raid.ActiveExtracts.Select(extract =>
-                    $"{extract.Name} ({extract.Confidence.Value:P0}, {extract.Source})"));
+        Extracts = raid.ActiveExtracts
+            .Select(extract => new ActiveExtractViewModel(
+                extract.Name,
+                string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
+                extract.Source))
+            .ToArray();
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
