@@ -10,6 +10,34 @@
 
     <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="10">
+        <!-- Walking a finished raid back across the map. A step is one screenshot rather than
+             a second of clock time, because that is the resolution of the evidence: two
+             screenshots four minutes apart say nothing about the walk between them. -->
+        <Border Classes="panel cyan" IsVisible="{Binding Replay.IsOpen}">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="label" Text="Replay" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Classes="quiet" Command="{Binding Replay.CloseCommand}" Content="Close" />
+            </Grid>
+            <TextBlock Classes="value" Text="{Binding Replay.Title}" TextWrapping="Wrap" />
+            <Slider Minimum="0"
+                    Maximum="{Binding Replay.LastStep}"
+                    Value="{Binding Replay.Step, Mode=TwoWay}"
+                    TickFrequency="1"
+                    IsSnapToTickEnabled="True" />
+            <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="6">
+              <Button Command="{Binding Replay.BackCommand}" Content="&#x2212;" />
+              <Button Grid.Column="1" Classes="primary" Command="{Binding Replay.PlayCommand}" Content="{Binding Replay.PlayLabel}" />
+              <Button Grid.Column="2" Command="{Binding Replay.ForwardCommand}" Content="+" />
+              <TextBlock Grid.Column="3"
+                         Classes="caption"
+                         Text="{Binding Replay.Position}"
+                         VerticalAlignment="Center"
+                         TextWrapping="Wrap" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
         <!-- The raid that just finished, shown first so it is read without going looking for
              it. It stays until the player dismisses it or the next raid ends. Nothing about
              survival, kills or loot appears here because the game logs none of it.

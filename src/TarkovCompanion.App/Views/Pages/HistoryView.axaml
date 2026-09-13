@@ -38,6 +38,13 @@
                        It is a floor: straight lines between screenshots minutes apart. -->
                   <TextBlock Classes="label" Text="Path" />
                   <TextBlock Classes="value" Text="{Binding Path}" TextWrapping="Wrap" />
+                  <!-- Only where there is something to watch. A button that opens an empty
+                       replay is a button that answers a question with nothing. -->
+                  <Button Classes="quiet"
+                          Command="{Binding ReplayCommand}"
+                          Content="Watch it"
+                          IsVisible="{Binding CanReplay}"
+                          HorizontalAlignment="Left" />
                   <TextBlock Classes="caption" Text="{Binding Notes}" TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
