@@ -250,6 +250,9 @@ public sealed class RaidPageViewModel : PageViewModel
     private string _timeLeft = "Unknown";
     private string _timeLeftDetail = "No raid in progress";
 
+    /// <summary>Walking a finished raid back across the map, when one has been opened.</summary>
+    public RaidReplayViewModel Replay { get; }
+
     /// <summary>How long is left, as the game would draw it.</summary>
     public string TimeLeft
     {
@@ -282,6 +285,7 @@ public sealed class RaidPageViewModel : PageViewModel
         Map = map;
         _raidHistoryService = raidHistoryService;
         _maps = maps;
+        Replay = new(map);
         DismissSummaryCommand = new DelegateCommand(DismissSummary);
     }
 
@@ -857,6 +861,9 @@ public sealed class ScannerPageViewModel : PageViewModel
     }
 }
 
+/// <summary>A raid somebody has asked to watch again, with the path it was walked.</summary>
+public sealed record RaidReplayRequest(string Title, IReadOnlyList<ScreenshotPosition> Positions);
+
 public sealed record RaidHistoryEntryViewModel(
     string Id,
     string Map,
@@ -878,6 +885,11 @@ public sealed record RaidHistoryEntryViewModel(
     /// photographed something and "1.4 km" says what the raid was.
     /// </remarks>
     public string Path { get; init; } = "No screenshots";
+
+    /// <summary>Watches this raid again on the map.</summary>
+    public ICommand? ReplayCommand { get; init; }
+
+    public bool CanReplay => ReplayCommand is not null;
 }
 
 public sealed class HistoryPageViewModel : PageViewModel
@@ -907,6 +919,40 @@ public sealed class HistoryPageViewModel : PageViewModel
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
+    /// <summary>Raised when somebody asks to watch a raid again.</summary>
+    /// <remarks>
+    /// An event rather than a reference to the map, because the History page's business is
+    /// history. Where the replay is drawn is the shell's decision and it is the only thing
+    /// that can also move the player to the page holding the map.
+    /// </remarks>
+    public event EventHandler<RaidReplayRequest>? ReplayRequested;
+
+    internal async Task ReplayAsync(RaidHistoryEntryViewModel entry)
+    {
+        try
+        {
+            if (!Guid.TryParse(entry.Id, out var raidId))
+            {
+                return;
+            }
+
+            var positions = await _raidHistoryService
+                .ListPositionsAsync(raidId, CancellationToken.None)
+                .ConfigureAwait(true);
+            if (positions.Count == 0)
+            {
+                Status = $"{entry.Map} has no screenshots to replay";
+                return;
+            }
+
+            ReplayRequested?.Invoke(this, new($"{entry.Map} · {entry.Started}", positions));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"That raid could not be replayed · {exception.Message}";
+        }
+    }
+
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
     public async Task LoadAsync(CancellationToken cancellationToken)
@@ -920,7 +966,7 @@ public sealed class HistoryPageViewModel : PageViewModel
                 var positions = await _raidHistoryService
                     .ListPositionsAsync(raid.Id, cancellationToken)
                     .ConfigureAwait(true);
-                entries.Add(new RaidHistoryEntryViewModel(
+                var entry = new RaidHistoryEntryViewModel(
                     raid.Id.ToString("D"),
                     raid.MapId ?? "Unknown map",
                     raid.Mode,
@@ -930,7 +976,13 @@ public sealed class HistoryPageViewModel : PageViewModel
                     raid.Notes ?? "No notes")
                 {
                     Path = DescribePath(positions),
-                });
+                };
+
+                // Built after the row, so the command closes over this raid rather than over
+                // whichever row the list happened to end with.
+                entries.Add(positions.Count == 0
+                    ? entry
+                    : entry with { ReplayCommand = new AsyncDelegateCommand(() => ReplayAsync(entry)) });
             }
 
             Entries = entries;
@@ -1661,6 +1713,16 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         // The map knows where somebody clicked; the group session knows how to tell anybody.
         Map.GroupMarkRequested += (_, request) => _ = MarkForGroupAsync(request);
+        // The History page asks; the shell decides where a replay is drawn and is the only
+        // thing that can also move the player to the page holding the map.
+        History.ReplayRequested += (_, request) =>
+        {
+            Raid.Replay.Open(request.Title, request.Positions);
+            if (Navigation.FirstOrDefault(item => ReferenceEquals(item.Page, Raid)) is { } destination)
+            {
+                Select(destination);
+            }
+        };
 
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);

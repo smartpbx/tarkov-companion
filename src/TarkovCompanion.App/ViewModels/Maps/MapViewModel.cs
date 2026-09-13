@@ -3016,10 +3016,71 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     public bool HasArea => Area.Length > 0;
+    /// <summary>
+    /// Whether the map is showing a raid that has already been played.
+    /// </summary>
+    /// <remarks>
+    /// While it is, a live screenshot must not take the marker back: somebody stepping through
+    /// last night's raid has said what they want the map to show, and a new screenshot arriving
+    /// mid-replay would silently be answering a different question.
+    /// </remarks>
+    public bool IsReplaying { get; private set; }
+
+    /// <summary>
+    /// Shows a recorded raid up to one of its screenshots.
+    /// </summary>
+    /// <remarks>
+    /// The same marker and the same dotted trail the live map uses, because a replay is the
+    /// same claim about the same evidence: these places, in this order, each from a screenshot
+    /// the player took. Drawing it any other way would invent a distinction that is not there.
+    /// </remarks>
+    public void ShowReplay(IReadOnlyList<ScreenshotPosition> trail, int step)
+    {
+        ArgumentNullException.ThrowIfNull(trail);
+        if (trail.Count == 0)
+        {
+            ClearReplay();
+            return;
+        }
+
+        var index = Math.Clamp(step, 0, trail.Count - 1);
+        IsReplaying = true;
+        _playerPosition = trail[index];
+        _playerTrailPositions = trail.Take(index + 1).ToArray();
+        UpdatePlayerMarker();
+        UpdateArea();
+        CentreOnReplay();
+    }
+
+    /// <summary>Hands the map back to the live raid.</summary>
+    public void ClearReplay()
+    {
+        if (!IsReplaying)
+        {
+            return;
+        }
+
+        IsReplaying = false;
+        _playerPosition = null;
+        _playerTrailPositions = [];
+        UpdatePlayerMarker();
+        UpdateArea();
+    }
+
+    private void CentreOnReplay()
+    {
+        FollowsPlayer = true;
+        PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
         ArgumentNullException.ThrowIfNull(trail);
+        if (IsReplaying)
+        {
+            return;
+        }
+
         _playerPosition = position;
         _playerTrailPositions = trail;
         UpdatePlayerMarker();
