@@ -207,6 +207,37 @@
           </StackPanel>
         </Border>
 
+        <!-- Where the other players started. The first screenshot of a raid is taken where the
+             player spawned, so the player spawn points near it are where everybody else began,
+             and for the first ninety seconds of a raid that is the most useful thing the map
+             can say.
+
+             It says what it is anchored to rather than calling it "your spawn", because
+             somebody who ran for a minute before taking a screenshot has an anchor a minute
+             from where they started and can only judge that if they are told. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasSpawnPanel}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Where the others started" />
+            <ItemsControl ItemsSource="{Binding Map.SpawnPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:SpawnPanelViewModel">
+                  <Border Classes="inset" Padding="9,7" Margin="0,0,0,6">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Classes="label" Text="{Binding FromStart}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption"
+                                 Text="{Binding FromPlayer}"
+                                 IsVisible="{Binding HasFromPlayer}"
+                                 TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption" Text="{Binding Map.SpawnPanelDetail}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- Everyone else in the group, in the column beside the map rather than floating over
              it. A marker says where somebody is; it cannot say that they are on a different
              map, that their position is eight minutes old, or what they are carrying, and

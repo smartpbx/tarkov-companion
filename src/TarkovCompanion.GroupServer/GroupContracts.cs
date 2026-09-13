@@ -34,7 +34,35 @@ public sealed record GroupMemberState(
     [property: JsonPropertyName("heading")] double? HeadingDegrees,
     [property: JsonPropertyName("positionAge")] double? PositionAgeSeconds,
     [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout,
-    [property: JsonPropertyName("quests")] IReadOnlyList<string> Quests);
+    [property: JsonPropertyName("quests")] IReadOnlyList<string> Quests)
+{
+    /// <summary>
+    /// What this member's game told them about everybody else in their in-game party.
+    /// </summary>
+    /// <remarks>
+    /// The one place where a member publishes something that is not about themselves, and it
+    /// exists because of an asymmetry in what the game says. Its notifications about other
+    /// players carry a full profile with an equipment block; its notifications about you carry
+    /// a bare profile id and nothing else. Checked across 325 log files: every equipment block
+    /// belongs to somebody else and the reader's own account id appears in none of them.
+    ///
+    /// So nobody can see their own kit and everybody can see everybody else's. Published here,
+    /// the group can hand each member back the one thing they cannot read.
+    ///
+    /// Only the party the game has already told them about, and only the slots the Squad page
+    /// already shows. This adds no new reading of anybody's data; it moves what is already on
+    /// one screen onto the screen of the person it is about.
+    /// </remarks>
+    [JsonPropertyName("observed")]
+    public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
+}
+
+/// <summary>What one member's game said about another player, to be handed back to them.</summary>
+/// <param name="Name">The other player's in-game nickname, which is the only key there is.</param>
+/// <param name="Loadout">The gear slots the game named, in the order a player reads them.</param>
+public sealed record GroupObservedMember(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout);
 
 /// <summary>What the server sends back: everyone in the room except the receiver.</summary>
 /// <param name="Room">The room the update belongs to, so a client can ignore a stale one.</param>

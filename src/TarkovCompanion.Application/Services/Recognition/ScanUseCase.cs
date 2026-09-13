@@ -148,6 +148,21 @@ public sealed class ScanUseCase : IScanUseCase
                 Confidence.Certain,
                 image.CapturedUtc.ToUniversalTime()),
         };
+        if (recognition.Hud is { } hud)
+        {
+            // Worth recording on every scan, including the ones that found nothing. The game
+            // fades its display out of roughly one screenshot in eight, and a scan that came
+            // back empty off a frame with no display in it is not the same failure as one off a
+            // frame that had everything and still read nothing.
+            evidence.Add(new(
+                "game_display",
+                hud.IsPresent
+                    ? hud.Detail + " " + hud.Silhouette.Detail
+                    : hud.Detail,
+                hud.IsPresent ? Confidence.Certain : new Confidence(0.5),
+                image.CapturedUtc.ToUniversalTime()));
+        }
+
         foreach (var candidate in recognition.Candidates)
         {
             evidence.Add(new(

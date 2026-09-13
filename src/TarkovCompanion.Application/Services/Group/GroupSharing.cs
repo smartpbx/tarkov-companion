@@ -129,6 +129,16 @@ public sealed record GroupSnapshot(
     /// <summary>Places somebody is pointing at now, which the server expires for us.</summary>
     public IReadOnlyList<GroupPingView> Pings { get; init; } = [];
 
+    /// <summary>
+    /// This player's own kit, as the rest of the group described it back to them.
+    /// </summary>
+    /// <remarks>
+    /// The game tells every player what everybody else is wearing and tells them nothing about
+    /// themselves, so this is the only route anybody has to their own kit. It stays empty until
+    /// somebody else in the same party is also running this companion.
+    /// </remarks>
+    public IReadOnlyList<string> MyLoadout { get; init; } = [];
+
     public static GroupSnapshot Off { get; } = new(
         false,
         [],
