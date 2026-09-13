@@ -44,9 +44,13 @@ public sealed class FuzzyCanonicalItemResolver
                 StringComparer.Ordinal);
     }
 
+    /// <param name="ocrConfidence">
+    /// What the engine thought of the reading, or null where it does not score at all. Null and
+    /// zero are different answers and are treated differently: see <see cref="OcrLine"/>.
+    /// </param>
     public CanonicalItemResolution Resolve(
         string observedText,
-        Confidence ocrConfidence,
+        Confidence? ocrConfidence,
         int limit = 5,
         PixelRect? bounds = null)
     {
@@ -149,11 +153,16 @@ public sealed class FuzzyCanonicalItemResolver
     private static RecognitionCandidate Score(
         IndexedName item,
         string observed,
-        Confidence ocrConfidence,
+        Confidence? ocrConfidence,
         PixelRect? bounds)
     {
         var similarity = FuzzyTextSimilarity.Score(observed, item.Normalized);
-        var combined = Math.Clamp((similarity * 0.80) + (ocrConfidence.Value * 0.20), 0, 1);
+        // An engine with no opinion is not an engine with a bad opinion. Blending a missing
+        // score in as zero capped a character-perfect read at 0.80 against an auto-select
+        // threshold of 0.90, so the scanner could never select anything at all.
+        var combined = ocrConfidence is { } reported
+            ? Math.Clamp((similarity * 0.80) + (reported.Value * 0.20), 0, 1)
+            : similarity;
         return new(
             item.Id,
             item.DisplayName,

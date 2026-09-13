@@ -177,7 +177,10 @@ public sealed class ScanContextDetector
         {
             var match = lines
                 .Where(line => line.Text.Contains(_normalizer.NormalizeForLookup(anchor.Term), StringComparison.Ordinal))
-                .OrderByDescending(line => line.Line.Confidence.Value)
+                // An unscored line ranks with a confident one rather than last. Ordering the
+                // engine that ships to the bottom of its own output would be a strange way to
+                // pick the best evidence.
+                .OrderByDescending(line => line.Line.Confidence?.Value ?? 1)
                 .FirstOrDefault();
             if (match.Line is not null)
             {

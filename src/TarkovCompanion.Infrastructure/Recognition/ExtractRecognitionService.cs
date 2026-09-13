@@ -103,7 +103,12 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
             }
 
             var best = ranked[0];
-            var score = Math.Clamp((best.Similarity * 0.80) + (line.Confidence.Value * 0.20), 0, 1);
+            // Same rule as the item resolver: an engine with no opinion is not an engine with a
+            // bad one. Blended in as zero, the containment match that catches an abbreviated
+            // exit name scored 0.688 against a threshold of 0.70 and never matched.
+            var score = line.Confidence is { } reported
+                ? Math.Clamp((best.Similarity * 0.80) + (reported.Value * 0.20), 0, 1)
+                : best.Similarity;
             if (best.Similarity < 0.65 || score < RecognitionThresholds.Ambiguous)
             {
                 unmatched.Add(line.Text);
