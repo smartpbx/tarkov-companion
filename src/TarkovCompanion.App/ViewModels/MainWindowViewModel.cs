@@ -1744,6 +1744,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The extracts a raid actually offers come from the player scanning the list, so the
         // map can mark them out from the ten it knows the map has.
         Map.ShowActiveExtracts(snapshot.Raid.ActiveExtracts);
+        // A PMC exit is not a worse option for a scav, it is not an option, so the map stops
+        // drawing the ones this raid cannot use.
+        Map.ShowSide(snapshot.Raid.Side);
         Map.ShowGroup(snapshot.Group.Members);
         Map.ShowGroupMarks(snapshot.Group.Waypoints, snapshot.Group.Pings);
         HasScan = snapshot.Scan.Succeeded;

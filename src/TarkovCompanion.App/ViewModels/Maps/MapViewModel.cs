@@ -875,6 +875,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private PixelSize _backgroundPixelSize;
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
+    private MapFeatureFaction _side = MapFeatureFaction.Unknown;
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
@@ -2328,7 +2329,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 layer.Name,
                 layer.IsVisible,
                 layer.IsHighlighted,
-                elements.Count(element => element.Layer == layer.Kind)))
+                // Counted after the side filter, so the row says how many are on the map
+                // rather than how many the catalog holds. A scav told there are twelve
+                // extracts and shown seven has been told one of them wrong.
+                elements.Count(element => element.Layer == layer.Kind && CanBeTaken(element))))
             .Where(layer => layer.IsListed)
             .OrderBy(layer => layer.Rank)
             .ToArray() ?? [];
@@ -2356,6 +2360,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var markers = new List<MapOverlayElementViewModel>();
         foreach (var element in _renderModel.VisibleOverlayElements)
         {
+            if (!CanBeTaken(element))
+            {
+                continue;
+            }
+
             var layer = layers.Single(item => item.Kind == element.Layer);
             var canvasPoint = mapper(element.Position);
             if (!double.IsFinite(canvasPoint.X) || !double.IsFinite(canvasPoint.Y))
@@ -2504,6 +2513,55 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// Nothing here guesses which are open, because the game writes that nowhere the companion
     /// can read it; this is only ever the extract list the player scanned.
     /// </remarks>
+    /// <summary>
+    /// Which side this raid is being run as, so the exits you cannot take come off the map.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "if i am a scav, i should only see scav extracts". A PMC exit is not a
+    /// worse option for a scav, it is not an option, and drawing it is worse than drawing
+    /// nothing: it sends somebody to a door that will not open.
+    ///
+    /// Only exits, and only when the side is actually known. Spawns keep both sides because a
+    /// scav wants to know where the PMCs started, and an exit whose side the feed never stated
+    /// stays on the map rather than being guessed away.
+    /// </remarks>
+    public void ShowSide(string? side)
+    {
+        var resolved = side?.Trim().ToLowerInvariant() switch
+        {
+            "pmc" => MapFeatureFaction.Pmc,
+            "scav" => MapFeatureFaction.Scav,
+            _ => MapFeatureFaction.Unknown,
+        };
+        if (resolved == _side)
+        {
+            return;
+        }
+
+        _side = resolved;
+        // Through the layers, so the extract row's count follows what is actually drawn.
+        UpdateOverlays();
+    }
+
+    /// <summary>
+    /// Whether an exit is one this raid could actually use.
+    /// </summary>
+    /// <remarks>
+    /// Shared exits are for everybody and an exit the feed says nothing about is not known to
+    /// be unusable, so both stay. Only an exit stated to be for the other side is removed.
+    /// </remarks>
+    private bool CanBeTaken(MapOverlayElement element) => CanBeTaken(element, _side);
+
+    /// <summary>The rule on its own, so it can be checked without standing up a map.</summary>
+    public static bool CanBeTakenForTest(MapOverlayElement element, MapFeatureFaction side) =>
+        CanBeTaken(element, side);
+
+    private static bool CanBeTaken(MapOverlayElement element, MapFeatureFaction side) =>
+        side == MapFeatureFaction.Unknown ||
+        element.Layer != MapOverlayKind.Extracts ||
+        element.Faction is MapFeatureFaction.Unknown or MapFeatureFaction.Shared ||
+        element.Faction == side;
+
     public void ShowActiveExtracts(IReadOnlyList<ActiveExtract> extracts)
     {
         ArgumentNullException.ThrowIfNull(extracts);
