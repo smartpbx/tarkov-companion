@@ -2,6 +2,10 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.GroupServer;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Kestrel's default is 30 MB. Nothing this relay accepts is larger than a few kilobytes, and a
+// 1 GB box should not be asked to buffer thirty megabytes because somebody sent it.
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
 // StateDirectory=tarkov-group gives the unit /var/lib/tarkov-group, which is outside the tree
@@ -50,7 +54,32 @@ var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Members expired only when their room was read, so a room nobody reads never forgot
+// anything, and an empty room was never removed at all. Bounded by time now rather than by
+// whether anybody happens to look.
+var sweeper = new PeriodicTimer(TimeSpan.FromMinutes(1));
+_ = Task.Run(async () =>
+{
+    while (await sweeper.WaitForNextTickAsync().ConfigureAwait(false))
+    {
+        try
+        {
+            rooms.Sweep();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // A failed sweep is one minute of memory, not a reason to stop sweeping.
+        }
+    }
+});
+
+// Counts only: how much this relay is holding, never who or where.
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "ok",
+    rooms = rooms.RoomCount,
+    members = rooms.MemberCount,
+}));
 
 // The second screen.
 //
@@ -83,25 +112,13 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
         return TypedResults.Unauthorized();
     }
 
-    if (string.IsNullOrWhiteSpace(state.Name) || state.Name.Length > 48)
+    // One validation, and it tolerates nulls. `"observed": null` used to reach
+    // state.Observed.Count and throw, which the framework turned into a 500 — a malformed
+    // request answered as a server fault, and an unhandled exception per attempt for anybody
+    // who cared to send them.
+    if (state.Validate() is { } invalid)
     {
-        return TypedResults.BadRequest("A display name is required and must be 48 characters or fewer.");
-    }
-
-    // Bounded because this is the one field carrying something about other people, and a
-    // client that published four hundred of them would be filling the room rather than
-    // helping it. A party is five.
-    if (state.Observed.Count > 8 || state.Observed.Any(observed =>
-        string.IsNullOrWhiteSpace(observed.Name) || observed.Name.Length > 48 || observed.Loadout.Count > 12))
-    {
-        return TypedResults.BadRequest("Observations must name at most eight players with at most twelve items each.");
-    }
-
-    // A trail is screenshots, not a stream: a raid produces a handful and a client that
-    // published four hundred points would be filling the room rather than helping it.
-    if (state.Trail.Count > 12)
-    {
-        return TypedResults.BadRequest("A trail may carry at most twelve points.");
+        return TypedResults.BadRequest(invalid);
     }
 
     var room = GroupKey.RoomFor(key);

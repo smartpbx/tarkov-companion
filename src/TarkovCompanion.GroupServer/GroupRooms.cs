@@ -26,6 +26,22 @@ public sealed class GroupRooms(TimeProvider timeProvider)
     /// </remarks>
     private static readonly TimeSpan MemberLifetime = TimeSpan.FromMinutes(3);
 
+    /// <summary>How many members one room may hold.</summary>
+    /// <remarks>
+    /// A party is five. Sixteen leaves room for a group that reshuffles mid-evening without
+    /// leaving a room able to grow without limit on a 1 GB box.
+    /// </remarks>
+    public const int MaximumMembersPerRoom = 16;
+
+    /// <summary>How many rooms this relay will hold at once.</summary>
+    /// <remarks>
+    /// Rooms were GetOrAdd-only and never removed, so every key anybody ever sent — including
+    /// every key a guesser tried — left an entry behind for the life of the process. This is
+    /// far above any real use of a relay shared by a handful of friends and far below what it
+    /// takes to exhaust the machine.
+    /// </remarks>
+    public const int MaximumRooms = 512;
+
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, Entry>> _rooms =
         new(StringComparer.Ordinal);
 
@@ -37,7 +53,25 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         ArgumentException.ThrowIfNullOrWhiteSpace(room);
         ArgumentException.ThrowIfNullOrWhiteSpace(memberKey);
         ArgumentNullException.ThrowIfNull(state);
-        var members = _rooms.GetOrAdd(room, _ => new(StringComparer.Ordinal));
+        if (!_rooms.TryGetValue(room, out var members))
+        {
+            // Checked before the room is created, so a guesser walking the key space cannot
+            // add an entry per attempt. An existing room is never refused.
+            if (_rooms.Count >= MaximumRooms)
+            {
+                return;
+            }
+
+            members = _rooms.GetOrAdd(room, _ => new(StringComparer.Ordinal));
+        }
+
+        // A member replacing their own entry is always accepted; only a new one is capped, so
+        // a full room keeps working for the people already in it.
+        if (members.Count >= MaximumMembersPerRoom && !members.ContainsKey(memberKey))
+        {
+            return;
+        }
+
         // Observations are pruned on the way in as well as on the way out. A five-man filled
         // from LFG describes the random's nickname and kit to the client, and nothing stopped
         // that reaching the room, where anyone with the key could read it. SAFETY.md says
@@ -114,6 +148,48 @@ public sealed class GroupRooms(TimeProvider timeProvider)
                 .ToArray(),
             now);
     }
+
+    /// <summary>
+    /// Drops members that have stopped publishing, and rooms that are then empty.
+    /// </summary>
+    /// <remarks>
+    /// Expiry used to happen only when a room was read, so a room nobody reads is a room that
+    /// never forgets anything — and an empty room was never removed at all. Called on a timer
+    /// so the cost of a room somebody abandoned is bounded by time rather than by whether
+    /// anybody happens to look at it.
+    ///
+    /// Returns how many rooms it removed, which is the only number worth logging.
+    /// </remarks>
+    public int Sweep()
+    {
+        var now = timeProvider.GetUtcNow();
+        var removed = 0;
+        foreach (var (room, members) in _rooms)
+        {
+            foreach (var (key, entry) in members)
+            {
+                if (now - entry.PublishedUtc > MemberLifetime)
+                {
+                    members.TryRemove(key, out _);
+                }
+            }
+
+            // Only when it is still empty at the moment of removal, so a member joining
+            // between the two checks is not thrown away with the room.
+            if (members.IsEmpty && _rooms.TryRemove(new(room, members)))
+            {
+                removed++;
+            }
+        }
+
+        return removed;
+    }
+
+    /// <summary>How many rooms are held right now, for /health to report.</summary>
+    public int RoomCount => _rooms.Count;
+
+    /// <summary>How many members are held across every room.</summary>
+    public int MemberCount => _rooms.Values.Sum(members => members.Count);
 
     /// <summary>Forgets a member immediately, for when they say they are leaving.</summary>
     public void Remove(string room, string memberKey)
