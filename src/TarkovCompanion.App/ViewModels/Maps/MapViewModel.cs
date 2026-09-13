@@ -334,6 +334,7 @@ public sealed record GroupTrailViewModel(string Name, AvaloniaList<Point> Points
     };
 
     public bool HasPath => Points.Count > 1;
+}
 
 /// <summary>
 /// A place another player started this raid, drawn on the map with a line to you.
