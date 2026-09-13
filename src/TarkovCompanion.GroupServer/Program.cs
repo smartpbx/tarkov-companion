@@ -8,11 +8,18 @@ builder.Services.AddSingleton<GroupMarks>();
 // One copy of the game-data catalog for the whole group, instead of five clients each pulling
 // several megabytes of the same answer. Its own client, with its own timeout, because a slow
 // upstream must not hold up the group exchange this server mainly exists for.
-builder.Services.AddHttpClient<CatalogMirror>(client =>
+//
+// A singleton, and that is the whole point of it. Registered as a typed client with
+// AddHttpClient<CatalogMirror> it was transient: every request built a new mirror with an empty
+// store and its own gate, re-downloaded up to sixteen megabytes from tarkov.dev, hashed it, and
+// threw it away. It held nothing and saved nobody anything, and /catalog listed an empty array
+// however many times it had been asked.
+builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
 });
+builder.Services.AddSingleton<CatalogMirror>();
 
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
