@@ -64,8 +64,11 @@ public sealed partial class WindowsEftLogWatcher(
 
         // Files present when watching starts are already-finished sessions: start at their end
         // so a restart does not replay hundreds of old raids.
-        var offsets = EnumerateWatched(logRoot)
-            .ToDictionary(path => path, SafeLength, StringComparer.OrdinalIgnoreCase);
+        var lines = new AppendedLineReader(_timeProvider);
+        foreach (var existing in EnumerateWatched(logRoot))
+        {
+            lines.StartAtEnd(existing, SafeLength(existing));
+        }
 
         // The player signs in before starting the companion in the ordinary case, so the line
         // naming their profile is already in the file and would never be tailed. Without it
@@ -85,13 +88,16 @@ public sealed partial class WindowsEftLogWatcher(
         {
             foreach (var path in EnumerateWatched(logRoot))
             {
-                if (offsets.TryGetValue(path, out var seen) && SafeLength(path) <= seen)
+                // A file that has not grown is still polled while it holds a part-written
+                // line, or that line would never be completed and the last entry of a rolled
+                // log would be dropped.
+                if (SafeLength(path) <= lines.Position(path) && !lines.HasPending(path))
                 {
                     continue;
                 }
 
-                await foreach (var line in ReadAppendedLinesAsync(path, offsets, cancellationToken)
-                                   .ConfigureAwait(false))
+                foreach (var line in await ReadAppendedLinesAsync(path, lines, cancellationToken)
+                             .ConfigureAwait(false))
                 {
                     var observedUtc = _timeProvider.GetUtcNow();
                     var evidence = parser.ParseLine(line, observedUtc);
@@ -252,8 +258,12 @@ public sealed partial class WindowsEftLogWatcher(
                 FileShare.ReadWrite | FileShare.Delete,
                 4096,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
-            using var reader = new StreamReader(stream, leaveOpen: true);
-            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
+            // Same splitting as the tail, for the same reason: a replay that cut a
+            // multi-kilobyte userMatchOver in half would recover the wrong raid state. The
+            // whole file is present, so nothing is left unterminated and the flush timer
+            // never comes into it.
+            var replay = new AppendedLineReader(_timeProvider, TimeSpan.Zero);
+            foreach (var line in await replay.ReadAsync(path, stream, cancellationToken).ConfigureAwait(false))
             {
                 // Parsed for two side effects: the parser learns the profile id, and the
                 // private state machine works out what the player is in the middle of.
@@ -380,10 +390,18 @@ public sealed partial class WindowsEftLogWatcher(
         return false;
     }
 
-    private static async IAsyncEnumerable<string> ReadAppendedLinesAsync(
+    /// <summary>
+    /// The lines this file has finished writing since the last poll.
+    /// </summary>
+    /// <remarks>
+    /// The splitting lives in <see cref="AppendedLineReader"/>, in Application, so the Linux
+    /// suite can pin it. This is only the file handling: opening the log without disturbing
+    /// the game's own writes, and treating a momentary lock as a skip.
+    /// </remarks>
+    private static async Task<IReadOnlyList<string>> ReadAppendedLinesAsync(
         string path,
-        IDictionary<string, long> offsets,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        AppendedLineReader lines,
+        CancellationToken cancellationToken)
     {
         FileStream stream;
         try
@@ -394,25 +412,12 @@ public sealed partial class WindowsEftLogWatcher(
         {
             // The game may hold the file exclusively for an instant while it rolls. The next
             // poll picks it up, so this is a skip rather than a failure.
-            yield break;
+            return [];
         }
 
         await using (stream.ConfigureAwait(false))
         {
-            offsets.TryGetValue(path, out var offset);
-            if (stream.Length < offset)
-            {
-                offset = 0;
-            }
-
-            stream.Seek(offset, SeekOrigin.Begin);
-            using var reader = new StreamReader(stream, leaveOpen: true);
-            while (await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false) is { } line)
-            {
-                yield return line;
-            }
-
-            offsets[path] = stream.Position;
+            return await lines.ReadAsync(path, stream, cancellationToken).ConfigureAwait(false);
         }
     }
 }
