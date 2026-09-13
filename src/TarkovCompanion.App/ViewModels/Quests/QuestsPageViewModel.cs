@@ -206,6 +206,7 @@ public sealed class QuestObjectiveViewModel : BindableViewModel
 public sealed class QuestTaskViewModel
 {
     private readonly QuestsPageViewModel _owner;
+    private string? _searchableText;
 
     internal QuestTaskViewModel(QuestSummaryReadModel task, QuestsPageViewModel owner)
     {
@@ -254,7 +255,16 @@ public sealed class QuestTaskViewModel
 
     public string Trader => string.IsNullOrWhiteSpace(Model.TraderId) ? "Trader not supplied" : $"Trader: {Model.TraderId}";
 
-    public string Map => string.IsNullOrWhiteSpace(Model.PrimaryMapId) ? "No primary map" : $"Primary map: {Model.PrimaryMapId}";
+    /// <summary>The map this quest is mostly on, named rather than identified.</summary>
+    /// <remarks>
+    /// Printed the catalog's own id until now, so a quest on Customs read "Primary map:
+    /// 56f40101d2720b2a4d8b45d6". The objective rows beneath it have named their maps since
+    /// those ids were first resolved; this is the same lookup, and it is also what makes the
+    /// search box able to find a quest by the map it is on.
+    /// </remarks>
+    public string Map => string.IsNullOrWhiteSpace(Model.PrimaryMapId)
+        ? "No primary map"
+        : $"Primary map: {_owner.DescribeMaps([Model.PrimaryMapId])}";
 
     public string PinLabel => Model.IsPinned ? "Unpin task" : "Pin task";
 
@@ -272,6 +282,28 @@ public sealed class QuestTaskViewModel
             $"{requirement.RequiredTaskId}: {requirement.RecordedState} (requires {string.Join("/", requirement.RequiredStatuses)})"));
 
     public IReadOnlyList<QuestObjectiveViewModel> Objectives { get; }
+
+    /// <summary>
+    /// Everything the search box reads on this quest, joined once and kept.
+    /// </summary>
+    /// <remarks>
+    /// Item names are deliberately absent. They are looked up for the quest being read and for
+    /// no other, so searching them would find a quest the player had already opened and
+    /// silently miss an identical one they had not — worse than not searching them at all.
+    /// Objective descriptions carry most of those names in prose anyway.
+    /// </remarks>
+    internal string SearchableText => _searchableText ??= string.Join(
+        '\n',
+        new[] { Name, Trader, Map }
+            .Concat(Objectives.Select(objective => objective.Description))
+            .Concat(Objectives.Select(objective => objective.Maps)));
+
+    /// <summary>Forgets the joined text, for when the names it was built from have resolved.</summary>
+    /// <remarks>
+    /// The map catalog loads after the quest board does, so text built in between holds ids
+    /// where it should hold names and a search for "Customs" finds nothing.
+    /// </remarks>
+    internal void ForgetSearchableText() => _searchableText = null;
 
     public bool IsPinned => Model.IsPinned;
 
@@ -319,6 +351,9 @@ public sealed class QuestsPageViewModel : PageViewModel
     private IReadOnlyList<string> _orphanedProgress = [];
     private QuestTaskViewModel? _selectedTask;
     private QuestBoardFilter _selectedFilter = Filters[0];
+    private string _searchQuery = string.Empty;
+    private string _emptyBoardText = string.Empty;
+    private int _namedMapCount = -1;
     private QuestProfileScope? _scope;
     private string _scopeStatus = "Profile scope not loaded";
     private string _catalogStatus = "Quest catalog not loaded";
@@ -383,6 +418,8 @@ public sealed class QuestsPageViewModel : PageViewModel
         ConnectTarkovTrackerCommand = new AsyncDelegateCommand(ConnectTarkovTrackerAsync);
         DisconnectTarkovTrackerCommand = new AsyncDelegateCommand(DisconnectTarkovTrackerAsync);
         RefreshTarkovTrackerCommand = new AsyncDelegateCommand(RefreshTarkovTrackerAsync);
+        ClearSearchCommand = new DelegateCommand(() => SearchQuery = string.Empty);
+        ShowAllQuestsCommand = new DelegateCommand(() => SelectedFilter = Filters[1]);
     }
 
     /// <summary>
@@ -416,15 +453,59 @@ public sealed class QuestsPageViewModel : PageViewModel
         {
             if (SetProperty(ref _selectedFilter, value))
             {
-                ApplyFilter();
+                OnPropertyChanged(nameof(CanShowAllQuests));
+                ApplyFilter(SelectedTask?.TaskId);
             }
         }
     }
 
+    /// <summary>What the player typed into the quest search box.</summary>
+    /// <remarks>
+    /// Five hundred quests behind one dropdown of eight states was every way of finding one
+    /// except the way anybody actually looks for a quest, which is by its name. It narrows the
+    /// chosen filter rather than replacing it, and when the two disagree the board says so
+    /// instead of going blank.
+    /// </remarks>
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value))
+            {
+                OnPropertyChanged(nameof(HasSearchQuery));
+                ApplyFilter(SelectedTask?.TaskId);
+            }
+        }
+    }
+
+    public bool HasSearchQuery => !string.IsNullOrWhiteSpace(_searchQuery);
+
+    /// <summary>Whether the board is showing nothing, and so owes the reader a way out.</summary>
+    public bool HasVisibleTasks => Tasks.Count > 0;
+
+    /// <summary>Why the board is empty, in the terms of whichever of the two emptied it.</summary>
+    public string EmptyBoardText
+    {
+        get => _emptyBoardText;
+        private set => SetProperty(ref _emptyBoardText, value);
+    }
+
+    /// <summary>Whether widening to every quest is a move that would change anything.</summary>
+    public bool CanShowAllQuests => SelectedFilter.Id != "all" && _allTasks.Count > 0;
+
+    public ICommand ClearSearchCommand { get; }
+
+    public ICommand ShowAllQuestsCommand { get; }
+
     public IReadOnlyList<QuestTaskViewModel> Tasks
     {
         get => _tasks;
-        private set => SetProperty(ref _tasks, value);
+        private set
+        {
+            SetProperty(ref _tasks, value);
+            OnPropertyChanged(nameof(HasVisibleTasks));
+        }
     }
 
     public QuestTaskViewModel? SelectedTask
@@ -685,7 +766,7 @@ public sealed class QuestsPageViewModel : PageViewModel
                 : $"{board.Tasks.Count} quests · {board.CatalogProvenance.SourceMode}";
             ApplyFilter(selectedTaskId);
             Status = board.UnavailableReason ?? (Tasks.Count == 0
-                ? "Nothing matches this filter"
+                ? EmptyBoardText
                 : $"{Tasks.Count} of {_allTasks.Count} quests");
             await _map.RefreshQuestLayerAsync().ConfigureAwait(true);
         }
@@ -1193,14 +1274,100 @@ public sealed class QuestsPageViewModel : PageViewModel
 
     private void ApplyFilter(string? selectedTaskId = null)
     {
-        Tasks = _allTasks.Where(MatchesSelectedFilter).ToArray();
+        // The map catalog loads after the quest board, so joined text built in between holds
+        // ids where it should hold names. Counting the maps is how that arrival is noticed
+        // without the catalog having to know a search box exists.
+        if (_namedMapCount != _map.Locations.Count)
+        {
+            _namedMapCount = _map.Locations.Count;
+            foreach (var task in _allTasks)
+            {
+                task.ForgetSearchableText();
+            }
+        }
+
+        var terms = SearchTerms(SearchQuery);
+        var found = terms.Length == 0
+            ? _allTasks
+            : _allTasks.Where(task => MatchesEveryTerm(task.SearchableText, terms)).ToArray();
+        Tasks = found.Where(MatchesSelectedFilter).ToArray();
         SelectedTask = Tasks.FirstOrDefault(task => task.TaskId == selectedTaskId) ?? Tasks.FirstOrDefault();
+        OnPropertyChanged(nameof(CanShowAllQuests));
+        EmptyBoardText = DescribeEmptyBoard(
+            Tasks.Count,
+            found.Count,
+            _allTasks.Count,
+            SearchQuery.Trim(),
+            SelectedFilter.Label);
         if (_initialized)
         {
             Status = Tasks.Count == 0
-                ? "Nothing matches this filter"
+                ? EmptyBoardText
                 : $"{Tasks.Count} of {_allTasks.Count} quests";
         }
+    }
+
+    /// <summary>The words a search is made of, empty when there is nothing to search for.</summary>
+    public static string[] SearchTerms(string query) =>
+        query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+    /// <summary>Whether a quest's text answers every word, in any order and anywhere in it.</summary>
+    /// <remarks>
+    /// Every word rather than any word. Typing a second word is how somebody narrows a list,
+    /// and an any-word search widens it instead, which is the opposite of what the second word
+    /// was typed for.
+    /// </remarks>
+    public static bool MatchesEveryTerm(string text, IReadOnlyList<string> terms)
+    {
+        foreach (var term in terms)
+        {
+            if (!text.Contains(term, StringComparison.CurrentCultureIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Says which of the search and the filter emptied the board, and implies the way out.
+    /// </summary>
+    /// <remarks>
+    /// "Nothing matches this filter" was true of all four of these and useful in none of them.
+    /// The one that matters is a search that found quests the filter then hid, because the
+    /// player can see their quest does not exist when in fact it is two states away.
+    /// </remarks>
+    public static string DescribeEmptyBoard(
+        int visible,
+        int matchedSearch,
+        int total,
+        string query,
+        string filterLabel)
+    {
+        if (visible > 0)
+        {
+            return string.Empty;
+        }
+
+        if (total == 0)
+        {
+            return "No quests loaded.";
+        }
+
+        if (query.Length > 0 && matchedSearch == 0)
+        {
+            return $"No quest matches “{query}”.";
+        }
+
+        if (query.Length > 0)
+        {
+            return matchedSearch == 1
+                ? $"One quest matches “{query}” and it is not in “{filterLabel}”."
+                : $"{matchedSearch} quests match “{query}” and none are in “{filterLabel}”.";
+        }
+
+        return $"No quest is in “{filterLabel}”.";
     }
 
     private bool MatchesSelectedFilter(QuestTaskViewModel task) => SelectedFilter.Id switch
