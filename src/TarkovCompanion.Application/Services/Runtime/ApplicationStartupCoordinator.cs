@@ -220,6 +220,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
+            // The sync has always known when an endpoint answered from a stale cache instead
+            // of refreshing, and has never said so. "Refreshed" while three endpoints served
+            // yesterday's rows is a claim the player would act on.
+            var stale = report.Endpoints.Count(endpoint => endpoint.UsedStaleCache);
             _stateStore.Update(current => current with
             {
                 Data = Describe(cached) with
@@ -227,8 +231,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                     Detail = cached.ItemCount == 0
                         ? DescribeEmptyRefresh(errors)
                         : errors.Length == 0
-                            ? $"Game data refreshed from {report.Endpoints.Count} endpoints."
-                            : $"Local data remains available; {errors.Length} endpoint refreshes failed.",
+                            ? stale == 0
+                                ? $"Refreshed from {report.Endpoints.Count} endpoints"
+                                : $"Refreshed from {report.Endpoints.Count} endpoints · {stale} served a cached copy"
+                            : $"{errors.Length} of {report.Endpoints.Count} endpoints failed · local data stands",
                     // A refresh that reports "Current" while the item catalog is empty is a
                     // false claim about the data the user is looking at. Partial success only
                     // counts as current when something actually landed.
