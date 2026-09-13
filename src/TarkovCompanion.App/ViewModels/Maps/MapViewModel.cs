@@ -2595,7 +2595,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             // Marks belong to a map. Projecting one from another map through this transform
             // would put it somewhere plausible and wrong, the same trap as a member's position.
-            if (!string.Equals(waypoint.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase))
+            if (!IsOnThisMap(waypoint.MapId))
             {
                 continue;
             }
@@ -2624,7 +2624,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         foreach (var ping in _pings)
         {
-            if (!string.Equals(ping.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase) ||
+            if (!IsOnThisMap(ping.MapId) ||
                 !TryPlace(mapper, ping.X, ping.Y, ping.Z, out var point))
             {
                 continue;
@@ -2726,11 +2726,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        var here = SelectedLocation?.Id;
         var locations = Locations;
         var rows = members
             .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Select(member => Describe(member, here, locations) with { Rgb = ColorFor(member.Name) })
+            .Select(member => Describe(member, IsOnThisMap(member.MapId), locations) with
+            {
+                Rgb = ColorFor(member.Name),
+            })
             .ToArray();
         if (!rows.SequenceEqual(GroupPanel))
         {
@@ -2740,17 +2742,20 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>One member written out as a row, with no view model state behind it.</summary>
     /// <param name="member">Them, as they last described themselves.</param>
-    /// <param name="here">The map being looked at, so a row can say when somebody is not on it.</param>
+    /// <param name="isHere">
+    /// Whether they are on the map being looked at. Decided by the caller, because a second
+    /// client in the group calls the same map something else and only the catalog knows which
+    /// names are the same place.
+    /// </param>
     /// <param name="locations">The map catalog, only so the row can name a map rather than slug it.</param>
     public static GroupMemberPanelViewModel Describe(
         GroupMemberView member,
-        string? here,
+        bool isHere,
         IReadOnlyList<MapLocation> locations)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(locations);
-        var elsewhere = member.MapId is not { Length: > 0 } map ||
-            !string.Equals(map, here, StringComparison.OrdinalIgnoreCase);
+        var elsewhere = !isHere;
         var age = member.PositionAge;
         return new(
             member.Name,
@@ -2801,6 +2806,32 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
             : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
 
+    /// <summary>
+    /// Whether something the group shared belongs on the map being looked at.
+    /// </summary>
+    /// <remarks>
+    /// Compared against every id this location answers to rather than against the slug alone.
+    /// The quest catalog and the map catalog already disagree about which id a map has, and a
+    /// second client in the group is a third opinion: a friend on his own companion sends
+    /// whatever his copy calls Customs, and a straight comparison silently dropped his pings
+    /// and his position while showing ours.
+    ///
+    /// Still compared, not ignored. Projecting a mark from another map through this map's
+    /// transform puts it somewhere plausible and wrong, which is worse than not drawing it.
+    /// </remarks>
+    private bool IsOnThisMap(string? mapId)
+    {
+        if (string.IsNullOrWhiteSpace(mapId) || SelectedLocation is not { } location)
+        {
+            return false;
+        }
+
+        return SelectedVariant is { } variant
+            ? QuestMapProjectionService.CompatibleMapIds(location, variant).Contains(mapId)
+            : string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>This member's colour, or the shared one before a group has been read.</summary>
     private string ColorFor(string name) =>
         _groupColors.TryGetValue(name, out var color) ? color : GroupMemberColors.Fallback;
@@ -2821,7 +2852,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // Somebody on another map is not on this one. Projecting their position through
             // this map's transform would place them somewhere plausible and wrong.
             if (member.Position is not { } position ||
-                !string.Equals(member.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase) ||
+                !IsOnThisMap(member.MapId) ||
                 !_renderModel.TryMapPosition(position, out var mapPoint))
             {
                 continue;
