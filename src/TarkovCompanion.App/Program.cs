@@ -35,6 +35,15 @@ internal static class Program
             var options = AppCommandLine.Parse(args);
             CrashLog.Install(AppDataPaths.Resolve(demoMode: options.Demo).Logs);
 
+            // Said out loud rather than swallowed. An option that has not shipped yet used to
+            // be indistinguishable from an option that had no effect, and somebody drew the
+            // wrong conclusion from exactly that. Reported and then ignored: a flag from a
+            // newer build is a mistake worth naming, not a reason to refuse to start.
+            foreach (var unknown in options.UnknownOptions)
+            {
+                Console.Error.WriteLine($"Ignoring '{unknown}': this build does not have that option.");
+            }
+
             if (options.SelfTest)
             {
                 if (string.IsNullOrWhiteSpace(options.OutputPath))
