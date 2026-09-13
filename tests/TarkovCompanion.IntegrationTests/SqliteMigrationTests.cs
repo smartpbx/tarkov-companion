@@ -39,7 +39,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(8, first.Count);
+            Assert.Equal(9, first.Count);
             Assert.Empty(second);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -134,6 +134,7 @@ public sealed class SqliteMigrationTests
                     "0006_quest_progress_exchange",
                     "0007_drop_superseded_tables",
                     "0008_loot_containers",
+                    "0009_drop_unread_map_tables",
                 ],
                 applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);

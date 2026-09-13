@@ -228,26 +228,6 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$duration", map.RaidDuration is null ? null : checked(map.RaidDuration * 60)),
                         ("$sourceJson", JsonSerializer.Serialize(map, SerializerOptions))).ConfigureAwait(false);
 
-                    for (var index = 0; index < map.Spawns.Count; index++)
-                    {
-                        var spawn = map.Spawns[index];
-                        await ExecuteAsync(
-                            connection,
-                            transaction,
-                            """
-                            INSERT INTO map_spawns(id, map_id, type, x, y, z, source_json)
-                            VALUES ($id, $mapId, $type, $x, $y, $z, $sourceJson);
-                            """,
-                            cancellationToken,
-                            ("$id", $"{map.Id}:spawn:{index}"),
-                            ("$mapId", map.Id),
-                            ("$type", string.Join(',', spawn.Categories.Concat(spawn.Sides).Distinct(StringComparer.Ordinal))),
-                            ("$x", spawn.Position.X),
-                            ("$y", spawn.Position.Y),
-                            ("$z", spawn.Position.Z),
-                            ("$sourceJson", JsonSerializer.Serialize(spawn, SerializerOptions))).ConfigureAwait(false);
-                    }
-
                     // One upstream map can list the same extract id twice - the same exit
                     // for two factions, or two positions for one exit. Those are genuinely
                     // different rows, so the ordinal is part of the synthetic key. Without
@@ -273,18 +253,6 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             ("$sourceJson", JsonSerializer.Serialize(extract, SerializerOptions))).ConfigureAwait(false);
                     }
 
-                    foreach (var transit in map.Transits)
-                    {
-                        await ExecuteAsync(
-                            connection,
-                            transaction,
-                            "INSERT INTO map_transits(id, map_id, source_json) VALUES ($id, $mapId, $sourceJson);",
-                            cancellationToken,
-                            ("$id", $"{map.Id}:{transit.Id}"),
-                            ("$mapId", map.Id),
-                            ("$sourceJson", JsonSerializer.Serialize(transit, SerializerOptions))).ConfigureAwait(false);
-                    }
-
                     foreach (var mapLock in map.Locks)
                     {
                         await ExecuteAsync(
@@ -298,30 +266,6 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             ("$sourceJson", JsonSerializer.Serialize(mapLock, SerializerOptions))).ConfigureAwait(false);
                     }
 
-                    for (var index = 0; index < map.Hazards.Count; index++)
-                    {
-                        await ExecuteAsync(
-                            connection,
-                            transaction,
-                            "INSERT INTO map_hazards(id, map_id, source_json) VALUES ($id, $mapId, $sourceJson);",
-                            cancellationToken,
-                            ("$id", $"{map.Id}:hazard:{index}"),
-                            ("$mapId", map.Id),
-                            ("$sourceJson", map.Hazards[index].GetRawText())).ConfigureAwait(false);
-                    }
-
-                    var loot = map.LootContainers.Concat(map.LootLoose).ToArray();
-                    for (var index = 0; index < loot.Length; index++)
-                    {
-                        await ExecuteAsync(
-                            connection,
-                            transaction,
-                            "INSERT INTO map_loot_positions(id, map_id, source_json) VALUES ($id, $mapId, $sourceJson);",
-                            cancellationToken,
-                            ("$id", $"{map.Id}:loot:{index}"),
-                            ("$mapId", map.Id),
-                            ("$sourceJson", JsonSerializer.Serialize(loot[index], SerializerOptions))).ConfigureAwait(false);
-                    }
                 }
             },
             cancellationToken).ConfigureAwait(false);

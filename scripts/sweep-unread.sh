@@ -51,7 +51,14 @@ for table in "${tables[@]}"; do
     fi
 
     # A read is a SELECT, a JOIN or a FROM naming it. A write is INSERT, UPDATE or DELETE.
-    reads="$(printf '%s\n' "$hits" | grep -ci 'FROM[[:space:]]*$\|FROM[[:space:]]\+'"$table"'\|JOIN[[:space:]]\+'"$table" || true)"
+    #
+    # The DELETE blind spot: "DELETE FROM crafts" contains "FROM crafts", so every table
+    # whose refresh clears it before repopulating it counted its own DELETE as a read and
+    # never appeared here. That is why the eight craft, barter and trader tables were
+    # missing from this report while being written on every sync and read by nothing.
+    # DELETE lines are excluded before the read count is taken.
+    readable="$(printf '%s\n' "$hits" | grep -vi 'DELETE[[:space:]]\+FROM' || true)"
+    reads="$(printf '%s\n' "$readable" | grep -ci 'FROM[[:space:]]*$\|FROM[[:space:]]\+'"$table"'\|JOIN[[:space:]]\+'"$table" || true)"
     writes="$(printf '%s\n' "$hits" | grep -ci 'INSERT[[:space:]]\+INTO[[:space:]]\+'"$table"'\|UPDATE[[:space:]]\+'"$table"'\|DELETE[[:space:]]\+FROM[[:space:]]\+'"$table" || true)"
     if [[ "$reads" -eq 0 && "$writes" -gt 0 ]]; then
         unread+=("$table ($writes write(s), 0 reads)")
@@ -78,4 +85,54 @@ else
 fi
 
 echo
-echo "Reported, not enforced: a table is legitimately unread on the commit that creates it."
+echo "A table listed in sweep-unread.allow is excused; anything else here fails this check."
+
+# The ratchet. Everything above is a report; this is the part that fails.
+#
+# It was report-only because a table is legitimately unread on the commit that creates it, and
+# a gate teaches people to route around it. An allowlist keeps that true — a new table is
+# excused by naming it and saying why — while stopping a new unread one appearing unnoticed,
+# which is how four map tables came to be written thousands of times an hour for nothing.
+allow="$(dirname "$0")/sweep-unread.allow"
+excused=()
+if [[ -f "$allow" ]]; then
+    while read -r table _; do
+        [[ -z "$table" || "$table" == \#* ]] && continue
+        excused+=("$table")
+    done < "$allow"
+fi
+
+unexcused=()
+for entry in ${unread[@]+"${unread[@]}"}; do
+    table="${entry%% *}"
+    if ! printf '%s\n' ${excused[@]+"${excused[@]}"} | grep -qxF "$table"; then
+        unexcused+=("$entry")
+    fi
+done
+
+stale=()
+for table in ${excused[@]+"${excused[@]}"}; do
+    if ! printf '%s\n' ${unread[@]+"${unread[@]}"} | grep -q "^$table "; then
+        stale+=("$table")
+    fi
+done
+
+echo
+if [[ ${#unexcused[@]} -gt 0 ]]; then
+    echo "FAIL: written and never read, and not excused in sweep-unread.allow:"
+    printf '  %s\n' "${unexcused[@]}"
+    echo
+    echo "Either read the table, drop it in a migration, or add it to sweep-unread.allow"
+    echo "with a reference and a reason."
+    exit 1
+fi
+
+if [[ ${#stale[@]} -gt 0 ]]; then
+    echo "FAIL: excused in sweep-unread.allow but no longer unread:"
+    printf '  %s\n' "${stale[@]}"
+    echo
+    echo "Remove these lines; the excuse has been earned out."
+    exit 1
+fi
+
+echo "OK: every written-and-unread table is excused, and every excuse is still needed."
