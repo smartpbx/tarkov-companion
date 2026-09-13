@@ -728,6 +728,27 @@ public sealed record MapPlaceNameViewModel(
     public double CanvasWidth { get; init; }
 
     /// <summary>
+    /// The map's zoom when this name was built.
+    /// </summary>
+    /// <remarks>
+    /// Carried on the record rather than read off the live <see cref="Scale"/>, and that is the
+    /// whole fix rather than a detail.
+    ///
+    /// This is a record, so two of them with equal values are equal. An items control given a
+    /// list of equal items reuses the containers it already has and never re-reads a computed
+    /// property, so <see cref="Nudge"/> reading a live scale object was evaluated once, at
+    /// whatever zoom applied when the map first drew, and never again. Measured: the label
+    /// strip was pixel-identical across the build that changed the arithmetic, because the
+    /// arithmetic was never run a second time.
+    ///
+    /// Held here, a name at one zoom is a different value from the same name at another, the
+    /// containers are rebuilt, and the nudge is recomputed. It is the same lesson as
+    /// <c>CanStack</c>: a value that depends on something that changes has to be announced, and
+    /// for a record the announcement is being a different record.
+    /// </remarks>
+    public double Zoom { get; init; } = 1;
+
+    /// <summary>
     /// How wide the text is in canvas units rather than on screen.
     /// </summary>
     /// <remarks>
@@ -735,9 +756,10 @@ public sealed record MapPlaceNameViewModel(
     /// three times. A place name is counter-scaled, so <see cref="TextWidth"/> is its size on
     /// screen and never changes; the position it is compared against is in canvas units, which
     /// at 23% zoom are more than four times smaller. Anything comparing a size with a position
-    /// has to convert one of them first.
+    /// has to convert one of them first, and the zoom that does the converting is
+    /// <see cref="Zoom"/>, held on the record so it cannot go stale.
     /// </remarks>
-    public double TextWidthOnCanvas => TextWidth * Scale.Inverse;
+    public double TextWidthOnCanvas => Zoom > 0 ? TextWidth / Zoom : TextWidth;
 
     /// <summary>
     /// How far along the canvas a name has to move to stay on the map, in canvas units.
@@ -2850,12 +2872,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             .ToArray();
         var discs = markers.Select(marker => (marker.CenterX, marker.CenterY)).ToArray();
         var drawn = MapPlaceNameLayout.Choose(candidates, discs, ZoomScale);
+        // Rebuilt at the current zoom rather than filtered. Two records with equal values are
+        // equal, so handing back the same instances would let the items control reuse its
+        // containers and never re-read anything computed from the zoom.
         var kept = new List<MapPlaceNameViewModel>(placeNames.Count);
         for (var index = 0; index < placeNames.Count; index++)
         {
             if (drawn[index])
             {
-                kept.Add(placeNames[index]);
+                kept.Add(placeNames[index] with { Zoom = ZoomScale });
             }
         }
 
