@@ -19,7 +19,7 @@
             <StackPanel>
               <TextBlock Classes="note"
                          IsVisible="{Binding HasNoMembers}"
-                         Text="Nobody has joined yet. Members appear here as the game announces them." />
+                         Text="Nobody in your party yet." />
               <ItemsControl ItemsSource="{Binding Members}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:SquadMemberViewModel">
@@ -57,12 +57,6 @@
       <Border Grid.Column="1" Classes="panel">
         <StackPanel Spacing="10">
           <TextBlock Classes="sectionTitle" Text="What is not here" />
-          <TextBlock Classes="note"
-                     Text="There is no kill list, and there cannot be one. The game never writes your own inventory to its logs, so the dogtags you are carrying cannot be read." />
-          <TextBlock Classes="note"
-                     Text="The only dogtags in the logs are inside your squadmates' bags. They name players you never met, so they are left unread." />
-          <TextBlock Classes="note"
-                     Text="Everything here comes from the party notifications the game writes in the lobby. None of it leaves this machine." />
         </StackPanel>
       </Border>
     </Grid>

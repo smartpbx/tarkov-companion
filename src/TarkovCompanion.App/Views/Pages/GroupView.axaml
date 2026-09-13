@@ -12,10 +12,7 @@
           <StackPanel Spacing="8">
             <TextBlock Classes="label" Text="What this sends" />
             <TextBlock Classes="prose"
-                       Text="While sharing is on, this sends your display name, which map you are on, whether you are in a raid, PMC or scav, and the position and heading from your own screenshots with their age. It goes to the server you name below and to nobody else."
-                       TextWrapping="Wrap" />
-            <TextBlock Classes="prose"
-                       Text="There is no hosted service. Your group runs the server, so who can see this is a question your group answers. Nothing is sent until you turn it on, and turning it off stops it immediately."
+                       Text="Sends your name, map, raid state, and the position and heading from your screenshots."
                        TextWrapping="Wrap" />
           </StackPanel>
         </Border>
@@ -39,7 +36,7 @@
               <TextBlock Classes="label" Text="Group key" />
               <TextBox PasswordChar="•" Text="{Binding Key, Mode=TwoWay}" Watermark="at least eight characters" />
               <TextBlock Classes="caption"
-                         Text="Whoever types the same key is in the same group. The server never sees it, only a hash of it, so a key nobody else uses is simply a group of one."
+                         Text="Whoever types the same key is in the same group. At least eight characters."
                          TextWrapping="Wrap" />
             </StackPanel>
 
@@ -47,7 +44,7 @@
             <CheckBox Content="Also share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
             <CheckBox Content="Also share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
             <TextBlock Classes="caption"
-                       Text="Both send nothing today. The game does not write your own inventory or quest state anywhere this can read, so these stay empty rather than pretending."
+                       Text="Both send nothing yet; the game does not write either where this can read it."
                        TextWrapping="Wrap" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -65,10 +62,6 @@
         <TextBlock Grid.Row="1" Classes="value" Text="{Binding Status}" TextWrapping="Wrap" />
         <ScrollViewer Grid.Row="2">
           <StackPanel Spacing="0">
-            <TextBlock Classes="caption"
-                       IsVisible="{Binding HasNoMembers}"
-                       Text="Anyone else in the room with sharing on appears here within a few seconds."
-                       TextWrapping="Wrap" />
             <ItemsControl ItemsSource="{Binding Members}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:GroupMemberRowViewModel">

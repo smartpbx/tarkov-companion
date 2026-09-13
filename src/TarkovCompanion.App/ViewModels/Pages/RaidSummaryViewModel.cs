@@ -52,9 +52,7 @@ public sealed record RaidSummaryViewModel(
     /// not have. Saying nothing at all would be worse: the player would assume the summary
     /// simply failed to load it.
     /// </remarks>
-    public const string OutcomeNotRecorded =
-        "Outcome is not recorded. The game never writes whether a raid was survived, died in, or run through, "
-        + "and it is not guessed here.";
+    public const string OutcomeNotRecorded = "Outcome is not recorded by the game.";
 
     /// <summary>
     /// Why the summary declines to name the side.
@@ -64,8 +62,7 @@ public sealed record RaidSummaryViewModel(
     /// reader recognises, and the raid did not end with a transfer. Naming a side here would
     /// be inventing one.
     /// </remarks>
-    public const string SideNotCarried =
-        "PMC or scav was not established for this raid.";
+    public const string SideNotCarried = "Side not established.";
 
     /// <summary>Describes the side, together with how it came to be known.</summary>
     /// <remarks>
@@ -134,12 +131,9 @@ public sealed record RaidSummaryViewModel(
                 ? FormatDuration(durationValue)
                 : "Unavailable",
             duration is null
-                ? "Only the end of this raid was observed, so no duration can be given."
-                : "Start and end are the game's own notifications for this profile, so the duration is exact "
-                    + "rather than estimated.",
-            string.IsNullOrWhiteSpace(gameMode)
-                ? "Game mode is unknown; no local profile is loaded."
-                : $"{gameMode} · the mode the local profile is set to.",
+                ? "Only the end of this raid was seen."
+                : "Exact, from the game's own notifications.",
+            string.IsNullOrWhiteSpace(gameMode) ? "Unknown" : gameMode,
             DescribeSide(side, sideBasis),
             OutcomeNotRecorded,
             DescribeScans(scannedItems),

@@ -13,7 +13,7 @@
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
         <StackPanel Spacing="8" VerticalAlignment="Center">
           <TextBlock Classes="lede" Text="{Binding Detail}" TextWrapping="Wrap" MaxWidth="640" HorizontalAlignment="Left" />
-          <TextBlock Classes="note" Text="Point the game at an item and press the shortcut. The capture is read in memory and discarded once the item is recognised; recognition is unavailable until a provider is configured." />
+          <TextBlock Classes="note" Text="Take a screenshot in game with an item on screen." />
         </StackPanel>
         <Button Grid.Column="1"
                 Classes="primary"
@@ -61,6 +61,5 @@
       </Grid>
     </Border>
 
-    <TextBlock Grid.Row="1" Classes="note" VerticalAlignment="Top" Text="A result that cannot be read never produces an item name, a value, a confidence or advice. Captured pixels are never written to disk." />
   </Grid>
 </UserControl>
