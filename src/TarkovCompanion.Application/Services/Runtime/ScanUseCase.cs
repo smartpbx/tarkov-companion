@@ -62,34 +62,7 @@ public sealed class RecognitionScanAdapter(
                     Reason: "User-requested local OCR scan.")),
                 cancellationToken)
             .ConfigureAwait(false);
-        var selected = outcome.Recognition.Selected;
-        var recommendation = outcome.Recommendation;
-        var succeeded = selected is not null;
-        var available = outcome.Status != ScanCompletionStatus.Unavailable;
-        var detail = outcome.Status switch
-        {
-            ScanCompletionStatus.Unavailable =>
-                $"Local OCR scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
-            _ when selected is not null && recommendation is null =>
-                $"Resolved {selected.DisplayName}; recommendation withheld because required item-context evidence was unavailable. No pixels were persisted.",
-            _ when selected is not null =>
-                $"Resolved {selected.DisplayName} from an in-memory local OCR scan; no pixels were persisted.",
-            _ =>
-                $"{outcome.Context} scan finished with {outcome.Status}; no item was auto-selected and no pixels were persisted.",
-        };
-
-        return new(
-            available,
-            succeeded,
-            selected?.CanonicalId,
-            selected?.DisplayName,
-            recommendation?.SelectedEconomicValue,
-            recommendation?.ValuePerSlot,
-            recommendation?.Action.ToString(),
-            selected?.Confidence ?? Confidence.Unknown,
-            outcome.ObservedUtc.ToUniversalTime(),
-            "local-ocr",
-            detail);
+        return ScanExecutionResult.FromOutcome(outcome, "local-ocr");
     }
 }
 

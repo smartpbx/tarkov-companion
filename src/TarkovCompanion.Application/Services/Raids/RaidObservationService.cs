@@ -438,6 +438,20 @@ public sealed class RaidObservationService : IAsyncDisposable
                 Path.GetFileName(path),
                 outcome.Context,
                 outcome.Status);
+
+            // The result used to stop here. It was logged and dropped, so pressing the game's
+            // own screenshot key ran the whole recogniser and told nobody, and the separate
+            // scan shortcut survived because it was the only door that led to the interface.
+            //
+            // Filtered, because the screenshot key fires on everything somebody photographs
+            // and most of that is a wall. Replacing a good reading of an item with "Unknown
+            // scan finished with Partial" moments later is worse than staying quiet: the
+            // useful answer is the one that disappears.
+            var result = ScanExecutionResult.FromOutcome(outcome, "game screenshot");
+            if (result.IsWorthReporting)
+            {
+                _stateStore.Update(current => current with { Scan = result });
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
