@@ -163,7 +163,7 @@ public sealed class ScanContextDetector
         return $"wanted=[{string.Join(" | ", wanted)}]; read=[{string.Join(" | ", read)}]";
     }
 
-    private ContextScore Score(    private ContextScore Score(
+    private ContextScore Score(
         ScanContext context,
         IReadOnlyList<(OcrLine Line, string Text)> lines)
     {
