@@ -51,14 +51,14 @@ public sealed class QuestNotificationParserTests
     [Fact]
     public void ALineThatIsNotAChatMessageIsRejectedWithoutParsing() =>
         Assert.Null(QuestNotificationParser.ParseLine(
-            """2026-09-13 02:30:00.000 +00:00|NOTIFICATION|[{"type":"RagfairOfferSold","offerId":"o1"}]""",
+            "2026-09-13 02:30:00.000 +00:00|NOTIFICATION|[{\"type\":\"RagfairOfferSold\",\"offerId\":\"o1\"}]",
             Observed));
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("not a log line at all")]
-    [InlineData("""ChatMessageReceived but no payload""")]
+    [InlineData("ChatMessageReceived but no payload")]
     public void NonsenseIsNotAQuest(string? line) =>
         Assert.Null(QuestNotificationParser.ParseLine(line, Observed));
 
@@ -66,7 +66,7 @@ public sealed class QuestNotificationParserTests
     [Fact]
     public void ATruncatedPayloadIsIgnored() =>
         Assert.Null(QuestNotificationParser.ParseLine(
-            """NOTIFICATION|[{"type":"ChatMessageReceived","message":{"type":12,"templ""",
+            "NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"message\":{\"type\":12,\"templ",
             Observed));
 
     /// <summary>
@@ -76,15 +76,25 @@ public sealed class QuestNotificationParserTests
     public void AMessageWithoutAnIdGetsOneFromWhatItSays()
     {
         var observation = QuestNotificationParser.ParseLine(
-            """NOTIFICATION|[{"type":"ChatMessageReceived","message":{"type":12,"templateId":"5936d90786f7742b1420ba5b done"}}]""",
+            "NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"message\":" +
+            "{\"type\":12,\"templateId\":\"5936d90786f7742b1420ba5b done\"}}]",
             Observed);
 
         Assert.NotNull(observation);
         Assert.Equal("5936d90786f7742b1420ba5b:Completed", observation.EventId);
     }
 
+    /// <summary>
+    /// A notification line shaped like the ones the game writes.
+    /// </summary>
+    /// <remarks>
+    /// Built by concatenation rather than as a raw interpolated string. The payload ends in
+    /// two closing braces of its own, which a raw string reads as the end of an interpolation
+    /// and refuses to compile.
+    /// </remarks>
     private static string Line(int messageType, string templateId = "5936d90786f7742b1420ba5b description") =>
-        $$"""
-        2026-09-13 02:30:00.000 +00:00|NOTIFICATION|[{"type":"ChatMessageReceived","eventId":"e1","message":{"_id":"msg-1","type":{{messageType}},"templateId":"{{templateId}}"}}]
-        """;
+        "2026-09-13 02:30:00.000 +00:00|NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"eventId\":\"e1\"," +
+        "\"message\":{\"_id\":\"msg-1\",\"type\":" +
+        messageType.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        ",\"templateId\":\"" + templateId + "\"}}]";
 }
