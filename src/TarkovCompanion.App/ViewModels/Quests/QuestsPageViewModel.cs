@@ -253,7 +253,18 @@ public sealed class QuestTaskViewModel
         ? $"{Model.ProgressSource} · {QuestsPageViewModel.FormatAge(modified, _owner.NowUtc)}"
         : Model.ProgressSource;
 
-    public string Trader => string.IsNullOrWhiteSpace(Model.TraderId) ? "Trader not supplied" : $"Trader: {Model.TraderId}";
+    /// <summary>Who gives this quest, named rather than identified.</summary>
+    /// <remarks>
+    /// Printed "Trader: 54cb50c76803fa8b248b4571" until now, which is what the feed puts in a
+    /// task's trader field. The traders table has held the names since migration 0001 and
+    /// nothing read it.
+    ///
+    /// Falls back to the id where the catalog has no name for it. Wrong is worse than ugly,
+    /// and a trader the catalog does not know about is something to notice.
+    /// </remarks>
+    public string Trader => string.IsNullOrWhiteSpace(Model.TraderId)
+        ? "Trader not supplied"
+        : $"Trader: {Model.TraderName ?? Model.TraderId}";
 
     /// <summary>The map this quest is mostly on, named rather than identified.</summary>
     /// <remarks>
@@ -291,10 +302,14 @@ public sealed class QuestTaskViewModel
     /// no other, so searching them would find a quest the player had already opened and
     /// silently miss an identical one they had not — worse than not searching them at all.
     /// Objective descriptions carry most of those names in prose anyway.
+    ///
+    /// The trader's id is in here as well as the name, which costs nothing and means a search
+    /// pasted from the feed still finds its quest. Nobody will type one; somebody chasing a
+    /// figure from upstream will paste one.
     /// </remarks>
     internal string SearchableText => _searchableText ??= string.Join(
         '\n',
-        new[] { Name, Trader, Map }
+        new[] { Name, Trader, Model.TraderId ?? string.Empty, Map }
             .Concat(Objectives.Select(objective => objective.Description))
             .Concat(Objectives.Select(objective => objective.Maps)));
 
