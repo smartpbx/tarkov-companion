@@ -264,7 +264,12 @@ public static class AppComposition
 
         services.AddSingleton<SqliteMapFeatureCatalog>();
         services.AddSingleton<IMapFeatureCatalog>(provider => provider.GetRequiredService<SqliteMapFeatureCatalog>());
-        services.AddSingleton<IMapDefinitionCache, InMemoryMapDefinitionCache>();
+        // Reads the map, its extracts and who may take each one out of the synced catalog.
+        // The in-memory cache this replaces was filled from a list of maps nothing ever
+        // registered, so every lookup returned nothing and the extract screen had nothing to
+        // match its lines against.
+        services.AddSingleton<SqliteMapDefinitionCache>();
+        services.AddSingleton<IMapDefinitionCache>(provider => provider.GetRequiredService<SqliteMapDefinitionCache>());
         services.AddSingleton<IMapDataService, MapDataService>();
         services.AddSingleton<IMapTransformService, MapTransformService>();
         services.AddSingleton<IStrategyModel, StrategyModel>();

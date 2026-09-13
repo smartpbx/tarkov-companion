@@ -6,6 +6,14 @@ namespace TarkovCompanion.Application.Services.Maps;
 public interface IMapDefinitionCache
 {
     Task<MapDefinition?> GetAsync(string mapId, CancellationToken cancellationToken);
+
+    /// <summary>Drops whatever was read before a sync landed.</summary>
+    /// <remarks>
+    /// A lookup that found nothing is remembered like any other answer, so without this the
+    /// first map selected on a fresh install would keep reporting no extracts for the rest of
+    /// the session even after the catalog arrived.
+    /// </remarks>
+    void Invalidate();
 }
 
 public sealed class MapDataService(IMapDefinitionCache cache) : IMapDataService
@@ -26,6 +34,11 @@ public sealed class InMemoryMapDefinitionCache(IEnumerable<MapDefinition> maps) 
         cancellationToken.ThrowIfCancellationRequested();
         _maps.TryGetValue(mapId, out var map);
         return Task.FromResult(map);
+    }
+
+    public void Invalidate()
+    {
+        // The list was fixed when this was built; there is nothing to re-read.
     }
 }
 
