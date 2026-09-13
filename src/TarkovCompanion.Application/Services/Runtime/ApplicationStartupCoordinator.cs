@@ -120,7 +120,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             availability.Reason ?? "No reason was reported.");
         return availability.IsAvailable
             ? ScanExecutionResult.Ready(
-                "Ready. Press the scan shortcut while the game is in front of you.",
+                "Ready. Take a screenshot with the game's own key and it will be read.",
                 now)
             : ScanExecutionResult.Unavailable(
                 availability.Reason is { } reason
