@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -269,6 +270,9 @@ public sealed class RaidPageViewModel : PageViewModel
     /// </remarks>
     private readonly IMapDataService? _maps;
     private readonly Dictionary<string, TimeSpan?> _raidLengths = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The last raid we were told about, so a tick has something to recompute from.</summary>
+    private RaidSnapshot? _lastRaid;
     private string _timeLeft = "Unknown";
     private string _timeLeftDetail = "No raid in progress";
 
@@ -456,6 +460,7 @@ public sealed class RaidPageViewModel : PageViewModel
         Transits = raid.Transits.Count == 0
             ? string.Empty
             : "Transits offered: " + string.Join(" · ", raid.Transits);
+        _lastRaid = raid;
         UpdateTimeLeft(raid, nowUtc);
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
@@ -470,6 +475,26 @@ public sealed class RaidPageViewModel : PageViewModel
     /// The map's length is looked up once per map and remembered, because this runs on every
     /// runtime snapshot and a map's raid length does not change between them.
     /// </remarks>
+    /// <summary>
+    /// Recomputes how long is left, from a fresh now and the last raid we were told about.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in this application ticks: Apply runs only when the runtime store changes, and
+    /// between events that can be minutes. So "Time left" sat frozen at whatever it said when
+    /// the last screenshot landed, which is a readout that is wrong more often than it is
+    /// right and cannot be told apart from one that is working.
+    ///
+    /// Only the time-sensitive part is redone. Re-applying the whole snapshot every second
+    /// would run fourteen page view models and five map calls to move one clock.
+    /// </remarks>
+    public void Tick(DateTimeOffset nowUtc)
+    {
+        if (_lastRaid is { } raid)
+        {
+            UpdateTimeLeft(raid, nowUtc);
+        }
+    }
+
     private void UpdateTimeLeft(RaidSnapshot raid, DateTimeOffset nowUtc)
     {
         if (raid.State != RaidLifecycleState.InRaid)
@@ -1951,6 +1976,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private bool _initialized;
     private bool _disposed;
 
+    /// <summary>The one-second tick, where there is a dispatcher to run it on.</summary>
+    private DispatcherTimer? _clock;
+
     public MainWindowViewModel(
         IRuntimeStateStore stateStore,
         ApplicationStartupCoordinator startupCoordinator,
@@ -2070,6 +2098,50 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);
+        StartClock();
+    }
+
+    /// <summary>
+    /// Starts the one thing in this application that ticks.
+    /// </summary>
+    /// <remarks>
+    /// Everything here is driven by the runtime store, which raises Changed when the game
+    /// writes a log line or the player takes a screenshot — and between those it can be minutes.
+    /// So every "how long ago" and every countdown on screen was frozen at whatever it read when
+    /// the last event landed. That was survivable while the only clock was twenty pixels deep in
+    /// a sidebar; it is not survivable with "Time left" at reading size along the top, where a
+    /// frozen readout is indistinguishable from a working one.
+    ///
+    /// A second, because that is the resolution of the thing being shown. Only the clock and the
+    /// chips are redone: re-applying the whole snapshot would run fourteen page view models and
+    /// five map calls to move one number.
+    ///
+    /// Nothing starts where there is no dispatcher — a test host, a headless run — and nothing
+    /// depends on it having started. The chips are still correct on every snapshot; they are
+    /// merely correct less often.
+    /// </remarks>
+    private void StartClock()
+    {
+        if (_synchronizationContext is null)
+        {
+            return;
+        }
+
+        _clock = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => Tick());
+        _clock.Start();
+    }
+
+    private void Tick()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        var snapshot = _stateStore.Current;
+        Raid.Tick(now);
+        UpdateStatus(snapshot, now);
     }
 
     /// <summary>
@@ -2294,6 +2366,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         }
 
         _disposed = true;
+        _clock?.Stop();
+        _clock = null;
         _stateStore.Changed -= RuntimeStateChanged;
         // Stops the update watcher, which otherwise outlives the window it reports to and
         // keeps making network calls for a process on its way out.
@@ -2388,11 +2462,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             : snapshot.IsOffline
                 ? "Offline"
                 : string.Empty;
-        Status = CreateStatus(snapshot, now, ResolveMapName(snapshot.Raid.MapId));
         // The map catalog loads after History does, so rows opened before it holds tokens
         // rather than names. Cheap: it returns immediately unless the catalog actually grew.
         History.RenameMaps(Map.Locations.Count);
+        // Before the status bar, which now prints the clock the raid page works out. Two
+        // places computing the same countdown would eventually disagree about it.
         Raid.Apply(snapshot, now);
+        UpdateStatus(snapshot, now);
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
         Flea.Apply(snapshot);
@@ -2440,10 +2516,22 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// <param name="mapName">
     /// Resolved by the caller, because naming a map needs the catalog and this is static.
     /// </param>
+    /// <summary>Rebuilds the chips, from the raid page's own reading of the clock.</summary>
+    private void UpdateStatus(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc) => Status = CreateStatus(
+        snapshot,
+        nowUtc,
+        ResolveMapName(snapshot.Raid.MapId),
+        Map.Area,
+        Raid.TimeLeft,
+        Raid.TimeLeftDetail);
+
     private static IReadOnlyList<StatusChip> CreateStatus(
         ApplicationRuntimeSnapshot snapshot,
         DateTimeOffset nowUtc,
-        string mapName)
+        string mapName,
+        string areaName,
+        string timeLeft,
+        string timeLeftDetail)
     {
         var raid = snapshot.Raid;
         var observation = snapshot.Observation;
@@ -2463,12 +2551,18 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                     : observation.IsObserving ? "Observing" : observation.IsSupported ? "Not found" : "Unsupported",
                 snapshot.IsDemoMode ? "No live game access" : observation.Detail,
                 observation.IsObserving ? SageColor : observation.IsSupported || snapshot.IsDemoMode ? RestingColor : OchreColor),
+            // The evidence line used to be a confidence percentage about the map id, which is
+            // a number about our own certainty rather than about the raid. What a player wants
+            // from this chip once they know the map is where on it they are, which the map
+            // page already works out and nothing else was showing.
             new(
                 "Map",
                 raid.MapId is null ? "Unknown" : mapName,
                 raid.MapId is null
                     ? observation.IsWatchingLogs ? "Waiting for a raid to start" : "No current raid evidence"
-                    : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
+                    : position is null
+                        ? $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}"
+                        : $"{areaName} · screenshot {FormatAge(position.Timestamp, nowUtc)}",
                 raid.MapId is null ? RestingColor : CyanColor)
             {
                 IsPrimary = true,
@@ -2486,15 +2580,22 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             {
                 IsPrimary = true,
             },
+            // Was "Position", printing raw world coordinates at reading size. Nobody reads
+            // world coordinates: they are two numbers whose only use is being handed to
+            // something that draws a map, and the map is already drawing it.
+            //
+            // Time left is the thing a player actually glances up for, and it existed only
+            // twenty pixels deep in the Raid sidebar. The coordinates are kept in the tooltip,
+            // where they are wanted exactly when something has gone wrong with the marker.
             new(
-                "Position",
-                position is null ? "No evidence" : string.Create(CultureInfo.InvariantCulture, $"{position.Position.X:F0}, {position.Position.Z:F0}"),
+                "Time left",
+                timeLeft,
                 position is null
-                    ? observation.IsWatchingScreenshots
-                        ? "Screenshot to place yourself"
-                        : "No screenshot observation"
-                    : $"Screenshot · {FormatAge(position.Timestamp, nowUtc)}",
-                position is null ? RestingColor : CyanColor)
+                    ? timeLeftDetail
+                    : string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{timeLeftDetail} · at {position.Position.X:F0}, {position.Position.Z:F0}"),
+                raid.State == RaidLifecycleState.InRaid ? CyanColor : RestingColor)
             {
                 IsPrimary = true,
             },

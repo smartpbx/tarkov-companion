@@ -72,7 +72,7 @@ public sealed class MainWindowViewModelTests
         await using var services = CreateServices();
         var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
-        Assert.Equal(["EFT", "Map", "Raid", "Position", "Data", "Scan"], viewModel.Status.Select(status => status.Label));
+        Assert.Equal(["EFT", "Map", "Raid", "Time left", "Data", "Scan"], viewModel.Status.Select(status => status.Label));
         Assert.Contains("no live game access", viewModel.ModeLabel, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("No item scanned", viewModel.LastScanName);
         Assert.Contains("fixture", viewModel.LastScanEvidence, StringComparison.OrdinalIgnoreCase);
