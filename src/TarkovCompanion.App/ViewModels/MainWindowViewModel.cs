@@ -879,11 +879,15 @@ public sealed class HistoryPageViewModel : PageViewModel
             metres += Math.Sqrt((dx * dx) + (dz * dz));
         }
 
-        return string.Create(
-            CultureInfo.CurrentCulture,
-            metres >= 1000
-                ? $"{positions.Count} screenshots · at least {metres / 1000:F1} km"
-                : $"{positions.Count} screenshots · at least {metres:F0} m");
+        // Branched before the call rather than inside it: a conditional between two
+        // interpolations is two strings, and the culture-aware overload wants a handler.
+        return metres >= 1000
+            ? string.Create(
+                CultureInfo.CurrentCulture,
+                $"{positions.Count} screenshots · at least {metres / 1000:F1} km")
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"{positions.Count} screenshots · at least {metres:F0} m");
     }
 }
 
