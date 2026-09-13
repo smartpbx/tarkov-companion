@@ -2,9 +2,11 @@ using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Runtime;
@@ -19,6 +21,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly ProfileNeedAggregationService _needAggregation;
     private readonly EftLogParser _logParser;
     private readonly IMapAliasCatalog _mapAliasCatalog;
+    private readonly IMapDefinitionCache? _mapDefinitions;
+    private readonly IMapFeatureCatalog? _mapFeatures;
     private readonly IRequirementCatalog _requirementCatalog;
     private readonly IItemFactCatalog _itemFactCatalog;
     private readonly IRuntimeStateStore _stateStore;
@@ -47,7 +51,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         // Optional so every test that builds this by hand keeps compiling, and so a
         // composition without sharing is a valid composition rather than a broken one.
         GroupSessionService? groupSession = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        // Optional for the same reason, and because a composition that reads maps out of a
+        // fixture rather than the database is still a valid composition.
+        IMapDefinitionCache? mapDefinitions = null,
+        IMapFeatureCatalog? mapFeatures = null)
     {
         _dataStore = dataStore;
         _dataSyncService = dataSyncService;
@@ -58,6 +66,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _needAggregation = needAggregation;
         _logParser = logParser;
         _mapAliasCatalog = mapAliasCatalog;
+        _mapDefinitions = mapDefinitions;
+        _mapFeatures = mapFeatures;
         _requirementCatalog = requirementCatalog;
         _itemFactCatalog = itemFactCatalog;
         _stateStore = stateStore;
@@ -205,6 +215,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             _requirementCatalog.Invalidate();
             _itemFactCatalog.Invalidate();
             _mapAliasCatalog.Invalidate();
+            _mapDefinitions?.Invalidate();
+            _mapFeatures?.Invalidate();
             await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();

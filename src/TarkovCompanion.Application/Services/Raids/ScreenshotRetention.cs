@@ -115,6 +115,11 @@ public sealed partial class ScreenshotRetentionService(IRecycleBin recycleBin, T
                 continue;
             }
 
+            if (IsCloudOnly(file.Attributes))
+            {
+                continue;
+            }
+
             if (recycleBin.Recycle(file.FullName))
             {
                 tidied++;
@@ -123,4 +128,25 @@ public sealed partial class ScreenshotRetentionService(IRecycleBin recycleBin, T
 
         return tidied;
     }
+
+    /// <summary>Whether the file is a cloud placeholder rather than bytes on this disk.</summary>
+    /// <remarks>
+    /// The game's screenshot folder is inside OneDrive on a default Windows install, and
+    /// OneDrive eventually replaces older files with reparse points that hold nothing. Handing
+    /// one to the shell forces a download of the very file being thrown away, over a
+    /// connection nobody asked it to use, in the middle of a raid.
+    ///
+    /// Skipping them is also the kinder answer: the picture is still in the player's cloud
+    /// storage and is already not taking up space on the disk, which is the whole complaint
+    /// this feature exists to answer.
+    ///
+    /// <c>RECALL_ON_DATA_ACCESS</c> is the attribute OneDrive actually sets and .NET has no
+    /// name for it, so it is tested by value.
+    /// </remarks>
+    public static bool IsCloudOnly(FileAttributes attributes) =>
+        (attributes & FileAttributes.Offline) != 0 ||
+        (attributes & FileAttributes.ReparsePoint) != 0 ||
+        ((int)attributes & RecallOnDataAccess) != 0;
+
+    private const int RecallOnDataAccess = 0x0040_0000;
 }
