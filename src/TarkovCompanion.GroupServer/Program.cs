@@ -1,7 +1,13 @@
+using System.Security.Cryptography;
+using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.GroupServer;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Kestrel's default is 30 MB. Nothing this relay accepts is larger than a few kilobytes, and a
+// 1 GB box should not be asked to buffer thirty megabytes because somebody sent it.
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 32 * 1024);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
 // StateDirectory=tarkov-group gives the unit /var/lib/tarkov-group, which is outside the tree
@@ -46,11 +52,55 @@ builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
 });
 builder.Services.AddSingleton<CatalogMirror>();
 
+// Reports are taken and kept here; the hourly relay-watch workflow turns them into issues
+// using the token GitHub Actions already gives it for its own repository. So this box holds no
+// GitHub credential at all — which matters, because it is the internet-facing one.
+builder.Services.AddSingleton<ProblemReports>();
+
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+// Members expired only when their room was read, so a room nobody reads never forgot
+// anything, and an empty room was never removed at all. Bounded by time now rather than by
+// whether anybody happens to look.
+var sweeper = new PeriodicTimer(TimeSpan.FromMinutes(1));
+_ = Task.Run(async () =>
+{
+    while (await sweeper.WaitForNextTickAsync().ConfigureAwait(false))
+    {
+        try
+        {
+            rooms.Sweep();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // A failed sweep is one minute of memory, not a reason to stop sweeping.
+        }
+    }
+});
+
+// What this relay is, and how much it is holding. Counts only: never who, never where.
+//
+// It answered {status:"ok"} and nothing else, so there was no way to ask a running relay which
+// build it was — not from a client, not from the updater that had just installed it, and not
+// from anybody wondering whether a merge had actually reached it.
+var build = typeof(GroupRooms).Assembly
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    ?? "unknown";
+var version = build.Split('+')[0];
+var commit = build.Contains('+', StringComparison.Ordinal) ? build.Split('+')[1] : null;
+var startedUtc = DateTimeOffset.UtcNow;
+
+app.MapGet("/health", () => Results.Ok(new
+{
+    status = "ok",
+    version,
+    commit,
+    startedUtc,
+    rooms = rooms.RoomCount,
+    members = rooms.MemberCount,
+}));
 
 // The second screen.
 //
@@ -83,25 +133,13 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
         return TypedResults.Unauthorized();
     }
 
-    if (string.IsNullOrWhiteSpace(state.Name) || state.Name.Length > 48)
+    // One validation, and it tolerates nulls. `"observed": null` used to reach
+    // state.Observed.Count and throw, which the framework turned into a 500 — a malformed
+    // request answered as a server fault, and an unhandled exception per attempt for anybody
+    // who cared to send them.
+    if (state.Validate() is { } invalid)
     {
-        return TypedResults.BadRequest("A display name is required and must be 48 characters or fewer.");
-    }
-
-    // Bounded because this is the one field carrying something about other people, and a
-    // client that published four hundred of them would be filling the room rather than
-    // helping it. A party is five.
-    if (state.Observed.Count > 8 || state.Observed.Any(observed =>
-        string.IsNullOrWhiteSpace(observed.Name) || observed.Name.Length > 48 || observed.Loadout.Count > 12))
-    {
-        return TypedResults.BadRequest("Observations must name at most eight players with at most twelve items each.");
-    }
-
-    // A trail is screenshots, not a stream: a raid produces a handful and a client that
-    // published four hundred points would be filling the room rather than helping it.
-    if (state.Trail.Count > 12)
-    {
-        return TypedResults.BadRequest("A trail may carry at most twelve points.");
+        return TypedResults.BadRequest(invalid);
     }
 
     var room = GroupKey.RoomFor(key);
@@ -128,6 +166,88 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
 //
 // So this returns everyone, including whoever is reading, because the reader is not one of
 // them. Same key, because this is the same room and the key is the whole access model.
+// One button, one issue. The person with the problem is the one who can see it and the least
+// able to describe it, so the report travels instead of the conversation.
+//
+// Keyed like everything else: the report is filed against the room rather than a person, and
+// the room is a hash of the key, so the relay learns nothing about who reported what.
+app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>>> (
+    HttpRequest request,
+    ProblemReports reports,
+    CancellationToken cancellationToken) =>
+{
+    if (!TryReadKey(request, out var key))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    using var reader = new StreamReader(request.Body);
+    var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+    if (string.IsNullOrWhiteSpace(body))
+    {
+        return TypedResults.BadRequest("A report needs a body.");
+    }
+
+    if (System.Text.Encoding.UTF8.GetByteCount(body) > ProblemReports.MaximumBytes)
+    {
+        return TypedResults.BadRequest($"A report may be at most {ProblemReports.MaximumBytes / 1024} KiB.");
+    }
+
+    var room = GroupKey.RoomFor(key);
+    if (reports.IsRateLimited(room))
+    {
+        // Said plainly rather than refused silently: somebody pressing the button twice has a
+        // reason, and being told the first one arrived is the useful answer.
+        return TypedResults.BadRequest(
+            $"This group has filed {ProblemReports.MaximumPerRoomPerHour} reports in the last hour. The earlier ones arrived.");
+    }
+
+    return TypedResults.Ok(reports.Accept(room, body));
+});
+
+// What is waiting to be turned into issues. References and sizes, never bodies: the repository
+// is public, so an issue names a report and somebody comes here to read it.
+//
+// Behind an admin key rather than the group key, because any member of any group holds one of
+// those and this lists every group's reports.
+app.MapGet("/reports", Results<Ok<IReadOnlyList<StoredReport>>, UnauthorizedHttpResult> (
+    HttpRequest request,
+    ProblemReports reports) =>
+{
+    var admin = Environment.GetEnvironmentVariable("TARKOV_RELAY_ADMIN_KEY");
+    if (string.IsNullOrWhiteSpace(admin) ||
+        !request.Headers.TryGetValue("X-Admin-Key", out var provided) ||
+        provided.Count != 1 ||
+        !CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(provided[0] ?? string.Empty),
+            System.Text.Encoding.UTF8.GetBytes(admin)))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    return TypedResults.Ok(reports.List());
+});
+
+// One report, for whoever is holding the admin key and reading an issue that names it.
+app.MapGet("/reports/{reference}", Results<Ok<string>, NotFound, UnauthorizedHttpResult> (
+    string reference,
+    HttpRequest request,
+    ProblemReports reports) =>
+{
+    var admin = Environment.GetEnvironmentVariable("TARKOV_RELAY_ADMIN_KEY");
+    if (string.IsNullOrWhiteSpace(admin) ||
+        !request.Headers.TryGetValue("X-Admin-Key", out var provided) ||
+        provided.Count != 1 ||
+        !CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.UTF8.GetBytes(provided[0] ?? string.Empty),
+            System.Text.Encoding.UTF8.GetBytes(admin)))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    return reports.Read(reference) is { } body ? TypedResults.Ok(body) : TypedResults.NotFound();
+});
+
 app.MapGet("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult> (HttpRequest request) =>
 {
     if (!TryReadKey(request, out var key))

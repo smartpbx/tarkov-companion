@@ -1,3 +1,4 @@
+using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -148,8 +149,12 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private static string Explain(Exception exception) => exception switch
     {
+        // A 401 from this server means the key failed GroupKey.IsAcceptable, which is a
+        // length test: under eight characters or over 128. It cannot mean "wrong key" — the
+        // key *is* the room, so a different key is a different room, which answers 200 with
+        // nobody in it. Saying "wrong group key" sent people to compare keys that were fine.
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
-            "Wrong group key · everyone has to type the same one",
+            $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
         HttpRequestException { StatusCode: HttpStatusCode.BadRequest } =>
             "Server rejected the key or the display name",
         HttpRequestException { StatusCode: { } status } =>
@@ -265,7 +270,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 _lastGood = null;
                 Publish(GroupSnapshot.Off with
                 {
-                    Detail = "Wrong group key",
+                    Detail = $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
                     UpdatedUtc = DateTimeOffset.UtcNow,
                 });
                 return;
@@ -640,6 +645,65 @@ public sealed class GroupSessionService : IAsyncDisposable
         ? $"{Math.Max(0, (int)elapsed.TotalSeconds)}s"
         : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
 
+    /// <summary>
+    /// Sends a diagnostic report to the relay, which files it where the work happens.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in its own service because this is the one component that already
+    /// knows the relay's address and holds the key, and a second thing that did would be a
+    /// second thing to keep in step.
+    ///
+    /// The report is redacted before it gets here and nothing is added to it. What comes back
+    /// is a sentence for the player and, when GitHub was reachable, a link.
+    ///
+    /// Every failure ends by pointing at Copy diagnostics, because the whole point is that the
+    /// person with the problem can get the report out — and a relay they cannot reach is one
+    /// of the problems they might be reporting.
+    /// </remarks>
+    public async Task<string> ReportProblemAsync(string report, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
+        if (!settings.IsUsable)
+        {
+            return settings.MissingPiece is { } missing
+                ? $"Cannot send: the group needs {missing}. Use Copy diagnostics instead."
+                : "Cannot send: group sharing is not set up. Use Copy diagnostics instead.";
+        }
+
+        try
+        {
+            using var sending = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            sending.CancelAfter(TimeSpan.FromSeconds(30));
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(new Uri(settings.ServerUri!), "report"))
+            {
+                Content = new StringContent(report, Encoding.UTF8, "text/markdown"),
+            };
+            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            using var response = await _httpClient.SendAsync(request, sending.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                var detail = await response.Content.ReadAsStringAsync(sending.Token).ConfigureAwait(false);
+                return $"The relay refused it ({(int)response.StatusCode}). {detail}";
+            }
+
+            var outcome = await response.Content
+                .ReadFromJsonAsync<ReportOutcomeDto>(Json, sending.Token)
+                .ConfigureAwait(false);
+            return outcome is null
+                ? "Sent · the relay took it."
+                : $"Sent · reference {outcome.Reference} · {outcome.Detail}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || cancellationToken.IsCancellationRequested)
+        {
+            return $"Could not reach the relay: {Explain(exception)}. Use Copy diagnostics instead.";
+        }
+    }
+
+    private sealed record ReportOutcomeDto(string Reference, string Detail);
+
     private void Publish(GroupSnapshot group) =>
         _stateStore.Update(current => current with { Group = group });
 
@@ -651,6 +715,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         _disposed = true;
+        // Said out loud rather than left to time out. DELETE /state/{name} has been served
+        // since the relay was written and called by nothing, so a member who closed the
+        // application stayed on everybody else's map for the full three-minute lifetime,
+        // apparently still in the raid.
+        //
+        // Before the token is cancelled, because it uses it; and on its own short budget, so
+        // a relay that has gone away cannot hold the application open while it closes.
+        await LeaveRoomAsync().ConfigureAwait(false);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_worker is { } worker)
         {
@@ -664,6 +736,35 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         _stopping.Dispose();
+    }
+
+    /// <summary>Tells the relay this member is going, so the others stop drawing them.</summary>
+    /// <remarks>
+    /// Best effort and silent. Failing to say goodbye costs the group three minutes of a stale
+    /// marker, which is exactly what happened every time before this; it must not cost anybody
+    /// a hung close.
+    /// </remarks>
+    private async Task LeaveRoomAsync()
+    {
+        try
+        {
+            var settings = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!settings.IsUsable)
+            {
+                return;
+            }
+
+            using var leaving = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                new Uri(new Uri(settings.ServerUri!), $"state/{Uri.EscapeDataString(settings.DisplayName!.Trim())}"));
+            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            using var response = await _httpClient.SendAsync(request, leaving.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Nothing to do about it and nobody to tell: the application is closing.
+        }
     }
 
     private sealed record MemberStateDto(

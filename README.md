@@ -23,8 +23,10 @@ Settings entry in the sidebar when a build is waiting, and installs it in place 
 Every published file carries a SHA256 in `VELOPACK-SHA256SUMS.txt`. Verifying before installing
 is worth the ten seconds.
 
-Local text recognition needs the
-[Microsoft Visual C++ 2015-2022 x64 runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+Text recognition prefers the recogniser built into Windows, which needs nothing installed. It
+falls back to Tesseract, and *that* needs the
+[Microsoft Visual C++ 2015-2022 x64 runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe) —
+so most people never need it, and Settings says which recogniser is actually running.
 Everything else is self-contained.
 
 ## What it does

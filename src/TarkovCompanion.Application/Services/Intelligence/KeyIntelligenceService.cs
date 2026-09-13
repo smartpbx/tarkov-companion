@@ -26,7 +26,7 @@ public sealed record CuratedKeyOverride(
     string? Explanation,
     DataProvenance Provenance);
 
-public sealed class KeyIntelligenceService : IKeyIntelligenceService
+public sealed class KeyIntelligenceService
 {
     private readonly IReadOnlyDictionary<string, KeyFacts> _facts;
     private readonly IReadOnlyDictionary<string, CuratedKeyOverride> _overrides;

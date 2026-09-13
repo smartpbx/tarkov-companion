@@ -54,11 +54,6 @@
       <!-- What the page does not do is stated once, quietly, beside the party. It is the
            safety boundary in the player's terms, and it is worth a column rather than a
            footnote because "where is the kill list" is the first question anyone asks. -->
-      <Border Grid.Column="1" Classes="panel">
-        <StackPanel Spacing="10">
-          <TextBlock Classes="sectionTitle" Text="What is not here" />
-        </StackPanel>
-      </Border>
     </Grid>
   </Grid>
 </UserControl>

@@ -7,7 +7,7 @@ Direct validation against Escape from Tarkov is pending because EFT is not insta
 - [ ] Extract/install the v1 release and launch it normally.
 - [ ] Configure or auto-detect EFT logs and screenshots.
 - [ ] Select the second monitor.
-- [ ] Confirm the scan hotkey does not affect gameplay unexpectedly.
+- [ ] Confirm that taking a screenshot with the game's own key is read, and that nothing else in the companion touches the game.
 
 ## Menu and stash scanning
 

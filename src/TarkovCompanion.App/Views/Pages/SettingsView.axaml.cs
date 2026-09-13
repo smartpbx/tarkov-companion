@@ -1,5 +1,7 @@
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Markup.Xaml;
+using TarkovCompanion.App.ViewModels;
 
 namespace TarkovCompanion.App.Views.Pages;
 
@@ -18,5 +20,27 @@ namespace TarkovCompanion.App.Views.Pages;
 /// </remarks>
 public sealed partial class SettingsView : UserControl
 {
-    public SettingsView() => AvaloniaXamlLoader.Load(this);
+    public SettingsView()
+    {
+        AvaloniaXamlLoader.Load(this);
+
+        // A clipboard belongs to a window, and a view model that reached for one could not be
+        // tested. Handed over here, once the view is attached and there is a window to ask.
+        DataContextChanged += (_, _) => Wire();
+        AttachedToVisualTree += (_, _) => Wire();
+    }
+
+    private void Wire()
+    {
+        if (DataContext is SettingsPageViewModel settings)
+        {
+            settings.Clipboard = async text =>
+            {
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                {
+                    await clipboard.SetTextAsync(text).ConfigureAwait(true);
+                }
+            };
+        }
+    }
 }

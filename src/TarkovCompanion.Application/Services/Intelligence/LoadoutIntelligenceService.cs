@@ -15,14 +15,14 @@ public sealed record LoadoutItemFacts(
     IReadOnlySet<string> CompatibleWeaponItemIds,
     IReadOnlySet<string> CompatibleParentItemIds);
 
-public sealed class LoadoutIntelligenceService : ILoadoutService
+public sealed class LoadoutIntelligenceService
 {
     private readonly IReadOnlyDictionary<string, LoadoutItemFacts> _catalog;
-    private readonly IAmmoIntelligenceService _ammoIntelligenceService;
+    private readonly AmmoIntelligenceService _ammoIntelligenceService;
 
     public LoadoutIntelligenceService(
         IEnumerable<LoadoutItemFacts> catalog,
-        IAmmoIntelligenceService ammoIntelligenceService)
+        AmmoIntelligenceService ammoIntelligenceService)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(ammoIntelligenceService);
