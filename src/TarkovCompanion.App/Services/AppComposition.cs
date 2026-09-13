@@ -286,6 +286,10 @@ public static class AppComposition
         services.AddSingleton<EftLogParser>();
         services.AddSingleton<SquadStateService>();
         services.AddSingleton<FleaSaleStateService>();
+        // The game announces every quest starting, failing and being handed in, and until now
+        // nobody was listening: the page showed five hundred quests all reading Unknown while
+        // the answer sat in the same files the flea sales come from.
+        services.AddSingleton<QuestLogProgressService>();
         services.AddSingleton<IEftLogObserver, EftLogObservers>();
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 

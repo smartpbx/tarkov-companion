@@ -301,7 +301,7 @@ public sealed class RuntimeCompositionTests
             task = Assert.Single(quests.Tasks);
             Assert.Equal("Active", task.RecordedState);
             Assert.Contains("Active need: 2", Assert.Single(task.Objectives).Items, StringComparison.Ordinal);
-            Assert.Equal("Objective source requires found-in-raid items.", Assert.Single(task.Objectives).FoundInRaidRule);
+            Assert.Equal("Found in raid", Assert.Single(task.Objectives).FoundInRaidRule);
             await Assert.IsType<AsyncDelegateCommand>(task.Objectives[0].IncrementCommand).ExecuteAsync();
             task = Assert.Single(quests.Tasks);
             Assert.Contains("1/2", Assert.Single(task.Objectives).Status, StringComparison.Ordinal);
@@ -328,9 +328,8 @@ public sealed class RuntimeCompositionTests
             await quests.SetPlayerLevelAsync(null);
             Assert.Equal((decimal)QuestsPageViewModel.MaximumLevel, quests.PlayerLevel);
 
-            Assert.Contains("exact mode Regular", quests.ScopeStatus, StringComparison.Ordinal);
-            Assert.Contains("generation", quests.ScopeStatus, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("json.tarkov.dev", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Regular", quests.ScopeStatus, StringComparison.Ordinal);
+            Assert.Contains("regular", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);
 
             quests.ExchangePath = Path.Combine(root, "Support", "quest-progress-test.json");
             await quests.ExportProgressCommand.ExecuteAsync();
@@ -340,7 +339,7 @@ public sealed class RuntimeCompositionTests
             Assert.True(quests.HasImportProposals);
             Assert.Contains("unchanged", quests.ImportPreviewSummary, StringComparison.OrdinalIgnoreCase);
             await quests.ApplyImportCommand.ExecuteAsync();
-            Assert.Contains("Applied 0 changes", quests.ExchangeStatus, StringComparison.Ordinal);
+            Assert.Contains("Applied 0", quests.ExchangeStatus, StringComparison.Ordinal);
         }
         finally
         {

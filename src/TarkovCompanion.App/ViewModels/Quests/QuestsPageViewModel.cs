@@ -19,11 +19,11 @@ public sealed class QuestImportProposalViewModel(
 
     public string Classification => proposal.Classification switch
     {
-        QuestImportClassification.SafeMonotonic => "Safe monotonic",
-        QuestImportClassification.Conflict => "Conflict — confirmation required",
-        QuestImportClassification.IgnoredUnchanged => "Ignored unchanged",
-        QuestImportClassification.UnresolvedUnknownId => "Unresolved unknown id",
-        QuestImportClassification.UnresolvedSourceRecord => "Unresolved source record",
+        QuestImportClassification.SafeMonotonic => "Safe",
+        QuestImportClassification.Conflict => "Conflict",
+        QuestImportClassification.IgnoredUnchanged => "Unchanged",
+        QuestImportClassification.UnresolvedUnknownId => "Unknown id",
+        QuestImportClassification.UnresolvedSourceRecord => "Unreadable record",
         _ => proposal.Classification.ToString(),
     };
 
@@ -161,8 +161,8 @@ public sealed class QuestObjectiveViewModel : BindableViewModel
     public bool HasFoundInRaidRule => Model.FoundInRaidRequired is not null;
 
     public string FoundInRaidRule => Model.FoundInRaidRequired == true
-        ? "Objective source requires found-in-raid items."
-        : "Objective source does not require found-in-raid items.";
+        ? "Found in raid"
+        : "Not found in raid";
 
     public bool IsUnsupported => Model.IsUnsupported;
 
@@ -247,7 +247,7 @@ public sealed class QuestTaskViewModel
     {
         Model.Restartable == true ? "Restartable" : null,
         Model.HasFailureConditions
-            ? $"Source-authored failure conditions: {string.Join("; ", Model.FailureConditionNotes)}"
+            ? $"Fails if: {string.Join("; ", Model.FailureConditionNotes)}"
             : null,
     }.OfType<string>());
 
@@ -311,14 +311,14 @@ public sealed class QuestsPageViewModel : PageViewModel
     private DateTimeOffset? _lastRuntimeDataUtc;
     private bool _initialized;
     private string _exchangePath;
-    private string _exchangeStatus = "Project JSON exchange is local-only and has not run.";
+    private string _exchangeStatus = "Not run";
     private string _importPreviewSummary = "No import preview loaded.";
     private IReadOnlyList<QuestImportProposalViewModel> _importProposals = [];
     private QuestProgressImportPreview? _importPreview;
     private Dictionary<string, QuestImportResolution> _importResolutions = new(StringComparer.Ordinal);
     private Guid? _lastImportId;
     private string _tarkovTrackerToken = string.Empty;
-    private string _tarkovTrackerStatus = "Optional TarkovTracker connection status not loaded.";
+    private string _tarkovTrackerStatus = "Not checked";
     private bool _canConnectTarkovTracker;
     private bool _canRefreshTarkovTracker;
     private bool _canDisconnectTarkovTracker;
@@ -340,8 +340,8 @@ public sealed class QuestsPageViewModel : PageViewModel
         IItemRepository? itemRepository = null)
         : base(
             "Quests",
-            "Local-first quest progress, reviewed project exchange, and source-honest static map links",
-            "Quest state not loaded")
+            "What you are working on, and what each one needs",
+            "Not loaded")
     {
         _profileService = profileService;
         _readService = readService;
@@ -529,7 +529,7 @@ public sealed class QuestsPageViewModel : PageViewModel
 
     public void ApplyRuntime(ApplicationRuntimeSnapshot snapshot)
     {
-        Evidence = $"{snapshot.Data.Availability} · local profile and database-backed progress";
+        Evidence = $"{snapshot.Data.Availability}";
         if (_initialized && snapshot.Data.UpdatedUtc != _lastRuntimeDataUtc)
         {
             _lastRuntimeDataUtc = snapshot.Data.UpdatedUtc;
@@ -628,7 +628,7 @@ public sealed class QuestsPageViewModel : PageViewModel
                 OnPropertyChanged(nameof(PlayerLevel));
             }
 
-            ScopeStatus = $"{profile.Name} · exact mode {profile.GameMode} · generation {profile.ProfileGeneration}";
+            ScopeStatus = $"{profile.Name} · {profile.GameMode}";
             await RefreshTarkovTrackerStatusAsync(_scope, cancellationToken).ConfigureAwait(true);
             var board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _allTasks = board.Tasks.Select(task => new QuestTaskViewModel(task, this)).ToArray();
@@ -636,22 +636,22 @@ public sealed class QuestsPageViewModel : PageViewModel
                 .Select(orphan => $"{orphan.EntityKind} {orphan.ExternalId}: {orphan.RecordedValue}")
                 .ToArray();
             CatalogStatus = board.CatalogProvenance is { } provenance
-                ? $"Catalog {provenance.SourceMode}/{provenance.Language} · validated {FormatAge(provenance.ValidatedUtc, NowUtc)} · {provenance.Source}"
+                ? $"Catalog {provenance.SourceMode}/{provenance.Language} · {FormatAge(provenance.ValidatedUtc, NowUtc)}"
                 : board.UnavailableReason ?? "Quest catalog unavailable.";
             Evidence = board.CatalogProvenance is null
-                ? "Quest catalog unavailable · local progress retained"
-                : $"{board.Tasks.Count} catalog quests · revision {board.ProgressRevision} · {board.CatalogProvenance.SourceMode}";
+                ? "Catalog unavailable"
+                : $"{board.Tasks.Count} quests · {board.CatalogProvenance.SourceMode}";
             ApplyFilter(selectedTaskId);
             Status = board.UnavailableReason ?? (Tasks.Count == 0
-                ? "No quests match this filter. Choose All quests to inspect the catalog."
-                : $"Showing {Tasks.Count} of {_allTasks.Count} quests. Changes are manual and local.");
+                ? "Nothing matches this filter"
+                : $"{Tasks.Count} of {_allTasks.Count} quests");
             await _map.RefreshQuestLayerAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Tasks = [];
             SelectedTask = null;
-            Status = $"Quest view unavailable: {exception.Message}";
+            Status = $"Unavailable · {exception.Message}";
         }
         finally
         {
@@ -793,7 +793,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load the exact profile scope before connecting TarkovTracker.";
+            TarkovTrackerStatus = "Load a profile first";
             return;
         }
 
@@ -804,11 +804,11 @@ public sealed class QuestsPageViewModel : PageViewModel
                 TarkovTrackerToken,
                 CancellationToken.None).ConfigureAwait(true);
             UpdateTarkovTrackerStatus(status,
-                "Token validated with canonical GET /token and saved in protected storage.");
+                "Token checked and saved");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            TarkovTrackerStatus = $"Connection failed without saving a token: {exception.Message}";
+            TarkovTrackerStatus = $"Not connected · {exception.Message}";
         }
         finally
         {
@@ -820,7 +820,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load the exact profile scope before disconnecting TarkovTracker.";
+            TarkovTrackerStatus = "Load a profile first";
             return;
         }
 
@@ -830,10 +830,10 @@ public sealed class QuestsPageViewModel : PageViewModel
                 .ConfigureAwait(true);
             if (_importPreview?.Source == QuestProgressImportSource.TarkovTracker)
             {
-                ClearImportPreview("TarkovTracker was disconnected; its pending preview was discarded.");
+                ClearImportPreview("Disconnected · the pending preview went with it");
             }
 
-            UpdateTarkovTrackerStatus(status, "Disconnected and deleted the protected token.");
+            UpdateTarkovTrackerStatus(status, "Disconnected · token deleted");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -845,7 +845,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            TarkovTrackerStatus = "Load the exact profile scope before refreshing TarkovTracker.";
+            TarkovTrackerStatus = "Load a profile first";
             return;
         }
 
@@ -859,12 +859,12 @@ public sealed class QuestsPageViewModel : PageViewModel
             UpdateTarkovTrackerStatus(
                 result.Status,
                 result.NotModified
-                    ? "GET /progress returned 304; the cached snapshot was re-previewed and the request still counted against quota."
-                    : "GET /progress fetched a read-only snapshot for review; nothing was applied automatically.");
+                    ? "Unchanged since last time · still counted against your quota"
+                    : "Fetched · review it, then apply");
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            TarkovTrackerStatus = $"Refresh failed; local progress is unchanged: {exception.Message}";
+            TarkovTrackerStatus = $"Not refreshed · {exception.Message}";
         }
     }
 
@@ -882,7 +882,7 @@ public sealed class QuestsPageViewModel : PageViewModel
             CanConnectTarkovTracker = false;
             CanRefreshTarkovTracker = false;
             CanDisconnectTarkovTracker = false;
-            TarkovTrackerStatus = $"TarkovTracker status unavailable: {exception.Message}";
+            TarkovTrackerStatus = $"Unavailable · {exception.Message}";
         }
     }
 
@@ -894,16 +894,16 @@ public sealed class QuestsPageViewModel : PageViewModel
         CanRefreshTarkovTracker = status.CanRefresh;
         CanDisconnectTarkovTracker = status.SecureStorageAvailable && status.Connected;
         var availability = !status.SecureStorageAvailable
-            ? "Integration disabled because protected secret storage is unavailable."
+            ? "Off · this machine has no protected storage for the token"
             : !status.FeatureEnabled
-                ? "Optional integration disabled by feature flag."
+                ? "Off"
                 : !status.NetworkAccessEnabled
-                    ? "Integration unavailable in offline mode; all local quest features remain available."
+                    ? "Off in offline mode"
                     : status.RequiresReconnect
-                        ? "Saved credential was rejected; reconnect is required."
+                        ? "Token rejected · reconnect"
                         : status.Connected
-                            ? $"Connected for exact mode {status.GameMode}."
-                            : $"Not connected for exact mode {status.GameMode}.";
+                            ? $"Connected · {status.GameMode}"
+                            : $"Not connected · {status.GameMode}";
         var quota = status.Quota.Remaining is { } remaining
             ? $" Read quota remaining: {remaining}/{status.Quota.Limit?.ToString(CultureInfo.InvariantCulture) ?? "?"}."
             : " Read quota is unknown.";
@@ -918,7 +918,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            ExchangeStatus = "Load the exact profile scope before exporting.";
+            ExchangeStatus = "Load a profile first";
             return;
         }
 
@@ -928,11 +928,11 @@ public sealed class QuestsPageViewModel : PageViewModel
                 _scope,
                 ExchangePath,
                 CancellationToken.None).ConfigureAwait(true);
-            ExchangeStatus = $"Exported {result.RecordCount} owned records · SHA-256 {result.PayloadSha256[..12]}…";
+            ExchangeStatus = $"Exported {result.RecordCount} records";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Export failed without changing progress: {exception.Message}";
+            ExchangeStatus = $"Not exported · {exception.Message}";
         }
     }
 
@@ -940,7 +940,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            ExchangeStatus = "Load the exact profile scope before previewing an import.";
+            ExchangeStatus = "Load a profile first";
             return;
         }
 
@@ -955,7 +955,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             ClearImportPreview("No valid import preview loaded.");
-            ExchangeStatus = $"Preview failed; the database is unchanged: {exception.Message}";
+            ExchangeStatus = $"No preview · {exception.Message}";
         }
     }
 
@@ -963,7 +963,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Load a quest progress preview before resolving conflicts.";
+            ExchangeStatus = "Preview something first";
             return;
         }
 
@@ -973,15 +973,15 @@ public sealed class QuestsPageViewModel : PageViewModel
             StringComparer.Ordinal);
         RefreshImportProposalRows();
         ExchangeStatus = _importPreview.Conflicts.Count == 0
-            ? "The preview has no conflicts; safe monotonic changes are ready to apply."
-            : $"Confirmed {resolution} for {_importPreview.Conflicts.Count} conflicts. Review the list, then apply.";
+            ? "No conflicts · ready to apply"
+            : $"{resolution} for {_importPreview.Conflicts.Count} conflicts · review, then apply";
     }
 
     private async Task ApplyImportAsync()
     {
         if (_importPreview is null)
         {
-            ExchangeStatus = "Preview a quest progress source before applying it.";
+            ExchangeStatus = "Preview something first";
             return;
         }
 
@@ -993,14 +993,14 @@ public sealed class QuestsPageViewModel : PageViewModel
                 CancellationToken.None).ConfigureAwait(true);
             _lastImportId = result.ImportId;
             ExchangeStatus = result.AlreadyApplied
-                ? $"This normalized payload was already applied as import {result.ImportId}. No duplicate changes were made."
-                : $"Applied {result.AppliedChangeCount} changes atomically · kept {result.KeptLocalCount} local · retained {result.UnresolvedCount} unresolved.";
-            ClearImportPreview("Import applied. Preview again before another apply.");
+                ? $"Already applied as import {result.ImportId}"
+                : $"Applied {result.AppliedChangeCount} · kept {result.KeptLocalCount} local · {result.UnresolvedCount} unresolved";
+            ClearImportPreview("Applied · preview again for another");
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Import was not applied: {exception.Message}";
+            ExchangeStatus = $"Not applied · {exception.Message}";
         }
     }
 
@@ -1008,7 +1008,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null || _lastImportId is null)
         {
-            ExchangeStatus = "No import from this session is available to undo.";
+            ExchangeStatus = "Nothing to undo";
             return;
         }
 
@@ -1019,13 +1019,13 @@ public sealed class QuestsPageViewModel : PageViewModel
                 _lastImportId.Value,
                 CancellationToken.None).ConfigureAwait(true);
             ExchangeStatus = result.AlreadyUndone
-                ? "That import was already undone; no duplicate journal entry was created."
-                : $"Undid {result.RestoredChangeCount} imported changes as journal revision {result.Revision}.";
+                ? "Already undone"
+                : $"Undid {result.RestoredChangeCount} changes";
             await RefreshAsync().ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ExchangeStatus = $"Import undo was refused without changing progress: {exception.Message}";
+            ExchangeStatus = $"Not undone · {exception.Message}";
         }
     }
 
@@ -1045,15 +1045,15 @@ public sealed class QuestsPageViewModel : PageViewModel
         ImportPreviewSummary = preview.Source switch
         {
             QuestProgressImportSource.LegacyProfileJsonV1 =>
-                $"Legacy profile settings v1 · {preview.SafeProposals.Count} explicit promotions · {preview.Conflicts.Count} conflicts · absent entities ignored",
+                $"Legacy profile · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts",
             QuestProgressImportSource.TarkovTracker =>
-                $"TarkovTracker fetched snapshot (not source edit time; source generation unavailable) · revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+                $"TarkovTracker · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
             _ =>
-                $"Project JSON v2 · revision {preview.BaseRevision} · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
+                $"JSON file · {preview.SafeProposals.Count} safe · {preview.Conflicts.Count} conflicts · {preview.Ignored.Count} unchanged · {preview.Unresolved.Count} unresolved",
         };
         ExchangeStatus = preview.Conflicts.Count == 0
-            ? "Preview ready. Safe monotonic changes can be applied; absent records never delete local state."
-            : "Preview ready. Choose Keep local or Use incoming for every conflict before applying.";
+            ? "Ready · nothing missing from the source is ever deleted here"
+            : "Choose Keep local or Use incoming for every conflict";
     }
 
     private void ClearImportPreview(string summary)
@@ -1085,7 +1085,7 @@ public sealed class QuestsPageViewModel : PageViewModel
     {
         if (_scope is null)
         {
-            Status = "The exact profile scope is not loaded; no progress was changed.";
+            Status = "No profile loaded · nothing changed";
             return;
         }
 
@@ -1096,7 +1096,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Status = $"Progress was not changed: {exception.Message}";
+            Status = $"Not changed · {exception.Message}";
         }
     }
 
@@ -1107,8 +1107,8 @@ public sealed class QuestsPageViewModel : PageViewModel
         if (_initialized)
         {
             Status = Tasks.Count == 0
-                ? "No quests match this filter. Choose All quests to inspect the catalog."
-                : $"Showing {Tasks.Count} of {_allTasks.Count} quests. Changes are manual and local.";
+                ? "Nothing matches this filter"
+                : $"{Tasks.Count} of {_allTasks.Count} quests";
         }
     }
 
