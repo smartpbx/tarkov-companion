@@ -197,6 +197,28 @@ public sealed record GroupMarkViewModel(
 /// <param name="Extra">Loadout and quests, where they share them.</param>
 /// <param name="IsElsewhere">Whether they are on a map other than the one being looked at.</param>
 /// <param name="IsStale">Whether their position is old enough to be treated as a guess.</param>
+/// <summary>
+/// One quest with something to do on the map being looked at.
+/// </summary>
+/// <remarks>
+/// The map has drawn quest objectives for a while and the only list of them was a flat
+/// per-objective dump in the expander at the bottom left, which is where the map explains
+/// itself rather than where a player looks. This is the list beside the map: what is on it,
+/// by quest, pinned first.
+///
+/// Only this map. A quest with nothing to do here is not on the map and has no business in
+/// the column beside it.
+/// </remarks>
+/// <param name="Task">The quest's name.</param>
+/// <param name="Objectives">What it wants done here, one line.</param>
+/// <param name="IsPinned">Whether the player marked it as the one they are working on.</param>
+/// <param name="IsApproximate">Whether nothing here is placed exactly, so the marks are a hint.</param>
+public sealed record QuestPanelViewModel(
+    string Task,
+    string Objectives,
+    bool IsPinned,
+    bool IsApproximate);
+
 public sealed record GroupMemberPanelViewModel(
     string Name,
     string Where,
@@ -856,6 +878,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
+    private IReadOnlyList<QuestPanelViewModel> _questPanel = [];
     private IReadOnlyDictionary<string, string> _groupColors =
         new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
@@ -2092,6 +2115,38 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         NotifyPresentationProperties();
     }
 
+    /// <summary>
+    /// Turns the projected objectives into one row per quest.
+    /// </summary>
+    /// <remarks>
+    /// By quest rather than by objective, because a quest with four things to do on one map is
+    /// one decision and four rows of the same name is a list nobody reads. Pinned first: that
+    /// is the player saying which one they are actually doing.
+    ///
+    /// A quest whose marks are all approximate says so once, on its own row. The distinction
+    /// matters on a map: an exact point is somewhere to walk to and an association is only a
+    /// claim that the quest has something to do with this map.
+    /// </remarks>
+    /// <summary>The grouping, exposed so it can be checked without standing up a map.</summary>
+    public static IReadOnlyList<QuestPanelViewModel> SummarizeQuestsForTest(
+        IReadOnlyList<QuestMapObjectiveProjection> objectives) => SummarizeQuests(objectives);
+
+    private static IReadOnlyList<QuestPanelViewModel> SummarizeQuests(
+        IReadOnlyList<QuestMapObjectiveProjection> objectives) => objectives
+        .GroupBy(objective => objective.TaskName, StringComparer.Ordinal)
+        .Select(group => new QuestPanelViewModel(
+            group.Key,
+            string.Join(" · ", group
+                .Select(objective => objective.Description)
+                .Where(description => !string.IsNullOrWhiteSpace(description))
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .Take(3)),
+            group.Any(objective => objective.IsPinned),
+            group.All(objective => !objective.HasExactGeometry)))
+        .OrderByDescending(quest => quest.IsPinned)
+        .ThenBy(quest => quest.Task, StringComparer.CurrentCultureIgnoreCase)
+        .ToArray();
+
     public Task RefreshQuestLayerAsync() => RefreshQuestLayerAsync(CancellationToken.None);
 
     private async Task RefreshQuestLayerAsync(CancellationToken cancellationToken)
@@ -2151,6 +2206,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 objective.HasExactGeometry,
                 objective.IsUnsupported,
                 objective.IsFloorFiltered)).ToArray();
+            QuestPanel = SummarizeQuests(_questProjection.Objectives);
             UpdateQuestGeometry();
             var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
             var associationCount = _questProjection.Objectives.Count - exactCount;
@@ -2590,6 +2646,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         point = projected;
         return true;
     }
+
+    /// <summary>The quests with something to do on this map, for the column beside it.</summary>
+    public IReadOnlyList<QuestPanelViewModel> QuestPanel
+    {
+        get => _questPanel;
+        private set
+        {
+            Set(ref _questPanel, value);
+            OnPropertyChanged(nameof(HasQuestPanel));
+        }
+    }
+
+    public bool HasQuestPanel => QuestPanel.Count > 0;
 
     /// <summary>Everyone else in the group, written out beside the map.</summary>
     public IReadOnlyList<GroupMemberPanelViewModel> GroupPanel
@@ -3074,6 +3143,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestPoints = [];
         QuestRegions = [];
         QuestAssociations = [];
+        QuestPanel = [];
         QuestLayerStatus = status;
     }
 
