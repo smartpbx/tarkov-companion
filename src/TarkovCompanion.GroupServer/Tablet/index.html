@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Tarkov Companion — second screen</title>
+<style>
+  :root {
+    --ground: #0b1016;
+    --panel: #131b24;
+    --inset: #0e151d;
+    --line: #22303d;
+    --text: #dce5ee;
+    --quiet: #8f9ba6;
+    --ochre: #c7a66b;
+    --sage: #77b895;
+    --alarm: #c77b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+  .quiet { color: var(--quiet); font-size: 13px; }
+  input, button, select {
+    font: inherit; color: var(--text); background: var(--inset);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  }
+  input { min-width: 0; }
+  button { cursor: pointer; }
+  button.primary { background: var(--ochre); color: #1b1710; border-color: var(--ochre); font-weight: 600; }
+  button:active { transform: translateY(1px); }
+  main { padding: 16px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); max-width: 1100px; margin: 0 auto; }
+  @media (min-width: 860px) { main { grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--quiet); margin: 0 0 10px; font-weight: 600; }
+  #plot { width: 100%; aspect-ratio: 1 / 1; max-height: 62vh; display: block; touch-action: manipulation; border-radius: 8px; background: var(--inset); }
+  .row { border: 1px solid var(--line); background: var(--inset); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  .name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid #0b1016; flex: none; }
+  .meta { color: var(--quiet); font-size: 13px; }
+  .stale { opacity: .55; }
+  .note { color: var(--quiet); font-size: 13px; margin: 10px 0 0; }
+  .bad { color: var(--alarm); }
+  .good { color: var(--sage); }
+  .modes { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .modes button[aria-pressed="true"] { background: var(--ochre); color: #1b1710; border-color: var(--ochre); }
+  .empty { color: var(--quiet); font-size: 13px; }
+  form { display: contents; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Tarkov Companion</h1>
+  <span class="quiet" id="status">not connected</span>
+  <form id="join" style="display:flex;gap:8px;flex:1;min-width:220px;justify-content:flex-end;flex-wrap:wrap">
+    <input id="name" placeholder="Your name" autocomplete="off" size="10">
+    <input id="key" type="password" placeholder="Group key" autocomplete="off" size="12">
+    <button class="primary" type="submit">Connect</button>
+  </form>
+</header>
+
+<main>
+  <section>
+    <h2>Where everybody is</h2>
+    <div class="modes">
+      <button type="button" id="modeWaypoint" aria-pressed="true">Tap to place a waypoint</button>
+      <button type="button" id="modePing" aria-pressed="false">Tap to ping</button>
+    </div>
+    <canvas id="plot" width="900" height="900"></canvas>
+    <p class="note" id="plotNote">A schematic, not the map. Positions are world coordinates from
+      everybody's own screenshots, drawn relative to each other.</p>
+  </section>
+
+  <section>
+    <h2>Group</h2>
+    <div id="members"><p class="empty">Nobody is sharing yet.</p></div>
+    <h2 style="margin-top:16px">Marks</h2>
+    <div id="marks"><p class="empty">Nothing marked.</p></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } },
+  };
+
+  let key = store.get("key", "");
+  let name = store.get("name", "");
+  let mode = "waypoint";
+  let room = null;
+  let timer = null;
+
+  $("key").value = key;
+  $("name").value = name;
+
+  // The colours the desktop map uses for group members, so a name on a tablet and a dot on a
+  // monitor are the same person without anybody having to work it out.
+  const COLOURS = ["#77B895", "#C7A66B", "#7FA9C7", "#C78FB4", "#B4C77F", "#C79A7F", "#9B8FC7", "#7FC7C0"];
+  const colourFor = (who) => {
+    let hash = 0;
+    for (const ch of who) hash = (hash * 31 + ch.charCodeAt(0)) | 0;
+    return COLOURS[Math.abs(hash) % COLOURS.length];
+  };
+
+  const setStatus = (text, cls) => {
+    const el = $("status");
+    el.textContent = text;
+    el.className = "quiet " + (cls || "");
+  };
+
+  async function call(path, options) {
+    const response = await fetch(path, {
+      ...options,
+      headers: { "X-Group-Key": key, "Content-Type": "application/json", ...(options?.headers || {}) },
+    });
+    if (response.status === 401) throw new Error("That key was refused");
+    if (!response.ok) throw new Error("The server answered " + response.status);
+    return response.status === 204 ? null : response.json();
+  }
+
+  async function refresh() {
+    if (!key) return;
+    try {
+      room = await call("/state");
+      setStatus(describe(room), "good");
+      render();
+    } catch (error) {
+      setStatus(error.message, "bad");
+    }
+  }
+
+  const describe = (state) => {
+    const n = state.members.length;
+    return n === 0 ? "connected · nobody is sharing" : n === 1 ? "connected · 1 member" : `connected · ${n} members`;
+  };
+
+  const age = (seconds) => {
+    if (seconds == null) return "at an unknown time";
+    if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s ago`;
+    return `${Math.round(seconds / 60)}m ago`;
+  };
+
+  function render() {
+    const members = room?.members ?? [];
+    const holder = $("members");
+    holder.innerHTML = "";
+    if (members.length === 0) {
+      holder.innerHTML = '<p class="empty">Nobody is sharing yet.</p>';
+    }
+    for (const member of members) {
+      const row = document.createElement("div");
+      row.className = "row" + ((member.positionAge ?? 0) > 300 ? " stale" : "");
+      const where = member.mapId
+        ? `${member.mapId} · ${member.raidState}${member.side ? " · " + member.side : ""}`
+        : member.raidState;
+      const at = member.x == null || member.z == null
+        ? "No screenshot position shared."
+        : `${Math.round(member.x)}, ${Math.round(member.z)} · from a screenshot ${age(member.positionAge)}`;
+      const extra = [...(member.loadout ?? []), ...(member.quests ?? [])].join(" · ");
+      row.innerHTML =
+        `<div class="name"><span class="dot" style="background:${colourFor(member.name)}"></span>` +
+        `<span></span></div><div class="meta"></div><div class="meta"></div>` +
+        (extra ? '<div class="meta"></div>' : "");
+      const cells = row.querySelectorAll("span:last-child, .meta");
+      cells[0].textContent = member.name;
+      cells[1].textContent = where;
+      cells[2].textContent = at;
+      if (extra) cells[3].textContent = extra;
+      holder.appendChild(row);
+    }
+
+    const marks = [
+      ...(room?.waypoints ?? []).map((w) => ({ ...w, kind: "Waypoint" })),
+      ...(room?.pings ?? []).map((p) => ({ ...p, kind: "Ping" })),
+    ];
+    const markHolder = $("marks");
+    markHolder.innerHTML = "";
+    if (marks.length === 0) {
+      markHolder.innerHTML = '<p class="empty">Nothing marked.</p>';
+    }
+    for (const mark of marks) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = '<div class="name"><span></span></div><div class="meta"></div>';
+      const [title, meta] = [row.querySelector(".name span"), row.querySelector(".meta")];
+      title.textContent = `${mark.kind}${mark.label ? " · " + mark.label : ""}`;
+      meta.textContent = `by ${mark.by} · ${mark.mapId} · ${Math.round(mark.x)}, ${Math.round(mark.z)}` +
+        (mark.completedBy ? ` · reached by ${mark.completedBy}` : "");
+      markHolder.appendChild(row);
+    }
+
+    draw();
+  }
+
+  // The plot. Deliberately not the map: this has no artwork and no projection, so it cannot
+  // pretend to be one. What it does have is everybody's world coordinates, which is enough to
+  // see who is where relative to everybody else and enough to point at a spot and say "there".
+  const canvas = $("plot");
+  const context = canvas.getContext("2d");
+  let frame = null;
+
+  function points() {
+    const found = [];
+    for (const member of room?.members ?? []) {
+      if (member.x != null && member.z != null) {
+        found.push({ x: member.x, z: member.z, colour: colourFor(member.name), label: member.name, r: 7 });
+      }
+    }
+    for (const w of room?.waypoints ?? []) {
+      found.push({ x: w.x, z: w.z, colour: w.completedBy ? "#4d5f55" : "#c7a66b", label: w.label || "waypoint", r: 5 });
+    }
+    for (const p of room?.pings ?? []) {
+      found.push({ x: p.x, z: p.z, colour: "#c77b6b", label: p.label || "ping", r: 5 });
+    }
+    return found;
+  }
+
+  function draw() {
+    const size = canvas.width;
+    context.clearRect(0, 0, size, size);
+    const all = points();
+    if (all.length === 0) {
+      frame = null;
+      context.fillStyle = "#8f9ba6";
+      context.font = "16px system-ui, sans-serif";
+      context.textAlign = "center";
+      context.fillText("No positions shared yet.", size / 2, size / 2);
+      return;
+    }
+
+    // Fit to what there is, with a floor on the span so two people standing together do not
+    // get magnified into opposite corners of the screen.
+    const xs = all.map((p) => p.x);
+    const zs = all.map((p) => p.z);
+    const span = Math.max(120, Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) * 1.25;
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cz = (Math.max(...zs) + Math.min(...zs)) / 2;
+    frame = { cx, cz, span, size };
+
+    context.strokeStyle = "#1b2732";
+    context.lineWidth = 1;
+    for (let i = 1; i < 6; i++) {
+      const at = (size / 6) * i;
+      context.beginPath(); context.moveTo(at, 0); context.lineTo(at, size); context.stroke();
+      context.beginPath(); context.moveTo(0, at); context.lineTo(size, at); context.stroke();
+    }
+
+    // North is negative Z, the same convention the desktop map and its bearings use.
+    context.fillStyle = "#8f9ba6";
+    context.font = "13px system-ui, sans-serif";
+    context.textAlign = "center";
+    context.fillText("N", size / 2, 18);
+
+    for (const point of all) {
+      const [px, py] = project(point.x, point.z);
+      context.beginPath();
+      context.arc(px, py, point.r, 0, Math.PI * 2);
+      context.fillStyle = point.colour;
+      context.fill();
+      context.lineWidth = 2;
+      context.strokeStyle = "#0b1016";
+      context.stroke();
+      context.fillStyle = "#dce5ee";
+      context.font = "13px system-ui, sans-serif";
+      context.textAlign = "left";
+      context.fillText(point.label, px + point.r + 5, py + 4);
+    }
+  }
+
+  const project = (x, z) => [
+    ((x - frame.cx) / frame.span + 0.5) * frame.size,
+    ((z - frame.cz) / frame.span + 0.5) * frame.size,
+  ];
+
+  const unproject = (px, py) => [
+    (px / frame.size - 0.5) * frame.span + frame.cx,
+    (py / frame.size - 0.5) * frame.span + frame.cz,
+  ];
+
+  canvas.addEventListener("click", async (event) => {
+    if (!frame || !key) return;
+    const mapId = (room?.members ?? []).find((m) => m.mapId)?.mapId;
+    if (!mapId) {
+      setStatus("Nobody is on a map yet, so there is nowhere to mark", "bad");
+      return;
+    }
+
+    const box = canvas.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * canvas.width;
+    const py = ((event.clientY - box.top) / box.height) * canvas.height;
+    const [x, z] = unproject(px, py);
+    try {
+      await call(mode === "ping" ? "/pings" : "/waypoints", {
+        method: "POST",
+        body: JSON.stringify({ by: name || "tablet", mapId, x, y: 0, z, label: null }),
+      });
+      await refresh();
+    } catch (error) {
+      setStatus(error.message, "bad");
+    }
+  });
+
+  const setMode = (next) => {
+    mode = next;
+    $("modeWaypoint").setAttribute("aria-pressed", String(next === "waypoint"));
+    $("modePing").setAttribute("aria-pressed", String(next === "ping"));
+  };
+  $("modeWaypoint").addEventListener("click", () => setMode("waypoint"));
+  $("modePing").addEventListener("click", () => setMode("ping"));
+
+  $("join").addEventListener("submit", (event) => {
+    event.preventDefault();
+    key = $("key").value.trim();
+    name = $("name").value.trim();
+    store.set("key", key);
+    store.set("name", name);
+    if (key.length < 8) {
+      setStatus("A group key is at least eight characters", "bad");
+      return;
+    }
+
+    start();
+  });
+
+  function start() {
+    if (timer) clearInterval(timer);
+    refresh();
+    // Five seconds, the same rate the desktop client exchanges at. Faster would tell a tablet
+    // nothing the desktop does not already know and would run a battery down for it.
+    timer = setInterval(refresh, 5000);
+  }
+
+  // A screen left on the side of a desk stops being told anything while it is asleep; asking
+  // once on waking is the difference between a current picture and a five-minute-old one.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refresh();
+  });
+
+  if (key.length >= 8) start();
+  else setStatus("enter the group key", "");
+})();
+</script>
+</body>
+</html>

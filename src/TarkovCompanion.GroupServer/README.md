@@ -56,15 +56,21 @@ should never be exposed directly.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
 | `POST` | `/state` | Publish yourself, receive everyone else and the group's marks |
+| `GET` | `/state` | Read the room without joining it, for the second screen |
 | `DELETE` | `/state/{name}` | Leave immediately rather than timing out |
 | `POST` | `/waypoints` | Mark a place for the group; it stays until cleared |
 | `POST` | `/waypoints/{id}/reached` | Record that somebody got there |
 | `DELETE` | `/waypoints/{id}` | Remove one |
 | `DELETE` | `/waypoints?mapId=&reachedOnly=` | Clear a map's, or only the reached ones |
 | `POST` | `/pings` | Point at a place; it fades after 45 seconds |
+| `GET` | `/catalog` | What game data the server is holding, and its tags |
+| `GET` | `/catalog/{mode}/{endpoint}` | One catalog payload, with a strong tag |
+| `GET` | `/` and `/tablet` | The second screen |
 
-Both carry the group key in an `X-Group-Key` header. The room is not in the URL because the
-key decides it.
+Everything about a group carries the key in an `X-Group-Key` header, and the room is not in the
+URL because the key decides it. The catalog and the page itself do not: the catalog is public
+data anybody can fetch from json.tarkov.dev without asking, and the page has nothing in it until
+somebody types a key into it.
 
 One exchange does both halves, so there is no connection to hold open and no subscription to
 leak. A companion that is not running sends nothing and therefore shows nothing.
@@ -123,3 +129,34 @@ when tarkov.dev next changes shape, rather than shipping a client build — need
 publish its own stable schema rather than upstream's, which means the deserialisation models
 moving somewhere both can see. That is a separate piece of work; this endpoint is where it
 would be served from.
+
+## The second screen
+
+Alt-tabbing out of a raid to drop a waypoint is the thing that makes a companion not worth
+using, and a tablet cannot run the desktop application at all — so the choice there is a web
+surface or nothing. `GET /` serves one.
+
+```
+GET /          the page
+GET /tablet    the same page
+GET /state     the room, without joining it
+```
+
+One embedded HTML file. No framework, no build step, no CDN, no font host: it reaches nothing
+outside the server that served it, so a tablet on a house network with no internet still works.
+
+`GET /state` exists for it. The companion's exchange is a POST because it has a position to
+contribute; a second screen has none — it is not in the raid — and joining as a member would
+put a phantom marker in the group and a phantom name in everybody's panel. So the GET returns
+everyone, including whoever is reading, because the reader is not one of them.
+
+**It is a schematic, not the map,** and it says so on the page. It has no artwork and no
+projection: it plots everybody's world coordinates relative to each other on a grid. That is
+enough to see who is where and enough to point at a spot and say "there", and pretending
+otherwise would send somebody to the wrong place.
+
+Tapping it drops a waypoint, or a ping with the mode switched — the same two things the desktop
+client's right-click does, through the same two endpoints.
+
+**It must never become a dependency.** The desktop client stays complete on its own and
+somebody playing alone needs none of this.

@@ -20,6 +20,22 @@ var marks = app.Services.GetRequiredService<GroupMarks>();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
+// The second screen.
+//
+// Alt-tabbing out of a raid to drop a waypoint is the thing that makes a companion not worth
+// using, and a tablet cannot run the desktop application at all, so the choice here is a web
+// surface or nothing. Served from this server because it is already running, already reachable
+// by everybody in the group, and already holds the state the page shows.
+//
+// One file, embedded, no framework and no build step. It is read-only toward the group state
+// and writes only marks, which is the same thing the desktop client's right-click does.
+//
+// It is not a replacement for the desktop application and must never become one: the desktop
+// client stays complete on its own, and somebody playing alone needs none of this.
+app.MapGet("/", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
+
+app.MapGet("/tablet", () => Results.Content(Tablet.Page, "text/html; charset=utf-8"));
+
 // A member publishes themselves and is told about everyone else in one exchange, so there is
 // no separate subscribe and no connection to hold open. A companion that is not running sends
 // nothing and therefore shows nothing, which is the behaviour we want.
@@ -49,6 +65,13 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
         return TypedResults.BadRequest("Observations must name at most eight players with at most twelve items each.");
     }
 
+    // A trail is screenshots, not a stream: a raid produces a handful and a client that
+    // published four hundred points would be filling the room rather than helping it.
+    if (state.Trail.Count > 12)
+    {
+        return TypedResults.BadRequest("A trail may carry at most twelve points.");
+    }
+
     var room = GroupKey.RoomFor(key);
     // Keyed by the display name within the room, so a member who reconnects replaces their own
     // entry rather than appearing twice. Two people choosing the same name is their problem to
@@ -58,6 +81,31 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
     // The marks ride along on the exchange a client already makes every few seconds, so
     // nothing has to poll a second endpoint to find out the group moved a waypoint.
     return TypedResults.Ok(rooms.Read(room, state.Name) with
+    {
+        Waypoints = waypoints,
+        Pings = pings,
+    });
+});
+
+// Reading the room without joining it.
+//
+// The exchange above is the companion's: it publishes and is answered in one round trip, which
+// is right for something that has a position to contribute. A second screen has nothing to
+// contribute -- it is not in the raid -- and joining as a member would put a phantom marker in
+// the group and a phantom name in everybody's panel.
+//
+// So this returns everyone, including whoever is reading, because the reader is not one of
+// them. Same key, because this is the same room and the key is the whole access model.
+app.MapGet("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult> (HttpRequest request) =>
+{
+    if (!TryReadKey(request, out var key))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    var room = GroupKey.RoomFor(key);
+    var (waypoints, pings) = marks.Read(room);
+    return TypedResults.Ok(rooms.Read(room, exceptMemberKey: string.Empty) with
     {
         Waypoints = waypoints,
         Pings = pings,
