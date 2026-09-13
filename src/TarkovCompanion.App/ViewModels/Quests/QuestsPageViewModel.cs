@@ -503,6 +503,79 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>The lowest and highest a player can be, so a typo cannot gate every quest.</summary>
+    public const int MinimumLevel = 1;
+
+    public const int MaximumLevel = 79;
+
+    private int _playerLevel = MinimumLevel;
+
+    /// <summary>
+    /// What level this profile is, typed in because the game never says.
+    /// </summary>
+    /// <remarks>
+    /// Reported as 515 quests all reading Unknown, with an active one saying "Recorded player
+    /// level 1 is below required level 19". The stored profile is created at level 1 and
+    /// nothing ever wrote to it again, so every level requirement on the page was measured
+    /// against a number the player had no way to correct.
+    ///
+    /// The game is no help. Its logs carry a level on two thousand lines and every one of them
+    /// belongs to somebody else: a party member, a dogtag, or a player accepting an invite.
+    /// Notifications about the local player carry a profile id and no profile detail, and the
+    /// rich block the level lives in only ever describes another player. Trader loyalty does
+    /// not appear at all. So this is typed in, or it comes from a TarkovTracker import.
+    ///
+    /// Held as <see cref="decimal"/> because that is what the spinner binds, and a cleared box
+    /// is ignored rather than treated as a level.
+    /// </remarks>
+    public decimal? PlayerLevel
+    {
+        get => _playerLevel;
+        set => _ = SetPlayerLevelAsync(value);
+    }
+
+    /// <summary>
+    /// Stores a typed level and re-reads the board, because every requirement line on the page
+    /// is measured against it.
+    /// </summary>
+    /// <remarks>
+    /// A cleared box is not a level and is ignored. Anything outside the game's own range is
+    /// pulled back into it rather than refused, because a spinner holding 800 gates the whole
+    /// catalog just as thoroughly as one holding 1.
+    /// </remarks>
+    public async Task SetPlayerLevelAsync(decimal? value)
+    {
+        if (value is not { } entered)
+        {
+            return;
+        }
+
+        var level = (int)Math.Clamp(entered, MinimumLevel, MaximumLevel);
+        if (level == _playerLevel)
+        {
+            return;
+        }
+
+        _playerLevel = level;
+        OnPropertyChanged(nameof(PlayerLevel));
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            if (profile.Level != level)
+            {
+                await _profileService
+                    .SaveAsync(profile with { Level = level, UpdatedUtc = NowUtc }, CancellationToken.None)
+                    .ConfigureAwait(true);
+            }
+
+            await RefreshAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Level not saved · {exception.Message}";
+        }
+    }
+
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
     public async Task RefreshAsync(CancellationToken cancellationToken)
@@ -513,6 +586,14 @@ public sealed class QuestsPageViewModel : PageViewModel
             var selectedTaskId = SelectedTask?.TaskId;
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             _scope = new(profile.Id, profile.GameMode, profile.ProfileGeneration);
+            if (_playerLevel != profile.Level)
+            {
+                // Assigned to the field rather than the property: the property saves, and this
+                // is the stored value arriving rather than somebody typing one.
+                _playerLevel = profile.Level;
+                OnPropertyChanged(nameof(PlayerLevel));
+            }
+
             ScopeStatus = $"{profile.Name} · exact mode {profile.GameMode} · generation {profile.ProfileGeneration}";
             await RefreshTarkovTrackerStatusAsync(_scope, cancellationToken).ConfigureAwait(true);
             var board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
