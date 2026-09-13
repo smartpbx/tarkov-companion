@@ -70,6 +70,33 @@
                      Text="They go to the recycle bin. To keep one, move it out of the folder." />
         </StackPanel>
       </Border>
+      <!-- Where the game keeps its screenshots differs by install, by whether OneDrive has
+           taken over Documents, and by what the player set in the game. The guesses cover the
+           arrangements we know of; this covers the rest. -->
+      <Border Classes="panel">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="sectionTitle" Text="Game folders" />
+          <StackPanel Spacing="1">
+            <TextBlock Classes="label" Text="Watching" />
+            <TextBlock Classes="value" Text="{Binding WatchedFolders}" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel Spacing="3">
+            <TextBlock Classes="label" Text="Screenshots" />
+            <TextBox Text="{Binding ScreenshotFolder, Mode=TwoWay}"
+                     PlaceholderText="Leave blank to find it automatically" />
+          </StackPanel>
+          <StackPanel Spacing="3">
+            <TextBlock Classes="label" Text="Logs" />
+            <TextBox Text="{Binding LogFolder, Mode=TwoWay}"
+                     PlaceholderText="Leave blank to find it automatically" />
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Classes="primary" Command="{Binding SaveGameFoldersCommand}" Content="Save" />
+            <TextBlock Classes="caption" Text="{Binding GameFolderStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
       <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Profile" />

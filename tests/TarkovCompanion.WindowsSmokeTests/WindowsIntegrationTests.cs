@@ -194,6 +194,52 @@ public sealed class WindowsIntegrationTests
         Assert.Equal(0.8, paths.Confidence.Value, 3);
     }
 
+    /// <summary>
+    /// A folder the player named beats everything discovery found.
+    /// </summary>
+    /// <remarks>
+    /// Reported by the first person to install this who does not use OneDrive: no screenshots
+    /// detected, and no way at all to say where they were.
+    /// </remarks>
+    [Fact]
+    public async Task AFolderThePlayerNamedWins()
+    {
+        var probe = new StubPathProbe(
+            new(["install"], ["guessed-logs"], ["guessed-shots"]),
+            new HashSet<string> { "install", "guessed-logs", "guessed-shots", "D:\\EFT\\Screenshots" });
+
+        var paths = await new WindowsEftPathLocator(probe, new StubOverrides(new("D:\\EFT\\Screenshots", null)))
+            .FindAsync(CancellationToken.None);
+
+        Assert.Equal("D:\\EFT\\Screenshots", paths.ScreenshotRoot);
+        Assert.Equal("guessed-logs", paths.LogRoot);
+    }
+
+    /// <summary>
+    /// A typo leaves the guessing working rather than leaving the companion watching nothing.
+    /// </summary>
+    [Fact]
+    public async Task AFolderThatIsNotThereIsIgnored()
+    {
+        var probe = new StubPathProbe(
+            new([], [], ["guessed-shots"]),
+            new HashSet<string> { "guessed-shots" });
+
+        var paths = await new WindowsEftPathLocator(probe, new StubOverrides(new("D:\\typo", null)))
+            .FindAsync(CancellationToken.None);
+
+        Assert.Equal("guessed-shots", paths.ScreenshotRoot);
+    }
+
+    private sealed class StubOverrides(EftPathOverrides overrides) : IEftPathOverrideStore
+    {
+        public Task<EftPathOverrides> GetAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(overrides);
+
+        public Task SaveAsync(EftPathOverrides value, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
     [Fact]
     public async Task ScreenshotWatcherEmitsOnlySupportedNewImages()
     {

@@ -185,6 +185,11 @@ public static class AppComposition
         // files it did not create, and that should be visible in one place.
         services.AddSingleton<IScreenshotRetentionStore>(_ =>
             new JsonFileScreenshotRetentionStore(Path.Combine(paths.Config, "screenshots.json")));
+        // Where the game keeps its screenshots and logs, when the guessing is wrong. The first
+        // person to install this who does not use OneDrive had no screenshots detected and no
+        // way to say where they were.
+        services.AddSingleton<IEftPathOverrideStore>(_ =>
+            new JsonFileEftPathOverrideStore(Path.Combine(paths.Config, "game-folders.json")));
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
@@ -299,7 +304,9 @@ public static class AppComposition
         {
             services.AddSingleton<IGameWindowLocator, WindowsGameWindowLocator>();
             services.AddSingleton<IMonitorService, WindowsMonitorService>();
-            services.AddSingleton<IEftPathLocator, WindowsEftPathLocator>();
+            services.AddSingleton<IEftPathLocator>(provider => new WindowsEftPathLocator(
+                null,
+                provider.GetRequiredService<IEftPathOverrideStore>()));
             services.AddSingleton<IEftLogWatcher, WindowsEftLogWatcher>();
             services.AddSingleton<IScreenshotWatcher>(_ => new WindowsScreenshotWatcher(commandLine.DeveloperMode));
             services.AddSingleton<IRecycleBin, WindowsRecycleBin>();

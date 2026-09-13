@@ -828,8 +828,12 @@ public sealed class SettingsPageViewModel : PageViewModel
         IOcrEngineStatus ocrStatus,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
-        VelopackUpdateGateway? updates = null)
-        : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
+        VelopackUpdateGateway? updates = null,
+        // Optional so a composition without stored settings still builds a Settings page,
+        // which is what the tests that construct this by hand rely on.
+        IEftPathOverrideStore? gameFolders = null,
+        RaidObservationService? observation = null)
+        : base("Settings & diagnostics", "Runtime configuration and a manual data refresh", "Not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
         ArgumentNullException.ThrowIfNull(retentionSettings);
@@ -838,6 +842,8 @@ public sealed class SettingsPageViewModel : PageViewModel
         _retentionSettings = retentionSettings;
         _recycleBin = recycleBin;
         _updates = updates;
+        _gameFolders = gameFolders;
+        _observation = observation;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
@@ -864,7 +870,121 @@ public sealed class SettingsPageViewModel : PageViewModel
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
         ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
         ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
+        SaveGameFoldersCommand = new AsyncDelegateCommand(SaveGameFoldersAsync);
         _ = LoadRetentionAsync();
+        _ = LoadGameFoldersAsync();
+    }
+
+    private readonly IEftPathOverrideStore? _gameFolders;
+    private readonly RaidObservationService? _observation;
+    private string _screenshotFolder = string.Empty;
+    private string _logFolder = string.Empty;
+    private string _gameFolderStatus = "Found on their own";
+    private string _watchedFolders = "Looking for the game…";
+
+    /// <summary>
+    /// Where the game keeps its screenshots, when the companion cannot work it out.
+    /// </summary>
+    /// <remarks>
+    /// It guesses from the install, from Documents, from Pictures, and from wherever OneDrive
+    /// says it has put those. That covers the arrangements we know of and will never cover all
+    /// of them: the first person to install this who does not use OneDrive had no screenshots
+    /// detected and no way at all to say where they were.
+    ///
+    /// Left blank, the guessing stands.
+    /// </remarks>
+    public string ScreenshotFolder
+    {
+        get => _screenshotFolder;
+        set => SetProperty(ref _screenshotFolder, value);
+    }
+
+    /// <summary>Where the game writes one log folder per launch.</summary>
+    public string LogFolder
+    {
+        get => _logFolder;
+        set => SetProperty(ref _logFolder, value);
+    }
+
+    public string GameFolderStatus
+    {
+        get => _gameFolderStatus;
+        private set => SetProperty(ref _gameFolderStatus, value);
+    }
+
+    /// <summary>The folders actually being watched right now, which is the answer to "is it on".</summary>
+    public string WatchedFolders
+    {
+        get => _watchedFolders;
+        private set => SetProperty(ref _watchedFolders, value);
+    }
+
+    public AsyncDelegateCommand SaveGameFoldersCommand { get; }
+
+    private async Task LoadGameFoldersAsync()
+    {
+        if (_gameFolders is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var stored = await _gameFolders.GetAsync(CancellationToken.None).ConfigureAwait(true);
+            ScreenshotFolder = stored.ScreenshotRoot ?? string.Empty;
+            LogFolder = stored.LogRoot ?? string.Empty;
+            GameFolderStatus = stored.IsEmpty ? "Found on their own" : "Set by you";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            GameFolderStatus = $"Unreadable · {exception.Message}";
+        }
+    }
+
+    private async Task SaveGameFoldersAsync()
+    {
+        if (_gameFolders is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var chosen = new EftPathOverrides(ScreenshotFolder, LogFolder).Normalized();
+            await _gameFolders.SaveAsync(chosen, CancellationToken.None).ConfigureAwait(true);
+            // Discovery only runs between watching sessions, and a session runs until it is
+            // cancelled. Without this the folder just typed would do nothing until the next
+            // launch, which reads as the setting being ignored.
+            _observation?.Rediscover();
+            GameFolderStatus = Describe(chosen);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            GameFolderStatus = $"Not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Says whether what was typed is going to be used, before the player goes looking.
+    /// </summary>
+    /// <remarks>
+    /// A folder that is not there is ignored rather than honoured, so that a typo leaves the
+    /// guessing working instead of leaving the companion watching nothing. Somebody who has
+    /// just typed one has to be told that, or the setting looks broken rather than skipped.
+    /// </remarks>
+    private static string Describe(EftPathOverrides chosen)
+    {
+        if (chosen.IsEmpty)
+        {
+            return "Cleared · found on their own again";
+        }
+
+        var missing = new[] { chosen.ScreenshotRoot, chosen.LogRoot }
+            .Where(path => path is { Length: > 0 } && !Directory.Exists(path))
+            .ToArray();
+        return missing.Length == 0
+            ? "Saved · watching starts within a minute"
+            : $"Saved, but not there: {string.Join(", ", missing)}";
     }
 
     public bool IsOffline { get; }
@@ -1183,6 +1303,14 @@ public sealed class SettingsPageViewModel : PageViewModel
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         DataStatus = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} items · {snapshot.Data.Detail}";
+        WatchedFolders = snapshot.Observation switch
+        {
+            { ScreenshotRoot: { Length: > 0 } shots, LogRoot: { Length: > 0 } logs } =>
+                $"Screenshots {shots} · logs {logs}",
+            { ScreenshotRoot: { Length: > 0 } shots } => $"Screenshots {shots} · no log folder",
+            { LogRoot: { Length: > 0 } logs } => $"Logs {logs} · no screenshot folder",
+            _ => "Nothing found yet",
+        };
         ProfileContext = snapshot.Profile is null
             ? "Profile unavailable"
             : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode} · updated {snapshot.Profile.UpdatedUtc.ToLocalTime():g}";
@@ -1257,6 +1385,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IGroupSettingsStore groupSettings,
         GroupSessionService group,
         IScreenshotRetentionStore retentionSettings,
+        IEftPathOverrideStore gameFolders,
+        RaidObservationService observation,
         IRecycleBin recycleBin,
         VelopackUpdateGateway updates,
         RuntimeOptions options,
@@ -1295,7 +1425,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             ocrStatus,
             retentionSettings,
             recycleBin,
-            updates);
+            updates,
+            gameFolders,
+            observation);
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
