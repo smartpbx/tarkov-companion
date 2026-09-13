@@ -1459,11 +1459,26 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Settings.UpdateWaitingChanged += (_, waiting) => settingsItem.HasNotice = waiting;
 
         // The map knows where somebody clicked; the group session knows how to tell anybody.
-        Map.GroupMarkRequested += (_, request) =>
-            _ = _group.MarkAsync(request.MapId, request.Position, null, request.IsPing, CancellationToken.None);
+        Map.GroupMarkRequested += (_, request) => _ = MarkForGroupAsync(request);
 
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);
+    }
+
+    /// <summary>
+    /// Sends a mark and says what became of it.
+    /// </summary>
+    /// <remarks>
+    /// One code path draws every mark, including your own, so nothing appears until the next
+    /// exchange brings it back. That gap reads as the gesture not working unless something
+    /// says otherwise, which is how it was reported.
+    /// </remarks>
+    private async Task MarkForGroupAsync(GroupMarkRequest request)
+    {
+        var sent = await _group
+            .MarkAsync(request.MapId, request.Position, null, request.IsPing, CancellationToken.None)
+            .ConfigureAwait(true);
+        Map.ReportMark(request.IsPing, sent);
     }
 
     public bool IsDemoMode => _options.DemoMode;

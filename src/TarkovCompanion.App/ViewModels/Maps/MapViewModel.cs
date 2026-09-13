@@ -3058,14 +3058,38 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     public Task MarkForGroupAsync(Point canvasPoint, bool isPing)
     {
-        if (SelectedLocation is not { } location || !TryReadWorldPosition(canvasPoint, out var position))
+        if (SelectedLocation is not { } location)
         {
+            Status = "Pick a map before marking a place on it";
             return Task.CompletedTask;
         }
 
+        if (!TryReadWorldPosition(canvasPoint, out var position))
+        {
+            // Reported as the gesture doing nothing at all, which it did: it failed silently
+            // whatever the reason. A map with no transform cannot turn a click into a place,
+            // and saying so is the difference between a broken feature and an unusable map.
+            Status = "This map has no transform, so a place cannot be marked on it";
+            return Task.CompletedTask;
+        }
+
+        Status = isPing ? "Pinging…" : "Marking a waypoint…";
         GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Says what became of a mark, because the map draws it only once the server sends it back.
+    /// </summary>
+    /// <remarks>
+    /// One code path draws every mark, including your own, so between the gesture and the next
+    /// exchange there is nothing on screen at all. Without a word here that gap is
+    /// indistinguishable from the gesture not working, which is exactly how it was reported.
+    /// </remarks>
+    public void ReportMark(bool isPing, bool sent) =>
+        Status = sent
+            ? isPing ? "Pinged" : "Waypoint marked"
+            : isPing ? "Ping not sent · check sharing on the Group page" : "Waypoint not sent · check sharing on the Group page";
 
     /// <summary>
     /// Turns a point somebody clicked on the canvas into a place in the world.
