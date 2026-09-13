@@ -160,14 +160,16 @@ public sealed class ScanUseCase : IScanUseCase
         ContainerScanResult? container = null;
         FleaRecognitionResult? flea = null;
         RecommendationResult? recommendation = null;
+        long? economicValue = null;
+        long? valuePerSlot = null;
         var status = ScanCompletionStatus.Complete;
         string? diagnostic = null;
 
         switch (recognition.Context)
         {
             case ScanContext.SingleItem:
-                (recommendation, status, diagnostic) = await RecommendAsync(recognition, evidence, cancellationToken)
-                    .ConfigureAwait(false);
+                (recommendation, status, diagnostic, economicValue, valuePerSlot) =
+                    await RecommendAsync(recognition, evidence, cancellationToken).ConfigureAwait(false);
                 break;
 
             case ScanContext.ExtractList:
@@ -226,12 +228,25 @@ public sealed class ScanUseCase : IScanUseCase
             flea,
             recommendation,
             evidence,
-            diagnostic);
+            diagnostic)
+        {
+            EconomicValue = economicValue,
+            ValuePerSlot = valuePerSlot,
+        };
         return await FinishAsync(outcome, new(0, 0, image.Width, image.Height), cancellationToken)
             .ConfigureAwait(false);
     }
 
-    private async Task<(RecommendationResult? Result, ScanCompletionStatus Status, string? Diagnostic)> RecommendAsync(
+    /// <summary>
+    /// Prices the recognised item and, where it can, advises on it.
+    /// </summary>
+    /// <remarks>
+    /// The value is returned separately from the advice because they are different questions.
+    /// This method already fetched the price before deciding whether a recommendation was
+    /// possible, and used to throw it away when it was not, so the application reported "value
+    /// unavailable" for an item whose price was sitting in a local variable one line above.
+    /// </remarks>
+    private async Task<(RecommendationResult? Result, ScanCompletionStatus Status, string? Diagnostic, long? Value, long? PerSlot)> RecommendAsync(
         RecognitionResult recognition,
         List<ScanEvidence> evidence,
         CancellationToken cancellationToken)
@@ -239,20 +254,25 @@ public sealed class ScanUseCase : IScanUseCase
         var selected = recognition.Selected;
         if (selected is null)
         {
-            return (null, ScanCompletionStatus.Partial, recognition.DiagnosticCode ?? "item_not_auto_selected");
+            return (null, ScanCompletionStatus.Partial, recognition.DiagnosticCode ?? "item_not_auto_selected", null, null);
         }
 
         var item = await _items.GetAsync(selected.CanonicalId, cancellationToken).ConfigureAwait(false);
         var price = await _items.GetPriceAsync(selected.CanonicalId, cancellationToken).ConfigureAwait(false);
         if (item is null || price is null)
         {
-            return (null, ScanCompletionStatus.Partial, "canonical_item_or_price_unavailable");
+            return (null, ScanCompletionStatus.Partial, "canonical_item_or_price_unavailable", null, null);
         }
+
+        var value = price.BestEconomicValue;
+        var perSlot = value / Math.Max(1, item.Dimensions.Width * item.Dimensions.Height);
 
         var context = await _recommendationContext.GetAsync(item, selected, cancellationToken).ConfigureAwait(false);
         if (context is null)
         {
-            return (null, ScanCompletionStatus.Partial, "recommendation_context_unavailable");
+            // No advice, but the price is known and the player asked what this is. Withholding
+            // a recommendation should suppress the recommendation and nothing else.
+            return (null, ScanCompletionStatus.Partial, "recommendation_context_unavailable", value, perSlot);
         }
 
         var recommendation = _recommendations.Recommend(item, price, context, ValueTierThresholds.Default);
@@ -261,7 +281,7 @@ public sealed class ScanUseCase : IScanUseCase
             recommendation.Action + ": " + recommendation.Explanation,
             recommendation.Confidence,
             recognition.ObservedUtc.ToUniversalTime()));
-        return (recommendation, ScanCompletionStatus.Complete, null);
+        return (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
     }
 
     private async Task<(ExtractRecognitionResult? Result, ScanCompletionStatus Status, string? Diagnostic)> RecognizeExtractsAsync(

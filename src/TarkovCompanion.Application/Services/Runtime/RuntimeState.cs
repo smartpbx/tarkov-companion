@@ -61,6 +61,8 @@ public sealed record ScanExecutionResult(
         {
             ScanCompletionStatus.Unavailable =>
                 $"Scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
+            _ when selected is not null && recommendation is null && outcome.EconomicValue is { } worth =>
+                $"Resolved {selected.DisplayName}, worth {worth:N0} roubles. No recommendation, because that needs raid context the scan did not have.",
             _ when selected is not null && recommendation is null =>
                 $"Resolved {selected.DisplayName}; recommendation withheld because required item-context evidence was unavailable. No pixels were persisted.",
             _ when selected is not null =>
@@ -74,8 +76,12 @@ public sealed record ScanExecutionResult(
             selected is not null,
             selected?.CanonicalId,
             selected?.DisplayName,
-            recommendation?.SelectedEconomicValue,
-            recommendation?.ValuePerSlot,
+            // The value comes from the item, and only falls back to the recommendation. These
+            // used to be the same field, so withholding advice hid a price the application had
+            // already fetched: "what is this worth" and "should you take it" are different
+            // questions and only the second needs context the scanner may not have.
+            outcome.EconomicValue ?? recommendation?.SelectedEconomicValue,
+            outcome.ValuePerSlot ?? recommendation?.ValuePerSlot,
             recommendation?.Action.ToString(),
             selected?.Confidence ?? Confidence.Unknown,
             outcome.ObservedUtc.ToUniversalTime(),
