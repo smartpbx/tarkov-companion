@@ -85,3 +85,34 @@ none.
 Bounded per room: sixty waypoints and thirty pings. Past that the oldest goes, so somebody
 leaning on a mouse button loses their stalest plan rather than being refused or filling the
 server.
+
+## The second screen
+
+Alt-tabbing out of a raid to drop a waypoint is the thing that makes a companion not worth
+using, and a tablet cannot run the desktop application at all — so the choice there is a web
+surface or nothing. `GET /` serves one.
+
+```
+GET /          the page
+GET /tablet    the same page
+GET /state     the room, without joining it
+```
+
+One embedded HTML file. No framework, no build step, no CDN, no font host: it reaches nothing
+outside the server that served it, so a tablet on a house network with no internet still works.
+
+`GET /state` exists for it. The companion's exchange is a POST because it has a position to
+contribute; a second screen has none — it is not in the raid — and joining as a member would
+put a phantom marker in the group and a phantom name in everybody's panel. So the GET returns
+everyone, including whoever is reading, because the reader is not one of them.
+
+**It is a schematic, not the map,** and it says so on the page. It has no artwork and no
+projection: it plots everybody's world coordinates relative to each other on a grid. That is
+enough to see who is where and enough to point at a spot and say "there", and pretending
+otherwise would send somebody to the wrong place.
+
+Tapping it drops a waypoint, or a ping with the mode switched — the same two things the desktop
+client's right-click does, through the same two endpoints.
+
+**It must never become a dependency.** The desktop client stays complete on its own and
+somebody playing alone needs none of this.
