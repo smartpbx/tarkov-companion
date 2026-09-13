@@ -24,9 +24,11 @@ public sealed class QuestUiSemanticsTests
         var explicitFir = QuestItemRequirementFormatter.DescribeForMap(targets, true);
         var explicitNonFir = QuestItemRequirementFormatter.DescribeForMap(targets, false);
 
-        Assert.Contains("items: item-a or item-b; items: item-c; useItems: item-d", explicitFir, StringComparison.Ordinal);
-        Assert.Contains("Required keys: key-a or key-b; key-c", explicitFir, StringComparison.Ordinal);
-        Assert.Contains("found in raid required", explicitFir, StringComparison.OrdinalIgnoreCase);
+        // Field names read as words now, and the ids would read as item names where the
+        // catalog knows them. Nothing here supplies one, so the ids stand.
+        Assert.Contains("Items: item-a or item-b; Items: item-c; Use items: item-d", explicitFir, StringComparison.Ordinal);
+        Assert.Contains("Keys: key-a or key-b; key-c", explicitFir, StringComparison.Ordinal);
+        Assert.Contains("found in raid", explicitFir, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("found in raid", explicitNonFir, StringComparison.OrdinalIgnoreCase);
     }
 

@@ -582,7 +582,17 @@
                 <DataTemplate x:DataType="vm:GroupMemberPanelViewModel">
                   <Border Classes="inset" Classes.elsewhere="{Binding IsElsewhere}" Padding="9,7" Margin="0,0,0,5">
                     <StackPanel Spacing="2">
-                      <TextBlock Classes="value" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <!-- The swatch is the same colour this member's marker is drawn in. It is
+                           the only thing joining a name in this list to a dot on the map. -->
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <Ellipse Width="10"
+                                 Height="10"
+                                 Fill="{Binding SwatchColor}"
+                                 Stroke="#FF0B1016"
+                                 StrokeThickness="1.5"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Classes="value" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
                       <TextBlock Classes="label" Text="{Binding Where}" TextWrapping="Wrap" />
                       <TextBlock Classes="caption" Text="{Binding Position}" TextWrapping="Wrap" />
                       <TextBlock Classes="caption" Text="{Binding Extra}" IsVisible="{Binding HasExtra}" TextWrapping="Wrap" />
