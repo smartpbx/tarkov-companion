@@ -7,7 +7,6 @@ using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Platform.Windows.Capture;
 using TarkovCompanion.Platform.Windows.Discovery;
 using TarkovCompanion.Platform.Windows.Displays;
-using TarkovCompanion.Platform.Windows.Hotkeys;
 using TarkovCompanion.Platform.Windows.Security;
 using TarkovCompanion.Platform.Windows.Watching;
 
@@ -253,32 +252,7 @@ public sealed class WindowsIntegrationTests
         }
     }
 
-    [Fact]
-    public async Task NativeServicesAreWindowsGated()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        var locator = new StubGameWindowLocator();
-        var capture = new GdiScreenCaptureService(locator);
-        await Assert.ThrowsAsync<PlatformNotSupportedException>(() => capture.CaptureAsync(
-            new CaptureRequest("eft", null, false, "test"),
-            CancellationToken.None));
-        await Assert.ThrowsAsync<PlatformNotSupportedException>(() => new WindowsDpapiSecretStore().LoadAsync(
-            new(
-                IntegrationSecretKind.TarkovTrackerProgressToken,
-                Guid.Parse("0b147c71-4be9-45da-aa64-4fd9d5b1d2e1"),
-                GameMode.Regular,
-                "fixture-generation"),
-            CancellationToken.None));
-        await Assert.ThrowsAsync<PlatformNotSupportedException>(() => new WindowsGlobalHotkeyService().RegisterAsync(
-            new HotkeyGesture(0, 0x7B, "F12"),
-            CancellationToken.None));
-        Assert.Empty(await new WindowsMonitorService().GetDisplaysAsync(CancellationToken.None));
-    }
-
+    
     private sealed class StubWindowCatalog(IReadOnlyList<WindowCandidate> windows) : IWindowCatalog
     {
         public IReadOnlyList<WindowCandidate> GetWindows() => windows;

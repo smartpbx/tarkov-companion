@@ -174,10 +174,11 @@
             </StackPanel>
           </Grid>
         </Grid>
-        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12" IsVisible="{Binding HasNoScan}">
-          <TextBlock Grid.Column="0" Classes="label" Text="Scan shortcut" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="1" Classes="mono ochre" FontWeight="SemiBold" Text="{Binding Settings.PendingHotkeyDisplay}" VerticalAlignment="Center" />
-          <TextBlock Grid.Column="2" Classes="label" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+        <!-- At rest this named a shortcut that no longer exists. It says what to press instead,
+             which is the game's own key, and gets out of the way once something is scanned. -->
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" IsVisible="{Binding HasNoScan}">
+          <TextBlock Grid.Column="0" Classes="label" Text="Take a screenshot in game to scan" VerticalAlignment="Center" />
+          <TextBlock Grid.Column="1" Classes="label" Text="{Binding LastScanEvidence}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
         </Grid>
       </Panel>
     </Border>

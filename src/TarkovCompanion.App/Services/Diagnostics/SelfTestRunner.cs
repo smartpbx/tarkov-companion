@@ -126,19 +126,10 @@ public static class SelfTestRunner
                 }
             }
 
-            // Registering the shortcut here is the only way to prove the combination is
-            // actually obtainable on this machine. The composition is disposed below, which
-            // releases it again.
-            var hotkeys = services.GetRequiredService<ScanHotkeyService>();
-            var hotkeyState = await hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(false);
-            // Reported, never required. A combination another application already owns is an
-            // ordinary situation the user fixes by choosing a different one; it must not make
-            // an otherwise healthy installation report itself as broken.
-            checks.Add(new(
-                "scan-hotkey",
-                hotkeyState.IsRegistered ? "pass" : "unavailable",
-                $"{hotkeyState.Binding.DisplayName}: {hotkeyState.Detail}",
-                Required: false));
+            // The scan shortcut used to be registered here, to prove the combination was
+            // obtainable on this machine. There is no shortcut now: the game's own screenshot
+            // key drives every scan, and it needs nothing registered, nothing claimed from the
+            // window manager and nothing that another application can already own.
 
             var diagnosticRequested = commandLine.DeveloperMode &&
                 !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath);
