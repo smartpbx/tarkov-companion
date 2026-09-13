@@ -3058,9 +3058,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// worse option for a scav, it is not an option, and drawing it is worse than drawing
     /// nothing: it sends somebody to a door that will not open.
     ///
-    /// Only exits, and only when the side is actually known. Spawns keep both sides because a
-    /// scav wants to know where the PMCs started, and an exit whose side the feed never stated
-    /// stays on the map rather than being guessed away.
+    /// Exits and spawns, and only when the side is actually known. An exit or spawn whose side
+    /// the feed never stated stays on the map rather than being guessed away.
+    ///
+    /// Spawns used to keep both sides here, on the argument that "a scav wants to know where
+    /// the PMCs started". Reported as wrong, and it is: a scav joins twenty minutes in, so a
+    /// PMC spawn point tells them where somebody was at a time they were not in the raid. It
+    /// was also inconsistent — SpawnProximity has always filtered the panel by side, so the
+    /// list beside the map and the markers on it disagreed with each other.
     /// </remarks>
     public void ShowSide(string? side)
     {
@@ -3096,7 +3101,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private static bool CanBeTaken(MapOverlayElement element, MapFeatureFaction side) =>
         side == MapFeatureFaction.Unknown ||
-        element.Layer != MapOverlayKind.Extracts ||
+        element.Layer is not (MapOverlayKind.Extracts or MapOverlayKind.Spawns) ||
         element.Faction is MapFeatureFaction.Unknown or MapFeatureFaction.Shared ||
         element.Faction == side;
 
