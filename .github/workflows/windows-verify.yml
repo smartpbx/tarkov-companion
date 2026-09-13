@@ -73,6 +73,7 @@ jobs:
             --runtime linux-x64 \
             --self-contained true \
             -p:PublishSingleFile=false \
+            -p:InformationalVersion="1.0.${{ github.run_number }}+${{ github.sha }}" \
             --output artifacts/group-server
       - uses: actions/upload-artifact@v5
         with:

@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.GroupServer;
 
@@ -73,10 +74,24 @@ _ = Task.Run(async () =>
     }
 });
 
-// Counts only: how much this relay is holding, never who or where.
+// What this relay is, and how much it is holding. Counts only: never who, never where.
+//
+// It answered {status:"ok"} and nothing else, so there was no way to ask a running relay which
+// build it was — not from a client, not from the updater that had just installed it, and not
+// from anybody wondering whether a merge had actually reached it.
+var build = typeof(GroupRooms).Assembly
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    ?? "unknown";
+var version = build.Split('+')[0];
+var commit = build.Contains('+', StringComparison.Ordinal) ? build.Split('+')[1] : null;
+var startedUtc = DateTimeOffset.UtcNow;
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
+    version,
+    commit,
+    startedUtc,
     rooms = rooms.RoomCount,
     members = rooms.MemberCount,
 }));

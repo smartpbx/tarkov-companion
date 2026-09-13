@@ -1,0 +1,93 @@
+# Is the relay up, and is it running what main says it should be?
+#
+# Nothing watched it. A relay that stopped answering, or that quietly stayed three days behind
+# because an update failed and kept failing, was noticed when somebody's group panel went
+# strange mid-raid — which is the worst moment and the least informative one.
+name: Relay watch
+
+on:
+  schedule:
+    # Hourly. The relay checks for its own updates every thirty minutes, so an hour is long
+    # enough that a normal update window is never mistaken for a fault.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: relay-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask the relay what it is
+        id: health
+        env:
+          RELAY: ${{ vars.RELAY_HEALTH_URL }}
+        run: |
+          set -uo pipefail
+          if [ -z "${RELAY:-}" ]; then
+            echo "No RELAY_HEALTH_URL repository variable is set; nothing to watch." >&2
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          body="$(curl -fsS --max-time 20 "$RELAY" 2>/dev/null || true)"
+          if [ -z "$body" ]; then
+            echo "reason=The relay did not answer $RELAY within 20 seconds." >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$body"
+          commit="$(printf '%s' "$body" | jq -r '.commit // empty')"
+          version="$(printf '%s' "$body" | jq -r '.version // "unknown"')"
+          if [ -z "$commit" ]; then
+            echo "reason=The relay answered but named no commit, so it is a build from before /health reported one." >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Behind is normal for up to an hour; the relay polls every thirty minutes. Days
+          # behind means an update is failing and being refused, over and over.
+          if ! git -C . cat-file -e "$commit" 2>/dev/null; then
+            echo "The relay names a commit this checkout does not have; treating as up to date." >&2
+            exit 0
+          fi
+
+          age="$(git log -1 --format=%ct "$commit")"
+          now="$(date +%s)"
+          hours=$(( (now - age) / 3600 ))
+          echo "Relay is on $version ($commit), built ${hours}h ago."
+          if [ "$hours" -gt 24 ]; then
+            echo "reason=The relay is running a build from ${hours}h ago ($version, $commit). Its updater runs every thirty minutes, so it is refusing something." >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open one issue, and only one
+        if: steps.health.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASON: ${{ steps.health.outputs.reason }}
+        run: |
+          set -euo pipefail
+          title="Relay watch: the group relay needs looking at"
+          existing="$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "in:title \"$title\"" --json number --jq '.[0].number // empty')"
+
+          # Commented on rather than duplicated. An hourly check that opens an issue an hour
+          # would bury the one useful report under twenty-three copies of itself.
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$REASON"
+            exit 0
+          fi
+
+          printf '%s\n\n%s\n' \
+            "$REASON" \
+            "Checked hourly by relay-watch.yml. docs/OPERATIONS.md says what the relay is and where it keeps things. This issue is commented on rather than duplicated while it stays open." \
+            > /tmp/body.md
+          gh issue create --repo "${{ github.repository }}" --title "$title" --body-file /tmp/body.md
