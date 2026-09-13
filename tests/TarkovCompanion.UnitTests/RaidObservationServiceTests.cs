@@ -252,6 +252,11 @@ public sealed class RaidObservationServiceTests
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 
+        public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
+            Guid raidId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ScreenshotPosition>>([]);
+
         public Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken) => Task.CompletedTask;

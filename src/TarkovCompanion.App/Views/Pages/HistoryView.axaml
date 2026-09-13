@@ -33,8 +33,12 @@
                   <TextBlock Classes="value" Text="{Binding Outcome}" />
                 </StackPanel>
                 <StackPanel Grid.Column="4" Spacing="1">
-                  <TextBlock Classes="label" Text="Notes" />
-                  <TextBlock Text="{Binding Notes}" TextWrapping="Wrap" />
+                  <!-- Distance rather than a count of screenshots. "Nine screenshots" says how
+                       often somebody photographed something; "1.4 km" says what the raid was.
+                       It is a floor: straight lines between screenshots minutes apart. -->
+                  <TextBlock Classes="label" Text="Path" />
+                  <TextBlock Classes="value" Text="{Binding Path}" TextWrapping="Wrap" />
+                  <TextBlock Classes="caption" Text="{Binding Notes}" TextWrapping="Wrap" />
                 </StackPanel>
               </Grid>
             </Border>
