@@ -57,6 +57,14 @@
   .modes { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .modes button[aria-pressed="true"] { background: var(--ochre); color: #1b1710; border-color: var(--ochre); }
   .empty { color: var(--quiet); font-size: 13px; }
+  /* A mark's row has to hold a button now. Forty-four pixels because this is read on a tablet
+     with a thumb, and a Remove that needs aiming is a Remove that removes the wrong one. */
+  .markRow { display: flex; align-items: center; gap: 10px; }
+  .markRow > div:first-child { flex: 1; min-width: 0; }
+  .markRow button { flex: none; min-height: 44px; }
+  .clears { display: flex; gap: 8px; margin-top: 10px; }
+  .clears button { flex: 1; min-height: 44px; }
+  button[disabled] { opacity: .45; cursor: default; }
   form { display: contents; }
 </style>
 </head>
@@ -88,6 +96,13 @@
     <div id="members"><p class="empty">Nobody is sharing yet.</p></div>
     <h2 style="margin-top:16px">Marks</h2>
     <div id="marks"><p class="empty">Nothing marked.</p></div>
+    <!-- Two, because they are different questions. Clearing the reached ones is tidying after
+         a run; clearing all of them is starting again. Both belong to the group, which is why
+         either can be pressed by anybody holding the key. -->
+    <div class="clears">
+      <button type="button" id="clearReached" disabled>Clear reached</button>
+      <button type="button" id="clearAll" disabled>Clear all</button>
+    </div>
   </section>
 </main>
 
@@ -131,7 +146,11 @@
     });
     if (response.status === 401) throw new Error("That key was refused");
     if (!response.ok) throw new Error("The server answered " + response.status);
-    return response.status === 204 ? null : response.json();
+    // Not every answer has a body. Removing a mark is answered 200 with nothing in it, and
+    // response.json() on an empty body throws, which would report a removal that worked as a
+    // failure and leave the button disabled over it.
+    const body = await response.text();
+    return body ? JSON.parse(body) : null;
   }
 
   async function refresh() {
@@ -196,17 +215,76 @@
     }
     for (const mark of marks) {
       const row = document.createElement("div");
-      row.className = "row";
-      row.innerHTML = '<div class="name"><span></span></div><div class="meta"></div>';
+      row.className = "row markRow";
+      row.innerHTML = '<div><div class="name"><span></span></div><div class="meta"></div></div>';
       const [title, meta] = [row.querySelector(".name span"), row.querySelector(".meta")];
       title.textContent = `${mark.kind}${mark.label ? " · " + mark.label : ""}`;
       meta.textContent = `by ${mark.by} · ${mark.mapId} · ${Math.round(mark.x)}, ${Math.round(mark.z)}` +
         (mark.completedBy ? ` · reached by ${mark.completedBy}` : "");
+      // Waypoints only. A ping is gone in forty-five seconds whatever anybody does, so the
+      // server has no endpoint for removing one and a button here would be a button that lies.
+      if (mark.kind === "Waypoint") {
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "Remove";
+        remove.addEventListener("click", () => removeMark(mark.id, remove));
+        row.appendChild(remove);
+      }
       markHolder.appendChild(row);
     }
 
+    const waypoints = room?.waypoints ?? [];
+    $("clearAll").disabled = waypoints.length === 0;
+    $("clearReached").disabled = !waypoints.some((w) => w.completedBy);
+
     draw();
   }
+
+  // Removing a mark, which the server has served since the marks were written and no client
+  // has ever asked for. Nothing is taken off this screen directly: the refresh below brings
+  // back a room without it, which is the same single path that drew it, so a tablet never
+  // shows a plan the group does not have.
+  //
+  // The button is disabled while the request is in flight rather than after it, because a
+  // second tap on a tablet is easy and the second one would be a 404 on an id that is gone.
+  async function removeMark(id, button) {
+    if (!key || !id) return;
+    button.disabled = true;
+    try {
+      await call(`/waypoints/${id}`, { method: "DELETE" });
+      await refresh();
+    } catch (error) {
+      button.disabled = false;
+      setStatus(error.message, "bad");
+    }
+  }
+
+  // Scoped to the map the group is actually on, so tidying after a Customs raid does not take
+  // the plan somebody made for Lighthouse with it. With nobody on a map there is no scope to
+  // apply and the buttons stay out of it rather than clearing everything everywhere.
+  async function clearMarks(reachedOnly) {
+    const mapId = (room?.members ?? []).find((m) => m.mapId)?.mapId;
+    if (!key) return;
+    if (!mapId) {
+      setStatus("Nobody is on a map yet, so there is nothing to clear", "bad");
+      return;
+    }
+
+    const query = new URLSearchParams({ mapId });
+    if (reachedOnly) query.set("reachedOnly", "true");
+    try {
+      const cleared = await call(`/waypoints?${query}`, { method: "DELETE" });
+      // After the refresh, not before: refreshing writes the room's own description into the
+      // status line and would wipe this out on its way past.
+      await refresh();
+      setStatus(cleared === 1 ? "Cleared 1 mark" : `Cleared ${cleared ?? 0} marks`, "good");
+    } catch (error) {
+      setStatus(error.message, "bad");
+    }
+  }
+
+  $("clearReached").addEventListener("click", () => clearMarks(true));
+  $("clearAll").addEventListener("click", () => clearMarks(false));
 
   // The plot. Deliberately not the map: this has no artwork and no projection, so it cannot
   // pretend to be one. What it does have is everybody's world coordinates, which is enough to
