@@ -87,15 +87,18 @@ public sealed class MapMarkerNameEdgeTests
         // and went straight through Military Checkpoint, which lost two words instead of one.
         // The layout has to arrange the shifted position, so the shift is decided first and the
         // candidate carries it.
+        // At 23% a disc 24 canvas units in sits 5.5 screen pixels from the edge, so a hundred
+        // pixel name is pulled 44.5 right and ends up spanning 0 to 100. A neighbour at 500
+        // spans 65 to 165: clear of where the name started, straight through where it lands.
         const double zoom = 0.23;
         var shift = Shift(nameWidth: 100, centerX: 24, canvasWidth: 8000, zoom: zoom);
         var shiftedCentre = 24 + (shift / zoom);
 
         var unaware = MapLabelLayout.Arrange(
-            [new(24, 100, 100, 17, 1), new(260, 100, 100, 17, 1)],
+            [new(24, 100, 100, 17, 1), new(500, 100, 100, 17, 1)],
             zoom);
         var aware = MapLabelLayout.Arrange(
-            [new(shiftedCentre, 100, 100, 17, 1), new(260, 100, 100, 17, 1)],
+            [new(shiftedCentre, 100, 100, 17, 1), new(500, 100, 100, 17, 1)],
             zoom);
 
         // Unshifted the two do not overlap and both take the first slot; shifted they do, so
