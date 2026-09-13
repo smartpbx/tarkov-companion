@@ -1215,6 +1215,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// <summary>Cancelled when the window goes, so background watchers stop with it.</summary>
     private readonly CancellationTokenSource _lifetime = new();
 
+    private readonly GroupSessionService _group;
     private readonly IRuntimeStateStore _stateStore;
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly RuntimeOptions _options;
@@ -1259,6 +1260,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
         IGroupSettingsStore groupSettings,
+        GroupSessionService group,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
         VelopackUpdateGateway updates,
@@ -1270,6 +1272,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         TimeProvider timeProvider,
         ILogger<MainWindowViewModel> logger)
     {
+        _group = group;
         _stateStore = stateStore;
         _startupCoordinator = startupCoordinator;
         _options = options;
@@ -1329,6 +1332,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The rail carries the news, so it is visible from whatever page somebody is on.
         var settingsItem = Navigation.First(item => ReferenceEquals(item.Page, Settings));
         Settings.UpdateWaitingChanged += (_, waiting) => settingsItem.HasNotice = waiting;
+
+        // The map knows where somebody clicked; the group session knows how to tell anybody.
+        Map.GroupMarkRequested += (_, request) =>
+            _ = _group.MarkAsync(request.MapId, request.Position, null, request.IsPing, CancellationToken.None);
 
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);

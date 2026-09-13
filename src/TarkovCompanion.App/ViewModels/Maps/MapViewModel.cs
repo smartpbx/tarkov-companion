@@ -130,6 +130,9 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
 /// hollow and a waypoint filled, and a waypoint somebody has reached is drawn quiet rather than
 /// removed, because "we went there" is worth keeping on screen.
 /// </remarks>
+/// <summary>Somebody asking that a place be marked for the group.</summary>
+public sealed record GroupMarkRequest(string MapId, WorldPosition Position, bool IsPing);
+
 public sealed record GroupMarkViewModel(
     long Id,
     double CenterX,
@@ -2610,6 +2613,77 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         return _renderModel is null
             ? null
             : MapCanvasCoordinateMapper.Create(_renderModel, CanvasWidth, CanvasHeight);
+    }
+
+    /// <summary>
+    /// Raised when somebody marks a place, so whoever owns the group session can send it.
+    /// </summary>
+    /// <remarks>
+    /// An event rather than a dependency on the group session, because the map should not need
+    /// to know that sharing exists in order to draw itself. It knows where the click was; what
+    /// happens next belongs to whoever is doing the sharing.
+    /// </remarks>
+    public event EventHandler<GroupMarkRequest>? GroupMarkRequested;
+
+    /// <summary>
+    /// Asks for a place to be marked for the group, from a point on the canvas.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is drawn here. The mark comes back on the next exchange like everybody else's,
+    /// so one code path draws every mark and the sender never sees a version of the group's
+    /// state that the group does not have.
+    /// </remarks>
+    public Task MarkForGroupAsync(Point canvasPoint, bool isPing)
+    {
+        if (SelectedLocation is not { } location || !TryReadWorldPosition(canvasPoint, out var position))
+        {
+            return Task.CompletedTask;
+        }
+
+        GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Turns a point somebody clicked on the canvas into a place in the world.
+    /// </summary>
+    /// <remarks>
+    /// Two inversions, and both are exact rather than approximate. The canvas mapper is
+    /// reversed by searching for the map point whose projection lands on the click, which is
+    /// cheap because the mapping is affine: two probes give the scale and the offset on each
+    /// axis. The transform is then inverted properly by TryUnproject.
+    ///
+    /// The height cannot be recovered, because projecting throws it away: two places one above
+    /// the other land on the same point. The player's own height is used when there is one,
+    /// which is the sensible reading of somebody marking a spot on the floor they are on.
+    /// </remarks>
+    public bool TryReadWorldPosition(Point canvasPoint, out WorldPosition position)
+    {
+        position = default;
+        if (_renderModel?.Variant.Transform is not { IsValid: true } transform ||
+            CreateCanvasMapper() is not { } mapper)
+        {
+            return false;
+        }
+
+        // Probe the affine mapping rather than assuming which branch built it. A tiled map and
+        // a drawn one are projected differently, and a caller that knew which would have to be
+        // changed every time that does.
+        var origin = mapper(new MapPoint(0, 0));
+        var alongX = mapper(new MapPoint(1, 0));
+        var alongY = mapper(new MapPoint(0, 1));
+        var scaleX = alongX.X - origin.X;
+        var scaleY = alongY.Y - origin.Y;
+        if (Math.Abs(scaleX) < 1e-9 || Math.Abs(scaleY) < 1e-9)
+        {
+            return false;
+        }
+
+        var mapPoint = new MapPoint(
+            (canvasPoint.X - origin.X) / scaleX,
+            (canvasPoint.Y - origin.Y) / scaleY);
+        var height = _playerPosition?.Position.Y ?? 0;
+        return transform.TryUnproject(mapPoint, height, out position);
     }
 
     private void UpdateQuestGeometry()

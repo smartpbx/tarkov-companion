@@ -126,6 +126,54 @@ public sealed class GroupSessionService : IAsyncDisposable
         _ => $"Sharing failed: {exception.Message}",
     };
 
+    /// <summary>
+    /// Marks a place for the group: a waypoint that stays, or a ping that fades.
+    /// </summary>
+    /// <remarks>
+    /// Sent immediately rather than folded into the next tick. A ping is somebody saying "look
+    /// here" and five seconds of silence is long enough for that to stop being useful, which
+    /// is the same reason the server expires them quickly.
+    ///
+    /// Nothing is drawn locally in response. The mark comes back on the very next exchange
+    /// like everybody else's, so one code path draws every mark and a sender never sees a
+    /// version of the group's state that the group does not have.
+    /// </remarks>
+    public async Task<bool> MarkAsync(
+        string mapId,
+        WorldPosition position,
+        string? label,
+        bool isPing,
+        CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
+        if (!settings.IsUsable || string.IsNullOrWhiteSpace(mapId))
+        {
+            return false;
+        }
+
+        try
+        {
+            var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                new Uri(new Uri(settings.ServerUri!), isPing ? "pings" : "waypoints"))
+            {
+                Content = JsonContent.Create(new MarkDto(
+                    settings.DisplayName!.Trim(), mapId, position.X, position.Y, position.Z, label)),
+            };
+            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            _logger.LogInformation(
+                "Marked {Kind} on {Map} for the group.", isPing ? "a ping" : "a waypoint", mapId);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Could not mark a place for the group.");
+            return false;
+        }
+    }
+
     private async Task PublishOnceAsync(CancellationToken cancellationToken)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -302,6 +350,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         [JsonPropertyName("pings")]
         public IReadOnlyList<PingDto> Pings { get; init; } = [];
     }
+
+    private sealed record MarkDto(
+        [property: JsonPropertyName("by")] string By,
+        [property: JsonPropertyName("mapId")] string MapId,
+        [property: JsonPropertyName("x")] double X,
+        [property: JsonPropertyName("y")] double Y,
+        [property: JsonPropertyName("z")] double Z,
+        [property: JsonPropertyName("label")] string? Label);
 
     private sealed record WaypointDto(
         [property: JsonPropertyName("id")] long Id,

@@ -332,6 +332,16 @@ public sealed partial class MapView : UserControl
     /// </remarks>
     private void ViewportPointerPressed(object? sender, PointerPressedEventArgs eventArgs)
     {
+        // Right-click marks a place for the group, which is the gesture his client uses and
+        // the one nobody has to be taught. It is read on press rather than release because it
+        // never becomes a drag: nothing pans with the right button.
+        if (eventArgs.GetCurrentPoint(this).Properties.IsRightButtonPressed)
+        {
+            MarkForGroup(eventArgs.GetPosition(MapSurface), eventArgs.KeyModifiers);
+            eventArgs.Handled = true;
+            return;
+        }
+
         if (!eventArgs.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
             return;
@@ -354,6 +364,28 @@ public sealed partial class MapView : UserControl
         _panOffset = Viewport?.Offset ?? default;
         eventArgs.Pointer.Capture(sender as Control);
         eventArgs.Handled = true;
+    }
+
+    /// <summary>
+    /// Marks the clicked place for the group.
+    /// </summary>
+    /// <remarks>
+    /// Shift makes it a ping instead of a waypoint, which is the difference between "look
+    /// here" and "we are going here". Both are one gesture away because deciding which you
+    /// meant is not something to do through a menu while somebody is shooting at you.
+    ///
+    /// Fire and forget. The mark comes back on the next exchange like everybody else's, so one
+    /// code path draws every mark and the sender never sees a version of the group's state
+    /// that the group does not have.
+    /// </remarks>
+    private void MarkForGroup(Point canvasPoint, KeyModifiers modifiers)
+    {
+        if (DataContext is not MapViewModel viewModel)
+        {
+            return;
+        }
+
+        _ = viewModel.MarkForGroupAsync(canvasPoint, isPing: modifiers.HasFlag(KeyModifiers.Shift));
     }
 
     private void ViewportPointerMoved(object? sender, PointerEventArgs eventArgs)
