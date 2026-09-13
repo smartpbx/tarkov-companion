@@ -17,9 +17,11 @@ namespace TarkovCompanion.UnitTests;
 public sealed class NavigationIconTests
 {
     [Fact]
-    public void EveryDestinationHasDrawnGeometryRatherThanALetter()
+    public async Task EveryDestinationHasDrawnGeometryRatherThanALetter()
     {
-        using var services = AppComposition.Build(AppCommandLine.Parse(["--demo"]));
+        // The container holds services that are only IAsyncDisposable, so a synchronous
+        // dispose throws rather than cleaning up.
+        await using var services = AppComposition.Build(AppCommandLine.Parse(["--demo"]));
         var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
         Assert.NotEmpty(viewModel.Navigation);
@@ -33,9 +35,9 @@ public sealed class NavigationIconTests
     }
 
     [Fact]
-    public void NoTwoDestinationsShareAnIcon()
+    public async Task NoTwoDestinationsShareAnIcon()
     {
-        using var services = AppComposition.Build(AppCommandLine.Parse(["--demo"]));
+        await using var services = AppComposition.Build(AppCommandLine.Parse(["--demo"]));
         var viewModel = services.GetRequiredService<MainWindowViewModel>();
 
         var glyphs = viewModel.Navigation.Select(item => item.Glyph).ToArray();
