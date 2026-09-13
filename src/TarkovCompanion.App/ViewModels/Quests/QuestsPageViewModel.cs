@@ -72,9 +72,12 @@ public sealed class QuestImportProposalViewModel(
     }
 }
 
-public sealed class QuestObjectiveViewModel
+public sealed class QuestObjectiveViewModel : BindableViewModel
 {
     private readonly QuestsPageViewModel _owner;
+    private readonly RecordedTaskState _taskState;
+    private string _maps = string.Empty;
+    private string _items = string.Empty;
 
     internal QuestObjectiveViewModel(
         QuestObjectiveReadModel objective,
@@ -83,6 +86,7 @@ public sealed class QuestObjectiveViewModel
     {
         Model = objective;
         _owner = owner;
+        _taskState = taskState;
         SetUnknownCommand = new AsyncDelegateCommand(() =>
             _owner.SetObjectiveAsync(this, RecordedObjectiveState.Unknown, null));
         SetInProgressCommand = new AsyncDelegateCommand(() =>
@@ -109,8 +113,23 @@ public sealed class QuestObjectiveViewModel
         Source = Model.ProgressModifiedUtc is { } modified
             ? $"{Model.ProgressSource} · {QuestsPageViewModel.FormatAge(modified, owner.NowUtc)}"
             : Model.ProgressSource;
-        Maps = Model.MapIds.Count == 0 ? "No map association" : $"Map: {string.Join(", ", Model.MapIds)}";
-        Items = QuestItemRequirementFormatter.DescribeForQuest(Model, taskState);
+        ApplyNames();
+    }
+
+    /// <summary>
+    /// Rewrites the map and item lines from whatever the page has resolved so far.
+    /// </summary>
+    /// <remarks>
+    /// Both used to print the source's own identifiers, so an objective read "Map:
+    /// 5704e554d2720bac5b8b456e" and "markerItem: 5991b51486f77447b112d44f" where it meant
+    /// Shoreline and an MS2000 Marker. Map names are in memory as soon as the catalog is, and
+    /// item names arrive a moment later when the selected quest's are looked up, so this is
+    /// called twice rather than the row being rebuilt.
+    /// </remarks>
+    internal void ApplyNames()
+    {
+        Maps = _owner.DescribeMaps(Model.MapIds);
+        Items = QuestItemRequirementFormatter.DescribeForQuest(Model, _taskState, _owner.NameOfItem);
     }
 
     public QuestObjectiveReadModel Model { get; }
@@ -125,9 +144,17 @@ public sealed class QuestObjectiveViewModel
 
     public string Source { get; }
 
-    public string Maps { get; }
+    public string Maps
+    {
+        get => _maps;
+        private set => SetProperty(ref _maps, value);
+    }
 
-    public string Items { get; }
+    public string Items
+    {
+        get => _items;
+        private set => SetProperty(ref _items, value);
+    }
 
     public bool HasItems => Model.ItemTargets.Count > 0;
 
@@ -296,6 +323,9 @@ public sealed class QuestsPageViewModel : PageViewModel
     private bool _canRefreshTarkovTracker;
     private bool _canDisconnectTarkovTracker;
 
+    private readonly IItemRepository? _itemRepository;
+    private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
+
     public QuestsPageViewModel(
         IPlayerProfileService profileService,
         IQuestReadService readService,
@@ -304,7 +334,10 @@ public sealed class QuestsPageViewModel : PageViewModel
         ITarkovTrackerIntegrationService tarkovTracker,
         AppDataPaths paths,
         MapViewModel map,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        // Optional so a composition without an item catalog is still a valid composition:
+        // without one the objectives read as ids, which is what they did before.
+        IItemRepository? itemRepository = null)
         : base(
             "Quests",
             "Local-first quest progress, reviewed project exchange, and source-honest static map links",
@@ -318,6 +351,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         _exchangePath = Path.Combine(paths.Support, "quest-progress.json");
         _map = map;
         _timeProvider = timeProvider;
+        _itemRepository = itemRepository;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
@@ -544,7 +578,101 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
     }
 
-    internal void Select(QuestTaskViewModel task) => SelectedTask = task;
+    internal void Select(QuestTaskViewModel task)
+    {
+        SelectedTask = task;
+        // Only the quest being looked at. The catalog holds five hundred of them and
+        // several thousand distinct item ids between them; naming the handful on screen
+        // is one query each and naming all of them is a database walk per refresh.
+        _ = NameItemsAsync(task);
+    }
+
+    /// <summary>
+    /// Names the maps an objective is on, rather than listing the source's identifiers.
+    /// </summary>
+    /// <remarks>
+    /// The quest catalog and the map catalog are separate feeds and agree on neither form of
+    /// id, so a location is matched on either the slug the application uses or the upstream id
+    /// it carries alongside, exactly as the quest map projection already does. An id that
+    /// matches nothing is printed as it is: wrong is worse than ugly, and a missing map is
+    /// something to notice.
+    /// </remarks>
+    internal string DescribeMaps(IReadOnlyList<string> mapIds)
+    {
+        if (mapIds.Count == 0)
+        {
+            return "No map";
+        }
+
+        var names = mapIds
+            .Select(NameOfMap)
+            .Distinct(StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        return string.Join(", ", names);
+    }
+
+    private string NameOfMap(string mapId) => _map.Locations
+        .FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase))?.Name
+        ?? mapId;
+
+    /// <summary>What an item is called, or its id until the lookup comes back.</summary>
+    internal string NameOfItem(string itemId) =>
+        _itemNames.TryGetValue(itemId, out var name) ? name : itemId;
+
+    /// <summary>
+    /// Looks up the names of the items one quest asks for, once each.
+    /// </summary>
+    /// <remarks>
+    /// Fire and forget, and cached: selecting the same quest twice costs nothing, and a quest
+    /// whose items are not in the synced catalog keeps showing ids rather than blanks.
+    /// </remarks>
+    private async Task NameItemsAsync(QuestTaskViewModel task)
+    {
+        if (_itemRepository is null)
+        {
+            return;
+        }
+
+        var unknown = task.Objectives
+            .SelectMany(objective => objective.Model.ItemTargets)
+            .Select(target => target.ItemId)
+            .Distinct(StringComparer.Ordinal)
+            .Where(itemId => !_itemNames.ContainsKey(itemId))
+            .ToArray();
+        if (unknown.Length == 0)
+        {
+            return;
+        }
+
+        var resolved = false;
+        foreach (var itemId in unknown)
+        {
+            try
+            {
+                if (await _itemRepository.GetAsync(itemId, CancellationToken.None).ConfigureAwait(true) is { } item)
+                {
+                    _itemNames[itemId] = item.Name;
+                    resolved = true;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One unreadable row costs one name, not the page.
+            }
+        }
+
+        if (!resolved || !ReferenceEquals(SelectedTask, task))
+        {
+            return;
+        }
+
+        foreach (var objective in task.Objectives)
+        {
+            objective.ApplyNames();
+        }
+    }
 
     internal Task SetTaskAsync(QuestTaskViewModel task, RecordedTaskState state) => MutateAsync(async scope =>
         await _commandService.SetTaskStateAsync(scope, task.TaskId, state, CancellationToken.None).ConfigureAwait(true));
