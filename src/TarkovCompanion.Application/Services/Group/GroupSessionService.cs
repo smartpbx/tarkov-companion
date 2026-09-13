@@ -148,8 +148,12 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private static string Explain(Exception exception) => exception switch
     {
+        // A 401 from this server means the key failed GroupKey.IsAcceptable, which is a
+        // length test: under eight characters or over 128. It cannot mean "wrong key" — the
+        // key *is* the room, so a different key is a different room, which answers 200 with
+        // nobody in it. Saying "wrong group key" sent people to compare keys that were fine.
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
-            "Wrong group key · everyone has to type the same one",
+            $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
         HttpRequestException { StatusCode: HttpStatusCode.BadRequest } =>
             "Server rejected the key or the display name",
         HttpRequestException { StatusCode: { } status } =>
@@ -265,7 +269,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 _lastGood = null;
                 Publish(GroupSnapshot.Off with
                 {
-                    Detail = "Wrong group key",
+                    Detail = $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
                     UpdatedUtc = DateTimeOffset.UtcNow,
                 });
                 return;
@@ -578,6 +582,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         _disposed = true;
+        // Said out loud rather than left to time out. DELETE /state/{name} has been served
+        // since the relay was written and called by nothing, so a member who closed the
+        // application stayed on everybody else's map for the full three-minute lifetime,
+        // apparently still in the raid.
+        //
+        // Before the token is cancelled, because it uses it; and on its own short budget, so
+        // a relay that has gone away cannot hold the application open while it closes.
+        await LeaveRoomAsync().ConfigureAwait(false);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_worker is { } worker)
         {
@@ -591,6 +603,35 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         _stopping.Dispose();
+    }
+
+    /// <summary>Tells the relay this member is going, so the others stop drawing them.</summary>
+    /// <remarks>
+    /// Best effort and silent. Failing to say goodbye costs the group three minutes of a stale
+    /// marker, which is exactly what happened every time before this; it must not cost anybody
+    /// a hung close.
+    /// </remarks>
+    private async Task LeaveRoomAsync()
+    {
+        try
+        {
+            var settings = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(false);
+            if (!settings.IsUsable)
+            {
+                return;
+            }
+
+            using var leaving = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            using var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                new Uri(new Uri(settings.ServerUri!), $"state/{Uri.EscapeDataString(settings.DisplayName!.Trim())}"));
+            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            using var response = await _httpClient.SendAsync(request, leaving.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Nothing to do about it and nobody to tell: the application is closing.
+        }
     }
 
     private sealed record MemberStateDto(
