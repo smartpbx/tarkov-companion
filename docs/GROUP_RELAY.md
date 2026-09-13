@@ -72,6 +72,63 @@ The reply is everyone else in the group:
 You are never in your own `members` list. `room` is the hash, returned so a client can notice it
 has been talking to a different group than it thought.
 
+## Marks
+
+A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and
+fades after forty-five seconds. Having both is the point: a plan that quietly became forty stale
+"look here" marks would be worse than either alone.
+
+Both belong to the group rather than to whoever dropped them, so anyone in the group may clear
+any of them. A server that tracked who owned what would need identities, and this one
+deliberately has none.
+
+They come back on the `/state` reply, so a client that is already publishing every few seconds
+learns about them without polling anything:
+
+```json
+{
+  "room": "9f2c…",
+  "members": [],
+  "waypoints": [
+    { "id": 4, "by": "MaxGooner", "mapId": "customs", "x": 56.1, "y": -2.9, "z": 110.5,
+      "label": "Dorms", "createdUtc": "…", "completedUtc": null, "completedBy": null }
+  ],
+  "pings": [
+    { "id": 5, "by": "Geo", "mapId": "customs", "x": 12.0, "y": 1.0, "z": 44.0,
+      "label": null, "createdUtc": "…" }
+  ],
+  "serverUtc": "…"
+}
+```
+
+### Dropping one
+
+    POST /waypoints
+    POST /pings
+    X-Group-Key: <the group's key>
+
+```json
+{ "by": "MaxGooner", "mapId": "customs", "x": 56.16, "y": -2.95, "z": 110.52, "label": "Dorms" }
+```
+
+`by` and `mapId` are required; `label` is optional and is cut at 64 characters. `y` is the
+height, which matters for a map with floors. The reply is the created mark, including the `id`
+the server assigned, so two members marking at once cannot collide.
+
+### Reaching, removing, clearing
+
+    POST   /waypoints/{id}/reached      { "by": "MaxGooner" }
+    DELETE /waypoints/{id}
+    DELETE /waypoints?mapId=customs&reachedOnly=true
+
+Reaching one records who got there and will not overwrite whoever arrived first. Clearing
+returns how many went. Omit `mapId` to clear every map.
+
+### Limits
+
+Sixty waypoints and thirty pings per group. Past that the oldest goes, so somebody leaning on a
+mouse button loses their stalest plan rather than being refused or filling the server.
+
 ## Leaving
 
     DELETE /state/{name}
@@ -96,7 +153,7 @@ No key required.
 
 | Code | Meaning |
 | --- | --- |
-| 200 | Published; the body is everyone else |
+| 200 | Published; the body is everyone else, plus the group's marks |
 | 400 | The display name is missing or longer than 48 characters |
 | 401 | The `X-Group-Key` header is missing or shorter than eight characters |
 
