@@ -57,6 +57,13 @@ internal static class Program
                 return RunHeadlessDemo(options);
             }
 
+            if (options.OcrProbePath is { Length: > 0 } probePath)
+            {
+                return OcrProbe.RunAsync(probePath, options, CancellationToken.None)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+
             // Only the ordinary launch is guarded. A self-test, a headless demo, a page
             // screenshot and a developer build are all deliberate, short-lived, and sometimes
             // run beside each other on purpose; refusing those would break verification to
@@ -121,7 +128,8 @@ internal static class Program
         && !options.Headless
         && !options.Demo
         && !options.DeveloperMode
-        && options.StartPage is null;
+        && options.StartPage is null
+        && options.OcrProbePath is null;
 
     /// <summary>
     /// Builds the application, recording the toolkit's warnings when a tool asks for them.
