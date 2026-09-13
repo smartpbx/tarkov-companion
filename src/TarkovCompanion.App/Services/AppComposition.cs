@@ -170,7 +170,16 @@ public static class AppComposition
             provider.GetRequiredService<HttpClient>(),
             provider.GetRequiredService<ITarkovDevResponseCache>(),
             provider.GetRequiredService<DataTranslationService>(),
-            timeProvider: timeProvider));
+            // A group that runs a server can hold the catalog once for everybody instead of
+            // five clients pulling the same several megabytes. Read from the group settings
+            // file directly rather than through the store, because this is composed before
+            // anything has had a chance to await one, and upstream is always still tried
+            // afterwards so a wrong or stale answer here costs nothing.
+            new TarkovDevJsonClientOptions
+            {
+                MirrorAddress = ReadCatalogMirror(Path.Combine(paths.Config, "group.json")),
+            },
+            timeProvider));
         services.AddSingleton<TarkovDevDataRefreshOperation>();
         services.AddSingleton<IDataRefreshOperation>(provider => provider.GetRequiredService<TarkovDevDataRefreshOperation>());
         services.AddSingleton<IDataSyncService, DataSyncService>();
@@ -306,8 +315,31 @@ public static class AppComposition
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();
+#if WINDOWS10_0_19041_0_OR_GREATER
+        // The engine Windows already has, preferred where it works. It needs no native binary
+        // and no Visual C++ redistributable, and on the extract panel it reads text the other
+        // engine's thresholding eats. Never a replacement: where Windows will not start it, the
+        // registration below falls through to Tesseract, and a machine where neither works says
+        // so on the Settings page rather than failing silently.
+        services.AddSingleton<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+        services.AddSingleton<IOcrEngine>(provider =>
+        {
+            var windows = provider.GetRequiredService<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+            return windows.Availability.IsAvailable
+                ? windows
+                : provider.GetRequiredService<TesseractOcrEngine>();
+        });
+        services.AddSingleton<IOcrEngineStatus>(provider =>
+        {
+            var windows = provider.GetRequiredService<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+            return windows.Availability.IsAvailable
+                ? windows
+                : provider.GetRequiredService<TesseractOcrEngine>();
+        });
+#else
         services.AddSingleton<IOcrEngine>(provider => provider.GetRequiredService<TesseractOcrEngine>());
         services.AddSingleton<IOcrEngineStatus>(provider => provider.GetRequiredService<TesseractOcrEngine>());
+#endif
         services.AddSingleton<CanonicalItemResolverCache>();
         services.AddSingleton<ScanContextDetector>();
         services.AddSingleton<OcrCoordinator>();
@@ -388,6 +420,51 @@ public static class AppComposition
     /// negotiated compression a cold first sync moved many times more bytes than it needed to
     /// and regularly exhausted its bounded budget.
     /// </remarks>
+    /// <summary>
+    /// The group server's catalog mirror, from the group settings file, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// Read from the file rather than through <c>IGroupSettingsStore</c> because composition
+    /// cannot await, and read at all only because a group that already runs a server can serve
+    /// the catalog once for everybody. Any failure returns nothing, which is the same as not
+    /// having a server: upstream is always tried afterwards, so this can only ever save a
+    /// download and never cost one.
+    ///
+    /// It does not follow a change to the setting until the next launch. Said here rather than
+    /// worked around, because the alternative is a moving base address inside a client that
+    /// caches by path, and a download saved is not worth that.
+    /// </remarks>
+    private static Uri? ReadCatalogMirror(string settingsPath)
+    {
+        try
+        {
+            if (!File.Exists(settingsPath))
+            {
+                return null;
+            }
+
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("serverUri", out var server) ||
+                server.ValueKind != System.Text.Json.JsonValueKind.String ||
+                !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                return null;
+            }
+
+            // The trailing slash matters: a relative path is resolved against the last segment
+            // of the base, so "catalog" without one would replace the group server's own path
+            // rather than sit under it.
+            return new Uri(uri.AbsoluteUri.TrimEnd('/') + "/catalog/");
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
     private static HttpClientHandler CreateDataHandler() =>
         new() { AutomaticDecompression = DecompressionMethods.All };
 

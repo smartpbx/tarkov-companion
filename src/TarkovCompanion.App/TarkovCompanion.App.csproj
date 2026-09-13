@@ -9,12 +9,25 @@
          at their defaults, which is how an application ends up anonymous in two places out of
          three. -->
     <ApplicationIcon>Assets/TarkovCompanion.ico</ApplicationIcon>
+    <!-- Two frameworks, because the Windows OCR engine needs a Windows target and everything
+         else here does not. The portable one is what Linux CI builds and what the test
+         projects resolve against; the Windows one is what actually ships, and is the only one
+         that sees TarkovCompanion.Platform.Windows.Ocr.
+
+         Clearing TargetFramework first is required: Directory.Build.props sets it for every
+         project, and a project cannot have both. -->
+    <TargetFramework></TargetFramework>
+    <TargetFrameworks>net10.0;net10.0-windows10.0.19041.0</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
     <ProjectReference Include="../TarkovCompanion.Application/TarkovCompanion.Application.csproj" />
     <ProjectReference Include="../TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj" />
     <ProjectReference Include="../TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.19041.0'">
+    <ProjectReference Include="../TarkovCompanion.Platform.Windows.Ocr/TarkovCompanion.Platform.Windows.Ocr.csproj" />
   </ItemGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**" />
