@@ -240,7 +240,7 @@ public sealed class QuestEligibilityEvaluator
             {
                 reasons.Add(new(
                     "missing-prerequisite-task",
-                    "The prerequisite task is absent from the selected catalog.",
+                    $"{Name(tasks, requirement.RequiredTaskId)} is absent from the selected catalog.",
                     requirement.RequiredTaskId));
                 continue;
             }
@@ -264,7 +264,7 @@ public sealed class QuestEligibilityEvaluator
             {
                 reasons.Add(new(
                     "unknown-prerequisite-state",
-                    "The prerequisite task has no explicit recorded state.",
+                    $"{Name(tasks, requirement.RequiredTaskId)} has no explicit recorded state.",
                     requirement.RequiredTaskId));
                 continue;
             }
@@ -278,7 +278,7 @@ public sealed class QuestEligibilityEvaluator
             {
                 reasons.Add(new(
                     "unsupported-prerequisite-status",
-                    "The catalog contains a prerequisite status this version cannot evaluate.",
+                    $"{Name(tasks, requirement.RequiredTaskId)} has a prerequisite status this version cannot evaluate.",
                     requirement.RequiredTaskId));
                 continue;
             }
@@ -286,7 +286,7 @@ public sealed class QuestEligibilityEvaluator
             definitelyLocked = true;
             reasons.Add(new(
                 "prerequisite-state",
-                $"Prerequisite requires {string.Join(" or ", requirement.RequiredStatuses)} but is recorded {recorded.State}.",
+                $"{Name(tasks, requirement.RequiredTaskId)} must be {string.Join(" or ", requirement.RequiredStatuses)} and is recorded {recorded.State}.",
                 requirement.RequiredTaskId));
         }
 
@@ -458,6 +458,23 @@ public sealed class QuestEligibilityEvaluator
             return false;
         }
     }
+
+    /// <summary>
+    /// Names the quest that is blocking, because a task id is not something a player knows.
+    /// </summary>
+    /// <remarks>
+    /// The reason has carried the blocking task's id since it was written and nothing ever
+    /// showed it, so every locked quest on the board explained itself as "the prerequisite
+    /// task", singular and anonymous, whichever of three it was. The id is still carried for
+    /// anything that wants to follow it; this is the half a person reads.
+    ///
+    /// A task absent from the catalog has no name to give, which is the one case where the id
+    /// is the most honest thing to print.
+    /// </remarks>
+    private static string Name(IReadOnlyDictionary<string, QuestTaskDefinition> tasks, string taskId) =>
+        tasks.TryGetValue(taskId, out var task) && !string.IsNullOrWhiteSpace(task.Name)
+            ? task.Name
+            : taskId;
 
     private static QuestEligibility Indeterminate(QuestEligibilityReason reason) =>
         new(QuestEligibilityState.Indeterminate, [reason]);

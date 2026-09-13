@@ -138,6 +138,10 @@ public static class AppComposition
         services.AddSingleton<SqliteScanEventRepository>();
         services.AddSingleton<IScanEventRepository>(provider =>
             provider.GetRequiredService<SqliteScanEventRepository>());
+        // The read half of scan_history, which was written to for months and never read from.
+        services.AddSingleton<SqliteScanHistoryService>();
+        services.AddSingleton<IScanHistoryService>(provider =>
+            provider.GetRequiredService<SqliteScanHistoryService>());
         services.AddSingleton<SqliteQuestCatalog>();
         services.AddSingleton<IQuestCatalog>(provider => provider.GetRequiredService<SqliteQuestCatalog>());
         services.AddSingleton<SqliteQuestProgressStore>();

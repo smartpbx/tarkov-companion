@@ -36,6 +36,18 @@ jobs:
         run: ./scripts/audit-safety.sh
       - name: Secret-pattern audit
         run: ./scripts/scan-secrets.sh
+      # Reports, never fails. Three "written and never read" bugs turned up in one night and
+      # each cost an hour; this is the two greps that would have found them, run where nobody
+      # has to remember to run them.
+      - name: Written-and-never-read sweep
+        run: |
+          ./scripts/sweep-unread.sh | tee /tmp/sweep.txt
+          {
+            echo '### Written and never read'
+            echo '```'
+            cat /tmp/sweep.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5

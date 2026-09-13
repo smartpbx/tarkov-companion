@@ -107,9 +107,10 @@ public sealed class SqliteItemFactCatalog(SqliteConnectionFactory connectionFact
     /// expected loot, utility, unique access and route risk - have no source in the synced data
     /// and are reported here as zero, and quest linkage is not wired up, so the score reduces to
     /// "how many locks does it open and how many uses does it have". Every key will read as a low
-    /// tier for that reason alone. A tier becomes presentable once curated rows exist in
-    /// <c>key_intelligence_overrides</c>, which <c>KeyIntelligenceService</c> already prefers and
-    /// flags as curated.
+    /// tier for that reason alone. A tier becomes presentable once there is somewhere curated
+    /// facts can come from; there is not. This used to point at a <c>key_intelligence_overrides</c>
+    /// table and say the service already preferred it, which was wrong twice over: nothing read
+    /// that table and nothing ever wrote to it. Migration 0007 dropped it.
     /// </para>
     /// <para>
     /// A key that appears on more than one map reports no map rather than an arbitrary one, but

@@ -6,6 +6,27 @@ namespace TarkovCompanion.IntegrationTests;
 [Collection(SqliteCollection.Name)]
 public sealed class SqliteMigrationTests
 {
+    /// <summary>The tables migration 0007 drops, named here so the list is asserted not assumed.</summary>
+    private static readonly string[] Superseded =
+    [
+        "app_meta",
+        "map_labels",
+        "map_render_configs",
+        "map_floor_layers",
+        "item_icon_fingerprints",
+        "profile_trader_levels",
+        "profile_hideout_progress",
+        "profile_wishlist",
+        "profile_item_counts",
+        "profile_overrides",
+        "event_definitions",
+        "event_items",
+        "profile_event_item_state",
+        "key_intelligence_overrides",
+        "raid_positions",
+        "raid_extracts",
+    ];
+
     [Fact]
     public async Task EmptyDatabaseMigratesIdempotently()
     {
@@ -18,7 +39,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(6, first.Count);
+            Assert.Equal(7, first.Count);
             Assert.Empty(second);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -40,6 +61,17 @@ public sealed class SqliteMigrationTests
 
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_progress_imports';";
             Assert.Equal(1L, await command.ExecuteScalarAsync());
+
+            // Sixteen tables the first migration created for designs that were settled some
+            // other way, and which nothing has ever read or written. A fresh database should
+            // not carry them: an empty table that looks authoritative is a trap, and this one
+            // cost a night twice.
+            foreach (var dropped in Superseded)
+            {
+                command.CommandText =
+                    $"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{dropped}';";
+                Assert.Equal(0L, await command.ExecuteScalarAsync());
+            }
         }
         finally
         {
@@ -100,6 +132,7 @@ public sealed class SqliteMigrationTests
                     "0004_quest_catalog_fidelity",
                     "0005_local_quest_progress",
                     "0006_quest_progress_exchange",
+                    "0007_drop_superseded_tables",
                 ],
                 applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
@@ -116,6 +149,15 @@ public sealed class SqliteMigrationTests
 
             verifyCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';";
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
+
+            // An upgraded database loses them too, and the profile rows above survived it,
+            // which is the half that would matter if any of them had ever held anything.
+            foreach (var dropped in Superseded)
+            {
+                verifyCommand.CommandText =
+                    $"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{dropped}';";
+                Assert.Equal(0L, await verifyCommand.ExecuteScalarAsync());
+            }
 
             verifyCommand.CommandText = """
                 SELECT game_mode, generation, revision

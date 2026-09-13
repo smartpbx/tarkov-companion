@@ -61,5 +61,33 @@
       </Grid>
     </Border>
 
+    <!-- Every scan on this machine has been written to the database since the first migration
+         and nothing ever read one back, so a player could scan all evening and the application
+         could not show them one of them again. This is that list. -->
+    <Border Grid.Row="1" Classes="panel">
+      <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <TextBlock Classes="sectionTitle" Text="Earlier scans" VerticalAlignment="Center" />
+          <Button Grid.Column="1" Command="{Binding RefreshHistoryCommand}" Content="Refresh" />
+        </Grid>
+        <TextBlock Grid.Row="1" Classes="note" Text="{Binding HistoryStatus}" TextWrapping="Wrap" />
+        <ScrollViewer Grid.Row="2" IsVisible="{Binding HasHistory}">
+          <ItemsControl ItemsSource="{Binding History}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:ScanHistoryRowViewModel">
+                <Border Classes="inset" Margin="0,0,0,6" Padding="10">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="2">
+                    <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding When}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+
   </Grid>
 </UserControl>
