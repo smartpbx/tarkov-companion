@@ -20,7 +20,7 @@ public sealed class MapPlaceNameEdgeTests
         var name = Name("Administration Gate", centerX: 10, canvasWidth: 2000);
 
         Assert.True(name.Nudge > 0);
-        Assert.Equal(0, name.TextLeft, 3);
+        Assert.Equal(0, name.CenterX + name.Nudge - (name.TextWidthOnCanvas / 2), 3);
     }
 
     [Fact]
@@ -29,7 +29,7 @@ public sealed class MapPlaceNameEdgeTests
         var name = Name("Railroad to Military Base", centerX: 1995, canvasWidth: 2000);
 
         Assert.True(name.Nudge < 0);
-        Assert.Equal(2000, name.TextLeft + name.TextWidth, 3);
+        Assert.Equal(2000, name.CenterX + name.Nudge + (name.TextWidthOnCanvas / 2), 3);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class MapPlaceNameEdgeTests
         // A name a few pixels inboard still names the thing it is beside; half a name names
         // nothing. Moving it further than necessary trades one problem for another.
         var name = Name("Scav Checkpoint", centerX: 5, canvasWidth: 2000);
-        var overhang = (name.TextWidth / 2) - 5;
+        var overhang = (name.TextWidthOnCanvas / 2) - 5;
 
         Assert.Equal(overhang, name.Nudge, 3);
     }
@@ -64,6 +64,32 @@ public sealed class MapPlaceNameEdgeTests
         Assert.Equal(0, name.Nudge);
     }
 
-    private static MapPlaceNameViewModel Name(string text, double centerX, double canvasWidth) =>
-        new(text, centerX, 500, 0, 14, false, false) { CanvasWidth = canvasWidth };
+    [Fact]
+    public void It_moves_further_the_further_the_map_is_pulled_back()
+    {
+        // The mistake this file has made three times: the text's size is in screen pixels and
+        // never changes, the position it is compared against is in canvas units, and at 23%
+        // zoom those are more than four times apart. A nudge computed in screen pixels is a
+        // quarter of the one needed, which is why the label was still cut off.
+        var close = Name("Administration Gate", centerX: 10, canvasWidth: 4000, zoom: 1);
+        var far = Name("Administration Gate", centerX: 10, canvasWidth: 4000, zoom: 0.23);
+
+        Assert.True(far.Nudge > close.Nudge * 3, $"{far.Nudge} against {close.Nudge}");
+        Assert.Equal(0, far.CenterX + far.Nudge - (far.TextWidthOnCanvas / 2), 3);
+    }
+
+    private static MapPlaceNameViewModel Name(
+        string text,
+        double centerX,
+        double canvasWidth,
+        double zoom = 1)
+    {
+        var scale = new MapMarkerScale();
+        scale.Follow(zoom);
+        return new(text, centerX, 500, 0, 14, false, false)
+        {
+            CanvasWidth = canvasWidth,
+            Scale = scale,
+        };
+    }
 }
