@@ -1154,7 +1154,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public IReadOnlyList<MapFloorDefinition> Floors
     {
         get => _floors;
-        private set => Set(ref _floors, value);
+        private set
+        {
+            Set(ref _floors, value);
+            // Whether a map can be stacked is a fact about its floors, so it has to be restated
+            // when they arrive. Without this the toggle is evaluated once, against an empty
+            // list, and never appears on any map: the feature is built, bound, and invisible.
+            OnPropertyChanged(nameof(CanStack));
+        }
     }
 
     public IReadOnlyList<MapOverlayViewModel> Overlays
@@ -1334,6 +1341,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Set(ref _backgroundImage, value);
             AdoptAspectRatio(value);
             OnPropertyChanged(nameof(HasBackgroundImage));
+            OnPropertyChanged(nameof(ShowsFlatBackground));
             OnPropertyChanged(nameof(ShowsPlaceholder));
             if (!ReferenceEquals(replaced, value) && replaced is not null)
             {
