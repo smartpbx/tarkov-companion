@@ -341,6 +341,61 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Where the other players started, and which way they are from you.
+               The first screenshot of a raid is taken where the player spawned, so the player
+               spawn points near it are where everybody else began. The panel beside the map
+               answers "how far and which one"; this answers "which way" without reading
+               anything, which is the question in the first ninety seconds.
+
+               Red, which nothing else on this map is, and it fades with the raid: full for
+               three minutes, gone by eight. Where everybody spawned stops being where
+               everybody is. -->
+          <ItemsControl
+              ItemsSource="{Binding SpawnThreats}"
+              IsVisible="{Binding HasSpawnThreats}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:SpawnThreatViewModel">
+                <Canvas>
+                  <Polyline
+                      Points="{Binding LineToPlayer}"
+                      IsVisible="{Binding HasLine}"
+                      IsHitTestVisible="False"
+                      Stroke="{Binding LineColor}"
+                      StrokeThickness="1.6"
+                      StrokeDashArray="3,3"
+                      StrokeLineCap="Round" />
+                  <Panel
+                      Width="{Binding Extent}"
+                      Height="{Binding Extent}"
+                      RenderTransformOrigin="50%,50%"
+                      ToolTip.Tip="{Binding Name}">
+                    <Panel.RenderTransform>
+                      <TransformGroup>
+                        <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                        <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                      </TransformGroup>
+                    </Panel.RenderTransform>
+                    <Ellipse
+                        Width="{Binding PinSize}"
+                        Height="{Binding PinSize}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Fill="{Binding FillColor}"
+                        Stroke="{Binding OutlineColor}"
+                        StrokeThickness="1.5" />
+                  </Panel>
+                </Canvas>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <!-- The rest of the group, where they last said they were. Ochre against the
                player's cyan, so a glance never mistakes somebody else for yourself. -->
           <ItemsControl
