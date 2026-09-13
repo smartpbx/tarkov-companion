@@ -1767,7 +1767,51 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// would put every marker in the wrong place to make the picture bigger.
     /// </remarks>
     private void UpdateContentBounds() =>
-        ContentBounds = MapFitBounds.Choose(MeasureContent(Tiles), DrawnBounds());
+        ContentBounds = AreaBoundsOnCanvas() ?? MapFitBounds.Choose(MeasureContent(Tiles), DrawnBounds());
+
+    /// <summary>
+    /// The building the player is in, as a rectangle on the canvas, when one is being framed.
+    /// </summary>
+    /// <remarks>
+    /// Reported as wanting the separate smaller maps some buildings have. The catalog does not
+    /// publish separate maps and publishes something better: 68 named rectangles across its
+    /// floors -- "dorms", "oilrig &amp; panda", "warehouse 17", "m showroom" -- each with its own
+    /// heights. Framing one is what a separate map would have been, and it needs no new data.
+    ///
+    /// Returned only while somebody has asked for it. A floor chosen deliberately still frames
+    /// the floor, because a player who picked "3rd Floor" and got one room would have lost the
+    /// map without asking to.
+    /// </remarks>
+    private Rect? AreaBoundsOnCanvas()
+    {
+        if (!_frameArea || _areaBounds is not { } bounds || CreateCanvasMapper() is not { } mapper ||
+            _renderModel is null)
+        {
+            return null;
+        }
+
+        // Both corners through the map's own transform, because the rectangle is in world
+        // coordinates and the canvas is not: a rotated map turns a world-aligned rectangle
+        // into a rotated one, and the corners are what say where it ended up.
+        if (!_renderModel.TryMapPosition(new(bounds.First.X, 0, bounds.First.Y), out var first) ||
+            !_renderModel.TryMapPosition(new(bounds.Second.X, 0, bounds.Second.Y), out var second))
+        {
+            return null;
+        }
+
+        var one = mapper(first);
+        var two = mapper(second);
+        var left = Math.Min(one.X, two.X);
+        var top = Math.Min(one.Y, two.Y);
+        var width = Math.Abs(one.X - two.X);
+        var height = Math.Abs(one.Y - two.Y);
+        // A little room around it, because a building framed edge to edge gives no sense of
+        // which way out is which.
+        var margin = Math.Max(width, height) * 0.15;
+        return width > 0 && height > 0
+            ? new Rect(left - margin, top - margin, width + (margin * 2), height + (margin * 2))
+            : null;
+    }
 
     /// <summary>
     /// Where the drawn map sits inside the canvas, in canvas coordinates.
@@ -3110,11 +3154,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>Names the building the player is in, or says nothing.</summary>
-    private void UpdateArea() =>
-        Area = _playerPosition is { } position
-            ? MapAreaName.Describe(SelectedFloor, position.Position) ?? string.Empty
-            : string.Empty;
+    private void UpdateArea()
+    {
+        _areaBounds = _playerPosition is { } position
+            ? MapAreaName.Locate(SelectedFloor, position.Position)
+            : null;
+        Area = _areaBounds?.Description ?? string.Empty;
+        OnPropertyChanged(nameof(CanFrameArea));
+        // A building that is no longer the one being stood in must not stay framed. Somebody
+        // who walks out of dorms and is still looking at dorms has been given a map of
+        // somewhere they are not.
+        if (_frameArea && _areaBounds is null)
+        {
+            IsFramingArea = false;
+        }
+    }
 
+    private MapCatalogBounds? _areaBounds;
+    private bool _frameArea;
     private string _area = string.Empty;
 
     /// <summary>
@@ -3136,6 +3193,40 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(HasArea));
         }
     }
+
+    /// <summary>Whether there is a building to frame, which is what puts the control on screen.</summary>
+    public bool CanFrameArea => _areaBounds is not null;
+
+    /// <summary>
+    /// Whether the map is framing the building rather than the floor.
+    /// </summary>
+    /// <remarks>
+    /// Off by default and reset when the player leaves the building. A floor chosen
+    /// deliberately still frames the floor: somebody who picked "3rd Floor" and got one room
+    /// would have lost the map without asking to.
+    /// </remarks>
+    public bool IsFramingArea
+    {
+        get => _frameArea;
+        set
+        {
+            if (_frameArea == value)
+            {
+                return;
+            }
+
+            _frameArea = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(FrameAreaText));
+            UpdateContentBounds();
+            RequestFit();
+        }
+    }
+
+    /// <summary>What the control says, which is the thing it will do next.</summary>
+    public string FrameAreaText => _frameArea
+        ? "Show the whole floor"
+        : Area is { Length: > 0 } area ? $"Frame {area}" : "Frame this building";
 
     public bool HasArea => Area.Length > 0;
     /// <summary>
