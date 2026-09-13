@@ -592,6 +592,13 @@
               </ItemsControl.ItemTemplate>
             </ItemsControl>
           </ScrollViewer>
+          <!-- Both gestures exist and neither was written down anywhere, so the first question
+               asked about them was whether they had been built. Stated here rather than in a
+               help panel, because this box is only on screen when there is a group to mark
+               things for. -->
+          <Border Classes="hairline" />
+          <TextBlock Classes="caption" Text="Right-click the map to mark a waypoint" TextWrapping="Wrap" />
+          <TextBlock Classes="caption" Text="Hold shift for a ping, which fades" TextWrapping="Wrap" />
         </StackPanel>
       </Border>
     </StackPanel>
