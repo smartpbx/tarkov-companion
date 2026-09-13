@@ -119,6 +119,11 @@ public sealed partial class WindowsEftLogWatcher(
                     {
                         observer.Observe(sale);
                     }
+
+                    if (QuestNotificationParser.ParseLine(line, observedUtc) is { } quest)
+                    {
+                        observer.Observe(quest);
+                    }
                 }
             }
 
