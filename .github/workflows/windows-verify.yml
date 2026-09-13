@@ -225,9 +225,14 @@ jobs:
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
-      # Opens every destination in turn and photographs it. Seven pages were shipped
-      # without anyone seeing them rendered; compiled bindings make a mistyped property a
-      # load-time failure on whichever page holds it, and nothing else here visits them.
+      # Opens every destination in turn, photographs it, and now checks what it got.
+      #
+      # Presenting a window was the only thing ever asserted, which is how a ragged sidebar
+      # shipped: the picture was taken and nobody looked. The toolkit's own warnings are now
+      # captured per page and a fault fails the step - a value that will not convert, a
+      # resource that is not there, a path that cannot be resolved. Binding through a null
+      # object is counted and reported instead, because every optional panel does it. How
+      # much each page drew is measured and reported alongside them.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
