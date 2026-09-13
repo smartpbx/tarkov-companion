@@ -53,7 +53,10 @@ public sealed class ContextMissDiagnosticTests
     private static ContextDetection Detect(params string[] lines)
     {
         var ocr = new OcrResult(
-            lines.Select((text, index) => new OcrLine(text, new PixelRect(0, index * 20, 300, 18), new Confidence(0.9))).ToArray(),
+            // Stacked one pixel apart so several hundred still fit the frame. Detection drops
+            // a line whose bounds fall outside it, which is correct and which made an earlier
+            // version of this fixture silently discard everything below the first line.
+            lines.Select((text, index) => new OcrLine(text, new PixelRect(0, index, 300, 1), new Confidence(0.9))).ToArray(),
             TimeSpan.Zero,
             "test-engine",
             true,
@@ -61,11 +64,24 @@ public sealed class ContextMissDiagnosticTests
         return new ScanContextDetector().Detect(Image(), ocr);
     }
 
+    /// <summary>
+    /// Big enough to contain the lines the tests place on it.
+    /// </summary>
+    /// <remarks>
+    /// Detection drops any line whose bounds fall outside the frame, which is correct and
+    /// which an eight-pixel test image made invisible: every line below the first was
+    /// discarded before the diagnostic saw it, and the test looked like the diagnostic was
+    /// broken.
+    /// </remarks>
+    private const int Width = 400;
+
+    private const int Height = 500;
+
     private static CapturedImage Image() => new(
-        new byte[64 * 4],
-        Width: 8,
-        Height: 8,
-        Stride: 8 * 4,
+        new byte[Width * 4 * Height],
+        Width: Width,
+        Height: Height,
+        Stride: Width * 4,
         Format: PixelFormat.Bgra8888,
         CapturedUtc: DateTimeOffset.UnixEpoch,
         Source: "test");
