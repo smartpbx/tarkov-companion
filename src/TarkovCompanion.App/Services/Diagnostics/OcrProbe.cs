@@ -53,8 +53,16 @@ public static class OcrProbe
 
         using var services = AppComposition.Build(options);
         var loader = services.GetRequiredService<IScreenshotImageLoader>();
-        var engine = services.GetRequiredService<IOcrEngine>();
         var detector = services.GetRequiredService<ScanContextDetector>();
+
+        // Both engines, named, rather than whichever one the container hands back.
+        //
+        // This resolved IOcrEngine — the Windows engine on Windows — and then ran six
+        // OcrPreparation variants that engine deliberately ignores, printing the same read six
+        // times beside SafeScale figures it never used. Every measurement in
+        // EFT_SCREENSHOT_FACTS.md so far is therefore Tesseract's, while the engine that
+        // ships on Windows is the one nothing has ever measured.
+        var engines = Engines(services);
         var image = await loader.LoadAsync(screenshotPath, cancellationToken).ConfigureAwait(false);
         if (image is null)
         {
@@ -73,6 +81,16 @@ public static class OcrProbe
         }
 
         Console.WriteLine();
+        foreach (var (engineName, engine) in engines)
+        {
+            Console.WriteLine($"── {engineName} ──");
+            if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
+            {
+                Console.WriteLine($"unavailable · {status.Availability.Reason ?? "no reason reported"}");
+                Console.WriteLine();
+                continue;
+            }
+
         foreach (var (name, preparation) in Variants)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -103,7 +121,35 @@ public static class OcrProbe
             Console.WriteLine();
         }
 
+            Console.WriteLine();
+        }
+
         return 0;
+    }
+
+    /// <summary>
+    /// Every recogniser this build has, by name, rather than whichever one would be chosen.
+    /// </summary>
+    /// <remarks>
+    /// The point of a probe is to compare them. Resolving IOcrEngine gives the one that would
+    /// ship — on Windows that is the Windows engine — so the probe measured one engine while
+    /// every recorded measurement in EFT_SCREENSHOT_FACTS.md came from the other, and nobody
+    /// could see that from the output.
+    ///
+    /// An engine that will not start is listed and reported rather than skipped, because "the
+    /// Windows recogniser is unavailable here, and this is why" is one of the answers the
+    /// probe exists to give.
+    /// </remarks>
+    private static IReadOnlyList<(string Name, IOcrEngine Engine)> Engines(IServiceProvider services)
+    {
+        var engines = new List<(string, IOcrEngine)>();
+#if WINDOWS
+        engines.Add((
+            "windows-media-ocr",
+            services.GetRequiredService<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>()));
+#endif
+        engines.Add(("tesseract", services.GetRequiredService<TesseractOcrEngine>()));
+        return engines;
     }
 
     /// <summary>How many lines are printed unless somebody asks for more.</summary>
