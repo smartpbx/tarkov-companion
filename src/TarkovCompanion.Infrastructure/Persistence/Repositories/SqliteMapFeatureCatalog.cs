@@ -92,7 +92,8 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         // thousand roubles has to say so in money and one that asks for a key has to name
         // the key. A handful of ids per map, once per map.
         var itemNames = await ReadItemNamesAsync(connection, payload, cancellationToken).ConfigureAwait(false);
-        return Read(payload, itemNames) ?? [];
+        var containerNames = await ReadContainerNamesAsync(connection, cancellationToken).ConfigureAwait(false);
+        return Read(payload, itemNames, containerNames) ?? [];
     }
 
     /// <summary>Whether this stored map is the one being asked for.</summary>
@@ -151,7 +152,10 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         return names;
     }
 
-    private static IReadOnlyList<MapFeature>? Read(string sourceJson, IReadOnlyDictionary<string, string> itemNames)
+    private static IReadOnlyList<MapFeature>? Read(
+        string sourceJson,
+        IReadOnlyDictionary<string, string> itemNames,
+        IReadOnlyDictionary<string, string> containerNames)
     {
         try
         {
@@ -168,6 +172,7 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
             AddExtracts(root, "transits", MapFeatureKind.Transit, features, itemName);
             AddSpawns(root, features);
             AddLocks(root, features);
+            AddLoot(root, features, containerNames, itemName);
             return features;
         }
         catch (JsonException)
@@ -175,6 +180,111 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
             // A reshaped payload costs the markers for one map rather than the whole catalog.
             return null;
         }
+    }
+
+    /// <summary>
+    /// Adds the places the game spawns loot, named by what kind of thing they are.
+    /// </summary>
+    /// <remarks>
+    /// A map carries two lists. Containers are a position and a container id, which is
+    /// meaningless without the catalog: upstream publishes the literal string "&lt;id&gt; Name"
+    /// as every container's name, so the only readable field is the slug, and "duffle-bag"
+    /// becomes "Duffle bag" here rather than being shown as it is stored.
+    ///
+    /// Loose piles are a position and the list of items that can spawn there. Named by their
+    /// first resolvable item, because "Gas analyzer and 6 others" says more about whether it is
+    /// worth walking to than "Loose loot" does.
+    ///
+    /// Both are places loot can be, not places loot is. Nothing here or anywhere else knows
+    /// what is in one this raid, which is why whatever renders these has to say so.
+    /// </remarks>
+    private static void AddLoot(
+        JsonElement root,
+        List<MapFeature> features,
+        IReadOnlyDictionary<string, string> containerNames,
+        Func<string, string?> itemName)
+    {
+        if (root.TryGetProperty("lootContainers", out var containers) &&
+            containers.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in containers.EnumerateArray())
+            {
+                if (ReadPosition(entry, "position") is not { } position)
+                {
+                    continue;
+                }
+
+                var id = ReadText(entry, "lootContainer");
+                var slug = id is null ? null : containerNames.GetValueOrDefault(id);
+                features.Add(new(
+                    MapFeatureKind.Loot,
+                    Humanise(slug) ?? "Container",
+                    position,
+                    null,
+                    "Somewhere loot can spawn, not somewhere loot is"));
+            }
+        }
+
+        if (!root.TryGetProperty("lootLoose", out var loose) || loose.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        foreach (var entry in loose.EnumerateArray())
+        {
+            if (ReadPosition(entry, "position") is not { } position)
+            {
+                continue;
+            }
+
+            var items = ReadStrings(entry, "items");
+            var named = items.Select(itemName).OfType<string>().FirstOrDefault();
+            features.Add(new(
+                MapFeatureKind.Loot,
+                named is null
+                    ? "Loose loot"
+                    : items.Count > 1
+                        ? $"{named} and {items.Count - 1} others"
+                        : named,
+                position,
+                null,
+                "Somewhere loot can spawn, not somewhere loot is"));
+        }
+    }
+
+    /// <summary>Turns a slug into something a player would read, or nothing.</summary>
+    private static string? Humanise(string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        var words = slug.Replace('-', ' ').Replace('_', ' ').Trim();
+        return words.Length == 0
+            ? null
+            : char.ToUpperInvariant(words[0]) + words[1..];
+    }
+
+    /// <summary>What each kind of container is called, by its id.</summary>
+    /// <remarks>
+    /// Empty before the first sync that carried the catalog, which is not a failure: a
+    /// container with no name is shown as a container rather than as an identifier.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<string, string>> ReadContainerNamesAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, normalized_name FROM loot_containers;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            names[reader.GetString(0)] = reader.GetString(1);
+        }
+
+        return names;
     }
 
     private static void AddExtracts(
