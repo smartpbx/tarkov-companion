@@ -152,21 +152,6 @@ app.Run();
 // it against, because the server holds no secrets: a key that nobody else uses simply names a
 // room that nobody else is in. Refusing a short one is not access control, it is stopping
 // somebody from believing "a" protects their group.
-/// <summary>A place somebody is marking, from whoever is marking it.</summary>
-public sealed record MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label)
-{
-    public string? Validate() =>
-        string.IsNullOrWhiteSpace(By) || By.Length > 48
-            ? "A display name is required and must be 48 characters or fewer."
-            : string.IsNullOrWhiteSpace(MapId) || MapId.Length > 64
-                ? "A map is required and must be 64 characters or fewer."
-                : !double.IsFinite(X) || !double.IsFinite(Y) || !double.IsFinite(Z)
-                    ? "The position must be finite."
-                    : null;
-}
-
-public sealed record ReachedRequest(string By);
-
 static bool TryReadKey(HttpRequest request, out string key)
 {
     key = string.Empty;
@@ -184,3 +169,18 @@ static bool TryReadKey(HttpRequest request, out string key)
     key = candidate!;
     return true;
 }
+
+/// <summary>A place somebody is marking, from whoever is marking it.</summary>
+public sealed record MarkRequest(string By, string MapId, double X, double Y, double Z, string? Label)
+{
+    public string? Validate() =>
+        string.IsNullOrWhiteSpace(By) || By.Length > 48
+            ? "A display name is required and must be 48 characters or fewer."
+            : string.IsNullOrWhiteSpace(MapId) || MapId.Length > 64
+                ? "A map is required and must be 64 characters or fewer."
+                : !double.IsFinite(X) || !double.IsFinite(Y) || !double.IsFinite(Z)
+                    ? "The position must be finite."
+                    : null;
+}
+
+public sealed record ReachedRequest(string By);
