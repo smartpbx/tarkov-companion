@@ -29,7 +29,43 @@ public enum ScanContext
 
 public sealed record PixelRect(int X, int Y, int Width, int Height);
 
-public sealed record OcrRequest(ScanContext Context, PixelRect? Region = null, string Language = "eng");
+/// <summary>
+/// How a picture is prepared before the engine is allowed to read it.
+/// </summary>
+/// <remarks>
+/// A screenshot of a game is not a scan of a document. On a 3840x1080 display the interface
+/// text is around sixteen pixels tall in a frame of four million pixels, and the engine wants
+/// closer to thirty; the rest of the frame is scenery, which it reads as words. The result was
+/// lines of genuine noise with the occasional real string leaking through: "Bp B B", "pee tl",
+/// "dhe,", and then "LOOT THIS".
+///
+/// Neither remedy is free, and which one matters is a question about real screenshots rather
+/// than a thing to reason out, so both are options rather than assumptions.
+/// </remarks>
+/// <param name="Scale">
+/// How many times larger to make the picture before reading it. One leaves it alone.
+/// </param>
+/// <param name="BrightTextOnly">
+/// Whether to keep only what is brighter than the picture's own midpoint, which is how the
+/// game draws every panel: light text on a dark ground. It costs dark-on-light text, of which
+/// the interface has none, and removes most of what the scenery contributes.
+/// </param>
+public sealed record OcrPreparation(int Scale = 1, bool BrightTextOnly = false)
+{
+    /// <summary>The picture as it was taken.</summary>
+    public static OcrPreparation AsCaptured { get; } = new();
+
+    /// <summary>Scale bounded so that a large frame cannot be enlarged into an unreadable one.</summary>
+    public int SafeScale => Math.Clamp(Scale, 1, 4);
+
+    public bool IsAsCaptured => SafeScale == 1 && !BrightTextOnly;
+}
+
+public sealed record OcrRequest(ScanContext Context, PixelRect? Region = null, string Language = "eng")
+{
+    /// <summary>How to prepare the picture, which defaults to not preparing it at all.</summary>
+    public OcrPreparation Preparation { get; init; } = OcrPreparation.AsCaptured;
+}
 
 /// <summary>
 /// Confidence is an engine-normalized quality score in the inclusive 0..1 range.

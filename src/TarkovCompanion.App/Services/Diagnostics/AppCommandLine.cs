@@ -19,6 +19,17 @@ public sealed record AppCommandLine(
     /// </remarks>
     public string? StartPage { get; init; }
 
+    /// <summary>
+    /// A screenshot to read every way the engine can, instead of starting the application.
+    /// </summary>
+    /// <remarks>
+    /// The engine has been reading many lines and almost no words, and which of the two
+    /// plausible causes it is cannot be settled by argument. This runs one real screenshot
+    /// through each preparation and prints what each produced, so the answer comes from the
+    /// pictures somebody already has.
+    /// </remarks>
+    public string? OcrProbePath { get; init; }
+
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -33,6 +44,7 @@ public sealed record AppCommandLine(
             GetValue(args, "--diagnostic-channel"))
         {
             StartPage = GetValue(args, "--page"),
+            OcrProbePath = GetValue(args, "--ocr-probe"),
         };
     }
 

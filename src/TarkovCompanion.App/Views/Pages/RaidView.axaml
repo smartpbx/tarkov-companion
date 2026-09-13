@@ -95,6 +95,43 @@
           </StackPanel>
         </Border>
 
+        <!-- What there is to do on this map, by quest rather than by objective: a quest with
+             four things to do on one map is one decision, and four rows of the same name is a
+             list nobody reads. Pinned first, because that is the player saying which one they
+             are actually doing.
+
+             Only this map. A quest with nothing to do here is not on the map and has no
+             business in the column beside it. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasQuestPanel}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Quests here" />
+            <ItemsControl ItemsSource="{Binding Map.QuestPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:QuestPanelViewModel">
+                  <Border Classes="inset" Padding="9,7" Margin="0,0,0,6">
+                    <StackPanel Spacing="2">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <TextBlock Classes="value" Text="{Binding Task}" TextWrapping="Wrap" />
+                        <TextBlock Grid.Column="1"
+                                   Classes="caption ochre"
+                                   Text="Pinned"
+                                   IsVisible="{Binding IsPinned}"
+                                   VerticalAlignment="Center" />
+                      </Grid>
+                      <TextBlock Classes="label" Text="{Binding Objectives}" TextWrapping="Wrap" />
+                      <!-- An exact point is somewhere to walk to; an association is only a
+                           claim that the quest has something to do with this map. -->
+                      <TextBlock Classes="caption"
+                                 Text="Roughly placed"
+                                 IsVisible="{Binding IsApproximate}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
         <!-- Everyone else in the group, in the column beside the map rather than floating over
              it. A marker says where somebody is; it cannot say that they are on a different
              map, that their position is eight minutes old, or what they are carrying, and

@@ -250,7 +250,73 @@ public sealed class GroupSessionService : IAsyncDisposable
             Pings = (room?.Pings ?? []).Select(p =>
                 new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)).ToArray(),
         });
+
+        await CompleteReachedAsync(room, snapshot, settings, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Ticks off any waypoint the player is standing on.
+    /// </summary>
+    /// <remarks>
+    /// A waypoint somebody reached is drawn quiet rather than removed, because "we went there"
+    /// is worth keeping on screen, and until now nothing ever decided that anybody had. The
+    /// group's own plan was a list that only ever grew.
+    ///
+    /// Decided here rather than on the server, because the server is never told where anybody
+    /// is except as the two coordinates a member publishes, and it has no business measuring
+    /// distances between people and places. The client knows its own screenshot position and
+    /// says so once.
+    ///
+    /// The state that comes back is a moment old, so the same waypoint can be reported twice
+    /// before the next exchange catches up. The server refuses the second, which is why that
+    /// answer is not treated as a failure.
+    /// </remarks>
+    private async Task CompleteReachedAsync(
+        RoomStateDto? room,
+        ApplicationRuntimeSnapshot snapshot,
+        GroupSharingSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var raid = snapshot.Raid;
+        if (room?.Waypoints is not { Count: > 0 } waypoints ||
+            raid.MapId is not { Length: > 0 } mapId ||
+            raid.LastKnownPosition is not { } position)
+        {
+            return;
+        }
+
+        foreach (var waypoint in waypoints)
+        {
+            if (waypoint.CompletedBy is not null ||
+                !string.Equals(waypoint.MapId, mapId, StringComparison.OrdinalIgnoreCase) ||
+                !GroupWaypointReach.IsReached(position.Position, waypoint.X, waypoint.Y, waypoint.Z))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var request = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    new Uri(new Uri(settings.ServerUri!), $"waypoints/{waypoint.Id}/reached"))
+                {
+                    Content = JsonContent.Create(new ReachedDto(settings.DisplayName!.Trim()), options: Json),
+                };
+                request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+                using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    _logger.LogInformation("Reached waypoint {Id} on {Map}.", waypoint.Id, mapId);
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One waypoint left unticked, and the next exchange tries again.
+                _logger.LogDebug(exception, "Could not report reaching waypoint {Id}.", waypoint.Id);
+            }
+        }
+    }
+
 
     /// <summary>
     /// Assembles everything this companion sends, in one place.
@@ -350,6 +416,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         [JsonPropertyName("pings")]
         public IReadOnlyList<PingDto> Pings { get; init; } = [];
     }
+
+    private sealed record ReachedDto([property: JsonPropertyName("by")] string By);
 
     private sealed record MarkDto(
         [property: JsonPropertyName("by")] string By,
