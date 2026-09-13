@@ -55,7 +55,37 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("observed")]
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
+
+    /// <summary>
+    /// Where this member has been this raid, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// One dot says where somebody is. It does not say which way they came, whether they are
+    /// moving, or whether they have already swept the building you are about to walk into.
+    ///
+    /// Published rather than each client remembering what it has seen, because somebody who
+    /// opens the map mid-raid or restarts the application is exactly the person a squadmate's
+    /// path is most worth having, and remembering locally gives them nothing.
+    ///
+    /// Bounded, like everything else a member publishes. These are screenshots, not a stream.
+    /// </remarks>
+    [JsonPropertyName("trail")]
+    public IReadOnlyList<GroupTrailPoint> Trail { get; init; } = [];
 }
+
+/// <summary>One place a member has been, and how long ago they were there.</summary>
+/// <remarks>
+/// The age travels with the point because a trail is several stale readings and the oldest may
+/// be minutes old. A member who took three screenshots in ten seconds and then none for five
+/// minutes must not draw a line implying they walked it recently.
+/// </remarks>
+/// <param name="X">World position, from their own screenshot.</param>
+/// <param name="Z">World position, from their own screenshot.</param>
+/// <param name="AgeSeconds">How old the reading was when it was published.</param>
+public sealed record GroupTrailPoint(
+    [property: JsonPropertyName("x")] double X,
+    [property: JsonPropertyName("z")] double Z,
+    [property: JsonPropertyName("age")] double AgeSeconds);
 
 /// <summary>What one member's game said about another player, to be handed back to them.</summary>
 /// <param name="Name">The other player's in-game nickname, which is the only key there is.</param>

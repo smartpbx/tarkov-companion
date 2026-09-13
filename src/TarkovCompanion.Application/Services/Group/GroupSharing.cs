@@ -87,7 +87,26 @@ public sealed record GroupMemberView(
     double? HeadingDegrees,
     TimeSpan? PositionAge,
     IReadOnlyList<string> Loadout,
-    IReadOnlyList<string> Quests);
+    IReadOnlyList<string> Quests)
+{
+    /// <summary>
+    /// Where they have been this raid, oldest first, without their current position.
+    /// </summary>
+    /// <remarks>
+    /// A dot says where somebody is; it does not say which way they came or whether they have
+    /// already swept the building you are walking into. Empty for a member whose companion
+    /// predates this, which is an ordinary answer rather than a missing one.
+    /// </remarks>
+    public IReadOnlyList<GroupTrailPointView> Trail { get; init; } = [];
+}
+
+/// <summary>One place a member has been, and how old that reading was when they said so.</summary>
+/// <remarks>
+/// The age travels with the point because a trail is several stale readings. Drawn by age
+/// rather than by position in the list, so a member who took three screenshots in ten seconds
+/// and then none for five minutes does not imply they walked the whole line recently.
+/// </remarks>
+public sealed record GroupTrailPointView(double X, double Z, TimeSpan Age);
 
 /// <summary>What the group looks like right now, for the interface to render.</summary>
 /// <param name="IsSharing">Whether this companion is publishing anything.</param>
