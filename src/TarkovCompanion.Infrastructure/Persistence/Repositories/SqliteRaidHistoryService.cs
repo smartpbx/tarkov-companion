@@ -120,7 +120,13 @@ public sealed class SqliteRaidHistoryService(
 
             try
             {
-                if (JsonSerializer.Deserialize<ScreenshotPosition>(reader.GetString(0), JsonOptions) is { } position)
+                // A payload that is valid JSON but is not one of these deserialises to a
+                // record of defaults rather than throwing: no filename, a zero timestamp and
+                // a position at the origin. Drawn on a map that is a point somebody never
+                // stood on, which is the failure this codebase keeps having to refuse. Every
+                // real one came from a screenshot and therefore has its name.
+                if (JsonSerializer.Deserialize<ScreenshotPosition>(reader.GetString(0), JsonOptions)
+                    is { Filename.Length: > 0 } position)
                 {
                     positions.Add(position);
                 }

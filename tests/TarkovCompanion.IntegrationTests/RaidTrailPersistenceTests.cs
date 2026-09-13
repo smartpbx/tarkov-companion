@@ -64,7 +64,14 @@ public sealed class RaidTrailPersistenceTests
         }
     }
 
-    /// <summary>One unreadable screenshot costs one point on a trail, not the trail.</summary>
+    /// <summary>
+    /// A payload that is not a position does not become one at the origin.
+    /// </summary>
+    /// <remarks>
+    /// Valid JSON of another shape deserialises to a record of defaults rather than throwing:
+    /// no filename, a zero timestamp, a position at the origin. Drawn on a map that is a point
+    /// somebody never stood on.
+    /// </remarks>
     [Fact]
     public async Task AnUnreadablePositionIsSkipped()
     {
@@ -83,10 +90,13 @@ public sealed class RaidTrailPersistenceTests
                 raidId, "position", Moment(0), JsonSerializer.Serialize(Position(0), Json), CancellationToken.None);
             await history.RecordEventAsync(
                 raidId, "position", Moment(1), """{"somethingElse":true}""", CancellationToken.None);
+            await history.RecordEventAsync(
+                raidId, "position", Moment(2), """{"filename":""}""", CancellationToken.None);
 
             var positions = await history.ListPositionsAsync(raidId, CancellationToken.None);
 
-            Assert.Single(positions);
+            var kept = Assert.Single(positions);
+            Assert.Equal("2026-09-13[03-00]_shot.png", kept.Filename);
         }
         finally
         {
