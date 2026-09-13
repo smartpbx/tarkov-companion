@@ -12,6 +12,15 @@ public enum MapFeatureKind
     Transit,
     Spawn,
     Lock,
+
+    /// <summary>A container or a loose pile the game spawns loot in.</summary>
+    /// <remarks>
+    /// A place loot <em>can</em> be, not a place loot is. The feed publishes where the game
+    /// puts containers and what can spawn in each, and nothing anywhere says what is in one
+    /// this raid. Anything that shows these has to say so, or it reads as a loot radar and is
+    /// neither that nor honest about not being one.
+    /// </remarks>
+    Loot,
 }
 
 /// <summary>

@@ -13,7 +13,8 @@ namespace TarkovCompanion.Application.Services.Maps;
 ///
 /// Loot containers and hazards are in the same data and are deliberately left out. A map
 /// covered in several hundred markers answers no question quickly, and quickly is the only way
-/// this panel is ever read.
+/// this panel is ever read. Woods alone has 815 loot positions; the question those answer is
+/// "what is near me", which the column beside the map answers without drawing any of them.
 /// </remarks>
 public static class MapFeatureProjection
 {
@@ -39,7 +40,10 @@ public static class MapFeatureProjection
         var elements = new List<MapOverlayElement>(features.Count);
         foreach (var feature in features)
         {
-            if (!transform.TryProject(feature.Position, out var point))
+            // Loot never becomes a marker. Eight hundred of them would bury the exits, and
+            // falling through to the extract layer -- which is what the layer mapping below
+            // does with anything it does not recognise -- would draw a duffle bag as a way out.
+            if (feature.Kind == MapFeatureKind.Loot || !transform.TryProject(feature.Position, out var point))
             {
                 continue;
             }

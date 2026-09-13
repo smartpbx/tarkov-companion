@@ -245,6 +245,32 @@
           </StackPanel>
         </Border>
 
+        <!-- What the map says is worth looking in, near where the player is standing. Never
+             drawn on the map: Woods alone has 815 loot positions and a map wearing all of them
+             answers nothing. The question they answer is "what is near me".
+
+             It says outright that these are places loot can spawn rather than places loot is,
+             because there is no way for anything to know the second and a list that did not say
+             so would read as a loot radar. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasLootPanel}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Worth looking in, near you" />
+            <ItemsControl ItemsSource="{Binding Map.LootPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:LootPanelViewModel">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,4">
+                    <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Where}" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption"
+                       Text="Places loot can spawn, not places loot is · nothing knows what is in one this raid"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- Everyone else in the group, in the column beside the map rather than floating over
              it. A marker says where somebody is; it cannot say that they are on a different
              map, that their position is eight minutes old, or what they are carrying, and

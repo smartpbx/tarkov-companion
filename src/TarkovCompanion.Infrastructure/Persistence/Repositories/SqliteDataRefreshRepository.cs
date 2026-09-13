@@ -191,6 +191,27 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
             async (connection, transaction) =>
             {
                 await ExecuteAsync(connection, transaction, "DELETE FROM maps;", cancellationToken).ConfigureAwait(false);
+                await ExecuteAsync(connection, transaction, "DELETE FROM loot_containers;", cancellationToken)
+                    .ConfigureAwait(false);
+                foreach (var container in data.LootContainers.Values)
+                {
+                    // Only the normalized name. Upstream's "name" is the literal string
+                    // "<id> Name" for every container in the feed, so storing it would put an
+                    // identifier one careless binding away from the player's map.
+                    if (container.NormalizedName is not { Length: > 0 } normalizedName)
+                    {
+                        continue;
+                    }
+
+                    await ExecuteAsync(
+                        connection,
+                        transaction,
+                        "INSERT OR REPLACE INTO loot_containers(id, normalized_name) VALUES ($id, $normalizedName);",
+                        cancellationToken,
+                        ("$id", container.Id),
+                        ("$normalizedName", normalizedName)).ConfigureAwait(false);
+                }
+
                 foreach (var map in data.Maps.Values)
                 {
                     await ExecuteAsync(

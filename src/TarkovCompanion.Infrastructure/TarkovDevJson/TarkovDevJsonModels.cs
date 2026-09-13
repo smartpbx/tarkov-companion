@@ -95,6 +95,38 @@ public sealed class TarkovDevMapsData
 {
     public required IReadOnlyDictionary<string, TarkovDevMap> Maps { get; init; }
 
+    /// <summary>
+    /// What each kind of container on a map is called.
+    /// </summary>
+    /// <remarks>
+    /// A map's loot list carries a container id and a position and no name at all, so without
+    /// this a container is an identifier. Downloaded in the same payload as the maps and
+    /// discarded until now.
+    /// </remarks>
+    public IReadOnlyDictionary<string, TarkovDevLootContainer> LootContainers { get; init; } =
+        new Dictionary<string, TarkovDevLootContainer>(StringComparer.Ordinal);
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
+}
+
+/// <summary>
+/// One kind of container that appears on maps.
+/// </summary>
+/// <remarks>
+/// <see cref="Name"/> is not a name. Upstream publishes the literal string
+/// "578f87a3245977356274f2cb Name" for every one of them, so the only readable field is
+/// <see cref="NormalizedName"/>, which carries "duffle-bag" and "ration-supply-crate".
+/// Anything that renders Name puts an identifier on the player's map.
+/// </remarks>
+public sealed class TarkovDevLootContainer
+{
+    public required string Id { get; init; }
+
+    public string? Name { get; init; }
+
+    public string? NormalizedName { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }
