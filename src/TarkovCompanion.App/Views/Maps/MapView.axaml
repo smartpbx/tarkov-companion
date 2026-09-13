@@ -341,6 +341,38 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
 
+          <!-- Where the rest of the group has been this raid, one line each in that member's
+               own colour. A dot says where somebody is; it does not say which way they came or
+               whether they have already swept the building you are walking into.
+
+               Drawn before the markers so a line never sits on top of the dot it ends at, and
+               dashed like the player's own trail: the points are screenshots minutes apart and
+               a solid line between two of them would claim a route nobody observed. -->
+          <ItemsControl
+              ItemsSource="{Binding GroupTrails}"
+              IsVisible="{Binding HasGroupTrails}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:GroupTrailViewModel">
+                <Polyline
+                    Points="{Binding Points}"
+                    IsVisible="{Binding HasPath}"
+                    IsHitTestVisible="False"
+                    Stroke="{Binding StrokeColor}"
+                    StrokeThickness="2"
+                    StrokeDashArray="1,2.2"
+                    StrokeLineCap="Round"
+                    StrokeJoin="Round" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <!-- The rest of the group, where they last said they were. Ochre against the
                player's cyan, so a glance never mistakes somebody else for yourself. -->
           <ItemsControl

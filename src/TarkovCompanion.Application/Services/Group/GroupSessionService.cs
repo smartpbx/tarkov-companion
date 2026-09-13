@@ -383,8 +383,52 @@ public sealed class GroupSessionService : IAsyncDisposable
             Observed = observed
                 .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout))
                 .ToArray(),
+            Trail = DescribeTrail(snapshot),
         };
     }
+
+    /// <summary>
+    /// The last few places this player has been, so the group can see a path rather than a dot.
+    /// </summary>
+    /// <remarks>
+    /// The tail of the raid's own trail, which is already kept and already emptied when a raid
+    /// begins — so a group trail cannot survive into the next raid and draw last raid's route
+    /// on this raid's map.
+    ///
+    /// The current position is left out: it is published separately and would otherwise be
+    /// drawn twice, once as a marker and once as the end of a line.
+    ///
+    /// Each point carries its own age rather than a timestamp. A clock that is wrong by an hour
+    /// is common enough, and an age is a duration either end agrees on.
+    /// </remarks>
+    private static IReadOnlyList<TrailPointDto> DescribeTrail(ApplicationRuntimeSnapshot snapshot)
+    {
+        var trail = snapshot.Raid.PositionTrail;
+        if (trail.Count < 2)
+        {
+            return [];
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        return
+        [
+            .. trail
+                .Take(trail.Count - 1)
+                .TakeLast(MaximumTrailPoints)
+                .Select(step => new TrailPointDto(
+                    step.Position.X,
+                    step.Position.Z,
+                    Math.Max(0, (now - step.Timestamp.ToUniversalTime()).TotalSeconds))),
+        ];
+    }
+
+    /// <summary>How many places back is worth sending, which is what fits on a map.</summary>
+    /// <remarks>
+    /// Ten, against the server's bound of twelve. Five members with ten points each is fifty
+    /// extra marks on a map whose whole design argument is that a map covered in markers
+    /// answers nothing quickly.
+    /// </remarks>
+    private const int MaximumTrailPoints = 10;
 
     /// <summary>
     /// What the player is carrying, as far as the companion knows it.
@@ -419,7 +463,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Heading,
         member.PositionAge is { } age ? TimeSpan.FromSeconds(age) : null,
         member.Loadout ?? [],
-        member.Quests ?? []);
+        member.Quests ?? [])
+    {
+        Trail = (member.Trail ?? [])
+            .Select(step => new GroupTrailPointView(step.X, step.Z, TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds))))
+            .ToArray(),
+    };
 
     private void Publish(GroupSnapshot group) =>
         _stateStore.Update(current => current with { Group = group });
@@ -462,7 +511,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         /// <summary>What this member's game said about everybody else in their party.</summary>
         [JsonPropertyName("observed")]
         public IReadOnlyList<ObservedKitDto>? Observed { get; init; }
+
+        /// <summary>Where this member has been this raid, oldest first.</summary>
+        [JsonPropertyName("trail")]
+        public IReadOnlyList<TrailPointDto>? Trail { get; init; }
     }
+
+    private sealed record TrailPointDto(
+        [property: JsonPropertyName("x")] double X,
+        [property: JsonPropertyName("z")] double Z,
+        [property: JsonPropertyName("age")] double AgeSeconds);
 
     private sealed record ObservedKitDto(
         [property: JsonPropertyName("name")] string Name,

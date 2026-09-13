@@ -257,6 +257,42 @@ public sealed record GroupMemberPanelViewModel(
     public bool HasExtra => Extra.Length > 0;
 }
 
+/// <summary>Where one member of the group has been this raid, as a line on the map.</summary>
+/// <remarks>
+/// One dot says where somebody is. It does not say which way they came, whether they are
+/// moving, or whether they have already swept the building you are about to walk into.
+///
+/// Drawn in that member's own colour and faded by the age of its oldest point, so a path
+/// somebody walked five minutes ago is visibly not where they are now. Dashed, like the
+/// player's own trail and for the same reason: the points are screenshots minutes apart, and a
+/// solid line between two of them would claim a route that was never observed.
+/// </remarks>
+public sealed record GroupTrailViewModel(string Name, AvaloniaList<Point> Points, TimeSpan OldestAge)
+{
+    /// <summary>That member's colour, which is also their dot and their row in the panel.</summary>
+    public string Rgb { get; init; } = GroupMemberColors.Fallback;
+
+    /// <summary>
+    /// Faded by age rather than drawn flat.
+    /// </summary>
+    /// <remarks>
+    /// A member who took three screenshots in ten seconds and then none for five minutes must
+    /// not draw a line implying they walked it recently. Full strength for the first minute,
+    /// down to a hint at five.
+    /// </remarks>
+    public string StrokeColor => GroupMemberColors.WithAlpha(Rgb, Alpha);
+
+    private string Alpha => OldestAge switch
+    {
+        var age when age <= TimeSpan.FromMinutes(1) => "B0",
+        var age when age <= TimeSpan.FromMinutes(3) => "70",
+        var age when age <= TimeSpan.FromMinutes(5) => "40",
+        _ => "22",
+    };
+
+    public bool HasPath => Points.Count > 1;
+}
+
 public sealed record GroupMarkerViewModel(
     string Name,
     double CenterX,
@@ -923,6 +959,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyDictionary<string, string> _groupColors =
         new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
+    private IReadOnlyList<GroupTrailViewModel> _groupTrails = [];
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
     private IReadOnlyList<GroupPingView> _pings = [];
@@ -2681,6 +2718,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasGroupMarkers => GroupMarkers.Count > 0;
 
+    /// <summary>Where the rest of the group has been this raid, one line each.</summary>
+    public IReadOnlyList<GroupTrailViewModel> GroupTrails
+    {
+        get => _groupTrails;
+        private set
+        {
+            Set(ref _groupTrails, value);
+            OnPropertyChanged(nameof(HasGroupTrails));
+        }
+    }
+
+    public bool HasGroupTrails => GroupTrails.Count > 0;
+
     /// <summary>
     /// Takes the group's latest positions, to be drawn alongside the player's own.
     /// </summary>
@@ -3072,6 +3122,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         if (_renderModel is null || mapper is null || _groupMembers.Count == 0)
         {
             GroupMarkers = [];
+            GroupTrails = [];
             return;
         }
 
@@ -3114,6 +3165,65 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         GroupMarkers = markers;
+        UpdateGroupTrails(mapper);
+    }
+
+    /// <summary>
+    /// Draws where each member has been, one line each, in their own colour.
+    /// </summary>
+    /// <remarks>
+    /// Built from the same members the markers are, so a trail can never outlive the dot it
+    /// belongs to or be drawn for somebody on another map.
+    /// </remarks>
+    private void UpdateGroupTrails(Func<MapPoint, Point> mapper)
+    {
+        var trails = new List<GroupTrailViewModel>();
+        foreach (var member in _groupMembers)
+        {
+            if (member.Trail.Count < 2 || !IsOnThisMap(member.MapId))
+            {
+                continue;
+            }
+
+            var points = new AvaloniaList<Point>();
+            foreach (var step in member.Trail)
+            {
+                if (!_renderModel!.TryMapPosition(new WorldPosition(step.X, 0, step.Z), out var mapPoint))
+                {
+                    continue;
+                }
+
+                var projected = mapper(mapPoint);
+                if (double.IsFinite(projected.X) && double.IsFinite(projected.Y))
+                {
+                    points.Add(projected);
+                }
+            }
+
+            // The member's own marker is the end of the line, so the line runs to it rather
+            // than stopping short of it.
+            if (member.Position is { } position &&
+                _renderModel!.TryMapPosition(position, out var current))
+            {
+                var end = mapper(current);
+                if (double.IsFinite(end.X) && double.IsFinite(end.Y))
+                {
+                    points.Add(end);
+                }
+            }
+
+            if (points.Count < 2)
+            {
+                continue;
+            }
+
+            trails.Add(new(member.Name, points, member.Trail.Max(step => step.Age))
+            {
+                Rgb = ColorFor(member.Name),
+            });
+        }
+
+        GroupTrails = trails;
     }
 
     /// <summary>
