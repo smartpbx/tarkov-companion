@@ -11,6 +11,7 @@ using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class QuestCatalogPersistenceTests
 {
     private static readonly DateTimeOffset FetchedUtc = new(2026, 9, 10, 3, 23, 23, TimeSpan.Zero);

@@ -5,6 +5,7 @@ using TarkovCompanion.App.Services.Diagnostics;
 
 namespace TarkovCompanion.IntegrationTests.Simulator;
 
+[Collection(SqliteCollection.Name)]
 public sealed class SelfTestIntegrationTests
 {
     [Fact]

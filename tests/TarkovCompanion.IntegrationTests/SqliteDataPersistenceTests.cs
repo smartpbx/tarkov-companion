@@ -8,6 +8,7 @@ using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class SqliteDataPersistenceTests
 {
     [Fact]

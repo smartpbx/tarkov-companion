@@ -29,6 +29,9 @@ internal static class ScratchDirectory
 
     public static void Remove(string path)
     {
+        // Process-wide: this closes pooled connections belonging to every test running right
+        // now, not only this one. That is safe here solely because every class that reaches it
+        // is in the sqlite collection, which xUnit runs serially. See SqliteCollection.
         SqliteConnection.ClearAllPools();
         for (var attempt = 1; attempt <= Attempts; attempt++)
         {
