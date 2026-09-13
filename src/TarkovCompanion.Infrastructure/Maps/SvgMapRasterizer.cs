@@ -7,6 +7,17 @@ namespace TarkovCompanion.Infrastructure.Maps;
 
 internal static class SvgMapRasterizer
 {
+    /// <summary>How large the rasterised map may be along its longer side.</summary>
+    /// <remarks>
+    /// A budget to render *up to*, not a ceiling to stay under. The distinction is the whole
+    /// of this file's history: the scale used to be clamped at 1, which treated the SVG as
+    /// though enlarging it would interpolate. It is a vector. Rendering it larger produces
+    /// genuinely more detail, and rendering it at its intrinsic size produces whatever the
+    /// author happened to type into the viewBox.
+    ///
+    /// For Factory that was 130.8 by 141.2 — a hundred and thirty pixels, stretched across the
+    /// whole map panel, which is what "the factory map drawing is super low res" was.
+    /// </remarks>
     private const int MaximumPreviewDimension = 4096;
 
     public static Task CreatePreviewAsync(
@@ -36,9 +47,12 @@ internal static class SvgMapRasterizer
             throw new InvalidDataException("The cached SVG map has invalid visual bounds.");
         }
 
+        // Fills the budget in both directions rather than refusing to grow. Small maps gain
+        // the most: Factory's viewBox is 130.8 x 141.2, so this is the difference between a
+        // 131-pixel image and a 3795-pixel one, from the same file.
         var scale = Math.Min(
-            1d,
-            Math.Min(MaximumPreviewDimension / (double)bounds.Width, MaximumPreviewDimension / (double)bounds.Height));
+            MaximumPreviewDimension / (double)bounds.Width,
+            MaximumPreviewDimension / (double)bounds.Height);
         var width = Math.Max(1, (int)Math.Ceiling(bounds.Width * scale));
         var height = Math.Max(1, (int)Math.Ceiling(bounds.Height * scale));
         using var surface = SKSurface.Create(new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul))

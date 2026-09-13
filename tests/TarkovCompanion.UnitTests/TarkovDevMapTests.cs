@@ -5,6 +5,7 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Maps;
+using SkiaSharp;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -386,6 +387,42 @@ public sealed class TarkovDevMapTests
         Assert.True(File.Exists(result.Asset.LocalPath));
         Assert.True(File.Exists(result.Asset.RenderPath));
         Assert.NotEqual(result.Asset.LocalPath, result.Asset.RenderPath);
+    }
+
+    /// <summary>
+    /// A small drawing is rendered large, because it is a vector and can be.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "the factory map drawing is super low res and not useful". The scale was
+    /// clamped at 1, which treated the SVG as though enlarging it would interpolate — so every
+    /// map was rasterised at whatever its author had typed into the viewBox, and Factory's is
+    /// 130.81831 by 141.23242. A hundred and thirty pixels, stretched across the map panel.
+    ///
+    /// This fixture is 20 by 10, which under the old rule produced a 20-pixel image.
+    /// </remarks>
+    [Fact]
+    public async Task ASmallSvgIsRenderedAtFullResolutionRatherThanItsIntrinsicSize()
+    {
+        using var directory = new TemporaryDirectory();
+        const string svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 10\">" +
+            "<rect width=\"20\" height=\"10\" fill=\"#123456\" /></svg>";
+        var handler = new QueueHttpMessageHandler(_ => AssetResponse(Encoding.UTF8.GetBytes(svg), "image/svg+xml"));
+        var cache = new TarkovDevMapAssetCache(
+            new HttpClient(handler),
+            new(directory.Path, TimeSpan.FromDays(1), TimeSpan.FromSeconds(1), 1024 * 1024));
+
+        var result = await cache.GetAsync(
+            new Uri("https://assets.tarkov.dev/maps/svg/Tiny.svg"),
+            "Fixture Author",
+            new Uri("https://tarkov.dev"),
+            CancellationToken.None);
+
+        using var rendered = SKBitmap.Decode(result.Asset!.RenderPath);
+
+        // 20 x 10, scaled to fill 4096 along its longer side.
+        Assert.Equal(4096, rendered.Width);
+        Assert.Equal(2048, rendered.Height);
     }
 
     [Fact]
