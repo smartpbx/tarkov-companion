@@ -534,6 +534,16 @@ public sealed record GroupMarkerViewModel(
 
     public double DotSize => 13;
 
+    /// <summary>
+    /// How far below the middle of the box a name starts.
+    /// </summary>
+    /// <remarks>
+    /// Clear of the dot rather than of the whole box: the box is 46 to hold the heading cone,
+    /// which is drawn above the dot, so measuring from its edge would leave a gap the size of
+    /// the cone under every name.
+    /// </remarks>
+    public const double NameTop = 12;
+
     /// <summary>This member's own colour, which the panel beside the map shows as well.</summary>
     /// <remarks>
     /// Every member used to be the same ochre, so three of them on one map said where three
@@ -548,6 +558,36 @@ public sealed record GroupMarkerViewModel(
     public string ConeColor => GroupMemberColors.WithAlpha(Rgb, IsStale ? "38" : "60");
 
     public string ConeGeometry => "M 23,23 L 10,4 A 17,17 0 0 1 36,4 Z";
+
+    /// <summary>
+    /// Where this member's name sits, decided against every other name on the map.
+    /// </summary>
+    /// <remarks>
+    /// The same placement object the feature markers use, arranged in the same pass. A second
+    /// pass would put these names into slots the first one had already given away, which is how
+    /// a name lands on top of an extract label.
+    /// </remarks>
+    public MapNamePlacement Placement { get; init; } = MapNamePlacement.Fixed;
+
+    /// <summary>Whether the name is drawn at all, which is a setting.</summary>
+    /// <remarks>
+    /// Asked for as a toggle rather than as a given: the colour of somebody's dot already
+    /// appears beside their name in the group panel, so on a two-man the names are redundant
+    /// and on a five-man they are the only thing that tells a 13-pixel dot from the one beside
+    /// it. Which of those you are in is not something the map can work out.
+    /// </remarks>
+    public bool ShowsName { get; init; }
+
+    public bool HasName => ShowsName && Name.Length > 0;
+
+    /// <summary>
+    /// How wide this name reads, to the same estimate the feature names use.
+    /// </summary>
+    /// <remarks>
+    /// The same arithmetic, because the two are laid out against each other and an estimate
+    /// that differed between them would let one sit inside the other.
+    /// </remarks>
+    public double EstimatedNameWidth => Math.Min(220, 10 + (Name.Length * 5.9));
 }
 
 /// <summary>What a feature marker stands for, which decides its shape, colour and glyph.</summary>
@@ -1300,6 +1340,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
     private bool _isAutoFit = true;
+    private bool _showsGroupNames = true;
     private int _rotationDegrees;
     private MapVariant? _floorVariant;
     private bool _disposed;
@@ -1760,6 +1801,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            // Before the catalog, because it decides how the first map drawn is labelled and
+            // the field is assigned rather than the property: this is the stored answer
+            // arriving, not somebody pressing the button.
+            _showsGroupNames = await _selectionService.GroupNamesAsync(_lifetime.Token).ConfigureAwait(true);
+            OnPropertyChanged(nameof(ShowsGroupNames));
+
             var result = await _catalogClient.GetAsync(_lifetime.Token).ConfigureAwait(true);
             if (result.Catalog is null)
             {
@@ -3136,7 +3183,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         var markers = Markers;
         var arranged = markers.Where(marker => !marker.IsNameQuiet).ToArray();
-        if (arranged.Length == 0)
+        // Squadmates go through the same pass rather than one of their own. A second pass would
+        // place a name into a slot the first one had already given away, which is how a name
+        // lands on top of an extract label; and the whole reason these are worth drawing is that
+        // the map is crowded.
+        var named = GroupMarkers.Where(marker => marker.HasName).ToArray();
+        if (arranged.Length == 0 && named.Length == 0)
         {
             return;
         }
@@ -3160,6 +3212,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 // it keeps its name when something has to lose one. A transit ranks with an
                 // exit; a spawn never reaches here.
                 marker.IsOffered ? 2 : marker.IsExtract || marker.IsTransit ? 1 : 0))
+            // Squadmates above everything, including an offered exit. A feature's name can be
+            // read off the panel beside the map or worked out from the shape of the marker; a
+            // person's cannot be worked out from anything, and it is the one that moves.
+            .Concat(named.Select(marker => new MapLabelCandidate(
+                marker.CenterX,
+                marker.CenterY,
+                marker.EstimatedNameWidth,
+                MapOverlayElementViewModel.NameHeight,
+                3)))
             .ToArray();
 
         // The catalog's place names cannot be moved — the catalog decides where, how big and at
@@ -3174,6 +3235,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 (name.TextTop + name.TextHeight) * ZoomScale))
             .ToArray();
         var slots = MapLabelLayout.Arrange(candidates, ZoomScale, occupied);
+        for (var index = 0; index < named.Length; index++)
+        {
+            // The squadmates were appended after the features, so their slots are too. A name
+            // that found nowhere to go is hidden rather than drawn over something, the same
+            // rule the feature names have always followed.
+            var slot = slots[arranged.Length + index];
+            var placement = named[index].Placement;
+            placement.IsVisible = slot != MapLabelLayout.Hidden;
+            if (placement.IsVisible)
+            {
+                placement.Inset = new(
+                    0,
+                    GroupMarkerViewModel.NameTop + MapLabelLayout.TopOffsetFor(slot, MapOverlayElementViewModel.NameHeight),
+                    0,
+                    0);
+            }
+        }
+
         for (var index = 0; index < arranged.Length; index++)
         {
             var placement = arranged[index].Placement;
@@ -4077,6 +4156,43 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private string ColorFor(string name) =>
         _groupColors.TryGetValue(name, out var color) ? color : GroupMemberColors.Fallback;
 
+    /// <summary>
+    /// Whether squadmates' names are drawn on the map beside their dots.
+    /// </summary>
+    /// <remarks>
+    /// A squadmate was a cone and a dot with the name in a tooltip. Matching a ten-pixel swatch
+    /// in the panel to a thirteen-pixel dot on the map, in one of eight hues, while somebody is
+    /// shooting at you, is not "say which is which".
+    ///
+    /// A setting rather than a given, which is how it was asked for: the colour already appears
+    /// beside the name in the group panel, so on a two-man the names are redundant, and on a
+    /// five-man they are the only thing telling one dot from the next. Which of those you are in
+    /// is not something the map can work out.
+    ///
+    /// Remembered like the artwork and rotation choices, and against no particular map, because
+    /// it is a fact about how somebody reads a map rather than about the map.
+    /// </remarks>
+    public bool ShowsGroupNames
+    {
+        get => _showsGroupNames;
+        private set
+        {
+            if (Set(ref _showsGroupNames, value))
+            {
+                UpdateGroupMarkers();
+            }
+        }
+    }
+
+    /// <summary>Turns squadmates' names on the map on or off, and remembers the answer.</summary>
+    public async Task ToggleGroupNamesAsync()
+    {
+        ShowsGroupNames = !ShowsGroupNames;
+        await _selectionService
+            .ChooseGroupNamesAsync(ShowsGroupNames, _lifetime.Token)
+            .ConfigureAwait(true);
+    }
+
     private void UpdateGroupMarkers()
     {
         var mapper = CreateCanvasMapper();
@@ -4122,11 +4238,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Scale = _markerScale,
                 Rgb = ColorFor(member.Name),
+                Placement = new(),
+                ShowsName = ShowsGroupNames,
             });
         }
 
         GroupMarkers = markers;
         UpdateGroupTrails(mapper);
+        // The names are laid out against the feature names, so a new set of markers has to go
+        // through the same arrangement rather than being placed where they happen to land.
+        ArrangeNames();
     }
 
     /// <summary>
