@@ -76,16 +76,16 @@ public sealed class SquadPageViewModel : PageViewModel
     private readonly IItemRepository _items;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private IReadOnlyList<SquadMemberViewModel> _members = [];
-    private string _status = "No party observed. Group up in game and members appear here.";
-    private string _queue = "No match has been queued from this party yet.";
+    private string _status = "No party observed";
+    private string _queue = "Not queued";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
     private RaidLifecycleState _renderedState = RaidLifecycleState.Unknown;
 
     public SquadPageViewModel(IItemRepository items)
         : base(
             "Squad",
-            "Who you are running with, and what they are bringing",
-            "Read from the game's own party notifications")
+            "Who you are with and what they are bringing",
+            "From the game's party notifications")
     {
         _items = items;
     }
@@ -138,17 +138,17 @@ public sealed class SquadPageViewModel : PageViewModel
         OnPropertyChanged(nameof(HasNoMembers));
         Status = squad.Members.Count switch
         {
-            0 => "No party observed. Group up in game and members appear here.",
-            1 => "1 member in your party.",
-            var count => string.Create(CultureInfo.CurrentCulture, $"{count} members in your party."),
+            0 => "No party observed",
+            1 => "1 member",
+            var count => string.Create(CultureInfo.CurrentCulture, $"{count} members"),
         };
         Queue = squad.MatchStartedUtc is { } queued
             ? squad.QueueEstimate is { } estimate
                 ? string.Create(
                     CultureInfo.CurrentCulture,
-                    $"Queued together at {queued.ToLocalTime():T}; the game estimated {estimate.TotalSeconds:F0}s.")
-                : string.Create(CultureInfo.CurrentCulture, $"Queued together at {queued.ToLocalTime():T}.")
-            : "No match has been queued from this party yet.";
+                    $"Queued {queued.ToLocalTime():T} · game estimated {estimate.TotalSeconds:F0}s")
+                : string.Create(CultureInfo.CurrentCulture, $"Queued {queued.ToLocalTime():T}")
+            : "Not queued";
         // A party that has never been observed has no update time, and printing the epoch as
         // one showed "updated 12:00:00 AM" on a page that had seen nothing at all.
         // Saying why it is not changing is the difference between a page that looks broken and
@@ -156,30 +156,30 @@ public sealed class SquadPageViewModel : PageViewModel
         // changes in the lobby and stops dead when a raid starts, which from inside a raid is
         // indistinguishable from the feature having failed.
         Evidence = squad.UpdatedUtc == DateTimeOffset.UnixEpoch
-            ? "Read from the game's own group notifications. Nothing observed yet."
+            ? "Nothing observed yet"
             : snapshot.Raid.State == RaidLifecycleState.InRaid
-                ? $"Last updated in the lobby at {squad.UpdatedUtc.ToLocalTime():t}. The game does not publish party changes during a raid."
-                : $"Party read from the game's group notifications · updated {squad.UpdatedUtc.ToLocalTime():T}";
+                ? $"Lobby, {squad.UpdatedUtc.ToLocalTime():t} · the game stops publishing in raid"
+                : $"Updated {squad.UpdatedUtc.ToLocalTime():T}";
         _ = ResolveGearNamesAsync(squad);
     }
 
     private SquadMemberViewModel Describe(GroupMember member) => new(
-        member.Nickname ?? "Unnamed member",
+        member.Nickname ?? "Unnamed",
         member.IsLeader == true
             ? member.Side is { } leaderSide ? $"Party leader · {leaderSide}" : "Party leader"
             : member.Side ?? "Party member",
         member.Level is { } level
             ? string.Create(CultureInfo.CurrentCulture, $"Level {level}")
-            : "Level not stated",
+            : "Level unknown",
         member.IsReady switch
         {
             true => "Ready",
             false => "Not ready",
-            null => "Readiness not stated",
+            null => "Readiness unknown",
         },
         member.ScavLockedUntil is { } until
-            ? string.Create(CultureInfo.CurrentCulture, $"Scav available {until.ToLocalTime():t}")
-            : "Scav timer not stated",
+            ? string.Create(CultureInfo.CurrentCulture, $"Scav {until.ToLocalTime():t}")
+            : "Scav timer unknown",
         DescribeGear(member),
         member.IsReady);
 

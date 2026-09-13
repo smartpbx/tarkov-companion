@@ -47,9 +47,7 @@ public sealed class FleaPageViewModel : PageViewModel
     /// is running alongside the game. Saying so is better than an empty panel that looks
     /// broken.
     /// </remarks>
-    private const string SalesNotObserved =
-        "Nothing has sold since the companion started. Sales appear here as the game reports them, "
-        + "including the ones that land while you are in a raid.";
+    private const string SalesNotObserved = "Nothing sold since the companion started";
 
     private readonly IItemSearchService _searchService;
     private readonly IItemRepository _itemRepository;
@@ -60,11 +58,11 @@ public sealed class FleaPageViewModel : PageViewModel
     private DateTimeOffset _renderedSales = DateTimeOffset.MinValue;
     private string _searchQuery = string.Empty;
     /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
-    private const string ReadyToSearch = "Search an item to see what it is worth and where to sell it.";
+    private const string ReadyToSearch = "Search an item";
 
     private bool _showingNoData;
     private string _searchStatus = ReadyToSearch;
-    private string _historyStatus = "Select an item to see the observations stored locally.";
+    private string _historyStatus = "Pick an item";
     private IReadOnlyList<FleaPriceViewModel> _results = [];
     private IReadOnlyList<FleaHistoryPointViewModel> _history = [];
     private FleaPriceViewModel? _selected;
@@ -74,7 +72,7 @@ public sealed class FleaPageViewModel : PageViewModel
         IItemSearchService searchService,
         IItemRepository itemRepository,
         IPriceHistoryService priceHistoryService)
-        : base("Flea", "Current value, daily band, and the best way to sell it", "Runtime state not loaded")
+        : base("Flea", "Value, daily band, and where to sell", "Runtime state not loaded")
     {
         _searchService = searchService;
         _itemRepository = itemRepository;
@@ -186,10 +184,10 @@ public sealed class FleaPageViewModel : PageViewModel
         SalesStatus = sales.Sales.Count switch
         {
             0 => SalesNotObserved,
-            1 => "1 offer has sold since the companion started. The game states no price, so none is shown.",
+            1 => "1 offer sold · the game states no price",
             var count => string.Create(
                 CultureInfo.CurrentCulture,
-                $"{count} offers have sold since the companion started. The game states no price, so none is shown."),
+                $"{count} offers sold · the game states no price"),
         };
         _ = ResolveSoldItemNamesAsync(sales);
     }
@@ -290,7 +288,7 @@ public sealed class FleaPageViewModel : PageViewModel
             Selected = results.Count == 1 ? results[0] : null;
             SearchStatus = results.Count == 0
                 ? "No local item matched that query."
-                : $"{results.Count} result(s) from the local cache; nothing was fetched.";
+                : $"{results.Count} results from the local cache";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -321,14 +319,14 @@ public sealed class FleaPageViewModel : PageViewModel
             HistoryStatus = History.Count switch
             {
                 0 => $"No stored observations for {item.Name} yet.",
-                1 => $"1 observation of {item.Name} so far. More accrue each time data refreshes.",
-                _ => $"{History.Count} observations of {item.Name} in the last {HistoryWindow.TotalDays:N0} days.",
+                1 => $"1 observation of {item.Name}",
+                _ => $"{History.Count} observations of {item.Name} · last {HistoryWindow.TotalDays:N0} days",
             };
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             History = [];
-            HistoryStatus = $"Could not read stored prices: {exception.Message}";
+            HistoryStatus = $"Unreadable · {exception.Message}";
         }
     }
 

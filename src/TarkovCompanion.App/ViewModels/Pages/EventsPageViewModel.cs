@@ -59,17 +59,10 @@ public sealed class EventsPageViewModel : PageViewModel
     /// resolves, so a player who follows this line lands where <c>JsonFileEventCatalog</c> reads.
     /// </remarks>
     private const string EmptyGuidanceText =
-        "An event is a seasonal rule set in which some consumables affect each player " +
-        "differently, so this page lets you mark every applicable item Safe or Allergic and " +
-        "keeps the result in your local profile. Definitions are written by hand because " +
-        "json.tarkov.dev has no events endpoint: put a JSON file in " +
-        "%LOCALAPPDATA%\\TarkovCompanion\\Config\\Events (Data\\Config\\Events for a portable " +
-        "install) and restart the app, and see assets/events/README.md for the file shape.";
+        "Put a JSON file in %LOCALAPPDATA%\\TarkovCompanion\\Config\\Events " +
+        "(Data\\Config\\Events when portable) and restart. Shape: assets/events/README.md.";
 
-    private const string StateGuidanceText =
-        "Untested is the default for every applicable item. Unknown records that you cannot say; " +
-        "it is also what the tracker reports for an item outside the event. Nothing on this page " +
-        "is read from the game.";
+    private const string StateGuidanceText = "Untested is the default. Unknown means you cannot say.";
 
     private readonly IEventCatalog _catalog;
     private readonly IEventTrackerService _tracker;
@@ -90,7 +83,7 @@ public sealed class EventsPageViewModel : PageViewModel
         IEventCatalog catalog,
         IEventTrackerService tracker,
         IItemRepository itemRepository)
-        : base("Events", "Locally configured seasonal events and the results you record by hand", "Runtime state not loaded")
+        : base("Events", "Seasonal events, and what you record against them", "Runtime state not loaded")
     {
         _catalog = catalog;
         _tracker = tracker;
@@ -191,8 +184,8 @@ public sealed class EventsPageViewModel : PageViewModel
             // An empty catalog is the ordinary out-of-season state. Saying so in the same tone as
             // a successful read is the whole point; the view shows the guidance panel instead.
             Status = HasEvents
-                ? $"{Events.Count} event definition(s) loaded from your local events folder."
-                : "No event definitions are configured. That is the ordinary state out of season, not an error.";
+                ? $"{Events.Count} definitions loaded"
+                : "No definitions configured";
             Detail = HasEvents
                 ? "Select an event to see the items it applies to."
                 : string.Empty;
@@ -204,7 +197,7 @@ public sealed class EventsPageViewModel : PageViewModel
             Items = [];
             HasEvents = false;
             Progress = "No event selected.";
-            Status = $"The local event definitions could not be read: {exception.Message}";
+            Status = $"Unreadable · {exception.Message}";
         }
     }
 
@@ -215,7 +208,7 @@ public sealed class EventsPageViewModel : PageViewModel
         {
             Items = [];
             Progress = "No event selected.";
-            Detail = $"{summary.Name} is no longer in the loaded catalog. Reload to pick it up again.";
+            Detail = $"{summary.Name} is no longer loaded · reload";
             return;
         }
 
@@ -226,7 +219,7 @@ public sealed class EventsPageViewModel : PageViewModel
             {
                 Items = [];
                 Progress = "This definition lists no applicable items.";
-                Detail = $"{definition.Name} lists no applicable items, so there is nothing to record against it yet.";
+                Detail = $"{definition.Name} lists no applicable items";
                 return;
             }
 
@@ -263,22 +256,20 @@ public sealed class EventsPageViewModel : PageViewModel
                     $"{counts.Unknown} not yet recorded";
                 var unnamed = Items.Count(row => string.Equals(row.ItemName, row.ItemId, StringComparison.Ordinal));
                 Detail = unnamed == 0
-                    ? $"{definition.Name}: {Items.Count} applicable item(s)."
-                    : $"{definition.Name}: {Items.Count} applicable item(s); {unnamed} are shown by id because no synced item matches them.";
+                    ? $"{definition.Name} · {Items.Count} items"
+                    : $"{definition.Name} · {Items.Count} items · {unnamed} shown by id";
             }
             else
             {
-                Progress = "No progress: this event is not registered with the tracker.";
-                Detail =
-                    $"{definition.Name} loaded from its file, but the progress tracker was built without it, " +
-                    "so no result can be read or recorded for it in this session.";
+                Progress = "Not registered with the tracker";
+                Detail = $"{definition.Name} is loaded but not registered with the tracker";
             }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Items = [];
             Progress = "No progress could be read.";
-            Detail = $"{summary.Name} could not be read: {exception.Message}";
+            Detail = $"Unreadable · {exception.Message}";
         }
     }
 
@@ -315,7 +306,7 @@ public sealed class EventsPageViewModel : PageViewModel
         if (!_definitions.TryGetValue(eventId, out var definition) ||
             !definition.ApplicableItemIds.Contains(itemId))
         {
-            Detail = "That item is no longer part of the loaded event definition. Reload the page.";
+            Detail = "That item is no longer in the definition · reload";
             return;
         }
 
@@ -327,17 +318,15 @@ public sealed class EventsPageViewModel : PageViewModel
                 await ShowEventAsync(selected, cancellationToken).ConfigureAwait(true);
             }
 
-            Detail = $"Recorded {DescribeState(state)} for that item in {definition.Name}.";
+            Detail = $"Recorded {DescribeState(state)} in {definition.Name}";
         }
         catch (KeyNotFoundException)
         {
-            Detail =
-                $"{definition.Name} is loaded from its file but the progress tracker was built " +
-                "without it, so nothing was recorded.";
+            Detail = $"Not recorded · {definition.Name} is not registered with the tracker";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            Detail = $"That result could not be recorded: {exception.Message}";
+            Detail = $"Not recorded · {exception.Message}";
         }
     }
 

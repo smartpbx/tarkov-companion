@@ -10,12 +10,10 @@
       <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" />
     </Grid>
 
-    <!-- The missing value ranking is stated once, here, and then the page moves on. -->
     <Border Grid.Row="1" Classes="inset">
       <StackPanel Spacing="5">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
         <TextBlock Classes="note" Text="{Binding ScoringNotice}" />
-        <TextBlock Classes="note" Text="{Binding IdentifierNotice}" />
       </StackPanel>
     </Border>
 

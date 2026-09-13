@@ -78,30 +78,25 @@ public sealed record LoadoutFindingViewModel(string Message);
 /// </remarks>
 public sealed class LoadoutPageViewModel : PageViewModel
 {
-    /// <summary>What the page can and cannot check, stated before any result is shown.</summary>
-    private const string ChecksNote =
-        "Two checks actually run: the weapon and the ammunition must share a caliber, and every " +
-        "assigned item must belong to the category of the slot it sits in. Three do not run: " +
-        "magazine-to-weapon fit and plate-to-armor fit are absent from the synced data, and the " +
-        "magazine-to-ammunition caliber match needs a caliber the sync records only for weapons " +
-        "and rounds. Those three abstain rather than pass, so an empty issue list is silence " +
-        "about them, not approval.";
+    /// <summary>
+    /// What is actually checked, and what the totals are.
+    /// </summary>
+    /// <remarks>
+    /// This ran to eleven lines across two paragraphs, naming the three checks that abstain
+    /// and the order the price falls back through. Both totals still count a missing figure as
+    /// zero, so both are floors; that is the part a player acts on and all that is left here.
+    /// </remarks>
+    private const string ChecksNote = "Caliber and slot category are checked. Magazine and plate fit are not.";
 
-    /// <summary>Where the money and the kilograms come from, and what they leave out.</summary>
-    private const string DataNote =
-        "Cost per item is the best local price: the last flea sale, else the 24-hour average, " +
-        "else the game's base price. Weight is read from the synced item payload. An item that " +
-        "states neither counts as zero, so both totals are floors rather than estimates. No " +
-        "player profile is passed to the evaluation, so ammunition is never reported as " +
-        "unobtainable here.";
+    private const string DataNote = "Missing prices and weights count as zero, so both totals are floors.";
 
     private static readonly IReadOnlyList<LoadoutSlotOption> SlotOptions =
     [
         new(LoadoutSlot.Weapon, "Weapon", false, "One weapon. Its caliber is what the ammunition is checked against."),
-        new(LoadoutSlot.Ammunition, "Ammunition", false, "One round. Drives the ammo tier and the only caliber check that runs."),
-        new(LoadoutSlot.Magazine, "Magazines", true, "Counted toward cost and weight; fit is not checked."),
+        new(LoadoutSlot.Ammunition, "Ammunition", false, "One round. Sets the ammo tier."),
+        new(LoadoutSlot.Magazine, "Magazines", true, "Fit is not checked."),
         new(LoadoutSlot.Armor, "Body armor", false, "One armor rig or vest."),
-        new(LoadoutSlot.Plate, "Plates", true, "Counted toward cost and weight; fit into the armor is not checked."),
+        new(LoadoutSlot.Plate, "Plates", true, "Fit is not checked."),
         new(LoadoutSlot.Helmet, "Helmet", false, "One helmet."),
         new(LoadoutSlot.Headset, "Headset", false, "One headset."),
         new(LoadoutSlot.Rig, "Rig", false, "One chest rig."),
@@ -146,7 +141,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         IItemFactCatalog catalog,
         IItemSearchService searchService,
         IItemRepository itemRepository)
-        : base("Loadout", "Price, weigh and sanity-check a kit you assemble by hand", "Runtime state not loaded")
+        : base("Loadout", "Price and weigh a kit you assemble by hand", "Runtime state not loaded")
     {
         _catalog = catalog;
         _searchService = searchService;
@@ -324,7 +319,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             Results = hits.Select(hit => Describe(hit.Item, facts)).ToArray();
             SearchStatus = Results.Count == 0
                 ? "No local item matched that query."
-                : $"{Results.Count} result(s) from the local cache. Assign takes the slot chosen above.";
+                : $"{Results.Count} results · Assign uses the slot above";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -361,16 +356,16 @@ public sealed class LoadoutPageViewModel : PageViewModel
             // IsCompatible is "no issue was raised", and three of the five checks cannot raise
             // one, so it must never be rendered as a verdict of compatible.
             IssuesStatus = Issues.Count == 0
-                ? "No issue was raised by the two checks that can run. The other three abstained."
-                : $"{Issues.Count} issue(s) raised by the checks that can run.";
+                ? "No issues"
+                : $"{Issues.Count} issues";
             WarningsStatus = Warnings.Count == 0
-                ? "No warning. Warnings are judgement calls, not compatibility failures."
-                : $"{Warnings.Count} warning(s). These are judgement calls, not compatibility failures.";
-            EvaluationStatus = $"Evaluated {selectedIds.Count} assigned item(s) against the local fact tables.";
+                ? "No warnings"
+                : $"{Warnings.Count} warnings · judgement calls, not failures";
+            EvaluationStatus = $"{selectedIds.Count} items evaluated";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            ResetEvaluation($"The kit could not be evaluated: {exception.Message}");
+            ResetEvaluation($"Unreadable · {exception.Message}");
         }
     }
 
@@ -414,7 +409,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            AssignmentStatus = $"That item could not be assigned: {exception.Message}";
+            AssignmentStatus = $"Not assigned · {exception.Message}";
         }
     }
 
@@ -577,8 +572,8 @@ public sealed class LoadoutPageViewModel : PageViewModel
         var unpriced = selectedIds.Count(id => _facts.GetValueOrDefault(id) is null or { ApproximateCostRoubles: <= 0 });
         var total = Roubles(evaluation.ApproximateCostRoubles);
         return unpriced == 0
-            ? $"{total} · every assigned item has a recorded price."
-            : $"{total} · {unpriced} of {selectedIds.Count} assigned item(s) have no recorded price and counted as zero.";
+            ? $"{total}"
+            : $"{total} · {unpriced} of {selectedIds.Count} unpriced, counted as zero";
     }
 
     private string DescribeWeight(LoadoutEvaluation evaluation, IReadOnlyCollection<string> selectedIds)
@@ -587,19 +582,19 @@ public sealed class LoadoutPageViewModel : PageViewModel
         {
             // The service returns no weight at all when an assigned id is absent from the fact
             // table, because a partial sum would read as a complete one.
-            return "No total: at least one assigned item is missing from the loadout fact table.";
+            return "No total · an assigned item is not in the fact table";
         }
 
         var unweighed = selectedIds.Count(id => _facts.GetValueOrDefault(id) is null or { WeightKg: <= 0 });
         return unweighed == 0
-            ? $"{Kilograms(weight)} · every assigned item has a recorded weight."
-            : $"{Kilograms(weight)} · {unweighed} of {selectedIds.Count} assigned item(s) state no weight upstream and counted as zero, so the kit is heavier than this.";
+            ? $"{Kilograms(weight)}"
+            : $"{Kilograms(weight)} · {unweighed} of {selectedIds.Count} state no weight, so the kit is heavier";
     }
 
     private static string DescribeAmmoTier(LoadoutEvaluation evaluation) =>
         string.Equals(evaluation.AmmoTier, "Unknown", StringComparison.Ordinal)
-            ? "Unknown: no ammunition is assigned, or the assigned round has no ballistic row in the local cache."
-            : $"Tier {evaluation.AmmoTier} within its own caliber, ranked by penetration then damage.";
+            ? "Unknown · no round assigned, or no ballistic row for it"
+            : $"Tier {evaluation.AmmoTier} in its caliber";
 
     private static string DescribeCost(LoadoutItemFacts? facts) =>
         facts is null ? "no facts" : facts.ApproximateCostRoubles > 0 ? Roubles(facts.ApproximateCostRoubles) : "no price";

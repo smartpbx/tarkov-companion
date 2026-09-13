@@ -6,21 +6,10 @@
   <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
     <ScrollViewer HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="10">
-        <!-- The consent, stated before the switch rather than after it. Somebody about to
-             turn this on should be able to read what it does without hunting for it. -->
-        <Border Classes="panel cyan">
-          <StackPanel Spacing="8">
-            <TextBlock Classes="label" Text="What this sends" />
-            <TextBlock Classes="prose"
-                       Text="Sends your name, map, raid state, and the position and heading from your screenshots."
-                       TextWrapping="Wrap" />
-          </StackPanel>
-        </Border>
-
         <Border Classes="panel">
           <StackPanel Spacing="10">
             <TextBlock Classes="label" Text="Your group" />
-            <CheckBox Content="Share this session with my group" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+            <CheckBox Content="Share this session" IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
 
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Server address" />
@@ -35,17 +24,13 @@
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Group key" />
               <TextBox PasswordChar="•" Text="{Binding Key, Mode=TwoWay}" Watermark="at least eight characters" />
-              <TextBlock Classes="caption"
-                         Text="Whoever types the same key is in the same group. At least eight characters."
-                         TextWrapping="Wrap" />
+              <TextBlock Classes="caption" Text="Same key, same group" />
             </StackPanel>
 
             <Border Classes="hairline" />
-            <CheckBox Content="Also share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
-            <CheckBox Content="Also share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
-            <TextBlock Classes="caption"
-                       Text="Both send nothing yet; the game does not write either where this can read it."
-                       TextWrapping="Wrap" />
+            <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
+            <CheckBox Content="Share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
+            <TextBlock Classes="caption" Text="Neither sends anything yet" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Classes="primary" Command="{Binding SaveCommand}" Content="Save" />

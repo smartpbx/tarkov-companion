@@ -10,14 +10,11 @@
       <Button Grid.Column="1" Classes="primary" MinWidth="120" Command="{Binding RefreshCommand}" Content="Reload" />
     </Grid>
 
-    <!-- The two notices sit above the ranking, not under it: a player reads the tier first, so
-         the caveat has to arrive before the number it applies to. They are set as notes so
-         that they are read once and then stop competing with the ranking. -->
+    <!-- One line saying what the ranking compares, above the ranking rather than under it. -->
     <Border Grid.Row="1" Classes="inset">
       <StackPanel Spacing="5">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
         <TextBlock Classes="note" Text="{Binding HeuristicNotice}" />
-        <TextBlock Classes="note" Text="{Binding AvailabilityNotice}" />
       </StackPanel>
     </Border>
 

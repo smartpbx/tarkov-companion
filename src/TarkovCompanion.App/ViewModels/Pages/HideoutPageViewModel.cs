@@ -39,13 +39,13 @@ public sealed class HideoutPageViewModel : PageViewModel
     private IReadOnlyList<HideoutRequirementViewModel> _items = [];
     private HideoutStationViewModel? _selected;
     private string _status = "Loading the hideout catalog…";
-    private string _detail = "Select a station to see what its next level needs.";
+    private string _detail = "Pick a station";
 
     public HideoutPageViewModel(
         IRequirementCatalog requirements,
         IPlayerProfileService profileService,
         IItemRepository itemRepository)
-        : base("Hideout", "What each station still needs, against what you have", "Runtime state not loaded")
+        : base("Hideout", "What each station still needs", "Runtime state not loaded")
     {
         _requirements = requirements;
         _profileService = profileService;
@@ -106,7 +106,7 @@ public sealed class HideoutPageViewModel : PageViewModel
             {
                 Stations = [];
                 Items = [];
-                Status = "No hideout data is cached yet. It arrives with the first successful data refresh.";
+                Status = "No hideout data cached yet";
                 return;
             }
 
@@ -121,13 +121,13 @@ public sealed class HideoutPageViewModel : PageViewModel
                 .OrderByDescending(station => station.HasNextLevel)
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-            Status = $"{Stations.Count} station(s). Built levels and owned items come from your local profile.";
+            Status = $"{Stations.Count} stations · levels and stock from your profile";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Stations = [];
             Items = [];
-            Status = $"The hideout catalog could not be read: {exception.Message}";
+            Status = $"Unreadable · {exception.Message}";
         }
     }
 
@@ -138,11 +138,11 @@ public sealed class HideoutPageViewModel : PageViewModel
             if (!station.HasNextLevel)
             {
                 Items = [];
-                Detail = $"{station.Name} is already at its highest recorded level.";
+                Detail = $"{station.Name} · already at its highest level";
                 return;
             }
 
-            Detail = $"Reading requirements for {station.Name} level {station.NextLevel}…";
+            Detail = $"Reading {station.Name} level {station.NextLevel}…";
             var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(true);
             var requirements = await _requirements.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(true);
             var wanted = requirements
@@ -172,15 +172,15 @@ public sealed class HideoutPageViewModel : PageViewModel
                 .ToArray();
             var outstanding = Items.Count(row => !row.IsSatisfied);
             Detail = Items.Count == 0
-                ? $"{station.Name} level {station.NextLevel} needs no items."
+                ? $"{station.Name} level {station.NextLevel} · no items needed"
                 : outstanding == 0
-                    ? $"{station.Name} level {station.NextLevel}: you have everything."
-                    : $"{station.Name} level {station.NextLevel}: {outstanding} of {Items.Count} item(s) still needed.";
+                    ? $"{station.Name} level {station.NextLevel} · you have everything"
+                    : $"{station.Name} level {station.NextLevel} · {outstanding} of {Items.Count} still needed";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Items = [];
-            Detail = $"Those requirements could not be read: {exception.Message}";
+            Detail = $"Unreadable · {exception.Message}";
         }
     }
 

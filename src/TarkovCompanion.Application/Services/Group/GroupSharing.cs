@@ -132,6 +132,6 @@ public sealed record GroupSnapshot(
     public static GroupSnapshot Off { get; } = new(
         false,
         [],
-        "Not sharing. Nothing about this session leaves the machine.",
+        "Not sharing",
         DateTimeOffset.UnixEpoch);
 }
