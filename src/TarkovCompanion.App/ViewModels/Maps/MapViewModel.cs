@@ -260,7 +260,11 @@ public sealed record GroupMemberPanelViewModel(
 /// <summary>One floor of a map drawn in the stacked view.</summary>
 /// <param name="Name">What the floor is called, for the tooltip.</param>
 /// <param name="Image">Its artwork, the same picture the flat view draws.</param>
-/// <param name="Offset">How far up the canvas it sits, zero for the lowest floor.</param>
+/// <param name="Offset">
+/// How far up the canvas it sits, measured from the floor being read rather than from the
+/// lowest one. That puts the chosen floor at zero, which is where every marker already is, so
+/// the markers line up with the floor they describe without a single overlay being moved.
+/// </param>
 /// <param name="Opacity">Solid for the floor being read, faint for the rest.</param>
 public sealed record FloorLayerViewModel(
     string Name,
@@ -3245,7 +3249,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasFloorStack));
             OnPropertyChanged(nameof(StackTilt));
-            OnPropertyChanged(nameof(MarkerLift));
             OnPropertyChanged(nameof(ShowsFlatBackground));
             _ = LoadFloorStackAsync(CancellationToken.None);
         }
@@ -3268,7 +3271,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Set(ref _floorLayers, value);
             OnPropertyChanged(nameof(HasFloorStack));
             OnPropertyChanged(nameof(ShowsFlatBackground));
-            OnPropertyChanged(nameof(MarkerLift));
         }
     }
 
@@ -3287,17 +3289,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public Matrix StackTilt => HasFloorStack
         ? new Matrix(1, 0, -0.34, 0.62, 0, 0)
         : Matrix.Identity;
-
-    /// <summary>
-    /// How far the markers rise, which is however far the floor they belong to rose.
-    /// </summary>
-    /// <remarks>
-    /// Without this they would stay on the lowest plane while the map they describe rose above
-    /// them, which is every marker pointing at the wrong floor.
-    /// </remarks>
-    public double MarkerLift => HasFloorStack
-        ? -FloorStack.OffsetOf(_placements, SelectedFloor)
-        : 0;
 
     private IReadOnlyList<FloorPlacement> _placements = [];
 
@@ -3324,6 +3315,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         var variant = _renderModel.Variant;
         _placements = FloorStack.Arrange(Floors, SelectedFloor);
+        // Measured from the floor being read rather than from the lowest one. Every marker on
+        // this map is already drawn at the canvas's own coordinates, so putting the chosen
+        // floor at zero makes them line up with it without moving a single overlay, and a
+        // marker that stayed on the lowest plane while its map rose would point at the wrong
+        // floor.
+        var baseline = FloorStack.OffsetOf(_placements, SelectedFloor);
         var layers = new List<FloorLayerViewModel>(_placements.Count);
         foreach (var placement in _placements)
         {
@@ -3337,7 +3334,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     continue;
                 }
 
-                layers.Add(new(placement.Floor.Name, image, placement.Offset, placement.Opacity));
+                layers.Add(new(placement.Floor.Name, image, placement.Offset - baseline, placement.Opacity));
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
@@ -3349,7 +3346,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ReleaseLater(_floorLayers.Select(layer => layer.Image));
         FloorLayers = layers;
         OnPropertyChanged(nameof(StackTilt));
-        OnPropertyChanged(nameof(MarkerLift));
     }
 
     /// <summary>
