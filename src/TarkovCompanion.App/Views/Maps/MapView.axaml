@@ -42,8 +42,14 @@
             PointerMoved="ViewportPointerMoved"
             PointerReleased="ViewportPointerReleased"
             PointerWheelChanged="ViewportPointerWheelChanged">
+          <!-- Zoom, then the stacked view's tilt. The tilt is the identity matrix when the
+               stack is off, so there is one transform on this surface rather than two code
+               paths that can drift apart. -->
           <Canvas.RenderTransform>
-            <ScaleTransform ScaleX="{Binding ZoomScale}" ScaleY="{Binding ZoomScale}" />
+            <TransformGroup>
+              <MatrixTransform Matrix="{Binding StackTilt}" />
+              <ScaleTransform ScaleX="{Binding ZoomScale}" ScaleY="{Binding ZoomScale}" />
+            </TransformGroup>
           </Canvas.RenderTransform>
 
           <!-- The image and overlay canvas intentionally share the same explicit dimensions.
@@ -53,7 +59,38 @@
               Width="{Binding CanvasWidth}"
               Height="{Binding CanvasHeight}"
               Stretch="Fill"
-              IsVisible="{Binding HasBackgroundImage}" />
+              IsVisible="{Binding ShowsFlatBackground}" />
+
+          <!-- The same floors the flat view draws one at a time, drawn one above another.
+               The floor being read is solid and the rest are there to say what is above and
+               below it. Not a 3D scene: no camera, no perspective, no geometry, which is why
+               the flat view is always one toggle away and always correct. -->
+          <ItemsControl
+              ItemsSource="{Binding FloorLayers}"
+              IsVisible="{Binding HasFloorStack}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FloorLayerViewModel">
+                <Image
+                    Source="{Binding Image}"
+                    Width="{Binding $parent[ItemsControl].Width}"
+                    Height="{Binding $parent[ItemsControl].Height}"
+                    Opacity="{Binding Opacity}"
+                    Stretch="Fill"
+                    ToolTip.Tip="{Binding Name}">
+                  <Image.RenderTransform>
+                    <TranslateTransform Y="{Binding Translate}" />
+                  </Image.RenderTransform>
+                </Image>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
 
           <ItemsControl
               ItemsSource="{Binding Tiles}"
@@ -518,6 +555,13 @@
                           IsVisible="{Binding CanFrameArea}"
                           IsChecked="{Binding IsFramingArea, Mode=TwoWay}"
                           Content="{Binding FrameAreaText}" />
+            <!-- The flat map answers "where". On a map with floors it cannot answer "which
+                 floor", which is the question inside a building, and a stack answers both at
+                 once. Off until asked for. -->
+            <ToggleButton Classes="chooser"
+                          IsVisible="{Binding CanStack}"
+                          IsChecked="{Binding IsStacked, Mode=TwoWay}"
+                          Content="Stack the floors" />
           </StackPanel>
         </StackPanel>
       </Border>
