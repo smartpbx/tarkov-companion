@@ -127,29 +127,41 @@ public sealed class SqliteMapDefinitionCache(
         DataProvenance provenance,
         CancellationToken cancellationToken)
     {
-        var extracts = new List<MapExtract>();
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
-        command.Parameters.AddWithValue("$mapId", storedId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        var rows = new List<(string Id, string Name, MapPoint? Position, string? Payload)>();
+        await using (var command = connection.CreateCommand())
         {
-            // The map projects world X and world Z; the Y column is height and is not a
-            // coordinate on the picture. Both halves have to be present or the extract is
-            // listed without a marker rather than drawn at the origin.
-            MapPoint? position = reader.IsDBNull(2) || reader.IsDBNull(3)
-                ? null
-                : new(reader.GetDouble(2), reader.GetDouble(3));
-            extracts.Add(new(
-                reader.GetString(0),
-                mapId,
-                reader.GetString(1),
-                position,
-                reader.IsDBNull(4) ? null : DescribeFaction(reader.GetString(4)),
-                provenance));
+            command.CommandText = "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+            command.Parameters.AddWithValue("$mapId", storedId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                // The map projects world X and world Z; the Y column is height and is not a
+                // coordinate on the picture. Both halves have to be present or the extract is
+                // listed without a marker rather than drawn at the origin.
+                MapPoint? position = reader.IsDBNull(2) || reader.IsDBNull(3)
+                    ? null
+                    : new(reader.GetDouble(2), reader.GetDouble(3));
+                rows.Add((
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    position,
+                    reader.IsDBNull(4) ? null : reader.GetString(4)));
+            }
         }
 
-        return extracts;
+        var itemNames = await ReadItemNamesAsync(
+            connection,
+            rows.Select(row => row.Payload).OfType<string>().ToArray(),
+            cancellationToken).ConfigureAwait(false);
+        return rows
+            .Select(row => new MapExtract(
+                row.Id,
+                mapId,
+                row.Name,
+                row.Position,
+                row.Payload is null ? null : Conditions(row.Payload, itemNames),
+                provenance))
+            .ToArray();
     }
 
     private static bool Matches(string sourceJson, string mapId)
@@ -169,34 +181,62 @@ public sealed class SqliteMapDefinitionCache(
         }
     }
 
-    /// <summary>Who may take this exit, in the words a player would use.</summary>
-    /// <remarks>
-    /// The only condition upstream publishes, and the one that matters most: a scav exit a PMC
-    /// cannot take is worse than no entry at all.
-    /// </remarks>
-    private static string? DescribeFaction(string sourceJson)
+    /// <summary>
+    /// What this exit asks of you: who may take it, whether it needs a switch, what it costs.
+    /// </summary>
+    private static string? Conditions(string sourceJson, IReadOnlyDictionary<string, string> itemNames)
     {
         try
         {
             using var document = JsonDocument.Parse(sourceJson);
-            if (document.RootElement.ValueKind != JsonValueKind.Object ||
-                !document.RootElement.TryGetProperty("faction", out var faction) ||
-                faction.ValueKind != JsonValueKind.String)
-            {
-                return null;
-            }
-
-            return faction.GetString()?.ToLowerInvariant() switch
-            {
-                "pmc" => "PMC only",
-                "scav" => "Scav only",
-                "shared" => "PMC and scav",
-                _ => null,
-            };
+            return ExtractConditions.Describe(document.RootElement, id => itemNames.GetValueOrDefault(id));
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    /// <summary>Names for whatever these exits ask to be handed over.</summary>
+    /// <remarks>
+    /// A handful of ids per map and one lookup each, done once because the whole definition is
+    /// cached after the first read.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<string, string>> ReadItemNamesAsync(
+        SqliteConnection connection,
+        IReadOnlyList<string> payloads,
+        CancellationToken cancellationToken)
+    {
+        var wanted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var payload in payloads)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(payload);
+                foreach (var itemId in ExtractConditions.TransferItemIds(document.RootElement))
+                {
+                    wanted.Add(itemId);
+                }
+            }
+            catch (JsonException)
+            {
+                // One unreadable extract costs one cost line, not the map.
+            }
+        }
+
+        var names = new Dictionary<string, string>(wanted.Count, StringComparer.Ordinal);
+        foreach (var itemId in wanted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT name FROM items WHERE id = $id LIMIT 1;";
+            command.Parameters.AddWithValue("$id", itemId);
+            if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string name)
+            {
+                names[itemId] = name;
+            }
+        }
+
+        return names;
     }
 }

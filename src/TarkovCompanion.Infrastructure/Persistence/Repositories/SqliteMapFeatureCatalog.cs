@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -67,42 +68,104 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
     private async Task<IReadOnlyList<MapFeature>> LoadAsync(string mapId, CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT source_json FROM maps;";
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        string? payload = null;
+        await using (var command = connection.CreateCommand())
         {
-            if (reader.IsDBNull(0))
+            command.CommandText = "SELECT source_json FROM maps;";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                continue;
-            }
-
-            if (Read(reader.GetString(0), mapId) is { } features)
-            {
-                return features;
+                if (!reader.IsDBNull(0) && Matches(reader.GetString(0), mapId))
+                {
+                    payload = reader.GetString(0);
+                    break;
+                }
             }
         }
 
-        return [];
+        if (payload is null)
+        {
+            return [];
+        }
+
+        // Looked up before the features are built, because an exit that asks for twenty
+        // thousand roubles has to say so in money and one that asks for a key has to name
+        // the key. A handful of ids per map, once per map.
+        var itemNames = await ReadItemNamesAsync(connection, payload, cancellationToken).ConfigureAwait(false);
+        return Read(payload, itemNames) ?? [];
     }
 
-    private static IReadOnlyList<MapFeature>? Read(string sourceJson, string mapId)
+    /// <summary>Whether this stored map is the one being asked for.</summary>
+    private static bool Matches(string sourceJson, string mapId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(sourceJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("normalizedName", out var slug) &&
+                slug.ValueKind == JsonValueKind.String &&
+                string.Equals(slug.GetString(), mapId, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Names for whatever this map's exits ask to be handed over.</summary>
+    private static async Task<IReadOnlyDictionary<string, string>> ReadItemNamesAsync(
+        SqliteConnection connection,
+        string sourceJson,
+        CancellationToken cancellationToken)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        string[] wanted;
+        try
+        {
+            using var document = JsonDocument.Parse(sourceJson);
+            wanted = document.RootElement.TryGetProperty("extracts", out var extracts) &&
+                extracts.ValueKind == JsonValueKind.Array
+                    ? extracts.EnumerateArray()
+                        .SelectMany(ExtractConditions.TransferItemIds)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray()
+                    : [];
+        }
+        catch (JsonException)
+        {
+            return names;
+        }
+
+        foreach (var itemId in wanted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "SELECT name FROM items WHERE id = $id LIMIT 1;";
+            command.Parameters.AddWithValue("$id", itemId);
+            if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string name)
+            {
+                names[itemId] = name;
+            }
+        }
+
+        return names;
+    }
+
+    private static IReadOnlyList<MapFeature>? Read(string sourceJson, IReadOnlyDictionary<string, string> itemNames)
     {
         try
         {
             using var document = JsonDocument.Parse(sourceJson);
             var root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("normalizedName", out var slug) ||
-                slug.ValueKind != JsonValueKind.String ||
-                !string.Equals(slug.GetString(), mapId, StringComparison.OrdinalIgnoreCase))
+            if (root.ValueKind != JsonValueKind.Object)
             {
                 return null;
             }
 
+            var itemName = (string id) => itemNames.GetValueOrDefault(id);
             var features = new List<MapFeature>();
-            AddExtracts(root, "extracts", MapFeatureKind.Extract, features);
-            AddExtracts(root, "transits", MapFeatureKind.Transit, features);
+            AddExtracts(root, "extracts", MapFeatureKind.Extract, features, itemName);
+            AddExtracts(root, "transits", MapFeatureKind.Transit, features, itemName);
             AddSpawns(root, features);
             AddLocks(root, features);
             return features;
@@ -114,7 +177,12 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         }
     }
 
-    private static void AddExtracts(JsonElement root, string property, MapFeatureKind kind, List<MapFeature> features)
+    private static void AddExtracts(
+        JsonElement root,
+        string property,
+        MapFeatureKind kind,
+        List<MapFeature> features,
+        Func<string, string?> itemName)
     {
         if (!root.TryGetProperty(property, out var array) || array.ValueKind != JsonValueKind.Array)
         {
@@ -135,20 +203,11 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
                 name,
                 position,
                 faction,
-                kind == MapFeatureKind.Transit ? "Transit to another map." : DescribeFaction(faction)));
+                kind == MapFeatureKind.Transit
+                    ? "Transit to another map"
+                    : ExtractConditions.Describe(entry, itemName)));
         }
     }
-
-    /// <summary>
-    /// Says plainly who an extract is for, because taking the wrong one is not possible.
-    /// </summary>
-    private static string? DescribeFaction(string? faction) => faction?.ToLowerInvariant() switch
-    {
-        "pmc" => "PMC only.",
-        "scav" => "Scav only.",
-        "shared" => "Either side.",
-        _ => null,
-    };
 
     private static void AddSpawns(JsonElement root, List<MapFeature> features)
     {
