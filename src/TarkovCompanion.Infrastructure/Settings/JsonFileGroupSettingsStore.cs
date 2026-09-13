@@ -29,6 +29,7 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
     };
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private string? _resetReason;
 
     public async Task<GroupSharingSettings> GetAsync(CancellationToken cancellationToken)
     {
@@ -37,7 +38,7 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
         {
             var document = await ReadOrDefaultAsync(cancellationToken).ConfigureAwait(false);
             return document is null
-                ? GroupSharingSettings.Off
+                ? GroupSharingSettings.Off with { ResetReason = _resetReason }
                 : new(
                     document.Enabled,
                     document.ServerUri,
@@ -76,8 +77,7 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
                 null,
                 settings.SharesLoadout,
                 settings.SharesQuests);
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-            await File.WriteAllTextAsync(
+            await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(document, JsonOptions),
                 cancellationToken).ConfigureAwait(false);
@@ -105,7 +105,22 @@ public sealed class JsonFileGroupSettingsStore(string settingsPath) : IGroupSett
                                           or UnauthorizedAccessException
                                           or JsonException)
         {
-            // Sharing nothing is the safe answer to a file that cannot be read.
+            // Sharing nothing is the safe answer to a file that cannot be read — but saying
+            // nothing about it is not. Silently off, with every field blank, is
+            // indistinguishable from never having set it up, and that is exactly what a
+            // truncated file used to produce.
+            //
+            // Moved aside rather than deleted: it is the only remaining record of what was
+            // configured, and "your settings were reset" is easier to believe when the old
+            // file is still there.
+            if (exception is JsonException)
+            {
+                var aside = AtomicJsonFile.SetAside(settingsPath, DateTimeOffset.UtcNow);
+                _resetReason = aside is null
+                    ? "The group settings file was unreadable and has been reset."
+                    : $"The group settings file was unreadable and has been reset. The old one is at {Path.GetFileName(aside)}.";
+            }
+
             return null;
         }
     }

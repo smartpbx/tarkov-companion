@@ -27,6 +27,18 @@ public sealed record GroupSharingSettings(
     public static GroupSharingSettings Off { get; } = new(false, null, null, null, false, false);
 
     /// <summary>
+    /// Why these are the defaults rather than what was saved, when that is the reason.
+    /// </summary>
+    /// <remarks>
+    /// An unreadable settings file used to read as "off" and say nothing. Since the file was
+    /// also written non-atomically, a kill at the wrong moment left a truncated one — and the
+    /// player was silently not sharing, with every field blank and no way to tell that from
+    /// never having set it up. Null whenever the file was read properly, which is almost
+    /// always.
+    /// </remarks>
+    public string? ResetReason { get; init; }
+
+    /// <summary>
     /// Whether this is complete enough to try, as opposed to merely switched on.
     /// </summary>
     /// <remarks>

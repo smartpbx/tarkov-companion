@@ -47,8 +47,7 @@ public sealed class JsonFileScreenshotRetentionStore(string settingsPath) : IScr
         try
         {
             var document = new RetentionDocument(settings.IsEnabled, settings.SafeRetentionHours);
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-            await File.WriteAllTextAsync(
+            await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(document, JsonOptions),
                 cancellationToken).ConfigureAwait(false);
