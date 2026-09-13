@@ -301,7 +301,7 @@ public sealed class RuntimeCompositionTests
             task = Assert.Single(quests.Tasks);
             Assert.Equal("Active", task.RecordedState);
             Assert.Contains("Active need: 2", Assert.Single(task.Objectives).Items, StringComparison.Ordinal);
-            Assert.Equal("Objective source requires found-in-raid items.", Assert.Single(task.Objectives).FoundInRaidRule);
+            Assert.Equal("Found in raid", Assert.Single(task.Objectives).FoundInRaidRule);
             await Assert.IsType<AsyncDelegateCommand>(task.Objectives[0].IncrementCommand).ExecuteAsync();
             task = Assert.Single(quests.Tasks);
             Assert.Contains("1/2", Assert.Single(task.Objectives).Status, StringComparison.Ordinal);

@@ -76,10 +76,17 @@ public static class OcrProbe
                 continue;
             }
 
+            // The size it was actually read at, beside the time it took. At three times a
+            // 3840x1080 frame is thirty-seven megapixels, and printing the number next to the
+            // seconds makes the cost of a preparation obvious rather than implied.
+            var width = image.Width * preparation.SafeScale;
+            var height = image.Height * preparation.SafeScale;
+            var megapixels = width / 1000d * height / 1000d;
             var detected = detector.Detect(image, result);
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"{name}: {detected.Context} {detected.Confidence.Value:F2} · {result.Lines.Count} lines · {result.Duration.TotalSeconds:F1}s"));
+                $"{name}: {detected.Context} {detected.Confidence.Value:F2} · {result.Lines.Count} lines · " +
+                $"{width}x{height} ({megapixels:F1} MP) · {result.Duration.TotalSeconds:F1}s"));
             Console.WriteLine("  " + Sample(result.Lines));
             Console.WriteLine();
         }
