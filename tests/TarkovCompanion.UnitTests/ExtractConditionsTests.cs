@@ -20,7 +20,7 @@ public sealed class ExtractConditionsTests
     [InlineData("scav", "Scav only")]
     [InlineData("shared", "Either side")]
     public void WhoMayTakeIt(string faction, string expected) =>
-        Assert.Equal(expected, Describe($$"""{"faction":"{{faction}}"}"""));
+        Assert.Equal(expected, Describe("{\"faction\":\"" + faction + "\"}"));
 
     /// <summary>
     /// A switch is the difference between an exit and a trip.
@@ -49,7 +49,7 @@ public sealed class ExtractConditionsTests
         Assert.Equal(
             "PMC only · Costs 20,000 ₽",
             Describe(
-                $$"""{"faction":"pmc","transferItem":{"item":"{{Roubles}}","count":20000}}""",
+                "{\"faction\":\"pmc\",\"transferItem\":{\"item\":\"" + Roubles + "\",\"count\":20000}}",
                 id => id == Roubles ? "Roubles" : null));
 
     [Fact]
