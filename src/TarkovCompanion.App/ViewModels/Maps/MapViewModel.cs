@@ -162,20 +162,63 @@ public sealed record GroupMarkViewModel(
 {
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
 
-    public double Extent => 40;
+    /// <summary>Whether this is the sender's own mark, drawn before the group has it back.</summary>
+    /// <remarks>
+    /// Reported as the gesture taking a second to do anything, which it did: every mark was
+    /// drawn only once the server sent it back, so between the click and the next exchange the
+    /// map showed nothing. Drawn hollow until the group confirms it, so "sent" and "landed"
+    /// are still distinguishable.
+    /// </remarks>
+    public bool IsPending { get; init; }
+
+    public double Extent => 46;
 
     public double Left => CenterX - (Extent / 2);
 
     public double Top => CenterY - (Extent / 2);
 
-    public double PinSize => 18;
+    public double PinSize => IsPing ? 14 : 19;
 
-    /// <summary>Ochre, the colour this interface already uses for the group.</summary>
-    public string FillColor => IsPing ? "#00000000" : IsReached ? "#66C6A15B" : "#FFC6A15B";
+    /// <summary>
+    /// Violet, which nothing else on this map is.
+    /// </summary>
+    /// <remarks>
+    /// The group's marks were ochre, and so are scav extracts: reported as "they kind of blend
+    /// in with scav extracts", which they did. The faction colours are spoken for -- cyan is
+    /// PMC, ochre is scav, sage is shared -- so a mark that belongs to the group rather than to
+    /// the map takes a hue none of them use.
+    ///
+    /// The shape changes too, never the colour alone. A waypoint is a diamond and a ping is a
+    /// ring around a dot, so they are still told apart at the zoom where a marker is twelve
+    /// pixels wide and by a player who cannot separate ochre from violet.
+    /// </remarks>
+    public string FillColor => IsPing
+        ? "#FFFF5F8F"
+        : IsPending ? "#40B98CFF" : IsReached ? "#66B98CFF" : "#FFB98CFF";
 
-    public string OutlineColor => IsPing ? "#FFE0B45C" : "#FF0B1016";
+    public string OutlineColor => IsPing ? "#FFFFD0DE" : IsPending ? "#FFB98CFF" : "#FF0B1016";
 
-    public double OutlineWidth => IsPing ? 2.4 : 1.5;
+    public double OutlineWidth => IsPing ? 2 : IsPending ? 2 : 1.5;
+
+    /// <summary>The halo that makes a ping findable on a busy map.</summary>
+    /// <remarks>
+    /// A ping used to be a transparent disc with a thin outline, which is why it was reported
+    /// as not showing up at all: it was drawn, and it looked like nothing. It is the one mark
+    /// that says "look here right now" and it disappears after forty-five seconds, so it is
+    /// the one mark allowed to be loud.
+    /// </remarks>
+    public bool HasHalo => IsPing;
+
+    public double HaloSize => 34;
+
+    public string HaloColor => "#59FF5F8F";
+
+    public string HaloOutlineColor => "#B3FF5F8F";
+
+    /// <summary>A diamond for a waypoint, so it is not a disc like everything else on the map.</summary>
+    public bool IsDiamond => !IsPing;
+
+    public double DiamondRotation => 45;
 
     public bool HasLabel => Label.Length > 0;
 
@@ -255,6 +298,42 @@ public sealed record GroupMemberPanelViewModel(
     public string SwatchColor => GroupMemberColors.WithAlpha(Rgb, "FF");
 
     public bool HasExtra => Extra.Length > 0;
+}
+
+/// <summary>Where one member of the group has been this raid, as a line on the map.</summary>
+/// <remarks>
+/// One dot says where somebody is. It does not say which way they came, whether they are
+/// moving, or whether they have already swept the building you are about to walk into.
+///
+/// Drawn in that member's own colour and faded by the age of its oldest point, so a path
+/// somebody walked five minutes ago is visibly not where they are now. Dashed, like the
+/// player's own trail and for the same reason: the points are screenshots minutes apart, and a
+/// solid line between two of them would claim a route that was never observed.
+/// </remarks>
+public sealed record GroupTrailViewModel(string Name, AvaloniaList<Point> Points, TimeSpan OldestAge)
+{
+    /// <summary>That member's colour, which is also their dot and their row in the panel.</summary>
+    public string Rgb { get; init; } = GroupMemberColors.Fallback;
+
+    /// <summary>
+    /// Faded by age rather than drawn flat.
+    /// </summary>
+    /// <remarks>
+    /// A member who took three screenshots in ten seconds and then none for five minutes must
+    /// not draw a line implying they walked it recently. Full strength for the first minute,
+    /// down to a hint at five.
+    /// </remarks>
+    public string StrokeColor => GroupMemberColors.WithAlpha(Rgb, Alpha);
+
+    private string Alpha => OldestAge switch
+    {
+        var age when age <= TimeSpan.FromMinutes(1) => "B0",
+        var age when age <= TimeSpan.FromMinutes(3) => "70",
+        var age when age <= TimeSpan.FromMinutes(5) => "40",
+        _ => "22",
+    };
+
+    public bool HasPath => Points.Count > 1;
 }
 
 /// <summary>One floor of a map drawn in the stacked view.</summary>
@@ -944,6 +1023,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyDictionary<string, string> _groupColors =
         new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
+    private IReadOnlyList<GroupTrailViewModel> _groupTrails = [];
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
     private IReadOnlyList<GroupPingView> _pings = [];
@@ -2708,6 +2788,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasGroupMarkers => GroupMarkers.Count > 0;
 
+    /// <summary>Where the rest of the group has been this raid, one line each.</summary>
+    public IReadOnlyList<GroupTrailViewModel> GroupTrails
+    {
+        get => _groupTrails;
+        private set
+        {
+            Set(ref _groupTrails, value);
+            OnPropertyChanged(nameof(HasGroupTrails));
+        }
+    }
+
+    public bool HasGroupTrails => GroupTrails.Count > 0;
+
     /// <summary>
     /// Takes the group's latest positions, to be drawn alongside the player's own.
     /// </summary>
@@ -2738,13 +2831,74 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         ArgumentNullException.ThrowIfNull(pings);
         _waypoints = waypoints;
         _pings = pings;
+        DropConfirmedPending();
         UpdateGroupMarks();
     }
+
+    /// <summary>
+    /// A mark this player has just made, drawn before the group has sent it back.
+    /// </summary>
+    /// <remarks>
+    /// Every mark used to be drawn only once the server returned it, so between the gesture and
+    /// the next exchange the map showed nothing at all and the gesture was reported as taking a
+    /// second to do anything. It did: five seconds, in the worst case.
+    ///
+    /// Held separately rather than mixed into the group's own marks, so there is still exactly
+    /// one code path drawing what the group has. This is the sender's own copy, drawn hollow
+    /// until the real one arrives.
+    /// </remarks>
+    private sealed record PendingMark(
+        string MapId,
+        WorldPosition Position,
+        bool IsPing,
+        DateTimeOffset MadeUtc);
+
+    private readonly List<PendingMark> _pending = [];
+
+    /// <summary>
+    /// How long a mark waits for the group to confirm it before it is dropped.
+    /// </summary>
+    /// <remarks>
+    /// Longer than the five-second exchange, so an ordinary round trip always confirms first,
+    /// and short enough that a mark the server refused does not sit on the map pretending to be
+    /// part of the group's plan.
+    /// </remarks>
+    private static readonly TimeSpan PendingLifetime = TimeSpan.FromSeconds(12);
+
+    /// <summary>How close a returned mark has to be to count as the one that was sent.</summary>
+    /// <remarks>
+    /// The server hands back the coordinates it was given, so this only has to survive a
+    /// round trip through JSON. A metre is generous for that and far tighter than two people
+    /// marking the same doorway.
+    /// </remarks>
+    private const double PendingMatchMetres = 1.0;
+
+    private void DropConfirmedPending()
+    {
+        if (_pending.Count == 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        _pending.RemoveAll(pending =>
+            now - pending.MadeUtc > PendingLifetime ||
+            (pending.IsPing
+                ? _pings.Any(ping => Matches(pending, ping.MapId, ping.X, ping.Y, ping.Z))
+                : _waypoints.Any(waypoint => Matches(pending, waypoint.MapId, waypoint.X, waypoint.Y, waypoint.Z))));
+    }
+
+    private static bool Matches(PendingMark pending, string mapId, double x, double y, double z) =>
+        string.Equals(pending.MapId, mapId, StringComparison.OrdinalIgnoreCase) &&
+        Math.Abs(pending.Position.X - x) < PendingMatchMetres &&
+        Math.Abs(pending.Position.Y - y) < PendingMatchMetres &&
+        Math.Abs(pending.Position.Z - z) < PendingMatchMetres;
 
     private void UpdateGroupMarks()
     {
         var mapper = CreateCanvasMapper();
-        if (_renderModel is null || mapper is null || (_waypoints.Count == 0 && _pings.Count == 0))
+        if (_renderModel is null || mapper is null ||
+            (_waypoints.Count == 0 && _pings.Count == 0 && _pending.Count == 0))
         {
             GroupMarks = [];
             return;
@@ -2801,6 +2955,30 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 IsReached: false)
             {
                 Scale = _markerScale,
+            });
+        }
+
+        // The sender's own marks, drawn hollow until the group sends them back. Last, so a
+        // confirmed mark is never hidden underneath the copy that is waiting to be confirmed.
+        foreach (var pending in _pending)
+        {
+            if (!IsOnThisMap(pending.MapId) ||
+                !TryPlace(mapper, pending.Position.X, pending.Position.Y, pending.Position.Z, out var point))
+            {
+                continue;
+            }
+
+            marks.Add(new(
+                0,
+                point.X,
+                point.Y,
+                string.Empty,
+                pending.IsPing ? "Pinging…" : "Marking a waypoint…",
+                pending.IsPing,
+                IsReached: false)
+            {
+                Scale = _markerScale,
+                IsPending = true,
             });
         }
 
@@ -3099,6 +3277,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         if (_renderModel is null || mapper is null || _groupMembers.Count == 0)
         {
             GroupMarkers = [];
+            GroupTrails = [];
             return;
         }
 
@@ -3141,6 +3320,65 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         GroupMarkers = markers;
+        UpdateGroupTrails(mapper);
+    }
+
+    /// <summary>
+    /// Draws where each member has been, one line each, in their own colour.
+    /// </summary>
+    /// <remarks>
+    /// Built from the same members the markers are, so a trail can never outlive the dot it
+    /// belongs to or be drawn for somebody on another map.
+    /// </remarks>
+    private void UpdateGroupTrails(Func<MapPoint, Point> mapper)
+    {
+        var trails = new List<GroupTrailViewModel>();
+        foreach (var member in _groupMembers)
+        {
+            if (member.Trail.Count < 2 || !IsOnThisMap(member.MapId))
+            {
+                continue;
+            }
+
+            var points = new AvaloniaList<Point>();
+            foreach (var step in member.Trail)
+            {
+                if (!_renderModel!.TryMapPosition(new WorldPosition(step.X, 0, step.Z), out var mapPoint))
+                {
+                    continue;
+                }
+
+                var projected = mapper(mapPoint);
+                if (double.IsFinite(projected.X) && double.IsFinite(projected.Y))
+                {
+                    points.Add(projected);
+                }
+            }
+
+            // The member's own marker is the end of the line, so the line runs to it rather
+            // than stopping short of it.
+            if (member.Position is { } position &&
+                _renderModel!.TryMapPosition(position, out var current))
+            {
+                var end = mapper(current);
+                if (double.IsFinite(end.X) && double.IsFinite(end.Y))
+                {
+                    points.Add(end);
+                }
+            }
+
+            if (points.Count < 2)
+            {
+                continue;
+            }
+
+            trails.Add(new(member.Name, points, member.Trail.Max(step => step.Age))
+            {
+                Rgb = ColorFor(member.Name),
+            });
+        }
+
+        GroupTrails = trails;
     }
 
     /// <summary>
@@ -3637,6 +3875,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         Status = isPing ? "Pinging…" : "Marking a waypoint…";
+        // Drawn now rather than in five seconds' time. The group's own copy replaces it on the
+        // next exchange, and if none arrives it fades rather than sitting there as part of a
+        // plan the group never received.
+        _pending.Add(new(location.Id, position, isPing, DateTimeOffset.UtcNow));
+        UpdateGroupMarks();
         GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
         return Task.CompletedTask;
     }
@@ -3649,10 +3892,25 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// exchange there is nothing on screen at all. Without a word here that gap is
     /// indistinguishable from the gesture not working, which is exactly how it was reported.
     /// </remarks>
-    public void ReportMark(bool isPing, bool sent) =>
+    public void ReportMark(bool isPing, bool sent)
+    {
         Status = sent
             ? isPing ? "Pinged" : "Waypoint marked"
             : isPing ? "Ping not sent · check sharing on the Group page" : "Waypoint not sent · check sharing on the Group page";
+        if (sent)
+        {
+            return;
+        }
+
+        // A refusal takes the drawn copy with it immediately. Leaving it to time out would
+        // show a mark for twelve seconds that the group was never told about.
+        var removed = _pending.FindLastIndex(pending => pending.IsPing == isPing);
+        if (removed >= 0)
+        {
+            _pending.RemoveAt(removed);
+            UpdateGroupMarks();
+        }
+    }
 
     /// <summary>
     /// Turns a point somebody clicked on the canvas into a place in the world.
