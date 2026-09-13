@@ -1,10 +1,16 @@
 namespace TarkovCompanion.App.ViewModels.Maps;
 
 /// <summary>One place name, as a thing that has to be drawn or dropped.</summary>
-/// <param name="Left">Where the text starts, in canvas units.</param>
-/// <param name="Top">Where the text starts, in canvas units.</param>
-/// <param name="Width">How wide the text reads, in canvas units.</param>
-/// <param name="Height">How tall the text reads, in canvas units.</param>
+/// <remarks>
+/// The position is in canvas units and the size is in screen pixels, which looks inconsistent
+/// and is not: place names are counter-scaled, so their size on screen never changes while the
+/// map moves underneath them. Scaling both would make the arrangement independent of zoom,
+/// which is exactly the thing it must not be.
+/// </remarks>
+/// <param name="CenterX">Where the text is centred, in canvas units.</param>
+/// <param name="CenterY">Where the text is centred, in canvas units.</param>
+/// <param name="Width">How wide the text reads on screen, in screen pixels.</param>
+/// <param name="Height">How tall it reads on screen, in screen pixels.</param>
 /// <param name="Size">
 /// How large the catalog asked for it to be drawn. Its own signal of which names matter, and
 /// the only one available: a mapper who drew "Dorms" large and "boiler" small meant something
@@ -12,8 +18,8 @@ namespace TarkovCompanion.App.ViewModels.Maps;
 /// </param>
 /// <param name="Text">Used only to break a tie, so the same name is dropped every time.</param>
 public readonly record struct MapPlaceNameCandidate(
-    double Left,
-    double Top,
+    double CenterX,
+    double CenterY,
     double Width,
     double Height,
     double Size,
@@ -57,7 +63,7 @@ public static class MapPlaceNameLayout
     /// <summary>
     /// Which names to draw, as a flag per candidate in the order they were given.
     /// </summary>
-    /// <param name="names">The catalog's place names, in canvas units.</param>
+    /// <param name="names">The catalog's place names.</param>
     /// <param name="discs">Every marker's centre, in canvas units.</param>
     /// <param name="zoom">
     /// The current scale. Names are counter-scaled so their size on screen never changes and
@@ -105,10 +111,21 @@ public static class MapPlaceNameLayout
         return drawn;
     }
 
+    /// <summary>
+    /// Where a name lands on screen: its position scaled, its size not.
+    /// </summary>
+    /// <remarks>
+    /// The same arithmetic <see cref="MapLabelLayout"/> does for a marker's name, and it has to
+    /// be, or the two would disagree about whether a name and a label collide.
+    /// </remarks>
     private static (double Left, double Top, double Right, double Bottom) RectFor(
         MapPlaceNameCandidate name,
-        double zoom) =>
-        (name.Left * zoom, name.Top * zoom, (name.Left + name.Width) * zoom, (name.Top + name.Height) * zoom);
+        double zoom)
+    {
+        var x = name.CenterX * zoom;
+        var y = name.CenterY * zoom;
+        return (x - (name.Width / 2), y - (name.Height / 2), x + (name.Width / 2), y + (name.Height / 2));
+    }
 
     private static bool Overlaps(
         (double Left, double Top, double Right, double Bottom) rect,

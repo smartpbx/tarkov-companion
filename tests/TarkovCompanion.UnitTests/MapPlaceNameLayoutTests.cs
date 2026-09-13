@@ -90,7 +90,7 @@ public sealed class MapPlaceNameLayoutTests
         var names = new[] { Name("Alpha", 0, 0, size: 14), Name("Bravo", 300, 0, size: 14) };
 
         Assert.All(MapPlaceNameLayout.Choose(names, [], 1), drawn => Assert.True(drawn));
-        Assert.Contains(false, MapPlaceNameLayout.Choose(names, [], 0.02));
+        Assert.Contains(false, MapPlaceNameLayout.Choose(names, [], 0.05));
     }
 
     [Fact]
@@ -108,6 +108,7 @@ public sealed class MapPlaceNameLayoutTests
     public void No_names_is_not_a_failure() =>
         Assert.Empty(MapPlaceNameLayout.Choose([], [], 1));
 
-    private static MapPlaceNameCandidate Name(string text, double left, double top, double size) =>
-        new(left, top, text.Length * size * 0.55, size * 1.35, size, text);
+    /// <summary>Position in canvas units, size in screen pixels, as the layout expects.</summary>
+    private static MapPlaceNameCandidate Name(string text, double centerX, double centerY, double size) =>
+        new(centerX, centerY, text.Length * size * 0.55, size * 1.35, size, text);
 }

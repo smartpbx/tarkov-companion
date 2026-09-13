@@ -2781,8 +2781,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         var candidates = placeNames
             .Select(name => new MapPlaceNameCandidate(
-                name.TextLeft,
-                name.TextTop,
+                name.CenterX,
+                name.CenterY,
                 name.TextWidth,
                 name.TextHeight,
                 name.FontSize,
