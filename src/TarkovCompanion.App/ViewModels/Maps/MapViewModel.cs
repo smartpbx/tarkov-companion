@@ -38,9 +38,47 @@ public sealed record MapTileViewModel(
 /// single object, so a turn of the wheel is one property change rather than a rebuild of
 /// every marker on the map.
 /// </remarks>
+/// <summary>
+/// The quarter turn a map takes, as a transform of its own canvas.
+/// </summary>
+/// <remarks>
+/// Its own type so the arithmetic can be checked without standing up a map, a catalog and two
+/// HTTP clients — the same reason the side rule has a seam of its own.
+/// </remarks>
+public static class MapSurfaceTurn
+{
+    /// <summary>
+    /// The turn for <paramref name="degrees"/>, about the canvas's top-left corner.
+    /// </summary>
+    /// <remarks>
+    /// The surface's transform origin is its corner rather than its middle, so a bare rotation
+    /// would swing three quarters of the map into negative coordinates where the scroll viewer
+    /// cannot reach it. Each quarter turn therefore carries the translation that brings the
+    /// content back to the corner it started from, which is why the canvas's own size is an
+    /// argument here.
+    ///
+    /// Avalonia's matrix maps (x, y) to (x·M11 + y·M21 + M31, x·M12 + y·M22 + M32), and screen
+    /// y runs downwards, so a positive angle turns clockwise on screen.
+    ///
+    /// Anything that is not a quarter turn is the identity rather than an approximation. A map
+    /// at seventeen degrees is not something anybody asked for, and a stored preference is a
+    /// file somebody can edit.
+    /// </remarks>
+    public static Matrix For(int degrees, double width, double height) => degrees switch
+    {
+        // (x, y) becomes (height − y, x): the top edge goes down the right-hand side.
+        90 => new(0, 1, -1, 0, height, 0),
+        180 => new(-1, 0, 0, -1, width, height),
+        // (x, y) becomes (y, width − x).
+        270 => new(0, -1, 1, 0, 0, width),
+        _ => Matrix.Identity,
+    };
+}
+
 public sealed class MapMarkerScale : INotifyPropertyChanged
 {
     private double _inverse = 1;
+    private double _upright;
 
     /// <summary>A scale that never changes, for a marker built without a map to follow.</summary>
     public static MapMarkerScale Unscaled { get; } = new();
@@ -65,6 +103,35 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
 
     public void Follow(double zoom) =>
         Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
+
+    /// <summary>
+    /// The turn that keeps a marker's own writing the right way up.
+    /// </summary>
+    /// <remarks>
+    /// The whole surface turns, which is the point, and everything drawn on it turns with it.
+    /// That is right for a heading cone — the map turned, so north turned — and wrong for
+    /// anything with words in it, because a name lying on its side on a map somebody rotated
+    /// to make it readable has undone the thing they rotated it for.
+    ///
+    /// The same object markers already bind for the zoom counter-scale, so a template asks one
+    /// thing for both and there is no second notification path to keep in step.
+    /// </remarks>
+    public double Upright
+    {
+        get => _upright;
+        private set
+        {
+            if (_upright.Equals(value))
+            {
+                return;
+            }
+
+            _upright = value;
+            PropertyChanged?.Invoke(this, new(nameof(Upright)));
+        }
+    }
+
+    public void FollowRotation(double degrees) => Upright = double.IsFinite(degrees) ? -degrees : 0;
 }
 
 /// <summary>
@@ -1233,6 +1300,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
     private bool _isAutoFit = true;
+    private int _rotationDegrees;
     private bool _disposed;
 
     public MapViewModel(
@@ -1511,6 +1579,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             if (Set(ref _canvasWidth, value))
             {
                 OnPropertyChanged(nameof(ViewportWidth));
+                // A quarter turn measures the wrapper by the other side, and the translation
+                // that keeps a turned map in positive coordinates is the canvas's own size.
+                OnPropertyChanged(nameof(ViewportHeight));
+                OnPropertyChanged(nameof(SurfaceRotation));
                 RequestFit();
             }
         }
@@ -1523,7 +1595,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             if (Set(ref _canvasHeight, value))
             {
+                OnPropertyChanged(nameof(ViewportWidth));
                 OnPropertyChanged(nameof(ViewportHeight));
+                OnPropertyChanged(nameof(SurfaceRotation));
                 RequestFit();
             }
         }
@@ -1547,9 +1621,107 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public double ViewportWidth => CanvasWidth * ZoomScale;
+    /// <summary>
+    /// The room the turned, zoomed map needs.
+    /// </summary>
+    /// <remarks>
+    /// A quarter turn swaps the two. The canvas keeps its own unturned size — everything drawn
+    /// on it is placed in that space and the pointer is read back in it — and only the wrapper
+    /// the scroll viewer measures takes the turned shape. Without the swap a map turned on its
+    /// side would be scrollable across the space it used to occupy and clipped everywhere else.
+    /// </remarks>
+    public double ViewportWidth => (IsQuarterTurned ? CanvasHeight : CanvasWidth) * ZoomScale;
 
-    public double ViewportHeight => CanvasHeight * ZoomScale;
+    public double ViewportHeight => (IsQuarterTurned ? CanvasWidth : CanvasHeight) * ZoomScale;
+
+    /// <summary>Whether the map is on its side, which is what swaps width and height.</summary>
+    public bool IsQuarterTurned => RotationDegrees is 90 or 270;
+
+    /// <summary>
+    /// How far round this map is turned, clockwise, as one of 0, 90, 180 or 270.
+    /// </summary>
+    /// <remarks>
+    /// Reported as Shoreline being very tall while the screen it is read on is very wide. A map
+    /// whose long axis runs across the screen's short one is scaled down to fit its height and
+    /// then leaves half the panel empty either side of it; a quarter turn puts the two long
+    /// axes together and the same map is drawn twice the size.
+    ///
+    /// Quarter turns only, and the artwork is not resampled: the whole surface takes one more
+    /// transform, the same way it already takes the stacked view's tilt. So this costs nothing
+    /// to draw and cannot degrade the picture.
+    /// </remarks>
+    public int RotationDegrees
+    {
+        get => _rotationDegrees;
+        private set
+        {
+            if (_rotationDegrees == value)
+            {
+                return;
+            }
+
+            _rotationDegrees = value;
+            _markerScale.FollowRotation(value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsQuarterTurned));
+            OnPropertyChanged(nameof(IsRotated));
+            OnPropertyChanged(nameof(RotationLabel));
+            OnPropertyChanged(nameof(SurfaceRotation));
+            OnPropertyChanged(nameof(ViewportWidth));
+            OnPropertyChanged(nameof(ViewportHeight));
+            // The names are arranged in canvas space and then read on a turned screen, so which
+            // of them collide is unchanged but which fit is not.
+            ChoosePlaceNames();
+            ArrangeNames();
+        }
+    }
+
+    /// <summary>Whether the map is turned at all, which is what lights the button.</summary>
+    public bool IsRotated => RotationDegrees != 0;
+
+    /// <summary>What the button says, so the next press is predictable.</summary>
+    public string RotationLabel => RotationDegrees == 0 ? "Rotate" : $"{RotationDegrees}°";
+
+    /// <summary>
+    /// The turn applied to the whole surface, about its top-left corner.
+    /// </summary>
+    /// <remarks>
+    /// The surface's transform origin is its corner rather than its middle, so a bare rotation
+    /// would swing three quarters of the map into negative coordinates where the scroll viewer
+    /// cannot reach it. Each quarter turn therefore carries the translation that brings the
+    /// content back to the corner it started from.
+    ///
+    /// Avalonia's matrix maps (x, y) to (x·M11 + y·M21 + M31, x·M12 + y·M22 + M32), and screen
+    /// y runs downwards, so a positive angle turns clockwise on screen.
+    /// </remarks>
+    public Matrix SurfaceRotation => MapSurfaceTurn.For(RotationDegrees, CanvasWidth, CanvasHeight);
+
+    /// <summary>
+    /// Turns the map another quarter, and remembers it for this map.
+    /// </summary>
+    /// <remarks>
+    /// Round rather than back and forth, because four presses is the whole space and a second
+    /// button for the other direction would be a second button to find under fire. Remembered
+    /// per map: which way round a map wants to be is a fact about that map and the shape of the
+    /// screen, and neither changes between raids.
+    /// </remarks>
+    public async Task RotateAsync()
+    {
+        RotationDegrees = MapVariantSelectionService.Normalize(RotationDegrees + 90);
+        // Turning changes the shape the map needs, so a map that was filling the panel should
+        // still fill it afterwards rather than sitting at the old scale in the new shape.
+        if (IsAutoFit)
+        {
+            FitRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        if (SelectedLocation is { } location)
+        {
+            await _selectionService
+                .ChooseRotationAsync(location.Id, RotationDegrees, _lifetime.Token)
+                .ConfigureAwait(true);
+        }
+    }
 
     public string AttributionText => _renderModel?.AttributionText ?? "Map artwork is not loaded.";
 
@@ -2426,6 +2598,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             HasArtworkChoice = variant.TilePath is not null && variant.SvgPath is not null;
             PrefersDrawing = HasArtworkChoice &&
                 await _selectionService.PrefersDrawingAsync(location.Id, cancellationToken).ConfigureAwait(true);
+            // Which way round this map was left, which is a fact about the map and the shape of
+            // the screen rather than about this raid.
+            RotationDegrees = await _selectionService
+                .RotationAsync(location.Id, cancellationToken)
+                .ConfigureAwait(true);
 
             if (variant.TilePath is not null && !PrefersDrawing)
             {
