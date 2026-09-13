@@ -1,0 +1,14 @@
+[Unit]
+Description=Check for a newer Tarkov Companion group relay build
+
+[Timer]
+# Twice an hour, with a spread so every container that ever runs this does not ask GitHub at
+# the same second. The relay holds nothing on disk and members re-publish every five seconds,
+# so the cost of a restart is that everybody blinks once rather than losing anything.
+OnBootSec=3min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
