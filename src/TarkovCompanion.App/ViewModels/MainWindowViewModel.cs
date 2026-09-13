@@ -1006,6 +1006,7 @@ public sealed record RaidReplayRequest(string Title, IReadOnlyList<ScreenshotPos
 
 public sealed record RaidHistoryEntryViewModel(
     string Id,
+    string MapId,
     string Map,
     string Mode,
     string Started,
@@ -1035,14 +1036,47 @@ public sealed record RaidHistoryEntryViewModel(
 public sealed class HistoryPageViewModel : PageViewModel
 {
     private readonly IRaidHistoryService _raidHistoryService;
+    private readonly Func<string?, string> _nameOfMap;
     private IReadOnlyList<RaidHistoryEntryViewModel> _entries = [];
     private string _status = "History has not been loaded.";
+    private int _namedMapCount = -1;
 
-    public HistoryPageViewModel(IRaidHistoryService raidHistoryService)
+    /// <param name="nameOfMap">
+    /// Turns a stored map token into the name the chooser above the map uses.
+    /// </param>
+    /// <remarks>
+    /// Passed in rather than resolved here because the map catalog belongs to the map, and
+    /// History is loaded before it: every row read "streets-of-tarkov" and "ground-zero-21"
+    /// where it meant Streets of Tarkov and Ground Zero. Two names for one place reads as two
+    /// places.
+    /// </remarks>
+    public HistoryPageViewModel(IRaidHistoryService raidHistoryService, Func<string?, string> nameOfMap)
         : base("History", "Every raid the companion has seen", "Runtime state not loaded")
     {
         _raidHistoryService = raidHistoryService;
+        _nameOfMap = nameOfMap;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    /// <summary>
+    /// Renames the rows once the map catalog has arrived.
+    /// </summary>
+    /// <remarks>
+    /// The catalog loads last, so a History opened before it holds tokens. Rather than reload
+    /// every raid from the database, the rows are rewritten in place from what they already
+    /// carry. Called with the catalog's size, which is the only change signal there is.
+    /// </remarks>
+    public void RenameMaps(int knownMapCount)
+    {
+        if (_namedMapCount == knownMapCount || Entries.Count == 0)
+        {
+            return;
+        }
+
+        _namedMapCount = knownMapCount;
+        Entries = Entries
+            .Select(entry => entry with { Map = _nameOfMap(entry.MapId) })
+            .ToArray();
     }
 
     public IReadOnlyList<RaidHistoryEntryViewModel> Entries
@@ -1108,7 +1142,8 @@ public sealed class HistoryPageViewModel : PageViewModel
                     .ConfigureAwait(true);
                 var entry = new RaidHistoryEntryViewModel(
                     raid.Id.ToString("D"),
-                    raid.MapId ?? "Unknown map",
+                    raid.MapId ?? string.Empty,
+                    _nameOfMap(raid.MapId),
                     raid.Mode,
                     raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
                     raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
@@ -1813,7 +1848,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Scanner = new(scanUseCase, scanHistory);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
-        History = new(raidHistoryService);
+        History = new(raidHistoryService, ResolveMapName);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Hideout = new(requirementCatalog, profileService, itemRepository);
         Settings = new(
@@ -2142,6 +2177,24 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _synchronizationContext.Post(_ => ApplySnapshot(snapshot), null);
     }
 
+    /// <summary>
+    /// The name the map chooser shows for a stored token, or the token if nothing knows.
+    /// </summary>
+    /// <remarks>
+    /// The same lookup RaidPageViewModel has always done for the raid summary. It lived only
+    /// there, so the status-bar chip and every History row printed "streets-of-tarkov" and
+    /// "ground-zero-21" while the chooser above the map printed the names — two names for one
+    /// place, which reads as two places.
+    ///
+    /// The token remains an acceptable answer: the map catalog loads last, and a name nobody
+    /// has yet is better shown as the id than as "Unknown".
+    /// </remarks>
+    private string ResolveMapName(string? mapId) => string.IsNullOrWhiteSpace(mapId)
+        ? "Unknown map"
+        : Map.Locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+
     private void ApplySnapshot(ApplicationRuntimeSnapshot snapshot)
     {
         var now = _timeProvider.GetUtcNow();
@@ -2150,7 +2203,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             : snapshot.IsOffline
                 ? "Offline"
                 : string.Empty;
-        Status = CreateStatus(snapshot, now);
+        Status = CreateStatus(snapshot, now, ResolveMapName(snapshot.Raid.MapId));
+        // The map catalog loads after History does, so rows opened before it holds tokens
+        // rather than names. Cheap: it returns immediately unless the catalog actually grew.
+        History.RenameMaps(Map.Locations.Count);
         Raid.Apply(snapshot, now);
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
@@ -2196,9 +2252,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// nothing changing could stand out. Now colour means an observation: sage for something
     /// live, cyan for a place, ochre for a value or a warning, coral for a fault.
     /// </remarks>
+    /// <param name="mapName">
+    /// Resolved by the caller, because naming a map needs the catalog and this is static.
+    /// </param>
     private static IReadOnlyList<StatusChip> CreateStatus(
         ApplicationRuntimeSnapshot snapshot,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string mapName)
     {
         var raid = snapshot.Raid;
         var observation = snapshot.Observation;
@@ -2220,7 +2280,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 observation.IsObserving ? SageColor : observation.IsSupported || snapshot.IsDemoMode ? RestingColor : OchreColor),
             new(
                 "Map",
-                raid.MapId ?? "Unknown",
+                raid.MapId is null ? "Unknown" : mapName,
                 raid.MapId is null
                     ? observation.IsWatchingLogs ? "Waiting for a raid to start" : "No current raid evidence"
                     : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",
