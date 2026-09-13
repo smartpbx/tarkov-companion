@@ -55,11 +55,33 @@ should never be exposed directly.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
-| `POST` | `/state` | Publish yourself, receive everyone else |
+| `POST` | `/state` | Publish yourself, receive everyone else and the group's marks |
 | `DELETE` | `/state/{name}` | Leave immediately rather than timing out |
+| `POST` | `/waypoints` | Mark a place for the group; it stays until cleared |
+| `POST` | `/waypoints/{id}/reached` | Record that somebody got there |
+| `DELETE` | `/waypoints/{id}` | Remove one |
+| `DELETE` | `/waypoints?mapId=&reachedOnly=` | Clear a map's, or only the reached ones |
+| `POST` | `/pings` | Point at a place; it fades after 45 seconds |
 
 Both carry the group key in an `X-Group-Key` header. The room is not in the URL because the
 key decides it.
 
 One exchange does both halves, so there is no connection to hold open and no subscription to
 leak. A companion that is not running sends nothing and therefore shows nothing.
+
+## Marks
+
+A **waypoint** is a plan and stays until somebody clears it. A **ping** says "look here" and
+fades after forty-five seconds. Having both is the point: a plan that quietly became forty stale
+"look here" marks would be worse than either alone.
+
+They ride back on the `/state` exchange a client already makes every few seconds, so nothing
+polls a second endpoint to notice the group moved a waypoint.
+
+Both belong to the group rather than to whoever dropped them, so anyone in the group may clear
+them. A server that tracked who owned what would need identities, and this one deliberately has
+none.
+
+Bounded per room: sixty waypoints and thirty pings. Past that the oldest goes, so somebody
+leaning on a mouse button loses their stalest plan rather than being refused or filling the
+server.

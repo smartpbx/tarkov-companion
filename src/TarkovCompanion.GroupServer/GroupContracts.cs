@@ -43,4 +43,11 @@ public sealed record GroupMemberState(
 public sealed record GroupRoomState(
     [property: JsonPropertyName("room")] string Room,
     [property: JsonPropertyName("members")] IReadOnlyList<GroupMemberState> Members,
-    [property: JsonPropertyName("serverUtc")] DateTimeOffset ServerUtc);
+    [property: JsonPropertyName("serverUtc")] DateTimeOffset ServerUtc)
+{
+    /// <summary>Places the group has marked, which stay until cleared.</summary>
+    public IReadOnlyList<GroupWaypoint> Waypoints { get; init; } = [];
+
+    /// <summary>Places somebody is pointing at right now, which fade.</summary>
+    public IReadOnlyList<GroupPing> Pings { get; init; } = [];
+}
