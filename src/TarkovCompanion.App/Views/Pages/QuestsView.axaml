@@ -137,65 +137,76 @@
            with nothing to act on. -->
       <Border Grid.Column="2" Classes="panel">
         <Panel>
+          <!-- Scoped to the selected quest rather than reaching through it by path. Bound as
+               "SelectedTask.Name" from the page, every one of these was evaluated before a
+               quest had been chosen and threw: nineteen caught exceptions per launch, on a
+               pane nobody had opened yet. A content control with nothing in it evaluates
+               nothing at all. -->
           <ScrollViewer IsVisible="{Binding HasSelectedTask}" VerticalScrollBarVisibility="Auto">
-            <StackPanel Spacing="12">
-              <TextBlock Classes="title" Text="{Binding SelectedTask.Name}" TextWrapping="Wrap" />
-              <WrapPanel Orientation="Horizontal">
-                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.RecordedState}" /></Border>
-                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.Eligibility}" /></Border>
-                <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding SelectedTask.ObjectiveSummary}" /></Border>
-              </WrapPanel>
-              <StackPanel Spacing="3">
-                <TextBlock Classes="label" Text="{Binding SelectedTask.Source}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding SelectedTask.Trader}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding SelectedTask.Map}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding SelectedTask.Prerequisites}" TextWrapping="Wrap" />
-              </StackPanel>
-              <TextBlock Classes="note ochre" Text="{Binding SelectedTask.EligibilityDetail}" />
-              <TextBlock Classes="note ochre" IsVisible="{Binding SelectedTask.HasBranchNotes}" Text="{Binding SelectedTask.BranchNotes}" />
+            <ContentControl Content="{Binding SelectedTask}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:QuestTaskViewModel">
+                  <StackPanel Spacing="12">
+                    <TextBlock Classes="title" Text="{Binding Name}" TextWrapping="Wrap" />
+                    <WrapPanel Orientation="Horizontal">
+                      <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding RecordedState}" /></Border>
+                      <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding Eligibility}" /></Border>
+                      <Border Classes="inset" Padding="8,4" Margin="0,0,6,6"><TextBlock Classes="label" Text="{Binding ObjectiveSummary}" /></Border>
+                    </WrapPanel>
+                    <StackPanel Spacing="3">
+                      <TextBlock Classes="label" Text="{Binding Source}" TextWrapping="Wrap" />
+                      <TextBlock Classes="label" Text="{Binding Trader}" TextWrapping="Wrap" />
+                      <TextBlock Classes="label" Text="{Binding Map}" TextWrapping="Wrap" />
+                      <TextBlock Classes="label" Text="{Binding Prerequisites}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock Classes="note ochre" Text="{Binding EligibilityDetail}" />
+                    <TextBlock Classes="note ochre" IsVisible="{Binding HasBranchNotes}" Text="{Binding BranchNotes}" />
 
-              <WrapPanel Orientation="Horizontal">
-                <Button Command="{Binding SelectedTask.SetUnknownCommand}" Content="Unknown" Margin="0,0,6,6" />
-                <Button Command="{Binding SelectedTask.SetNotStartedCommand}" Content="Not started" Margin="0,0,6,6" />
-                <Button Command="{Binding SelectedTask.SetActiveCommand}" Content="Active" Margin="0,0,6,6" />
-                <Button Command="{Binding SelectedTask.SetCompletedCommand}" Content="Completed" Margin="0,0,6,6" />
-                <Button Command="{Binding SelectedTask.SetFailedCommand}" Content="Failed" Margin="0,0,6,6" />
-                <Button Command="{Binding SelectedTask.TogglePinCommand}" Content="{Binding SelectedTask.PinLabel}" Margin="0,0,6,6" />
-              </WrapPanel>
+                    <WrapPanel Orientation="Horizontal">
+                      <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,6,6" />
+                      <Button Command="{Binding SetNotStartedCommand}" Content="Not started" Margin="0,0,6,6" />
+                      <Button Command="{Binding SetActiveCommand}" Content="Active" Margin="0,0,6,6" />
+                      <Button Command="{Binding SetCompletedCommand}" Content="Completed" Margin="0,0,6,6" />
+                      <Button Command="{Binding SetFailedCommand}" Content="Failed" Margin="0,0,6,6" />
+                      <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,6,6" />
+                    </WrapPanel>
 
-              <TextBlock Classes="sectionTitle" Text="Objectives" />
-              <ItemsControl ItemsSource="{Binding SelectedTask.Objectives}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="vm:QuestObjectiveViewModel">
-                    <Border Classes="inset" Padding="12" Margin="0,0,0,9">
-                      <StackPanel Spacing="6">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                          <TextBlock Classes="value" Text="{Binding Description}" TextWrapping="Wrap" />
-                          <TextBlock Grid.Column="1" Classes="label" Text="{Binding Kind}" />
-                        </Grid>
-                        <WrapPanel Orientation="Horizontal">
-                          <TextBlock Classes="label ochre" IsVisible="{Binding IsUnsupported}" Text="Unsupported details · " />
-                          <TextBlock Classes="label" IsVisible="{Binding IsOptional}" Text="Optional · " />
-                          <TextBlock Classes="label" Text="{Binding Status}" />
-                        </WrapPanel>
-                        <TextBlock Classes="label" Text="{Binding Maps}" TextWrapping="Wrap" />
-                        <TextBlock Classes="label" IsVisible="{Binding HasItems}" Text="{Binding Items}" TextWrapping="Wrap" />
-                        <TextBlock Classes="label" IsVisible="{Binding HasFoundInRaidRule}" Text="{Binding FoundInRaidRule}" TextWrapping="Wrap" />
-                        <TextBlock Classes="caption" Text="{Binding Source}" TextWrapping="Wrap" />
-                        <WrapPanel Orientation="Horizontal">
-                          <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,5,5" />
-                          <Button Command="{Binding SetInProgressCommand}" Content="In progress" Margin="0,0,5,5" />
-                          <Button Command="{Binding SetCompletedCommand}" Content="Complete" Margin="0,0,5,5" />
-                          <Button Command="{Binding DecrementCommand}" Content="− count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
-                          <Button Command="{Binding IncrementCommand}" Content="+ count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
-                          <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,5,5" />
-                        </WrapPanel>
-                      </StackPanel>
-                    </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
+                    <TextBlock Classes="sectionTitle" Text="Objectives" />
+                    <ItemsControl ItemsSource="{Binding Objectives}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:QuestObjectiveViewModel">
+                          <Border Classes="inset" Padding="12" Margin="0,0,0,9">
+                            <StackPanel Spacing="6">
+                              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                <TextBlock Classes="value" Text="{Binding Description}" TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="1" Classes="label" Text="{Binding Kind}" />
+                              </Grid>
+                              <WrapPanel Orientation="Horizontal">
+                                <TextBlock Classes="label ochre" IsVisible="{Binding IsUnsupported}" Text="Unsupported details · " />
+                                <TextBlock Classes="label" IsVisible="{Binding IsOptional}" Text="Optional · " />
+                                <TextBlock Classes="label" Text="{Binding Status}" />
+                              </WrapPanel>
+                              <TextBlock Classes="label" Text="{Binding Maps}" TextWrapping="Wrap" />
+                              <TextBlock Classes="label" IsVisible="{Binding HasItems}" Text="{Binding Items}" TextWrapping="Wrap" />
+                              <TextBlock Classes="label" IsVisible="{Binding HasFoundInRaidRule}" Text="{Binding FoundInRaidRule}" TextWrapping="Wrap" />
+                              <TextBlock Classes="caption" Text="{Binding Source}" TextWrapping="Wrap" />
+                              <WrapPanel Orientation="Horizontal">
+                                <Button Command="{Binding SetUnknownCommand}" Content="Unknown" Margin="0,0,5,5" />
+                                <Button Command="{Binding SetInProgressCommand}" Content="In progress" Margin="0,0,5,5" />
+                                <Button Command="{Binding SetCompletedCommand}" Content="Complete" Margin="0,0,5,5" />
+                                <Button Command="{Binding DecrementCommand}" Content="− count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
+                                <Button Command="{Binding IncrementCommand}" Content="+ count" IsVisible="{Binding HasCount}" Margin="0,0,5,5" />
+                                <Button Command="{Binding TogglePinCommand}" Content="{Binding PinLabel}" Margin="0,0,5,5" />
+                              </WrapPanel>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
           </ScrollViewer>
         </Panel>
       </Border>
