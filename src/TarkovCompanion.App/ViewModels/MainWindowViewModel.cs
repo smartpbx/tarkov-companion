@@ -13,6 +13,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels;
@@ -764,7 +765,21 @@ public sealed record RaidHistoryEntryViewModel(
     string Started,
     string Ended,
     string Outcome,
-    string Notes);
+    string Notes)
+{
+    /// <summary>
+    /// How far the raid went, from the screenshots taken during it.
+    /// </summary>
+    /// <remarks>
+    /// Every position has been written to the database on every scan since the first raid and
+    /// nothing ever read one back, so a raid's path survived a restart on disk and vanished
+    /// from the screen. This is the first thing to read them.
+    ///
+    /// Distance rather than a count, because "nine screenshots" says how often somebody
+    /// photographed something and "1.4 km" says what the raid was.
+    /// </remarks>
+    public string Path { get; init; } = "No screenshots";
+}
 
 public sealed class HistoryPageViewModel : PageViewModel
 {
@@ -800,14 +815,26 @@ public sealed class HistoryPageViewModel : PageViewModel
         try
         {
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
-            Entries = raids.Select(raid => new RaidHistoryEntryViewModel(
-                raid.Id.ToString("D"),
-                raid.MapId ?? "Unknown map",
-                raid.Mode,
-                raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
-                raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
-                raid.Outcome ?? "Not recorded",
-                raid.Notes ?? "No notes")).ToArray();
+            var entries = new List<RaidHistoryEntryViewModel>(raids.Count);
+            foreach (var raid in raids)
+            {
+                var positions = await _raidHistoryService
+                    .ListPositionsAsync(raid.Id, cancellationToken)
+                    .ConfigureAwait(true);
+                entries.Add(new RaidHistoryEntryViewModel(
+                    raid.Id.ToString("D"),
+                    raid.MapId ?? "Unknown map",
+                    raid.Mode,
+                    raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
+                    raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
+                    raid.Outcome ?? "Not recorded",
+                    raid.Notes ?? "No notes")
+                {
+                    Path = DescribePath(positions),
+                });
+            }
+
+            Entries = entries;
             Status = Entries.Count == 0
                 ? "No local raid history has been recorded."
                 : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}.";
@@ -819,6 +846,44 @@ public sealed class HistoryPageViewModel : PageViewModel
             Status = $"Raid history unavailable: {exception.Message}";
             Evidence = Status;
         }
+    }
+
+    /// <summary>
+    /// How far the raid went, in a line.
+    /// </summary>
+    /// <remarks>
+    /// Straight lines between screenshots, so this is a floor rather than a measurement: the
+    /// player walked at least this far and almost certainly further. Two screenshots minutes
+    /// apart say nothing about what happened between them, and pretending otherwise would be
+    /// the same mistake the position trail already refuses to make by drawing itself dotted.
+    /// </remarks>
+    private static string DescribePath(IReadOnlyList<ScreenshotPosition> positions)
+    {
+        if (positions.Count == 0)
+        {
+            return "No screenshots";
+        }
+
+        if (positions.Count == 1)
+        {
+            return "1 screenshot";
+        }
+
+        var metres = 0d;
+        for (var index = 1; index < positions.Count; index++)
+        {
+            var from = positions[index - 1].Position;
+            var to = positions[index].Position;
+            var dx = to.X - from.X;
+            var dz = to.Z - from.Z;
+            metres += Math.Sqrt((dx * dx) + (dz * dz));
+        }
+
+        return string.Create(
+            CultureInfo.CurrentCulture,
+            metres >= 1000
+                ? $"{positions.Count} screenshots · at least {metres / 1000:F1} km"
+                : $"{positions.Count} screenshots · at least {metres:F0} m");
     }
 }
 

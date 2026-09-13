@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -81,6 +82,56 @@ public sealed class SqliteRaidHistoryService(
         command.Parameters.AddWithValue("$type", type.Trim());
         command.Parameters.AddWithValue("$payloadJson", payloadJson);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Reads one raid's path back out of the events it recorded while it was running.
+    /// </summary>
+    /// <remarks>
+    /// Stored as ordinary raid events with the type "position", not in the raid_positions
+    /// table beside them, which has been empty since the schema was written. The events are
+    /// where the data actually is, so that is where this reads it from; filling a second table
+    /// to say the same thing twice would be work in the service of tidiness.
+    ///
+    /// A payload that will not parse is skipped rather than failing the read. One unreadable
+    /// screenshot costs one point on a trail, and a trail missing a point is still a trail.
+    /// </remarks>
+    public async Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
+        Guid raidId,
+        CancellationToken cancellationToken)
+    {
+        var positions = new List<ScreenshotPosition>();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT payload_json
+            FROM raid_events
+            WHERE raid_id = $raidId AND type = 'position'
+            ORDER BY timestamp_utc, id;
+            """;
+        command.Parameters.AddWithValue("$raidId", raidId.ToString("D"));
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.IsDBNull(0))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (JsonSerializer.Deserialize<ScreenshotPosition>(reader.GetString(0), JsonOptions) is { } position)
+                {
+                    positions.Add(position);
+                }
+            }
+            catch (JsonException)
+            {
+                // One unreadable screenshot costs one point on a trail.
+            }
+        }
+
+        return positions;
     }
 
     public async Task EndAsync(
