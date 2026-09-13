@@ -235,6 +235,11 @@ public sealed record SpawnPanelViewModel(string Name, string FromStart, string F
     public bool HasFromPlayer => FromPlayer.Length > 0;
 }
 
+/// <summary>One place near the player where the game spawns loot.</summary>
+/// <param name="Name">What sort of thing it is, or what can be found in it.</param>
+/// <param name="Where">How far and which way.</param>
+public sealed record LootPanelViewModel(string Name, string Where);
+
 public sealed record GroupMemberPanelViewModel(
     string Name,
     string Where,
@@ -911,6 +916,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
+    private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
     private string _spawnPanelDetail = string.Empty;
     private IReadOnlyList<MapFeature> _mapFeatures = [];
     private IReadOnlyList<QuestPanelViewModel> _questPanel = [];
@@ -2847,6 +2853,40 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// What the map says is worth looking in, near where the player is standing.
+    /// </summary>
+    /// <remarks>
+    /// Never drawn on the map. Woods alone has 815 loot positions and a map wearing all of them
+    /// answers nothing; the question they answer is "what is near me", which is a short list.
+    /// </remarks>
+    public IReadOnlyList<LootPanelViewModel> LootPanel
+    {
+        get => _lootPanel;
+        private set
+        {
+            Set(ref _lootPanel, value);
+            OnPropertyChanged(nameof(HasLootPanel));
+        }
+    }
+
+    public bool HasLootPanel => _lootPanel.Count > 0;
+
+    private void UpdateLootPanel()
+    {
+        if (_mapFeatures.Count == 0 || _playerPosition is not { } position)
+        {
+            LootPanel = [];
+            return;
+        }
+
+        LootPanel = LootProximity.Near(_mapFeatures, position.Position)
+            .Select(loot => new LootPanelViewModel(
+                loot.Name,
+                $"{SpawnProximity.Describe(loot.Metres)} {loot.Bearing}"))
+            .ToArray();
+    }
+
+    /// <summary>
     /// Works out where the other players in this raid started, from where this one did.
     /// </summary>
     /// <remarks>
@@ -3260,6 +3300,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         FollowFloor(position);
         UpdateArea();
         UpdateSpawnPanel();
+        UpdateLootPanel();
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
@@ -3369,12 +3410,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // different meanings.
             _mapFeatures = features;
             UpdateSpawnPanel();
+            UpdateLootPanel();
             return MapFeatureProjection.Project(variant, features);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _mapFeatures = [];
             UpdateSpawnPanel();
+            UpdateLootPanel();
             return [];
         }
     }
