@@ -53,16 +53,19 @@ public sealed class GroupSessionService : IAsyncDisposable
         ILogger<GroupSessionService> logger,
         // Optional so a composition without quest storage still shares a position, which is
         // what every test that builds this by hand relies on.
-        GroupQuestShare? quests = null)
+        GroupQuestShare? quests = null,
+        GroupKitShare? kits = null)
     {
         _settings = settings;
         _stateStore = stateStore;
         _httpClient = httpClient;
         _logger = logger;
         _quests = quests;
+        _kits = kits;
     }
 
     private readonly GroupQuestShare? _quests;
+    private readonly GroupKitShare? _kits;
 
     public void Start()
     {
@@ -205,7 +208,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         var sharedQuests = settings.SharesQuests && _quests is not null
             ? await _quests.GetAsync(cancellationToken).ConfigureAwait(false)
             : [];
-        var payload = Describe(snapshot, settings, sharedQuests);
+        // What this game has said about the others, which is the one thing each of them cannot
+        // read about themselves. Sent whenever sharing is on, because it is about the people
+        // who asked to be in this group and it is the only route any of them has to their own
+        // kit. The loadout switch governs what is said about the sender, not about others.
+        var observed = _kits is null
+            ? []
+            : await _kits.GetAsync(cancellationToken).ConfigureAwait(false);
+        var payload = Describe(snapshot, settings, sharedQuests, observed);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             new Uri(new Uri(settings.ServerUri!), "state"))
@@ -228,7 +238,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         var room = await response.Content.ReadFromJsonAsync<RoomStateDto>(Json, cancellationToken).ConfigureAwait(false);
-        var members = (room?.Members ?? []).Select(Read).ToArray();
+        var seen = (room?.Members ?? [])
+            .Select(member => (IReadOnlyList<ObservedKit>)(member.Observed ?? [])
+                .Select(kit => new ObservedKit(kit.Name, kit.Loadout ?? []))
+                .ToArray())
+            .ToArray();
+        // Each member's kit, from whoever could see it. Their own report wins where they have
+        // one; otherwise it comes from the people whose game named it.
+        var members = (room?.Members ?? [])
+            .Select(member => Fill(Read(member), seen))
+            .ToArray();
         // Occasionally, not every five seconds. Three lines at the start answer "is it working
         // at all", which is the question, and one every ten minutes after that shows it still
         // is, without filling an evening's log.
@@ -254,6 +273,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             },
             DateTimeOffset.UtcNow)
         {
+            // The one thing this companion cannot read about its own player, handed back by
+            // the people whose game named it.
+            MyLoadout = GroupKitMirror.Find(seen, settings.DisplayName),
             // The server expires pings for us, so whatever comes back is current by
             // definition and the client needs no timer of its own.
             Waypoints = (room?.Waypoints ?? []).Select(w =>
@@ -341,7 +363,8 @@ public sealed class GroupSessionService : IAsyncDisposable
     private static MemberStateDto Describe(
         ApplicationRuntimeSnapshot snapshot,
         GroupSharingSettings settings,
-        IReadOnlyList<string> sharedQuests)
+        IReadOnlyList<string> sharedQuests,
+        IReadOnlyList<ObservedKit> observed)
     {
         var raid = snapshot.Raid;
         var position = raid.LastKnownPosition;
@@ -355,7 +378,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             position?.HeadingDegrees,
             position is null ? null : (DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime()).TotalSeconds,
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
-            sharedQuests);
+            sharedQuests)
+        {
+            Observed = observed
+                .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout))
+                .ToArray(),
+        };
     }
 
     /// <summary>
@@ -373,6 +401,14 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private static IReadOnlyList<string> DescribeLoadout(ApplicationRuntimeSnapshot snapshot) => [];
 
+
+    /// <summary>
+    /// Fills in a member's kit from whoever could see it, when they could not see it themselves.
+    /// </summary>
+    private static GroupMemberView Fill(GroupMemberView member, IReadOnlyList<IReadOnlyList<ObservedKit>> seen) =>
+        member.Loadout.Count > 0
+            ? member
+            : member with { Loadout = GroupKitMirror.Find(seen, member.Name) };
 
     private static GroupMemberView Read(MemberStateDto member) => new(
         member.Name,
@@ -421,7 +457,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("heading")] double? Heading,
         [property: JsonPropertyName("positionAge")] double? PositionAge,
         [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout,
-        [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests);
+        [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests)
+    {
+        /// <summary>What this member's game said about everybody else in their party.</summary>
+        [JsonPropertyName("observed")]
+        public IReadOnlyList<ObservedKitDto>? Observed { get; init; }
+    }
+
+    private sealed record ObservedKitDto(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout);
 
     private sealed record RoomStateDto(
         [property: JsonPropertyName("room")] string Room,
