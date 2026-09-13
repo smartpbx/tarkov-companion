@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using TarkovCompanion.Core.Abstractions;
-using TarkovCompanion.Application.Services.Raids;
 
 namespace TarkovCompanion.Platform.Windows.Watching;
 
@@ -43,10 +42,7 @@ public sealed class WindowsScreenshotWatcher(bool developerMode = false, TimeSpa
             throw new DirectoryNotFoundException($"EFT screenshot directory does not exist: {screenshotRoot}");
         }
 
-        // Not a HashSet of paths any more: a file is held back until its length has stopped
-        // changing between polls, because the listing shows a screenshot the moment the game
-        // creates it and the picture arrives afterwards.
-        var gate = new SettledFileGate();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var cutoff = DateTime.UtcNow - StartupGrace;
         var first = true;
 
@@ -54,29 +50,13 @@ public sealed class WindowsScreenshotWatcher(bool developerMode = false, TimeSpa
         {
             foreach (var candidate in Snapshot(screenshotRoot))
             {
-                if (gate.WasReleased(candidate.Path))
+                if (!seen.Add(candidate.Path))
                 {
                     continue;
                 }
 
                 if (first && candidate.WrittenUtc < cutoff)
                 {
-                    // From an earlier session and finished by definition, so it is retired
-                    // rather than watched for a change that will never come.
-                    gate.Release(candidate.Path);
-                    continue;
-                }
-
-                if (!gate.IsSettled(candidate.Path, LengthOrUnknown(candidate.Path)))
-                {
-                    continue;
-                }
-
-                // A length that has settled is not proof the writer has let go, and a file
-                // still held exclusively cannot be decoded. One open attempt says so.
-                if (!CanRead(candidate.Path))
-                {
-                    gate.Retry(candidate.Path);
                     continue;
                 }
 
@@ -130,37 +110,6 @@ public sealed class WindowsScreenshotWatcher(bool developerMode = false, TimeSpa
             .Select(path => (Path: path, WrittenUtc: WrittenUtc(path)))
             .OrderBy(entry => entry.WrittenUtc)
             .ToArray();
-    }
-
-    /// <summary>The file's length, or -1 where it cannot be measured.</summary>
-    private static long LengthOrUnknown(string path)
-    {
-        try
-        {
-            return new FileInfo(path).Length;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return -1;
-        }
-    }
-
-    /// <summary>Whether the file can be opened for reading right now.</summary>
-    /// <remarks>
-    /// Opened and closed rather than handed on, because the reader downstream opens it again
-    /// by path. The point is only to find out whether the game has let go.
-    /// </remarks>
-    private static bool CanRead(string path)
-    {
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return true;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
     }
 
     private static DateTime WrittenUtc(string path)
