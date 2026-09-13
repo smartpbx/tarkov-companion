@@ -238,15 +238,16 @@
                         Data="{Binding Glyph}"
                         IsVisible="{Binding HasGlyph}" />
                   </Panel>
-                  <!-- Hidden when the map is pulled back far enough for twenty names to
-                       collide. The disc still reads, so the map answers "where are the exits"
-                       at any zoom and names them once somebody leans in. -->
+                  <!-- Placed against every other name on the map rather than at a fixed offset
+                       under its own disc, which is what used to put "Sniper Roadblock" across
+                       the marker above it. A name that fits nowhere is dropped; the disc still
+                       reads, so the map answers "where are the exits" at any zoom. -->
                   <Border
                       Classes="markerName"
                       Classes.quiet="{Binding IsNameQuiet}"
                       Classes.offered="{Binding IsOffered}"
-                      IsVisible="{Binding Scale.ShowsNames}"
-                      Margin="{Binding NameInset}">
+                      IsVisible="{Binding Placement.IsVisible}"
+                      Margin="{Binding Placement.Inset}">
                     <TextBlock Classes="markerNameText" Text="{Binding Label}" />
                   </Border>
                 </Panel>
