@@ -1083,6 +1083,51 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// How many rows an endpoint's main table already holds.
+    /// </summary>
+    /// <remarks>
+    /// So a refresh can be refused before it deletes anything. Every refresh here replaces its
+    /// table wholesale — RefreshMapsAsync opens with DELETE FROM maps, and the item refresh
+    /// deletes every row not in the incoming set — and the validators pass trivially on an
+    /// empty payload, so one bad response emptied the catalog and the application then said,
+    /// accurately, that it had no data.
+    ///
+    /// Returns null for an endpoint with no table worth counting, which is not a refusal.
+    /// </remarks>
+    public async Task<int?> CountRowsAsync(string endpoint, CancellationToken cancellationToken)
+    {
+        var table = endpoint switch
+        {
+            "items" => "items",
+            "maps" => "maps",
+            "tasks" => "tasks",
+            "hideout" => "hideout_stations",
+            "traders" => "traders",
+            "crafts" => "crafts",
+            "barters" => "barters",
+            _ => null,
+        };
+        if (table is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"SELECT COUNT(*) FROM {table};";
+            var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            return value is null or DBNull ? null : Convert.ToInt32(value, CultureInfo.InvariantCulture);
+        }
+        catch (SqliteException)
+        {
+            // A table that does not exist yet is a first run, not a reason to refuse.
+            return null;
+        }
+    }
+
     private static void ValidateItems(TarkovDevItemsData data)
     {
         foreach (var pair in data.Items)
