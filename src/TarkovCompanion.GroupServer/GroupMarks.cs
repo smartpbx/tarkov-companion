@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace TarkovCompanion.GroupServer;
@@ -46,10 +47,14 @@ public sealed record GroupPing(
 /// than an inconsistency. A position is a record of where somebody has been, which this server
 /// makes a point of never keeping. A waypoint is a thing somebody decided on purpose, and
 /// losing the squad's plan because the relay updated itself at the wrong moment would be its
-/// own small betrayal. The relay now updates twice an hour, so "it only vanishes on a restart"
-/// stopped being a rare event.
+/// own small betrayal. The relay updates twice an hour, so "it only vanishes on a restart"
+/// was never a rare event.
+///
+/// That paragraph was written in the same commit as the in-memory dictionary it sits on, and
+/// nothing in this server touched the filesystem, so it described an intention rather than a
+/// behaviour: every merge to main took the squad's plan with it. It is true now.
 /// </remarks>
-public sealed class GroupMarks(TimeProvider timeProvider)
+public sealed class GroupMarks
 {
     /// <summary>How long a ping is shown before it stops meaning "now".</summary>
     private static readonly TimeSpan PingLifetime = TimeSpan.FromSeconds(45);
@@ -59,8 +64,33 @@ public sealed class GroupMarks(TimeProvider timeProvider)
 
     private const int MaximumPingsPerRoom = 30;
 
+    /// <summary>How long a waypoint is kept across restarts before it is forgotten.</summary>
+    /// <remarks>
+    /// A plan is for tonight. Without a bound the file would only ever grow, and a wipe-old
+    /// map's marks would outlive the wipe.
+    /// </remarks>
+    private static readonly TimeSpan WaypointLifetime = TimeSpan.FromDays(7);
+
+    private readonly TimeProvider _timeProvider;
+    private readonly string? _storePath;
+    private readonly Lock _saveGate = new();
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.Ordinal);
     private long _nextId;
+
+    /// <param name="storePath">
+    /// Where the squad's marks are kept, or null to hold them only in memory.
+    /// </param>
+    /// <remarks>
+    /// Marks only. Positions are never written, which is the promise the rest of this server
+    /// makes and the reason this file can exist at all: it holds places somebody chose, not
+    /// anywhere anybody has been.
+    /// </remarks>
+    public GroupMarks(TimeProvider timeProvider, string? storePath = null)
+    {
+        _timeProvider = timeProvider;
+        _storePath = storePath;
+        Load();
+    }
 
     private sealed class Room
     {
@@ -74,7 +104,7 @@ public sealed class GroupMarks(TimeProvider timeProvider)
         var entry = _rooms.GetOrAdd(room, _ => new());
         var waypoint = new GroupWaypoint(
             Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label),
-            timeProvider.GetUtcNow(), null, null);
+            _timeProvider.GetUtcNow(), null, null);
         lock (entry)
         {
             // Oldest first, so a group that keeps marking loses its stalest plan rather than
@@ -87,6 +117,7 @@ public sealed class GroupMarks(TimeProvider timeProvider)
             entry.Waypoints.Add(waypoint);
         }
 
+        Save();
         return waypoint;
     }
 
@@ -94,7 +125,7 @@ public sealed class GroupMarks(TimeProvider timeProvider)
     {
         var entry = _rooms.GetOrAdd(room, _ => new());
         var ping = new GroupPing(
-            Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label), timeProvider.GetUtcNow());
+            Interlocked.Increment(ref _nextId), by, mapId, x, y, z, Trim(label), _timeProvider.GetUtcNow());
         lock (entry)
         {
             entry.Pings.RemoveAll(Expired);
@@ -127,11 +158,13 @@ public sealed class GroupMarks(TimeProvider timeProvider)
 
             entry.Waypoints[index] = entry.Waypoints[index] with
             {
-                CompletedUtc = timeProvider.GetUtcNow(),
+                CompletedUtc = _timeProvider.GetUtcNow(),
                 CompletedBy = by,
             };
-            return true;
         }
+
+        Save();
+        return true;
     }
 
     public bool Remove(string room, long id)
@@ -141,10 +174,18 @@ public sealed class GroupMarks(TimeProvider timeProvider)
             return false;
         }
 
+        bool removed;
         lock (entry)
         {
-            return entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id) > 0;
+            removed = entry.Waypoints.RemoveAll(waypoint => waypoint.Id == id) > 0;
         }
+
+        if (removed)
+        {
+            Save();
+        }
+
+        return removed;
     }
 
     /// <summary>Clears a map's waypoints, or only the ones already reached.</summary>
@@ -155,12 +196,20 @@ public sealed class GroupMarks(TimeProvider timeProvider)
             return 0;
         }
 
+        int cleared;
         lock (entry)
         {
-            return entry.Waypoints.RemoveAll(waypoint =>
+            cleared = entry.Waypoints.RemoveAll(waypoint =>
                 (mapId is null || string.Equals(waypoint.MapId, mapId, StringComparison.OrdinalIgnoreCase))
                 && (!reachedOnly || waypoint.CompletedUtc is not null));
         }
+
+        if (cleared > 0)
+        {
+            Save();
+        }
+
+        return cleared;
     }
 
     /// <summary>Everything the group has marked, with expired pings already gone.</summary>
@@ -178,7 +227,105 @@ public sealed class GroupMarks(TimeProvider timeProvider)
         }
     }
 
-    private bool Expired(GroupPing ping) => timeProvider.GetUtcNow() - ping.CreatedUtc > PingLifetime;
+    /// <summary>
+    /// Writes the squad's waypoints, and only those, to one file.
+    /// </summary>
+    /// <remarks>
+    /// Pings are not written: they expire in forty-five seconds and mean "now", so one
+    /// restored from disk would be a lie. Positions are not written because this server never
+    /// keeps them at all.
+    ///
+    /// Written through a temporary file and moved into place, so a restart during a save
+    /// leaves the previous plan rather than a truncated one. A failure is logged nowhere and
+    /// swallowed on purpose: losing the file costs the group its marks, and throwing here
+    /// would cost them the mark they were making as well.
+    /// </remarks>
+    private void Save()
+    {
+        if (_storePath is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var snapshot = new Dictionary<string, IReadOnlyList<GroupWaypoint>>(StringComparer.Ordinal);
+            foreach (var (room, entry) in _rooms)
+            {
+                lock (entry)
+                {
+                    if (entry.Waypoints.Count > 0)
+                    {
+                        snapshot[room] = entry.Waypoints.ToArray();
+                    }
+                }
+            }
+
+            lock (_saveGate)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_storePath)!);
+                var temporary = _storePath + ".writing";
+                File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot));
+                File.Move(temporary, _storePath, overwrite: true);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Reads back what was saved, dropping anything too old to still be a plan.
+    /// </summary>
+    /// <remarks>
+    /// The next id is seeded above the largest one restored. Without that a restart would
+    /// start numbering at one again and the first new waypoint would collide with a restored
+    /// one, so completing either would complete the wrong mark.
+    /// </remarks>
+    private void Load()
+    {
+        if (_storePath is null || !File.Exists(_storePath))
+        {
+            return;
+        }
+
+        try
+        {
+            var stored = JsonSerializer.Deserialize<Dictionary<string, List<GroupWaypoint>>>(
+                File.ReadAllText(_storePath));
+            if (stored is null)
+            {
+                return;
+            }
+
+            var cutoff = _timeProvider.GetUtcNow() - WaypointLifetime;
+            var highest = 0L;
+            foreach (var (room, waypoints) in stored)
+            {
+                var kept = waypoints
+                    .Where(waypoint => waypoint.CreatedUtc > cutoff)
+                    .TakeLast(MaximumWaypointsPerRoom)
+                    .ToArray();
+                if (kept.Length == 0)
+                {
+                    continue;
+                }
+
+                var entry = _rooms.GetOrAdd(room, _ => new());
+                entry.Waypoints.AddRange(kept);
+                highest = Math.Max(highest, kept.Max(waypoint => waypoint.Id));
+            }
+
+            _nextId = highest;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // An unreadable file is one lost plan, not a server that will not start.
+            _rooms.Clear();
+        }
+    }
+
+    private bool Expired(GroupPing ping) => _timeProvider.GetUtcNow() - ping.CreatedUtc > PingLifetime;
 
     private static string? Trim(string? label) =>
         string.IsNullOrWhiteSpace(label) ? null : label.Trim()[..Math.Min(label.Trim().Length, 64)];

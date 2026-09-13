@@ -88,7 +88,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          tar -C artifacts/group-server -czf dist/TarkovCompanion-GroupServer-linux-x64.tar.gz .
+          # Reproducible on purpose. The relay's updater compares the published checksum
+          # against the one it installed and restarts when they differ, and fresh mtimes,
+          # owners and directory order made the hash change on every green run — so nearly
+          # every merge to main restarted the relay whether or not the server had changed,
+          # twice an hour, each time taking the squad's marks with it.
+          #
+          # gzip is given -n separately because it stamps its own mtime into the header, which
+          # tar's -z would not suppress.
+          tar -C artifacts/group-server \
+            --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf - . | gzip -n > dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
           ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
           cat dist/GROUPSERVER-SHA256SUMS.txt
       - uses: actions/upload-artifact@v5
