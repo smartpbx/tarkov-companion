@@ -46,6 +46,17 @@ builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
 });
 builder.Services.AddSingleton<CatalogMirror>();
 
+// Filing an issue needs a token, and a token on every player's disk is not a thing to arrange.
+// The relay already has one machine, one place to keep a secret, and everybody's trust via the
+// group key, so it does the filing.
+builder.Services.AddHttpClient(ProblemReports.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+});
+builder.Services.AddSingleton<ProblemReports>();
+
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
@@ -128,6 +139,45 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
 //
 // So this returns everyone, including whoever is reading, because the reader is not one of
 // them. Same key, because this is the same room and the key is the whole access model.
+// One button, one issue. The person with the problem is the one who can see it and the least
+// able to describe it, so the report travels instead of the conversation.
+//
+// Keyed like everything else: the report is filed against the room rather than a person, and
+// the room is a hash of the key, so the relay learns nothing about who reported what.
+app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>>> (
+    HttpRequest request,
+    ProblemReports reports,
+    CancellationToken cancellationToken) =>
+{
+    if (!TryReadKey(request, out var key))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    using var reader = new StreamReader(request.Body);
+    var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+    if (string.IsNullOrWhiteSpace(body))
+    {
+        return TypedResults.BadRequest("A report needs a body.");
+    }
+
+    if (System.Text.Encoding.UTF8.GetByteCount(body) > ProblemReports.MaximumBytes)
+    {
+        return TypedResults.BadRequest($"A report may be at most {ProblemReports.MaximumBytes / 1024} KiB.");
+    }
+
+    var room = GroupKey.RoomFor(key);
+    if (reports.IsRateLimited(room))
+    {
+        // Said plainly rather than refused silently: somebody pressing the button twice has a
+        // reason, and being told the first one arrived is the useful answer.
+        return TypedResults.BadRequest(
+            $"This group has filed {ProblemReports.MaximumPerRoomPerHour} reports in the last hour. The earlier ones arrived.");
+    }
+
+    return TypedResults.Ok(await reports.FileAsync(room, body, cancellationToken).ConfigureAwait(false));
+});
+
 app.MapGet("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult> (HttpRequest request) =>
 {
     if (!TryReadKey(request, out var key))

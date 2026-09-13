@@ -1293,6 +1293,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         _observation = observation;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
         CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
+        ReportProblemCommand = new AsyncDelegateCommand(ReportProblemAsync);
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
         if (_updates is not null)
@@ -1447,6 +1448,49 @@ public sealed class SettingsPageViewModel : PageViewModel
     public DelegateCommand RestartForUpdateCommand { get; }
 
     public AsyncDelegateCommand CopyDiagnosticsCommand { get; }
+
+    public AsyncDelegateCommand ReportProblemCommand { get; }
+
+    /// <summary>
+    /// How a report reaches the relay, supplied by the shell.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than the group service, so this page does not acquire a dependency on
+    /// sharing in order to describe itself, and so the sending can be replaced in a test.
+    /// Returns the sentence to show the player.
+    /// </remarks>
+    public required Func<string, CancellationToken, Task<string>> SendReport { get; init; }
+
+    /// <summary>
+    /// Sends the diagnostics to the relay, which files an issue and hands back the link.
+    /// </summary>
+    /// <remarks>
+    /// The same text Copy diagnostics produces, sent rather than pasted, so the person with
+    /// the problem does not have to find somebody to paste it to.
+    ///
+    /// Copy diagnostics stays, and every failure here points back at it: a relay that cannot
+    /// be reached is one of the problems somebody might be reporting, and a report button that
+    /// only worked when nothing was wrong would be worth very little.
+    /// </remarks>
+    public async Task ReportProblemAsync()
+    {
+        if (_snapshot is not { } snapshot)
+        {
+            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            return;
+        }
+
+        DiagnosticsStatus = "Sending…";
+        try
+        {
+            var report = SupportBundle.Describe(snapshot, snapshot.RecentScreenshotNames, CrashLog.FilePath);
+            DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+        }
+    }
 
     /// <summary>
     /// How text reaches the clipboard, replaced in tests.
@@ -1894,7 +1938,12 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             recycleBin,
             updates,
             gameFolders,
-            observation);
+            observation)
+        {
+            // The relay does the filing, because a token on every player's disk is not a thing
+            // to arrange, and the group session is the one component that already holds the key.
+            SendReport = group.ReportProblemAsync,
+        };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);

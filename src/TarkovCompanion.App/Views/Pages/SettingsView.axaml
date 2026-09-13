@@ -29,11 +29,12 @@
               <TextBlock Classes="caption" Text="{Binding CompanionLogPath}" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Classes="primary" Command="{Binding ReportProblemCommand}" Content="Report a problem" />
               <Button Command="{Binding CopyDiagnosticsCommand}" Content="Copy diagnostics" />
               <TextBlock Classes="caption" Text="{Binding DiagnosticsStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="Build, folders, sync state, the shape of your screenshot names, and this application's recent log. No game logs, no group key, no screenshots and no coordinates." />
+                       Text="Report a problem sends this to the group's relay, which opens an issue and gives you the link. Copy diagnostics puts the same text on your clipboard instead. Both contain build, folders, sync state, the shape of your screenshot names and this application's recent log — no game logs, no group key, no screenshots and no coordinates." />
             <TextBlock Classes="prose" Text="{Binding UpdateStatus}" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Command="{Binding CheckForUpdateCommand}"
