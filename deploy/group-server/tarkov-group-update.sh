@@ -28,8 +28,13 @@ log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
 
+# wget rather than curl. The container does not have curl and cannot easily be given one,
+# which the runbook already recorded and this script originally ignored. wget is present on a
+# minimal Debian by default, which is the point of using it.
+fetch() { wget -q --timeout=60 --tries=3 -O "$2" "$1"; }
+
 log "checking ${REPO} ${RELEASE}"
-curl -fsSL --max-time 60 "${BASE}/${SUMS}" -o "${work}/${SUMS}"
+fetch "${BASE}/${SUMS}" "${work}/${SUMS}"
 expected="$(awk '{print $1}' "${work}/${SUMS}" | head -1)"
 if [[ -z "${expected}" ]]; then
     log "no checksum published; refusing to update"
@@ -44,7 +49,7 @@ if [[ -f "${STAMP}" ]] && [[ "$(cat "${STAMP}")" == "${expected}" ]]; then
 fi
 
 log "fetching ${ASSET}"
-curl -fsSL --max-time 300 "${BASE}/${ASSET}" -o "${work}/${ASSET}"
+fetch "${BASE}/${ASSET}" "${work}/${ASSET}"
 actual="$(sha256sum "${work}/${ASSET}" | awk '{print $1}')"
 if [[ "${actual}" != "${expected}" ]]; then
     log "checksum mismatch: expected ${expected}, got ${actual}. Refusing."
@@ -75,7 +80,7 @@ systemctl start "${SERVICE}"
 # failure this is guarding against, and systemd calls that success.
 for _ in $(seq 1 10); do
     sleep 2
-    if curl -fsS --max-time 5 http://127.0.0.1:8090/health >/dev/null 2>&1; then
+    if wget -q --timeout=5 -O /dev/null http://127.0.0.1:8090/health 2>/dev/null; then
         log "updated to ${expected:0:12} and answering"
         exit 0
     fi
