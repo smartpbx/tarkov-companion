@@ -117,6 +117,29 @@ public sealed record RaidSnapshot(
     public TimeSpan? RaidClock { get; init; }
 
     public DateTimeOffset? RaidClockReadUtc { get; init; }
+
+    /// <summary>
+    /// Lines the last extract scan read and could not match to an exit on this map.
+    /// </summary>
+    /// <remarks>
+    /// Read and thrown away until now, which made a scan that matched one exit out of eight
+    /// indistinguishable from a screen that had one exit on it. Both look like "Extracts: one".
+    /// Showing what was read and not matched turns the next report of this into an answer
+    /// rather than an investigation.
+    /// </remarks>
+    public IReadOnlyList<string> ExtractLinesNotMatched { get; init; } = [];
+
+    /// <summary>
+    /// The transits the extract screen offered, as the screen named them.
+    /// </summary>
+    /// <remarks>
+    /// The panel lists ways to another map alongside the exits from this one. They are labelled
+    /// TRANSIT rather than EXFIL, drawn a different colour, and absent from every extract
+    /// catalog, so matching them against one produced nothing but lines that failed. They are
+    /// worth showing: leaving a raid through Factory is a decision somebody makes off this
+    /// panel, and the name the screen prints says everything there is to know.
+    /// </remarks>
+    public IReadOnlyList<string> Transits { get; init; } = [];
 }
 
 public sealed record RaidHistoryEntry(
