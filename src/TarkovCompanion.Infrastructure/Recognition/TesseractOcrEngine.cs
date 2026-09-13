@@ -68,9 +68,10 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         {
             var stopwatch = Stopwatch.StartNew();
             var region = ClampRegion(image, request.Region);
-            var encoded = EncodePortableGraymap(image, region);
+            var preparation = request.Preparation;
+            var encoded = EncodePortableGraymap(image, region, preparation);
             var lines = await Task.Run(
-                () => RecognizeCore(encoded, region),
+                () => RecognizeCore(encoded, region, preparation.SafeScale),
                 CancellationToken.None).ConfigureAwait(false);
             stopwatch.Stop();
             cancellationToken.ThrowIfCancellationRequested();
@@ -136,7 +137,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         }
     }
 
-    private IReadOnlyList<OcrLine> RecognizeCore(byte[] encoded, PixelRect region)
+    private IReadOnlyList<OcrLine> RecognizeCore(byte[] encoded, PixelRect region, int scale)
     {
         using var pix = TesseractImage.LoadFromMemory(encoded);
         using var page = _engine!.Process(pix, PageSegMode.SparseText);
@@ -154,13 +155,15 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
                         continue;
                     }
 
+                    // Divided back out, because the caller asked about the picture it took
+                    // and a box measured on an enlarged copy of it means nothing there.
                     lines.Add(new(
                         text,
                         new PixelRect(
-                            region.X + bounds.Value.X1,
-                            region.Y + bounds.Value.Y1,
-                            bounds.Value.Width,
-                            bounds.Value.Height),
+                            region.X + (bounds.Value.X1 / scale),
+                            region.Y + (bounds.Value.Y1 / scale),
+                            Math.Max(1, bounds.Value.Width / scale),
+                            Math.Max(1, bounds.Value.Height / scale)),
                         NormalizeConfidence(textLine.Confidence)));
                 }
             }
@@ -194,21 +197,88 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         return new(left, top, right - left, bottom - top);
     }
 
-    private static byte[] EncodePortableGraymap(CapturedImage image, PixelRect region)
+    /// <summary>
+    /// Writes the region out as grey pixels, prepared however the caller asked.
+    /// </summary>
+    /// <remarks>
+    /// Enlarging repeats each pixel rather than interpolating between them. Interpolation
+    /// softens an edge, and a soft edge on sixteen pixel text is the thing being fixed;
+    /// repetition keeps the stroke exactly as sharp as it was and simply gives the engine more
+    /// of it to work with.
+    /// </remarks>
+    private static byte[] EncodePortableGraymap(CapturedImage image, PixelRect region, OcrPreparation preparation)
     {
-        var header = Encoding.ASCII.GetBytes($"P5\n{region.Width} {region.Height}\n255\n");
-        var result = new byte[checked(header.Length + (region.Width * region.Height))];
+        var scale = preparation.SafeScale;
+        var width = region.Width * scale;
+        var height = region.Height * scale;
+        var header = Encoding.ASCII.GetBytes($"P5\n{width} {height}\n255\n");
+        var result = new byte[checked(header.Length + (width * height))];
         header.CopyTo(result, 0);
         var offset = header.Length;
+        var threshold = preparation.BrightTextOnly ? Midpoint(image, region) : (byte)0;
         for (var y = region.Y; y < region.Y + region.Height; y++)
         {
+            var rowStart = offset;
             for (var x = region.X; x < region.X + region.Width; x++)
             {
-                result[offset++] = CapturedImagePixels.GetLuminance(image, x, y);
+                var value = CapturedImagePixels.GetLuminance(image, x, y);
+                if (preparation.BrightTextOnly)
+                {
+                    value = value >= threshold ? (byte)255 : (byte)0;
+                }
+
+                for (var repeat = 0; repeat < scale; repeat++)
+                {
+                    result[offset++] = value;
+                }
+            }
+
+            // Every row after the first in a scaled block is the same row again.
+            for (var repeat = 1; repeat < scale; repeat++)
+            {
+                Array.Copy(result, rowStart, result, offset, width);
+                offset += width;
             }
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Where to cut, when only the bright half of the picture is wanted.
+    /// </summary>
+    /// <remarks>
+    /// Halfway between the darkest and brightest pixel in the region, rather than a fixed
+    /// level. The game's panels are drawn over whatever the player is looking at, so the same
+    /// interface sits on a night-time forest and a lit warehouse, and a fixed level would take
+    /// all of one and none of the other.
+    ///
+    /// Sampled on a grid. The answer is a rough midpoint and reading every pixel of a four
+    /// megapixel frame to find one is time spent on precision nothing uses.
+    /// </remarks>
+    private static byte Midpoint(CapturedImage image, PixelRect region)
+    {
+        byte darkest = 255;
+        byte brightest = 0;
+        var step = Math.Max(1, Math.Min(region.Width, region.Height) / 128);
+        for (var y = region.Y; y < region.Y + region.Height; y += step)
+        {
+            for (var x = region.X; x < region.X + region.Width; x += step)
+            {
+                var value = CapturedImagePixels.GetLuminance(image, x, y);
+                if (value < darkest)
+                {
+                    darkest = value;
+                }
+
+                if (value > brightest)
+                {
+                    brightest = value;
+                }
+            }
+        }
+
+        return brightest <= darkest ? (byte)128 : (byte)((darkest + brightest) / 2);
     }
 
     private static string ResolveTessdataPath(TesseractOcrOptions options)
