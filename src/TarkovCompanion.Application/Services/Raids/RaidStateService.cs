@@ -186,7 +186,8 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
         TimeSpan? raidClock = null,
-        IReadOnlyList<string>? linesNotMatched = null)
+        IReadOnlyList<string>? linesNotMatched = null,
+        IReadOnlyList<string>? transits = null)
     {
         ArgumentNullException.ThrowIfNull(extracts);
         observedUtc = observedUtc.ToUniversalTime();
@@ -215,6 +216,7 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             // carrying last screen's leftovers forward would say the scan failed on lines it
             // never saw.
             ExtractLinesNotMatched = linesNotMatched ?? [],
+            Transits = transits ?? [],
         };
         return Current;
     }

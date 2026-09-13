@@ -508,7 +508,8 @@ public interface IRaidStateService
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
         TimeSpan? raidClock = null,
-        IReadOnlyList<string>? linesNotMatched = null);
+        IReadOnlyList<string>? linesNotMatched = null,
+        IReadOnlyList<string>? transits = null);
 }
 
 public interface IStrategyModel

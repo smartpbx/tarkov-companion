@@ -148,3 +148,115 @@ and SEARCH cleanly, and the loadout is legible on it.
 
 32 of the 33 menu screenshots are from 2024 and are OneDrive cloud-only placeholders. Reading
 one costs a download. `ScreenshotRetention.IsCloudOnly` exists for this.
+
+## The extract panel is top-right, and every row has a slot label
+
+Measured on a Woods raid whose scan matched one exit out of five.
+
+| | Value |
+|---|---|
+| Panel bounds | x 0.850..0.995, y 0.005..0.50 of a 3840x1080 frame |
+| Rows on that screenshot | 10 (5 exits, 4 transits, 1 header) |
+| Header | a bright green bar with black text |
+| Timer column | right-aligned near x 0.975, **its own OCR line**, not appended to the name |
+
+The vertical extent grows with the number of exits, so crop generously downwards.
+
+**Read the panel on its own, untouched.** Probing the whole 3840x1080 frame returned 240 lines
+of noise with the exit names buried; cropping to the panel and probing that returned 16 lines
+with every name legible. The bright-half preparation that suits a full frame *hurts* here — the
+names are drawn lighter and smaller than the slot labels beside them, and thin pale text is what
+a threshold eats first. "As captured" read it best.
+
+**Every row begins with a slot label on the same line as the name.** Verbatim OCR:
+
+```
+Find an extraction point
+0:12:28
+EXFILO1 Friendship Bridge (Co-Op)
+22:22: 2
+Ss
+EXFIL@2 ZB-214
+EXFIL@3 Bridge V-Ex
+22:22:22
+```
+
+What the screen actually draws:
+
+```
+[green bar]  Find an extraction point            0:12:28
+EXFIL01  Friendship Bridge (Co-Op)
+EXFIL02  ZB-014                                  ??:??:??
+EXFIL03  Bridge V-Ex                             ??:??:??
+EXFIL04  Outskirts
+EXFIL05  Power Line Passage (Flare)
+TRANSIT01  Transit to Factory
+TRANSIT02  Transit to Reserve
+TRANSIT03  Transit to Lighthouse
+TRANSIT01  Transit to Customs
+```
+
+That label is eight to ten characters of dead weight against a catalog name that has none, and
+the shorter the real name the more it dominates a similarity score:
+
+| Row | Name chars | Prefix chars |
+|---|---|---|
+| Power Line Passage (Flare) | 26 | 8 |
+| Friendship Bridge (Co-Op) | 25 | 8 |
+| Bridge V-Ex | 11 | 8 |
+| Outskirts | 9 | 8 |
+| ZB-014 | 6 | 8 |
+
+Power Line Passage is the longest name on the screen and was the only row to clear the
+threshold. That is the whole explanation for "it only found one extract".
+
+**The zero in the slot number is usually not a zero.** It reads as a letter `O` or an at-sign:
+`EXFILO1`, `EXFIL@2`, `EXFIL@3`, `EXFIL@1`, `EXFILO2`. A pattern anchored on `\d` fails on most
+rows.
+
+**Do not trust the timer column.** Where the game prints `??:??:??` for an unknown time, the
+question marks OCR as twos and it comes back as `22:22:22` — a plausible-looking number for an
+exit twenty-two hours away. The raid clock's one-hour cap happens to reject it, which is luck
+rather than design.
+
+**TRANSIT rows are a different kind.** They are ways to another map, drawn in orange, and absent
+from every extract catalog. Matching them against one produces nothing but lines that failed.
+
+**`ZB-014` read as `ZB-214`** on this screen, and as `zB-014` only at 3x. Six characters with one
+wrong is not something a threshold can rescue, and loosening one far enough to catch it would
+match it to whatever else is nearest.
+
+## Carried items: the gear slots are not the route, the stash grid is
+
+On the character screen each gear slot is a box with a bright white uppercase header above it —
+ON SLING, HOLSTER, ON BACK, SHEATH, EARPIECE, HEADWEAR, FACE COVER, ARMBAND, BODY ARMOR,
+EYEWEAR, DOGTAG, TACTICAL RIG, POCKETS, SPECIAL SLOTS, BACKPACK, POUCH. Those headers are
+high-contrast and OCR cleanly.
+
+The contents do not.
+
+- An **empty** slot draws a ghost outline on a hatched background and **no text at all**.
+- A **filled** slot draws the icon plus a short caption in its top-right corner, heavily
+  abbreviated: a hatchet reads `KATT`. Four characters is not enough to identify an item.
+
+So **pair by position, never by order**: find the header, take the box beneath it, read the
+caption inside that box. No caption means the slot is empty, which is information. Pairing lines
+in reading order shifts by one at every empty slot and produces a plausible-looking wrong
+loadout rather than an empty list, which is worse.
+
+The **stash grid** on the right of the same screen carries fuller captions under each icon —
+`MP855`, `Morphine`, `GoldenSta`, `Vaseline`, `Augment`, `Ibuprofen`, `SS0BPLF`, `VOG-25`. Still
+truncated, but identifiable. If carried items are the goal, that is the better surface.
+
+The full name exists on screen only in the hover tooltip, one item at a time
+(`12/70 makeshift 50 BMG slug`), which is no use for a sweep.
+
+| Element | Bounds (3840x1080) |
+|---|---|
+| Whole gear panel | x 0.26..0.56, y 0.13..0.76 |
+| Left slot column | x 0.255..0.41 |
+| Stash grid (captioned icons) | x 0.575..0.75 |
+| Quick use strip (1-0 row, empty here) | x 0.40..0.60, y 0.87..0.93 |
+
+The quick use strip **does** exist on the character screen, drawn as numbered empty boxes. That
+is the same element reported absent in raid: it is a menu element, not a HUD one.

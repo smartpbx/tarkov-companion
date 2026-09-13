@@ -331,7 +331,8 @@ public sealed class ScanUseCase : IScanUseCase
             result.Extracts,
             image.CapturedUtc,
             RaidTimer.Read(leftover),
-            leftover);
+            leftover,
+            result.Transits);
         foreach (var observation in result.Observations)
         {
             evidence.Add(new(

@@ -229,6 +229,7 @@ public sealed class RaidPageViewModel : PageViewModel
     private string _position = "No last-known position";
     private IReadOnlyList<ActiveExtractViewModel> _extracts = [];
     private string _extractsNotMatched = string.Empty;
+    private string _transits = string.Empty;
     private RaidSummaryViewModel? _summary;
     private RaidSnapshot? _lastInRaid;
     private string? _lastInRaidMode;
@@ -390,6 +391,21 @@ public sealed class RaidPageViewModel : PageViewModel
 
     public bool HasExtractsNotMatched => ExtractsNotMatched.Length > 0;
 
+    /// <summary>
+    /// The ways to another map this screen offered, which no extract catalog contains.
+    /// </summary>
+    public string Transits
+    {
+        get => _transits;
+        private set
+        {
+            SetProperty(ref _transits, value);
+            OnPropertyChanged(nameof(HasTransits));
+        }
+    }
+
+    public bool HasTransits => Transits.Length > 0;
+
     public void Apply(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc)
     {
         var raid = snapshot.Raid;
@@ -417,6 +433,9 @@ public sealed class RaidPageViewModel : PageViewModel
                 $"{count} lines on that screen were not matched to an exit: ") +
                 string.Join(" · ", raid.ExtractLinesNotMatched.Take(12)),
         };
+        Transits = raid.Transits.Count == 0
+            ? string.Empty
+            : "Transits offered: " + string.Join(" · ", raid.Transits);
         UpdateTimeLeft(raid, nowUtc);
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"

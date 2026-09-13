@@ -128,6 +128,18 @@ public sealed record RaidSnapshot(
     /// rather than an investigation.
     /// </remarks>
     public IReadOnlyList<string> ExtractLinesNotMatched { get; init; } = [];
+
+    /// <summary>
+    /// The transits the extract screen offered, as the screen named them.
+    /// </summary>
+    /// <remarks>
+    /// The panel lists ways to another map alongside the exits from this one. They are labelled
+    /// TRANSIT rather than EXFIL, drawn a different colour, and absent from every extract
+    /// catalog, so matching them against one produced nothing but lines that failed. They are
+    /// worth showing: leaving a raid through Factory is a decision somebody makes off this
+    /// panel, and the name the screen prints says everything there is to know.
+    /// </remarks>
+    public IReadOnlyList<string> Transits { get; init; } = [];
 }
 
 public sealed record RaidHistoryEntry(
