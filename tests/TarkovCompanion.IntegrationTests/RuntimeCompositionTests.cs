@@ -310,6 +310,24 @@ public sealed class RuntimeCompositionTests
             Assert.True(task.IsPinned);
             await Assert.IsType<AsyncDelegateCommand>(task.SetUnknownCommand).ExecuteAsync();
             Assert.Equal("Unknown", Assert.Single(quests.Tasks).RecordedState);
+            // The game never writes its own player's level, so the page owns it. Left at the
+            // stored 1 every level requirement in the catalog reads as unmet, which is what a
+            // fresh install looked like.
+            Assert.Equal(1m, quests.PlayerLevel);
+            await quests.SetPlayerLevelAsync(42);
+            Assert.Equal(42m, quests.PlayerLevel);
+            Assert.Equal(42, (await services.GetRequiredService<IPlayerProfileService>()
+                .GetActiveAsync(TestContext.Current.CancellationToken)).Level);
+
+            // Out of range is pulled back rather than refused: a spinner holding 800 gates the
+            // catalog as thoroughly as one holding 1.
+            await quests.SetPlayerLevelAsync(800);
+            Assert.Equal((decimal)QuestsPageViewModel.MaximumLevel, quests.PlayerLevel);
+
+            // A cleared box is not a level.
+            await quests.SetPlayerLevelAsync(null);
+            Assert.Equal((decimal)QuestsPageViewModel.MaximumLevel, quests.PlayerLevel);
+
             Assert.Contains("exact mode Regular", quests.ScopeStatus, StringComparison.Ordinal);
             Assert.Contains("generation", quests.ScopeStatus, StringComparison.OrdinalIgnoreCase);
             Assert.Contains("json.tarkov.dev", quests.CatalogStatus, StringComparison.OrdinalIgnoreCase);
