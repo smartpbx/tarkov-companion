@@ -609,156 +609,163 @@
          The map chooser carries no label and is set larger than the other two, because the
          name of the map is the one thing on this bar worth reading from across the room; the
          view and the floor are qualifiers and are labelled as such. -->
-    <StackPanel Margin="12" HorizontalAlignment="Left" VerticalAlignment="Top" Spacing="7">
-      <Border Classes="floating" Padding="8,6">
-        <StackPanel Orientation="Horizontal" Spacing="12">
-          <ComboBox
-              x:Name="LocationChooser"
-              Classes="chooser primary"
-              MinWidth="168"
-              ItemsSource="{Binding Locations}"
-              SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
-              SelectionChanged="LocationSelectionChanged"
-              ToolTip.Tip="Map">
-            <ComboBox.ItemTemplate>
-              <DataTemplate x:DataType="maps:MapLocation">
-                <TextBlock Text="{Binding Name}" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Classes="chooserLabel" Text="View" />
+    <!-- One bounding row for the two bars. They are both Top-aligned children of the same
+         Panel, so the left one grew rightwards under the right one: at the shipped default
+         window width the view controls sat on top of the Stack toggle and clipped it. The
+         star column gives the left bar whatever the right bar does not need, and the row
+         inside it wraps rather than running on. -->
+    <Grid VerticalAlignment="Top" ColumnDefinitions="*,Auto">
+      <StackPanel Grid.Column="0" Margin="12" HorizontalAlignment="Left" VerticalAlignment="Top" Spacing="7">
+        <Border Classes="floating" Padding="8,6">
+          <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="6">
             <ComboBox
-                x:Name="VariantChooser"
-                Classes="chooser"
-                MinWidth="124"
-                ItemsSource="{Binding Variants}"
-                SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
-                SelectionChanged="VariantSelectionChanged">
+                x:Name="LocationChooser"
+                Classes="chooser primary"
+                MinWidth="168"
+                ItemsSource="{Binding Locations}"
+                SelectedItem="{Binding SelectedLocation, Mode=OneWay}"
+                SelectionChanged="LocationSelectionChanged"
+                ToolTip.Tip="Map">
               <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="maps:MapVariant">
-                  <TextBlock Text="{Binding DisplayName}" />
-                </DataTemplate>
-              </ComboBox.ItemTemplate>
-            </ComboBox>
-          </StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Classes="chooserLabel" Text="Floor" />
-            <!-- Which building's floor, where the catalog names one. The second floor of dorms
-                 on Customs and the second floor of big red are different heights, so a floor
-                 number alone is not an answer on the maps that have this. -->
-            <TextBlock Classes="chooserLabel ochre"
-                       Text="{Binding Area}"
-                       IsVisible="{Binding HasArea}"
-                       VerticalAlignment="Center" />
-            <ComboBox
-                x:Name="FloorChooser"
-                Classes="chooser"
-                MinWidth="100"
-                ItemsSource="{Binding Floors}"
-                SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
-                SelectionChanged="FloorSelectionChanged">
-              <ComboBox.ItemTemplate>
-                <DataTemplate x:DataType="maps:MapFloorDefinition">
+                <DataTemplate x:DataType="maps:MapLocation">
                   <TextBlock Text="{Binding Name}" />
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
-            <!-- The separate smaller maps some buildings have, which the catalog does not
-                 publish and does not need to: a floor is a list of named rectangles, 68 of
-                 them across the maps, and framing the one the player is standing in is what a
-                 separate map would have been.
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="chooserLabel" Text="View" />
+              <ComboBox
+                  x:Name="VariantChooser"
+                  Classes="chooser"
+                  MinWidth="124"
+                  ItemsSource="{Binding Variants}"
+                  SelectedItem="{Binding SelectedVariant, Mode=OneWay}"
+                  SelectionChanged="VariantSelectionChanged">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="maps:MapVariant">
+                    <TextBlock Text="{Binding DisplayName}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="chooserLabel" Text="Floor" />
+              <!-- Which building's floor, where the catalog names one. The second floor of dorms
+                   on Customs and the second floor of big red are different heights, so a floor
+                   number alone is not an answer on the maps that have this. -->
+              <TextBlock Classes="chooserLabel ochre"
+                         Text="{Binding Area}"
+                         IsVisible="{Binding HasArea}"
+                         VerticalAlignment="Center" />
+              <ComboBox
+                  x:Name="FloorChooser"
+                  Classes="chooser"
+                  MinWidth="100"
+                  ItemsSource="{Binding Floors}"
+                  SelectedItem="{Binding SelectedFloor, Mode=OneWay}"
+                  SelectionChanged="FloorSelectionChanged">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="maps:MapFloorDefinition">
+                    <TextBlock Text="{Binding Name}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <!-- The separate smaller maps some buildings have, which the catalog does not
+                   publish and does not need to: a floor is a list of named rectangles, 68 of
+                   them across the maps, and framing the one the player is standing in is what a
+                   separate map would have been.
 
-                 Only when there is one, and it lets go when they walk out. A floor chosen
-                 deliberately still frames the floor. -->
-            <ToggleButton Classes="chooser"
-                          IsVisible="{Binding CanFrameArea}"
-                          IsChecked="{Binding IsFramingArea, Mode=TwoWay}"
-                          Content="{Binding FrameAreaText}" />
-            <!-- The flat map answers "where". On a map with floors it cannot answer "which
-                 floor", which is the question inside a building, and a stack answers both at
-                 once. Off until asked for.
+                   Only when there is one, and it lets go when they walk out. A floor chosen
+                   deliberately still frames the floor. -->
+              <ToggleButton Classes="viewControl"
+                            IsVisible="{Binding CanFrameArea}"
+                            IsChecked="{Binding IsFramingArea, Mode=TwoWay}"
+                            Content="{Binding FrameAreaText}" />
+              <!-- The flat map answers "where". On a map with floors it cannot answer "which
+                   floor", which is the question inside a building, and a stack answers both at
+                   once. Off until asked for.
 
-                 One word, because the row is full. "Stack the floors" was clipped to "Stack"
-                 by the toolbar beside it, which is the toolbar saying there is no room rather
-                 than a label that wanted to be longer. It sits next to the floor chooser, so
-                 one word is enough to say which floors. -->
-            <ToggleButton Classes="chooser"
-                          IsVisible="{Binding CanStack}"
-                          IsChecked="{Binding IsStacked, Mode=TwoWay}"
-                          ToolTip.Tip="Draw the floors one above another instead of one at a time"
-                          Content="Stack" />
-          </StackPanel>
+                   One word, because the row is full. "Stack the floors" was clipped to "Stack"
+                   by the toolbar beside it, which is the toolbar saying there is no room rather
+                   than a label that wanted to be longer. It sits next to the floor chooser, so
+                   one word is enough to say which floors. -->
+              <ToggleButton Classes="viewControl"
+                            IsVisible="{Binding CanStack}"
+                            IsChecked="{Binding IsStacked, Mode=TwoWay}"
+                            ToolTip.Tip="Draw the floors one above another instead of one at a time"
+                            Content="Stack" />
+            </StackPanel>
+          </WrapPanel>
+        </Border>
+
+        <!-- Collapsed by default. A row of layer chips permanently across the top was the
+             single largest piece of chrome and is the one touched least. Open, it is a key as
+             much as a set of switches: each row is drawn with the disc its markers use, in the
+             order they matter, with a count of what is on the layer. -->
+        <Expander Classes="floating" Header="Layers" IsExpanded="False">
+          <ItemsControl ItemsSource="{Binding Overlays}" MinWidth="220">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:MapOverlayViewModel">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
+                  <ToggleButton
+                      Classes="layerRow"
+                      Tag="{Binding Kind}"
+                      IsChecked="{Binding IsVisible, Mode=OneWay}"
+                      Click="OverlayVisibilityChanged">
+                    <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="8">
+                      <Panel Width="16" Height="16" VerticalAlignment="Center">
+                        <Ellipse
+                            Classes="markerDisc"
+                            Classes.spawn="{Binding IsSpawns}"
+                            Classes.locked="{Binding IsKeys}"
+                            Classes.quest="{Binding IsQuestObjectives}"
+                            IsVisible="{Binding HasDiscSwatch}" />
+                        <TextBlock
+                            Classes="swatchText"
+                            Text="Aa"
+                            IsVisible="{Binding IsLabels}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center" />
+                      </Panel>
+                      <TextBlock Grid.Column="1" Classes="layerName" Text="{Binding DisplayName}" />
+                      <TextBlock Grid.Column="2" Classes="layerCount" Text="{Binding CountText}" />
+                    </Grid>
+                  </ToggleButton>
+                  <Button
+                      Grid.Column="1"
+                      Classes="chipFocus"
+                      Classes.on="{Binding IsHighlighted}"
+                      Tag="{Binding Kind}"
+                      Content="&#x25CE;"
+                      ToolTip.Tip="{Binding HighlightLabel}"
+                      Click="OverlayHighlightClick" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Expander>
+      </StackPanel>
+
+      <Border Grid.Column="1" Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+          <!-- Only shown where the map actually publishes both, which is a minority of them. -->
+          <Button
+              Classes="viewControl"
+              Classes.on="{Binding PrefersDrawing}"
+              Click="ArtworkClick"
+              Content="Drawing"
+              IsVisible="{Binding HasArtworkChoice}"
+              ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
+          <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
+          <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
+                  ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
+          <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
+          <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
+          <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
+          <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />
         </StackPanel>
       </Border>
-
-      <!-- Collapsed by default. A row of layer chips permanently across the top was the
-           single largest piece of chrome and is the one touched least. Open, it is a key as
-           much as a set of switches: each row is drawn with the disc its markers use, in the
-           order they matter, with a count of what is on the layer. -->
-      <Expander Classes="floating" Header="Layers" IsExpanded="False">
-        <ItemsControl ItemsSource="{Binding Overlays}" MinWidth="220">
-          <ItemsControl.ItemTemplate>
-            <DataTemplate x:DataType="vm:MapOverlayViewModel">
-              <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,2">
-                <ToggleButton
-                    Classes="layerRow"
-                    Tag="{Binding Kind}"
-                    IsChecked="{Binding IsVisible, Mode=OneWay}"
-                    Click="OverlayVisibilityChanged">
-                  <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="8">
-                    <Panel Width="16" Height="16" VerticalAlignment="Center">
-                      <Ellipse
-                          Classes="markerDisc"
-                          Classes.spawn="{Binding IsSpawns}"
-                          Classes.locked="{Binding IsKeys}"
-                          Classes.quest="{Binding IsQuestObjectives}"
-                          IsVisible="{Binding HasDiscSwatch}" />
-                      <TextBlock
-                          Classes="swatchText"
-                          Text="Aa"
-                          IsVisible="{Binding IsLabels}"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center" />
-                    </Panel>
-                    <TextBlock Grid.Column="1" Classes="layerName" Text="{Binding DisplayName}" />
-                    <TextBlock Grid.Column="2" Classes="layerCount" Text="{Binding CountText}" />
-                  </Grid>
-                </ToggleButton>
-                <Button
-                    Grid.Column="1"
-                    Classes="chipFocus"
-                    Classes.on="{Binding IsHighlighted}"
-                    Tag="{Binding Kind}"
-                    Content="&#x25CE;"
-                    ToolTip.Tip="{Binding HighlightLabel}"
-                    Click="OverlayHighlightClick" />
-              </Grid>
-            </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
-      </Expander>
-    </StackPanel>
-
-    <Border Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
-      <StackPanel Orientation="Horizontal" Spacing="4">
-        <!-- Only shown where the map actually publishes both, which is a minority of them. -->
-        <Button
-            Classes="viewControl"
-            Classes.on="{Binding PrefersDrawing}"
-            Click="ArtworkClick"
-            Content="Drawing"
-            IsVisible="{Binding HasArtworkChoice}"
-            ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
-        <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
-        <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
-                ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
-        <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
-        <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
-        <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
-        <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />
-      </StackPanel>
-    </Border>
+    </Grid>
 
     <!-- Bottom left: what the map is doing, in one line, expandable when it matters. -->
     <Expander
