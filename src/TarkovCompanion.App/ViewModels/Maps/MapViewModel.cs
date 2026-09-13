@@ -728,7 +728,19 @@ public sealed record MapPlaceNameViewModel(
     public double CanvasWidth { get; init; }
 
     /// <summary>
-    /// How far right a name has to move to stay on the map.
+    /// How wide the text is in canvas units rather than on screen.
+    /// </summary>
+    /// <remarks>
+    /// The two are not the same number and mixing them is the mistake this file has now made
+    /// three times. A place name is counter-scaled, so <see cref="TextWidth"/> is its size on
+    /// screen and never changes; the position it is compared against is in canvas units, which
+    /// at 23% zoom are more than four times smaller. Anything comparing a size with a position
+    /// has to convert one of them first.
+    /// </remarks>
+    public double TextWidthOnCanvas => TextWidth * Scale.Inverse;
+
+    /// <summary>
+    /// How far along the canvas a name has to move to stay on the map, in canvas units.
     /// </summary>
     /// <remarks>
     /// Reported as two labels drawn on top of each other, which is what it looks like: on
@@ -749,13 +761,13 @@ public sealed record MapPlaceNameViewModel(
     {
         get
         {
-            var left = CenterX - (TextWidth / 2);
-            if (left < 0)
+            var half = TextWidthOnCanvas / 2;
+            if (CenterX - half < 0)
             {
-                return -left;
+                return half - CenterX;
             }
 
-            var overhang = left + TextWidth - CanvasWidth;
+            var overhang = CenterX + half - CanvasWidth;
             return CanvasWidth > 0 && overhang > 0 ? -overhang : 0;
         }
     }
