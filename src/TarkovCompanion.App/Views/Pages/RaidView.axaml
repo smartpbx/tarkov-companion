@@ -3,7 +3,8 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels"
-             xmlns:maps="using:TarkovCompanion.App.Views.Maps">
+             xmlns:maps="using:TarkovCompanion.App.Views.Maps"
+             xmlns:mapvm="using:TarkovCompanion.App.ViewModels.Maps">
   <Grid ColumnDefinitions="*,300" ColumnSpacing="12">
     <maps:MapView Grid.Column="0" DataContext="{Binding Map}" />
 
@@ -91,6 +92,49 @@
               <TextBlock Classes="label" Text="Extracts" />
               <TextBlock Classes="value" Text="{Binding Extracts}" TextWrapping="Wrap" />
             </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- Everyone else in the group, in the column beside the map rather than floating over
+             it. A marker says where somebody is; it cannot say that they are on a different
+             map, that their position is eight minutes old, or what they are carrying, and
+             those are the things asked out loud.
+
+             Present only when somebody else is actually sharing, so a player alone sees
+             nothing. Rows for people on another map are dimmed rather than hidden, because
+             "he is on Customs" is an answer to where he is. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasGroupPanel}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Group" />
+            <ItemsControl ItemsSource="{Binding Map.GroupPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:GroupMemberPanelViewModel">
+                  <Border Classes="inset" Classes.elsewhere="{Binding IsElsewhere}" Padding="9,7" Margin="0,0,0,6">
+                    <StackPanel Spacing="2">
+                      <!-- The swatch is the colour this member's marker is drawn in. It is the
+                           only thing joining a name in this list to a dot on the map. -->
+                      <StackPanel Orientation="Horizontal" Spacing="7">
+                        <Ellipse Width="10"
+                                 Height="10"
+                                 Fill="{Binding SwatchColor}"
+                                 Stroke="#FF0B1016"
+                                 StrokeThickness="1.5"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Classes="value" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <TextBlock Classes="label" Text="{Binding Where}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Position}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Extra}" IsVisible="{Binding HasExtra}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <!-- Both gestures have always worked and neither was written down anywhere, so the
+                 first question asked about them was whether they had been built. -->
+            <Border Classes="hairline" />
+            <TextBlock Classes="caption" Text="Right-click the map to mark a waypoint" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="Hold shift for a ping, which fades" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 
