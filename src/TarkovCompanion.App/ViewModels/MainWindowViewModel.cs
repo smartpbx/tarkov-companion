@@ -8,7 +8,6 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
-using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
@@ -1146,14 +1145,6 @@ public sealed class SettingsPageViewModel : PageViewModel
                 + "and anything you move out of the folder is never touched."
             : "Screenshots are left alone, and the folder will grow for as long as you keep taking them.";
     }
-
-    public string RecognitionProvider { get; }
-
-    public string DatabasePath { get; }
-
-    public string DiagnosticChannel { get; }
-
-    public AsyncDelegateCommand SyncCommand { get; }
 
     public string RecognitionProvider { get; }
 

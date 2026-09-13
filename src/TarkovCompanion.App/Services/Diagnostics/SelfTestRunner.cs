@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 
