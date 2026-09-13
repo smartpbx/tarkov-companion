@@ -13,6 +13,7 @@ using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.App.ViewModels.Maps;
@@ -179,6 +180,32 @@ public sealed record GroupMarkViewModel(
     public bool HasLabel => Label.Length > 0;
 
     public Thickness LabelInset => new(0, (Extent / 2) + 2, 0, 0);
+}
+
+/// <summary>
+/// One other member of the group, written out beside the map rather than on it.
+/// </summary>
+/// <remarks>
+/// A marker says where somebody is. It cannot say that they are on another map, that their
+/// position is eight minutes old, or what they are carrying, and those are the things asked
+/// out loud during a raid. The panel carries them, and only appears when somebody else is
+/// actually there, so a player alone loses no width to it.
+/// </remarks>
+/// <param name="Name">Their chosen display name.</param>
+/// <param name="Where">The map and what they are doing on it.</param>
+/// <param name="Position">Where they were, and how long ago that was.</param>
+/// <param name="Extra">Loadout and quests, where they share them.</param>
+/// <param name="IsElsewhere">Whether they are on a map other than the one being looked at.</param>
+/// <param name="IsStale">Whether their position is old enough to be treated as a guess.</param>
+public sealed record GroupMemberPanelViewModel(
+    string Name,
+    string Where,
+    string Position,
+    string Extra,
+    bool IsElsewhere,
+    bool IsStale)
+{
+    public bool HasExtra => Extra.Length > 0;
 }
 
 public sealed record GroupMarkerViewModel(
@@ -814,6 +841,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
+    private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
@@ -2270,6 +2298,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateQuestGeometry();
         UpdatePlayerMarker();
         UpdateGroupMarkers();
+        // Whether somebody counts as elsewhere depends on which map is open, so the panel is
+        // rewritten when the map changes and not only when the group does.
+        UpdateGroupPanel(_groupMembers);
     }
 
     /// <summary>
@@ -2509,9 +2540,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         return true;
     }
 
+    /// <summary>Everyone else in the group, written out beside the map.</summary>
+    public IReadOnlyList<GroupMemberPanelViewModel> GroupPanel
+    {
+        get => _groupPanel;
+        private set
+        {
+            Set(ref _groupPanel, value);
+            OnPropertyChanged(nameof(HasGroupPanel));
+        }
+    }
+
+    /// <summary>Whether anybody else is there at all, which is what puts the panel on screen.</summary>
+    public bool HasGroupPanel => GroupPanel.Count > 0;
+
     public void ShowGroup(IReadOnlyList<GroupMemberView> members)
     {
         ArgumentNullException.ThrowIfNull(members);
+        // Built every time and assigned only when it differs. The markers below are skipped
+        // when nobody has moved, but the panel also carries raid state, the age of a position
+        // and what somebody is carrying, all of which change while a position does not.
+        UpdateGroupPanel(members);
         if (_groupMembers.Count == members.Count &&
             _groupMembers.Zip(members).All(pair =>
                 string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal) &&
@@ -2525,6 +2574,93 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateGroupMarkers();
         UpdateGroupMarks();
     }
+
+    private void UpdateGroupPanel(IReadOnlyList<GroupMemberView> members)
+    {
+        if (members.Count == 0)
+        {
+            if (GroupPanel.Count > 0)
+            {
+                GroupPanel = [];
+            }
+
+            return;
+        }
+
+        var here = SelectedLocation?.Id;
+        var locations = Locations;
+        var rows = members
+            .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(member => Describe(member, here, locations))
+            .ToArray();
+        if (!rows.SequenceEqual(GroupPanel))
+        {
+            GroupPanel = rows;
+        }
+    }
+
+    /// <summary>One member written out as a row, with no view model state behind it.</summary>
+    /// <param name="member">Them, as they last described themselves.</param>
+    /// <param name="here">The map being looked at, so a row can say when somebody is not on it.</param>
+    /// <param name="locations">The map catalog, only so the row can name a map rather than slug it.</param>
+    public static GroupMemberPanelViewModel Describe(
+        GroupMemberView member,
+        string? here,
+        IReadOnlyList<MapLocation> locations)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(locations);
+        var elsewhere = member.MapId is not { Length: > 0 } map ||
+            !string.Equals(map, here, StringComparison.OrdinalIgnoreCase);
+        var age = member.PositionAge;
+        return new(
+            member.Name,
+            DescribeWhere(member, locations),
+            member.Position is { } position
+                ? string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{position.X:F0}, {position.Z:F0} · {DescribeAge(age)}")
+                : "No position shared",
+            string.Join(" · ", member.Loadout.Concat(member.Quests)),
+            elsewhere,
+            age is null || age > PlayerMarkerFreshFor);
+    }
+
+    /// <summary>The map they are on and what they are doing, in that order.</summary>
+    /// <remarks>
+    /// The map is named rather than slugged, because the chooser above the map names it the
+    /// same way and two names for one place reads as two places.
+    /// </remarks>
+    private static string DescribeWhere(GroupMemberView member, IReadOnlyList<MapLocation> locations)
+    {
+        var state = DescribeState(member.RaidState);
+        if (member.MapId is not { Length: > 0 } mapId)
+        {
+            return state;
+        }
+
+        var name = locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+        return member.Side is { Length: > 0 } side
+            ? $"{name} · {state} · {side}"
+            : $"{name} · {state}";
+    }
+
+    private static string DescribeState(RaidLifecycleState state) => state switch
+    {
+        RaidLifecycleState.InRaid => "In raid",
+        RaidLifecycleState.LoadingRaid => "Loading",
+        RaidLifecycleState.PostRaid => "Out",
+        RaidLifecycleState.Menu => "Menu",
+        RaidLifecycleState.LauncherOrGameDetected => "Launcher",
+        _ => "Unknown",
+    };
+
+    private static string DescribeAge(TimeSpan? age) => age is not { } value
+        ? "age unknown"
+        : value < TimeSpan.FromMinutes(1)
+            ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
+            : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
 
     private void UpdateGroupMarkers()
     {

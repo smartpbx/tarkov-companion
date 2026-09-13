@@ -154,6 +154,12 @@
     <Setter Property="CornerRadius" Value="3" />
     <Setter Property="Padding" Value="10" />
   </Style>
+  <!-- Somebody in the group who is on a different map. Dimmed rather than dropped, because
+       "he is on Customs" is an answer to where he is; drawing him at full strength beside the
+       people on this map would read as though he were on it. -->
+  <Style Selector="Border.inset.elsewhere">
+    <Setter Property="Opacity" Value="0.58" />
+  </Style>
   <Style Selector="Border.readout">
     <Setter Property="Background" Value="{StaticResource CanvasBrush}" />
     <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />

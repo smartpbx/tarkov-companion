@@ -88,4 +88,11 @@ public sealed record MapFeature(
 public interface IMapFeatureCatalog
 {
     Task<IReadOnlyList<MapFeature>> GetAsync(string mapId, CancellationToken cancellationToken);
+
+    /// <summary>Drops whatever was read before a sync landed.</summary>
+    /// <remarks>
+    /// An empty read is cached like any other, so a map opened before the first sync finished
+    /// kept showing no markers until the application was restarted.
+    /// </remarks>
+    void Invalidate();
 }

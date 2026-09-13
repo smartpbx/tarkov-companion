@@ -97,6 +97,30 @@ public sealed class ScreenshotRetentionServiceTests : IDisposable
         Assert.Equal(720, (ScreenshotRetentionSettings.Default with { RetentionHours = 100_000 }).SafeRetentionHours);
     }
 
+    /// <summary>
+    /// A OneDrive placeholder is left alone, whatever its age.
+    /// </summary>
+    /// <remarks>
+    /// The game's screenshot folder sits inside OneDrive on a default Windows install, and the
+    /// old files there are reparse points holding nothing. Sending one to the recycle bin
+    /// downloads it first, which is the opposite of tidying. The attributes cannot be set on a
+    /// real file on every platform the tests run on, so the rule is asserted directly.
+    /// </remarks>
+    [Theory]
+    [InlineData(FileAttributes.Offline)]
+    [InlineData(FileAttributes.ReparsePoint)]
+    [InlineData((FileAttributes)0x0040_0000)]
+    [InlineData((FileAttributes)4_199_968)]
+    public void LeavesCloudPlaceholdersWhereTheyAre(FileAttributes attributes) =>
+        Assert.True(ScreenshotRetentionService.IsCloudOnly(attributes));
+
+    [Theory]
+    [InlineData(FileAttributes.Normal)]
+    [InlineData(FileAttributes.Archive)]
+    [InlineData(FileAttributes.Archive | FileAttributes.ReadOnly)]
+    public void TidiesFilesThatAreActuallyOnTheDisk(FileAttributes attributes) =>
+        Assert.False(ScreenshotRetentionService.IsCloudOnly(attributes));
+
     private int Tidy(ScreenshotRetentionSettings? settings = null) =>
         new ScreenshotRetentionService(_bin, new FixedClock(Now))
             .Tidy(_folder, settings ?? ScreenshotRetentionSettings.Default);

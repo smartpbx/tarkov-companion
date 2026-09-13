@@ -546,25 +546,55 @@
       </Expander>
     </StackPanel>
 
-    <Border Classes="floating" Margin="12" Padding="6,5" HorizontalAlignment="Right" VerticalAlignment="Top">
-      <StackPanel Orientation="Horizontal" Spacing="4">
-        <!-- Only shown where the map actually publishes both, which is a minority of them. -->
-        <Button
-            Classes="viewControl"
-            Classes.on="{Binding PrefersDrawing}"
-            Click="ArtworkClick"
-            Content="Drawing"
-            IsVisible="{Binding HasArtworkChoice}"
-            ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
-        <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
-        <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
-                ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
-        <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
-        <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
-        <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
-        <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />
-      </StackPanel>
-    </Border>
+    <StackPanel Margin="12" HorizontalAlignment="Right" VerticalAlignment="Top" Spacing="7">
+      <Border Classes="floating" Padding="6,5" HorizontalAlignment="Right">
+        <StackPanel Orientation="Horizontal" Spacing="4">
+          <!-- Only shown where the map actually publishes both, which is a minority of them. -->
+          <Button
+              Classes="viewControl"
+              Classes.on="{Binding PrefersDrawing}"
+              Click="ArtworkClick"
+              Content="Drawing"
+              IsVisible="{Binding HasArtworkChoice}"
+              ToolTip.Tip="Show the drawn map instead of the photographic one. Remembered for this map." />
+          <Button Classes="viewControl" Classes.on="{Binding FollowsPlayer}" Click="FollowClick" Content="Follow" ToolTip.Tip="Move the map to you when you take a screenshot" />
+          <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
+                  ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
+          <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
+          <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
+          <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
+          <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />
+        </StackPanel>
+      </Border>
+
+      <!-- Everyone else in the group, below the view controls on the same edge. A marker says
+           where somebody is; it cannot say that they are on a different map, that their position
+           is eight minutes old, or what they are carrying, and those are the things asked out
+           loud. Present only when somebody else is actually sharing, so a player alone gives up
+           no width to an empty box. Rows for people on another map are dimmed rather than
+           hidden: "he is on Customs" is an answer. -->
+      <Border Classes="floating" Padding="9,8" IsVisible="{Binding HasGroupPanel}" MaxWidth="248">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="label" Text="Group" />
+          <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding GroupPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GroupMemberPanelViewModel">
+                  <Border Classes="inset" Classes.elsewhere="{Binding IsElsewhere}" Padding="9,7" Margin="0,0,0,5">
+                    <StackPanel Spacing="2">
+                      <TextBlock Classes="value" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="label" Text="{Binding Where}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Position}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Extra}" IsVisible="{Binding HasExtra}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </StackPanel>
+      </Border>
+    </StackPanel>
 
     <!-- Bottom left: what the map is doing, in one line, expandable when it matters. -->
     <Expander
