@@ -35,6 +35,15 @@ mkdir -p "${TASK_PUBLISH_DIR}" "${TASK_PROJECT_ROOT}/dist"
 # refuses with "specify a framework".
 readonly TASK_APP_FRAMEWORK="net10.0-windows10.0.19041.0"
 
+# Stamped into the assemblies rather than only into the installer. Without it every build
+# reported 1.0.0.0 -- including in the quest progress file it exports, which is the one place a
+# version travels to another machine -- so "which build produced this" had no answer at all.
+#
+# TARKOV_BUILD_VERSION is set by CI from the run number; a local build says so in its own name.
+readonly TASK_BUILD_VERSION="${TARKOV_BUILD_VERSION:-1.0.0}"
+TASK_BUILD_COMMIT="$(git -C "${TASK_PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
+readonly TASK_BUILD_COMMIT
+
 publish_project() {
     local project="$1"
     local framework="${2:-}"
@@ -51,7 +60,9 @@ publish_project() {
         -p:BuildInParallel=false \
         -p:PublishSingleFile=false \
         -p:DebugType=None \
-        -p:DebugSymbols=false
+        -p:DebugSymbols=false \
+        -p:Version="${TASK_BUILD_VERSION}" \
+        -p:InformationalVersion="${TASK_BUILD_VERSION}+${TASK_BUILD_COMMIT}"
 }
 
 publish_project "${TASK_APP_PROJECT}" "${TASK_APP_FRAMEWORK}"
