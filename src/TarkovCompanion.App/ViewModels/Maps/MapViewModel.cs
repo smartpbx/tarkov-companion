@@ -382,6 +382,7 @@ public sealed record SpawnThreatViewModel(
         var value = (int)Math.Round(Math.Clamp(strength, 0, 1) * 255);
         return "#" + value.ToString("X2", CultureInfo.InvariantCulture) + rgb[3..];
     }
+}
 
 /// <summary>One floor of a map drawn in the stacked view.</summary>
 /// <param name="Name">What the floor is called, for the tooltip.</param>
