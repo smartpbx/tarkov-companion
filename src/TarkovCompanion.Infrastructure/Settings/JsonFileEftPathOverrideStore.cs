@@ -44,8 +44,7 @@ public sealed class JsonFileEftPathOverrideStore(string settingsPath) : IEftPath
         try
         {
             var normalized = overrides.Normalized();
-            Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
-            await File.WriteAllTextAsync(
+            await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(
                     new FolderDocument(normalized.ScreenshotRoot, normalized.LogRoot),

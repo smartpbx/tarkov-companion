@@ -216,7 +216,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             // Deliberate, not a failure, so there is nothing to keep warm.
             _lastGood = null;
-            Publish(GroupSnapshot.Off);
+            Publish(settings.ResetReason is { Length: > 0 } reason
+                ? GroupSnapshot.Off with { Detail = reason, UpdatedUtc = DateTimeOffset.UtcNow }
+                : GroupSnapshot.Off);
             return;
         }
 
