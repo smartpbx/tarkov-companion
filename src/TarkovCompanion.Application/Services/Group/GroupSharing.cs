@@ -131,7 +131,10 @@ public sealed record GroupSharingSettings(
     /// Eight characters, matching the server, and checked here as well so somebody is told
     /// before they try rather than by a refusal afterwards.
     /// </remarks>
-    public bool IsKeyLongEnough => Key is not null && Key.Trim().Length >= 8;
+    public bool IsKeyLongEnough =>
+        Key is not null &&
+        Key.Trim().Length >= GroupKeyLimits.Minimum &&
+        Key.Trim().Length <= GroupKeyLimits.Maximum;
 
     /// <summary>Says what is missing, in the order a person would fill it in.</summary>
     public string? MissingPiece =>
@@ -141,7 +144,9 @@ public sealed record GroupSharingSettings(
         : !IsTransportAcceptable(address) ? "an https address, because the group key travels with every request"
         : string.IsNullOrWhiteSpace(DisplayName) ? "a display name"
         : string.IsNullOrWhiteSpace(Key) ? "the group's key"
-        : !IsKeyLongEnough ? "a group key of at least eight characters"
+        : Key.Trim().Length < GroupKeyLimits.Minimum
+            ? $"a group key of at least {GroupKeyLimits.Minimum} characters"
+        : !IsKeyLongEnough ? $"a group key of at most {GroupKeyLimits.Maximum} characters"
         : null;
 }
 
@@ -271,4 +276,19 @@ public sealed record GroupSnapshot(
         [],
         "Not sharing",
         DateTimeOffset.UnixEpoch);
+}
+
+/// <summary>
+/// What the relay will accept as a key, stated once so both ends agree.
+/// </summary>
+/// <remarks>
+/// The ceiling was only ever checked on the server, so a key longer than 128 characters passed
+/// every check here and came back 401 — and the message said "wrong group key", which sent
+/// people to compare keys that were identical and fine.
+/// </remarks>
+public static class GroupKeyLimits
+{
+    public const int Minimum = 8;
+
+    public const int Maximum = 128;
 }

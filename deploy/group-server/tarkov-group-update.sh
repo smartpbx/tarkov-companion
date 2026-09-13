@@ -19,7 +19,15 @@ readonly ASSET="TarkovCompanion-GroupServer-linux-x64.tar.gz"
 readonly SUMS="GROUPSERVER-SHA256SUMS.txt"
 readonly INSTALL="/opt/tarkov-group"
 readonly PREVIOUS="/opt/tarkov-group.previous"
-readonly STAMP="${INSTALL}/INSTALLED_SHA256"
+# Outside the tree, because the rollback replaces the tree.
+#
+# The stamp used to live at ${INSTALL}/INSTALLED_SHA256, and the rollback is
+# `mv "${PREVIOUS}" "${INSTALL}"` -- which restores the OLD stamp along with the old build. So
+# a build that failed its health check was refused, rolled back, and then looked brand new to
+# the next tick: fetched, swapped and rolled back again, every thirty minutes, for ever.
+readonly STATE="/var/lib/tarkov-group"
+readonly STAMP="${STATE}/INSTALLED_SHA256"
+readonly REFUSED="${STATE}/REFUSED_SHA256"
 readonly SERVICE="tarkov-group"
 readonly BASE="https://github.com/${REPO}/releases/download/${RELEASE}"
 
@@ -43,8 +51,24 @@ fi
 
 # The stamp is what makes this idempotent. Without it the service would be restarted every
 # time the timer fired, which for a relay means every member disappearing and coming back.
+mkdir -p "${STATE}"
+
+# Migration: the stamp used to live inside the tree. Move it once rather than treating an
+# already-installed build as new and restarting the relay for nothing.
+if [[ ! -f "${STAMP}" ]] && [[ -f "${INSTALL}/INSTALLED_SHA256" ]]; then
+    mv "${INSTALL}/INSTALLED_SHA256" "${STAMP}"
+    log "moved the install stamp out of the tree"
+fi
+
 if [[ -f "${STAMP}" ]] && [[ "$(cat "${STAMP}")" == "${expected}" ]]; then
     log "already on ${expected:0:12}; nothing to do"
+    exit 0
+fi
+
+# A build this machine has already tried and rolled back is not tried again. Publishing a new
+# one clears it, because the checksum will differ.
+if [[ -f "${REFUSED}" ]] && [[ "$(cat "${REFUSED}")" == "${expected}" ]]; then
+    log "${expected:0:12} was refused here before; not retrying until a new build is published"
     exit 0
 fi
 
@@ -87,9 +111,12 @@ for _ in $(seq 1 10); do
 done
 
 log "the new build did not answer; rolling back"
+# Recorded before the rollback, and outside the tree the rollback replaces, so the refusal
+# survives the thing that undoes the install.
+printf '%s' "${expected}" > "${REFUSED}"
 systemctl stop "${SERVICE}" || true
 rm -rf "${INSTALL}"
 mv "${PREVIOUS}" "${INSTALL}"
 systemctl start "${SERVICE}"
-log "rolled back"
+log "rolled back; ${expected:0:12} will not be retried until a new build is published"
 exit 1

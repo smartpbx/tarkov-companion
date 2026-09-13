@@ -87,10 +87,6 @@
                           <TextBlock Classes="label" Text="Mode" />
                           <TextBlock Classes="value" Text="{Binding Mode}" TextWrapping="Wrap" />
                         </StackPanel>
-                        <StackPanel Grid.Row="2" Grid.Column="1" Spacing="1">
-                          <TextBlock Classes="label" Text="Outcome" />
-                          <TextBlock Classes="value" Text="{Binding Outcome}" TextWrapping="Wrap" />
-                        </StackPanel>
                       </Grid>
                     </Border>
                     <StackPanel Spacing="1">

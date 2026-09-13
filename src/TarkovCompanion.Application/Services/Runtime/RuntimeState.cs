@@ -192,6 +192,20 @@ public sealed record ApplicationRuntimeSnapshot(
     /// <summary>The player's party, as the game's own group notifications describe it.</summary>
     public SquadSnapshot Squad { get; init; } = SquadSnapshot.Empty;
 
+    /// <summary>
+    /// The names of the last few screenshots seen, newest first.
+    /// </summary>
+    /// <remarks>
+    /// Kept for one reason: a name whose shape this build does not recognise yields no
+    /// position, and that is invisible from every other angle. The game confirms the
+    /// screenshot, the folder is right, the file is there, and the player simply never appears
+    /// on anybody's map. Two players hit exactly that in one evening.
+    ///
+    /// Names only, never paths, and the digits are masked before any of this is shown or
+    /// shared — the shape is the diagnosis and the coordinates are nobody's business.
+    /// </remarks>
+    public IReadOnlyList<string> RecentScreenshotNames { get; init; } = [];
+
     /// <summary>Flea offers the game reported as sold since the companion started.</summary>
     public FleaSalesSnapshot FleaSales { get; init; } = FleaSalesSnapshot.Empty;
 

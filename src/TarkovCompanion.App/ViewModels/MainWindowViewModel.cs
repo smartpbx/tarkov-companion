@@ -1006,6 +1006,7 @@ public sealed record RaidReplayRequest(string Title, IReadOnlyList<ScreenshotPos
 
 public sealed record RaidHistoryEntryViewModel(
     string Id,
+    string MapId,
     string Map,
     string Mode,
     string Started,
@@ -1035,14 +1036,47 @@ public sealed record RaidHistoryEntryViewModel(
 public sealed class HistoryPageViewModel : PageViewModel
 {
     private readonly IRaidHistoryService _raidHistoryService;
+    private readonly Func<string?, string> _nameOfMap;
     private IReadOnlyList<RaidHistoryEntryViewModel> _entries = [];
     private string _status = "History has not been loaded.";
+    private int _namedMapCount = -1;
 
-    public HistoryPageViewModel(IRaidHistoryService raidHistoryService)
+    /// <param name="nameOfMap">
+    /// Turns a stored map token into the name the chooser above the map uses.
+    /// </param>
+    /// <remarks>
+    /// Passed in rather than resolved here because the map catalog belongs to the map, and
+    /// History is loaded before it: every row read "streets-of-tarkov" and "ground-zero-21"
+    /// where it meant Streets of Tarkov and Ground Zero. Two names for one place reads as two
+    /// places.
+    /// </remarks>
+    public HistoryPageViewModel(IRaidHistoryService raidHistoryService, Func<string?, string> nameOfMap)
         : base("History", "Every raid the companion has seen", "Runtime state not loaded")
     {
         _raidHistoryService = raidHistoryService;
+        _nameOfMap = nameOfMap;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    /// <summary>
+    /// Renames the rows once the map catalog has arrived.
+    /// </summary>
+    /// <remarks>
+    /// The catalog loads last, so a History opened before it holds tokens. Rather than reload
+    /// every raid from the database, the rows are rewritten in place from what they already
+    /// carry. Called with the catalog's size, which is the only change signal there is.
+    /// </remarks>
+    public void RenameMaps(int knownMapCount)
+    {
+        if (_namedMapCount == knownMapCount || Entries.Count == 0)
+        {
+            return;
+        }
+
+        _namedMapCount = knownMapCount;
+        Entries = Entries
+            .Select(entry => entry with { Map = _nameOfMap(entry.MapId) })
+            .ToArray();
     }
 
     public IReadOnlyList<RaidHistoryEntryViewModel> Entries
@@ -1108,7 +1142,8 @@ public sealed class HistoryPageViewModel : PageViewModel
                     .ConfigureAwait(true);
                 var entry = new RaidHistoryEntryViewModel(
                     raid.Id.ToString("D"),
-                    raid.MapId ?? "Unknown map",
+                    raid.MapId ?? string.Empty,
+                    _nameOfMap(raid.MapId),
                     raid.Mode,
                     raid.StartedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "Unknown",
                     raid.EndedUtc?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "In progress",
@@ -1126,9 +1161,13 @@ public sealed class HistoryPageViewModel : PageViewModel
             }
 
             Entries = entries;
+            // Said once here rather than on every row. EFT_LOG_FACTS.md records that the game
+            // never writes an outcome, so the Outcome column read "Not recorded" on every raid
+            // for ever — a column whose only possible value is the absence of a value. The
+            // field stays on RaidHistoryEntry in case the game ever starts saying.
             Status = Entries.Count == 0
                 ? "No local raid history has been recorded."
-                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}.";
+                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}. The game never records whether you survived, so no outcome is shown.";
             Evidence = $"SQLite · {Status}";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -1211,6 +1250,76 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
+    private ApplicationRuntimeSnapshot? _snapshot;
+    private string _diagnosticsStatus = "Nothing copied yet.";
+
+    /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
+    public string DiagnosticsStatus
+    {
+        get => _diagnosticsStatus;
+        private set => SetProperty(ref _diagnosticsStatus, value);
+    }
+
+    /// <summary>Where this application writes its own log, as opposed to where the game does.</summary>
+    /// <remarks>
+    /// Settings had a "Logs" box and it is the *game's* log folder, which is the right thing
+    /// in that section and the wrong answer to "where do I find yours".
+    /// </remarks>
+    public string CompanionLogPath => CrashLog.FilePath ?? "not started yet";
+
+    /// <summary>
+    /// Puts a description of this installation on the clipboard, ready to paste.
+    /// </summary>
+    /// <remarks>
+    /// Two players in one evening appeared in their group's member list and never on its map,
+    /// and both times the diagnosis had to be assembled by somebody else asking questions
+    /// across Discord. This is so the answer can be sent by the person who has the problem,
+    /// in one action, without them having to find anything.
+    ///
+    /// SAFETY.md governs what it may contain: no game logs, no group key, no screenshots, no
+    /// coordinates, and user folder names replaced. What it does carry is the shape of the
+    /// screenshot names, which is the thing that settles the case above.
+    /// </remarks>
+    public async Task CopyDiagnosticsAsync(Func<string, Task> toClipboard)
+    {
+        ArgumentNullException.ThrowIfNull(toClipboard);
+        if (_snapshot is not { } snapshot)
+        {
+            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            return;
+        }
+
+        try
+        {
+            var report = SupportBundle.Describe(
+                snapshot,
+                snapshot.RecentScreenshotNames,
+                CrashLog.FilePath);
+            await toClipboard(report).ConfigureAwait(true);
+            DiagnosticsStatus = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Copied · {report.Length:N0} characters · paste it wherever you are being helped.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not copy: {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// The quest page, so its once-a-wipe setup can live here instead of above the board.
+    /// </summary>
+    /// <remarks>
+    /// The exchange and the TarkovTracker import cost about 180 px above the first quest on
+    /// the page used most between raids, for things touched once a wipe. They are bound
+    /// through rather than copied, because the exchange has to move *with* its preview and its
+    /// confirm and undo: ADR 0004 and SAFETY.md both rely on an import being reviewed before
+    /// it is applied, and splitting the review from the action is the one way to move this
+    /// wrongly.
+    ///
+    /// Assigned after construction because the shell builds Settings before Quests.
+    /// </remarks>
+    public required QuestsPageViewModel Quests { get; init; }
 
     public SettingsPageViewModel(
         ApplicationStartupCoordinator startupCoordinator,
@@ -1237,6 +1346,8 @@ public sealed class SettingsPageViewModel : PageViewModel
         _gameFolders = gameFolders;
         _observation = observation;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
+        CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
+        ReportProblemCommand = new AsyncDelegateCommand(ReportProblemAsync);
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
         if (_updates is not null)
@@ -1389,6 +1500,60 @@ public sealed class SettingsPageViewModel : PageViewModel
     public AsyncDelegateCommand DownloadUpdateCommand { get; }
 
     public DelegateCommand RestartForUpdateCommand { get; }
+
+    public AsyncDelegateCommand CopyDiagnosticsCommand { get; }
+
+    public AsyncDelegateCommand ReportProblemCommand { get; }
+
+    /// <summary>
+    /// How a report reaches the relay, supplied by the shell.
+    /// </summary>
+    /// <remarks>
+    /// A function rather than the group service, so this page does not acquire a dependency on
+    /// sharing in order to describe itself, and so the sending can be replaced in a test.
+    /// Returns the sentence to show the player.
+    /// </remarks>
+    public required Func<string, CancellationToken, Task<string>> SendReport { get; init; }
+
+    /// <summary>
+    /// Sends the diagnostics to the relay, which files an issue and hands back the link.
+    /// </summary>
+    /// <remarks>
+    /// The same text Copy diagnostics produces, sent rather than pasted, so the person with
+    /// the problem does not have to find somebody to paste it to.
+    ///
+    /// Copy diagnostics stays, and every failure here points back at it: a relay that cannot
+    /// be reached is one of the problems somebody might be reporting, and a report button that
+    /// only worked when nothing was wrong would be worth very little.
+    /// </remarks>
+    public async Task ReportProblemAsync()
+    {
+        if (_snapshot is not { } snapshot)
+        {
+            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            return;
+        }
+
+        DiagnosticsStatus = "Sending…";
+        try
+        {
+            var report = SupportBundle.Describe(snapshot, snapshot.RecentScreenshotNames, CrashLog.FilePath);
+            DiagnosticsStatus = await SendReport(report, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not send: {exception.Message}. Use Copy diagnostics instead.";
+        }
+    }
+
+    /// <summary>
+    /// How text reaches the clipboard, replaced in tests.
+    /// </summary>
+    /// <remarks>
+    /// Assigned by the view, because a clipboard belongs to a window and a view model that
+    /// reached for one would be a view model that cannot be tested.
+    /// </remarks>
+    public Func<string, Task> Clipboard { get; set; } = _ => Task.CompletedTask;
 
     /// <summary>Which build is running, so a report of a bug can name it.</summary>
     public string InstalledBuild
@@ -1699,6 +1864,7 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
+        _snapshot = snapshot;
         DataStatus = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} items · {snapshot.Data.Detail}";
         WatchedFolders = snapshot.Observation switch
         {
@@ -1813,7 +1979,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Scanner = new(scanUseCase, scanHistory);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
-        History = new(raidHistoryService);
+        History = new(raidHistoryService, ResolveMapName);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
         Hideout = new(requirementCatalog, profileService, itemRepository);
         Settings = new(
@@ -1826,7 +1992,15 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             recycleBin,
             updates,
             gameFolders,
-            observation);
+            observation)
+        {
+            // The quest exchange and the TarkovTracker import are rendered on Settings now,
+            // bound through this, so they stop costing 180 px above the quest board.
+            Quests = quests,
+            // The relay does the filing, because a token on every player's disk is not a thing
+            // to arrange, and the group session is the one component that already holds the key.
+            SendReport = group.ReportProblemAsync,
+        };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
@@ -2142,6 +2316,24 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _synchronizationContext.Post(_ => ApplySnapshot(snapshot), null);
     }
 
+    /// <summary>
+    /// The name the map chooser shows for a stored token, or the token if nothing knows.
+    /// </summary>
+    /// <remarks>
+    /// The same lookup RaidPageViewModel has always done for the raid summary. It lived only
+    /// there, so the status-bar chip and every History row printed "streets-of-tarkov" and
+    /// "ground-zero-21" while the chooser above the map printed the names — two names for one
+    /// place, which reads as two places.
+    ///
+    /// The token remains an acceptable answer: the map catalog loads last, and a name nobody
+    /// has yet is better shown as the id than as "Unknown".
+    /// </remarks>
+    private string ResolveMapName(string? mapId) => string.IsNullOrWhiteSpace(mapId)
+        ? "Unknown map"
+        : Map.Locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase))?.Name ?? mapId;
+
     private void ApplySnapshot(ApplicationRuntimeSnapshot snapshot)
     {
         var now = _timeProvider.GetUtcNow();
@@ -2150,7 +2342,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             : snapshot.IsOffline
                 ? "Offline"
                 : string.Empty;
-        Status = CreateStatus(snapshot, now);
+        Status = CreateStatus(snapshot, now, ResolveMapName(snapshot.Raid.MapId));
+        // The map catalog loads after History does, so rows opened before it holds tokens
+        // rather than names. Cheap: it returns immediately unless the catalog actually grew.
+        History.RenameMaps(Map.Locations.Count);
         Raid.Apply(snapshot, now);
         Scanner.Apply(snapshot.Scan);
         Items.Apply(snapshot);
@@ -2196,9 +2391,13 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// nothing changing could stand out. Now colour means an observation: sage for something
     /// live, cyan for a place, ochre for a value or a warning, coral for a fault.
     /// </remarks>
+    /// <param name="mapName">
+    /// Resolved by the caller, because naming a map needs the catalog and this is static.
+    /// </param>
     private static IReadOnlyList<StatusChip> CreateStatus(
         ApplicationRuntimeSnapshot snapshot,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string mapName)
     {
         var raid = snapshot.Raid;
         var observation = snapshot.Observation;
@@ -2220,7 +2419,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 observation.IsObserving ? SageColor : observation.IsSupported || snapshot.IsDemoMode ? RestingColor : OchreColor),
             new(
                 "Map",
-                raid.MapId ?? "Unknown",
+                raid.MapId is null ? "Unknown" : mapName,
                 raid.MapId is null
                     ? observation.IsWatchingLogs ? "Waiting for a raid to start" : "No current raid evidence"
                     : $"{raid.Confidence.Value:P0} · {FormatAge(raid.UpdatedUtc, nowUtc)}",

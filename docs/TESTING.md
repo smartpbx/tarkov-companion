@@ -2,14 +2,32 @@
 
 All automated validation is external to Escape from Tarkov. The simulator uses generic artwork, fixture logs, and filename-only screenshot markers. It never reads game memory or traffic, sends input, injects code, or represents predictions as detections.
 
-## Linux build and test
+## Where to run it
 
-From the repository root:
+**Not on the workstation.** It has 31 GB and routinely sits at ~7 GB free, and repeated full
+suites there have crashed the apps somebody was using. `AGENTS.md` makes that a rule rather
+than a preference, and this document used to open by telling you to break it.
 
-```bash
-./scripts/build.sh
-./scripts/test.sh
-```
+In order of preference:
+
+1. **GitHub Actions.** `ci.yml` and `windows-verify.yml` run the whole suite on every pull
+   request; pushing a branch is the cheapest way to get a full answer.
+2. **CT 114 on Proxmox**, which is where the fast loop lives. The .NET 10 SDK is at
+   `/root/.dotnet` and is *not* on `PATH`:
+
+   ```bash
+   ssh proxmox 'pct exec 114 -- bash -lc "
+     cd /root/repos/tarkov-companion
+     export PATH=/root/.dotnet:\$PATH DOTNET_ROOT=/root/.dotnet
+     dotnet build -c Release && dotnet test -c Release --no-build"'
+   ```
+
+   A build is about fifteen seconds and the whole suite about twenty, which is why every
+   change in this repository is verified there before it is pushed.
+
+Building on Linux works for every project including the Windows target, because
+`EnableWindowsTargeting` is set. Running the Windows package is a different question, and
+`WINDOWS_VERIFICATION.md` answers it.
 
 Run the complete deterministic demo raid without starting a window:
 

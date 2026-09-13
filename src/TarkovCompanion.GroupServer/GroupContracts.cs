@@ -36,6 +36,55 @@ public sealed record GroupMemberState(
     [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout,
     [property: JsonPropertyName("quests")] IReadOnlyList<string> Quests)
 {
+    /// <summary>
+    /// Why this state cannot be accepted, or null if it can.
+    /// </summary>
+    /// <remarks>
+    /// Null-tolerant throughout. A payload with `"observed": null` reached a Count on a null
+    /// list and threw, which the framework turned into a 500: a malformed request answered as
+    /// a server fault, and an unhandled exception per attempt for anybody who cared to send
+    /// them. The collections are non-nullable in the record and a JSON null still lands.
+    /// </remarks>
+    public string? Validate()
+    {
+        if (string.IsNullOrWhiteSpace(Name) || Name.Length > 48)
+        {
+            return "A display name is required and must be 48 characters or fewer.";
+        }
+
+        if (MapId is { Length: > 64 })
+        {
+            return "A map id must be 64 characters or fewer.";
+        }
+
+        if (RaidState is null || RaidState.Length > 32)
+        {
+            return "A raid state is required and must be 32 characters or fewer.";
+        }
+
+        if (Loadout is { Count: > 24 } || Quests is { Count: > 24 })
+        {
+            return "A loadout and a quest list may each carry at most twenty-four entries.";
+        }
+
+        // The one field carrying something about other people. A client that published four
+        // hundred of them would be filling the room rather than helping it; a party is five.
+        if (Observed is { } observed &&
+            (observed.Count > 8 || observed.Any(entry =>
+                entry is null ||
+                string.IsNullOrWhiteSpace(entry.Name) ||
+                entry.Name.Length > 48 ||
+                entry.Loadout is { Count: > 12 })))
+        {
+            return "Observations must name at most eight players with at most twelve items each.";
+        }
+
+        // A trail is screenshots, not a stream: a raid produces a handful.
+        return Trail is { Count: > 12 }
+            ? "A trail may carry at most twelve points."
+            : null;
+    }
+
     /// <summary>How high this member is standing, where their screenshot said.</summary>
     /// <remarks>
     /// Optional so a client that predates this still parses, and because a member whose
