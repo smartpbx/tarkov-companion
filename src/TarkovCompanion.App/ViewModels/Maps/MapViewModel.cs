@@ -379,6 +379,9 @@ public sealed record MapOverlayElementViewModel(
     /// <summary>Where this marker's name sits, decided against every other name on the map.</summary>
     public MapNamePlacement Placement { get; init; } = MapNamePlacement.Fixed;
 
+    /// <summary>What this asks of you: a switch, a payment, a side.</summary>
+    public string? Detail { get; init; }
+
     /// <summary>
     /// Which side this feature is for, where the data says.
     /// </summary>
@@ -557,6 +560,18 @@ public sealed record MapMarkerSelectionViewModel(
     private const double CardHeight = 120;
 
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    /// <summary>
+    /// What this exit asks of you, where the feed says anything.
+    /// </summary>
+    /// <remarks>
+    /// Asked for as "clicking an extract should pull up a picture of it and maybe any
+    /// important instructions for it too". The picture has no source; this is the
+    /// instructions, and they were in the synced payload the whole time.
+    /// </remarks>
+    public string? Conditions { get; init; }
+
+    public bool HasConditions => !string.IsNullOrWhiteSpace(Conditions);
 
     /// <summary>The canvas this is drawn on, so the card can stay inside it.</summary>
     /// <remarks>
@@ -1509,10 +1524,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         [
             new(
                 marker.Name,
-                marker.IsOffered ? marker.KindName + ", offered this raid" : marker.KindName,
+                marker.IsOffered ? marker.KindName + " · offered this raid" : marker.KindName,
                 marker.CenterX,
                 marker.CenterY)
             {
+                Conditions = marker.Detail,
                 Scale = _markerScale,
                 CanvasWidth = CanvasWidth,
                 CanvasHeight = CanvasHeight,
@@ -2394,6 +2410,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Scale = _markerScale,
                 Faction = element.Faction,
+                Detail = element.Detail,
                 Placement = new(),
             });
         }

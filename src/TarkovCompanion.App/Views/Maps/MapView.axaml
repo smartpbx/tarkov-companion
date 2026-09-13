@@ -286,6 +286,12 @@
                     <StackPanel Spacing="2">
                       <TextBlock Classes="value" Text="{Binding Title}" TextWrapping="Wrap" />
                       <TextBlock Classes="caption" Text="{Binding Subtitle}" TextWrapping="Wrap" />
+                      <!-- What it asks of you: a switch to throw, a price to pay. The feed has
+                           carried this all along and the card was showing only the kind. -->
+                      <TextBlock Classes="label ochre"
+                                 IsVisible="{Binding HasConditions}"
+                                 Text="{Binding Conditions}"
+                                 TextWrapping="Wrap" />
                     </StackPanel>
                   </Border>
                 </Panel>
