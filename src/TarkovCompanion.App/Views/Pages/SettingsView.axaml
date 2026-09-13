@@ -2,7 +2,8 @@
              x:DataType="vm:SettingsPageViewModel"
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:vm="using:TarkovCompanion.App.ViewModels">
+             xmlns:vm="using:TarkovCompanion.App.ViewModels"
+             xmlns:quests="using:TarkovCompanion.App.ViewModels.Quests">
   <!-- The page is two columns of panels and nothing bounded their height, so the shell's
        ContentControl (which adds no scrolling of its own; every other page brings its own)
        simply clipped whatever ran past the window. On a 1080p second screen that is most of
@@ -155,6 +156,115 @@
             <TextBlock Classes="sectionTitle" Text="Safety boundary" />
             <TextBlock Classes="prose"
                        Text="External and read-only toward the game." />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="panel">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="sectionTitle" Text="Quest progress" />
+            <!-- Moved off the Quests page, where these two expanders cost about 180 px above
+                 the first quest on the page used most between raids, for things touched once a
+                 wipe. The exchange moves WITH its preview and its confirm and undo: ADR 0004
+                 and SAFETY.md both rely on an import being reviewed before it is applied, so
+                 splitting the review from the action would be the one way to move this wrongly. -->
+          <Expander Header="Import and export progress as JSON">
+            <Border Classes="inset" Padding="12,9">
+              <StackPanel Spacing="7">
+                <TextBlock Classes="note" Text="Local file only, previewed before it is applied." />
+                <TextBox PlaceholderText="Quest progress JSON file path" Text="{Binding Quests.ExchangePath}" />
+                <WrapPanel Orientation="Horizontal">
+                  <Button Command="{Binding Quests.ExportProgressCommand}" Content="Export" Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.PreviewImportCommand}" Content="Preview import" Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.KeepLocalConflictsCommand}" Content="Keep local conflicts" Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.UseIncomingConflictsCommand}" Content="Use incoming conflicts" Margin="0,0,6,6" />
+                  <Button Classes="primary" Command="{Binding Quests.ApplyImportCommand}" Content="Apply confirmed preview" Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.UndoLastImportCommand}" Content="Undo last import" Margin="0,0,6,6" />
+                </WrapPanel>
+                <TextBlock Classes="value" Text="{Binding Quests.ImportPreviewSummary}" TextWrapping="Wrap" />
+                <TextBlock Classes="note" Text="{Binding Quests.ExchangeStatus}" />
+                <ScrollViewer IsVisible="{Binding Quests.HasImportProposals}" MaxHeight="170" VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding Quests.ImportProposals}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="quests:QuestImportProposalViewModel">
+                        <Border Classes="panel" Padding="8" Margin="0,0,0,5">
+                          <Grid ColumnDefinitions="160,*,120" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="3">
+                            <TextBlock Classes="value" Text="{Binding Classification}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="1" Text="{Binding Entity}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="2" Classes="label" Text="{Binding Resolution}" TextWrapping="Wrap" />
+                            <Grid Grid.Row="1" Grid.ColumnSpan="3" ColumnDefinitions="*,*" ColumnSpacing="12">
+                              <TextBlock Classes="ochre" Text="{Binding LocalValue}" TextWrapping="Wrap" />
+                              <TextBlock Grid.Column="1" Classes="sage" Text="{Binding IncomingValue}" TextWrapping="Wrap" />
+                            </Grid>
+                            <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                          </Grid>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+
+                <!-- What past imports refused. Every import has recorded exactly this and nothing
+                     has ever read it, so an import that half-worked said "kept 3 local, 2
+                     unresolved" once and could never say which three or which two. -->
+                <StackPanel Spacing="6" IsVisible="{Binding Quests.HasImportHistory}">
+                  <Border Classes="hairline" />
+                  <TextBlock Classes="label" Text="Imports already applied" />
+                  <ItemsControl ItemsSource="{Binding Quests.ImportHistory}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="quests:QuestImportHistoryRowViewModel">
+                        <Border Classes="inset" Padding="9,7" Margin="0,0,0,5">
+                          <StackPanel Spacing="3">
+                            <TextBlock Classes="value" Text="{Binding Title}" TextWrapping="Wrap" />
+                            <TextBlock Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                            <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+                              <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="quests:QuestImportHistoryLineViewModel">
+                                  <Grid ColumnDefinitions="200,*" ColumnSpacing="10" Margin="0,2,0,0">
+                                    <TextBlock Classes="caption" Text="{Binding What}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Why}" TextWrapping="Wrap" />
+                                  </Grid>
+                                </DataTemplate>
+                              </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                          </StackPanel>
+                        </Border>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </Expander>
+
+          <Expander Header="Optional TarkovTracker import">
+            <Border Classes="inset" Padding="12,9">
+              <StackPanel Spacing="7">
+                <TextBlock Classes="note"
+                           Text="Reads your progress from api.tarkovtracker.org. Nothing is written back." />
+                <TextBlock Classes="note"
+                           Text="Stored with Windows protected storage." />
+                <TextBox IsEnabled="{Binding Quests.CanConnectTarkovTracker}"
+                         PasswordChar="●"
+                         PlaceholderText="Paste a PVP_, PVE_, or SZN_ token with GP permission"
+                         Text="{Binding Quests.TarkovTrackerToken}" />
+                <WrapPanel Orientation="Horizontal">
+                  <Button Command="{Binding Quests.ConnectTarkovTrackerCommand}"
+                          Content="Connect and validate"
+                          IsEnabled="{Binding Quests.CanConnectTarkovTracker}"
+                          Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.RefreshTarkovTrackerCommand}"
+                          Content="Refresh and preview"
+                          IsEnabled="{Binding Quests.CanRefreshTarkovTracker}"
+                          Margin="0,0,6,6" />
+                  <Button Command="{Binding Quests.DisconnectTarkovTrackerCommand}"
+                          Content="Disconnect and delete token"
+                          IsEnabled="{Binding Quests.CanDisconnectTarkovTracker}"
+                          Margin="0,0,6,6" />
+                </WrapPanel>
+                <TextBlock Classes="value" Text="{Binding Quests.TarkovTrackerStatus}" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </Expander>
           </StackPanel>
         </Border>
       </StackPanel>

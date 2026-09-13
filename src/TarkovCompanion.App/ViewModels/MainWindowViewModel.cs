@@ -1212,6 +1212,21 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
 
+    /// <summary>
+    /// The quest page, so its once-a-wipe setup can live here instead of above the board.
+    /// </summary>
+    /// <remarks>
+    /// The exchange and the TarkovTracker import cost about 180 px above the first quest on
+    /// the page used most between raids, for things touched once a wipe. They are bound
+    /// through rather than copied, because the exchange has to move *with* its preview and its
+    /// confirm and undo: ADR 0004 and SAFETY.md both rely on an import being reviewed before
+    /// it is applied, and splitting the review from the action is the one way to move this
+    /// wrongly.
+    ///
+    /// Assigned after construction because the shell builds Settings before Quests.
+    /// </remarks>
+    public required QuestsPageViewModel Quests { get; init; }
+
     public SettingsPageViewModel(
         ApplicationStartupCoordinator startupCoordinator,
         RuntimeOptions options,
@@ -1826,7 +1841,12 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             recycleBin,
             updates,
             gameFolders,
-            observation);
+            observation)
+        {
+            // The quest exchange and the TarkovTracker import are rendered on Settings now,
+            // bound through this, so they stop costing 180 px above the quest board.
+            Quests = quests,
+        };
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
