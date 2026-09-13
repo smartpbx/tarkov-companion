@@ -109,4 +109,52 @@ public sealed class RaidTimerTests
         Assert.Equal(
             "1:00:00",
             RaidTimer.Resolve(null, Now, TimeSpan.FromHours(1), Now).Display);
+
+    /// <summary>
+    /// An exit whose timer is not decided says so, and is not read as a time.
+    /// </summary>
+    /// <remarks>
+    /// The game draws "??:??:??" and OCR renders the question marks as digits — "22:22:22" is
+    /// what a real screen produced. It was rejected only because it exceeds the one-hour cap,
+    /// which is luck rather than a rule: the same marker read with a leading zero gives
+    /// "0:22:22", a perfectly plausible raid clock that would have been taken as one and shown
+    /// to the player as the game's own number.
+    /// </remarks>
+    [Theory]
+    [InlineData("EXFIL 3: ZB-014 ??:??:??")]
+    [InlineData("EXFIL 3: ZB-014 ?:??:??")]
+    [InlineData("EXFIL 3: ZB-014 0:2?:22")]
+    [InlineData("EXFIL 3: ZB-014 22:22:22")]
+    public void TheUnknownTimerMarkerIsNotReadAsAClock(string line) =>
+        Assert.Null(RaidTimer.Read([line]));
+
+    /// <summary>
+    /// A repeated-digit clock is still a clock, and this is the test that says so.
+    /// </summary>
+    /// <remarks>
+    /// The first attempt at the marker check rejected any reading whose digits were all the
+    /// same character, on the theory that "0:22:22" was "??:??:??" read with a leading zero.
+    /// It is also twenty-two minutes and twenty-two seconds, which every raid passes through.
+    /// Throwing away a real reading once a raid, to catch a marker the one-hour cap already
+    /// rejects at "22:22:22", is a bad trade.
+    /// </remarks>
+    [Theory]
+    [InlineData("0:22:22", 22, 22)]
+    [InlineData("0:11:11", 11, 11)]
+    [InlineData("0:28:10", 28, 10)]
+    public void ARepeatedDigitClockIsStillRead(string line, int minutes, int seconds) =>
+        Assert.Equal(new TimeSpan(0, minutes, seconds), RaidTimer.Read([line]));
+
+    /// <summary>
+    /// One undecided exit does not cost the raid clock that is on the same screen.
+    /// </summary>
+    /// <remarks>
+    /// The marker check is per line, not per screen, because the raid timer and an exit's
+    /// countdown are different rows of the same panel.
+    /// </remarks>
+    [Fact]
+    public void AnUndecidedExitDoesNotHideTheRaidClock() =>
+        Assert.Equal(
+            new TimeSpan(0, 28, 10),
+            RaidTimer.Read(["0:28:10", "EXFIL 3: ZB-014 ??:??:??"]));
 }

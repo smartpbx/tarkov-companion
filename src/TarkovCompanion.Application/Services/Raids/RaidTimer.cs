@@ -66,6 +66,28 @@ public static partial class RaidTimer
     [GeneratedRegex(@"\b(\d{1,2}):([0-5]\d):([0-5]\d)\b", RegexOptions.CultureInvariant)]
     private static partial Regex Clock();
 
+    /// <summary>
+    /// Whether this line is the game saying it does not know, rather than a time.
+    /// </summary>
+    /// <remarks>
+    /// An exit whose timer is not yet decided is drawn "??:??:??", and OCR renders the question
+    /// marks as digits — "22:22:22" is what a real screen produced. That was rejected only
+    /// because it exceeds the one-hour cap, which is luck rather than a rule: the same marker
+    /// read with a leading zero gives "0:22:22", which is a perfectly plausible raid clock and
+    /// would have been taken as one.
+    ///
+    /// So a question mark anywhere on the line is conclusive: whatever else is on that row, it
+    /// is not a time the game is claiming.
+    ///
+    /// Deliberately *only* that. The first attempt at this also rejected a clock whose digits
+    /// were all the same character, on the theory that "0:22:22" was the same marker read with
+    /// a leading zero. It is also a completely ordinary raid clock — twenty-two minutes and
+    /// twenty-two seconds — and a raid passes through it every time. Throwing away a real
+    /// reading once a raid to catch a marker that the one-hour cap already rejects at
+    /// "22:22:22" is a bad trade, so the heuristic is gone and only the certain test remains.
+    /// </remarks>
+    private static bool IsUnknownMarker(string line) => line.Contains('?', StringComparison.Ordinal);
+
     /// <summary>The longest a raid runs, as a bound on what can be read as one.</summary>
     /// <remarks>
     /// No map runs longer than an hour, so a larger reading is something else on the screen
@@ -87,7 +109,7 @@ public static partial class RaidTimer
         TimeSpan? best = null;
         foreach (var line in lines)
         {
-            if (string.IsNullOrWhiteSpace(line))
+            if (string.IsNullOrWhiteSpace(line) || IsUnknownMarker(line))
             {
                 continue;
             }
