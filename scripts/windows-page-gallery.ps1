@@ -54,14 +54,14 @@ param(
     # A warning matching this is a failure. A property that does not exist, a value
     # that will not convert, a resource that cannot be found: each is a page asking
     # for something it does not get.
-    [string] $FailOnWarningPattern = "Could not find|does not have|Unable to resolve|Cannot resolve|Unable to convert|Static resource",
+    [string] $FailOnWarningPattern = "\\[Binding\\]|Could not find|does not have|Unable to resolve|Cannot resolve|Unable to convert|Static resource",
 
     # A warning matching this is recorded and counted but does not fail the step.
-    # Binding through an object that is null is what every optional panel does: the
-    # raid summary before a raid ends, the selected quest before one is chosen. The
-    # toolkit reports each as an error and none of them is a fault. They are worth
-    # removing, and that is a change to the views rather than a gate on the build.
-    [string] $TolerateWarningPattern = "Value is null",
+    #
+    # Empty, now that the raid summary and the selected quest are scoped to their own
+    # object rather than reached through it by path. Those were the only thirty, and
+    # the setting stays so the next one found can be counted before it is a gate.
+    [string] $TolerateWarningPattern = "",
 
     # A page that drew nothing is a near-uniform rectangle. Anything real clears
     # both of these comfortably; a blank one clears neither.

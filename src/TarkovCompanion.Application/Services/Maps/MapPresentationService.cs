@@ -79,6 +79,17 @@ public sealed record MapOverlayElement(
     public MapFeatureFaction Faction { get; init; } = MapFeatureFaction.Unknown;
 
     /// <summary>
+    /// What this asks of you, where the feed says anything.
+    /// </summary>
+    /// <remarks>
+    /// An exit that needs a switch thrown or twenty thousand roubles handed over is a
+    /// different proposition from one you can walk through, and the card that opens when it is
+    /// clicked is where somebody finds that out. The feed has carried it all along and the
+    /// projection was dropping it.
+    /// </remarks>
+    public string? Detail { get; init; }
+
+    /// <summary>
     /// Whether this is one the player has actually been offered this raid.
     /// </summary>
     /// <remarks>

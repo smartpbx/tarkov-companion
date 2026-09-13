@@ -33,7 +33,15 @@ public sealed record QuestStatusObservation(
 /// </remarks>
 public static class QuestNotificationParser
 {
-    /// <summary>The notification type, exactly as the game writes it.</summary>
+    /// <summary>
+    /// How the line announces itself, which is the cheap way to reject the other ninety-nine.
+    /// </summary>
+    /// <remarks>
+    /// This is the announcement, not the payload. The payload inside calls itself
+    /// "new_message", and an earlier version compared one against the other and therefore
+    /// recognised nothing at all. Verified against a live install: 380 of these lines across
+    /// eight log folders, every one of them with a "new_message" payload.
+    /// </remarks>
     private const string ChatTypeMarker = "ChatMessageReceived";
 
     /// <summary>
@@ -74,9 +82,13 @@ public static class QuestNotificationParser
                 return null;
             }
 
+            // Matched on the shape rather than on the payload's own type. The line is
+            // announced as ChatMessageReceived and the payload inside it calls itself
+            // "new_message", and checking the payload against the announcement rejected every
+            // notification the game writes. A message object carrying one of three numeric
+            // types and a template id is the thing being looked for, and nothing else has it.
             var payload = document.RootElement[0];
-            if (!string.Equals(ReadText(payload, "type"), ChatTypeMarker, StringComparison.Ordinal) ||
-                !payload.TryGetProperty("message", out var message) ||
+            if (!payload.TryGetProperty("message", out var message) ||
                 message.ValueKind != JsonValueKind.Object)
             {
                 return null;
@@ -117,8 +129,14 @@ public static class QuestNotificationParser
     /// The three message types that are about a quest, and nothing else.
     /// </summary>
     /// <remarks>
-    /// The same notification carries flea sales, insurance returns and ordinary chat. Matching
-    /// on the number rather than on anything in the text is what keeps those out.
+    /// The same notification carries flea sales, insurance returns and ordinary chat, so the
+    /// number is what keeps those out.
+    ///
+    /// It is also the only field that tells the truth. The message's own <c>text</c> reads
+    /// "quest started" on all three, including the hand-in and the failure, and the template
+    /// id's second word is "description" on a start and "successMessageText" on a completion
+    /// but simply "0" on a failure. Both look authoritative and both would have marked every
+    /// quest as started.
     /// </remarks>
     private static RecordedTaskState? ReadState(JsonElement message) =>
         message.TryGetProperty("type", out var type) &&

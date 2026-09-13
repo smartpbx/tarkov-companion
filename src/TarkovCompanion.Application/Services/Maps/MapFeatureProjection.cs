@@ -58,6 +58,7 @@ public static class MapFeatureProjection
                 MaximumHeight: feature.Position.Y)
             {
                 Faction = feature.Side,
+                Detail = feature.Detail,
             });
         }
 

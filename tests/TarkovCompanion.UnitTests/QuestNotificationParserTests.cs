@@ -66,7 +66,7 @@ public sealed class QuestNotificationParserTests
     [Fact]
     public void ATruncatedPayloadIsIgnored() =>
         Assert.Null(QuestNotificationParser.ParseLine(
-            "NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"message\":{\"type\":12,\"templ",
+            "ChatMessageReceived|[{\"type\":\"new_message\",\"message\":{\"type\":12,\"templ",
             Observed));
 
     /// <summary>
@@ -76,12 +76,45 @@ public sealed class QuestNotificationParserTests
     public void AMessageWithoutAnIdGetsOneFromWhatItSays()
     {
         var observation = QuestNotificationParser.ParseLine(
-            "NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"message\":" +
+            "ChatMessageReceived|[{\"type\":\"new_message\",\"message\":" +
             "{\"type\":12,\"templateId\":\"5936d90786f7742b1420ba5b done\"}}]",
             Observed);
 
         Assert.NotNull(observation);
         Assert.Equal("5936d90786f7742b1420ba5b:Completed", observation.EventId);
+    }
+
+    /// <summary>
+    /// The message's own words are not read, because they are the same on all three.
+    /// </summary>
+    /// <remarks>
+    /// Every one of these says "quest started", including the hand-in and the failure. So does
+    /// the template id's suffix, which is "description" on a start, "successMessageText" on a
+    /// completion, and "0" on a failure. Either would have marked every quest as started.
+    /// </remarks>
+    [Fact]
+    public void AHandInThatSaysItStartedIsStillAHandIn()
+    {
+        var observation = QuestNotificationParser.ParseLine(
+            Line(12, templateId: "5a27ba1c86f77461ea5a3c56 successMessageText"),
+            Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal(RecordedTaskState.Completed, observation.State);
+        Assert.Equal("5a27ba1c86f77461ea5a3c56", observation.TaskId);
+    }
+
+    /// <summary>A failure's template id ends in "0", which says nothing about the kind.</summary>
+    [Fact]
+    public void AFailureWithAMeaninglessSuffixIsStillAFailure()
+    {
+        var observation = QuestNotificationParser.ParseLine(
+            Line(11, templateId: "68fa00bda5ef093c440fb0ba 0"),
+            Observed);
+
+        Assert.NotNull(observation);
+        Assert.Equal(RecordedTaskState.Failed, observation.State);
+        Assert.Equal("68fa00bda5ef093c440fb0ba", observation.TaskId);
     }
 
     /// <summary>
@@ -92,9 +125,22 @@ public sealed class QuestNotificationParserTests
     /// two closing braces of its own, which a raw string reads as the end of an interpolation
     /// and refuses to compile.
     /// </remarks>
+    /// <summary>
+    /// A notification line shaped like the ones the game actually writes.
+    /// </summary>
+    /// <remarks>
+    /// The line announces itself as ChatMessageReceived and the payload inside calls itself
+    /// "new_message". That difference is what an earlier version of the parser got wrong, so
+    /// the fixture carries both exactly as the logs do.
+    ///
+    /// Built by concatenation rather than as a raw interpolated string, because the payload
+    /// ends in two closing braces of its own and a raw string reads those as the end of an
+    /// interpolation.
+    /// </remarks>
     private static string Line(int messageType, string templateId = "5936d90786f7742b1420ba5b description") =>
-        "2026-09-13 02:30:00.000 +00:00|NOTIFICATION|[{\"type\":\"ChatMessageReceived\",\"eventId\":\"e1\"," +
-        "\"message\":{\"_id\":\"msg-1\",\"type\":" +
+        "2026-09-13 02:30:00.000 +00:00|NOTIFICATION|6aa4bd43d4a840ddb8130198|ChatMessageReceived|" +
+        "[{\"type\":\"new_message\",\"eventId\":\"e1\",\"dialogId\":\"5935c25fb3acc3127c3d8cd9\"," +
+        "\"message\":{\"_id\":\"msg-1\",\"uid\":\"5935c25fb3acc3127c3d8cd9\",\"type\":" +
         messageType.ToString(System.Globalization.CultureInfo.InvariantCulture) +
-        ",\"templateId\":\"" + templateId + "\"}}]";
+        ",\"text\":\"quest started\",\"templateId\":\"" + templateId + "\"}}]";
 }

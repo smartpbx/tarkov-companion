@@ -337,7 +337,17 @@ public sealed partial class MapView : UserControl
         // never becomes a drag: nothing pans with the right button.
         if (eventArgs.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
-            MarkForGroup(eventArgs.GetPosition(MapSurface), eventArgs.KeyModifiers);
+            // Through the name scope, not the generated field. Every view here loads its XAML
+            // with AvaloniaXamlLoader.Load, which never populates an x:Name backing field, so
+            // MapSurface was always null and the position came back relative to the window
+            // instead of the canvas. The mark was then computed from a point that had the
+            // sidebar and the title bar in it, which is how a gesture that ran every time
+            // managed to put nothing anywhere.
+            if (Surface is { } surface)
+            {
+                MarkForGroup(eventArgs.GetPosition(surface), eventArgs.KeyModifiers);
+            }
+
             eventArgs.Handled = true;
             return;
         }

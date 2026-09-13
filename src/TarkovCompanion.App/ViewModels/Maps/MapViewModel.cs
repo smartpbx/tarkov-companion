@@ -379,6 +379,9 @@ public sealed record MapOverlayElementViewModel(
     /// <summary>Where this marker's name sits, decided against every other name on the map.</summary>
     public MapNamePlacement Placement { get; init; } = MapNamePlacement.Fixed;
 
+    /// <summary>What this asks of you: a switch, a payment, a side.</summary>
+    public string? Detail { get; init; }
+
     /// <summary>
     /// Which side this feature is for, where the data says.
     /// </summary>
@@ -557,6 +560,18 @@ public sealed record MapMarkerSelectionViewModel(
     private const double CardHeight = 120;
 
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    /// <summary>
+    /// What this exit asks of you, where the feed says anything.
+    /// </summary>
+    /// <remarks>
+    /// Asked for as "clicking an extract should pull up a picture of it and maybe any
+    /// important instructions for it too". The picture has no source; this is the
+    /// instructions, and they were in the synced payload the whole time.
+    /// </remarks>
+    public string? Conditions { get; init; }
+
+    public bool HasConditions => !string.IsNullOrWhiteSpace(Conditions);
 
     /// <summary>The canvas this is drawn on, so the card can stay inside it.</summary>
     /// <remarks>
@@ -1509,10 +1524,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         [
             new(
                 marker.Name,
-                marker.IsOffered ? marker.KindName + ", offered this raid" : marker.KindName,
+                marker.IsOffered ? marker.KindName + " · offered this raid" : marker.KindName,
                 marker.CenterX,
                 marker.CenterY)
             {
+                Conditions = marker.Detail,
                 Scale = _markerScale,
                 CanvasWidth = CanvasWidth,
                 CanvasHeight = CanvasHeight,
@@ -2394,6 +2410,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Scale = _markerScale,
                 Faction = element.Faction,
+                Detail = element.Detail,
                 Placement = new(),
             });
         }
@@ -3041,14 +3058,38 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     public Task MarkForGroupAsync(Point canvasPoint, bool isPing)
     {
-        if (SelectedLocation is not { } location || !TryReadWorldPosition(canvasPoint, out var position))
+        if (SelectedLocation is not { } location)
         {
+            Status = "Pick a map before marking a place on it";
             return Task.CompletedTask;
         }
 
+        if (!TryReadWorldPosition(canvasPoint, out var position))
+        {
+            // Reported as the gesture doing nothing at all, which it did: it failed silently
+            // whatever the reason. A map with no transform cannot turn a click into a place,
+            // and saying so is the difference between a broken feature and an unusable map.
+            Status = "This map has no transform, so a place cannot be marked on it";
+            return Task.CompletedTask;
+        }
+
+        Status = isPing ? "Pinging…" : "Marking a waypoint…";
         GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Says what became of a mark, because the map draws it only once the server sends it back.
+    /// </summary>
+    /// <remarks>
+    /// One code path draws every mark, including your own, so between the gesture and the next
+    /// exchange there is nothing on screen at all. Without a word here that gap is
+    /// indistinguishable from the gesture not working, which is exactly how it was reported.
+    /// </remarks>
+    public void ReportMark(bool isPing, bool sent) =>
+        Status = sent
+            ? isPing ? "Pinged" : "Waypoint marked"
+            : isPing ? "Ping not sent · check sharing on the Group page" : "Waypoint not sent · check sharing on the Group page";
 
     /// <summary>
     /// Turns a point somebody clicked on the canvas into a place in the world.
