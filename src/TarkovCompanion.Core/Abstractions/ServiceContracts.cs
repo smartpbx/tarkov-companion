@@ -67,7 +67,19 @@ public sealed record ScanOutcome(
     FleaRecognitionResult? Flea,
     RecommendationResult? Recommendation,
     IReadOnlyList<ScanEvidence> Evidence,
-    string? DiagnosticCode = null);
+    string? DiagnosticCode = null)
+{
+    /// <summary>What the recognised item is worth, whether or not advice was given about it.</summary>
+    /// <remarks>
+    /// Separate from the recommendation on purpose. "What is this worth" and "should you take
+    /// it" are different questions, and the first is answerable whenever the item is known.
+    /// They used to share a field, so a withheld recommendation hid a price the application
+    /// had already fetched and was holding in a local variable.
+    /// </remarks>
+    public long? EconomicValue { get; init; }
+
+    public long? ValuePerSlot { get; init; }
+}
 
 public sealed record ScanEventMetadata(
     Guid ScanId,
