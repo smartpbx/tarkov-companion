@@ -241,6 +241,40 @@
           </StackPanel>
         </Border>
 
+        <!-- The ways out, built from the map catalog rather than from a scan. The Extracts
+             readout on the left says what a screenshot of the extract screen was recognised as,
+             which on a real Woods screen was one exit in five; this says what the map knows is
+             there, which is all of them, and marks the ones the scan confirmed.
+
+             Distances are straight lines and the caption says so. A route through Customs is
+             not the length of the line across it. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasExtractPanel}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Ways out, nearest you" />
+            <ItemsControl ItemsSource="{Binding Map.ExtractPanel}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:ExtractPanelViewModel">
+                  <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,4">
+                    <!-- The star is the scan's contribution: this exit was on the extract
+                         screen this raid. A row without one is not unavailable, it is
+                         unconfirmed, which is why the star is added to a row rather than the
+                         row being added by the scan. -->
+                    <TextBlock Classes="caption" Text="*" IsVisible="{Binding IsOffered}" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" Spacing="1">
+                      <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Side}" IsVisible="{Binding HasSide}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Classes="caption" Text="{Binding Where}" VerticalAlignment="Center" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption"
+                       Text="Straight-line distance, not a route - * was on the extract screen this raid"
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <!-- What the map says is worth looking in, near where the player is standing. Never
              drawn on the map: Woods alone has 815 loot positions and a map wearing all of them
              answers nothing. The question they answer is "what is near me".

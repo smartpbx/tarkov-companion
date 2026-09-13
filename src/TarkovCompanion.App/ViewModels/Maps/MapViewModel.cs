@@ -283,6 +283,28 @@ public sealed record SpawnPanelViewModel(string Name, string FromStart, string F
 /// <param name="Where">How far and which way.</param>
 public sealed record LootPanelViewModel(string Name, string Where);
 
+/// <summary>One way out of this map, written out beside it.</summary>
+/// <remarks>
+/// Built from the map catalog, not from a scan, which is the whole change: the readout that
+/// answers "how do I get out" used to be empty until a screenshot of the extract screen was
+/// recognised, and on a real Woods screen one exit in five matched. A scan now decorates rows
+/// that are already there.
+/// </remarks>
+/// <param name="Name">As the catalog names it.</param>
+/// <param name="Where">How far and which way, in a straight line.</param>
+/// <param name="Side">Who it is for, as a word, or nothing where the feed does not say.</param>
+/// <param name="IsOffered">Whether a scan of the extract screen named this one.</param>
+/// <param name="IsTransit">Whether it leads to another map rather than out of the raid.</param>
+public sealed record ExtractPanelViewModel(
+    string Name,
+    string Where,
+    string Side,
+    bool IsOffered,
+    bool IsTransit)
+{
+    public bool HasSide => Side.Length > 0;
+}
+
 public sealed record GroupMemberPanelViewModel(
     string Name,
     string Where,
@@ -1153,6 +1175,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
     private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
+    private IReadOnlyList<ExtractPanelViewModel> _extractPanel = [];
     private IReadOnlyList<SpawnThreatViewModel> _spawnThreats = [];
     private IReadOnlyList<FloorLayerViewModel> _floorLayers = [];
     private bool _isStacked;
@@ -3084,6 +3107,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // Through the layers, so the extract row's count follows what is actually drawn.
         UpdateOverlays();
         UpdateSpawnPanel();
+        UpdateExtractPanel();
     }
 
     /// <summary>
@@ -3116,6 +3140,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _activeExtracts = extracts;
         UpdateOverlayElements();
+        UpdateExtractPanel();
     }
 
     /// <summary>Everyone in the group who is on this map, drawn where they last were.</summary>
@@ -3419,6 +3444,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public bool HasLootPanel => _lootPanel.Count > 0;
 
+    /// <summary>
+    /// The ways out of this map, nearest first, whether or not anything has been recognised.
+    /// </summary>
+    /// <remarks>
+    /// The map beside this panel already held every exit's position, name and faction while the
+    /// Extracts readout said "None observed", so the list is built from the catalog and a scan
+    /// only marks the rows it confirms. Exits stated to be for the other side are left out
+    /// entirely: sending somebody to a door that will not open is worse than saying nothing.
+    /// </remarks>
+    public IReadOnlyList<ExtractPanelViewModel> ExtractPanel
+    {
+        get => _extractPanel;
+        private set
+        {
+            Set(ref _extractPanel, value);
+            OnPropertyChanged(nameof(HasExtractPanel));
+        }
+    }
+
+    public bool HasExtractPanel => _extractPanel.Count > 0;
+
     private void UpdateLootPanel()
     {
         if (_mapFeatures.Count == 0 || _playerPosition is not { } position)
@@ -3433,6 +3479,47 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 $"{SpawnProximity.Describe(loot.Metres)} {loot.Bearing}"))
             .ToArray();
     }
+
+    /// <summary>
+    /// Rebuilds the way-out list from the catalog, decorated by whatever has been recognised.
+    /// </summary>
+    /// <remarks>
+    /// Runs on a new position, a change of side, a change of map and a fresh scan, which is
+    /// every input it has. Unlike the loot panel it survives having no position: a player who
+    /// has not taken a screenshot yet still gets the exits their side can use, without
+    /// distances, which is more than the "None observed" it replaces.
+    /// </remarks>
+    private void UpdateExtractPanel()
+    {
+        if (_mapFeatures.Count == 0)
+        {
+            ExtractPanel = [];
+            return;
+        }
+
+        var offered = _activeExtracts.Select(extract => extract.Name).ToArray();
+        ExtractPanel = ExtractProximity
+            .Near(_mapFeatures, _playerPosition?.Position, _side, offered)
+            .Select(exit => new ExtractPanelViewModel(
+                exit.Name,
+                // Without a screenshot there is no player position, so there is no distance to
+                // print. The row is still worth having; a made-up distance from the origin of
+                // the map would not be.
+                exit.MetresFromPlayer is { } metres ? $"{SpawnProximity.Describe(metres)} {exit.Bearing}" : string.Empty,
+                SideWord(exit.Side),
+                exit.WasOffered,
+                exit.IsTransit))
+            .ToArray();
+    }
+
+    /// <summary>Who an exit is for, as the word a player would say.</summary>
+    private static string SideWord(MapFeatureFaction side) => side switch
+    {
+        MapFeatureFaction.Pmc => "PMC",
+        MapFeatureFaction.Scav => "Scav",
+        MapFeatureFaction.Shared => "Either",
+        _ => string.Empty,
+    };
 
     /// <summary>
     /// Works out where the other players in this raid started, from where this one did.
@@ -4153,6 +4240,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateArea();
         UpdateSpawnPanel();
         UpdateLootPanel();
+        UpdateExtractPanel();
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
@@ -4263,6 +4351,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _mapFeatures = features;
             UpdateSpawnPanel();
             UpdateLootPanel();
+            UpdateExtractPanel();
             return MapFeatureProjection.Project(variant, features);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -4270,6 +4359,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _mapFeatures = [];
             UpdateSpawnPanel();
             UpdateLootPanel();
+            UpdateExtractPanel();
             return [];
         }
     }
