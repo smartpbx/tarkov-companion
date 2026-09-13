@@ -114,7 +114,8 @@ public sealed class ScanContextDetector
                 ScanContext.Unknown,
                 new Confidence(Math.Clamp(best.Score, 0, 1)),
                 estimatedScale,
-                $"no-unique-context; best={best.Context}:{best.Score:F2}; next={runnerUp.Context}:{runnerUp.Score:F2}",
+                $"no-unique-context; best={best.Context}:{best.Score:F2}; next={runnerUp.Context}:{runnerUp.Score:F2}; "
+                + DescribeMiss(normalized),
                 null,
                 []);
         }
@@ -130,7 +131,39 @@ public sealed class ScanContextDetector
             best.Matches);
     }
 
-    private ContextScore Score(
+    /// <summary>
+    /// Says what was looked for and what was read, when nothing matched.
+    /// </summary>
+    /// <remarks>
+    /// A score of zero says nothing matched. It does not say what the gap is, and without that
+    /// the only way forward is to guess at anchor terms and wait for somebody to run the game
+    /// again. This prints both sides of the comparison so one screenshot settles it.
+    ///
+    /// It exists because the anchors were derived from a simulated interface and never checked
+    /// against the real game, which the detail line has been admitting in the word
+    /// "live-unvalidated" the whole time. On real screenshots they score exactly zero while
+    /// eighty lines of perfectly good text sit on screen.
+    ///
+    /// Bounded hard. This goes in a log file somebody pastes into a chat, not into a report.
+    /// </remarks>
+    private string DescribeMiss(IReadOnlyList<(OcrLine Line, string Text)> lines)
+    {
+        var wanted = Enum.GetValues<ScanContext>()
+            .Where(context => context != ScanContext.Unknown)
+            .SelectMany(context => _anchors.For(context).Select(anchor => $"{context}:{anchor.Term}"))
+            .Take(16);
+        // The longest lines, because a UI caption is longer than a stray character the engine
+        // found in the artwork, and it is the captions the anchors are supposed to match.
+        var read = lines
+            .Select(line => line.Text)
+            .Where(text => text.Length >= 3)
+            .OrderByDescending(text => text.Length)
+            .Take(12)
+            .Select(text => text.Length <= 40 ? text : text[..40]);
+        return $"wanted=[{string.Join(" | ", wanted)}]; read=[{string.Join(" | ", read)}]";
+    }
+
+    private ContextScore Score(    private ContextScore Score(
         ScanContext context,
         IReadOnlyList<(OcrLine Line, string Text)> lines)
     {
