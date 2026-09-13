@@ -168,7 +168,7 @@ public sealed class HudProbeTests
     [InlineData(34, 114, 131, HudBarKind.Blue)]
     [InlineData(43, 151, 129, HudBarKind.Green)]
     public void Classifies_the_colours_a_real_frame_actually_contained(byte red, byte green, byte blue, HudBarKind expected) =>
-        Assert.Equal(expected, HudProbe.Classify(red, green, blue));
+        Assert.Equal<HudBarKind?>(expected, HudProbe.Classify(red, green, blue));
 
     [Theory]
     [InlineData(22, 94, 105)]   // the antialiased row under the upper bar
