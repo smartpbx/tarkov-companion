@@ -80,3 +80,18 @@ public interface IEventCatalog
 {
     Task<IReadOnlyList<EventDefinition>> GetAsync(CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// A projection built once from the item catalog that has to be dropped when it is refreshed.
+/// </summary>
+/// <remarks>
+/// Exists so the startup coordinator can invalidate the recognition resolver alongside the
+/// five catalogs it already invalidates after a sync. The resolver itself lives in
+/// Infrastructure and Application cannot name it, and that is precisely how it came to be the
+/// one cache the post-sync block missed: on a fresh install it was built from an empty item
+/// table and kept, so every scan returned no_match until the application was restarted.
+/// </remarks>
+public interface IInvalidatableProjection
+{
+    void Invalidate();
+}

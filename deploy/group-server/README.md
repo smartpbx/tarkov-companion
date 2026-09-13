@@ -52,3 +52,28 @@ systemctl list-timers tarkov-group-update.timer
 journalctl -u tarkov-group-update.service -n 50
 wget -qO- https://tarkov.mannerow.net/health
 ```
+
+## Keeping the squad's marks across an update
+
+The relay holds waypoints in memory unless it is told where to put them, and the updater
+replaces `/opt/tarkov-group` wholesale — so anything written inside the tree would be
+destroyed by the update it is meant to survive.
+
+Add to `/etc/systemd/system/tarkov-group.service`:
+
+```ini
+[Service]
+StateDirectory=tarkov-group
+```
+
+systemd then creates `/var/lib/tarkov-group`, owns it correctly whether or not the unit uses
+`DynamicUser=`, and passes the path in `STATE_DIRECTORY`. The server writes one `marks.json`
+there. For a deployment that is not systemd, set `TARKOV_GROUP_STATE` to a writable directory
+instead.
+
+**Waypoints only.** Pings expire in forty-five seconds and mean "now", so one restored from
+disk would be a lie. Positions are never written at all — that is the promise the rest of the
+server makes, and it is why this file can exist.
+
+Until `StateDirectory=` is set on the running unit, the server behaves exactly as it did
+before: marks live in memory and a restart clears them.

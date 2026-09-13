@@ -58,6 +58,8 @@ public sealed class EventsPageViewModel : PageViewModel
     /// The wording follows <c>assets/events/README.md</c> and the paths <c>AppDataPaths</c>
     /// resolves, so a player who follows this line lands where <c>JsonFileEventCatalog</c> reads.
     /// </remarks>
+    private int? _knownItemCount;
+
     private const string EmptyGuidanceText =
         "Put a JSON file in %LOCALAPPDATA%\\TarkovCompanion\\Config\\Events " +
         "(Data\\Config\\Events when portable) and restart. Shape: assets/events/README.md.";
@@ -154,6 +156,16 @@ public sealed class EventsPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>Takes what the sync produced, rebuilding when the catalog actually changed.</summary>
+    /// <remarks>
+    /// The event definitions are local files and owe the sync nothing, but the items they name
+    /// are looked up in the catalog, so before the first sync every applicable item on this
+    /// page reads as its raw id. The count is the change signal; 0 -> N used to do nothing and
+    /// the ids stayed until somebody pressed Reload.
+    ///
+    /// Fire and forget, because Apply is called from the shell's state pass and must not block
+    /// it on a database read.
+    /// </remarks>
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
         // Recorded states live in the active profile, so which profile is active is the piece of
@@ -162,6 +174,16 @@ public sealed class EventsPageViewModel : PageViewModel
             ? "no active profile"
             : $"{snapshot.Profile.Name} · {snapshot.Profile.GameMode}";
         Evidence = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} cached items · results stored against {profile}";
+        if (_knownItemCount == snapshot.Data.ItemCount)
+        {
+            return;
+        }
+
+        _knownItemCount = snapshot.Data.ItemCount;
+        if (snapshot.Data.ItemCount > 0)
+        {
+            _ = LoadAsync();
+        }
     }
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);

@@ -35,6 +35,28 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </remarks>
     private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long one exchange with the relay may take before it is abandoned.</summary>
+    /// <remarks>
+    /// The shared HttpClient is registered with Timeout.InfiniteTimeSpan, so a relay that
+    /// accepts a connection and never answers parked this loop forever: the panel went on
+    /// saying "Sharing as X · 3 others" over a snapshot that quietly aged, and nothing ever
+    /// timed out to say otherwise.
+    ///
+    /// Eight seconds, against a five-second tick. Long enough that a slow-but-working relay is
+    /// not cut off, short enough that a dead one is noticed within two ticks.
+    /// </remarks>
+    private static readonly TimeSpan ExchangeTimeout = TimeSpan.FromSeconds(8);
+
+    /// <summary>
+    /// How long a stale snapshot keeps showing the group before it gives them up.
+    /// </summary>
+    /// <remarks>
+    /// Three minutes, matching GroupRooms.MemberLifetime on the server. Past that the relay
+    /// would have dropped these members anyway, so continuing to draw them would be inventing
+    /// a group rather than remembering one.
+    /// </remarks>
+    private static readonly TimeSpan StaleLimit = TimeSpan.FromMinutes(3);
+
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly IGroupSettingsStore _settings;
@@ -42,6 +64,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     private readonly HttpClient _httpClient;
     private readonly ILogger<GroupSessionService> _logger;
     private int _published;
+    private GroupSnapshot? _lastGood;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _worker;
     private bool _disposed;
@@ -79,9 +102,16 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             try
             {
-                await PublishOnceAsync(cancellationToken).ConfigureAwait(false);
+                using var exchange = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                exchange.CancelAfter(ExchangeTimeout);
+                await PublishOnceAsync(exchange.Token).ConfigureAwait(false);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            // The filter tests the loop's own token rather than the exception's type. A
+            // per-request timeout throws TaskCanceledException, which *is* an
+            // OperationCanceledException, so the old filter would have let every timeout
+            // escape, fault the worker and end sharing silently for the session — the trap
+            // that made adding a timeout worse than not having one.
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 // Deliberately swallowed after reporting. The group is an extra; a server that
                 // is down must not take the map with it.
@@ -93,11 +123,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 // this application says what it did; this one was silent.
                 var detail = Explain(exception);
                 _logger.LogWarning(exception, "Group publish failed: {Detail}", detail);
-                Publish(GroupSnapshot.Off with
-                {
-                    Detail = detail,
-                    UpdatedUtc = DateTimeOffset.UtcNow,
-                });
+                PublishStale(detail);
             }
 
             try
@@ -176,7 +202,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 "Marked {Kind} on {Map} for the group.", isPing ? "a ping" : "a waypoint", mapId);
             return true;
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
             _logger.LogWarning(exception, "Could not mark a place for the group.");
             return false;
@@ -188,6 +214,8 @@ public sealed class GroupSessionService : IAsyncDisposable
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsEnabled)
         {
+            // Deliberate, not a failure, so there is nothing to keep warm.
+            _lastGood = null;
             Publish(GroupSnapshot.Off);
             return;
         }
@@ -227,13 +255,21 @@ public sealed class GroupSessionService : IAsyncDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            Publish(GroupSnapshot.Off with
+            // A 401 is an answer: the key is wrong and no amount of waiting fixes it, so the
+            // group really is off. Everything else is the relay having a bad moment, and the
+            // squad that was on the map a second ago should stay on it.
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                Detail = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
-                    ? "Wrong group key"
-                    : $"Server answered {(int)response.StatusCode}",
-                UpdatedUtc = DateTimeOffset.UtcNow,
-            });
+                _lastGood = null;
+                Publish(GroupSnapshot.Off with
+                {
+                    Detail = "Wrong group key",
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                });
+                return;
+            }
+
+            PublishStale($"Server answered {(int)response.StatusCode}");
             return;
         }
 
@@ -262,7 +298,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 members.Length);
         }
 
-        Publish(new GroupSnapshot(
+        var published = new GroupSnapshot(
             true,
             members,
             members.Length switch
@@ -282,7 +318,11 @@ public sealed class GroupSessionService : IAsyncDisposable
                 new GroupWaypointView(w.Id, w.By, w.MapId, w.X, w.Y, w.Z, w.Label, w.CompletedBy)).ToArray(),
             Pings = (room?.Pings ?? []).Select(p =>
                 new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)).ToArray(),
-        });
+        };
+        // Kept so the next failed exchange has something true to keep showing. StaleSince is
+        // null here by construction: this read worked, so nothing on screen is old.
+        _lastGood = published;
+        Publish(published);
 
         await CompleteReachedAsync(room, snapshot, settings, cancellationToken).ConfigureAwait(false);
     }
@@ -342,7 +382,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                     _logger.LogInformation("Reached waypoint {Id} on {Map}.", waypoint.Id, mapId);
                 }
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
             {
                 // One waypoint left unticked, and the next exchange tries again.
                 _logger.LogDebug(exception, "Could not report reaching waypoint {Id}.", waypoint.Id);
@@ -380,6 +420,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
             sharedQuests)
         {
+            // Published because a map with floors cannot place somebody without it, and the
+            // waypoints beside them have carried one from the beginning.
+            Y = position?.Position.Y,
             Observed = observed
                 .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout))
                 .ToArray(),
@@ -418,7 +461,10 @@ public sealed class GroupSessionService : IAsyncDisposable
                 .Select(step => new TrailPointDto(
                     step.Position.X,
                     step.Position.Z,
-                    Math.Max(0, (now - step.Timestamp.ToUniversalTime()).TotalSeconds))),
+                    Math.Max(0, (now - step.Timestamp.ToUniversalTime()).TotalSeconds))
+                {
+                    Y = step.Position.Y,
+                }),
         ];
     }
 
@@ -459,16 +505,65 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.MapId,
         Enum.TryParse<RaidLifecycleState>(member.RaidState, out var state) ? state : RaidLifecycleState.Unknown,
         member.Side,
-        member.X is { } x && member.Z is { } z ? new WorldPosition(x, 0, z) : null,
+        member.X is { } x && member.Z is { } z ? new WorldPosition(x, member.Y ?? 0, z) : null,
         member.Heading,
         member.PositionAge is { } age ? TimeSpan.FromSeconds(age) : null,
         member.Loadout ?? [],
         member.Quests ?? [])
     {
+        HasKnownHeight = member.Y is not null,
         Trail = (member.Trail ?? [])
-            .Select(step => new GroupTrailPointView(step.X, step.Z, TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds))))
+            .Select(step => new GroupTrailPointView(
+                step.X,
+                step.Z,
+                TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds)),
+                step.Y))
             .ToArray(),
     };
+
+    /// <summary>
+    /// Keeps the last good picture of the group on screen, saying how old it is.
+    /// </summary>
+    /// <remarks>
+    /// One failed exchange used to publish <see cref="GroupSnapshot.Off"/>, which empties
+    /// Members, Waypoints and Pings; ApplySnapshot then cleared every squadmate and every mark
+    /// from the map until the next tick five seconds later. A single dropped packet made the
+    /// whole group disappear and come back.
+    ///
+    /// Past <see cref="StaleLimit"/> it gives them up, because by then the relay has dropped
+    /// them too and drawing them would be inventing a group rather than remembering one.
+    /// </remarks>
+    private void PublishStale(string detail)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_lastGood is not { } good)
+        {
+            Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
+            return;
+        }
+
+        var since = good.StaleSince ?? now;
+        if (now - since > StaleLimit)
+        {
+            _lastGood = null;
+            Publish(GroupSnapshot.Off with { Detail = detail, UpdatedUtc = now });
+            return;
+        }
+
+        var stale = good with
+        {
+            Detail = $"{detail} · last heard {Ago(now - since)} ago",
+            StaleSince = since,
+            UpdatedUtc = now,
+        };
+        _lastGood = stale;
+        Publish(stale);
+    }
+
+    /// <summary>How long ago, in the shortest form that is still honest.</summary>
+    public static string Ago(TimeSpan elapsed) => elapsed < TimeSpan.FromMinutes(1)
+        ? $"{Math.Max(0, (int)elapsed.TotalSeconds)}s"
+        : $"{(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
 
     private void Publish(GroupSnapshot group) =>
         _stateStore.Update(current => current with { Group = group });
@@ -508,6 +603,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout,
         [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests)
     {
+        /// <summary>How high they were standing, absent from clients that predate it.</summary>
+        [JsonPropertyName("y")]
+        public double? Y { get; init; }
+
         /// <summary>What this member's game said about everybody else in their party.</summary>
         [JsonPropertyName("observed")]
         public IReadOnlyList<ObservedKitDto>? Observed { get; init; }
@@ -520,7 +619,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     private sealed record TrailPointDto(
         [property: JsonPropertyName("x")] double X,
         [property: JsonPropertyName("z")] double Z,
-        [property: JsonPropertyName("age")] double AgeSeconds);
+        [property: JsonPropertyName("age")] double AgeSeconds)
+    {
+        [JsonPropertyName("y")]
+        public double? Y { get; init; }
+    }
 
     private sealed record ObservedKitDto(
         [property: JsonPropertyName("name")] string Name,

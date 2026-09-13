@@ -59,6 +59,16 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         var ambiguous = new List<string>();
         var unmatched = new List<string>();
         var transits = new List<string>();
+        // Upstream lists an exit both factions can use once per faction, and the refresh stores
+        // both rows. Two identical names tie at a similarity difference of exactly zero, which
+        // is below MinimumRunnerUpLead, so the lead rule called every shared exit ambiguous and
+        // discarded it — unless the read happened to be character-perfect, which on a real
+        // panel it is not ("EXFILO1", "ZB-214"). Shared exits are the ones players most want,
+        // and they were the ones that could never match.
+        //
+        // Collapsing them before ranking is the whole fix: one name is one candidate, and the
+        // runner-up is then a genuinely different exit.
+        var candidates = DistinctByName(currentMap.Extracts);
         foreach (var line in lines)
         {
             // The slot label comes off first and says what the row is. Every row on this panel
@@ -83,7 +93,7 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 continue;
             }
 
-            var ranked = currentMap.Extracts
+            var ranked = candidates
                 .Select(extract => new
                 {
                     Extract = extract,
@@ -221,6 +231,19 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
     /// after normalisation on both sides and against the bracketed and unbracketed forms, so
     /// "Power line passage" is exact for "Power Line Passage (Flare)".
     /// </remarks>
+    /// <summary>One row per exit name, keeping the one with a position where there is a choice.</summary>
+    /// <remarks>
+    /// The duplicate rows differ only by which faction the catalog lists them under, which is
+    /// not something the extract panel says and not something a name match can use. Preferring
+    /// a row that carries a position matters because that is what the map draws; beyond that
+    /// the first is as good as the second.
+    /// </remarks>
+    public static IReadOnlyList<MapExtract> DistinctByName(IReadOnlyList<MapExtract> extracts) =>
+        extracts
+            .GroupBy(extract => extract.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.FirstOrDefault(extract => extract.Position is not null) ?? group.First())
+            .ToArray();
+
     private bool IsExact(string observed, string name) =>
         string.Equals(observed, _normalizer.NormalizeForLookup(name), StringComparison.Ordinal) ||
         string.Equals(

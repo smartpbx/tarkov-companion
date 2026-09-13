@@ -4,7 +4,32 @@ using TarkovCompanion.GroupServer;
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
-builder.Services.AddSingleton<GroupMarks>();
+// StateDirectory=tarkov-group gives the unit /var/lib/tarkov-group, which is outside the tree
+// the updater replaces with `rm -rf /opt/tarkov-group` — so a plan survives the update that
+// used to destroy it. Falls back to memory-only where the directory is not configured, which
+// is what every test and every local run gets.
+builder.Services.AddSingleton(provider => new GroupMarks(
+    provider.GetRequiredService<TimeProvider>(),
+    MarksStorePath()));
+
+// Where the squad's marks are kept, or null to hold them in memory as before.
+//
+// STATE_DIRECTORY is set by systemd when the unit declares StateDirectory=tarkov-group, which
+// resolves to /var/lib/tarkov-group — outside the tree the updater replaces with
+// `rm -rf /opt/tarkov-group`, which is the whole point. TARKOV_GROUP_STATE overrides it for a
+// deployment that is not systemd, and absent both this stays memory-only, which is what every
+// test and every local run gets.
+static string? MarksStorePath()
+{
+    if (Environment.GetEnvironmentVariable("TARKOV_GROUP_STATE") is { Length: > 0 } explicitPath)
+    {
+        return Path.Combine(explicitPath, "marks.json");
+    }
+
+    return Environment.GetEnvironmentVariable("STATE_DIRECTORY") is { Length: > 0 } stateDirectory
+        ? Path.Combine(stateDirectory.Split(':')[0], "marks.json")
+        : null;
+}
 // One copy of the game-data catalog for the whole group, instead of five clients each pulling
 // several megabytes of the same answer. Its own client, with its own timeout, because a slow
 // upstream must not hold up the group exchange this server mainly exists for.

@@ -25,6 +25,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IMapFeatureCatalog? _mapFeatures;
     private readonly IRequirementCatalog _requirementCatalog;
     private readonly IItemFactCatalog _itemFactCatalog;
+    private readonly IReadOnlyList<IInvalidatableProjection> _projections;
     private readonly IRuntimeStateStore _stateStore;
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -45,6 +46,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         IRequirementCatalog requirementCatalog,
         IItemFactCatalog itemFactCatalog,
         IRuntimeStateStore stateStore,
+        // Everything else built once from the item catalog. Registered as a collection so a
+        // new one is invalidated by being registered rather than by somebody remembering to
+        // add a line here — which is how the recognition resolver came to be missed.
+        IEnumerable<IInvalidatableProjection> projections,
         RuntimeOptions options,
         ILogger<ApplicationStartupCoordinator> logger,
         IOcrEngineStatus? ocrStatus = null,
@@ -69,6 +74,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _mapDefinitions = mapDefinitions;
         _mapFeatures = mapFeatures;
         _requirementCatalog = requirementCatalog;
+        _projections = projections.ToArray();
         _itemFactCatalog = itemFactCatalog;
         _stateStore = stateStore;
         _options = options;
@@ -217,6 +223,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             _mapAliasCatalog.Invalidate();
             _mapDefinitions?.Invalidate();
             _mapFeatures?.Invalidate();
+            foreach (var projection in _projections)
+            {
+                projection.Invalidate();
+            }
+
             await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();

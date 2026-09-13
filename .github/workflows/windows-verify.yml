@@ -28,6 +28,15 @@ on:
     branches:
       - main
 
+# One publish at a time per ref. Two main runs started four seconds apart once and
+# finished out of order, leaving the rolling `dev` release on the older build. An
+# older run is cancelled rather than queued: it is about to be superseded, and since
+# the publish no longer deletes anything and writes the feed files last, a cancelled
+# one leaves the previous build whole.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -79,7 +88,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          tar -C artifacts/group-server -czf dist/TarkovCompanion-GroupServer-linux-x64.tar.gz .
+          # Reproducible on purpose. The relay's updater compares the published checksum
+          # against the one it installed and restarts when they differ, and fresh mtimes,
+          # owners and directory order made the hash change on every green run — so nearly
+          # every merge to main restarted the relay whether or not the server had changed,
+          # twice an hour, each time taking the squad's marks with it.
+          #
+          # gzip is given -n separately because it stamps its own mtime into the header, which
+          # tar's -z would not suppress.
+          tar -C artifacts/group-server \
+            --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+            -cf - . | gzip -n > dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
           ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
           cat dist/GROUPSERVER-SHA256SUMS.txt
       - uses: actions/upload-artifact@v5
@@ -428,9 +447,59 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          REPO="${{ github.repository }}"
           # The manifest is written by the packaging script, from the same values it stamped
           # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
           test -s dist/update.json
-          gh release delete dev --repo "${{ github.repository }}" --yes --cleanup-tag || true
-          gh release create dev             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "Latest verified build"             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanion-win-Setup.exe; after that the application updates itself."             --prerelease             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/TarkovCompanion-GroupServer-linux-x64.tar.gz             dist/GROUPSERVER-SHA256SUMS.txt             dist/TarkovCompanion-v1.0.0-win-x64.zip             dist/SHA256SUMS.txt             dist/update.json
+          VERSION="$(jq -r .version dist/update.json)"
+
+          # Refuse to go backwards. Two main runs started four seconds apart once and the
+          # older commit finished last, so `dev` ended up on the older build — and the relay,
+          # which follows the feed by checksum alone, would have followed it backwards too.
+          # The concurrency group above makes that unlikely; this makes it harmless.
+          PUBLISHED=""
+          if gh release download dev --repo "$REPO" --pattern update.json --dir /tmp/feed --clobber 2>/dev/null; then
+            PUBLISHED="$(jq -r .version /tmp/feed/update.json 2>/dev/null || echo "")"
+          fi
+          if [ -n "$PUBLISHED" ] && [ "$PUBLISHED" != "$VERSION" ] \
+             && [ "$(printf '%s\n%s\n' "$PUBLISHED" "$VERSION" | sort -V | tail -1)" = "$PUBLISHED" ]; then
+            echo "Refusing to publish $VERSION over the newer $PUBLISHED already on dev." >&2
+            exit 1
+          fi
+
+          # Created if absent, never deleted. Delete-then-create left the install link, the
+          # update feed and the relay updater all pointing at nothing when the create failed
+          # after the delete had succeeded — which happened twice — and it zeroed the download
+          # counts on every single build.
+          if ! gh release view dev --repo "$REPO" >/dev/null 2>&1; then
+            git tag -f dev "${{ github.sha }}"
+            git push -f origin dev
+            gh release create dev \
+              --repo "$REPO" \
+              --title "Latest verified build" \
+              --notes "placeholder" \
+              --prerelease
+          fi
+
+          # Packages first, the two feed files last. Anything reading the feed mid-publish sees
+          # the previous build, whole, rather than a half-written one; and a run cancelled
+          # partway leaves the old feed pointing at assets that are all still present.
+          gh release upload dev --repo "$REPO" --clobber \
+            dist/velopack/* \
+            dist/TarkovCompanion-GroupServer-linux-x64.tar.gz \
+            dist/GROUPSERVER-SHA256SUMS.txt \
+            dist/TarkovCompanion-v1.0.0-win-x64.zip
+          gh release upload dev --repo "$REPO" --clobber \
+            dist/VELOPACK-SHA256SUMS.txt \
+            dist/SHA256SUMS.txt \
+            dist/update.json
+
+          # The tag follows the build rather than being recreated with it.
+          git tag -f dev "${{ github.sha }}"
+          git push -f origin dev
+          gh release edit dev \
+            --repo "$REPO" \
+            --title "Latest verified build" \
+            --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanionDesktop-win-Setup.exe; after that the application updates itself." \
+            --prerelease
 
