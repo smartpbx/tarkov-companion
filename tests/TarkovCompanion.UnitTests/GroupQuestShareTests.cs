@@ -21,8 +21,8 @@ public sealed class GroupQuestShareTests
     public async Task PinnedComesBeforeActive()
     {
         var share = Share(
-            Task("Debut", RecordedTaskState.Active),
-            Task("Zhivchik", RecordedTaskState.Active, isPinned: true));
+            Quest("Debut", RecordedTaskState.Active),
+            Quest("Zhivchik", RecordedTaskState.Active, isPinned: true));
 
         Assert.Equal(["Zhivchik", "Debut"], await share.GetAsync(CancellationToken.None));
     }
@@ -37,7 +37,7 @@ public sealed class GroupQuestShareTests
     [InlineData(RecordedTaskState.Unknown)]
     public async Task FinishedAndUnstartedQuestsAreNotShared(RecordedTaskState state)
     {
-        var share = Share(Task("Debut", state));
+        var share = Share(Quest("Debut", state));
 
         Assert.Empty(await share.GetAsync(CancellationToken.None));
     }
@@ -46,7 +46,7 @@ public sealed class GroupQuestShareTests
     [Fact]
     public async Task APinnedQuestIsSharedEvenWhenItIsNotActive()
     {
-        var share = Share(Task("Debut", RecordedTaskState.NotStarted, isPinned: true));
+        var share = Share(Quest("Debut", RecordedTaskState.NotStarted, isPinned: true));
 
         Assert.Equal(["Debut"], await share.GetAsync(CancellationToken.None));
     }
@@ -56,7 +56,7 @@ public sealed class GroupQuestShareTests
     public async Task NoMoreThanFive()
     {
         var share = Share(Enumerable.Range(0, 9)
-            .Select(index => Task("Quest " + index, RecordedTaskState.Active))
+            .Select(index => Quest("Quest " + index, RecordedTaskState.Active))
             .ToArray());
 
         Assert.Equal(5, (await share.GetAsync(CancellationToken.None)).Count);
@@ -68,7 +68,7 @@ public sealed class GroupQuestShareTests
     [Fact]
     public async Task TheBoardIsNotReadOnEveryExchange()
     {
-        var reads = new CountingQuests(Task("Debut", RecordedTaskState.Active));
+        var reads = new CountingQuests(Quest("Debut", RecordedTaskState.Active));
         var share = new GroupQuestShare(new StubProfiles(), reads);
 
         await share.GetAsync(CancellationToken.None);
@@ -90,7 +90,7 @@ public sealed class GroupQuestShareTests
     private static GroupQuestShare Share(params QuestSummaryReadModel[] tasks) =>
         new(new StubProfiles(), new CountingQuests(tasks));
 
-    private static QuestSummaryReadModel Task(string name, RecordedTaskState state, bool isPinned = false) => new(
+    private static QuestSummaryReadModel Quest(string name, RecordedTaskState state, bool isPinned = false) => new(
         name.ToLowerInvariant(),
         name,
         null,
@@ -116,7 +116,7 @@ public sealed class GroupQuestShareTests
             CancellationToken cancellationToken)
         {
             Reads++;
-            return System.Threading.Tasks.Task.FromResult(
+            return Task.FromResult(
                 new QuestBoardReadModel(scope, 1, null, tasks, []));
         }
 
