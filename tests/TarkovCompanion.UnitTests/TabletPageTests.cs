@@ -45,6 +45,35 @@ public sealed class TabletPageTests
     }
 
     [Fact]
+    public void ItCanTakeAMarkBackOffTheMap()
+    {
+        // The server has served DELETE /waypoints/{id} since the marks were written and no
+        // client had ever called it, so a plan could be added to and never corrected. The
+        // second screen is where a plan is most likely to be edited: it is the one screen
+        // somebody can reach without leaving the game.
+        Assert.Contains("method: \"DELETE\"", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("/waypoints/${id}", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClearingIsScopedToTheMapTheGroupIsOn()
+    {
+        // Otherwise tidying after a Customs raid takes the plan somebody made for Lighthouse
+        // with it, and nothing anywhere would say that it had.
+        Assert.Contains("new URLSearchParams({ mapId })", Tablet.Page, StringComparison.Ordinal);
+        Assert.Contains("reachedOnly", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAnswerWithNoBodyIsNotReadAsAFailure()
+    {
+        // Removing a mark is answered 200 with nothing in it. response.json() on an empty body
+        // throws, which would report a removal that worked as one that did not and leave the
+        // button disabled over it.
+        Assert.Contains("body ? JSON.parse(body) : null", Tablet.Page, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ItReachesNothingOutsideTheServerThatServedIt()
     {
         // Same origin, no CDN, no framework, no font host. A page on a tablet in a house with
