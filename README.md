@@ -41,8 +41,15 @@ Everything else is self-contained.
 - **Extracts, transits, spawns and locked doors**, drawn from the catalog. Scav, PMC and
   shared differ in both colour and shape, because colour alone fails at twelve pixels and for
   a colourblind player.
+- **Only the exits you can take.** Running as a scav hides the PMC ones, because a door that
+  will not open is worse than no marker at all.
+- **What an exit asks of you.** Click it and the card says whether a switch has to be thrown
+  first and what it costs, in money or by name.
 - **The extracts this raid actually offered**, once you have photographed the list.
-- Quest objectives projected onto the map.
+- **Names that arrange themselves.** Each one takes the first slot that covers neither another
+  name nor a marker, and a name that fits nowhere is dropped rather than drawn over something.
+- Quest objectives projected onto the map, with the quests that have something to do here
+  listed beside it, pinned ones first.
 
 ### The raid
 
@@ -50,14 +57,22 @@ Everything else is self-contained.
   the companion being started mid-raid.
 - A summary when a raid ends, and a history of the ones before it.
 - Your squad, read from the same logs.
+- **Quests mark themselves.** The game announces every quest starting, failing and being handed
+  in, and those are recorded as they happen. Nothing is inferred and nothing you recorded by
+  hand is overwritten.
 
 ### Scanning
 
 - Press the game's own screenshot key. That is the whole interface. The picture is read for
   items, extract lists, containers and flea listings, and the filename gives your position.
-- Local text recognition, on your machine. No picture is uploaded and none is kept.
+- Local text recognition, on your machine. No picture is uploaded and none is kept. It reads
+  only the bright half of the picture, which is how this game draws every panel, because
+  measured against real screenshots that turned a confident wrong answer into a right one.
 - Screenshots older than a day go to the recycle bin, so the folder stops growing. The newest
-  is always kept, only files the game named are touched, and nothing is deleted outright.
+  is always kept, only files the game named are touched, cloud placeholders are left alone, and
+  nothing is deleted outright.
+- It finds the game's screenshot and log folders wherever they are, OneDrive or not. Where it
+  cannot, Settings takes the path and shows what it is watching.
 
 ### Knowing things
 
@@ -70,7 +85,10 @@ events, and loadout analysis.
 An opt-in group relay. Turn it on, type one group key, and your squad sees each other on one
 map: position, heading, map, raid state, and their loadout and quests if they share them.
 
-- **Waypoints** stay until somebody clears them. **Pings** say "look here" and fade.
+- Everyone has a colour of their own, the same on the map and in the list beside it, so three
+  people on one map say which is which.
+- **Waypoints** stay until somebody clears them and tick themselves off when you get there.
+  **Pings** say "look here" and fade. Right-click to mark, hold shift to ping.
 - One key is both which group you are in and proof you belong. The server holds no secrets and
   never sees the key, only a hash of it.
 - Nothing is sent while it is off. The relay keeps nothing on disk and forgets a member three
@@ -92,8 +110,12 @@ window.
 ## What is not done
 
 Tracked as [issues](https://github.com/smartpbx/tarkov-companion/issues). The larger ones: a 3D
-map, interior maps for buildings, label collision on crowded maps, a tablet companion so the
-game never has to be alt-tabbed, and an application icon.
+map, interior maps for buildings, a tablet companion so the game never has to be alt-tabbed,
+serving the game data from the relay rather than every client syncing it, and reading health
+and carried items out of a screenshot.
+
+The game writes its own player's level nowhere, so that is typed on the Quests page. Its logs
+carry a level on two thousand lines and every one belongs to somebody else.
 
 ## Licence
 
