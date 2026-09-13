@@ -507,6 +507,17 @@
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
+            <!-- The separate smaller maps some buildings have, which the catalog does not
+                 publish and does not need to: a floor is a list of named rectangles, 68 of
+                 them across the maps, and framing the one the player is standing in is what a
+                 separate map would have been.
+
+                 Only when there is one, and it lets go when they walk out. A floor chosen
+                 deliberately still frames the floor. -->
+            <ToggleButton Classes="chooser"
+                          IsVisible="{Binding CanFrameArea}"
+                          IsChecked="{Binding IsFramingArea, Mode=TwoWay}"
+                          Content="{Binding FrameAreaText}" />
           </StackPanel>
         </StackPanel>
       </Border>

@@ -31,7 +31,23 @@ public static class MapAreaName
     /// A floor with no named rectangles returns nothing rather than the floor's own name. A
     /// label that repeats what the chooser above it already says is noise.
     /// </remarks>
-    public static string? Describe(MapFloorDefinition? floor, WorldPosition position)
+    public static string? Describe(MapFloorDefinition? floor, WorldPosition position) =>
+        Locate(floor, position)?.Description;
+
+    /// <summary>
+    /// The named rectangle on this floor that contains the position, or null.
+    /// </summary>
+    /// <remarks>
+    /// The rectangle rather than just its name, because a building's footprint is what the
+    /// map should frame when somebody asks to see the building. Reported as wanting the
+    /// separate smaller maps some buildings have: the catalog publishes 68 of these named
+    /// rectangles across its maps -- "dorms", "oilrig &amp; panda", "warehouse 17", "m showroom"
+    /// -- and framing one is what a separate map would have been.
+    ///
+    /// Same preference as the name: a rectangle whose height band also contains the position
+    /// wins, because a footprint repeats on every floor the building has.
+    /// </remarks>
+    public static MapCatalogBounds? Locate(MapFloorDefinition? floor, WorldPosition position)
     {
         if (floor is null)
         {
@@ -41,7 +57,7 @@ public static class MapAreaName
         return Named(floor, position, requireHeight: true) ?? Named(floor, position, requireHeight: false);
     }
 
-    private static string? Named(MapFloorDefinition floor, WorldPosition position, bool requireHeight)
+    private static MapCatalogBounds? Named(MapFloorDefinition floor, WorldPosition position, bool requireHeight)
     {
         foreach (var extent in floor.Extents)
         {
@@ -52,9 +68,9 @@ public static class MapAreaName
 
             foreach (var bounds in extent.Bounds)
             {
-                if (bounds.Description is { Length: > 0 } description && bounds.Contains(position.X, position.Z))
+                if (bounds.Description is { Length: > 0 } && bounds.Contains(position.X, position.Z))
                 {
-                    return description;
+                    return bounds;
                 }
             }
         }

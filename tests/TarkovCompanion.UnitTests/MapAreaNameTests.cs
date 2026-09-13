@@ -81,6 +81,27 @@ public sealed class MapAreaNameTests
     [Fact]
     public void NoFloorSaysNothing() => Assert.Null(MapAreaName.Describe(null, new(0, 0, 0)));
 
+    [Fact]
+    public void TheBuildingsOwnRectangleComesBackSoTheMapCanFrameIt()
+    {
+        // Reported as wanting the separate smaller maps some buildings have. The catalog
+        // publishes 68 named rectangles across its floors, and framing one is what a separate
+        // map would have been.
+        var bounds = MapAreaName.Locate(SecondFloor, new(50, 4, 50));
+
+        Assert.NotNull(bounds);
+        Assert.Equal("dorms", bounds.Description);
+        Assert.True(bounds.Contains(50, 50));
+        Assert.False(bounds.Contains(-500, -500));
+    }
+
+    [Fact]
+    public void NothingToFrameWhereNothingIsNamed()
+    {
+        Assert.Null(MapAreaName.Locate(SecondFloor, new(-500, 4, -500)));
+        Assert.Null(MapAreaName.Locate(null, new(0, 0, 0)));
+    }
+
     private static MapCatalogBounds Rectangle(double x1, double z1, double x2, double z2, string description) =>
         new(new(x1, z1), new(x2, z2)) { Description = description };
 }
