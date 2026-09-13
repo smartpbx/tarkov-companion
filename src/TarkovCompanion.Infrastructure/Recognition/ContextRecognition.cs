@@ -152,10 +152,15 @@ public sealed class ScanContextDetector
             .Where(context => context != ScanContext.Unknown)
             .SelectMany(context => _anchors.For(context).Select(anchor => $"{context}:{anchor.Term}"))
             .Take(16);
-        // The longest lines, because a UI caption is longer than a stray character the engine
-        // found in the artwork, and it is the captions the anchors are supposed to match.
+        // The raw text, not the normalised form used for matching. Normalisation strips
+        // spacing and punctuation, so "Grenade case" becomes "grenadecase", and the whole
+        // point of this is for a person to read what the game's interface actually says and
+        // write anchors from it. The matcher's view of the text is the wrong view for that.
+        //
+        // Longest first, because a UI caption is longer than a stray character the engine
+        // found in the artwork, and captions are what the anchors are supposed to match.
         var read = lines
-            .Select(line => line.Text)
+            .Select(line => line.Line.Text.Trim())
             .Where(text => text.Length >= 3)
             .OrderByDescending(text => text.Length)
             .Take(12)
