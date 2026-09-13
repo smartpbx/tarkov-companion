@@ -61,46 +61,63 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
         }
     }
 
-    /// <summary>
-    /// Whether a marker's name is worth showing at the current zoom.
-    /// </summary>
-    /// <remarks>
-    /// Customs carries around twenty extracts and transits, and at a zoom that fits the whole
-    /// map their names overlap each other and the place names underneath until none of them
-    /// can be read. The discs stay legible at any zoom because they are counter-scaled, so the
-    /// map reads as "here are the exits" when pulled back and names them once somebody leans
-    /// in. This is the same judgement the spawn and door markers already make permanently.
-    /// </remarks>
-    public bool ShowsNames
+    public void Follow(double zoom) =>
+        Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
+}
+
+/// <summary>
+/// Where one marker's name sits, and whether it is drawn at all.
+/// </summary>
+/// <remarks>
+/// Held apart from the marker so that arranging the names does not rebuild the marker list.
+/// Zoom changes continuously while somebody scrolls, and the arrangement changes with it;
+/// replacing eighty records on every wheel notch would throw away the selection and the hover
+/// along with them.
+///
+/// Names used to disappear as a group below a zoom threshold, which is why they blinked in and
+/// out instead of moving. Each one now finds its own slot, and only the ones that fit nowhere
+/// are dropped.
+/// </remarks>
+public sealed class MapNamePlacement : INotifyPropertyChanged
+{
+    private Thickness _inset = new(0, ((MapMarkerLayout.Height + MapMarkerLayout.DiscBox) / 2) + 2, 0, 0);
+    private bool _isVisible = true;
+
+    /// <summary>A placement that never moves, for a marker built outside a map.</summary>
+    public static MapNamePlacement Fixed { get; } = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>The margin that puts the name in its slot inside the marker's own box.</summary>
+    public Thickness Inset
     {
-        get => _showsNames;
-        private set
+        get => _inset;
+        set
         {
-            if (_showsNames == value)
+            if (_inset == value)
             {
                 return;
             }
 
-            _showsNames = value;
-            PropertyChanged?.Invoke(this, new(nameof(ShowsNames)));
+            _inset = value;
+            PropertyChanged?.Invoke(this, new(nameof(Inset)));
         }
     }
 
-    /// <summary>
-    /// The zoom at which names start being drawn.
-    /// </summary>
-    /// <remarks>
-    /// Chosen so that fitting a large map hides them and fitting a small one does not, since a
-    /// map that fits at a high zoom has few enough markers for its names to sit apart.
-    /// </remarks>
-    private const double NameThreshold = 0.95;
-
-    private bool _showsNames = true;
-
-    public void Follow(double zoom)
+    /// <summary>Whether this name found anywhere to go.</summary>
+    public bool IsVisible
     {
-        Inverse = double.IsFinite(zoom) && zoom > 0 ? 1 / zoom : 1;
-        ShowsNames = !double.IsFinite(zoom) || zoom >= NameThreshold;
+        get => _isVisible;
+        set
+        {
+            if (_isVisible == value)
+            {
+                return;
+            }
+
+            _isVisible = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsVisible)));
+        }
     }
 }
 
@@ -214,7 +231,16 @@ internal static class MapMarkerLayout
 {
     public const double Width = 240;
 
-    public const double Height = 84;
+    /// <summary>
+    /// The box a marker and its name share, tall enough for a name two rows either side.
+    /// </summary>
+    /// <remarks>
+    /// The box has no background and catches no pointer, so its only job is to be large enough
+    /// to hold what is drawn in it. It was 84, which held one name directly under the disc;
+    /// names that have to step a row out of somebody else's way need the room, and a child
+    /// arranged past the bottom edge is squashed to whatever is left rather than overflowing.
+    /// </remarks>
+    public const double Height = 140;
 
     /// <summary>The square the disc, its halo and its glyph share, centred in the box.</summary>
     public const double DiscBox = 34;
@@ -288,6 +314,9 @@ public sealed record MapOverlayElementViewModel(
 {
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
 
+    /// <summary>Where this marker's name sits, decided against every other name on the map.</summary>
+    public MapNamePlacement Placement { get; init; } = MapNamePlacement.Fixed;
+
     /// <summary>
     /// Which side this feature is for, where the data says.
     /// </summary>
@@ -321,8 +350,19 @@ public sealed record MapOverlayElementViewModel(
 
     public double Top => CenterY - (Height / 2);
 
-    /// <summary>Pushes the name below the disc, whatever size the styles give the disc.</summary>
-    public Thickness NameInset => new(0, ((Height + DiscBox) / 2) + 2, 0, 0);
+    /// <summary>How wide this name reads on screen, close enough to arrange by.</summary>
+    /// <remarks>
+    /// An estimate rather than a measurement. The arrangement is decided before anything is
+    /// laid out, and asking the layout for a width it has not computed yet would mean
+    /// arranging the names one frame behind the map. Eleven pixel text averages a little under
+    /// six pixels a character; the estimate is generous, so a name that fits is a name that
+    /// really fits, and the cost of being wrong is a slightly emptier map rather than two
+    /// names on top of each other. The cap is the width the style itself imposes.
+    /// </remarks>
+    public double EstimatedNameWidth => Math.Min(220, 10 + (Label.Length * 5.9));
+
+    /// <summary>How tall it reads: eleven pixel text with a pixel of padding each side.</summary>
+    public const double NameHeight = 17;
 
     public bool IsExtract => Kind == MapMarkerKind.Extract;
 
@@ -1083,6 +1123,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             Set(ref _zoomScale, value);
             _markerScale.Follow(value);
+            // The names hold their size while the discs move together underneath them, so who
+            // collides with whom changes on every wheel notch.
+            ArrangeNames();
             OnPropertyChanged(nameof(ViewportWidth));
             OnPropertyChanged(nameof(ViewportHeight));
             OnPropertyChanged(nameof(PlayerTrailThickness));
@@ -2216,15 +2259,70 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 Scale = _markerScale,
                 Faction = element.Faction,
+                Placement = new(),
             });
         }
 
         PlaceNames = placeNames;
         Markers = markers;
+        ArrangeNames();
         ReconcileSelection();
         UpdateQuestGeometry();
         UpdatePlayerMarker();
         UpdateGroupMarkers();
+    }
+
+    /// <summary>
+    /// Finds every marker name a slot that covers nothing, and hides the ones that cannot.
+    /// </summary>
+    /// <remarks>
+    /// Run whenever the markers change and whenever the zoom does. Names hold their size on
+    /// screen while the discs move together and apart underneath them, so the arrangement is a
+    /// function of zoom and is worthless the moment it changes.
+    ///
+    /// Spawns and locked doors are left out. Their names only appear under the pointer, and a
+    /// hovered name is one name rather than fifty, so reserving room for all of them would
+    /// empty the map of the names that are actually drawn.
+    /// </remarks>
+    private void ArrangeNames()
+    {
+        var markers = Markers;
+        var arranged = markers.Where(marker => !marker.IsNameQuiet).ToArray();
+        if (arranged.Length == 0)
+        {
+            return;
+        }
+
+        var candidates = arranged
+            .Select(marker => new MapLabelCandidate(
+                marker.CenterX,
+                marker.CenterY,
+                marker.EstimatedNameWidth,
+                MapOverlayElementViewModel.NameHeight,
+                // An exit the player was offered this raid is the one they are looking for, so
+                // it keeps its name when something has to lose one. A transit ranks with an
+                // exit; a spawn never reaches here.
+                marker.IsOffered ? 2 : marker.IsExtract || marker.IsTransit ? 1 : 0))
+            .ToArray();
+
+        var slots = MapLabelLayout.Arrange(candidates, ZoomScale);
+        for (var index = 0; index < arranged.Length; index++)
+        {
+            var placement = arranged[index].Placement;
+            var slot = slots[index];
+            if (slot == MapLabelLayout.Hidden)
+            {
+                placement.IsVisible = false;
+                continue;
+            }
+
+            placement.IsVisible = true;
+            placement.Inset = new(
+                0,
+                (MapMarkerLayout.Height / 2) + MapLabelLayout.TopOffsetFor(slot, MapOverlayElementViewModel.NameHeight),
+                0,
+                0);
+        }
     }
 
     /// <summary>
