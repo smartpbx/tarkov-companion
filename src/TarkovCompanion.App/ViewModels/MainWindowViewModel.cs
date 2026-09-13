@@ -1211,6 +1211,61 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
+    private ApplicationRuntimeSnapshot? _snapshot;
+    private string _diagnosticsStatus = "Nothing copied yet.";
+
+    /// <summary>What happened the last time somebody asked for the diagnostics.</summary>
+    public string DiagnosticsStatus
+    {
+        get => _diagnosticsStatus;
+        private set => SetProperty(ref _diagnosticsStatus, value);
+    }
+
+    /// <summary>Where this application writes its own log, as opposed to where the game does.</summary>
+    /// <remarks>
+    /// Settings had a "Logs" box and it is the *game's* log folder, which is the right thing
+    /// in that section and the wrong answer to "where do I find yours".
+    /// </remarks>
+    public string CompanionLogPath => CrashLog.FilePath ?? "not started yet";
+
+    /// <summary>
+    /// Puts a description of this installation on the clipboard, ready to paste.
+    /// </summary>
+    /// <remarks>
+    /// Two players in one evening appeared in their group's member list and never on its map,
+    /// and both times the diagnosis had to be assembled by somebody else asking questions
+    /// across Discord. This is so the answer can be sent by the person who has the problem,
+    /// in one action, without them having to find anything.
+    ///
+    /// SAFETY.md governs what it may contain: no game logs, no group key, no screenshots, no
+    /// coordinates, and user folder names replaced. What it does carry is the shape of the
+    /// screenshot names, which is the thing that settles the case above.
+    /// </remarks>
+    public async Task CopyDiagnosticsAsync(Func<string, Task> toClipboard)
+    {
+        ArgumentNullException.ThrowIfNull(toClipboard);
+        if (_snapshot is not { } snapshot)
+        {
+            DiagnosticsStatus = "Nothing to describe yet; the application is still starting.";
+            return;
+        }
+
+        try
+        {
+            var report = SupportBundle.Describe(
+                snapshot,
+                snapshot.RecentScreenshotNames,
+                CrashLog.FilePath);
+            await toClipboard(report).ConfigureAwait(true);
+            DiagnosticsStatus = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Copied · {report.Length:N0} characters · paste it wherever you are being helped.");
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            DiagnosticsStatus = $"Could not copy: {exception.Message}";
+        }
+    }
 
     public SettingsPageViewModel(
         ApplicationStartupCoordinator startupCoordinator,
@@ -1237,6 +1292,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         _gameFolders = gameFolders;
         _observation = observation;
         CheckForUpdateCommand = new AsyncDelegateCommand(CheckForUpdateAsync);
+        CopyDiagnosticsCommand = new AsyncDelegateCommand(() => CopyDiagnosticsAsync(Clipboard));
         DownloadUpdateCommand = new AsyncDelegateCommand(DownloadUpdateAsync);
         RestartForUpdateCommand = new DelegateCommand(RestartForUpdate);
         if (_updates is not null)
@@ -1389,6 +1445,17 @@ public sealed class SettingsPageViewModel : PageViewModel
     public AsyncDelegateCommand DownloadUpdateCommand { get; }
 
     public DelegateCommand RestartForUpdateCommand { get; }
+
+    public AsyncDelegateCommand CopyDiagnosticsCommand { get; }
+
+    /// <summary>
+    /// How text reaches the clipboard, replaced in tests.
+    /// </summary>
+    /// <remarks>
+    /// Assigned by the view, because a clipboard belongs to a window and a view model that
+    /// reached for one would be a view model that cannot be tested.
+    /// </remarks>
+    public Func<string, Task> Clipboard { get; set; } = _ => Task.CompletedTask;
 
     /// <summary>Which build is running, so a report of a bug can name it.</summary>
     public string InstalledBuild
@@ -1699,6 +1766,7 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public void Apply(ApplicationRuntimeSnapshot snapshot)
     {
+        _snapshot = snapshot;
         DataStatus = $"{snapshot.Data.Availability} · {snapshot.Data.ItemCount:N0} items · {snapshot.Data.Detail}";
         WatchedFolders = snapshot.Observation switch
         {

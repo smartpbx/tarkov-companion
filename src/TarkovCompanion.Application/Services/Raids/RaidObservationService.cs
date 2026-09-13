@@ -359,6 +359,10 @@ public sealed class RaidObservationService : IAsyncDisposable
                 // sequential the next screenshot's marker queued behind the previous scan
                 // as well — which is what "the marks take a second to show up" was.
                 //
+                // Remembered whether or not it parses, because the ones that do not are
+                // exactly the ones somebody needs to see.
+                RememberScreenshotName(Path.GetFileName(path));
+
                 // So: place the player, then read the picture.
                 if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                 {
@@ -408,6 +412,21 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// turning the feature off in the interface takes effect at the next sweep instead of at
     /// the next restart.
     /// </remarks>
+    /// <summary>Keeps the last few screenshot names, newest first.</summary>
+    /// <remarks>
+    /// Three is enough to see a pattern and few enough that nothing is being accumulated.
+    /// </remarks>
+    private void RememberScreenshotName(string name)
+    {
+        _stateStore.Update(current =>
+        {
+            var names = new List<string>(4) { name };
+            names.AddRange(current.RecentScreenshotNames.Where(
+                existing => !string.Equals(existing, name, StringComparison.OrdinalIgnoreCase)).Take(2));
+            return current with { RecentScreenshotNames = names };
+        });
+    }
+
     private async Task TidyScreenshotsAsync(string screenshotRoot, CancellationToken cancellationToken)
     {
         if (_retention is null || _retentionSettings is null)
