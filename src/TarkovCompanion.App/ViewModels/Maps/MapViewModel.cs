@@ -2098,6 +2098,48 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// rather than computes. A newly loaded map raises this so the player sees the whole
     /// thing at once instead of the empty top-left corner of a tile grid.
     /// </remarks>
+    /// <summary>
+    /// Raised when something other than the wheel asks for a zoom step.
+    /// </summary>
+    /// <remarks>
+    /// An event rather than a property, because zooming is not a change to the model: it has to
+    /// keep the point under the pointer where it is, which needs the scroll viewer's own offset
+    /// and is therefore the view's job. The keyboard asks the same way the buttons do.
+    /// </remarks>
+    public event EventHandler<int>? ZoomStepRequested;
+
+    /// <summary>Asks the view to zoom a step in (+1) or out (-1).</summary>
+    public void RequestZoom(int direction) => ZoomStepRequested?.Invoke(this, Math.Sign(direction));
+
+    /// <summary>
+    /// Moves one floor up or down, where the map has floors.
+    /// </summary>
+    /// <remarks>
+    /// Stops at the ends rather than wrapping. Wrapping means a player holding the key ends up
+    /// back where they started without noticing, which on a five-floor map is a real way to get
+    /// lost; and there is no such thing as the floor above the roof.
+    ///
+    /// Choosing a floor by hand turns off the automatic follow, the same as choosing one from
+    /// the list: somebody who has just asked for a floor did not ask to be moved off it.
+    /// </remarks>
+    public Task StepFloorAsync(int direction)
+    {
+        if (Floors.Count == 0 || SelectedFloor is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var current = Floors.ToList().FindIndex(floor =>
+            string.Equals(floor.Id, SelectedFloor.Id, StringComparison.OrdinalIgnoreCase));
+        if (current < 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        var next = Math.Clamp(current + Math.Sign(direction), 0, Floors.Count - 1);
+        return next == current ? Task.CompletedTask : SelectFloorAsync(Floors[next]);
+    }
+
     public event EventHandler? FitRequested;
 
     /// <summary>Whether the view should keep refitting as the panel resizes.</summary>

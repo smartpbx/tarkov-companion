@@ -2347,6 +2347,61 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         }
     }
 
+    /// <summary>
+    /// Goes to the page at <paramref name="index"/>, counting from zero.
+    /// </summary>
+    /// <remarks>
+    /// By position rather than by name, because the shortcut is a digit and the digit is the
+    /// position. Out of range does nothing: fourteen pages and ten digits means four pages the
+    /// keyboard cannot reach, and a digit that silently went to the wrong one would be worse
+    /// than a digit that goes nowhere.
+    /// </remarks>
+    public bool NavigateTo(int index)
+    {
+        if (index < 0 || index >= Navigation.Count)
+        {
+            return false;
+        }
+
+        Select(Navigation[index]);
+        return true;
+    }
+
+    /// <summary>
+    /// Undoes the most recent thing Escape could undo, one press at a time.
+    /// </summary>
+    /// <remarks>
+    /// In the order somebody would expect to get out of them: the selection they just made,
+    /// then the replay they opened, then the summary that appeared by itself. One press does
+    /// one of these, because Escape clearing three things at once is Escape losing two of them
+    /// for somebody who wanted the first.
+    ///
+    /// Returns whether anything was actually closed, so a press with nothing to undo is left
+    /// for whatever else wants it rather than being swallowed.
+    /// </remarks>
+    public bool Dismiss()
+    {
+        if (Map.SelectedMarkers.Count > 0)
+        {
+            Map.ClearSelection();
+            return true;
+        }
+
+        if (Raid.Replay.IsOpen)
+        {
+            Raid.Replay.Close();
+            return true;
+        }
+
+        if (Raid.HasSummary)
+        {
+            Raid.DismissSummaryCommand.Execute(null);
+            return true;
+        }
+
+        return false;
+    }
+
     public bool Navigate(string pageName)
     {
         var target = Navigation.FirstOrDefault(item => string.Equals(item.Name, pageName, StringComparison.OrdinalIgnoreCase));
