@@ -90,7 +90,25 @@
             <Border Classes="hairline" />
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Extracts" />
-              <TextBlock Classes="value" Text="{Binding Extracts}" TextWrapping="Wrap" />
+              <TextBlock Classes="value" Text="None observed" IsVisible="{Binding !HasExtracts}" />
+              <!-- One row each. This was the recognition's own diagnostic printed verbatim and
+                   joined with commas, so it named the OCR engine and the instant of the read
+                   in the middle of a list of places to run to. Both are kept on the row as a
+                   tooltip, which is where they are wanted: when the extract turns out wrong. -->
+              <ItemsControl ItemsSource="{Binding Extracts}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ActiveExtractViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,3"
+                          ToolTip.Tip="{Binding Evidence}">
+                      <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Column="1"
+                                 Classes="caption"
+                                 Text="{Binding Confidence}"
+                                 VerticalAlignment="Center" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
             </StackPanel>
           </StackPanel>
         </Border>
