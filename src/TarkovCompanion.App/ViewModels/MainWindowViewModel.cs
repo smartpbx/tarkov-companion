@@ -750,9 +750,22 @@ public sealed class ItemsPageViewModel : PageViewModel
     }
 }
 
+/// <summary>One scan already on disk, rendered as finished text.</summary>
+/// <param name="Name">What it resolved to, or what it thought it saw.</param>
+/// <param name="When">When it was read, in the player's own clock.</param>
+/// <param name="Detail">Confidence, context, and the recommendation or the reason there was none.</param>
+public sealed record ScanHistoryRowViewModel(string Name, string When, string Detail);
+
 public sealed class ScannerPageViewModel : PageViewModel
 {
+    /// <summary>How many past scans are worth a glance. More than this is an export, not a page.</summary>
+    private const int HistoryDepth = 25;
+
     private readonly IRuntimeScanUseCase _scanUseCase;
+    private readonly IScanHistoryService _history;
+    private IReadOnlyList<ScanHistoryRowViewModel> _history_rows = [];
+    private string _historyStatus = "Loading earlier scans…";
+    private DateTimeOffset _lastHistoryScanUtc = DateTimeOffset.MinValue;
     private string _itemName = "No item scanned";
     private string _value = "Unavailable";
     private string _recommendation = "No recommendation without observed evidence.";
@@ -761,14 +774,82 @@ public sealed class ScannerPageViewModel : PageViewModel
     private string _detail = "Nothing has been scanned yet.";
     private bool _hasResult;
 
-    public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase)
+    public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase, IScanHistoryService history)
         : base("Scanner", "Read the last screenshot you took", "Runtime state not loaded")
     {
         _scanUseCase = scanUseCase;
+        _history = history;
         ScanCommand = new AsyncDelegateCommand(ScanAsync);
+        RefreshHistoryCommand = new AsyncDelegateCommand(LoadHistoryAsync);
     }
 
     public AsyncDelegateCommand ScanCommand { get; }
+
+    public AsyncDelegateCommand RefreshHistoryCommand { get; }
+
+    /// <summary>
+    /// Every scan this installation has made, most recent first.
+    /// </summary>
+    /// <remarks>
+    /// These rows have been written to the database since the first migration and nothing has
+    /// ever read one back, so a player could scan all evening and the application could not
+    /// show them a single thing they had scanned.
+    /// </remarks>
+    public IReadOnlyList<ScanHistoryRowViewModel> History
+    {
+        get => _history_rows;
+        private set
+        {
+            if (SetProperty(ref _history_rows, value))
+            {
+                OnPropertyChanged(nameof(HasHistory));
+            }
+        }
+    }
+
+    public bool HasHistory => _history_rows.Count > 0;
+
+    public string HistoryStatus
+    {
+        get => _historyStatus;
+        private set => SetProperty(ref _historyStatus, value);
+    }
+
+    public async Task LoadHistoryAsync()
+    {
+        try
+        {
+            var entries = await _history.GetRecentAsync(HistoryDepth, CancellationToken.None).ConfigureAwait(true);
+            History = entries.Select(Describe).ToArray();
+            HistoryStatus = entries.Count switch
+            {
+                0 => "Nothing scanned yet on this machine.",
+                1 => "1 earlier scan",
+                var count => string.Create(CultureInfo.CurrentCulture, $"{count} most recent scans"),
+            };
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The history is an extra. A database that will not answer must not cost the
+            // player the scan they just took, which is the thing above it on the page.
+            History = [];
+            HistoryStatus = $"Earlier scans could not be read: {exception.Message}";
+        }
+    }
+
+    private static ScanHistoryRowViewModel Describe(ScanHistoryEntry entry) => new(
+        entry.Name,
+        entry.ObservedUtc == DateTimeOffset.UnixEpoch
+            ? "at an unrecorded time"
+            : string.Create(CultureInfo.CurrentCulture, $"{entry.ObservedUtc.ToLocalTime():g}"),
+        string.Join(
+            " · ",
+            new[]
+            {
+                entry.Confidence.Value.ToString("P0", CultureInfo.CurrentCulture) + " confidence",
+                entry.Context.ToString(),
+                entry.Recommendation ?? entry.DiagnosticCode ?? "No recommendation was produced",
+            }));
 
     public string ItemName
     {
@@ -844,6 +925,15 @@ public sealed class ScannerPageViewModel : PageViewModel
 
     public void Apply(ScanExecutionResult scan)
     {
+        // A new scan is exactly the thing that adds a row, and it is the only thing that does,
+        // so the list is re-read then rather than on every runtime tick. The snapshot is
+        // restated several times a second in a raid and the database has no need to hear it.
+        if (scan.Succeeded && scan.ObservedUtc != _lastHistoryScanUtc)
+        {
+            _lastHistoryScanUtc = scan.ObservedUtc;
+            _ = LoadHistoryAsync();
+        }
+
         HasResult = scan.Succeeded;
         ItemName = scan.Succeeded ? scan.ItemName ?? "Unnamed item" : "No item scanned";
         Value = scan.Succeeded && scan.ValueRoubles is { } value
@@ -1632,6 +1722,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRaidHistoryService raidHistoryService,
         IMapDataService maps,
         IRuntimeScanUseCase scanUseCase,
+        IScanHistoryService scanHistory,
         IOcrEngineStatus ocrStatus,
         IGroupSettingsStore groupSettings,
         GroupSessionService group,
@@ -1662,7 +1753,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         Map = map;
         Raid = new(map, raidHistoryService, maps);
-        Scanner = new(scanUseCase);
+        Scanner = new(scanUseCase, scanHistory);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;
         History = new(raidHistoryService);
@@ -1873,6 +1964,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             await Items.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await Quests.InitializeAsync(cancellationToken).ConfigureAwait(true);
             await History.LoadAsync(cancellationToken).ConfigureAwait(true);
+            await Scanner.LoadHistoryAsync().ConfigureAwait(true);
             await Hideout.LoadAsync(cancellationToken).ConfigureAwait(true);
             await Ammo.LoadAsync(cancellationToken).ConfigureAwait(true);
             await Keys.LoadAsync(cancellationToken).ConfigureAwait(true);

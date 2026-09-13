@@ -429,6 +429,36 @@ public interface IScanEventRepository
     Task SaveAsync(ScanEventMetadata scanEvent, CancellationToken cancellationToken);
 }
 
+/// <summary>One scan the player has already made, as it was recorded at the time.</summary>
+/// <param name="ScanId">The scan's own id.</param>
+/// <param name="ObservedUtc">When it was read.</param>
+/// <param name="Context">What the recogniser decided it was looking at.</param>
+/// <param name="Name">The item, named where it resolved and described where it did not.</param>
+/// <param name="Confidence">How sure it was.</param>
+/// <param name="Recommendation">What it said to do, where it said anything.</param>
+/// <param name="DiagnosticCode">Why it produced nothing, where it produced nothing.</param>
+public sealed record ScanHistoryEntry(
+    Guid ScanId,
+    DateTimeOffset ObservedUtc,
+    ScanContext Context,
+    string Name,
+    Confidence Confidence,
+    string? Recommendation,
+    string? DiagnosticCode);
+
+/// <summary>
+/// Reads back the scans already on disk.
+/// </summary>
+/// <remarks>
+/// Every scan a player has ever made has been written to <c>scan_history</c> since the first
+/// migration and nothing has ever read one back, so the application could not show a player
+/// the thing it had just spent a night recording. This is the read half.
+/// </remarks>
+public interface IScanHistoryService
+{
+    Task<IReadOnlyList<ScanHistoryEntry>> GetRecentAsync(int limit, CancellationToken cancellationToken);
+}
+
 public interface IScanResultPublisher
 {
     Task PublishAsync(ScanOutcome result, CancellationToken cancellationToken);
