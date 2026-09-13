@@ -245,11 +245,43 @@ public sealed class RaidPageViewModel : PageViewModel
     /// only to confirm the finished raid reached the local database, so when no service is
     /// supplied that one line says the history was not read and the rest is unaffected.
     /// </remarks>
-    public RaidPageViewModel(MapViewModel map, IRaidHistoryService? raidHistoryService = null)
+    private readonly IMapDataService? _maps;
+    private readonly Dictionary<string, TimeSpan?> _raidLengths = new(StringComparer.OrdinalIgnoreCase);
+    private string _timeLeft = "Unknown";
+    private string _timeLeftDetail = "No raid in progress";
+
+    /// <summary>How long is left, as the game would draw it.</summary>
+    public string TimeLeft
+    {
+        get => _timeLeft;
+        private set => SetProperty(ref _timeLeft, value);
+    }
+
+    /// <summary>
+    /// Whether that was read off a screenshot or counted from the start.
+    /// </summary>
+    /// <remarks>
+    /// The two are not equal claims. A number read off the extract list is the game's own; a
+    /// count from the raid's confirmation against the map's stated length is an estimate that
+    /// drifts, and presenting one as the other would be a claim this cannot make.
+    /// </remarks>
+    public string TimeLeftDetail
+    {
+        get => _timeLeftDetail;
+        private set => SetProperty(ref _timeLeftDetail, value);
+    }
+
+    public RaidPageViewModel(
+        MapViewModel map,
+        IRaidHistoryService? raidHistoryService = null,
+        // Optional only so the compositions that build this by hand keep working; without it
+        // the timer falls back to whatever a screenshot last showed.
+        IMapDataService? maps = null)
         : base("Raid reference", "The map, and where your screenshots put you", "No raid evidence")
     {
         Map = map;
         _raidHistoryService = raidHistoryService;
+        _maps = maps;
         DismissSummaryCommand = new DelegateCommand(DismissSummary);
     }
 
@@ -350,10 +382,77 @@ public sealed class RaidPageViewModel : PageViewModel
                 string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
                 extract.Source))
             .ToArray();
+        UpdateTimeLeft(raid, nowUtc);
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
         ObserveLifecycle(snapshot);
+    }
+
+    /// <summary>
+    /// How long is left, from whichever source has the better claim.
+    /// </summary>
+    /// <remarks>
+    /// The map's length is looked up once per map and remembered, because this runs on every
+    /// runtime snapshot and a map's raid length does not change between them.
+    /// </remarks>
+    private void UpdateTimeLeft(RaidSnapshot raid, DateTimeOffset nowUtc)
+    {
+        if (raid.State != RaidLifecycleState.InRaid)
+        {
+            TimeLeft = "Unknown";
+            TimeLeftDetail = "No raid in progress";
+            return;
+        }
+
+        var remaining = RaidTimer.Resolve(
+            raid.RaidClock is { } clock && raid.RaidClockReadUtc is { } readUtc ? (clock, readUtc) : null,
+            raid.StartedUtc,
+            LengthFor(raid),
+            nowUtc);
+        TimeLeft = remaining.Display;
+        TimeLeftDetail = remaining.Detail;
+    }
+
+    /// <summary>
+    /// How long a raid on this map runs, for the side it is being run as.
+    /// </summary>
+    /// <remarks>
+    /// The catalog states a PMC length and, where it knows one, a scav length. A scav raid is
+    /// the shorter of the two and using the PMC length for it would promise time nobody has.
+    /// </remarks>
+    private TimeSpan? LengthFor(RaidSnapshot raid)
+    {
+        if (raid.MapId is not { Length: > 0 } mapId || _maps is null)
+        {
+            return null;
+        }
+
+        if (!_raidLengths.TryGetValue(mapId, out var length))
+        {
+            // Remembered before the lookup returns, so a snapshot every second does not start
+            // a query every second while the first one is still running.
+            _raidLengths[mapId] = null;
+            _ = RememberLengthAsync(mapId);
+            return null;
+        }
+
+        return length;
+    }
+
+    private async Task RememberLengthAsync(string mapId)
+    {
+        try
+        {
+            var map = await _maps!.GetAsync(mapId, CancellationToken.None).ConfigureAwait(true);
+            _raidLengths[mapId] = map?.PmcRaidDuration;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A length nobody could read means the timer counts nothing rather than counting
+            // down from a number that was invented.
+            _raidLengths[mapId] = null;
+        }
     }
 
     /// <summary>
@@ -1479,6 +1578,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
+        IMapDataService maps,
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
         IGroupSettingsStore groupSettings,
@@ -1509,7 +1609,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 : null;
 
         Map = map;
-        Raid = new(map, raidHistoryService);
+        Raid = new(map, raidHistoryService, maps);
         Scanner = new(scanUseCase);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;

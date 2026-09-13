@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Items;
@@ -307,7 +308,13 @@ public sealed class ScanUseCase : IScanUseCase
             return (result, ScanCompletionStatus.Unavailable, result.DiagnosticCode ?? "ocr_provider_unavailable");
         }
 
-        _raidState.ApplyExtracts(result.Extracts, image.CapturedUtc);
+        // The game draws the remaining time on this screen, so the same picture that named the
+        // exits also carries the clock. It falls into the unmatched lines because it is not an
+        // extract name, which is exactly where to look for it.
+        _raidState.ApplyExtracts(
+            result.Extracts,
+            image.CapturedUtc,
+            RaidTimer.Read(result.UnmatchedLines.Concat(result.AmbiguousLines)));
         foreach (var observation in result.Observations)
         {
             evidence.Add(new(

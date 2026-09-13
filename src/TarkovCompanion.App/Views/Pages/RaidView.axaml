@@ -96,6 +96,15 @@
               <TextBlock Classes="value" Text="{Binding RaidState}" TextWrapping="Wrap" />
             </StackPanel>
             <Border Classes="hairline" />
+            <!-- Read off the extract list where a screenshot showed it, counted from the raid's
+                 own start otherwise. The caption says which, because a number the game drew and
+                 a number we worked out are not the same claim. -->
+            <StackPanel Spacing="3">
+              <TextBlock Classes="label" Text="Time left" />
+              <TextBlock Classes="metric" Text="{Binding TimeLeft}" />
+              <TextBlock Classes="caption" Text="{Binding TimeLeftDetail}" TextWrapping="Wrap" />
+            </StackPanel>
+            <Border Classes="hairline" />
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Last-known position" />
               <TextBlock Classes="value" Text="{Binding Position}" TextWrapping="Wrap" />
