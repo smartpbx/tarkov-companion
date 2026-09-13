@@ -58,6 +58,46 @@ public sealed class QuestUiSemanticsTests
         Assert.Equal(5, region.StrokeThickness);
     }
 
+    [Fact]
+    public void EverySearchWordMustMatchAndTheOrderTheyAreTypedInDoesNot()
+    {
+        const string quest = "Debut\nTrader: Prapor\nPrimary map: Customs\nEliminate Scavs on Customs";
+
+        Assert.True(QuestsPageViewModel.MatchesEveryTerm(quest, QuestsPageViewModel.SearchTerms("debut")));
+        Assert.True(QuestsPageViewModel.MatchesEveryTerm(quest, QuestsPageViewModel.SearchTerms("prapor debut")));
+        Assert.True(QuestsPageViewModel.MatchesEveryTerm(quest, QuestsPageViewModel.SearchTerms("  customs   scavs ")));
+
+        // The second word narrows. An any-word search would return this quest for "debut
+        // shoreline", which is the opposite of what typing the second word was for.
+        Assert.False(QuestsPageViewModel.MatchesEveryTerm(quest, QuestsPageViewModel.SearchTerms("debut shoreline")));
+
+        // Nothing typed is not a filter, so it matches rather than excluding everything.
+        Assert.Empty(QuestsPageViewModel.SearchTerms("   "));
+        Assert.True(QuestsPageViewModel.MatchesEveryTerm(quest, QuestsPageViewModel.SearchTerms("   ")));
+    }
+
+    [Fact]
+    public void AnEmptyBoardSaysWhichOfTheSearchAndTheFilterEmptiedIt()
+    {
+        Assert.Equal(string.Empty, QuestsPageViewModel.DescribeEmptyBoard(4, 9, 515, "debut", "All quests"));
+        Assert.Equal("No quests loaded.", QuestsPageViewModel.DescribeEmptyBoard(0, 0, 0, "", "All quests"));
+        Assert.Equal(
+            "No quest matches “xyzzy”.",
+            QuestsPageViewModel.DescribeEmptyBoard(0, 0, 515, "xyzzy", "Active / pinned"));
+        Assert.Equal(
+            "No quest is in “Failed”.",
+            QuestsPageViewModel.DescribeEmptyBoard(0, 515, 515, "", "Failed"));
+
+        // The case worth spelling out: the quest exists and the filter is hiding it, which
+        // "Nothing matches this filter" reported as the quest not existing.
+        Assert.Equal(
+            "One quest matches “debut” and it is not in “Active / pinned”.",
+            QuestsPageViewModel.DescribeEmptyBoard(0, 1, 515, "debut", "Active / pinned"));
+        Assert.Equal(
+            "3 quests match “gunsmith” and none are in “Active / pinned”.",
+            QuestsPageViewModel.DescribeEmptyBoard(0, 3, 515, "gunsmith", "Active / pinned"));
+    }
+
     private static QuestObjectiveReadModel Objective(decimal? targetCount, decimal? recordedCount) => new(
         "objective",
         "Visit the location",
