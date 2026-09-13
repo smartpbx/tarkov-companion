@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Raids;
@@ -19,14 +20,32 @@ public interface IEftLogObserver
     void Observe(GroupObservation observation);
 
     void Observe(FleaSaleObservation sale);
+
+    /// <summary>A quest the game says has started, failed or been handed in.</summary>
+    void Observe(QuestStatusObservation quest);
 }
 
 /// <summary>Routes each kind of observation to the service that keeps it.</summary>
-public sealed class EftLogObservers(SquadStateService squad, FleaSaleStateService flea) : IEftLogObserver
+public sealed class EftLogObservers(
+    SquadStateService squad,
+    FleaSaleStateService flea,
+    // Optional so a composition without quest storage is still a valid composition, which is
+    // what the tests that build this by hand rely on.
+    QuestLogProgressService? quests = null) : IEftLogObserver
 {
     public void Observe(GroupObservation observation) => squad.Apply(observation);
 
     public void Observe(FleaSaleObservation sale) => flea.Apply(sale);
+
+    /// <summary>
+    /// Recorded without waiting, because the watcher is reading a file and must not stop.
+    /// </summary>
+    /// <remarks>
+    /// The service takes a gate of its own, so two lines arriving together are applied one
+    /// after the other rather than racing each other into the database.
+    /// </remarks>
+    public void Observe(QuestStatusObservation quest) =>
+        _ = quests?.ApplyAsync(quest, CancellationToken.None);
 }
 
 /// <summary>
