@@ -101,11 +101,16 @@ public static class FloorStack
         double? lowest = null;
         foreach (var extent in floor.Extents)
         {
-            var candidate = extent.MinimumHeight is { } minimum && minimum > -1000
-                ? minimum
-                : extent.MaximumHeight is { } maximum && maximum < 1000
-                    ? maximum
-                    : null;
+            double? candidate = null;
+            if (extent.MinimumHeight is { } minimum && minimum > -1000)
+            {
+                candidate = minimum;
+            }
+            else if (extent.MaximumHeight is { } maximum && maximum < 1000)
+            {
+                candidate = maximum;
+            }
+
             if (candidate is { } value && (lowest is null || value < lowest))
             {
                 lowest = value;
