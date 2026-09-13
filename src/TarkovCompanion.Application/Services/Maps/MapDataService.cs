@@ -47,8 +47,8 @@ public sealed record ActiveExtractView(ActiveExtract Observation, MapExtract? De
     public bool HasKnownPosition => Definition?.Position is not null;
 
     public string PositionGuidance => HasKnownPosition
-        ? "Static extract position is available."
-        : "No verified static position is available; the extract is listed without a marker.";
+        ? "Position known"
+        : "No position, so it is listed without a marker";
 }
 
 public static class ActiveExtractState

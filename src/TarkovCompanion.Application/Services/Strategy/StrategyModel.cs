@@ -79,7 +79,7 @@ public sealed class StrategyModel : IStrategyModel
     {
         if (playerPosition is null || zones.Count == 0)
         {
-            return "Unknown — no recent player position is available.";
+            return "Unknown · no recent position";
         }
 
         var estimatedRisk = zones.Zip(samples)

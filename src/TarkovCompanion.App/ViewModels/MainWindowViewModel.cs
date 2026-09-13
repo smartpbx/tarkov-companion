@@ -220,7 +220,7 @@ public sealed class RaidPageViewModel : PageViewModel
     private readonly List<string> _scannedThisRaid = [];
     private string _raidState = "No raid evidence";
     private string _position = "No last-known position";
-    private string _extracts = "No extracts have been observed.";
+    private string _extracts = "None observed";
     private RaidSummaryViewModel? _summary;
     private RaidSnapshot? _lastInRaid;
     private string? _lastInRaidMode;
@@ -239,7 +239,7 @@ public sealed class RaidPageViewModel : PageViewModel
     /// supplied that one line says the history was not read and the rest is unaffected.
     /// </remarks>
     public RaidPageViewModel(MapViewModel map, IRaidHistoryService? raidHistoryService = null)
-        : base("Raid reference", "Interactive tarkov.dev maps with last-known external evidence", "No raid evidence")
+        : base("Raid reference", "The map, and where your screenshots put you", "No raid evidence")
     {
         Map = map;
         _raidHistoryService = raidHistoryService;
@@ -312,7 +312,7 @@ public sealed class RaidPageViewModel : PageViewModel
                 CultureInfo.InvariantCulture,
                 $"X {raid.LastKnownPosition.Position.X:F1}, Y {raid.LastKnownPosition.Position.Y:F1}, Z {raid.LastKnownPosition.Position.Z:F1} · screenshot {FormatAge(raid.LastKnownPosition.Timestamp, nowUtc)}");
         Extracts = raid.ActiveExtracts.Count == 0
-            ? "No extracts have been observed; none are marked active."
+            ? "None observed"
             : string.Join(
                 ", ",
                 raid.ActiveExtracts.Select(extract =>
@@ -498,7 +498,7 @@ public sealed class ItemsPageViewModel : PageViewModel
     private readonly IItemRepository _itemRepository;
     private string _searchQuery = string.Empty;
     /// <summary>What the status line says when there is nothing wrong and nothing searched.</summary>
-    private const string ReadyToSearch = "Load local data, then search by item name or short name.";
+    private const string ReadyToSearch = "Search by name or short name";
 
     private bool _showingNoData;
     private string _searchStatus = ReadyToSearch;
@@ -604,7 +604,7 @@ public sealed class ItemsPageViewModel : PageViewModel
             Results = results;
             SearchStatus = results.Count == 0
                 ? "No local item matched that query."
-                : $"{results.Count} local result(s); no network request was made by search.";
+                : $"{results.Count} results";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -626,7 +626,7 @@ public sealed class ScannerPageViewModel : PageViewModel
     private bool _hasResult;
 
     public ScannerPageViewModel(IRuntimeScanUseCase scanUseCase)
-        : base("Scanner", "Dispatch a user-triggered scan through the configured use case", "Runtime state not loaded")
+        : base("Scanner", "Read the last screenshot you took", "Runtime state not loaded")
     {
         _scanUseCase = scanUseCase;
         ScanCommand = new AsyncDelegateCommand(ScanAsync);
@@ -741,7 +741,7 @@ public sealed class HistoryPageViewModel : PageViewModel
     private string _status = "History has not been loaded.";
 
     public HistoryPageViewModel(IRaidHistoryService raidHistoryService)
-        : base("History", "Local raid rows created from external evidence transitions", "Runtime state not loaded")
+        : base("History", "Every raid the companion has seen", "Runtime state not loaded")
     {
         _raidHistoryService = raidHistoryService;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
@@ -852,8 +852,7 @@ public sealed class SettingsPageViewModel : PageViewModel
             _installedBuild = _updates.InstalledBuild;
             if (!_updates.IsInstalled)
             {
-                _updateStatus = "This copy was run from a folder rather than installed, "
-                    + "so it cannot update itself.";
+                _updateStatus = "Run from a folder, so it cannot update itself";
             }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
@@ -865,8 +864,8 @@ public sealed class SettingsPageViewModel : PageViewModel
         IsOffline = options.Offline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
-            ? "Requested; token validation occurs before the channel starts."
-            : "Disabled (developer mode and an explicit path are required).";
+            ? "Requested"
+            : "Off · needs developer mode and a path";
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
         ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
         ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
@@ -1161,7 +1160,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         try
         {
             CanRestartForUpdate = false;
-            UpdateStatus = "Installing. The application will close and reopen on the new build.";
+            UpdateStatus = "Installing · it will close and reopen";
             _updates.ApplyAndRestart();
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or UnauthorizedAccessException)
@@ -1220,7 +1219,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            RetentionStatus = $"The screenshot setting could not be read: {exception.Message}";
+            RetentionStatus = $"Unreadable · {exception.Message}";
         }
     }
 
@@ -1249,7 +1248,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            RetentionStatus = $"The screenshot setting could not be saved: {exception.Message}";
+            RetentionStatus = $"Not saved · {exception.Message}";
         }
     }
 
@@ -1265,13 +1264,12 @@ public sealed class SettingsPageViewModel : PageViewModel
     {
         if (!_recycleBin.IsAvailable)
         {
-            return "There is no recycle bin on this system, so nothing is tidied.";
+            return "No recycle bin here, so nothing is tidied";
         }
 
         return _retention.IsEnabled
-            ? $"Screenshots older than {RetentionDisplay} go to the recycle bin. The newest one is always kept, "
-                + "and anything you move out of the folder is never touched."
-            : "Screenshots are left alone, and the folder will grow for as long as you keep taking them.";
+            ? $"Older than {RetentionDisplay} go to the recycle bin · the newest is always kept"
+            : "Left alone";
     }
 
     public string RecognitionProvider { get; }
@@ -1313,7 +1311,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         };
         ProfileContext = snapshot.Profile is null
             ? "Profile unavailable"
-            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode} · updated {snapshot.Profile.UpdatedUtc.ToLocalTime():g}";
+            : $"{snapshot.Profile.Name} · level {snapshot.Profile.Level} · {snapshot.Profile.GameMode}";
         ScanProvider = snapshot.Scan.IsAvailable
             ? snapshot.Scan.Succeeded ? $"Last result: {snapshot.Scan.Source}" : snapshot.Scan.Detail
             : snapshot.Scan.Detail;

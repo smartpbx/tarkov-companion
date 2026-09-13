@@ -227,7 +227,7 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
             options.DemoMode,
             options.Offline,
             false,
-            new(DataAvailability.Unavailable, 0, 0, null, "No local game data is available."),
+            new(DataAvailability.Unavailable, 0, 0, null, "No local game data"),
             null,
             new(
                 null,
