@@ -65,6 +65,13 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
         return TypedResults.BadRequest("Observations must name at most eight players with at most twelve items each.");
     }
 
+    // A trail is screenshots, not a stream: a raid produces a handful and a client that
+    // published four hundred points would be filling the room rather than helping it.
+    if (state.Trail.Count > 12)
+    {
+        return TypedResults.BadRequest("A trail may carry at most twelve points.");
+    }
+
     var room = GroupKey.RoomFor(key);
     // Keyed by the display name within the room, so a member who reconnects replaces their own
     // entry rather than appearing twice. Two people choosing the same name is their problem to
