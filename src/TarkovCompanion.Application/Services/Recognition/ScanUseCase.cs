@@ -311,10 +311,12 @@ public sealed class ScanUseCase : IScanUseCase
         // The game draws the remaining time on this screen, so the same picture that named the
         // exits also carries the clock. It falls into the unmatched lines because it is not an
         // extract name, which is exactly where to look for it.
+        var leftover = result.UnmatchedLines.Concat(result.AmbiguousLines).ToArray();
         _raidState.ApplyExtracts(
             result.Extracts,
             image.CapturedUtc,
-            RaidTimer.Read(result.UnmatchedLines.Concat(result.AmbiguousLines)));
+            RaidTimer.Read(leftover),
+            leftover);
         foreach (var observation in result.Observations)
         {
             evidence.Add(new(

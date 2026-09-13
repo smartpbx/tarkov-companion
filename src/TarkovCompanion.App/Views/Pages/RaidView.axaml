@@ -159,6 +159,13 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
+              <!-- The lines the scan read and could not place. Without them a scan that
+                   matched one exit out of eight is indistinguishable from a screen that had
+                   one exit on it, and the difference is the whole of what went wrong. -->
+              <TextBlock Classes="caption"
+                         Text="{Binding ExtractsNotMatched}"
+                         IsVisible="{Binding HasExtractsNotMatched}"
+                         TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
         </Border>

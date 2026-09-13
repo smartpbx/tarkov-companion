@@ -485,10 +485,15 @@ public interface IRaidStateService
     /// draws it on the extract list screen, so photographing that screen hands over the exact
     /// number and nothing else has to be estimated.
     /// </param>
+    /// <param name="linesNotMatched">
+    /// What the scan read on that screen and could not match to an exit, so a scan that found
+    /// one exit out of eight can say so instead of looking like a screen with one exit on it.
+    /// </param>
     RaidSnapshot ApplyExtracts(
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
-        TimeSpan? raidClock = null);
+        TimeSpan? raidClock = null,
+        IReadOnlyList<string>? linesNotMatched = null);
 }
 
 public interface IStrategyModel

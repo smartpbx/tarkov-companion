@@ -117,6 +117,17 @@ public sealed record RaidSnapshot(
     public TimeSpan? RaidClock { get; init; }
 
     public DateTimeOffset? RaidClockReadUtc { get; init; }
+
+    /// <summary>
+    /// Lines the last extract scan read and could not match to an exit on this map.
+    /// </summary>
+    /// <remarks>
+    /// Read and thrown away until now, which made a scan that matched one exit out of eight
+    /// indistinguishable from a screen that had one exit on it. Both look like "Extracts: one".
+    /// Showing what was read and not matched turns the next report of this into an answer
+    /// rather than an investigation.
+    /// </remarks>
+    public IReadOnlyList<string> ExtractLinesNotMatched { get; init; } = [];
 }
 
 public sealed record RaidHistoryEntry(

@@ -185,7 +185,8 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
     public RaidSnapshot ApplyExtracts(
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
-        TimeSpan? raidClock = null)
+        TimeSpan? raidClock = null,
+        IReadOnlyList<string>? linesNotMatched = null)
     {
         ArgumentNullException.ThrowIfNull(extracts);
         observedUtc = observedUtc.ToUniversalTime();
@@ -210,6 +211,10 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             // must not erase the last one that could.
             RaidClock = raidClock ?? Current.RaidClock,
             RaidClockReadUtc = raidClock is null ? Current.RaidClockReadUtc : observedUtc,
+            // Replaced rather than merged: these describe one reading of one screen, and
+            // carrying last screen's leftovers forward would say the scan failed on lines it
+            // never saw.
+            ExtractLinesNotMatched = linesNotMatched ?? [],
         };
         return Current;
     }

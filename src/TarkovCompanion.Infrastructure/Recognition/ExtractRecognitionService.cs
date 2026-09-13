@@ -36,7 +36,7 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         var unmatched = new List<string>();
         foreach (var line in ocr.Lines)
         {
-            var (observed, status) = ParseExtractLine(line.Text);
+            var (observed, status) = ParseExtractLine(ExtractLineMatcher.StripTrailingMeasure(line.Text));
             if (observed.Length == 0 || IsHeader(observed))
             {
                 continue;
@@ -46,7 +46,10 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 .Select(extract => new
                 {
                     Extract = extract,
-                    Similarity = FuzzyTextSimilarity.Score(observed, _normalizer.NormalizeForLookup(extract.Name)),
+                    Similarity = ExtractLineMatcher.Score(
+                        observed,
+                        _normalizer.NormalizeForLookup(extract.Name),
+                        _normalizer.NormalizeForLookup(ExtractLineMatcher.WithoutQualifier(extract.Name))),
                 })
                 .OrderByDescending(match => match.Similarity)
                 .ThenBy(match => match.Extract.Name, StringComparer.Ordinal)
@@ -66,8 +69,13 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 continue;
             }
 
+            // Two exits whose names differ by one character are near-identical to a fuzzy
+            // score however clean the reading was, so the lead rule discarded both of them
+            // every time. Woods has ZB-014 and ZB-016 and Customs has two dorms; a line that
+            // reads as one of them exactly is not ambiguous, it is that one.
             if (ranked.Length > 1 &&
-                best.Similarity - ranked[1].Similarity < RecognitionThresholds.MinimumRunnerUpLead)
+                best.Similarity - ranked[1].Similarity < RecognitionThresholds.MinimumRunnerUpLead &&
+                !IsExact(observed, best.Extract.Name))
             {
                 ambiguous.Add(line.Text);
                 continue;
@@ -130,6 +138,21 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
 
         return (normalized, ExtractStatus.Active);
     }
+
+    /// <summary>
+    /// Whether the line reads as this exit's name and no other, character for character.
+    /// </summary>
+    /// <remarks>
+    /// The one thing that breaks a tie between two names that only a character apart. Compared
+    /// after normalisation on both sides and against the bracketed and unbracketed forms, so
+    /// "Power line passage" is exact for "Power Line Passage (Flare)".
+    /// </remarks>
+    private bool IsExact(string observed, string name) =>
+        string.Equals(observed, _normalizer.NormalizeForLookup(name), StringComparison.Ordinal) ||
+        string.Equals(
+            observed,
+            _normalizer.NormalizeForLookup(ExtractLineMatcher.WithoutQualifier(name)),
+            StringComparison.Ordinal);
 
     private static bool IsHeader(string value) =>
         value is "extracts" or "exfil" or "find an extraction point" or "double press o";
