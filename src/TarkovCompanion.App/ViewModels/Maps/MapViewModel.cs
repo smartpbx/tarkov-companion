@@ -126,9 +126,9 @@ public sealed class MapNamePlacement : INotifyPropertyChanged
 /// Another member of the group, drawn where they last said they were.
 /// </summary>
 /// <remarks>
-/// Ochre rather than the player's cyan, so a glance never confuses somebody else's last
-/// screenshot with your own. Their name is always shown, unlike a feature's, because a marker
-/// whose whole purpose is to say who it is has nothing to say without it.
+/// Each member has a colour of their own, never cyan, so a glance never confuses somebody
+/// else's last screenshot with your own and never confuses two of them with each other. The
+/// same colour is the swatch beside their name in the panel, which is what joins the two.
 ///
 /// Only members on the same map are ever drawn. Projecting a position from another map through
 /// this map's transform would place them somewhere real-looking and entirely wrong.
@@ -205,6 +205,12 @@ public sealed record GroupMemberPanelViewModel(
     bool IsElsewhere,
     bool IsStale)
 {
+    /// <summary>The same colour this member is drawn in on the map.</summary>
+    public string Rgb { get; init; } = GroupMemberColors.Fallback;
+
+    /// <summary>The swatch beside the name, which is what joins the row to the marker.</summary>
+    public string SwatchColor => GroupMemberColors.WithAlpha(Rgb, "FF");
+
     public bool HasExtra => Extra.Length > 0;
 }
 
@@ -226,11 +232,18 @@ public sealed record GroupMarkerViewModel(
 
     public double DotSize => 13;
 
-    public string FillColor => IsStale ? "#80C6A15B" : "#FFE0B45C";
+    /// <summary>This member's own colour, which the panel beside the map shows as well.</summary>
+    /// <remarks>
+    /// Every member used to be the same ochre, so three of them on one map said where three
+    /// people were without saying which was which.
+    /// </remarks>
+    public string Rgb { get; init; } = GroupMemberColors.Fallback;
+
+    public string FillColor => GroupMemberColors.WithAlpha(Rgb, IsStale ? "80" : "FF");
 
     public string OutlineColor => "#FF0B1016";
 
-    public string ConeColor => IsStale ? "#38E0B45C" : "#60E0B45C";
+    public string ConeColor => GroupMemberColors.WithAlpha(Rgb, IsStale ? "38" : "60");
 
     public string ConeGeometry => "M 23,23 L 10,4 A 17,17 0 0 1 36,4 Z";
 }
@@ -842,6 +855,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
+    private IReadOnlyDictionary<string, string> _groupColors =
+        new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
@@ -2557,6 +2572,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public void ShowGroup(IReadOnlyList<GroupMemberView> members)
     {
         ArgumentNullException.ThrowIfNull(members);
+        // Colours first: both the panel and the markers read them, and both are rebuilt below.
+        _groupColors = GroupMemberColors.Assign(members.Select(member => member.Name));
         // Built every time and assigned only when it differs. The markers below are skipped
         // when nobody has moved, but the panel also carries raid state, the age of a position
         // and what somebody is carrying, all of which change while a position does not.
@@ -2591,7 +2608,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var locations = Locations;
         var rows = members
             .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Select(member => Describe(member, here, locations))
+            .Select(member => Describe(member, here, locations) with { Rgb = ColorFor(member.Name) })
             .ToArray();
         if (!rows.SequenceEqual(GroupPanel))
         {
@@ -2662,6 +2679,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             ? string.Create(CultureInfo.CurrentCulture, $"{Math.Max(0, (int)value.TotalSeconds)}s ago")
             : string.Create(CultureInfo.CurrentCulture, $"{(int)value.TotalMinutes}m ago");
 
+    /// <summary>This member's colour, or the shared one before a group has been read.</summary>
+    private string ColorFor(string name) =>
+        _groupColors.TryGetValue(name, out var color) ? color : GroupMemberColors.Fallback;
+
     private void UpdateGroupMarkers()
     {
         var mapper = CreateCanvasMapper();
@@ -2705,6 +2726,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 age > PlayerMarkerFreshFor)
             {
                 Scale = _markerScale,
+                Rgb = ColorFor(member.Name),
             });
         }
 
