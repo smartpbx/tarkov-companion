@@ -1,7 +1,6 @@
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
-using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
@@ -33,7 +32,6 @@ public sealed record DisplayDescriptor(string Id, string Name, PixelRect Bounds,
 
 public sealed record EftPaths(string? InstallRoot, string? LogRoot, string? ScreenshotRoot, Confidence Confidence);
 
-public sealed record HotkeyGesture(uint Modifiers, uint VirtualKey, string DisplayName);
 
 public sealed record ExtractRecognitionResult(
     IReadOnlyList<ActiveExtract> Extracts,
@@ -315,22 +313,6 @@ public interface IScreenCaptureService
     Task<CapturedImage> CaptureAsync(CaptureRequest request, CancellationToken cancellationToken);
 }
 
-/// <summary>Reads and writes the user's chosen global shortcut.</summary>
-public interface IHotkeySettingsStore
-{
-    Task<HotkeyBinding> GetScanBindingAsync(CancellationToken cancellationToken);
-
-    Task SaveScanBindingAsync(HotkeyBinding binding, CancellationToken cancellationToken);
-}
-
-public interface IGlobalHotkeyService : IAsyncDisposable
-{
-    event EventHandler? Pressed;
-
-    Task RegisterAsync(HotkeyGesture gesture, CancellationToken cancellationToken);
-
-    Task UnregisterAsync(CancellationToken cancellationToken);
-}
 
 public interface IGameWindowLocator
 {

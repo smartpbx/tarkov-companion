@@ -8,12 +8,10 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
-using TarkovCompanion.Application.Services.Input;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.App.Services.Updates;
-using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
 
@@ -813,7 +811,6 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// </remarks>
 
     private readonly ApplicationStartupCoordinator _startupCoordinator;
-    private readonly ScanHotkeyService _hotkeys;
     private readonly IScreenshotRetentionStore _retentionSettings;
     private readonly IRecycleBin _recycleBin;
     private ScreenshotRetentionSettings _retention = ScreenshotRetentionSettings.Default;
@@ -827,9 +824,6 @@ public sealed class SettingsPageViewModel : PageViewModel
     private string _dataStatus = "Runtime state not loaded";
     private string _profileContext = "Profile unavailable";
     private string _scanProvider = "Unavailable";
-    private HotkeyBinding _pendingHotkey = HotkeyBinding.DefaultScan;
-    private string _hotkeyStatus = "The scan shortcut has not been applied yet.";
-    private bool _isRecordingHotkey;
 
     public SettingsPageViewModel(
         ApplicationStartupCoordinator startupCoordinator,
@@ -837,18 +831,15 @@ public sealed class SettingsPageViewModel : PageViewModel
         AppDataPaths paths,
         AppCommandLine commandLine,
         IOcrEngineStatus ocrStatus,
-        ScanHotkeyService hotkeys,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
         VelopackUpdateGateway? updates = null)
         : base("Settings & diagnostics", "Observable runtime configuration and manual data refresh", "Runtime state not loaded")
     {
         ArgumentNullException.ThrowIfNull(ocrStatus);
-        ArgumentNullException.ThrowIfNull(hotkeys);
         ArgumentNullException.ThrowIfNull(retentionSettings);
         ArgumentNullException.ThrowIfNull(recycleBin);
         _startupCoordinator = startupCoordinator;
-        _hotkeys = hotkeys;
         _retentionSettings = retentionSettings;
         _recycleBin = recycleBin;
         _updates = updates;
@@ -876,8 +867,6 @@ public sealed class SettingsPageViewModel : PageViewModel
             ? "Requested; token validation occurs before the channel starts."
             : "Disabled (developer mode and an explicit path are required).";
         SyncCommand = new AsyncDelegateCommand(SyncAsync);
-        ApplyHotkeyCommand = new AsyncDelegateCommand(ApplyHotkeyAsync);
-        ResetHotkeyCommand = new AsyncDelegateCommand(ResetHotkeyAsync);
         ToggleScreenshotTidyingCommand = new AsyncDelegateCommand(ToggleScreenshotTidyingAsync);
         ChooseRetentionCommand = new AsyncDelegateCommand(ChooseRetentionAsync);
         _ = LoadRetentionAsync();
@@ -1178,68 +1167,6 @@ public sealed class SettingsPageViewModel : PageViewModel
 
     public AsyncDelegateCommand SyncCommand { get; }
 
-    public AsyncDelegateCommand ApplyHotkeyCommand { get; }
-
-    public AsyncDelegateCommand ResetHotkeyCommand { get; }
-
-    /// <summary>The shortcut shown in the editor, which may not be the active one yet.</summary>
-    public HotkeyBinding PendingHotkey
-    {
-        get => _pendingHotkey;
-        private set
-        {
-            if (SetProperty(ref _pendingHotkey, value))
-            {
-                OnPropertyChanged(nameof(PendingHotkeyDisplay));
-            }
-        }
-    }
-
-    public string PendingHotkeyDisplay => PendingHotkey.DisplayName;
-
-    public string HotkeyStatus
-    {
-        get => _hotkeyStatus;
-        private set => SetProperty(ref _hotkeyStatus, value);
-    }
-
-    public bool IsRecordingHotkey
-    {
-        get => _isRecordingHotkey;
-        private set
-        {
-            if (SetProperty(ref _isRecordingHotkey, value))
-            {
-                OnPropertyChanged(nameof(RecordHotkeyLabel));
-            }
-        }
-    }
-
-    public string RecordHotkeyLabel => IsRecordingHotkey ? "Press a combination…" : "Record shortcut";
-
-    /// <summary>Registers the stored shortcut and reports the outcome.</summary>
-    public async Task InitializeHotkeyAsync(CancellationToken cancellationToken)
-    {
-        var state = await _hotkeys.InitializeAsync(cancellationToken).ConfigureAwait(true);
-        PendingHotkey = state.Binding;
-        HotkeyStatus = state.Detail;
-    }
-
-    public void BeginRecordingHotkey() => IsRecordingHotkey = true;
-
-    public void CancelRecordingHotkey() => IsRecordingHotkey = false;
-
-    /// <summary>Accepts a combination captured from the keyboard.</summary>
-    public void RecordHotkey(HotkeyBinding binding)
-    {
-        ArgumentNullException.ThrowIfNull(binding);
-        IsRecordingHotkey = false;
-        PendingHotkey = binding;
-        HotkeyStatus = binding.IsValid(out var reason)
-            ? $"{binding.DisplayName} is ready. Choose Apply to start using it."
-            : reason;
-    }
-
     public string DataStatus
     {
         get => _dataStatus;
@@ -1270,19 +1197,6 @@ public sealed class SettingsPageViewModel : PageViewModel
         Evidence = snapshot.DatabaseReady ? "Persistent database initialized" : "Database not initialized";
     }
 
-    public async Task ApplyHotkeyAsync()
-    {
-        var state = await _hotkeys.ApplyAsync(PendingHotkey, persist: true, CancellationToken.None)
-            .ConfigureAwait(true);
-        HotkeyStatus = state.Detail;
-    }
-
-    public async Task ResetHotkeyAsync()
-    {
-        PendingHotkey = HotkeyBinding.DefaultScan;
-        await ApplyHotkeyAsync().ConfigureAwait(true);
-    }
-
     public async Task SyncAsync()
     {
         try
@@ -1307,7 +1221,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<MainWindowViewModel> _logger;
     private readonly SynchronizationContext? _synchronizationContext;
-    private readonly ScanHotkeyService _hotkeys;
 
     // The chip palette mirrors Themes/InstrumentStyles.axaml. Grey is the resting state, and
     // each accent is reserved for one meaning so a glance at the bar reads the same way every
@@ -1345,7 +1258,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRaidHistoryService raidHistoryService,
         IRuntimeScanUseCase scanUseCase,
         IOcrEngineStatus ocrStatus,
-        ScanHotkeyService hotkeys,
         IGroupSettingsStore groupSettings,
         IScreenshotRetentionStore retentionSettings,
         IRecycleBin recycleBin,
@@ -1360,7 +1272,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     {
         _stateStore = stateStore;
         _startupCoordinator = startupCoordinator;
-        _hotkeys = hotkeys;
         _options = options;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -1384,7 +1295,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             paths,
             commandLine,
             ocrStatus,
-            hotkeys,
             retentionSettings,
             recycleBin,
             updates);
@@ -1394,7 +1304,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Events = new(eventCatalog, eventTracker, itemRepository);
         Squad = new(itemRepository);
         Group = new(groupSettings);
-        _hotkeys.Triggered += ScanHotkeyPressed;
 
         Navigation =
         [
@@ -1563,7 +1472,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             // startup waits on, and a check that fails is not worth reporting at launch: the
             // gateway already reports a failure next to the button for anyone who goes looking.
             _ = Settings.WatchForUpdatesAsync(_lifetime.Token);
-            await Settings.InitializeHotkeyAsync(cancellationToken).ConfigureAwait(true);
             await Group.InitializeAsync(cancellationToken).ConfigureAwait(true);
             _initialized = true;
             await Map.InitializeAsync().ConfigureAwait(true);
@@ -1608,7 +1516,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         _disposed = true;
         _stateStore.Changed -= RuntimeStateChanged;
-        _hotkeys.Triggered -= ScanHotkeyPressed;
         // Stops the update watcher, which otherwise outlives the window it reports to and
         // keeps making network calls for a process on its way out.
         _lifetime.Cancel();
@@ -1624,44 +1531,6 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// posted to the UI thread. The whole point of the shortcut is that the player is still
     /// in the game, so this also brings the Scanner page forward on the second monitor
     /// without anyone having to alt-tab and click.
-    /// </remarks>
-    private void ScanHotkeyPressed(object? sender, EventArgs arguments)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        if (_synchronizationContext is null)
-        {
-            RunScanFromHotkey();
-            return;
-        }
-
-        _synchronizationContext.Post(_ => RunScanFromHotkey(), null);
-    }
-
-    private void RunScanFromHotkey()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        Navigate("Scanner");
-        if (Scanner.ScanCommand.CanExecute(null))
-        {
-            Scanner.ScanCommand.Execute(null);
-        }
-    }
-
-    /// <summary>
-    /// Moves the map to whichever raid the player is now in.
-    /// </summary>
-    /// <remarks>
-    /// This is the payoff of watching the game's log folder: the companion switches maps on
-    /// its own, which is the whole reason not to alt-tab mid-raid. It fires only when the
-    /// observed map actually changes, so it never fights a map the player chose by hand.
     /// </remarks>
     private void FollowRaidMap(ApplicationRuntimeSnapshot snapshot)
     {
