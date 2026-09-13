@@ -303,12 +303,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         var published = new GroupSnapshot(
             true,
             members,
-            members.Length switch
-            {
-                0 => $"Sharing as {settings.DisplayName} · nobody else here",
-                1 => $"Sharing as {settings.DisplayName} · 1 other",
-                var count => $"Sharing as {settings.DisplayName} · {count} others",
-            },
+            DescribeSharing(settings.DisplayName, members.Length, snapshot),
             DateTimeOffset.UtcNow)
         {
             // The one thing this companion cannot read about its own player, handed back by
@@ -560,6 +555,57 @@ public sealed class GroupSessionService : IAsyncDisposable
         };
         _lastGood = stale;
         Publish(stale);
+    }
+
+    /// <summary>
+    /// What this companion is sharing, and what it is not sharing yet.
+    /// </summary>
+    /// <remarks>
+    /// "Sharing as Geo · 1 other" was the whole of it, and it is true while being useless: a
+    /// client with no position publishes anyway — name, map and raid state go up with null
+    /// coordinates — so a member appears in everybody's list with no marker on anybody's map,
+    /// and the person it is happening to is told nothing at all.
+    ///
+    /// That happened to a second player on a fresh install, and the only way to find out why
+    /// was for somebody else to notice the absence and ask. The client that has the problem is
+    /// the one that can see the cause, so it says so.
+    ///
+    /// Only while something is actually wrong. Outside a raid there is no position to have,
+    /// and nagging about it would make the normal state look broken.
+    /// </remarks>
+    public static string DescribeSharing(string? name, int others, ApplicationRuntimeSnapshot snapshot)
+    {
+        var sharing = others switch
+        {
+            0 => $"Sharing as {name} · nobody else here",
+            1 => $"Sharing as {name} · 1 other",
+            _ => $"Sharing as {name} · {others} others",
+        };
+
+        if (snapshot.Raid.LastKnownPosition is not null)
+        {
+            return sharing;
+        }
+
+        if (!snapshot.Observation.IsSupported)
+        {
+            return $"{sharing} · no position: watching the game is not supported here";
+        }
+
+        // The screenshot folder specifically, not "the folders". A position comes only from a
+        // screenshot filename, so a companion watching the logs and not the screenshots knows
+        // the map and the raid state — which is enough to appear in everybody's member list —
+        // and has no position to put on anybody's map. That is exactly the shape of it when
+        // the game writes its screenshots somewhere the default search does not look, which is
+        // what OneDrive does, and Settings takes an explicit path for it.
+        if (!snapshot.Observation.IsWatchingScreenshots)
+        {
+            return $"{sharing} · no position: the game's screenshot folder has not been found, set it in Settings";
+        }
+
+        return snapshot.Raid.State == RaidLifecycleState.InRaid
+            ? $"{sharing} · no position yet: take a screenshot in the raid and it will be read"
+            : sharing;
     }
 
     /// <summary>How long ago, in the shortest form that is still honest.</summary>
