@@ -396,6 +396,11 @@ public static class AppComposition
 
         services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
         services.AddSingleton<RaidActivityCoordinator>();
+        // The same instance, offered as the narrow seam a scan is given. The recognition path
+        // used to hold IRaidStateService and mutate raid state itself, which skipped the
+        // coordinator and left the extracts event unwritten by anything.
+        services.AddSingleton<IRaidActivityRecorder>(provider =>
+            provider.GetRequiredService<RaidActivityCoordinator>());
         services.AddSingleton<ApplicationStartupCoordinator>();
         services.AddSingleton<IScanAdapter>(_ => settings.ScanAdapter
             ?? (commandLine.Demo
