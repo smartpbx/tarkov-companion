@@ -46,7 +46,7 @@
           </StackPanel>
           <Button Classes="primary" Command="{Binding SyncCommand}" Content="Sync now" HorizontalAlignment="Left" />
           <TextBlock Classes="note"
-                     Text="Offline mode never contacts the network; Sync now reports the local cache state instead." />
+                     Text="Offline mode reports the local cache instead of syncing." />
         </StackPanel>
       </Border>
       <!-- The one place this application removes a file it did not create, so it says so in
@@ -67,15 +67,13 @@
                     IsEnabled="{Binding TidiesScreenshots}" />
           </StackPanel>
           <TextBlock Classes="note"
-                     Text="Only files the game named as screenshots are tidied, and they go to the recycle bin rather than being deleted. To keep one for good, move it somewhere else." />
+                     Text="They go to the recycle bin. To keep one, move it out of the folder." />
         </StackPanel>
       </Border>
       <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Profile" />
           <TextBlock Classes="value" Text="{Binding ProfileContext}" TextWrapping="Wrap" />
-          <TextBlock Classes="note"
-                     Text="Profile state is local and set by hand; the app never reads live inventory or account data." />
         </StackPanel>
       </Border>
     </StackPanel>
@@ -94,7 +92,7 @@
                      Text="Press the game's own screenshot key. The picture is read for items, extract lists and prices, and its filename gives your position on the map."
                      TextWrapping="Wrap" />
           <TextBlock Classes="note"
-                     Text="Escape from Tarkov binds that to F12 by default. Nothing needs focus and you never leave the raid." />
+                     Text="F12 by default. Nothing needs focus." />
         </StackPanel>
       </Border>
       <Border Classes="panel">
@@ -106,14 +104,13 @@
             <TextBlock Classes="value" Text="{Binding RecognitionProvider}" TextWrapping="Wrap" />
           </StackPanel>
           <TextBlock Classes="note"
-                     Text="Local OCR needs the Microsoft Visual C++ 2015-2022 x64 runtime, which is not part of this archive." />
+                     Text="Needs the Microsoft Visual C++ 2015-2022 x64 runtime." />
         </StackPanel>
       </Border>
       <Border Classes="panel">
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Developer diagnostics" />
           <TextBlock Classes="prose" Text="{Binding DiagnosticChannel}" />
-          <TextBlock Classes="note" Text="Diagnostic scan commands go through the same scan use case as the button." />
         </StackPanel>
       </Border>
       <!-- A promise, not a risk, so it is not bordered in coral. -->
@@ -121,7 +118,7 @@
         <StackPanel Spacing="8">
           <TextBlock Classes="sectionTitle" Text="Safety boundary" />
           <TextBlock Classes="prose"
-                     Text="External and read-only: no game memory, network interception, renderer hooks, input generation, or live-player tracking." />
+                     Text="External and read-only toward the game." />
         </StackPanel>
       </Border>
     </StackPanel>
