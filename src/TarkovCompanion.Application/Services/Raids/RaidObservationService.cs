@@ -45,6 +45,9 @@ public sealed class RaidObservationService : IAsyncDisposable
     private Task? _worker;
     private EftPaths? _watching;
     private long _eventsSeen;
+
+    /// <summary>Whether an unparsable screenshot name has already been reported this session.</summary>
+    private int _unreadableNameReported;
     private bool _disposed;
 
     public RaidObservationService(
@@ -191,6 +194,7 @@ public sealed class RaidObservationService : IAsyncDisposable
             }
 
             Interlocked.Exchange(ref _eventsSeen, 0);
+            Interlocked.Exchange(ref _unreadableNameReported, 0);
             // A new watching session means a new game session, and neither the party from the
             // last one nor its sales belong to this one.
             PublishSquad(_squad.Clear());
@@ -370,6 +374,28 @@ public sealed class RaidObservationService : IAsyncDisposable
                         position.Position.Z,
                         position.Timestamp);
                     await _coordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Said once per raid, with the name.
+                    //
+                    // This was silent on the grounds that menu and hideout screenshots carry
+                    // no coordinates and a warning every time somebody photographs their stash
+                    // is noise. True — and it also made the one case that matters invisible: a
+                    // player whose game writes a filename this parser does not recognise takes
+                    // screenshots all raid, sees the game confirm every one, and never appears
+                    // on anybody's map, with nothing anywhere saying why.
+                    //
+                    // The name is the whole diagnosis. Once per raid is often enough to be
+                    // found and rare enough not to bury the log.
+                    if (Interlocked.Exchange(ref _unreadableNameReported, 1) == 0)
+                    {
+                        _logger.LogInformation(
+                            "No position in the name of {Filename}. Ordinary for a menu or stash screenshot. " +
+                            "If this was taken in a raid, the name is not in the shape this build expects " +
+                            "and is worth reporting.",
+                            Path.GetFileName(path));
+                    }
                 }
 
                 // Read whether or not the name carried coordinates: a screenshot of an item or
