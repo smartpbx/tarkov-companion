@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Runtime;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -8,14 +9,46 @@ public sealed class SqliteRuntimeDataStore(
     SqliteDatabaseOptions options,
     SqliteConnectionFactory connectionFactory,
     SqliteMigrationRunner migrationRunner,
-    TimeProvider? timeProvider = null) : IRuntimeDataStore
+    TimeProvider? timeProvider = null,
+    // Optional, so the several compositions that build this by hand keep working. Where there
+    // is one it reaches the startup log, which is where somebody looks after an update.
+    ILogger<SqliteRuntimeDataStore>? logger = null) : IRuntimeDataStore
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
     public string DatabasePath => options.DatabasePath;
 
-    public async Task InitializeAsync(CancellationToken cancellationToken) =>
-        _ = await migrationRunner.ApplyAsync(cancellationToken).ConfigureAwait(false);
+    /// <summary>What the last migration run did, for anything that wants to say so.</summary>
+    /// <remarks>
+    /// The list was computed and thrown away with a discard, so "which migrations did this
+    /// build apply, and to which database" had no answer anywhere — including in the startup
+    /// log, which is the one place somebody looks after an update goes wrong.
+    /// </remarks>
+    public MigrationOutcome LastMigration { get; private set; } = MigrationOutcome.Nothing;
+
+    public async Task InitializeAsync(CancellationToken cancellationToken)
+    {
+        LastMigration = await migrationRunner.ApplyAsync(cancellationToken).ConfigureAwait(false);
+        if (LastMigration.Applied.Count > 0)
+        {
+            logger?.LogInformation(
+                "Applied migrations {Versions} to {Database}. {Copy}",
+                string.Join(", ", LastMigration.Applied),
+                options.DatabasePath,
+                LastMigration.BackupPath is { } backup
+                    ? $"A copy was taken first: {backup}"
+                    : "No copy was taken.");
+        }
+
+        if (LastMigration.FromNewerBuild.Count > 0)
+        {
+            // Not an error here. It is reported so the Data state can say so rather than the
+            // application failing on the first query for a table it has never heard of.
+            logger?.LogWarning(
+                "This database records migrations {Versions}, which this build does not have.",
+                string.Join(", ", LastMigration.FromNewerBuild));
+        }
+    }
 
     public async Task SeedDemoAsync(CancellationToken cancellationToken)
     {
