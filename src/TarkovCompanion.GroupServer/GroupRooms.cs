@@ -38,7 +38,40 @@ public sealed class GroupRooms(TimeProvider timeProvider)
         ArgumentException.ThrowIfNullOrWhiteSpace(memberKey);
         ArgumentNullException.ThrowIfNull(state);
         var members = _rooms.GetOrAdd(room, _ => new(StringComparer.Ordinal));
-        members[memberKey] = new(state, timeProvider.GetUtcNow());
+        // Observations are pruned on the way in as well as on the way out. A five-man filled
+        // from LFG describes the random's nickname and kit to the client, and nothing stopped
+        // that reaching the room, where anyone with the key could read it. SAFETY.md says
+        // other players' log data is never transmitted; the exception it records covers the
+        // people who are in the room, and nobody else.
+        members[memberKey] = new(PruneObserved(state, members.Keys, memberKey), timeProvider.GetUtcNow());
+    }
+
+    /// <summary>
+    /// Keeps only the observations that describe somebody in this room.
+    /// </summary>
+    /// <remarks>
+    /// Matched on the name, case-insensitively, which is the same rule the client already uses
+    /// to hand a player their own kit back: the logs carry an in-game nickname and the relay
+    /// carries a typed display name, they are the same string for most people, and there is no
+    /// better key on either side.
+    ///
+    /// Done on the server because the server half is the one that holds. The friend's WPF
+    /// client publishes to this relay too, and a rule enforced only in our client would not
+    /// apply to it.
+    /// </remarks>
+    private static GroupMemberState PruneObserved(
+        GroupMemberState state,
+        IEnumerable<string> memberKeys,
+        string publisherKey)
+    {
+        if (state.Observed.Count == 0)
+        {
+            return state;
+        }
+
+        var present = new HashSet<string>(memberKeys, StringComparer.OrdinalIgnoreCase) { publisherKey };
+        var kept = state.Observed.Where(observed => present.Contains(observed.Name.Trim())).ToArray();
+        return kept.Length == state.Observed.Count ? state : state with { Observed = kept };
     }
 
     /// <summary>Everyone else in the room who has published recently.</summary>
@@ -69,7 +102,17 @@ public sealed class GroupRooms(TimeProvider timeProvider)
             }
         }
 
-        return new(room, live.OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase).ToArray(), now);
+        // Pruned again on the way out, because somebody described at publish time may have
+        // left the room since, and the entry that described them is kept until its own
+        // lifetime expires.
+        var present = members.Keys.ToArray();
+        return new(
+            room,
+            live
+                .Select(member => PruneObserved(member, present, member.Name))
+                .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToArray(),
+            now);
     }
 
     /// <summary>Forgets a member immediately, for when they say they are leaving.</summary>
