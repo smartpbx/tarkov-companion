@@ -100,6 +100,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             // The trail belongs to the raid it was walked in, so a new one starts empty.
             PositionTrail = enteringRaid || enteringNewRaid || clearingRaid ? [] : Current.PositionTrail,
             ActiveExtracts = enteringNewRaid || clearingRaid ? [] : Current.ActiveExtracts,
+            // A clock belongs to the raid it was read in, exactly like the trail.
+            RaidClock = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClock,
+            RaidClockReadUtc = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClockReadUtc,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not
             // overwrite what an earlier, better-informed line already established. The basis
@@ -179,7 +182,10 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             : extended;
     }
 
-    public RaidSnapshot ApplyExtracts(IReadOnlyList<ActiveExtract> extracts, DateTimeOffset observedUtc)
+    public RaidSnapshot ApplyExtracts(
+        IReadOnlyList<ActiveExtract> extracts,
+        DateTimeOffset observedUtc,
+        TimeSpan? raidClock = null)
     {
         ArgumentNullException.ThrowIfNull(extracts);
         observedUtc = observedUtc.ToUniversalTime();
@@ -200,6 +206,10 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             ActiveExtracts = extracts.ToArray(),
             UpdatedUtc = Later(observedUtc),
             Confidence = new Confidence(Math.Max(Current.Confidence.Value, 0.85)),
+            // Kept only when this screenshot carried one. A scan that could not read the clock
+            // must not erase the last one that could.
+            RaidClock = raidClock ?? Current.RaidClock,
+            RaidClockReadUtc = raidClock is null ? Current.RaidClockReadUtc : observedUtc,
         };
         return Current;
     }

@@ -450,7 +450,15 @@ public interface IRaidStateService
 
     RaidSnapshot ApplyPosition(ScreenshotPosition position);
 
-    RaidSnapshot ApplyExtracts(IReadOnlyList<ActiveExtract> extracts, DateTimeOffset observedUtc);
+    /// <param name="raidClock">
+    /// The remaining time as the same screenshot showed it, where it could be read. The game
+    /// draws it on the extract list screen, so photographing that screen hands over the exact
+    /// number and nothing else has to be estimated.
+    /// </param>
+    RaidSnapshot ApplyExtracts(
+        IReadOnlyList<ActiveExtract> extracts,
+        DateTimeOffset observedUtc,
+        TimeSpan? raidClock = null);
 }
 
 public interface IStrategyModel
