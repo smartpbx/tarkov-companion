@@ -56,6 +56,11 @@ cp "${TASK_PROJECT_ROOT}/docs/THIRD_PARTY_NOTICES.md" "${TASK_PUBLISH_DIR}/THIRD
 mkdir -p "${TASK_PUBLISH_DIR}/LICENSES"
 cp -R "${TASK_PROJECT_ROOT}/LICENSES/." "${TASK_PUBLISH_DIR}/LICENSES/"
 cp "${TASK_PROJECT_ROOT}/scripts/windows-smoke.ps1" "${TASK_PUBLISH_DIR}/windows-smoke.ps1"
+# The installer needs the icon from the published directory, because that is the only
+# thing the packing step is given. Avalonia embeds it as a resource for the window, which
+# does not leave a file behind for anything else to point at.
+mkdir -p "${TASK_PUBLISH_DIR}/Assets"
+cp "${TASK_PROJECT_ROOT}/src/TarkovCompanion.App/Assets/TarkovCompanion.ico" "${TASK_PUBLISH_DIR}/Assets/TarkovCompanion.ico"
 "${TASK_PROJECT_ROOT}/scripts/audit-licenses.sh" \
     --output "${TASK_PUBLISH_DIR}/THIRD_PARTY_INVENTORY.json"
 

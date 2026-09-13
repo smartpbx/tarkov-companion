@@ -4,12 +4,20 @@
     <AssemblyName>TarkovCompanion</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- The executable's icon, which is what Explorer, the taskbar and alt-tab show. Separate
+         from the window icon below it and from the installer's; setting one leaves the others
+         at their defaults, which is how an application ends up anonymous in two places out of
+         three. -->
+    <ApplicationIcon>Assets/TarkovCompanion.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
     <ProjectReference Include="../TarkovCompanion.Application/TarkovCompanion.Application.csproj" />
     <ProjectReference Include="../TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj" />
     <ProjectReference Include="../TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" />
