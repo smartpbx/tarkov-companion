@@ -228,6 +228,8 @@ public sealed class RaidPageViewModel : PageViewModel
     private string _raidState = "No raid evidence";
     private string _position = "No last-known position";
     private IReadOnlyList<ActiveExtractViewModel> _extracts = [];
+    private string _extractsNotMatched = string.Empty;
+    private string _transits = string.Empty;
     private RaidSummaryViewModel? _summary;
     private RaidSnapshot? _lastInRaid;
     private string? _lastInRaidMode;
@@ -368,6 +370,42 @@ public sealed class RaidPageViewModel : PageViewModel
 
     public bool HasExtracts => Extracts.Count > 0;
 
+    /// <summary>
+    /// What the last extract scan read off that screen and could not place.
+    /// </summary>
+    /// <remarks>
+    /// A scan that matches one exit out of eight and a screen that has one exit on it both
+    /// read "Extracts: one". Saying what else was on the screen is the difference between a
+    /// report of a bug and a report that is its own diagnosis, and it cost a round trip to a
+    /// machine with the screenshots on it to establish that once already.
+    /// </remarks>
+    public string ExtractsNotMatched
+    {
+        get => _extractsNotMatched;
+        private set
+        {
+            SetProperty(ref _extractsNotMatched, value);
+            OnPropertyChanged(nameof(HasExtractsNotMatched));
+        }
+    }
+
+    public bool HasExtractsNotMatched => ExtractsNotMatched.Length > 0;
+
+    /// <summary>
+    /// The ways to another map this screen offered, which no extract catalog contains.
+    /// </summary>
+    public string Transits
+    {
+        get => _transits;
+        private set
+        {
+            SetProperty(ref _transits, value);
+            OnPropertyChanged(nameof(HasTransits));
+        }
+    }
+
+    public bool HasTransits => Transits.Length > 0;
+
     public void Apply(ApplicationRuntimeSnapshot snapshot, DateTimeOffset nowUtc)
     {
         var raid = snapshot.Raid;
@@ -386,6 +424,18 @@ public sealed class RaidPageViewModel : PageViewModel
                 string.Create(CultureInfo.CurrentCulture, $"{extract.Confidence.Value:P0} sure"),
                 extract.Source))
             .ToArray();
+        ExtractsNotMatched = raid.ExtractLinesNotMatched.Count switch
+        {
+            0 => string.Empty,
+            1 => $"1 line on that screen was not matched to an exit: {raid.ExtractLinesNotMatched[0]}",
+            var count => string.Create(
+                CultureInfo.CurrentCulture,
+                $"{count} lines on that screen were not matched to an exit: ") +
+                string.Join(" · ", raid.ExtractLinesNotMatched.Take(12)),
+        };
+        Transits = raid.Transits.Count == 0
+            ? string.Empty
+            : "Transits offered: " + string.Join(" · ", raid.Transits);
         UpdateTimeLeft(raid, nowUtc);
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
