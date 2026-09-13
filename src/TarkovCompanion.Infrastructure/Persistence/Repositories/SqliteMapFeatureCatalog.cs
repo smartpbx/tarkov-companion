@@ -270,6 +270,8 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
     /// and its trailing numbers split, so "ZoneRedHouse" reads as "Red House" and
     /// "BotZoneFloor1" as "Floor 1".
     /// </remarks>
+    private static readonly string[] ZonePrefixes = ["BotZone", "Zone_", "Zone"];
+
     private static string? Readable(string? zoneName)
     {
         if (string.IsNullOrWhiteSpace(zoneName) || Guid.TryParse(zoneName, out _))
@@ -278,7 +280,7 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         }
 
         var trimmed = zoneName.Trim();
-        foreach (var prefix in (string[])["BotZone", "Zone_", "Zone"])
+        foreach (var prefix in ZonePrefixes)
         {
             if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && trimmed.Length > prefix.Length)
             {

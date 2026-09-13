@@ -55,6 +55,8 @@ public static class SpawnProximity
     /// <summary>The most worth listing, because a longer list is not read at all.</summary>
     private const int Maximum = 8;
 
+    private static readonly string[] CompassPoints = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
     /// <summary>
     /// The player spawns within a radius of where this raid began, nearest first.
     /// </summary>
@@ -145,9 +147,8 @@ public static class SpawnProximity
             return "here";
         }
 
-        var degrees = (Math.Atan2(dx, -dz) * 180 / Math.PI + 360) % 360;
-        var index = (int)Math.Round(degrees / 45) % 8;
-        return (string[])["N", "NE", "E", "SE", "S", "SW", "W", "NW"][index];
+        var degrees = ((Math.Atan2(dx, -dz) * 180 / Math.PI) + 360) % 360;
+        return CompassPoints[(int)Math.Round(degrees / 45) % 8];
     }
 
     /// <summary>How a distance reads beside a map: whole metres, no false precision.</summary>

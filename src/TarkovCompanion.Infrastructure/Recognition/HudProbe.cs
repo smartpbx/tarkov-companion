@@ -52,6 +52,9 @@ public static class HudProbe
     /// <summary>How far up from the bottom edge to look, in frame heights.</summary>
     private const double SearchHeightInHeights = 0.40;
 
+    /// <summary>Both bars, in the order they are drawn. Static so the row loop allocates nothing.</summary>
+    private static readonly HudBarKind[] BarKinds = [HudBarKind.Blue, HudBarKind.Green];
+
     /// <summary>The shortest run of bar colour that is a bar rather than a stray pixel.</summary>
     /// <remarks>
     /// The real bars run 146 pixels at 1080 tall. Scene noise that happens to be blue-green
@@ -214,7 +217,7 @@ public static class HudProbe
         for (var y = region.Y; y < region.Y + region.Height; y++)
         {
             var rowStart = y * image.Stride;
-            foreach (var kind in (ReadOnlySpan<HudBarKind>)[HudBarKind.Blue, HudBarKind.Green])
+            foreach (var kind in BarKinds)
             {
                 var left = -1;
                 var right = -1;
