@@ -337,6 +337,18 @@ public sealed partial class MapView : UserControl
         // never becomes a drag: nothing pans with the right button.
         if (eventArgs.GetCurrentPoint(this).Properties.IsRightButtonPressed)
         {
+            // The same button both ways round, on the thing under it. Right-clicking bare map
+            // means "mark here"; right-clicking a mark means "that one is done with". There is
+            // no ambiguity to resolve — a place either already has a mark on it or does not —
+            // and the alternative is a context menu, which is a second click and a read in the
+            // middle of a raid.
+            if ((eventArgs.Source as StyledElement)?.DataContext is GroupMarkViewModel mark)
+            {
+                (DataContext as MapViewModel)?.RemoveMark(mark);
+                eventArgs.Handled = true;
+                return;
+            }
+
             // Through the name scope, not the generated field. Every view here loads its XAML
             // with AvaloniaXamlLoader.Load, which never populates an x:Name backing field, so
             // MapSurface was always null and the position came back relative to the window

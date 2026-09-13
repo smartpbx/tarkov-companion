@@ -156,6 +156,25 @@ public interface IQuestProgressService
     Task<ItemNeedSummary> GetItemNeedsAsync(string itemId, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// What the traders are called, which the application has synced and never read.
+/// </summary>
+/// <remarks>
+/// The <c>traders</c> table has held id and name since migration 0001 and is rewritten on every
+/// sync, and until now the only query touching it was a sub-select inside the sell-offer join.
+/// So the Quests page printed <c>Trader: 54cb50c76803fa8b248b4571</c>, which is what the feed
+/// puts in a task's trader field, and the map projection carried the same id to anything that
+/// wanted to draw an objective.
+///
+/// Names rather than the whole trader. What a consumer wants from a trader id is a word a
+/// player would say, and a bigger read would be a bigger read for nobody.
+/// </remarks>
+public interface ITraderCatalog
+{
+    /// <summary>Every trader the last sync stored, by id.</summary>
+    Task<IReadOnlyDictionary<string, string>> GetNamesAsync(CancellationToken cancellationToken);
+}
+
 public interface IQuestCatalog
 {
     Task<QuestCatalogSnapshot?> GetAsync(

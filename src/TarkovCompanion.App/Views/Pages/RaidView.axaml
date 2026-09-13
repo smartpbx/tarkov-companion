@@ -341,6 +341,53 @@
             <Border Classes="hairline" />
             <TextBlock Classes="caption" Text="Right-click the map to mark a waypoint" TextWrapping="Wrap" />
             <TextBlock Classes="caption" Text="Hold shift for a ping, which fades" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="Right-click a waypoint to remove it" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <!-- The group's marks, written out. The map can say where a mark is and nothing else:
+             it cannot be clicked accurately while somebody is shooting at you, it cannot show a
+             mark whose map is not open, and until this list existed every waypoint anybody had
+             ever dropped was a numbered dot that could not be removed from either client.
+
+             Two clears rather than one. Clearing the reached ones is tidying after a run;
+             clearing all of them is starting again, and they are not the same button. -->
+        <Border Classes="panel" IsVisible="{Binding Map.HasMarkList}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Marks on this map" />
+            <ItemsControl ItemsSource="{Binding Map.MarkList}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="mapvm:MarkListItemViewModel">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,5">
+                    <StackPanel Spacing="1">
+                      <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Classes="quiet"
+                            Content="Remove"
+                            VerticalAlignment="Center"
+                            Command="{Binding $parent[ItemsControl].((vm:RaidPageViewModel)DataContext).Map.RemoveMarkCommand}"
+                            CommandParameter="{Binding}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <Button Classes="quiet"
+                      Content="Clear reached"
+                      HorizontalAlignment="Stretch"
+                      IsEnabled="{Binding Map.HasReachedMarks}"
+                      Command="{Binding Map.ClearReachedMarksCommand}" />
+              <Button Grid.Column="1"
+                      Classes="quiet"
+                      Content="Clear all"
+                      HorizontalAlignment="Stretch"
+                      Command="{Binding Map.ClearMarksCommand}" />
+            </Grid>
+            <TextBlock Classes="caption"
+                       Text="Marks belong to the group, so anybody can clear them"
+                       TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 

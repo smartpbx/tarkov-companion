@@ -144,6 +144,10 @@ public static class AppComposition
             provider.GetRequiredService<SqliteScanHistoryService>());
         services.AddSingleton<SqliteQuestCatalog>();
         services.AddSingleton<IQuestCatalog>(provider => provider.GetRequiredService<SqliteQuestCatalog>());
+        // Two columns of a table every sync has rewritten since migration 0001 and nothing has
+        // ever read, which is why the Quests page printed a trader's id where it meant Prapor.
+        services.AddSingleton<SqliteTraderCatalog>();
+        services.AddSingleton<ITraderCatalog>(provider => provider.GetRequiredService<SqliteTraderCatalog>());
         services.AddSingleton<SqliteQuestProgressStore>();
         services.AddSingleton<IQuestProgressStore>(provider =>
             provider.GetRequiredService<SqliteQuestProgressStore>());
