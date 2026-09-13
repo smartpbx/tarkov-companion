@@ -55,6 +55,30 @@ public sealed record OcrPreparation(int Scale = 1, bool BrightTextOnly = false)
     /// <summary>The picture as it was taken.</summary>
     public static OcrPreparation AsCaptured { get; } = new();
 
+    /// <summary>
+    /// How a screenshot of this game is read, measured against real ones.
+    /// </summary>
+    /// <remarks>
+    /// Six preparations were run over three of a player's own 3840x1080 screenshots. Keeping
+    /// only the bright half was the whole of it, and enlarging was worse than useless.
+    ///
+    /// On the character screen the unprepared read produced fragments, "junk | ink | immo] |
+    /// “¢ | nf", and answered FleaListings at 0.75. With the bright half it read "OVERALL |
+    /// CUSTOMIZATION | ACHIEVEMENTS | HEALTH | SKILLS | MAP | TASKS | GEAR | BACK | SEARCH"
+    /// and answered Container at 0.70. So this is not a better score, it is a wrong answer
+    /// replaced by a right one, and the wrong one was the more confident of the two.
+    ///
+    /// On the extract list it dropped 91 lines to 62 and scored identically, because what it
+    /// dropped was the scenery. Fewer lines, same answer, cleaner text.
+    ///
+    /// Enlarging cost between two and seven times the pixels and three times the seconds and
+    /// improved no verdict on any of the three. At three times it was the worst read of the
+    /// six: repeating a pixel amplifies the noise along with the glyph, turning "SEARCH" into
+    /// "SEARTH". So the scale stays at one and the option remains for the probe to prove it
+    /// again on somebody else's monitor.
+    /// </remarks>
+    public static OcrPreparation ForScreenshots { get; } = new(1, BrightTextOnly: true);
+
     /// <summary>Scale bounded so that a large frame cannot be enlarged into an unreadable one.</summary>
     public int SafeScale => Math.Clamp(Scale, 1, 4);
 
@@ -63,8 +87,15 @@ public sealed record OcrPreparation(int Scale = 1, bool BrightTextOnly = false)
 
 public sealed record OcrRequest(ScanContext Context, PixelRect? Region = null, string Language = "eng")
 {
-    /// <summary>How to prepare the picture, which defaults to not preparing it at all.</summary>
-    public OcrPreparation Preparation { get; init; } = OcrPreparation.AsCaptured;
+    /// <summary>
+    /// How to prepare the picture, which defaults to what works on this game's screenshots.
+    /// </summary>
+    /// <remarks>
+    /// The default is the answer to a measurement rather than a guess: see
+    /// <see cref="OcrPreparation.ForScreenshots"/>. A caller wanting the picture untouched,
+    /// which is to say the probe, asks for it.
+    /// </remarks>
+    public OcrPreparation Preparation { get; init; } = OcrPreparation.ForScreenshots;
 }
 
 /// <summary>
