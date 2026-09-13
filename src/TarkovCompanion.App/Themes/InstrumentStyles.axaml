@@ -310,13 +310,25 @@
     <Setter Property="Margin" Value="0,0,2,0" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
-  <Style Selector="TextBlock.navGlyph">
-    <Setter Property="FontSize" Value="14" />
-    <Setter Property="Foreground" Value="{StaticResource InkFaintBrush}" />
+  <!-- Drawn rather than lettered. These were Unicode characters from unrelated blocks, so each
+       resolved to a different fallback font and rendered at its own size, weight and baseline;
+       the rail looked ragged and nobody could say why. One grid, one stroke, one cap. -->
+  <Style Selector="Path.navGlyph">
+    <Setter Property="Stroke" Value="{StaticResource InkFaintBrush}" />
+    <Setter Property="StrokeThickness" Value="1.4" />
+    <Setter Property="StrokeLineCap" Value="Round" />
+    <Setter Property="StrokeJoin" Value="Round" />
+    <Setter Property="Width" Value="16" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="Stretch" Value="None" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
     <Setter Property="VerticalAlignment" Value="Center" />
   </Style>
-  <Style Selector="Button.nav.selected TextBlock.navGlyph">
-    <Setter Property="Foreground" Value="{StaticResource CyanBrush}" />
+  <Style Selector="Button.nav:pointerover Path.navGlyph">
+    <Setter Property="Stroke" Value="{StaticResource InkBrush}" />
+  </Style>
+  <Style Selector="Button.nav.selected Path.navGlyph">
+    <Setter Property="Stroke" Value="{StaticResource CyanBrush}" />
   </Style>
 
   <!-- Text entry. Content is centred because these carry a MinHeight larger than a line of
