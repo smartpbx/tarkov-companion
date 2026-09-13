@@ -17,7 +17,7 @@ public sealed class EftPathOverrideStoreTests : IDisposable
     [Fact]
     public async Task NothingStoredMeansKeepGuessing()
     {
-        var stored = await Store().GetAsync(TestContext.Current.CancellationToken);
+        var stored = await Store().GetAsync(CancellationToken.None);
 
         Assert.True(stored.IsEmpty);
         Assert.Null(stored.ScreenshotRoot);
@@ -28,9 +28,9 @@ public sealed class EftPathOverrideStoreTests : IDisposable
     public async Task WhatWasTypedComesBack()
     {
         var store = Store();
-        await store.SaveAsync(new("D:\\EFT\\Screenshots", "D:\\EFT\\Logs"), TestContext.Current.CancellationToken);
+        await store.SaveAsync(new("D:\\EFT\\Screenshots", "D:\\EFT\\Logs"), CancellationToken.None);
 
-        var stored = await Store().GetAsync(TestContext.Current.CancellationToken);
+        var stored = await Store().GetAsync(CancellationToken.None);
 
         Assert.Equal("D:\\EFT\\Screenshots", stored.ScreenshotRoot);
         Assert.Equal("D:\\EFT\\Logs", stored.LogRoot);
@@ -44,19 +44,19 @@ public sealed class EftPathOverrideStoreTests : IDisposable
     public async Task ABlankBoxClearsTheOverride(string typed)
     {
         var store = Store();
-        await store.SaveAsync(new("D:\\EFT\\Screenshots", null), TestContext.Current.CancellationToken);
-        await store.SaveAsync(new(typed, typed), TestContext.Current.CancellationToken);
+        await store.SaveAsync(new("D:\\EFT\\Screenshots", null), CancellationToken.None);
+        await store.SaveAsync(new(typed, typed), CancellationToken.None);
 
-        Assert.True((await Store().GetAsync(TestContext.Current.CancellationToken)).IsEmpty);
+        Assert.True((await Store().GetAsync(CancellationToken.None)).IsEmpty);
     }
 
     [Fact]
     public async Task SurroundingSpaceIsNotPartOfThePath()
     {
         var store = Store();
-        await store.SaveAsync(new("  D:\\EFT\\Screenshots  ", null), TestContext.Current.CancellationToken);
+        await store.SaveAsync(new("  D:\\EFT\\Screenshots  ", null), CancellationToken.None);
 
-        Assert.Equal("D:\\EFT\\Screenshots", (await store.GetAsync(TestContext.Current.CancellationToken)).ScreenshotRoot);
+        Assert.Equal("D:\\EFT\\Screenshots", (await store.GetAsync(CancellationToken.None)).ScreenshotRoot);
     }
 
     /// <summary>
@@ -65,9 +65,9 @@ public sealed class EftPathOverrideStoreTests : IDisposable
     [Fact]
     public async Task AnUnreadableFileFallsBackToGuessing()
     {
-        await File.WriteAllTextAsync(Path.Combine(_folder, "game-folders.json"), "{ not json", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(_folder, "game-folders.json"), "{ not json", CancellationToken.None);
 
-        Assert.True((await Store().GetAsync(TestContext.Current.CancellationToken)).IsEmpty);
+        Assert.True((await Store().GetAsync(CancellationToken.None)).IsEmpty);
     }
 
     private JsonFileEftPathOverrideStore Store() =>
