@@ -24,12 +24,40 @@ namespace TarkovCompanion.Application.Services.Runtime;
 /// is NOT NULL REFERENCES raids(id), so the raid row has to exist first. That ordering is a
 /// database constraint and is not what moved.
 /// </remarks>
+/// <summary>
+/// What a scan is allowed to do to the raid record: read it, and add to it.
+/// </summary>
+/// <remarks>
+/// A seam rather than the whole service, because the recognition path used to hold
+/// <c>IRaidStateService</c> and call <c>ApplyExtracts</c> on it directly. That skipped the
+/// coordinator entirely, so the map waited for the next log line to redraw and the only writer
+/// of an <c>extracts</c> raid event was left with no callers — no raid has ever recorded which
+/// exits it was offered. Handing the scan something that cannot mutate state on its own is
+/// what stops that coming back.
+/// </remarks>
+public interface IRaidActivityRecorder
+{
+    /// <summary>The raid as it stands, for a scan that needs to know which map it is on.</summary>
+    RaidSnapshot Current { get; }
+
+    Task<RaidSnapshot> ApplyExtractsAsync(
+        IReadOnlyList<ActiveExtract> extracts,
+        DateTimeOffset observedUtc,
+        CancellationToken cancellationToken,
+        TimeSpan? raidClock = null,
+        IReadOnlyList<string>? linesNotMatched = null,
+        IReadOnlyList<string>? transits = null);
+}
+
 public sealed class RaidActivityCoordinator(
     IRaidStateService raidStateService,
     IRaidHistoryService raidHistoryService,
     IPlayerProfileService profileService,
-    IRuntimeStateStore stateStore)
+    IRuntimeStateStore stateStore) : IRaidActivityRecorder
 {
+    /// <inheritdoc />
+    public RaidSnapshot Current => raidStateService.Current;
+
     public async Task<RaidSnapshot> ApplyEvidenceAsync(RaidEvidence evidence, CancellationToken cancellationToken)
     {
         var previous = raidStateService.Current;
@@ -58,13 +86,25 @@ public sealed class RaidActivityCoordinator(
         return current;
     }
 
+    /// <param name="raidClock">The remaining time the same screen printed, where it was read.</param>
+    /// <param name="linesNotMatched">What the scan read and could not match, so a scan that
+    /// matched one exit out of eight is distinguishable from a screen that had one on it.</param>
+    /// <param name="transits">Ways to another map, which no extract catalog contains.</param>
+    /// <remarks>
+    /// These three exist because the scan used to reach past this and call
+    /// <c>IRaidStateService.ApplyExtracts</c> itself, which carried them. Routing the scan
+    /// through here without them would have been a regression dressed as a refactor.
+    /// </remarks>
     public async Task<RaidSnapshot> ApplyExtractsAsync(
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TimeSpan? raidClock = null,
+        IReadOnlyList<string>? linesNotMatched = null,
+        IReadOnlyList<string>? transits = null)
     {
         var previous = raidStateService.Current;
-        var current = raidStateService.ApplyExtracts(extracts, observedUtc);
+        var current = raidStateService.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits);
         Publish(current);
         await EnsureStartedAsync(previous, current, cancellationToken).ConfigureAwait(false);
         if (current.RaidId is { } raidId)

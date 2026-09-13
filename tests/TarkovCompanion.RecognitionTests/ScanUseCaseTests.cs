@@ -1,6 +1,7 @@
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
@@ -62,6 +63,9 @@ public sealed class ScanUseCaseTests
         Assert.Equal(ScanCompletionStatus.Complete, outcome.Status);
         Assert.Equal(1, harness.Extracts.Calls);
         Assert.Equal(["road"], harness.RaidState.Current.ActiveExtracts.Select(extract => extract.ExtractId));
+        // Through the coordinator seam, not past it. A scan that reached for the state service
+        // again would leave this at zero while every other assertion still passed.
+        Assert.Equal(1, harness.Recorder.ExtractsRecorded);
         Assert.Contains(outcome.Evidence, evidence => evidence.Code == "extract_closed");
     }
 
@@ -159,6 +163,7 @@ public sealed class ScanUseCaseTests
             Containers = new();
             Flea = new();
             RaidState = new();
+            Recorder = new(RaidState);
             Events = new();
             Publisher = new();
             var items = new StaticItemRepository(_item, _price);
@@ -169,7 +174,7 @@ public sealed class ScanUseCaseTests
                 Containers,
                 Flea,
                 new StaticMapDataService(CreateMap(provenance)),
-                RaidState,
+                Recorder,
                 items,
                 new RecommendationEngine(),
                 new StaticRecommendationContextProvider(),
@@ -177,7 +182,7 @@ public sealed class ScanUseCaseTests
                 Publisher);
         }
 
-        public ScanUseCase UseCase { get; }
+        public Application.Services.Recognition.ScanUseCase UseCase { get; }
 
         public CaptureRequest CaptureRequest { get; } = new("eft", null, false, "test");
 
@@ -194,6 +199,8 @@ public sealed class ScanUseCaseTests
         public TrackingFleaService Flea { get; }
 
         public RaidStateService RaidState { get; }
+
+        public RecordingRaidActivity Recorder { get; }
 
         public RecordingScanEventRepository Events { get; }
 
@@ -329,6 +336,35 @@ public sealed class ScanUseCaseTests
             cancellationToken.ThrowIfCancellationRequested();
             Saved.Add(scanEvent);
             return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Stands in for the coordinator, so the scan is exercised through the seam it now holds.
+    /// </summary>
+    /// <remarks>
+    /// The point of the seam is that a scan can read the raid and add to it and cannot mutate
+    /// state on its own. This applies the change to a real RaidStateService so the existing
+    /// assertions still hold, and counts the calls so a future bypass would show up as a
+    /// recorder that was never asked.
+    /// </remarks>
+    public sealed class RecordingRaidActivity(RaidStateService state) : IRaidActivityRecorder
+    {
+        public int ExtractsRecorded { get; private set; }
+
+        public RaidSnapshot Current => state.Current;
+
+        public Task<RaidSnapshot> ApplyExtractsAsync(
+            IReadOnlyList<ActiveExtract> extracts,
+            DateTimeOffset observedUtc,
+            CancellationToken cancellationToken,
+            TimeSpan? raidClock = null,
+            IReadOnlyList<string>? linesNotMatched = null,
+            IReadOnlyList<string>? transits = null)
+        {
+            ExtractsRecorded++;
+            return Task.FromResult(
+                state.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits));
         }
     }
 }
