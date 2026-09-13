@@ -703,6 +703,26 @@ public sealed record MapPlaceNameViewModel(
     public double Left => CenterX - (Width / 2);
 
     public double Top => CenterY - (Height / 2);
+
+    /// <summary>
+    /// How wide the text itself reads, rather than the box it is centred in.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Width"/> is 400 because the box has to be wide enough for the longest name
+    /// and the text is centred in it; almost all of that is empty. Anything asking "what does
+    /// this cover" needs the text, and treating the box as covered ground would blank out most
+    /// of the map's other names.
+    ///
+    /// Estimated from the character count the same way a marker's name is, because measuring
+    /// requires a laid-out text run and this is decided before layout.
+    /// </remarks>
+    public double TextWidth => Math.Min(Width, 8 + (Text.Length * FontSize * 0.55));
+
+    public double TextHeight => FontSize * 1.35;
+
+    public double TextLeft => CenterX - (TextWidth / 2);
+
+    public double TextTop => CenterY - (TextHeight / 2);
 }
 
 /// <summary>
@@ -2663,7 +2683,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             });
         }
 
-        PlaceNames = placeNames;
+        // A place name that a marker already carries is the same name twice. Seen on Customs:
+        // "Warehouse 17" as a catalog place name and "Warehouse 17" as the exit a few pixels
+        // below it, plus "RUAF Roadblock" and "Trailer Park" doing the same. The marker wins,
+        // because it says the name and says more: that it is somewhere you can leave from.
+        PlaceNames = DropNamesTheMarkersAlreadyCarry(placeNames, markers);
         Markers = markers;
         ArrangeNames();
         ReconcileSelection();
@@ -2687,6 +2711,54 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// hovered name is one name rather than fifty, so reserving room for all of them would
     /// empty the map of the names that are actually drawn.
     /// </remarks>
+    /// <summary>How close two of the same name have to be to count as one thing named twice.</summary>
+    /// <remarks>
+    /// In canvas units before zoom. A place name and an exit describing the same building sit
+    /// within a few units of each other; two genuinely different things sharing a name — and
+    /// Tarkov has several "Warehouse 4"s — are far enough apart that both survive.
+    /// </remarks>
+    private const double SameThingWithin = 40;
+
+    private static IReadOnlyList<MapPlaceNameViewModel> DropNamesTheMarkersAlreadyCarry(
+        IReadOnlyList<MapPlaceNameViewModel> placeNames,
+        IReadOnlyList<MapOverlayElementViewModel> markers)
+    {
+        if (placeNames.Count == 0 || markers.Count == 0)
+        {
+            return placeNames;
+        }
+
+        var kept = new List<MapPlaceNameViewModel>(placeNames.Count);
+        foreach (var name in placeNames)
+        {
+            var duplicated = markers.Any(marker =>
+                Names(marker.Label, name.Text) &&
+                Math.Abs(marker.CenterX - name.CenterX) < SameThingWithin &&
+                Math.Abs(marker.CenterY - name.CenterY) < SameThingWithin);
+            if (!duplicated)
+            {
+                kept.Add(name);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// Whether two labels name the same place.
+    /// </summary>
+    /// <remarks>
+    /// A marker's label carries the faction in brackets where the catalog's place name does
+    /// not, so the bracket comes off before they are compared. Loose at both ends because one
+    /// of them was typed by a mapper and the other by the game.
+    /// </remarks>
+    private static bool Names(string markerLabel, string placeName)
+    {
+        var marker = markerLabel.Split('(')[0].Trim();
+        return marker.Length > 0 &&
+            string.Equals(marker, placeName.Trim(), StringComparison.CurrentCultureIgnoreCase);
+    }
+
     private void ArrangeNames()
     {
         var markers = Markers;
@@ -2708,7 +2780,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 marker.IsOffered ? 2 : marker.IsExtract || marker.IsTransit ? 1 : 0))
             .ToArray();
 
-        var slots = MapLabelLayout.Arrange(candidates, ZoomScale);
+        // The catalog's place names cannot be moved — the catalog decides where, how big and at
+        // what angle — so they are handed in as ground that is already taken. Without this a
+        // marker's name is placed into a slot a place name is already sitting in, which is half
+        // of what was reported.
+        var occupied = PlaceNames
+            .Select(name => new MapLabelLayout.MapLabelObstacle(
+                name.TextLeft * ZoomScale,
+                name.TextTop * ZoomScale,
+                (name.TextLeft + name.TextWidth) * ZoomScale,
+                (name.TextTop + name.TextHeight) * ZoomScale))
+            .ToArray();
+        var slots = MapLabelLayout.Arrange(candidates, ZoomScale, occupied);
         for (var index = 0; index < arranged.Length; index++)
         {
             var placement = arranged[index].Placement;
