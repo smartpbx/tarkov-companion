@@ -26,6 +26,12 @@ public sealed record QuestImportHistoryRowViewModel(
 /// <summary>One thing an import refused, named and explained.</summary>
 public sealed record QuestImportHistoryLineViewModel(string What, string Why);
 
+/// <summary>Your loyalty with one trader, and the stepper that sets it.</summary>
+/// <param name="TraderId">The feed's id, which is what the profile is keyed by.</param>
+/// <param name="Name">What the trader is called, which is what the row is labelled with.</param>
+/// <param name="Level">0 to 4, held as decimal because that is what a spinner binds.</param>
+public sealed record TraderLoyaltyViewModel(string TraderId, string Name, decimal Level);
+
 public sealed class QuestImportProposalViewModel(
     QuestImportProposal proposal,
     QuestImportResolution? resolution = null)
@@ -390,6 +396,8 @@ public sealed class QuestsPageViewModel : PageViewModel
 
     private readonly IItemRepository? _itemRepository;
     private readonly IQuestProgressImportHistory? _importHistory;
+    private readonly ITraderCatalog? _traderCatalog;
+    private IReadOnlyList<TraderLoyaltyViewModel> _traderLoyalty = [];
     private IReadOnlyList<QuestImportHistoryRowViewModel> _importHistoryRows = [];
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
 
@@ -407,7 +415,10 @@ public sealed class QuestsPageViewModel : PageViewModel
         IItemRepository? itemRepository = null,
         // Optional for the same reason. Without it the page loses the record of what past
         // imports refused, which is what it had until now.
-        IQuestProgressImportHistory? importHistory = null)
+        IQuestProgressImportHistory? importHistory = null,
+        // Optional again. Without it there is nothing to name the traders, so the loyalty rows
+        // are not offered at all rather than offered as hexadecimal ids.
+        ITraderCatalog? traderCatalog = null)
         : base(
             "Quests",
             "What you are working on, and what each one needs",
@@ -423,6 +434,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         _timeProvider = timeProvider;
         _itemRepository = itemRepository;
         _importHistory = importHistory;
+        _traderCatalog = traderCatalog;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
@@ -747,6 +759,108 @@ public sealed class QuestsPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>
+    /// Your loyalty with each trader, which nothing in the application could set.
+    /// </summary>
+    /// <remarks>
+    /// TraderLevels has been on the profile since it was written, is validated on save to the
+    /// game's own range of 0 to 4, and is written by nothing anywhere. AmmoIntelligenceService
+    /// reads it — ObtainableForProfile compares a rule's required loyalty against it — so every
+    /// rule that needed any loyalty at all could never fire. The barter reader wants it too.
+    ///
+    /// Zero is a real answer and stays reachable. A trader you have not unlocked and a trader
+    /// you have not told us about are both level 0, and there is no way to tell them apart
+    /// without reading a profile the logs never write.
+    /// </remarks>
+    public IReadOnlyList<TraderLoyaltyViewModel> TraderLoyalty
+    {
+        get => _traderLoyalty;
+        private set
+        {
+            SetProperty(ref _traderLoyalty, value);
+            OnPropertyChanged(nameof(HasTraderLoyalty));
+        }
+    }
+
+    public bool HasTraderLoyalty => _traderLoyalty.Count > 0;
+
+    /// <summary>Records loyalty with one trader.</summary>
+    /// <remarks>
+    /// Clamped to the game's range here as well as in the spinner, because the profile writer
+    /// refuses anything outside it and a refused save would lose the whole profile edit rather
+    /// than one number.
+    /// </remarks>
+    public async Task SetTraderLevelAsync(string traderId, decimal level)
+    {
+        if (string.IsNullOrWhiteSpace(traderId))
+        {
+            return;
+        }
+
+        var wanted = (int)Math.Clamp(level, 0, 4);
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            if (profile.TraderLevels.GetValueOrDefault(traderId) == wanted)
+            {
+                return;
+            }
+
+            var levels = new Dictionary<string, int>(profile.TraderLevels, StringComparer.Ordinal)
+            {
+                [traderId] = wanted,
+            };
+            await _profileService
+                .SaveAsync(profile with { TraderLevels = levels, UpdatedUtc = NowUtc }, CancellationToken.None)
+                .ConfigureAwait(true);
+            UpdateTraderLoyalty(levels);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Trader loyalty not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Reads the trader names once, so the rows have something to be called.
+    /// </summary>
+    /// <remarks>
+    /// Without a catalog there are no rows at all. A stepper labelled
+    /// 54cb50c76803fa8b248b4571 is worse than no stepper: nobody can tell which trader they
+    /// are setting, so anything they set is as likely to be wrong as right.
+    /// </remarks>
+    private async Task LoadTraderNamesAsync(CancellationToken cancellationToken)
+    {
+        if (_traderCatalog is null || _traderNames is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            _traderNames = await _traderCatalog.GetNamesAsync(cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The rest of the page is unaffected; there are simply no loyalty rows.
+            _traderNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+    }
+
+    private void UpdateTraderLoyalty(IReadOnlyDictionary<string, int> levels) => TraderLoyalty = _traderNames is null
+        ? []
+        :
+        [
+            .. _traderNames
+                .OrderBy(trader => trader.Value, StringComparer.CurrentCultureIgnoreCase)
+                .Select(trader => new TraderLoyaltyViewModel(
+                    trader.Key,
+                    trader.Value,
+                    levels.GetValueOrDefault(trader.Key))),
+        ];
+
+    private IReadOnlyDictionary<string, string>? _traderNames;
+
     public Task RefreshAsync() => RefreshAsync(CancellationToken.None);
 
     public async Task RefreshAsync(CancellationToken cancellationToken)
@@ -766,6 +880,8 @@ public sealed class QuestsPageViewModel : PageViewModel
             }
 
             ScopeStatus = $"{profile.Name} · {profile.GameMode}";
+            await LoadTraderNamesAsync(cancellationToken).ConfigureAwait(true);
+            UpdateTraderLoyalty(profile.TraderLevels);
             await RefreshTarkovTrackerStatusAsync(_scope, cancellationToken).ConfigureAwait(true);
             await LoadImportHistoryAsync(_scope, cancellationToken).ConfigureAwait(true);
             var board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);

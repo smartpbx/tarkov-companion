@@ -16,11 +16,32 @@
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:HideoutStationViewModel">
             <Border Classes="panel" Padding="12">
-              <StackPanel Spacing="3">
-                <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
-                <TextBlock Classes="label" Text="{Binding Progress}" />
-                <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
-              </StackPanel>
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <StackPanel Spacing="3">
+                  <TextBlock Classes="value" Text="{Binding Name}" TextWrapping="Wrap" />
+                  <TextBlock Classes="label" Text="{Binding Progress}" />
+                  <TextBlock Classes="label" Text="{Binding Summary}" TextWrapping="Wrap" />
+                </StackPanel>
+                <!-- The hands the profile never had. HideoutStationLevels is written by nothing
+                     anywhere in the application, so every station read "level 0 of N" under a
+                     status line saying the levels came from your profile — true, and useless,
+                     because there was no way to put anything in it.
+
+                     Zero is a real answer and stays reachable: a station you have not built is
+                     not the same as one you have not told us about, and both are level 0. -->
+                <NumericUpDown Grid.Column="1"
+                               Width="96"
+                               FormatString="0"
+                               Increment="1"
+                               Minimum="0"
+                               Maximum="{Binding MaximumLevel}"
+                               IsVisible="{Binding CanSetLevel}"
+                               Value="{Binding BuiltLevel, Mode=OneWay}"
+                               ValueChanged="StationLevelChanged"
+                               Tag="{Binding StationId}"
+                               VerticalAlignment="Center"
+                               ToolTip.Tip="The level you have this station built to" />
+              </Grid>
             </Border>
           </DataTemplate>
         </ListBox.ItemTemplate>
