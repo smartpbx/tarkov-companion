@@ -3,6 +3,7 @@ using TarkovCompanion.Infrastructure.Persistence;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class SqliteMigrationTests
 {
     [Fact]

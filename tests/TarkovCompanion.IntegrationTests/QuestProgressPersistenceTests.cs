@@ -13,6 +13,7 @@ using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class QuestProgressPersistenceTests
 {
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-09-10T12:00:00Z");

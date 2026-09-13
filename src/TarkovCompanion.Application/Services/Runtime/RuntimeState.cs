@@ -1,4 +1,5 @@
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
@@ -41,6 +42,61 @@ public sealed record ScanExecutionResult(
     string Source,
     string Detail)
 {
+    /// <summary>
+    /// Turns a finished scan into something the interface can show, whatever asked for it.
+    /// </summary>
+    /// <remarks>
+    /// This projection used to live inside the adapter behind the scan button, which is why a
+    /// scan driven by the game's own screenshot key reached the recogniser, produced a perfectly
+    /// good result, and was then logged and dropped. The interface only ever learned about
+    /// scans that came through one particular door.
+    /// </remarks>
+    public static ScanExecutionResult FromOutcome(ScanOutcome outcome, string source)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        var selected = outcome.Recognition.Selected;
+        var recommendation = outcome.Recommendation;
+        var detail = outcome.Status switch
+        {
+            ScanCompletionStatus.Unavailable =>
+                $"Scan unavailable ({outcome.DiagnosticCode ?? "no diagnostic"}); no pixels were persisted.",
+            _ when selected is not null && recommendation is null =>
+                $"Resolved {selected.DisplayName}; recommendation withheld because required item-context evidence was unavailable. No pixels were persisted.",
+            _ when selected is not null =>
+                $"Resolved {selected.DisplayName} from an in-memory scan; no pixels were persisted.",
+            _ =>
+                $"{outcome.Context} scan finished with {outcome.Status}; no item was auto-selected and no pixels were persisted.",
+        };
+
+        return new(
+            outcome.Status != ScanCompletionStatus.Unavailable,
+            selected is not null,
+            selected?.CanonicalId,
+            selected?.DisplayName,
+            recommendation?.SelectedEconomicValue,
+            recommendation?.ValuePerSlot,
+            recommendation?.Action.ToString(),
+            selected?.Confidence ?? Confidence.Unknown,
+            outcome.ObservedUtc.ToUniversalTime(),
+            source,
+            detail);
+    }
+
+    /// <summary>
+    /// Whether this is worth putting in front of somebody, as opposed to merely having happened.
+    /// </summary>
+    /// <remarks>
+    /// The screenshot key fires on everything a player photographs, and most of that is the
+    /// game world: a wall, a corridor, a body. Publishing those would replace a good reading of
+    /// an item with "Unknown scan finished with Partial" seconds later, which is worse than not
+    /// reporting them at all, because the useful answer is the one that disappears.
+    ///
+    /// So an unprompted scan has to have found something. One somebody asked for is always
+    /// worth an answer, including a disappointing one, because they are waiting for it.
+    /// </remarks>
+    public bool IsWorthReporting => Succeeded || !IsAvailable;
+
     public static ScanExecutionResult Unavailable(string detail, DateTimeOffset observedUtc) => new(
         false,
         false,
