@@ -78,18 +78,28 @@ public sealed class MapPlaceNameEdgeTests
         Assert.Equal(0, far.CenterX + far.Nudge - (far.TextWidthOnCanvas / 2), 3);
     }
 
+    [Fact]
+    public void The_same_name_at_two_zooms_is_two_different_records()
+    {
+        // This is the fix, not a detail. A record compares by value, and an items control given
+        // equal items reuses its containers and never re-reads anything computed. Holding the
+        // zoom on the record is what makes the two differ, so the containers rebuild and the
+        // nudge is recomputed. Measured before this: the label strip was pixel-identical across
+        // a build that changed the arithmetic, because the arithmetic never ran again.
+        var close = Name("Administration Gate", centerX: 10, canvasWidth: 4000, zoom: 1);
+        var far = Name("Administration Gate", centerX: 10, canvasWidth: 4000, zoom: 0.23);
+
+        Assert.NotEqual(close, far);
+    }
+
     private static MapPlaceNameViewModel Name(
         string text,
         double centerX,
         double canvasWidth,
-        double zoom = 1)
-    {
-        var scale = new MapMarkerScale();
-        scale.Follow(zoom);
-        return new(text, centerX, 500, 0, 14, false, false)
+        double zoom = 1) =>
+        new(text, centerX, 500, 0, 14, false, false)
         {
             CanvasWidth = canvasWidth,
-            Scale = scale,
+            Zoom = zoom,
         };
-    }
 }
