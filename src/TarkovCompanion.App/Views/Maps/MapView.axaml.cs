@@ -86,6 +86,7 @@ public sealed partial class MapView : UserControl
         {
             _boundViewModel.FitRequested -= FitRequested;
             _boundViewModel.PlayerFollowRequested -= PlayerFollowRequested;
+            _boundViewModel.ZoomStepRequested -= ZoomStepRequested;
         }
 
         _boundViewModel = DataContext as MapViewModel;
@@ -93,6 +94,7 @@ public sealed partial class MapView : UserControl
         {
             _boundViewModel.FitRequested += FitRequested;
             _boundViewModel.PlayerFollowRequested += PlayerFollowRequested;
+            _boundViewModel.ZoomStepRequested += ZoomStepRequested;
             FitAndCentre();
         }
     }
@@ -472,6 +474,15 @@ public sealed partial class MapView : UserControl
     }
 
     /// <summary>The buttons zoom about the middle of the panel, which is where the eye is.</summary>
+    /// <summary>
+    /// Zooms a step because something asked, rather than because a button was pressed.
+    /// </summary>
+    /// <remarks>
+    /// The same path as the buttons, deliberately. A second implementation for the keyboard
+    /// would be a second thing that has to keep the point under the pointer where it is.
+    /// </remarks>
+    private void ZoomStepRequested(object? sender, int direction) => ZoomFromButton(direction);
+
     private void ZoomInClick(object? sender, RoutedEventArgs eventArgs) => ZoomFromButton(1);
 
     private void ZoomOutClick(object? sender, RoutedEventArgs eventArgs) => ZoomFromButton(-1);
