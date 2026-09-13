@@ -4,6 +4,22 @@ public sealed record TarkovDevJsonClientOptions
 {
     public Uri BaseAddress { get; init; } = new("https://json.tarkov.dev/");
 
+    /// <summary>
+    /// A group server holding the same catalog, tried before upstream.
+    /// </summary>
+    /// <remarks>
+    /// Every client otherwise syncs several megabytes of identical answers on its own
+    /// connection; a group of five does that five times. Where a group already runs a server,
+    /// it can hold one copy and hand out a content-addressed snapshot, and a client that
+    /// already has that snapshot gets a 304 and no body at all.
+    ///
+    /// Null by default, and a failure against it is never fatal: the upstream address below is
+    /// always tried afterwards. The moment this becomes required, the server stops being an
+    /// optimisation and becomes something the application cannot run without, which is not a
+    /// trade this application makes.
+    /// </remarks>
+    public Uri? MirrorAddress { get; init; }
+
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(12);
 
     public TimeSpan StaticFreshFor { get; init; } = TimeSpan.FromHours(9);
@@ -19,6 +35,11 @@ public sealed record TarkovDevJsonClientOptions
         if (!BaseAddress.IsAbsoluteUri)
         {
             throw new ArgumentException("The json.tarkov.dev base address must be absolute.", nameof(BaseAddress));
+        }
+
+        if (MirrorAddress is { IsAbsoluteUri: false })
+        {
+            throw new ArgumentException("The catalog mirror address must be absolute.", nameof(MirrorAddress));
         }
 
         if (RequestTimeout <= TimeSpan.Zero)
