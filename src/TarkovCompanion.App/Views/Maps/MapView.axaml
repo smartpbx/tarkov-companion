@@ -717,6 +717,17 @@
                             IsChecked="{Binding IsStacked, Mode=TwoWay}"
                             ToolTip.Tip="Draw the floors one above another instead of one at a time"
                             Content="Stack" />
+              <!-- Where the Stack toggle would be, when this artwork has no floors and another
+                   copy of the same map does. Only the interactive variant of a map carries
+                   layers, so switching artwork loses the stack, the toggle correctly
+                   disappears, and until now nothing said why or how to get it back. A feature
+                   that vanishes silently is indistinguishable from one that is broken, which is
+                   exactly how this was reported. -->
+              <Button Classes="viewControl"
+                      IsVisible="{Binding HasFloorVariant}"
+                      Click="FloorVariantClick"
+                      Content="Floors…"
+                      ToolTip.Tip="{Binding FloorVariantHint}" />
             </StackPanel>
           </WrapPanel>
         </Border>
