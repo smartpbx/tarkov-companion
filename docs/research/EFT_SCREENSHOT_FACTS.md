@@ -239,10 +239,20 @@ The contents do not.
 - A **filled** slot draws the icon plus a short caption in its top-right corner, heavily
   abbreviated: a hatchet reads `KATT`. Four characters is not enough to identify an item.
 
-So **pair by position, never by order**: find the header, take the box beneath it, read the
-caption inside that box. No caption means the slot is empty, which is information. Pairing lines
-in reading order shifts by one at every empty slot and produces a plausible-looking wrong
-loadout rather than an empty list, which is worse.
+So **pair by position, never by order**. Two independent reasons, and the second is the stronger:
+
+1. An empty slot contributes a header and no item, so every subsequent pairing shifts by one.
+2. **OCR reading order is not stable.** On the same crop, the same engine returned the headers
+   in a different order under two preparations — "as captured" gave HEADWEAR, FACE COVER,
+   EARPIECE; bright-half gave EARPIECE, HEADWEAR, FACE COVER. Sparse-text mode does not
+   guarantee reading order and it does not survive a threshold change.
+
+An order-based parser therefore produces a plausible-looking wrong loadout on a *full* character
+screen with nothing empty at all, which is worse than an empty list.
+
+One more shape to know: **the chevron on each header comes back as its own line**. The stream is
+header, chevron, header, chevron, so anything counting lines is out by a factor of two.
+"BODY ARMOR" reading as "Boby ARMOR" was the only header misread.
 
 The **stash grid** on the right of the same screen carries fuller captions under each icon —
 `MP855`, `Morphine`, `GoldenSta`, `Vaseline`, `Augment`, `Ibuprofen`, `SS0BPLF`, `VOG-25`. Still
@@ -250,6 +260,55 @@ truncated, but identifiable. If carried items are the goal, that is the better s
 
 The full name exists on screen only in the hover tooltip, one item at a time
 (`12/70 makeshift 50 BMG slug`), which is no use for a sweep.
+
+### The stash captions do not survive OCR either
+
+Measured against the truth, read by eye at 3x, on one band of the grid:
+
+| On screen | What OCR returned across six preparations |
+|---|---|
+| `TSS AP` | `TaSgAP`, `TS5,AP`, `TSS,AP` |
+| `M21` | `Mel`, `M1` |
+| `TT 855A1` | `WL S55At`, `TT B2501`, `TT B2SAl`, `TT 855A]` |
+| `DBX95` | `DBx9s`, `DBx95`, `DA#95`, `DAxSS` |
+| `Disk` | `Disk` — the only one right, and only in three of six |
+
+Two structural problems, worse than the character errors:
+
+- **Adjacent captions merge.** `Mel TT @55Al1` is cell five's caption and cell six's caption on
+  one OCR line. Two different items, one line; a line-based parser produces a single item that
+  is neither.
+- **The captions are not item names.** `PP`, `FMJ`, `TSS AP`, `M21`, `DBX95` are ammunition type
+  codes with no calibre. Two adjacent cells both read `VOG-25` and two others both read `M7290`,
+  so a caption does not uniquely identify a cell even read perfectly.
+
+**So neither surface gives identity.** What is reliable on this screen is the gear slot headers
+and whether a slot is occupied — "he has a primary, a holster weapon and a sheath; headwear, rig
+and backpack are empty" — which is a real answer and much less than it first looked like.
+
+### The stash grid's geometry, which is exact
+
+Autocorrelation on the brightness profile, lags 30 to 110: the strongest peak is at **63** for
+columns and **63** for rows, so the cells are square. On a 1080-tall frame that is 0.0583 of the
+height — and 63 is exactly 7/120 of 1080, which is why the code treats it as a function of
+height rather than a constant.
+
+Ten consecutive vertical grid lines were detected at x = 2287, 2350, 2413 … 2854, and **every one
+satisfies x mod 63 = 19** — not approximately, exactly. Nothing drifts across the panel, which is
+what makes per-cell cropping safe. Rows are noisier because icons interrupt the lines; the
+horizontal phase is about `y = 18 + 63k` and is good to a pixel or two.
+
+Inside a cell: the caption is **top-right**, roughly the top third; the stack count is
+**bottom-right**, roughly the bottom quarter; some cells carry a small circular badge, presumably
+found-in-raid. Cropping the caption band alone keeps "50" out of the same reading as the label.
+
+**Detect the phase, do not hardcode it.** The panel moves with the window, so a hardcoded origin
+is wrong the first time somebody plays windowed. All of the above came from one screenshot, at
+one window size, on one machine.
+
+Per-cell cropping fixes the merging and **will not fix the character errors** — `TSS AP` failed
+from a single cell with nothing adjacent to blame. It is worth doing mainly so that the next
+comparison tests the engine rather than the merging.
 
 | Element | Bounds (3840x1080) |
 |---|---|
