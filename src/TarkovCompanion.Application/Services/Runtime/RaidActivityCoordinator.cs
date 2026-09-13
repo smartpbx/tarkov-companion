@@ -5,6 +5,25 @@ using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
+/// <summary>
+/// Applies what was observed to the raid state, shows it, and then records it.
+/// </summary>
+/// <remarks>
+/// Show first, record second. Every one of these used to await the database before publishing,
+/// so each marker waited behind its own write even when nothing was wrong — and when something
+/// was wrong (a full disk, an antivirus lock, or the catalog refresh holding SQLite's write
+/// lock past the five-second busy timeout on the evening's first launch) the write threw, the
+/// watcher rethrew, and observation was torn down: the squad list cleared and "events read"
+/// reset, because a row could not be inserted.
+///
+/// Publishing is in-memory and cannot fail, and the snapshot is complete before any of this
+/// runs, so nothing shown is waiting on the disk to confirm it. What a failure still costs is
+/// the recording; the queue that stops it costing the watcher as well is a separate change.
+///
+/// <see cref="EnsureStartedAsync"/> still runs before any event is recorded: raid_events.raid_id
+/// is NOT NULL REFERENCES raids(id), so the raid row has to exist first. That ordering is a
+/// database constraint and is not what moved.
+/// </remarks>
 public sealed class RaidActivityCoordinator(
     IRaidStateService raidStateService,
     IRaidHistoryService raidHistoryService,
@@ -15,8 +34,8 @@ public sealed class RaidActivityCoordinator(
     {
         var previous = raidStateService.Current;
         var current = raidStateService.Apply(evidence);
-        await PersistTransitionAsync(previous, current, evidence, cancellationToken).ConfigureAwait(false);
         Publish(current);
+        await PersistTransitionAsync(previous, current, evidence, cancellationToken).ConfigureAwait(false);
         return current;
     }
 
@@ -24,6 +43,7 @@ public sealed class RaidActivityCoordinator(
     {
         var previous = raidStateService.Current;
         var current = raidStateService.ApplyPosition(position);
+        Publish(current);
         await EnsureStartedAsync(previous, current, cancellationToken).ConfigureAwait(false);
         if (current.RaidId is { } raidId)
         {
@@ -35,7 +55,6 @@ public sealed class RaidActivityCoordinator(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        Publish(current);
         return current;
     }
 
@@ -46,6 +65,7 @@ public sealed class RaidActivityCoordinator(
     {
         var previous = raidStateService.Current;
         var current = raidStateService.ApplyExtracts(extracts, observedUtc);
+        Publish(current);
         await EnsureStartedAsync(previous, current, cancellationToken).ConfigureAwait(false);
         if (current.RaidId is { } raidId)
         {
@@ -57,7 +77,6 @@ public sealed class RaidActivityCoordinator(
                 cancellationToken).ConfigureAwait(false);
         }
 
-        Publish(current);
         return current;
     }
 
