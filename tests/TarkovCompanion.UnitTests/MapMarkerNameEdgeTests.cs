@@ -80,6 +80,31 @@ public sealed class MapMarkerNameEdgeTests
         Assert.Equal(0, Shift(nameWidth: 100, centerX: 10, canvasWidth: double.NaN, zoom: 1));
     }
 
+    [Fact]
+    public void A_shifted_name_collides_where_it_lands_not_where_it_started()
+    {
+        // Measured after the first attempt: Administration Gate was pulled back onto the map
+        // and went straight through Military Checkpoint, which lost two words instead of one.
+        // The layout has to arrange the shifted position, so the shift is decided first and the
+        // candidate carries it.
+        const double zoom = 0.23;
+        var shift = Shift(nameWidth: 100, centerX: 24, canvasWidth: 8000, zoom: zoom);
+        var shiftedCentre = 24 + (shift / zoom);
+
+        var unaware = MapLabelLayout.Arrange(
+            [new(24, 100, 100, 17, 1), new(260, 100, 100, 17, 1)],
+            zoom);
+        var aware = MapLabelLayout.Arrange(
+            [new(shiftedCentre, 100, 100, 17, 1), new(260, 100, 100, 17, 1)],
+            zoom);
+
+        // Unshifted the two do not overlap and both take the first slot; shifted they do, so
+        // the second has to move or go.
+        Assert.Equal(0, unaware[0]);
+        Assert.Equal(0, unaware[1]);
+        Assert.NotEqual(0, aware[1]);
+    }
+
     private static double Shift(double nameWidth, double centerX, double canvasWidth, double zoom) =>
         MapViewModel.HorizontalShift(nameWidth, centerX, canvasWidth, zoom);
 }

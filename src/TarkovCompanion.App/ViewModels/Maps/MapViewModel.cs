@@ -2911,9 +2911,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // Worked out before the arrangement rather than applied after it. A name pulled back
+        // onto the map lands somewhere its neighbours have to know about: shifting Administration
+        // Gate right without telling the layout put it straight through Military Checkpoint,
+        // which went from losing a word to losing two. The shift depends only on the marker's
+        // own position and the width of its own name, so there is nothing circular about
+        // deciding it first.
+        var shifts = arranged.Select(HorizontalShiftFor).ToArray();
         var candidates = arranged
-            .Select(marker => new MapLabelCandidate(
-                marker.CenterX,
+            .Select((marker, index) => new MapLabelCandidate(
+                // In canvas units, because that is what the layout scales; the shift is in
+                // screen pixels, so it is converted rather than added raw.
+                marker.CenterX + (ZoomScale > 0 ? shifts[index] / ZoomScale : 0),
                 marker.CenterY,
                 marker.EstimatedNameWidth,
                 MapOverlayElementViewModel.NameHeight,
@@ -2955,7 +2964,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // The margin is in screen pixels, like the vertical offset beside it: the marker's
             // box is counter-scaled, so its inside renders one to one whatever the zoom. And a
             // centred child moves by half its margin, which is why the shift is doubled.
-            var shift = HorizontalShiftFor(arranged[index]);
+            var shift = shifts[index];
             placement.Inset = new(
                 Math.Max(0, shift * 2),
                 (MapMarkerLayout.Height / 2) + MapLabelLayout.TopOffsetFor(slot, MapOverlayElementViewModel.NameHeight),
