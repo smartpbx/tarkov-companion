@@ -366,12 +366,9 @@ public sealed class RaidPageViewModel : PageViewModel
             // transfer establishes the side outright and only arrives on the line that ends
             // the raid. The raid's own record is the fallback for every other ending.
             raid.Side ?? lastInRaid.Side,
-            raid.Side is not null ? raid.SideBasis : lastInRaid.SideBasis,
             _scannedThisRaid.ToArray(),
             lastInRaid.LastKnownPosition,
-            _raidHistoryService is null
-                ? "The local raid history was not read for this summary."
-                : "Checking the local raid history…");
+            _raidHistoryService is null ? "Not read" : "Checking…");
         if (_raidHistoryService is not null && lastInRaid.RaidId is { } raidId)
         {
             // Deliberately not awaited: the summary is already complete and correct, and the
@@ -441,16 +438,14 @@ public sealed class RaidPageViewModel : PageViewModel
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
             var entry = raids.FirstOrDefault(candidate => candidate.Id == raidId);
             history = entry is null
-                ? "This raid has not been written to the local history."
+                ? "Not saved"
                 : entry.EndedUtc is { } endedUtc
-                    ? string.Create(
-                        CultureInfo.CurrentCulture,
-                        $"Saved to the local history and closed at {endedUtc.ToLocalTime():g}.")
-                    : "Saved to the local history, but its end time has not been written yet.";
+                    ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {endedUtc.ToLocalTime():g}")
+                    : "Saved · no end time";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            history = $"The local raid history could not be read: {exception.Message}";
+            history = $"Unreadable · {exception.Message}";
         }
 
         // A raid that finished while this was running has already replaced the summary, and

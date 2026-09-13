@@ -24,20 +24,18 @@ public sealed record GroupMemberRowViewModel(
 /// Sharing this session with a group, and seeing theirs.
 /// </summary>
 /// <remarks>
-/// This is the only page in the application that causes anything to leave the machine, so it
-/// is also the page that has to say so. Everything that can be sent is listed on it in plain
-/// words, and the two optional parts each have their own switch, because agreeing to share
-/// where you are is not agreeing to share what you are carrying.
+/// One key, one server, and two switches for the parts that are not sent by default. There is
+/// no hosted service and no default server: a group runs their own.
 ///
-/// There is no hosted service and no default server. A group runs their own, which is the only
-/// arrangement in which "who can see this" has an answer the group controls.
+/// This page used to explain itself at length, on the reading that sharing a position needed
+/// arguing for. It does not. The people in the group are on the same voice call.
 /// </remarks>
 public sealed class GroupPageViewModel : PageViewModel
 {
     private readonly IGroupSettingsStore _settings;
     private IReadOnlyList<GroupMemberRowViewModel> _members = [];
-    private string _status = "Not sharing. Nothing about this session leaves the machine.";
-    private string _saveStatus = "Fill these in and turn sharing on when the group is ready.";
+    private string _status = "Not sharing";
+    private string _saveStatus = "Fill these in, then turn sharing on";
     private bool _isEnabled;
     private string _serverUri = string.Empty;
     private string _displayName = string.Empty;
@@ -49,8 +47,8 @@ public sealed class GroupPageViewModel : PageViewModel
     public GroupPageViewModel(IGroupSettingsStore settings)
         : base(
             "Group",
-            "Share this session with your group, and see theirs",
-            "Nothing is shared until you turn it on")
+            "Share this session, and see theirs",
+            "Off")
     {
         _settings = settings;
         SaveCommand = new AsyncDelegateCommand(SaveAsync);
@@ -157,10 +155,10 @@ public sealed class GroupPageViewModel : PageViewModel
 
         await _settings.SaveAsync(settings, CancellationToken.None).ConfigureAwait(true);
         SaveStatus = !settings.IsEnabled
-            ? "Saved. Sharing is off, so nothing leaves this machine."
+            ? "Saved · sharing is off"
             : settings.MissingPiece is { } missing
-                ? $"Saved, but sharing needs {missing} before it can start."
-                : "Saved. Sharing starts within a few seconds.";
+                ? $"Saved · still needs {missing}"
+                : "Saved · sharing starts in a few seconds";
     }
 
     public void Apply(ApplicationRuntimeSnapshot snapshot)
@@ -175,9 +173,7 @@ public sealed class GroupPageViewModel : PageViewModel
         _rendered = group.UpdatedUtc;
         Status = group.Detail;
         Members = group.Members.Select(Describe).ToArray();
-        Evidence = group.IsSharing
-            ? "Sharing with your group"
-            : "Nothing is shared until you turn it on";
+        Evidence = group.IsSharing ? "Sharing" : "Off";
     }
 
     private static GroupMemberRowViewModel Describe(GroupMemberView member) => new(

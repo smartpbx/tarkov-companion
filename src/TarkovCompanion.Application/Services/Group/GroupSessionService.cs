@@ -114,16 +114,16 @@ public sealed class GroupSessionService : IAsyncDisposable
     private static string Explain(Exception exception) => exception switch
     {
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
-            "The group server refused the secret. Everyone in a group has to type the same one.",
+            "Wrong group key · everyone has to type the same one",
         HttpRequestException { StatusCode: HttpStatusCode.BadRequest } =>
-            "The group server rejected the room or display name. Both are required, and neither may be long.",
+            "Server rejected the key or the display name",
         HttpRequestException { StatusCode: { } status } =>
-            $"The group server answered {(int)status}.",
+            $"Server answered {(int)status}",
         HttpRequestException =>
-            $"The group server could not be reached: {exception.Message}",
+            $"Server unreachable · {exception.Message}",
         TaskCanceledException =>
-            "The group server did not answer in time.",
-        _ => $"Sharing failed: {exception.Message}",
+            "Server did not answer in time",
+        _ => $"Sharing failed · {exception.Message}",
     };
 
     /// <summary>
@@ -187,7 +187,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         {
             Publish(GroupSnapshot.Off with
             {
-                Detail = $"Sharing is on but needs {settings.MissingPiece}.",
+                Detail = $"Needs {settings.MissingPiece}",
                 UpdatedUtc = DateTimeOffset.UtcNow,
             });
             return;
@@ -209,8 +209,8 @@ public sealed class GroupSessionService : IAsyncDisposable
             Publish(GroupSnapshot.Off with
             {
                 Detail = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
-                    ? "The group server rejected the shared secret."
-                    : $"The group server answered {(int)response.StatusCode}.",
+                    ? "Wrong group key"
+                    : $"Server answered {(int)response.StatusCode}",
                 UpdatedUtc = DateTimeOffset.UtcNow,
             });
             return;
@@ -237,9 +237,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             members,
             members.Length switch
             {
-                0 => $"Sharing as {settings.DisplayName}. Nobody else has this key open right now.",
-                1 => $"Sharing as {settings.DisplayName}. One other person sharing.",
-                var count => $"Sharing as {settings.DisplayName}. {count} others sharing.",
+                0 => $"Sharing as {settings.DisplayName} · nobody else here",
+                1 => $"Sharing as {settings.DisplayName} · 1 other",
+                var count => $"Sharing as {settings.DisplayName} · {count} others",
             },
             DateTimeOffset.UtcNow)
         {

@@ -55,7 +55,7 @@ public sealed class KeysPageViewModel : PageViewModel
     private string _detail = NoKeySelected;
 
     public KeysPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
-        : base("Keys", "What each key opens, how many uses it has, and what it costs", "Runtime state not loaded")
+        : base("Keys", "What each key opens, its uses, and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
@@ -64,17 +64,15 @@ public sealed class KeysPageViewModel : PageViewModel
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
-    /// <summary>The one line the page owes a player about the missing value ranking.</summary>
-    public string ScoringNotice { get; } =
-        "No tier or value ranking is shown. Scoring a key needs six inputs and four of them " +
-        "(what the room holds, how useful the lock is, whether the key is the only way in, and how " +
-        "risky the route is) are not in the synced data at all, so any ranking here would be made " +
-        "up. The facts below are copied straight from the source.";
-
-    /// <summary>The one line the page owes a player about map and lock identifiers.</summary>
-    public string IdentifierNotice { get; } =
-        "Maps and locks appear as the source's identifiers. The key data carries no map names or " +
-        "door names to show instead.";
+    /// <summary>
+    /// Why locks read as identifiers and why nothing is ranked.
+    /// </summary>
+    /// <remarks>
+    /// Two paragraphs, one of which explained in six clauses why a ranking would be invented.
+    /// The absence of a ranking is visible; the reason for it belongs in the repository rather
+    /// than on a page somebody reads between raids.
+    /// </remarks>
+    public string ScoringNotice { get; } = "Not ranked. Locks are named by the source's identifiers.";
 
     public string SearchQuery
     {
@@ -128,8 +126,8 @@ public sealed class KeysPageViewModel : PageViewModel
             Detail = value is null
                 ? NoKeySelected
                 : value.Locks.Count == 0
-                    ? $"No cached lock names {value.Name} as its key. The key is real; the lock rows for it are not synced."
-                    : $"{value.Name} opens {Count(value.Locks.Count)} lock(s), listed by identifier.";
+                    ? $"{value.Name} · no locks synced for it"
+                    : $"{value.Name} opens {Count(value.Locks.Count)} locks";
         }
     }
 
@@ -158,7 +156,7 @@ public sealed class KeysPageViewModel : PageViewModel
             if (facts.Count == 0)
             {
                 Reset();
-                Status = "No keys are cached yet. They arrive with the first successful data refresh.";
+                Status = "No keys cached yet";
                 return;
             }
 
@@ -180,12 +178,12 @@ public sealed class KeysPageViewModel : PageViewModel
             var withoutMap = _allKeys.Count(row => !row.HasMap);
             Status = withoutMap == 0
                 ? $"{Count(_allKeys.Count)} cached key(s)."
-                : $"{Count(_allKeys.Count)} cached key(s); {Count(withoutMap)} of them open locks on more than one map, or on none that is cached.";
+                : $"{Count(_allKeys.Count)} keys · {Count(withoutMap)} without a single cached map";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Reset();
-            Status = $"The key table could not be read: {exception.Message}";
+            Status = $"Unreadable · {exception.Message}";
         }
     }
 

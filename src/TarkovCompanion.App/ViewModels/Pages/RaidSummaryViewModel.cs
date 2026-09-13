@@ -4,28 +4,29 @@ using TarkovCompanion.Core.Domain.Maps;
 namespace TarkovCompanion.App.ViewModels;
 
 /// <summary>
-/// The raid that has just finished, rendered as display-ready text.
+/// The raid that has just finished, rendered as display-ready values.
 /// </summary>
 /// <remarks>
-/// Every member is a finished sentence or a formatted value rather than a domain type, so
-/// the view holds no formatting logic and the summary can be asserted in tests as the player
-/// will read it.
+/// Every member is a value or a short phrase rather than a domain type, so the view holds no
+/// formatting logic and the summary can be asserted in tests as the player will read it.
 ///
-/// The fields are deliberately limited to what Escape from Tarkov actually writes down.
-/// docs/research/EFT_LOG_FACTS.md records, against a live installation, that the logs carry
-/// no raid outcome, no kills, no loot value and no experience, so there is no honest way to
-/// show any of it and no field is offered for it. <see cref="Outcome"/> says so once, and
-/// nothing here is inferred from the duration: a short raid is not evidence of a death.
+/// The fields are limited to what Escape from Tarkov actually writes down.
+/// docs/research/EFT_LOG_FACTS.md records, against a live installation, that the logs carry no
+/// raid outcome, no kills, no loot value and no experience, so no field is offered for any of
+/// it and nothing is inferred from the duration: a short raid is not evidence of a death.
+///
+/// This used to explain itself in sentences: why the duration was exact, how the side came to
+/// be known, that a screenshot is the only thing that can establish a position. None of that
+/// changed what the player did next, and it filled the panel beside the map.
 /// </remarks>
 /// <param name="Headline">Map and duration together, for the one line worth reading first.</param>
 /// <param name="Map">The map the raid was played on, by display name where one is known.</param>
 /// <param name="Started">Local time the game confirmed the raid.</param>
 /// <param name="Ended">Local time the game reported the raid over.</param>
-/// <param name="Duration">Exact elapsed time between those two notifications.</param>
-/// <param name="Timing">Why the duration is exact rather than estimated.</param>
+/// <param name="Duration">Elapsed time between those two notifications.</param>
 /// <param name="Mode">The game mode the local profile is set to, which is not the PMC/scav side.</param>
-/// <param name="Side">Which side ran the raid and how that was established.</param>
-/// <param name="Outcome">The plain statement that survival is not recorded anywhere.</param>
+/// <param name="Side">PMC or scav, where either route could tell.</param>
+/// <param name="Outcome">That survival is not recorded anywhere.</param>
 /// <param name="Scans">What the player scanned while this raid was open.</param>
 /// <param name="LastKnownPosition">The last screenshot-derived position, if any was taken.</param>
 /// <param name="History">Whether the raid reached the local history database.</param>
@@ -35,7 +36,6 @@ public sealed record RaidSummaryViewModel(
     string Started,
     string Ended,
     string Duration,
-    string Timing,
     string Mode,
     string Side,
     string Outcome,
@@ -44,39 +44,20 @@ public sealed record RaidSummaryViewModel(
     string History)
 {
     /// <summary>
-    /// The one statement made about how the raid went.
+    /// What the summary says about how the raid went.
     /// </summary>
     /// <remarks>
-    /// Stated once and then left alone. The game holds the exit status and never logs it, so
-    /// every other tool that shows survived or died is reading something this companion does
-    /// not have. Saying nothing at all would be worse: the player would assume the summary
-    /// simply failed to load it.
+    /// The game holds the exit status and never writes it down, so every other tool that shows
+    /// survived or died is reading something this companion does not have. Saying nothing at
+    /// all would read as a field that failed to load.
     /// </remarks>
-    public const string OutcomeNotRecorded = "Outcome is not recorded by the game.";
+    public const string OutcomeNotRecorded = "Not logged";
 
-    /// <summary>
-    /// Why the summary declines to name the side.
-    /// </summary>
-    /// <remarks>
-    /// Reached when neither route could tell: the profile that ran the raid was not one the
-    /// reader recognises, and the raid did not end with a transfer. Naming a side here would
-    /// be inventing one.
-    /// </remarks>
-    public const string SideNotCarried = "Side not established.";
+    /// <summary>Neither route could tell which side ran the raid.</summary>
+    public const string SideNotCarried = "Not known";
 
-    /// <summary>Describes the side, together with how it came to be known.</summary>
-    /// <remarks>
-    /// The two ways of knowing are not equally strong. Which profile ran the raid is an
-    /// inference from an asymmetry in the logs; a transfer on the ending notification is
-    /// proof, having never once appeared on a PMC raid. This used to describe every side as
-    /// inferred from the profile, which stopped being true the moment the second route
-    /// existed, so the basis is carried here rather than assumed.
-    /// </remarks>
-    private static string DescribeSide(string? side, string? basis) => string.IsNullOrWhiteSpace(side)
-        ? SideNotCarried
-        : string.IsNullOrWhiteSpace(basis)
-            ? $"{side} raid. How that was established was not recorded."
-            : $"{side} raid. {basis}";
+    /// <summary>Nothing was observed, rather than a value of zero.</summary>
+    public const string NotSeen = "Not seen";
 
     private const int MaximumScansListed = 8;
 
@@ -93,6 +74,7 @@ public sealed record RaidSummaryViewModel(
     /// <param name="startedUtc">When the game confirmed the raid, if that was observed.</param>
     /// <param name="endedUtc">When the game reported the raid over.</param>
     /// <param name="gameMode">The local profile's game mode, or null when no profile is loaded.</param>
+    /// <param name="side">PMC or scav, where it was established.</param>
     /// <param name="scannedItems">Items scanned while this raid was open, in the order scanned.</param>
     /// <param name="lastKnownPosition">The last screenshot-derived position of the raid, if any.</param>
     /// <param name="history">What is known so far about the local history row for this raid.</param>
@@ -102,7 +84,6 @@ public sealed record RaidSummaryViewModel(
         DateTimeOffset endedUtc,
         string? gameMode,
         string? side,
-        string? sideBasis,
         IReadOnlyList<string> scannedItems,
         ScreenshotPosition? lastKnownPosition,
         string history)
@@ -123,18 +104,11 @@ public sealed record RaidSummaryViewModel(
                 ? $"{mapName} · {FormatDuration(headlineDuration)}"
                 : mapName,
             mapName,
-            startedUtc is { } startedValue
-                ? FormatMoment(startedValue)
-                : "The start of this raid was not observed.",
+            startedUtc is { } startedValue ? FormatMoment(startedValue) : NotSeen,
             FormatMoment(endedUtc),
-            duration is { } durationValue
-                ? FormatDuration(durationValue)
-                : "Unavailable",
-            duration is null
-                ? "Only the end of this raid was seen."
-                : "Exact, from the game's own notifications.",
+            duration is { } durationValue ? FormatDuration(durationValue) : NotSeen,
             string.IsNullOrWhiteSpace(gameMode) ? "Unknown" : gameMode,
-            DescribeSide(side, sideBasis),
+            string.IsNullOrWhiteSpace(side) ? SideNotCarried : side,
             OutcomeNotRecorded,
             DescribeScans(scannedItems),
             DescribePosition(lastKnownPosition),
@@ -164,29 +138,26 @@ public sealed record RaidSummaryViewModel(
     {
         if (scannedItems.Count == 0)
         {
-            return "Nothing was scanned during this raid.";
+            return "Nothing scanned";
         }
 
         var listed = string.Join(", ", scannedItems.Take(MaximumScansListed));
         var remainder = scannedItems.Count - Math.Min(scannedItems.Count, MaximumScansListed);
-        var counted = scannedItems.Count == 1
-            ? "1 scan"
-            : string.Create(CultureInfo.CurrentCulture, $"{scannedItems.Count} scans");
         return remainder == 0
-            ? $"{counted}: {listed}."
-            : string.Create(CultureInfo.CurrentCulture, $"{counted}: {listed}, and {remainder} more.");
+            ? listed
+            : string.Create(CultureInfo.CurrentCulture, $"{listed}, +{remainder} more");
     }
 
     /// <summary>
-    /// Describes where the player last was, which only a screenshot can establish.
+    /// Where the player last was, which only a screenshot can establish.
     /// </summary>
     /// <remarks>
-    /// This is historical screenshot evidence and never live tracking, so it is described as
-    /// the moment the screenshot was taken rather than as a current position.
+    /// X and Z are the two the map draws. Y is height and is kept because it is the floor a
+    /// building was on, which is the thing worth going back for.
     /// </remarks>
     private static string DescribePosition(ScreenshotPosition? lastKnownPosition) => lastKnownPosition is null
-        ? "No screenshot was taken during this raid, so there is no last-known position."
+        ? "No screenshot taken"
         : string.Create(
             CultureInfo.CurrentCulture,
-            $"X {lastKnownPosition.Position.X:F1}, Y {lastKnownPosition.Position.Y:F1}, Z {lastKnownPosition.Position.Z:F1} · from a screenshot at {lastKnownPosition.Timestamp.ToLocalTime():T}.");
+            $"{lastKnownPosition.Position.X:F0}, {lastKnownPosition.Position.Y:F0}, {lastKnownPosition.Position.Z:F0} · {lastKnownPosition.Timestamp.ToLocalTime():T}");
 }

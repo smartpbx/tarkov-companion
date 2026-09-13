@@ -11,7 +11,12 @@
       <StackPanel Spacing="10">
         <!-- The raid that just finished, shown first so it is read without going looking for
              it. It stays until the player dismisses it or the next raid ends. Nothing about
-             survival, kills or loot appears here because the game logs none of it. -->
+             survival, kills or loot appears here because the game logs none of it.
+
+             Written as label-and-value pairs rather than sentences. Every line used to explain
+             itself: why the duration was exact, how the side came to be known, that only a
+             screenshot can establish a position. None of that changed what the player did
+             next, and there is a map on the other half of this page. -->
         <Border Classes="panel sage" IsVisible="{Binding HasSummary}">
           <StackPanel Spacing="10">
             <Grid ColumnDefinitions="*,Auto">
@@ -23,7 +28,7 @@
             </Grid>
             <TextBlock Classes="metric" Text="{Binding Summary.Headline}" TextWrapping="Wrap" />
             <Border Classes="readout">
-              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+              <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
                 <StackPanel Spacing="1">
                   <TextBlock Classes="label" Text="Started" />
                   <TextBlock Classes="value" Text="{Binding Summary.Started}" TextWrapping="Wrap" />
@@ -32,28 +37,36 @@
                   <TextBlock Classes="label" Text="Ended" />
                   <TextBlock Classes="value" Text="{Binding Summary.Ended}" TextWrapping="Wrap" />
                 </StackPanel>
-                <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="1">
+                <StackPanel Grid.Row="1" Spacing="1">
                   <TextBlock Classes="label" Text="Duration" />
                   <TextBlock Classes="value" Text="{Binding Summary.Duration}" TextWrapping="Wrap" />
                 </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="1">
+                  <TextBlock Classes="label" Text="Side" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Side}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Spacing="1">
+                  <TextBlock Classes="label" Text="Mode" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Mode}" TextWrapping="Wrap" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Grid.Column="1" Spacing="1">
+                  <TextBlock Classes="label" Text="Outcome" />
+                  <TextBlock Classes="value" Text="{Binding Summary.Outcome}" TextWrapping="Wrap" />
+                </StackPanel>
               </Grid>
             </Border>
-            <TextBlock Classes="caption" Text="{Binding Summary.Timing}" TextWrapping="Wrap" />
             <StackPanel Spacing="1">
-              <TextBlock Classes="label" Text="Scanned during the raid" />
+              <TextBlock Classes="label" Text="Scanned" />
               <TextBlock Text="{Binding Summary.Scans}" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="1">
-              <TextBlock Classes="label" Text="Last-known position" />
+              <TextBlock Classes="label" Text="Last position" />
               <TextBlock Text="{Binding Summary.LastKnownPosition}" TextWrapping="Wrap" />
             </StackPanel>
             <StackPanel Spacing="1">
-              <TextBlock Classes="label" Text="Game mode" />
-              <TextBlock Text="{Binding Summary.Mode}" TextWrapping="Wrap" />
+              <TextBlock Classes="label" Text="History" />
+              <TextBlock Classes="caption" Text="{Binding Summary.History}" TextWrapping="Wrap" />
             </StackPanel>
-            <TextBlock Text="{Binding Summary.Outcome}" TextWrapping="Wrap" />
-            <TextBlock Classes="caption" Text="{Binding Summary.Side}" TextWrapping="Wrap" />
-            <TextBlock Classes="caption" Text="{Binding Summary.History}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
 

@@ -72,13 +72,13 @@ public sealed class AmmoPageViewModel : PageViewModel
     private AmmoRoundViewModel? _selectedRound;
     private string _searchQuery = string.Empty;
     private string _status = "Loading the ammunition table…";
-    private string _detail = "Pick a caliber to see its rounds ranked best first.";
+    private string _detail = "Pick a caliber";
     private string _roundHeading = "No round selected";
     private string _advice = NoRoundSelected;
     private string _explanation = string.Empty;
 
     public AmmoPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
-        : base("Ammo", "Rounds in a caliber, ranked by what gets through armor", "Runtime state not loaded")
+        : base("Ammo", "Rounds ranked by what gets through armour", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
@@ -87,17 +87,15 @@ public sealed class AmmoPageViewModel : PageViewModel
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
-    /// <summary>The one line the page owes a player about where the tier and ratings come from.</summary>
-    public string HeuristicNotice { get; } =
-        "Tier and the armor ratings are a rule of thumb, not a measurement. The app compares a " +
-        "round's penetration number against the armor class number and nothing else, which is why " +
-        "it never rates its own confidence in them above 80%. Plates, durability and where you hit " +
-        "are not modelled.";
-
-    /// <summary>The one line the page owes a player about what is missing from the list.</summary>
-    public string AvailabilityNotice { get; } =
-        "This is every cached round in the caliber. Nothing here knows your level or what your " +
-        "traders stock, so read it as a ranking, not a shopping list.";
+    /// <summary>
+    /// What the ranking is, in the fewest words that keep it honest.
+    /// </summary>
+    /// <remarks>
+    /// This was four sentences about what is not modelled and one about what the list does not
+    /// know of your traders. A player reading a penetration ranking mid-raid needs to know it
+    /// compares two numbers; the rest was hedging.
+    /// </remarks>
+    public string HeuristicNotice { get; } = "Penetration against armour class. Plates and durability are not modelled.";
 
     public string SearchQuery
     {
@@ -209,7 +207,7 @@ public sealed class AmmoPageViewModel : PageViewModel
             if (stats.Count == 0)
             {
                 Reset();
-                Status = "No ammunition is cached yet. It arrives with the first successful data refresh.";
+                Status = "No ammunition cached yet";
                 return;
             }
 
@@ -229,8 +227,7 @@ public sealed class AmmoPageViewModel : PageViewModel
 
             ApplyCaliberFilter();
             Status =
-                $"{Count(_allCalibers.Count)} caliber(s) across {Count(stats.Count)} cached round(s). " +
-                "Rounds with no caliber, damage or penetration figure were never stored, so they cannot appear here.";
+                $"{Count(_allCalibers.Count)} calibers · {Count(stats.Count)} rounds";
 
             // A reload has to re-rank whatever is open, or the rounds on screen would still be the
             // ones the previous service instance produced while the status line claimed a refresh.
@@ -242,7 +239,7 @@ public sealed class AmmoPageViewModel : PageViewModel
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Reset();
-            Status = $"The ammunition table could not be read: {exception.Message}";
+            Status = $"Unreadable · {exception.Message}";
         }
     }
 
@@ -277,13 +274,13 @@ public sealed class AmmoPageViewModel : PageViewModel
             Rounds = rows;
             SelectedRound = null;
             Detail = rows.Count == 0
-                ? $"No cached round carries the {caliber.Name} caliber."
-                : $"{Count(rows.Count)} round(s) in {caliber.Name}, highest penetration first.";
+                ? $"No rounds cached for {caliber.Name}"
+                : $"{Count(rows.Count)} rounds in {caliber.Name}";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Rounds = [];
-            Detail = $"That caliber could not be ranked: {exception.Message}";
+            Detail = $"Unreadable · {exception.Message}";
         }
     }
 
