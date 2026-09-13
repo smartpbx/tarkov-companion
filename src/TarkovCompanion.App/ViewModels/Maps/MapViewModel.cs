@@ -449,7 +449,23 @@ public sealed record MapMarkerSelectionViewModel(
 {
     private const double LeaderRun = 28;
 
+    /// <summary>How wide the card may be, which is what has to fit beside the marker.</summary>
+    private const double CardWidth = 260;
+
+    private const double CardHeight = 120;
+
     public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    /// <summary>The canvas this is drawn on, so the card can stay inside it.</summary>
+    /// <remarks>
+    /// The callout always went up and to the right, so on a marker near the right edge it ran
+    /// off the map and was clipped by the surface, which is what somebody reported: the popup
+    /// cut off by the bound of the map. Knowing how much room there is turns that into a
+    /// choice of side.
+    /// </remarks>
+    public double CanvasWidth { get; init; }
+
+    public double CanvasHeight { get; init; }
 
     public double Width => 640;
 
@@ -459,12 +475,39 @@ public sealed record MapMarkerSelectionViewModel(
 
     public double Top => CenterY - (Height / 2);
 
+    /// <summary>
+    /// Whether the card goes left of the marker instead of right.
+    /// </summary>
+    /// <remarks>
+    /// Flips when there is not room on the usual side. The card is drawn at the map's own
+    /// scale, so the room it needs shrinks as the map is zoomed in, which is why this is
+    /// measured against the scaled width rather than a constant.
+    /// </remarks>
+    public bool PrefersLeft =>
+        CanvasWidth > 0 && CenterX + ((LeaderRun + CardWidth) * Scale.Inverse) > CanvasWidth;
+
+    /// <summary>Whether the card goes below the marker instead of above.</summary>
+    public bool PrefersDown =>
+        CanvasHeight > 0 && CenterY - ((LeaderRun + CardHeight) * Scale.Inverse) < 0;
+
     public Point LeaderStart => new(Width / 2, Height / 2);
 
-    public Point LeaderEnd => new((Width / 2) + LeaderRun, (Height / 2) - LeaderRun);
+    public Point LeaderEnd => new(
+        (Width / 2) + (PrefersLeft ? -LeaderRun : LeaderRun),
+        (Height / 2) + (PrefersDown ? LeaderRun : -LeaderRun));
 
-    /// <summary>Puts the card's bottom-left corner on the end of the leader.</summary>
-    public Thickness CardInset => new((Width / 2) + LeaderRun, 0, 0, (Height / 2) + LeaderRun);
+    /// <summary>
+    /// Puts the card's corner on the end of the leader, on whichever side has room.
+    /// </summary>
+    /// <remarks>
+    /// A margin only pins the edges it sets, so each side is either an offset from the centre
+    /// or zero, and the opposite pair does the pinning when the card flips.
+    /// </remarks>
+    public Thickness CardInset => new(
+        PrefersLeft ? 0 : (Width / 2) + LeaderRun,
+        PrefersDown ? (Height / 2) + LeaderRun : 0,
+        PrefersLeft ? (Width / 2) + LeaderRun : 0,
+        PrefersDown ? 0 : (Height / 2) + LeaderRun);
 }
 
 public sealed record QuestMapPointViewModel(
@@ -1361,6 +1404,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 marker.CenterY)
             {
                 Scale = _markerScale,
+                CanvasWidth = CanvasWidth,
+                CanvasHeight = CanvasHeight,
             },
         ];
     }
