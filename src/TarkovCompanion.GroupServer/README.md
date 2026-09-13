@@ -56,15 +56,21 @@ should never be exposed directly.
 | --- | --- | --- |
 | `GET` | `/health` | Liveness, for the proxy and for a person checking it is up |
 | `POST` | `/state` | Publish yourself, receive everyone else and the group's marks |
+| `GET` | `/state` | Read the room without joining it, for the second screen |
 | `DELETE` | `/state/{name}` | Leave immediately rather than timing out |
 | `POST` | `/waypoints` | Mark a place for the group; it stays until cleared |
 | `POST` | `/waypoints/{id}/reached` | Record that somebody got there |
 | `DELETE` | `/waypoints/{id}` | Remove one |
 | `DELETE` | `/waypoints?mapId=&reachedOnly=` | Clear a map's, or only the reached ones |
 | `POST` | `/pings` | Point at a place; it fades after 45 seconds |
+| `GET` | `/catalog` | What game data the server is holding, and its tags |
+| `GET` | `/catalog/{mode}/{endpoint}` | One catalog payload, with a strong tag |
+| `GET` | `/` and `/tablet` | The second screen |
 
-Both carry the group key in an `X-Group-Key` header. The room is not in the URL because the
-key decides it.
+Everything about a group carries the key in an `X-Group-Key` header, and the room is not in the
+URL because the key decides it. The catalog and the page itself do not: the catalog is public
+data anybody can fetch from json.tarkov.dev without asking, and the page has nothing in it until
+somebody types a key into it.
 
 One exchange does both halves, so there is no connection to hold open and no subscription to
 leak. A companion that is not running sends nothing and therefore shows nothing.
