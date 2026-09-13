@@ -527,6 +527,10 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:GroupMarkerViewModel">
+                <!-- The heading used to turn this whole box, which was fine while the box
+                     held only a cone and a circle. With a name in it the name would orbit the
+                     dot as somebody turned, so the heading now turns the cone alone: the dot is
+                     a circle and does not care, and the name is meant to stay where it was put. -->
                 <Panel
                     Width="{Binding Extent}"
                     Height="{Binding Extent}"
@@ -535,15 +539,19 @@
                   <Panel.RenderTransform>
                     <TransformGroup>
                       <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
+                  </Panel.RenderTransform>
+                  <Panel RenderTransformOrigin="50%,50%">
+                    <Panel.RenderTransform>
                       <!-- No counter-turn here, deliberately. A heading is a direction on the
                            map, so when the map turns the heading turns with it; cancelling the
                            turn would leave the cone pointing at the screen's north instead of
                            the map's, which is a lie about which way somebody is facing. -->
                       <RotateTransform Angle="{Binding BearingDegrees}" />
-                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
-                    </TransformGroup>
-                  </Panel.RenderTransform>
-                  <Path Data="{Binding ConeGeometry}" Fill="{Binding ConeColor}" />
+                    </Panel.RenderTransform>
+                    <Path Data="{Binding ConeGeometry}" Fill="{Binding ConeColor}" />
+                  </Panel>
                   <Ellipse
                       Width="{Binding DotSize}"
                       Height="{Binding DotSize}"
@@ -552,6 +560,22 @@
                       Fill="{Binding FillColor}"
                       Stroke="{Binding OutlineColor}"
                       StrokeThickness="2" />
+                  <!-- Through the same arrangement pass as the feature names, so a squadmate's
+                       name cannot land on an extract label. A name that found nowhere to go is
+                       dropped; the dot still reads, and the panel beside the map still says who
+                       is where. -->
+                  <Border
+                      Classes="markerName"
+                      IsVisible="{Binding Placement.IsVisible}"
+                      Margin="{Binding Placement.Inset}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Top"
+                      RenderTransformOrigin="50%,50%">
+                    <Border.RenderTransform>
+                      <RotateTransform Angle="{Binding Scale.Upright}" />
+                    </Border.RenderTransform>
+                    <TextBlock Classes="markerNameText" Text="{Binding Name}" />
+                  </Border>
                 </Panel>
               </DataTemplate>
             </ItemsControl.ItemTemplate>
@@ -794,6 +818,16 @@
           <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
                   ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
           <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
+          <!-- A setting rather than a given, which is how it was asked for: the colour of
+               somebody's dot already appears beside their name in the group panel, so on a
+               two-man the names are redundant and on a five-man they are the only thing that
+               tells one 13-pixel dot from the next. -->
+          <Button
+              Classes="viewControl"
+              Classes.on="{Binding ShowsGroupNames}"
+              Click="GroupNamesClick"
+              Content="Names"
+              ToolTip.Tip="Draw your squadmates' names beside their markers. Remembered." />
           <!-- One button going one way round, because four presses is the whole space and a
                second button for the other direction is a second button to find under fire. -->
           <Button
