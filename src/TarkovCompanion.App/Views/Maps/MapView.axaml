@@ -325,9 +325,42 @@
                       <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
                     </TransformGroup>
                   </Panel.RenderTransform>
+                  <!-- A ping's halo. It used to be a transparent disc with a thin outline and
+                       was reported as not showing up at all, which is what a transparent disc
+                       looks like on a busy map. It is the one mark that means "look here right
+                       now" and it is gone in forty-five seconds, so it is the one mark allowed
+                       to be loud. -->
+                  <Ellipse
+                      Width="{Binding HaloSize}"
+                      Height="{Binding HaloSize}"
+                      IsVisible="{Binding HasHalo}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Fill="{Binding HaloColor}"
+                      Stroke="{Binding HaloOutlineColor}"
+                      StrokeThickness="2" />
+                  <!-- A waypoint is a diamond, not a disc. The shape changes with the colour
+                       and never instead of it: violet against ochre fails for a colourblind
+                       player and fails for everyone at the zoom where a marker is twelve
+                       pixels wide. -->
+                  <Rectangle
+                      Width="{Binding PinSize}"
+                      Height="{Binding PinSize}"
+                      IsVisible="{Binding IsDiamond}"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      RenderTransformOrigin="50%,50%"
+                      Fill="{Binding FillColor}"
+                      Stroke="{Binding OutlineColor}"
+                      StrokeThickness="{Binding OutlineWidth}">
+                    <Rectangle.RenderTransform>
+                      <RotateTransform Angle="{Binding DiamondRotation}" />
+                    </Rectangle.RenderTransform>
+                  </Rectangle>
                   <Ellipse
                       Width="{Binding PinSize}"
                       Height="{Binding PinSize}"
+                      IsVisible="{Binding IsPing}"
                       HorizontalAlignment="Center"
                       VerticalAlignment="Center"
                       Fill="{Binding FillColor}"
