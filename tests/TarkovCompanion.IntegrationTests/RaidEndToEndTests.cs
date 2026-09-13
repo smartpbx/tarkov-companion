@@ -119,7 +119,7 @@ public sealed class RaidEndToEndTests
             var summary = viewModel.Raid.Summary;
             Assert.NotNull(summary);
             Assert.Contains("Streets", summary.Headline, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("not recorded", summary.Outcome, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(RaidSummaryViewModel.OutcomeNotRecorded, summary.Outcome);
             // A transfer proves a scav run; Free leaves side to the profile, which here is the
             // signed-in one and so reads as PMC.
             Assert.Contains(

@@ -13,17 +13,17 @@
 
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Server address" />
-              <TextBox Text="{Binding ServerUri, Mode=TwoWay}" Watermark="https://tarkov.example.net" />
+              <TextBox Text="{Binding ServerUri, Mode=TwoWay}" PlaceholderText="https://tarkov.example.net" />
             </StackPanel>
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Display name" />
-              <TextBox Text="{Binding DisplayName, Mode=TwoWay}" Watermark="what the others see" />
+              <TextBox Text="{Binding DisplayName, Mode=TwoWay}" PlaceholderText="what the others see" />
             </StackPanel>
             <!-- One value, not two. A room name and a secret meant two ways to be wrong and
                  the failure looked identical either way. -->
             <StackPanel Spacing="3">
               <TextBlock Classes="label" Text="Group key" />
-              <TextBox PasswordChar="•" Text="{Binding Key, Mode=TwoWay}" Watermark="at least eight characters" />
+              <TextBox PasswordChar="•" Text="{Binding Key, Mode=TwoWay}" PlaceholderText="at least eight characters" />
               <TextBlock Classes="caption" Text="Same key, same group" />
             </StackPanel>
 
