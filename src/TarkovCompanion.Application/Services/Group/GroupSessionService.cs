@@ -603,10 +603,37 @@ public sealed class GroupSessionService : IAsyncDisposable
             return $"{sharing} · no position: the game's screenshot folder has not been found, set it in Settings";
         }
 
-        return snapshot.Raid.State == RaidLifecycleState.InRaid
-            ? $"{sharing} · no position yet: take a screenshot in the raid and it will be read"
-            : sharing;
+        if (snapshot.Raid.State != RaidLifecycleState.InRaid)
+        {
+            return sharing;
+        }
+
+        // Named, because "take a screenshot" is unhelpful to somebody who just did.
+        //
+        // Escape from Tarkov's screenshot key defaults to F12 and so does Steam's. A player who
+        // added the game to Steam as a non-Steam shortcut has the overlay active, and the
+        // overlay takes F12 before the game sees it: Steam writes a screenshot into its own
+        // userdata folder, the game writes nothing, and this companion has a folder it is
+        // watching correctly with nothing ever arriving in it.
+        //
+        // That is indistinguishable from "has not taken one yet" without saying so, and it
+        // cost a player an evening. Rebinding either key, or turning the overlay off, fixes it.
+        return HasBeenInRaidLongEnoughToExpectOne(snapshot)
+            ? $"{sharing} · no screenshot has arrived this raid · if the game is on Steam, the overlay takes F12 before the game does — rebind the screenshot key or turn the overlay off"
+            : $"{sharing} · no position yet: take a screenshot in the raid and it will be read";
     }
+
+    /// <summary>
+    /// Whether this raid has run long enough that a missing screenshot is worth explaining.
+    /// </summary>
+    /// <remarks>
+    /// Two minutes. Long enough that somebody who meant to photograph something has had the
+    /// chance, short enough to be useful while the raid is still on. Before that, "take a
+    /// screenshot" is the honest answer and a paragraph about Steam would be noise.
+    /// </remarks>
+    private static bool HasBeenInRaidLongEnoughToExpectOne(ApplicationRuntimeSnapshot snapshot) =>
+        snapshot.Raid.StartedUtc is { } started &&
+        DateTimeOffset.UtcNow - started > TimeSpan.FromMinutes(2);
 
     /// <summary>How long ago, in the shortest form that is still honest.</summary>
     public static string Ago(TimeSpan elapsed) => elapsed < TimeSpan.FromMinutes(1)
