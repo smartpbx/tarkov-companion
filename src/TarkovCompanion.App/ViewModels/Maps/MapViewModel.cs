@@ -384,6 +384,25 @@ public sealed record SpawnThreatViewModel(
     }
 }
 
+/// <summary>One floor of a map drawn in the stacked view.</summary>
+/// <param name="Name">What the floor is called, for the tooltip.</param>
+/// <param name="Image">Its artwork, the same picture the flat view draws.</param>
+/// <param name="Offset">
+/// How far up the canvas it sits, measured from the floor being read rather than from the
+/// lowest one. That puts the chosen floor at zero, which is where every marker already is, so
+/// the markers line up with the floor they describe without a single overlay being moved.
+/// </param>
+/// <param name="Opacity">Solid for the floor being read, faint for the rest.</param>
+public sealed record FloorLayerViewModel(
+    string Name,
+    Bitmap Image,
+    double Offset,
+    double Opacity)
+{
+    /// <summary>Negative, because up the screen is a smaller Y.</summary>
+    public double Translate => -Offset;
+}
+
 public sealed record GroupMarkerViewModel(
     string Name,
     double CenterX,
@@ -1065,6 +1084,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
     private IReadOnlyList<LootPanelViewModel> _lootPanel = [];
     private IReadOnlyList<SpawnThreatViewModel> _spawnThreats = [];
+    private IReadOnlyList<FloorLayerViewModel> _floorLayers = [];
+    private bool _isStacked;
     private string _spawnPanelDetail = string.Empty;
     private IReadOnlyList<MapFeature> _mapFeatures = [];
     private IReadOnlyList<QuestPanelViewModel> _questPanel = [];
@@ -2348,6 +2369,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                         cached.Message),
                 SelectedFloor = floor,
             };
+        // The solid floor follows the chooser, so picking a floor in the stacked view does what
+        // picking a floor does in the flat one.
+        if (_isStacked)
+        {
+            await LoadFloorStackAsync(cancellationToken).ConfigureAwait(true);
+        }
         BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
         Status = cached.Asset is not null
             ? $"{cached.Message}"
@@ -3658,6 +3685,130 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Whether there is a building to frame, which is what puts the control on screen.</summary>
     public bool CanFrameArea => _areaBounds is not null;
+
+    /// <summary>
+    /// Whether the map draws its floors as a stack rather than one at a time.
+    /// </summary>
+    /// <remarks>
+    /// The flat map answers "where", and on a map with floors it cannot answer "which floor",
+    /// which is the question that matters inside a building. A stack answers both at once.
+    ///
+    /// Off until asked for, and it is the same pictures the flat map already draws — offset,
+    /// faded and tilted — rather than a second renderer. That is what makes the flat view
+    /// always one toggle away and always correct.
+    /// </remarks>
+    public bool IsStacked
+    {
+        get => _isStacked;
+        set
+        {
+            if (_isStacked == value)
+            {
+                return;
+            }
+
+            _isStacked = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(StackTilt));
+            OnPropertyChanged(nameof(ShowsFlatBackground));
+            _ = LoadFloorStackAsync(CancellationToken.None);
+        }
+    }
+
+    /// <summary>Whether a map has more than one floor to stack at all.</summary>
+    public bool CanStack => Floors.Count > 1;
+
+    public bool HasFloorStack => _isStacked && _floorLayers.Count > 0;
+
+    /// <summary>The flat picture gives way to the stack, so the two are never drawn together.</summary>
+    public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
+
+    /// <summary>The floors, lowest first, each with where it sits and how solid it is.</summary>
+    public IReadOnlyList<FloorLayerViewModel> FloorLayers
+    {
+        get => _floorLayers;
+        private set
+        {
+            Set(ref _floorLayers, value);
+            OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(ShowsFlatBackground));
+        }
+    }
+
+    /// <summary>
+    /// The oblique tilt the whole surface takes in the stacked view.
+    /// </summary>
+    /// <remarks>
+    /// A shear and a vertical squash, which is a cabinet projection: parallel lines stay
+    /// parallel and a rectangle stays a rectangle sheared, so nothing has to be re-projected
+    /// and every marker still lands where the flat map put it. A perspective camera would need
+    /// the whole overlay pipeline to know about depth.
+    ///
+    /// The identity matrix when the stack is off, so the same transform is always applied and
+    /// there is no second code path for the flat view to drift away from.
+    /// </remarks>
+    public Matrix StackTilt => HasFloorStack
+        ? new Matrix(1, 0, -0.34, 0.62, 0, 0)
+        : Matrix.Identity;
+
+    private IReadOnlyList<FloorPlacement> _placements = [];
+
+    /// <summary>
+    /// Loads every floor's artwork so they can be drawn one above another.
+    /// </summary>
+    /// <remarks>
+    /// The flat view loads one floor because it draws one. A stack needs all of them, which is
+    /// a handful of cached assets rather than a download: the asset cache already holds each
+    /// floor the player has looked at, and the ones they have not are fetched once.
+    ///
+    /// A floor whose artwork will not load is left out rather than drawn blank. A gap in the
+    /// stack is honest; an empty plate at the right height is a floor that looks empty.
+    /// </remarks>
+    private async Task LoadFloorStackAsync(CancellationToken cancellationToken)
+    {
+        if (!_isStacked || _renderModel is null || Floors.Count == 0)
+        {
+            ReleaseLater(_floorLayers.Select(layer => layer.Image));
+            _placements = [];
+            FloorLayers = [];
+            return;
+        }
+
+        var variant = _renderModel.Variant;
+        _placements = FloorStack.Arrange(Floors, SelectedFloor);
+        // Measured from the floor being read rather than from the lowest one. Every marker on
+        // this map is already drawn at the canvas's own coordinates, so putting the chosen
+        // floor at zero makes them line up with it without moving a single overlay, and a
+        // marker that stayed on the lowest plane while its map rose would point at the wrong
+        // floor.
+        var baseline = FloorStack.OffsetOf(_placements, SelectedFloor);
+        var layers = new List<FloorLayerViewModel>(_placements.Count);
+        foreach (var placement in _placements)
+        {
+            try
+            {
+                var cached = await _assetCache.GetSvgAsync(variant, placement.Floor, cancellationToken)
+                    .ConfigureAwait(true);
+                if (await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true)
+                    is not { } image)
+                {
+                    continue;
+                }
+
+                layers.Add(new(placement.Floor.Name, image, placement.Offset - baseline, placement.Opacity));
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One floor's artwork is not worth the stack. The rest still says which floors
+                // there are and which one is being read.
+            }
+        }
+
+        ReleaseLater(_floorLayers.Select(layer => layer.Image));
+        FloorLayers = layers;
+        OnPropertyChanged(nameof(StackTilt));
+    }
 
     /// <summary>
     /// Whether the map is framing the building rather than the floor.
