@@ -17,20 +17,46 @@ public sealed record KeyRowViewModel(
     string MaximumUses,
     string AcquisitionCost,
     string Provenance,
-    IReadOnlyList<KeyLockViewModel> Locks);
+    IReadOnlyList<KeyLockViewModel> Locks)
+{
+    /// <summary>Keep it, sell it, or neither, and the one fact that decided.</summary>
+    /// <remarks>
+    /// An init property rather than two more positional parameters on a record that already
+    /// takes nine.
+    /// </remarks>
+    public KeyVerdict Verdict { get; init; } = new(KeepOrSell.NoCall, string.Empty);
+
+    public string VerdictLabel => Verdict.Call switch
+    {
+        KeepOrSell.Keep => "Keep",
+        KeepOrSell.Sell => "Sell",
+        _ => "—",
+    };
+
+    public bool IsKeep => Verdict.Call == KeepOrSell.Keep;
+
+    public bool IsSell => Verdict.Call == KeepOrSell.Sell;
+
+    public string VerdictReason => Verdict.Reason;
+}
 
 /// <summary>
 /// Lists every cached key with the facts the synced data actually states about it.
 /// </summary>
 /// <remarks>
 /// <para>
-/// There is deliberately no tier, no score and no "worth carrying" verdict here, and the page
-/// does not use <c>IKeyIntelligenceService</c> at all. Four of the six inputs that service
-/// weighs (expected loot, lock utility, unique access and route risk) have no source anywhere in
-/// the synced payload and are projected as zero by <c>SqliteItemFactCatalog</c>, whose remarks
-/// say so outright. A tier built on them would not be a weak signal, it would be a fabricated
-/// one, and every key would land in the same low band for a reason that has nothing to do with
-/// the key.
+/// There is deliberately no tier and no score here, and the page still does not use
+/// <c>IKeyIntelligenceService</c>. Four of the six inputs that service weighs (expected loot,
+/// lock utility, unique access and route risk) have no source anywhere in the synced payload
+/// and are projected as zero by <c>SqliteItemFactCatalog</c>, whose remarks say so outright. A
+/// tier built on them would not be a weak signal, it would be a fabricated one, and every key
+/// would land in the same low band for a reason that has nothing to do with the key.
+/// </para>
+/// <para>
+/// There <i>is</i> now a keep-or-sell call, and it is built on the opposite footing: the
+/// player's own tracked quest and hideout demand, and the flea price ranked against the other
+/// keys. Both are real, both are synced, and <see cref="KeyValue"/> carries the reasoning. A key
+/// the data cannot rank is told it cannot be ranked rather than being given a verdict.
 /// </para>
 /// <para>
 /// What is left is still useful, and all of it is copied rather than inferred: which map the
@@ -48,6 +74,7 @@ public sealed class KeysPageViewModel : PageViewModel
 
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
+    private readonly IQuestProgressService? _questProgress;
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
     private IReadOnlyList<KeyRowViewModel> _keys = [];
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
@@ -56,11 +83,15 @@ public sealed class KeysPageViewModel : PageViewModel
     private string _status = "Loading the key table…";
     private string _detail = NoKeySelected;
 
-    public KeysPageViewModel(IItemFactCatalog catalog, IItemRepository itemRepository)
-        : base("Keys", "What each key opens, its uses, and its price", "Not loaded")
+    public KeysPageViewModel(
+        IItemFactCatalog catalog,
+        IItemRepository itemRepository,
+        IQuestProgressService? questProgress = null)
+        : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
+        _questProgress = questProgress;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
@@ -181,10 +212,17 @@ public sealed class KeysPageViewModel : PageViewModel
                 return;
             }
 
+            // Ranked before any row is built, because a key's verdict is a statement about
+            // where it sits among the others and there is no such thing as the first one's
+            // rank on its own.
+            var ranks = KeyValue.Rank(facts.Select(fact => (fact.ItemId, fact.AcquisitionCostRoubles)));
             var rows = new List<KeyRowViewModel>(facts.Count);
             foreach (var fact in facts)
             {
-                rows.Add(await DescribeAsync(fact, cancellationToken).ConfigureAwait(true));
+                rows.Add(await DescribeAsync(
+                    fact,
+                    ranks.TryGetValue(fact.ItemId, out var rank) ? rank : null,
+                    cancellationToken).ConfigureAwait(true));
             }
 
             // Keys whose map the projection could not settle on sort last rather than being mixed
@@ -197,9 +235,11 @@ public sealed class KeysPageViewModel : PageViewModel
             ApplyFilter();
 
             var withoutMap = _allKeys.Count(row => !row.HasMap);
+            var keep = _allKeys.Count(row => row.IsKeep);
+            var sell = _allKeys.Count(row => row.IsSell);
             Status = withoutMap == 0
-                ? $"{Count(_allKeys.Count)} cached key(s)."
-                : $"{Count(_allKeys.Count)} keys · {Count(withoutMap)} without a single cached map";
+                ? $"{Count(_allKeys.Count)} cached keys · {Count(keep)} to keep · {Count(sell)} to sell"
+                : $"{Count(_allKeys.Count)} keys · {Count(keep)} to keep · {Count(sell)} to sell · {Count(withoutMap)} without a single cached map";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -208,7 +248,10 @@ public sealed class KeysPageViewModel : PageViewModel
         }
     }
 
-    private async Task<KeyRowViewModel> DescribeAsync(KeyFacts facts, CancellationToken cancellationToken)
+    private async Task<KeyRowViewModel> DescribeAsync(
+        KeyFacts facts,
+        double? dearerThan,
+        CancellationToken cancellationToken)
     {
         // Falling back to the id keeps a key whose item row is missing visible with its real locks
         // and cost, rather than hiding it behind a name lookup that failed.
@@ -231,7 +274,43 @@ public sealed class KeysPageViewModel : PageViewModel
                 ? Roubles(facts.AcquisitionCostRoubles)
                 : "No price is cached",
             $"json.tarkov.dev · {Describe(facts.Provenance.SourceUpdatedUtc)}",
-            facts.Locks.Select(lockId => new KeyLockViewModel(lockId)).ToArray());
+            facts.Locks.Select(lockId => new KeyLockViewModel(lockId)).ToArray())
+        {
+            Verdict = KeyValue.Judge(
+                facts.AcquisitionCostRoubles,
+                dearerThan,
+                facts.Locks.Count,
+                facts.MaximumUses,
+                await NeedsAsync(facts.ItemId, cancellationToken).ConfigureAwait(true)),
+        };
+    }
+
+    /// <summary>
+    /// What the player's own tracked progress asks for, where progress is being tracked.
+    /// </summary>
+    /// <remarks>
+    /// One query per key, matching the item-name lookup beside it, which is the same shape and
+    /// the same cost. Null rather than an empty summary where nothing is wired up, so the
+    /// verdict falls through to the market rather than concluding that no quest wants it.
+    ///
+    /// A failure here is not a failure of the page. The verdict simply loses its strongest
+    /// input and says what the market says, which is what it did before this existed.
+    /// </remarks>
+    private async Task<ItemNeedSummary?> NeedsAsync(string itemId, CancellationToken cancellationToken)
+    {
+        if (_questProgress is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _questProgress.GetItemNeedsAsync(itemId, cancellationToken).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return null;
+        }
     }
 
     private void ApplyFilter()

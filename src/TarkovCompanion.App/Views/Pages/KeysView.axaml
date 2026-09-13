@@ -23,12 +23,28 @@
           <DataTemplate x:DataType="vm:KeyRowViewModel">
             <Border Classes="panel">
               <StackPanel Spacing="8">
-                <TextBlock Classes="lede" Text="{Binding Name}" TextWrapping="Wrap" />
+                <!-- The verdict beside the name rather than in the grid below it, because it
+                     is the answer to the question the page is opened with and everything else
+                     on the row is the working. Sage for keep, coral for sell, and a dash where
+                     nothing here is a strong enough signal to say — which is a real answer and
+                     is shown as one rather than as a blank. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <TextBlock Classes="lede" Text="{Binding Name}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1"
+                             Classes="lede"
+                             Classes.sage="{Binding IsKeep}"
+                             Classes.coral="{Binding IsSell}"
+                             Text="{Binding VerdictLabel}"
+                             VerticalAlignment="Center" />
+                </Grid>
+                <!-- The one fact that decided it, said plainly. A verdict whose reasoning is a
+                     score is a verdict nobody can argue with, which means nobody can correct
+                     it either. -->
+                <TextBlock Classes="caption" Text="{Binding VerdictReason}" TextWrapping="Wrap" />
 
                 <!-- Every cell here is copied from the source. Nothing is weighted, ranked or
-                     combined, which is the whole point of the page. The map is a raw source
-                     identifier, so it is set as one, small and monospaced, rather than as a
-                     headline value that wraps onto two lines. -->
+                     combined. The map is a raw source identifier, so it is set as one, small and
+                     monospaced, rather than as a headline value that wraps onto two lines. -->
                 <Grid ColumnDefinitions="*,*,*,1.6*" ColumnSpacing="12">
                   <StackPanel Spacing="1">
                     <TextBlock Classes="label" Text="Locks" />
