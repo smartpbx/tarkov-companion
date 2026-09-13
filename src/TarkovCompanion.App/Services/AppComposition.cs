@@ -186,6 +186,7 @@ public static class AppComposition
         // What the player is working on, for the group to see. Dead until tonight, because
         // there was no quest progress to send.
         services.AddSingleton<GroupQuestShare>();
+        services.AddSingleton<GroupKitShare>();
         services.AddSingleton<GroupSessionService>();
         // Keeping the game's screenshot folder from growing without limit. Composed here
         // rather than discovered because it is the other half of the application that touches

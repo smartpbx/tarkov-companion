@@ -32,11 +32,19 @@
             <TextBlock Classes="caption" Text="Pinned and active quests, up to five" />
             <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
             <!-- Said plainly, because a switch that silently does nothing is worse than one
-                 that is not there. Somebody in the group running a companion that reads its
-                 quick bar out of a screenshot does share a kit, so a group can show one
-                 member's and not another's, which is exactly how this was reported. -->
+                 that is not there. The game writes the player's own kit nowhere this can read,
+                 which is why a group could show one member's and not another's. -->
             <TextBlock Classes="caption"
                        Text="Sends nothing yet · the game writes your own kit nowhere this can read"
+                       TextWrapping="Wrap" />
+
+            <Border Classes="hairline" />
+            <TextBlock Classes="label" Text="Your kit, as your party sees it" />
+            <TextBlock Classes="caption"
+                       Text="{Binding MyLoadout}"
+                       TextWrapping="Wrap" />
+            <TextBlock Classes="caption"
+                       Text="Read off a squadmate's game, not yours · matched on your in-game nickname"
                        TextWrapping="Wrap" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">

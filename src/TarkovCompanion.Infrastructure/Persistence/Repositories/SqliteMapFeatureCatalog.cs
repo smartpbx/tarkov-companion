@@ -225,16 +225,98 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
 
             var sides = ReadStrings(entry, "sides");
             var categories = ReadStrings(entry, "categories");
-            // The zone name is frequently blank upstream, and "Spawn" is more useful on a map
-            // than an empty label.
-            var name = ReadText(entry, "zoneName") is { Length: > 0 } zone ? zone : "Spawn";
             features.Add(new(
                 MapFeatureKind.Spawn,
-                name,
+                SpawnName(ReadText(entry, "zoneName"), categories),
                 position,
                 sides.Count > 0 ? string.Join(", ", sides) : null,
                 categories.Count > 0 ? string.Join(", ", categories) : null));
         }
+    }
+
+    /// <summary>
+    /// Names a spawn point in a way a player can read.
+    /// </summary>
+    /// <remarks>
+    /// The zone name upstream is a raw identifier about half the time: of 3018 spawn points
+    /// across every map, 1403 have a GUID where the name should be, and the rest are internal
+    /// names like "ZoneRedHouse" and "BotZoneFloor1". Both were being drawn on the map exactly
+    /// as written, so a player looking at Customs saw a marker labelled
+    /// "0246436c-7d69-4036-999d-ebcb956970b5".
+    ///
+    /// So what it is comes first, from the categories, and the zone name is appended only when
+    /// it is a name rather than an identifier.
+    /// </remarks>
+    private static string SpawnName(string? zoneName, IReadOnlyList<string> categories)
+    {
+        var what = categories.Contains("player", StringComparer.OrdinalIgnoreCase)
+            ? "Spawn"
+            : categories.Contains("boss", StringComparer.OrdinalIgnoreCase)
+                ? "Boss spawn"
+                : categories.Contains("sniper", StringComparer.OrdinalIgnoreCase)
+                    ? "Sniper spawn"
+                    : categories.Count > 0
+                        ? "Bot spawn"
+                        : "Spawn";
+        return Readable(zoneName) is { } zone ? $"{what} · {zone}" : what;
+    }
+
+    /// <summary>
+    /// A zone name worth showing, humanised, or nothing.
+    /// </summary>
+    /// <remarks>
+    /// A GUID is not a place. Anything that parses as one is dropped rather than drawn, and
+    /// what survives has its "Zone" and "BotZone" prefixes stripped and its runs of capitals
+    /// and its trailing numbers split, so "ZoneRedHouse" reads as "Red House" and
+    /// "BotZoneFloor1" as "Floor 1".
+    /// </remarks>
+    private static readonly string[] ZonePrefixes = ["BotZone", "Zone_", "Zone"];
+
+    private static string? Readable(string? zoneName)
+    {
+        if (string.IsNullOrWhiteSpace(zoneName) || Guid.TryParse(zoneName, out _))
+        {
+            return null;
+        }
+
+        var trimmed = zoneName.Trim();
+        foreach (var prefix in ZonePrefixes)
+        {
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && trimmed.Length > prefix.Length)
+            {
+                trimmed = trimmed[prefix.Length..];
+                break;
+            }
+        }
+
+        var spaced = new System.Text.StringBuilder(trimmed.Length + 8);
+        for (var index = 0; index < trimmed.Length; index++)
+        {
+            var character = trimmed[index];
+            if (character is '_' or '-')
+            {
+                spaced.Append(' ');
+                continue;
+            }
+
+            // The index guard has to come before the look-back, not beside it. Written as one
+            // condition it read correctly and evaluated trimmed[-1] on the first character.
+            if (index > 0 && spaced.Length > 0)
+            {
+                var previous = trimmed[index - 1];
+                var startsAWord = char.IsUpper(character) && !char.IsUpper(previous);
+                var startsANumber = char.IsDigit(character) && char.IsLetter(previous);
+                if (startsAWord || startsANumber)
+                {
+                    spaced.Append(' ');
+                }
+            }
+
+            spaced.Append(character);
+        }
+
+        var result = spaced.ToString().Trim();
+        return result.Length == 0 ? null : result;
     }
 
     private static void AddLocks(JsonElement root, List<MapFeature> features)

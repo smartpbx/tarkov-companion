@@ -32,6 +32,15 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
         return TypedResults.BadRequest("A display name is required and must be 48 characters or fewer.");
     }
 
+    // Bounded because this is the one field carrying something about other people, and a
+    // client that published four hundred of them would be filling the room rather than
+    // helping it. A party is five.
+    if (state.Observed.Count > 8 || state.Observed.Any(observed =>
+        string.IsNullOrWhiteSpace(observed.Name) || observed.Name.Length > 48 || observed.Loadout.Count > 12))
+    {
+        return TypedResults.BadRequest("Observations must name at most eight players with at most twelve items each.");
+    }
+
     var room = GroupKey.RoomFor(key);
     // Keyed by the display name within the room, so a member who reconnects replaces their own
     // entry rather than appearing twice. Two people choosing the same name is their problem to

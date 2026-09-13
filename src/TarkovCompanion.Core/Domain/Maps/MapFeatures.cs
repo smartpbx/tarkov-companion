@@ -76,7 +76,12 @@ public sealed record MapFeature(
                 (true, true) => MapFeatureFaction.Shared,
                 (true, false) => MapFeatureFaction.Pmc,
                 (false, true) => MapFeatureFaction.Scav,
-                _ => Faction.Contains("shared", StringComparison.OrdinalIgnoreCase)
+                // "all" is the third word the feed uses and it means exactly what "shared"
+                // means. It is also the commonest: of 3018 spawn points across every map, 860
+                // say "all" and 528 say "pmc", so treating it as unknown left the largest
+                // group of player spawns with no side at all.
+                _ => Faction.Contains("shared", StringComparison.OrdinalIgnoreCase) ||
+                    Faction.Contains("all", StringComparison.OrdinalIgnoreCase)
                     ? MapFeatureFaction.Shared
                     : MapFeatureFaction.Unknown,
             };
