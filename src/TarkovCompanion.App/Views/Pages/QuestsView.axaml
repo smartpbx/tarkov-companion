@@ -26,6 +26,36 @@
                              Minimum="1"
                              Value="{Binding PlayerLevel, Mode=TwoWay}" />
             </StackPanel>
+            <!-- Collapsed, because loyalty is set once a wipe and read by everything. Open it
+                 is one row per trader; closed it is one line, which is the right price for
+                 something the page is not otherwise about.
+
+                 TraderLevels has been on the profile since it was written and validated on
+                 save to the game's own 0-4, and nothing anywhere could set it. Every ammo rule
+                 that required any loyalty could therefore never fire. -->
+            <Expander Header="Trader loyalty"
+                      IsExpanded="False"
+                      IsVisible="{Binding HasTraderLoyalty}"
+                      VerticalAlignment="Bottom">
+              <ItemsControl ItemsSource="{Binding TraderLoyalty}" MinWidth="200">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:TraderLoyaltyViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,4">
+                      <TextBlock Classes="value" Text="{Binding Name}" VerticalAlignment="Center" />
+                      <NumericUpDown Grid.Column="1"
+                                     Width="92"
+                                     FormatString="0"
+                                     Increment="1"
+                                     Minimum="0"
+                                     Maximum="4"
+                                     Value="{Binding Level, Mode=OneWay}"
+                                     ValueChanged="TraderLevelChanged"
+                                     Tag="{Binding TraderId}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Expander>
             <Button Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Bottom" />
           </StackPanel>
         </Grid>

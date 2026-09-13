@@ -12,7 +12,21 @@ public sealed record HideoutStationViewModel(
     string Progress,
     int NextLevel,
     bool HasNextLevel,
-    string Summary);
+    string Summary)
+{
+    /// <summary>What the profile says is built, which is what the stepper edits.</summary>
+    /// <remarks>
+    /// An init property rather than another positional parameter. Held as
+    /// <see cref="decimal"/> because that is what a spinner binds.
+    /// </remarks>
+    public decimal BuiltLevel { get; init; }
+
+    /// <summary>The highest level this station has, so the stepper cannot go past it.</summary>
+    public decimal MaximumLevel { get; init; }
+
+    /// <summary>Whether there is anything to step through.</summary>
+    public bool CanSetLevel => MaximumLevel > 0;
+}
 
 public sealed record HideoutRequirementViewModel(
     string ItemId,
@@ -29,6 +43,11 @@ public sealed record HideoutRequirementViewModel(
 /// Every data sync has always written hideout stations, levels and requirements into SQLite
 /// and nothing ever read them back. Owned counts and built levels come from the local profile,
 /// which the player maintains by hand; the companion never reads the game's inventory.
+///
+/// "Maintains by hand" was until now a claim with nothing behind it. HideoutStationLevels is
+/// written by nothing anywhere in the application, so every station printed "level 0 of N" under
+/// a line saying the levels came from the player's profile — true, and useless, because the
+/// profile had no way to hold anything else. The stepper on each row is the hands.
 /// </remarks>
 public sealed class HideoutPageViewModel : PageViewModel
 {
@@ -38,6 +57,7 @@ public sealed class HideoutPageViewModel : PageViewModel
     private readonly IPlayerProfileService _profileService;
     private readonly IItemRepository _itemRepository;
     private IReadOnlyList<HideoutStationViewModel> _stations = [];
+    private IReadOnlyDictionary<string, int> _stationLevels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<HideoutRequirementViewModel> _items = [];
     private HideoutStationViewModel? _selected;
     private string _status = "Loading the hideout catalog…";
@@ -146,12 +166,16 @@ public sealed class HideoutPageViewModel : PageViewModel
                 .GroupBy(requirement => requirement.StationId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
 
+            _stationLevels = profile.HideoutStationLevels;
             Stations = stations
                 .Select(station => Describe(station, profile.HideoutStationLevels, byStation))
                 .OrderByDescending(station => station.HasNextLevel)
                 .ThenBy(station => station.Name, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-            Status = $"{Stations.Count} stations · levels and stock from your profile";
+            var built = Stations.Count(station => station.BuiltLevel > 0);
+        Status = built == 0
+            ? $"{Stations.Count} stations · set the level you have each one built to"
+            : $"{Stations.Count} stations · {built} built · levels and stock from your profile";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -214,6 +238,59 @@ public sealed class HideoutPageViewModel : PageViewModel
         }
     }
 
+    /// <summary>
+    /// Records the level a station has been built to, and re-reads the page.
+    /// </summary>
+    /// <remarks>
+    /// The whole page is measured against these: which level is next, which items it needs, and
+    /// how many of them are outstanding. So a change reloads rather than editing the row in
+    /// place — a station moved from level 0 to 3 has different requirements, not the same ones
+    /// with a different number beside them.
+    ///
+    /// Clamped to what the catalog says the station has. A spinner is bounded in the view, but
+    /// the profile is a file somebody can open, and a station at level 9 of 3 would make the
+    /// "next level" arithmetic produce a level that does not exist.
+    /// </remarks>
+    public async Task SetStationLevelAsync(string stationId, decimal level)
+    {
+        if (string.IsNullOrWhiteSpace(stationId))
+        {
+            return;
+        }
+
+        var station = Stations.FirstOrDefault(row =>
+            string.Equals(row.StationId, stationId, StringComparison.OrdinalIgnoreCase));
+        if (station is null)
+        {
+            return;
+        }
+
+        var wanted = (int)Math.Clamp(level, 0, station.MaximumLevel);
+        if (wanted == _stationLevels.GetValueOrDefault(stationId))
+        {
+            return;
+        }
+
+        try
+        {
+            var profile = await _profileService.GetActiveAsync(CancellationToken.None).ConfigureAwait(true);
+            var levels = new Dictionary<string, int>(profile.HideoutStationLevels, StringComparer.OrdinalIgnoreCase)
+            {
+                [stationId] = wanted,
+            };
+            await _profileService
+                .SaveAsync(
+                    profile with { HideoutStationLevels = levels, UpdatedUtc = DateTimeOffset.UtcNow },
+                    CancellationToken.None)
+                .ConfigureAwait(true);
+            await LoadAsync(CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Station level not saved · {exception.Message}";
+        }
+    }
+
     private static HideoutStationViewModel Describe(
         HideoutStationSummary station,
         IReadOnlyDictionary<string, int> builtLevels,
@@ -235,7 +312,11 @@ public sealed class HideoutPageViewModel : PageViewModel
             hasNext,
             hasNext
                 ? outstanding == 0 ? $"Level {next} needs no items." : $"Level {next} needs {outstanding} item(s)."
-                : "Fully built.");
+                : "Fully built.")
+        {
+            BuiltLevel = built,
+            MaximumLevel = maximum,
+        };
     }
 
     private static string Count(int value) => value.ToString("N0", CultureInfo.CurrentCulture);
