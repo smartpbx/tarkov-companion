@@ -6,8 +6,12 @@ using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
-using Windows.Media.Ocr;
 using PixelFormat = TarkovCompanion.Core.Domain.Recognition.PixelFormat;
+// Aliased rather than imported. Windows.Media.Ocr has its own OcrEngine, OcrResult and
+// OcrLine, and this file is the one place in the codebase where both sets are in scope; an
+// unqualified OcrResult here would be ambiguous in one direction and quietly wrong in the
+// other.
+using WindowsOcr = Windows.Media.Ocr;
 
 namespace TarkovCompanion.Platform.Windows.Ocr;
 
@@ -38,7 +42,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
 {
     public const string ProviderName = "windows-media-ocr";
 
-    private readonly OcrEngine? _engine;
+    private readonly WindowsOcr.OcrEngine? _engine;
 
     public WindowsMediaOcrEngine()
     {
@@ -47,8 +51,8 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
             // The user's own languages first, because somebody running a French Windows has a
             // French recogniser installed and an English one very likely not. English is the
             // fallback because the game's interface is what is being read, not the system's.
-            _engine = OcrEngine.TryCreateFromUserProfileLanguages()
-                ?? OcrEngine.TryCreateFromLanguage(new Language("en-US"));
+            _engine = WindowsOcr.OcrEngine.TryCreateFromUserProfileLanguages()
+                ?? WindowsOcr.OcrEngine.TryCreateFromLanguage(new Language("en-US"));
             Availability = _engine is null
                 ? new(false, ProviderName, "Windows has no OCR language pack installed for this profile.")
                 : new(true, ProviderName);
@@ -108,7 +112,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
     /// </summary>
     /// <remarks>
     /// The engine refuses an image whose larger side is above
-    /// <see cref="OcrEngine.MaxImageDimension"/>, and an ultrawide screenshot is over it, so an
+    /// <see cref="WindowsOcr.OcrEngine.MaxImageDimension"/>, and an ultrawide screenshot is over it, so an
     /// oversized picture is halved until it fits. The factor is reported back so the bounds it
     /// returns can be multiplied out again: a caller matching a line to a place on the screen
     /// would otherwise be told a position in a picture that no longer exists.
@@ -116,7 +120,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
     private static SoftwareBitmap ToSoftwareBitmap(CapturedImage image, PixelRect region, out int scale)
     {
         scale = 1;
-        var max = (int)OcrEngine.MaxImageDimension;
+        var max = (int)WindowsOcr.OcrEngine.MaxImageDimension;
         while (Math.Max(region.Width / scale, region.Height / scale) > max)
         {
             scale *= 2;
@@ -179,7 +183,7 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
     /// The confidence is stated as unknown rather than invented. This engine returns no score
     /// of any kind, and a made-up one would be ranked against another engine's real one.
     /// </remarks>
-    private static IReadOnlyList<OcrLine> Read(OcrResult result, PixelRect region, int scale)
+    private static IReadOnlyList<OcrLine> Read(WindowsOcr.OcrResult result, PixelRect region, int scale)
     {
         var lines = new List<OcrLine>(result.Lines.Count);
         foreach (var line in result.Lines)
