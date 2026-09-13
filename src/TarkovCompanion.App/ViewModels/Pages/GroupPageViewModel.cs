@@ -42,6 +42,7 @@ public sealed class GroupPageViewModel : PageViewModel
     private string _key = string.Empty;
     private bool _sharesLoadout;
     private bool _sharesQuests;
+    private string _myLoadout = "Nobody in your party is running this yet.";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
 
     public GroupPageViewModel(IGroupSettingsStore settings)
@@ -55,6 +56,20 @@ public sealed class GroupPageViewModel : PageViewModel
     }
 
     public AsyncDelegateCommand SaveCommand { get; }
+
+    /// <summary>
+    /// This player's own kit, as the rest of the group described it back to them.
+    /// </summary>
+    /// <remarks>
+    /// The game tells every player what everybody else is wearing and says nothing about them,
+    /// so the only way anyone sees their own is for a squadmate running this companion to say.
+    /// That is what this line is: not a reading of this machine, a report from theirs.
+    /// </remarks>
+    public string MyLoadout
+    {
+        get => _myLoadout;
+        private set => SetProperty(ref _myLoadout, value);
+    }
 
     public IReadOnlyList<GroupMemberRowViewModel> Members
     {
@@ -173,6 +188,11 @@ public sealed class GroupPageViewModel : PageViewModel
         _rendered = group.UpdatedUtc;
         Status = group.Detail;
         Members = group.Members.Select(Describe).ToArray();
+        MyLoadout = group.MyLoadout.Count > 0
+            ? string.Join(" · ", group.MyLoadout)
+            : group.IsSharing
+                ? "Nobody in your party is running this yet."
+                : "Turn sharing on, and a squadmate running this can tell you.";
         Evidence = group.IsSharing ? "Sharing" : "Off";
     }
 
