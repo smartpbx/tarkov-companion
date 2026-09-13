@@ -1,3 +1,5 @@
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Recognition;
 
 namespace TarkovCompanion.RecognitionTests;
@@ -181,4 +183,83 @@ public sealed class ExtractLineMatcherTests
         Normalizer.NormalizeForLookup(ExtractLineMatcher.StripTrailingMeasure(line)),
         Normalizer.NormalizeForLookup(catalogName),
         Normalizer.NormalizeForLookup(ExtractLineMatcher.WithoutQualifier(catalogName)));
+}
+
+public sealed class SharedExtractCandidateTests
+{
+    /// <summary>
+    /// The exits both factions can use become one candidate, not two identical ones.
+    /// </summary>
+    /// <remarks>
+    /// Upstream lists a shared exit once per faction and the refresh stores both rows. Two
+    /// identical names tie at a similarity difference of exactly zero, which is below
+    /// MinimumRunnerUpLead, so the lead rule called every shared exit ambiguous and threw it
+    /// away — unless the read was character-perfect, which on a real panel it is not. The exits
+    /// players most want were the ones that could never match.
+    /// </remarks>
+    [Fact]
+    public void AnExitListedOncePerFactionIsOneCandidate()
+    {
+        var extracts = new[]
+        {
+            Extract("pmc-zb014", "ZB-014", new MapPoint(10, 20)),
+            Extract("scav-zb014", "ZB-014", new MapPoint(10, 20)),
+            Extract("pmc-outskirts", "Outskirts", new MapPoint(90, 5)),
+        };
+
+        var candidates = ExtractRecognitionService.DistinctByName(extracts);
+
+        Assert.Equal(2, candidates.Count);
+        Assert.Single(candidates, candidate => candidate.Name == "ZB-014");
+        Assert.Single(candidates, candidate => candidate.Name == "Outskirts");
+    }
+
+    /// <summary>Where the duplicates disagree, the one the map can draw wins.</summary>
+    [Fact]
+    public void TheRowWithAPositionIsTheOneKept()
+    {
+        var extracts = new[]
+        {
+            Extract("no-position", "Smugglers' Boat", position: null),
+            Extract("with-position", "Smugglers' Boat", new MapPoint(4, 9)),
+        };
+
+        var kept = Assert.Single(ExtractRecognitionService.DistinctByName(extracts));
+
+        Assert.Equal("with-position", kept.Id);
+    }
+
+    /// <summary>Case is not a difference the extract panel makes.</summary>
+    [Fact]
+    public void NamesThatDifferOnlyInCaseAreTheSameExit()
+    {
+        var extracts = new[]
+        {
+            Extract("a", "Old Gas Station", new MapPoint(1, 1)),
+            Extract("b", "OLD GAS STATION", new MapPoint(1, 1)),
+        };
+
+        Assert.Single(ExtractRecognitionService.DistinctByName(extracts));
+    }
+
+    /// <summary>Genuinely different exits stay separate, so the lead rule still has work to do.</summary>
+    [Fact]
+    public void ExitsWhoseNamesDifferByOneCharacterAreStillTwo()
+    {
+        var extracts = new[]
+        {
+            Extract("a", "ZB-014", new MapPoint(1, 1)),
+            Extract("b", "ZB-016", new MapPoint(2, 2)),
+        };
+
+        Assert.Equal(2, ExtractRecognitionService.DistinctByName(extracts).Count);
+    }
+
+    private static MapExtract Extract(string id, string name, MapPoint? position) => new(
+        id,
+        "bigmap",
+        name,
+        position,
+        null,
+        new DataProvenance("test", DateTimeOffset.UnixEpoch));
 }
