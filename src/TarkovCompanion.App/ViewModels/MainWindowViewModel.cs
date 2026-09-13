@@ -13,7 +13,6 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.App.Services.Updates;
-using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Raids;
 
