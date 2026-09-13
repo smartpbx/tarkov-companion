@@ -104,6 +104,19 @@ public sealed record RaidSnapshot(
     /// their own evidence rather than any kind of tracking.
     /// </remarks>
     public IReadOnlyList<ScreenshotPosition> PositionTrail { get; init; } = [];
+
+    /// <summary>
+    /// The raid clock as it last appeared in a screenshot, and when that was read.
+    /// </summary>
+    /// <remarks>
+    /// The game draws the remaining time on the extract list screen, so a player who
+    /// photographs that screen has handed over the exact number. It is kept with the moment it
+    /// was read because it is a reading rather than a value: three minutes later it is three
+    /// minutes less, and without the timestamp it would be a stale claim presented as current.
+    /// </remarks>
+    public TimeSpan? RaidClock { get; init; }
+
+    public DateTimeOffset? RaidClockReadUtc { get; init; }
 }
 
 public sealed record RaidHistoryEntry(
