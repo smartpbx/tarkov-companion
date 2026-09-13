@@ -48,81 +48,9 @@ public sealed record GroupSharingSettings(
     public bool IsUsable =>
         IsEnabled &&
         Uri.TryCreate(ServerUri, UriKind.Absolute, out var uri) &&
-        IsTransportAcceptable(uri) &&
+        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
         !string.IsNullOrWhiteSpace(DisplayName) &&
         IsKeyLongEnough;
-
-    /// <summary>
-    /// Whether the key may be sent to this address at all.
-    /// </summary>
-    /// <remarks>
-    /// The group key rides on <c>X-Group-Key</c> on every request, and it is the only thing
-    /// between a group and a stranger. Plain http was accepted for any host, and the public
-    /// relay answers http today with no redirect, so the key was one mistyped scheme away from
-    /// crossing the internet in the clear.
-    ///
-    /// Http is still fine where there is no internet to cross: loopback, the private ranges,
-    /// the carrier-grade range a home network can sit behind, link-local, and a name with no
-    /// dot in it or ending .local/.internal — all of which describe a relay on the same LAN,
-    /// which is a perfectly ordinary way to run this. Anything else has to be https.
-    /// </remarks>
-    public static bool IsTransportAcceptable(Uri uri)
-    {
-        ArgumentNullException.ThrowIfNull(uri);
-        if (uri.Scheme == Uri.UriSchemeHttps)
-        {
-            return true;
-        }
-
-        if (uri.Scheme != Uri.UriSchemeHttp)
-        {
-            return false;
-        }
-
-        return IsLocalHost(uri.Host);
-    }
-
-    /// <summary>Whether a host is one that cannot be reached from outside the network.</summary>
-    internal static bool IsLocalHost(string host)
-    {
-        if (string.IsNullOrWhiteSpace(host))
-        {
-            return false;
-        }
-
-        var trimmed = host.Trim().Trim('[', ']');
-        if (System.Net.IPAddress.TryParse(trimmed, out var address))
-        {
-            if (System.Net.IPAddress.IsLoopback(address))
-            {
-                return true;
-            }
-
-            if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-            {
-                var octets = address.GetAddressBytes();
-                return octets[0] switch
-                {
-                    10 => true,
-                    127 => true,
-                    169 when octets[1] == 254 => true,
-                    172 when octets[1] is >= 16 and <= 31 => true,
-                    192 when octets[1] == 168 => true,
-                    // 100.64/10, which is where a home network behind carrier-grade NAT sits.
-                    100 when octets[1] is >= 64 and <= 127 => true,
-                    _ => false,
-                };
-            }
-
-            return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal;
-        }
-
-        // A name with no dot in it is a machine on this network; nothing on the public internet
-        // resolves without one.
-        return !trimmed.Contains('.', StringComparison.Ordinal) ||
-            trimmed.EndsWith(".local", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.EndsWith(".internal", StringComparison.OrdinalIgnoreCase);
-    }
 
     /// <summary>
     /// The key is the only thing between a group and a stranger who guesses it.
@@ -131,17 +59,21 @@ public sealed record GroupSharingSettings(
     /// Eight characters, matching the server, and checked here as well so somebody is told
     /// before they try rather than by a refusal afterwards.
     /// </remarks>
-    public bool IsKeyLongEnough => Key is not null && Key.Trim().Length >= 8;
+    public bool IsKeyLongEnough =>
+        Key is not null &&
+        Key.Trim().Length >= GroupKeyLimits.Minimum &&
+        Key.Trim().Length <= GroupKeyLimits.Maximum;
 
     /// <summary>Says what is missing, in the order a person would fill it in.</summary>
     public string? MissingPiece =>
         !IsEnabled ? null
         : string.IsNullOrWhiteSpace(ServerUri) ? "the group's server address"
-        : !Uri.TryCreate(ServerUri, UriKind.Absolute, out var address) ? "a valid server address"
-        : !IsTransportAcceptable(address) ? "an https address, because the group key travels with every request"
+        : !Uri.TryCreate(ServerUri, UriKind.Absolute, out _) ? "a valid server address"
         : string.IsNullOrWhiteSpace(DisplayName) ? "a display name"
         : string.IsNullOrWhiteSpace(Key) ? "the group's key"
-        : !IsKeyLongEnough ? "a group key of at least eight characters"
+        : Key.Trim().Length < GroupKeyLimits.Minimum
+            ? $"a group key of at least {GroupKeyLimits.Minimum} characters"
+        : !IsKeyLongEnough ? $"a group key of at most {GroupKeyLimits.Maximum} characters"
         : null;
 }
 
@@ -271,4 +203,19 @@ public sealed record GroupSnapshot(
         [],
         "Not sharing",
         DateTimeOffset.UnixEpoch);
+}
+
+/// <summary>
+/// What the relay will accept as a key, stated once so both ends agree.
+/// </summary>
+/// <remarks>
+/// The ceiling was only ever checked on the server, so a key longer than 128 characters passed
+/// every check here and came back 401 — and the message said "wrong group key", which sent
+/// people to compare keys that were identical and fine.
+/// </remarks>
+public static class GroupKeyLimits
+{
+    public const int Minimum = 8;
+
+    public const int Maximum = 128;
 }

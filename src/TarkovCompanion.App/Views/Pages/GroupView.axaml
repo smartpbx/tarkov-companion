@@ -30,14 +30,6 @@
             <Border Classes="hairline" />
             <CheckBox Content="Share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
             <TextBlock Classes="caption" Text="Pinned and active quests, up to five" />
-            <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
-            <!-- Said plainly, because a switch that silently does nothing is worse than one
-                 that is not there. The game writes the player's own kit nowhere this can read,
-                 which is why a group could show one member's and not another's. -->
-            <TextBlock Classes="caption"
-                       Text="Sends nothing yet · the game writes your own kit nowhere this can read"
-                       TextWrapping="Wrap" />
-
             <Border Classes="hairline" />
             <TextBlock Classes="label" Text="Your kit, as your party sees it" />
             <TextBlock Classes="caption"

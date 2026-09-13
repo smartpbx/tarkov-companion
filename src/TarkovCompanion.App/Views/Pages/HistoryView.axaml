@@ -15,7 +15,7 @@
         <ItemsControl.ItemTemplate>
           <DataTemplate x:DataType="vm:RaidHistoryEntryViewModel">
             <Border Classes="panel" Margin="0,0,0,8">
-              <Grid ColumnDefinitions="1.2*,1.1*,1.1*,1.1*,1.2*" ColumnSpacing="12">
+              <Grid ColumnDefinitions="1.2*,1.1*,1.1*,1.2*" ColumnSpacing="12">
                 <StackPanel Spacing="1">
                   <TextBlock Classes="lede" Text="{Binding Map}" />
                   <TextBlock Classes="label" Text="{Binding Mode}" />
@@ -29,10 +29,6 @@
                   <TextBlock Classes="value" Text="{Binding Ended}" />
                 </StackPanel>
                 <StackPanel Grid.Column="3" Spacing="1">
-                  <TextBlock Classes="label" Text="Outcome" />
-                  <TextBlock Classes="value" Text="{Binding Outcome}" />
-                </StackPanel>
-                <StackPanel Grid.Column="4" Spacing="1">
                   <!-- Distance rather than a count of screenshots. "Nine screenshots" says how
                        often somebody photographed something; "1.4 km" says what the raid was.
                        It is a floor: straight lines between screenshots minutes apart. -->

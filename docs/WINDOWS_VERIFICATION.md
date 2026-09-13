@@ -1,6 +1,11 @@
 # Windows verification
 
-How the packaged Windows build is proven to work, and what the current run proved.
+How the packaged Windows build is proven to work.
+
+This describes the gate, not one run of it. It used to narrate a particular run's numbers,
+which went stale the moment the next one finished and invited people to trust figures from a
+build that no longer existed. What a given run found is in that run's own artifacts, and the
+last section says how to read them.
 
 Clayton's workstation may not build or run this project, and the development container is
 Linux, so a GitHub-hosted Windows runner is the only sanctioned place to launch the package.
@@ -31,34 +36,22 @@ workflow reads game memory, sends input to another process, or inspects network 
 A parallel Linux job builds the solution, runs the full test suite, and runs the safety and
 secret audits.
 
-## Run 34535907475, commit 465fa62
+## What the gate checks
 
-Every step passed.
-
-| Observation | Result |
+| Check | What passing means |
 | --- | --- |
-| Main window appeared | 2.3 seconds after launch |
-| Window title | Tarkov Companion |
-| Stability | alive and responding for the full 30-second watch |
-| Shutdown | exit code 0, well inside the deadline |
-| Desktop | 1024x768, interactive session |
+| Launch | the main window appears within the deadline and keeps responding for a 30-second watch |
+| Shutdown | exit code 0, inside the deadline, with no hung process left behind |
+| First-run sync | every json.tarkov.dev endpoint records `current` with no error |
+| Page gallery | every page is opened, photographed, and checked for having drawn anything |
+| Binding warnings | a page that asks for a property it does not get fails the step |
 
-First-run data, from the database the run published:
+Deliberately no numbers here. This file used to list the row counts and timings of one
+particular run — items 5,320, map_spawns 3,018, "about eight seconds" — which were true of
+that build and of no other. `map_spawns` has since been dropped entirely, so the table was
+describing a schema that no longer exists, which is worse than describing nothing.
 
-| Table | Rows |
-| --- | --- |
-| items | 5,320 |
-| item_sell_offers | 25,511 |
-| quest_catalog_tasks | 515 |
-| map_spawns | 3,018 |
-| map_extracts | 152 |
-| maps | 17 |
-| hideout_stations | 26 |
-| traders | 16 |
-
-All seven json.tarkov.dev endpoints recorded `current` with no error, and the whole sync
-finished in about eight seconds. The warm self-test reported 5,320 normalized items and a
-recognition catalog of the same size. Tesseract initialized on the runner.
+What a given run found is in that run's own artifacts.
 
 ## What this does not prove
 
@@ -66,7 +59,9 @@ recognition catalog of the same size. Tesseract initialized on the runner.
   the game window, screenshot and log watching, and OCR accuracy against real game visuals
   are all still unverified. `docs/LIVE_EFT_VALIDATION.md` remains the checklist for those.
 - Behaviour at DPI scales other than the runner's, and on multiple monitors.
-- The global scan hotkey, which no code path registers yet.
+- Nothing about a scan hotkey. There is no longer one to prove: `RegisterHotKey` appears
+  nowhere in the source, and a scan is driven by the player taking a screenshot with the
+  game's own key. `AGENTS.md` rule 8 forbids reintroducing one over a borderless game.
 
 ## Reading the evidence
 

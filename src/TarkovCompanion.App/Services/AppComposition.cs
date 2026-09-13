@@ -283,9 +283,6 @@ public static class AppComposition
             provider.GetRequiredService<IPlayerProfileService>(),
             provider.GetRequiredService<IEventCatalog>().GetAsync(CancellationToken.None).GetAwaiter().GetResult(),
             timeProvider));
-        services.AddSingleton<IAmmoIntelligenceService, AmmoIntelligenceService>();
-        services.AddSingleton<IKeyIntelligenceService, KeyIntelligenceService>();
-        services.AddSingleton<ILoadoutService, LoadoutIntelligenceService>();
         services.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 
         services.AddSingleton<SqliteMapFeatureCatalog>();
@@ -458,10 +455,7 @@ public static class AppComposition
                 !document.RootElement.TryGetProperty("serverUri", out var server) ||
                 server.ValueKind != System.Text.Json.JsonValueKind.String ||
                 !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
-                // The same rule the group key follows. The catalog mirror does not carry the
-                // key, but it is the same address read from the same file, and accepting an
-                // http host here while refusing it there would be a confusing half-measure.
-                !GroupSharingSettings.IsTransportAcceptable(uri))
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
                 return null;
             }

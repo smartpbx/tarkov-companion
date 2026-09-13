@@ -71,18 +71,25 @@ public sealed class GroupSessionServiceTests
         Assert.Contains("last heard", group.Detail, StringComparison.Ordinal);
     }
 
-    /// <summary>A wrong key is an answer, not a bad moment.</summary>
+    /// <summary>A refused key is an answer, not a bad moment — and it says which rule it broke.</summary>
+    /// <remarks>
+    /// This asserted "Wrong group key" until the message was corrected. A 401 from this relay
+    /// means the key failed a length test; it cannot mean the key is wrong, because the key is
+    /// the room, and a different key is a different room that answers 200 with nobody in it.
+    /// </remarks>
     [Fact]
-    public async Task AWrongKeyTurnsSharingOffRatherThanGoingStale()
+    public async Task ARefusedKeyTurnsSharingOffRatherThanGoingStale()
     {
         var handler = new StubHandler(_ =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized)));
         await using var service = Service(handler, out var store);
 
         service.Start();
-        await WaitForDetailAsync(store, detail => detail == "Wrong group key");
+        await WaitForDetailAsync(store, detail => detail.Contains("must be between", StringComparison.Ordinal));
 
-        Assert.Equal("Wrong group key", store.Current.Group.Detail);
+        Assert.Equal(
+            $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
+            store.Current.Group.Detail);
         Assert.Empty(store.Current.Group.Members);
         Assert.Null(store.Current.Group.StaleSince);
     }
