@@ -58,9 +58,28 @@ public static class MapLabelLayout
     /// limit deliberately: a name three rows from its own disc, with other discs in between,
     /// stops saying which marker it belongs to.
     /// </remarks>
-    public static int[] Arrange(IReadOnlyList<MapLabelCandidate> labels, double zoom)
+    /// <summary>
+    /// A rectangle already occupied by something this layout does not place.
+    /// </summary>
+    /// <remarks>
+    /// The catalog's own place names are drawn where the catalog puts them, rotated and sized
+    /// by it, and cannot be moved to a slot. Seen on Customs: "Administration Gate" and
+    /// "Factory Checkpoint" drawn on top of each other, both illegible. A name that cannot move
+    /// is still a name that has to be avoided, so it is handed in as occupied ground.
+    /// </remarks>
+    /// <param name="Left">Screen pixels, already scaled by zoom.</param>
+    public readonly record struct MapLabelObstacle(double Left, double Top, double Right, double Bottom);
+
+    public static int[] Arrange(IReadOnlyList<MapLabelCandidate> labels, double zoom) =>
+        Arrange(labels, zoom, []);
+
+    public static int[] Arrange(
+        IReadOnlyList<MapLabelCandidate> labels,
+        double zoom,
+        IReadOnlyList<MapLabelObstacle> occupied)
     {
         ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(occupied);
         var slots = new int[labels.Count];
         if (labels.Count == 0)
         {
@@ -86,7 +105,14 @@ public static class MapLabelLayout
             .ThenBy(index => discs[index].X)
             .ToArray();
 
-        var taken = new List<(double Left, double Top, double Right, double Bottom)>(labels.Count);
+        // The immovable things first, so a name that could have gone somewhere else does rather
+        // than a place name being covered by one that had a choice.
+        var taken = new List<(double Left, double Top, double Right, double Bottom)>(labels.Count + occupied.Count);
+        foreach (var obstacle in occupied)
+        {
+            taken.Add((obstacle.Left, obstacle.Top, obstacle.Right, obstacle.Bottom));
+        }
+
         Array.Fill(slots, Hidden);
         foreach (var index in order)
         {
