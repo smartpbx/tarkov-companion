@@ -39,10 +39,16 @@ A stamp file records the checksum in place, so a timer that fires every half hou
 at all unless the published build actually changed. Without it every member would disappear and
 reappear twice an hour for no reason.
 
+## Why wget and not curl
+
+The container has no `curl` and is awkward to give one. `wget` ships on a minimal Debian, so
+the updater uses that. This is written down because the first version of the script used curl,
+failed instantly on the real container, and the runbook had already recorded that exact fact.
+
 ## Watching it
 
 ```
 systemctl list-timers tarkov-group-update.timer
 journalctl -u tarkov-group-update.service -n 50
-curl -s https://tarkov.mannerow.net/health
+wget -qO- https://tarkov.mannerow.net/health
 ```
