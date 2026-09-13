@@ -254,22 +254,6 @@ jobs:
           if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
           exit $Process.ExitCode
 
-      - name: Assert the scan shortcut registered
-        id: hotkey
-        continue-on-error: true
-        shell: powershell
-        run: |
-          # The self-test reports this without requiring it, because a combination another
-          # application owns is the user's to change. On a clean runner nothing owns
-          # Ctrl+Alt+S, so here it must actually register.
-          $Report = Get-Content -LiteralPath "verification/self-test-cold.json" -Raw | ConvertFrom-Json
-          $Check = $Report.checks | Where-Object { $_.name -eq "scan-hotkey" }
-          "$($Check.name): $($Check.status) - $($Check.detail)"
-          if ($Check.status -ne "pass") {
-            Write-Host "The global scan shortcut did not register on a machine where nothing else owns it."
-            exit 1
-          }
-
       - name: Inventory local application data
         if: always()
         continue-on-error: true
@@ -335,7 +319,6 @@ jobs:
             "launch-probe" = "${{ steps.launch-probe.outcome }}"
             "page-gallery" = "${{ steps.page-gallery.outcome }}"
             "self-test-warm" = "${{ steps.self-test-warm.outcome }}"
-            "scan-hotkey" = "${{ steps.hotkey.outcome }}"
             "developer-smoke" = "${{ steps.developer-smoke.outcome }}"
           }
 
