@@ -39,7 +39,22 @@ public sealed record ExtractRecognitionResult(
     IReadOnlyList<string> AmbiguousLines,
     IReadOnlyList<string> UnmatchedLines,
     bool ProviderAvailable,
-    string? DiagnosticCode = null);
+    string? DiagnosticCode = null)
+{
+    /// <summary>
+    /// The transits the same screen offered, as the screen named them.
+    /// </summary>
+    /// <remarks>
+    /// The extract panel lists ways to another map alongside the exits from this one, each
+    /// labelled TRANSIT rather than EXFIL and drawn a different colour. They are not in any
+    /// extract catalog and never will be, so matching them against one produces nothing but a
+    /// list of lines that failed.
+    ///
+    /// Carried verbatim because "Transit to Factory" says everything a player needs and there
+    /// is nothing to look it up against.
+    /// </remarks>
+    public IReadOnlyList<string> Transits { get; init; } = [];
+}
 
 public enum ScanCompletionStatus
 {

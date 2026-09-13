@@ -24,9 +24,41 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 /// the same order, and the shorter is substantial enough to mean something, that is a match on
 /// its own terms rather than a near miss on an edit distance dominated by the missing word.</item>
 /// </list>
+/// <para>
+/// And the one that was actually doing the damage: every row on the screen begins with a slot
+/// label, "EXFIL01" or "TRANSIT02", on the same line as the name. Read verbatim off a real
+/// screen:
+/// </para>
+/// <code>
+/// EXFILO1 Friendship Bridge (Co-Op)
+/// EXFIL@2 ZB-214
+/// EXFIL@3 Bridge V-Ex
+/// </code>
+/// <para>
+/// Eight to ten characters of dead weight against a catalog name that has none, and the shorter
+/// the real name the more the prefix dominates the score. On the raid that prompted this, the
+/// only row that matched was Power Line Passage -- the longest name on the screen, and the only
+/// one where the prefix was small enough relative to the name to stay above the threshold. Note
+/// the zero: it reads as a letter O or an at-sign far more often than as a digit, so the
+/// pattern has to accept all three.
+/// </para>
 /// </remarks>
 public static class ExtractLineMatcher
 {
+    /// <summary>
+    /// The slot label every row on the extract screen begins with.
+    /// </summary>
+    /// <remarks>
+    /// The digits are the part that goes wrong. Zero reads as a letter O or an at-sign on most
+    /// rows of a real screen, so the character class has to take all of them, and the label may
+    /// carry one or two of them. The trailing separator is optional because a row whose label
+    /// ran into its name is still a row.
+    /// </remarks>
+    private static readonly Regex RowPrefix = new(
+        @"^\s*(?<kind>EXFIL|TRANSIT)\s*[0-9Oo@]{1,2}\s*[:.\-]?\s*",
+        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+        TimeSpan.FromMilliseconds(50));
+
     /// <summary>A trailing clock, count or distance the screen puts after a name.</summary>
     /// <remarks>
     /// Anchored at the end and required to be its own word, so an exit whose name ends in a
@@ -48,6 +80,48 @@ public static class ExtractLineMatcher
 
     /// <summary>What a containment match is worth: strong, but under an exact reading.</summary>
     private const double ContainmentScore = 0.86;
+
+    /// <summary>
+    /// What kind of row this is, from the slot label the screen puts in front of it.
+    /// </summary>
+    public enum RowKind
+    {
+        /// <summary>No slot label, so this is not one of the panel's rows at all.</summary>
+        Unlabelled,
+
+        /// <summary>An exit from this map.</summary>
+        Extract,
+
+        /// <summary>A way to another map, which is not in any extract catalog.</summary>
+        Transit,
+    }
+
+    /// <summary>
+    /// Takes the slot label off the front of a row and says what it was.
+    /// </summary>
+    /// <remarks>
+    /// Run on the raw line before normalisation. The label and the name share one line on
+    /// screen and therefore one OCR line, and against a catalog name that has no label the
+    /// label is dead weight that sinks every short name below the threshold.
+    /// </remarks>
+    public static (string Text, RowKind Kind) StripRowPrefix(string line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        var match = RowPrefix.Match(line);
+        if (!match.Success)
+        {
+            return (line.Trim(), RowKind.Unlabelled);
+        }
+
+        var kind = match.Groups["kind"].Value.StartsWith("TRANSIT", StringComparison.OrdinalIgnoreCase)
+            ? RowKind.Transit
+            : RowKind.Extract;
+        var rest = line[match.Length..].Trim();
+        // A label with nothing after it is a row whose name did not read. Reported as a row of
+        // its kind with no text rather than as an unlabelled line, because "the screen had a
+        // fifth exit and it did not read" is a different fact from "there were four".
+        return (rest, kind);
+    }
 
     /// <summary>
     /// Strips whatever the screen printed after the name.
