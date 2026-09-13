@@ -1,0 +1,28 @@
+# Tables the sweep knows are written and never read, each with the reason it is excused.
+#
+# A table listed here does not fail the sweep. A table NOT listed here, that the sweep finds
+# written and never read, does — that is the ratchet. Removing a line is how a table stops
+# being excused, and the sweep will then insist somebody either reads it or drops it.
+#
+# Format: <table> <reference> <reason>
+
+# Approved as Next 1 on #139: read the craft and barter data to answer "worth making" per
+# built station and "cheapest route" on every hideout and quest requirement row. The payload
+# already carries station, level, duration, tool inputs, trader and minTraderLevel.
+crafts               #139-Next-1   reader approved, not yet built
+craft_requirements   #139-Next-1   reader approved, not yet built
+craft_outputs        #139-Next-1   reader approved, not yet built
+barters              #139-Next-1   reader approved, not yet built
+barter_requirements  #139-Next-1   reader approved, not yet built
+barter_outputs       #139-Next-1   reader approved, not yet built
+trader_levels        #139-Next-1   reader approved, not yet built; also #146 for trader names
+trader_offers        #139-Next-1   reader approved, not yet built
+
+# Surfaced by fixing this sweep's own DELETE blind spot, and not previously known. The quest
+# board reads quest_catalog_tasks, not these. Filed rather than dropped, because the right
+# answer may be to read them rather than delete them.
+tasks                #174          superseded by quest_catalog_tasks; decide read or drop
+# task_objectives and task_objective_items are NOT here: the sweep says they are read, and
+# listing them failed the stale check, which is the ratchet working in the other direction.
+item_categories      #174          written by the item refresh, read by nothing
+quest_catalog_orphans #174         the import records what it refused and nothing shows it

@@ -30,12 +30,11 @@ public sealed class SqliteDataPersistenceTests
         Assert.All(report.Endpoints, endpoint => Assert.Null(endpoint.Error));
         Assert.Equal(2, await CountAsync(database.Factory, "items"));
         Assert.Equal(1, await CountAsync(database.Factory, "maps"));
-        Assert.Equal(1, await CountAsync(database.Factory, "map_spawns"));
+        // map_spawns, map_transits, map_hazards and map_loot_positions were dropped in 0009:
+        // written on every sync and selected by nothing, while the map reads all four out of
+        // maps.source_json. Extracts and locks are still tables because they are still read.
         Assert.Equal(1, await CountAsync(database.Factory, "map_extracts"));
-        Assert.Equal(1, await CountAsync(database.Factory, "map_transits"));
         Assert.Equal(1, await CountAsync(database.Factory, "map_locks"));
-        Assert.Equal(1, await CountAsync(database.Factory, "map_hazards"));
-        Assert.Equal(2, await CountAsync(database.Factory, "map_loot_positions"));
         Assert.Equal(1, await CountAsync(database.Factory, "tasks"));
         Assert.Equal(1, await CountAsync(database.Factory, "hideout_stations"));
         Assert.Equal(1, await CountAsync(database.Factory, "traders"));
@@ -166,8 +165,8 @@ public sealed class SqliteDataPersistenceTests
     {
         var allowed = new HashSet<string>(StringComparer.Ordinal)
         {
-            "items", "maps", "map_spawns", "map_extracts", "map_transits", "map_locks", "map_hazards",
-            "map_loot_positions", "tasks", "hideout_stations", "traders", "crafts", "barters",
+            "items", "maps", "map_extracts", "map_locks",
+            "tasks", "hideout_stations", "traders", "crafts", "barters",
         };
         if (!allowed.Contains(table))
         {
