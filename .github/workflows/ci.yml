@@ -48,6 +48,17 @@ jobs:
             cat /tmp/sweep.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # The same bug from the other end: a value that is computed correctly and never announced,
+      # so the interface keeps showing what was true when it bound. Reports, never fails.
+      - name: Bound-and-never-announced sweep
+        run: |
+          python3 ./scripts/sweep-unannounced.py | tee /tmp/unannounced.txt
+          {
+            echo '### Bound and never announced'
+            echo '```'
+            cat /tmp/unannounced.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v5
