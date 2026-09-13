@@ -850,6 +850,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private MapFloorDefinition? _selectedFloor;
     private MapRenderModel? _renderModel;
     private PixelRect _backgroundDrawnPixels;
+    private PixelSize _backgroundPixelSize;
     private ScreenshotPosition? _playerPosition;
     private IReadOnlyList<ScreenshotPosition> _playerTrailPositions = [];
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
@@ -982,7 +983,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             var replaced = _tiles;
             Set(ref _tiles, value);
-            ContentBounds = MeasureContent(value);
+            UpdateContentBounds();
             OnPropertyChanged(nameof(HasTiles));
             OnPropertyChanged(nameof(ShowsPlaceholder));
             ReleaseLater(replaced.Select(tile => tile.Image));
@@ -1651,31 +1652,51 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void AdoptAspectRatio(Bitmap? image)
     {
-        if (Tiles.Count > 0)
-        {
-            // Tiled maps take their canvas from the tile plan, which is already true to scale,
-            // and measure their drawn area from the tiles that carry artwork.
-            return;
-        }
-
         if (image is null)
         {
-            ContentBounds = default;
-            return;
+            // Cleared without going through the loader, so the measurement taken from the
+            // last picture has to go with it rather than outliving it.
+            _backgroundDrawnPixels = default;
+            _backgroundPixelSize = default;
         }
 
-        var size = image.PixelSize;
-        if (size.Width <= 0 || size.Height <= 0)
+        if (Tiles.Count == 0 && image is { } artwork)
         {
-            return;
+            var size = artwork.PixelSize;
+            if (size.Width > 0 && size.Height > 0)
+            {
+                // Tiled maps keep the canvas the tile plan gave them, which is already true
+                // to scale. Everything else takes its shape from the picture.
+                const double longestEdge = 1200;
+                var scale = longestEdge / Math.Max(size.Width, size.Height);
+                CanvasWidth = Math.Round(size.Width * scale);
+                CanvasHeight = Math.Round(size.Height * scale);
+            }
         }
 
-        const double longestEdge = 1200;
-        var scale = longestEdge / Math.Max(size.Width, size.Height);
-        CanvasWidth = Math.Round(size.Width * scale);
-        CanvasHeight = Math.Round(size.Height * scale);
-        ContentBounds = DrawnBounds(scale);
+        UpdateContentBounds();
     }
+
+    /// <summary>
+    /// Decides what Fit frames, from whichever of the two pictures actually drew something.
+    /// </summary>
+    /// <remarks>
+    /// Reported on Shoreline's third floor: the building sat as a thumbnail in the middle of
+    /// an otherwise empty panel, fitted at 109%, which is the whole map scaled to the window.
+    /// A floor layer replaces the tiles' artwork without removing the tiles, so the grid still
+    /// reported the extent of the entire map and Fit framed all of it.
+    ///
+    /// Where both drew, the smaller one wins. That is the floor layer inside the map rather
+    /// than the map itself, and framing one building when the player has chosen a floor is the
+    /// point of choosing a floor. A background that covers the same ground as the tiles is not
+    /// smaller and does not take over.
+    ///
+    /// Only fitting and centring use this. The world-to-canvas projection still spans the full
+    /// canvas, because that is the rectangle the map's own transform describes, and moving it
+    /// would put every marker in the wrong place to make the picture bigger.
+    /// </remarks>
+    private void UpdateContentBounds() =>
+        ContentBounds = MapFitBounds.Choose(MeasureContent(Tiles), DrawnBounds());
 
     /// <summary>
     /// Where the drawn map sits inside the canvas, in canvas coordinates.
@@ -1691,16 +1712,26 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// canvas, because that is the rectangle the map's own transform describes, and moving it
     /// would put every marker in the wrong place to make the picture bigger.
     /// </remarks>
-    private Rect DrawnBounds(double scale)
+    private Rect DrawnBounds()
     {
         var drawn = _backgroundDrawnPixels;
-        return drawn.Width <= 0 || drawn.Height <= 0
-            ? default
-            : new Rect(
-                Math.Round(drawn.X * scale),
-                Math.Round(drawn.Y * scale),
-                Math.Round(drawn.Width * scale),
-                Math.Round(drawn.Height * scale));
+        var size = _backgroundPixelSize;
+        if (drawn.Width <= 0 || drawn.Height <= 0 || size.Width <= 0 || size.Height <= 0 ||
+            CanvasWidth <= 0 || CanvasHeight <= 0)
+        {
+            return default;
+        }
+
+        // The picture is stretched to fill the canvas, so the two scales are read from the
+        // canvas rather than assumed equal. On a tiled map the canvas came from the tile plan
+        // and the floor layer's own pixels have nothing to do with it.
+        var scaleX = CanvasWidth / size.Width;
+        var scaleY = CanvasHeight / size.Height;
+        return new(
+            Math.Round(drawn.X * scaleX),
+            Math.Round(drawn.Y * scaleY),
+            Math.Round(drawn.Width * scaleX),
+            Math.Round(drawn.Height * scaleY));
     }
 
     /// <summary>
@@ -1826,8 +1857,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     {
         // Measuring every loaded tile was the same as measuring the whole grid, which is what
         // made Fit shrink the map to make room for empty space.
-        var drawn = tiles.Where(tile => tile.HasArtwork).ToArray();
-        IReadOnlyList<MapTileViewModel> measured = drawn.Length > 0 ? drawn : tiles;
+        //
+        // A grid where no tile carries artwork measures to nothing rather than to the whole
+        // plan. That is what a floor layer looks like: the tiles are still listed, the floor's
+        // own drawing replaces them, and taking the plan's extent meant Fit framed the entire
+        // map when the player had asked for one building inside it.
+        IReadOnlyList<MapTileViewModel> measured = tiles.Where(tile => tile.HasArtwork).ToArray();
         if (measured.Count == 0)
         {
             return default;
@@ -1903,6 +1938,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private async Task<Bitmap?> LoadArtworkAsync(string? path, CancellationToken cancellationToken)
     {
         var image = await LoadBitmapAsync(path, cancellationToken).ConfigureAwait(true);
+        _backgroundPixelSize = image?.PixelSize ?? default;
         _backgroundDrawnPixels = image is null
             ? default
             : await Task.Run(() => MeasureDrawnPixels(image), cancellationToken).ConfigureAwait(true);
