@@ -43,23 +43,36 @@ public sealed class RecognitionService : IRecognitionService
     {
         var coordinated = await _coordinator.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
         var detail = Describe(image, coordinated);
+        // Read off the same pixels whatever the context turns out to be, and read before the
+        // early returns, because the frames that come back with nothing are exactly the ones
+        // where knowing the game had faded its display out is worth having.
+        var hud = HudProbe.Read(image);
         if (!coordinated.FullFrame.IsAvailable)
         {
             return new RecognitionResult(ScanContext.Unknown, [], image.CapturedUtc, "ocr_provider_unavailable")
             {
                 Detail = detail,
+                Hud = hud,
             };
         }
 
         var context = coordinated.Detection.Context;
         if (context == ScanContext.Unknown)
         {
-            return new RecognitionResult(context, [], image.CapturedUtc, "context_unknown") { Detail = detail };
+            return new RecognitionResult(context, [], image.CapturedUtc, "context_unknown")
+            {
+                Detail = detail,
+                Hud = hud,
+            };
         }
 
         if (context == ScanContext.ExtractList)
         {
-            return new RecognitionResult(context, [], image.CapturedUtc, "extract_context") { Detail = detail };
+            return new RecognitionResult(context, [], image.CapturedUtc, "extract_context")
+            {
+                Detail = detail,
+                Hud = hud,
+            };
         }
 
         var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -71,7 +84,7 @@ public sealed class RecognitionService : IRecognitionService
             .Take(5)
             .ToList();
 
-        var result = new RecognitionResult(context, candidates, image.CapturedUtc) { Detail = detail };
+        var result = new RecognitionResult(context, candidates, image.CapturedUtc) { Detail = detail, Hud = hud };
         var diagnostic = candidates.Count == 0
             ? "no_match"
             : result.Selected is not null

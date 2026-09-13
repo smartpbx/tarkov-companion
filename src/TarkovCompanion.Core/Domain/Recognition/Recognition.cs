@@ -185,6 +185,17 @@ public sealed record RecognitionResult(
     /// </remarks>
     public string? Detail { get; init; }
 
+    /// <summary>
+    /// What the game's own display said in this frame, where it was drawn at all.
+    /// </summary>
+    /// <remarks>
+    /// Carried on every recognition rather than only on the contexts that want it, because it
+    /// is read off the same pixels either way and because "the game had faded its display out"
+    /// explains an empty answer that would otherwise look like a failure. Null where the
+    /// recogniser never got as far as looking.
+    /// </remarks>
+    public HudReading? Hud { get; init; }
+
     public RecognitionCandidate? Selected
     {
         get
