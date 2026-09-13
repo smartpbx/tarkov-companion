@@ -86,6 +86,38 @@ public sealed record MapCatalogTransform(
         return true;
     }
 
+    /// <summary>
+    /// Goes the other way: from a point on the map back to a place in the world.
+    /// </summary>
+    /// <remarks>
+    /// Needed the moment somebody can point at the map and mean a location, rather than only
+    /// the map showing locations it was given. The projection is a rotation followed by a
+    /// scale and an offset, and both invert exactly, so this is not an approximation.
+    ///
+    /// The height cannot be recovered, because the projection discards it: two places one
+    /// above the other land on the same point. The caller supplies it, and the sensible answer
+    /// is the height of whoever is pointing.
+    /// </remarks>
+    public bool TryUnproject(MapPoint point, double height, out WorldPosition position)
+    {
+        position = default;
+        if (!IsValid || !IsFinite(point.X) || !IsFinite(point.Y) || !IsFinite(height))
+        {
+            return false;
+        }
+
+        var rotatedX = (point.X - OffsetX) / ScaleX;
+        var rotatedZ = (OffsetY - point.Y) / ScaleY;
+        var radians = RotationDegrees * Math.PI / 180d;
+        var cosine = Math.Cos(radians);
+        var sine = Math.Sin(radians);
+        position = new(
+            (rotatedX * cosine) + (rotatedZ * sine),
+            height,
+            (rotatedZ * cosine) - (rotatedX * sine));
+        return true;
+    }
+
     private static bool IsFinite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
 }
 
