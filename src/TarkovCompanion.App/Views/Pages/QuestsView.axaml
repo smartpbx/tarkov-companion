@@ -20,7 +20,7 @@
       <Expander Header="Import and export progress as JSON">
         <Border Classes="inset" Padding="12,9">
           <StackPanel Spacing="7">
-            <TextBlock Classes="note" Text="Local file only. The file must match the exact profile, mode and generation, and an import is previewed before it is applied." />
+            <TextBlock Classes="note" Text="Local file only, previewed before it is applied." />
             <TextBox PlaceholderText="Quest progress JSON file path" Text="{Binding ExchangePath}" />
             <WrapPanel Orientation="Horizontal">
               <Button Command="{Binding ExportProgressCommand}" Content="Export" Margin="0,0,6,6" />
@@ -60,9 +60,9 @@
         <Border Classes="inset" Padding="12,9">
           <StackPanel Spacing="7">
             <TextBlock Classes="note"
-                       Text="Disconnected by default, and the network is only used after Connect or Refresh. Only GET /token and GET /progress on api.tarkovtracker.org are called: no team access, writes, uploads, telemetry, or automatic apply." />
+                       Text="Reads your progress from api.tarkovtracker.org. Nothing is written back." />
             <TextBlock Classes="note"
-                       Text="Tokens are mode-scoped and stored only with Windows protected storage. Fetch time is not TarkovTracker edit time, and the API does not expose a profile generation." />
+                       Text="Stored with Windows protected storage." />
             <TextBox IsEnabled="{Binding CanConnectTarkovTracker}"
                      PasswordChar="●"
                      PlaceholderText="Paste a PVP_, PVE_, or SZN_ token with GP permission"
@@ -81,7 +81,6 @@
                       IsEnabled="{Binding CanDisconnectTarkovTracker}"
                       Margin="0,0,6,6" />
             </WrapPanel>
-            <TextBlock Classes="note" Text="After reviewing a fetched snapshot, use the conflict buttons, Apply confirmed preview and Undo last import above." />
             <TextBlock Classes="value" Text="{Binding TarkovTrackerStatus}" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
@@ -124,7 +123,6 @@
            with nothing to act on. -->
       <Border Grid.Column="2" Classes="panel">
         <Panel>
-          <TextBlock Classes="note" IsVisible="{Binding HasNoSelectedTask}" Text="Choose a task to see its objectives and record progress against them." />
           <ScrollViewer IsVisible="{Binding HasSelectedTask}" VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="12">
               <TextBlock Classes="title" Text="{Binding SelectedTask.Name}" TextWrapping="Wrap" />
