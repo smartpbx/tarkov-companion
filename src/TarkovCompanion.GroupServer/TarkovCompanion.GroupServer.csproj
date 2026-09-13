@@ -12,4 +12,11 @@
     <ProjectReference Include="..\TarkovCompanion.Core\TarkovCompanion.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The second screen, embedded rather than copied beside the binary. A server deployed as
+         one file and a page that has to sit next to it is a deployment that works until
+         somebody moves the file. -->
+    <EmbeddedResource Include="Tablet/index.html" LogicalName="TarkovCompanion.GroupServer.Tablet.index.html" />
+  </ItemGroup>
+
 </Project>
