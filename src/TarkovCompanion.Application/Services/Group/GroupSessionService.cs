@@ -380,6 +380,9 @@ public sealed class GroupSessionService : IAsyncDisposable
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
             sharedQuests)
         {
+            // Published because a map with floors cannot place somebody without it, and the
+            // waypoints beside them have carried one from the beginning.
+            Y = position?.Position.Y,
             Observed = observed
                 .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout))
                 .ToArray(),
@@ -418,7 +421,10 @@ public sealed class GroupSessionService : IAsyncDisposable
                 .Select(step => new TrailPointDto(
                     step.Position.X,
                     step.Position.Z,
-                    Math.Max(0, (now - step.Timestamp.ToUniversalTime()).TotalSeconds))),
+                    Math.Max(0, (now - step.Timestamp.ToUniversalTime()).TotalSeconds))
+                {
+                    Y = step.Position.Y,
+                }),
         ];
     }
 
@@ -459,14 +465,19 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.MapId,
         Enum.TryParse<RaidLifecycleState>(member.RaidState, out var state) ? state : RaidLifecycleState.Unknown,
         member.Side,
-        member.X is { } x && member.Z is { } z ? new WorldPosition(x, 0, z) : null,
+        member.X is { } x && member.Z is { } z ? new WorldPosition(x, member.Y ?? 0, z) : null,
         member.Heading,
         member.PositionAge is { } age ? TimeSpan.FromSeconds(age) : null,
         member.Loadout ?? [],
         member.Quests ?? [])
     {
+        HasKnownHeight = member.Y is not null,
         Trail = (member.Trail ?? [])
-            .Select(step => new GroupTrailPointView(step.X, step.Z, TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds))))
+            .Select(step => new GroupTrailPointView(
+                step.X,
+                step.Z,
+                TimeSpan.FromSeconds(Math.Max(0, step.AgeSeconds)),
+                step.Y))
             .ToArray(),
     };
 
@@ -508,6 +519,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout,
         [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests)
     {
+        /// <summary>How high they were standing, absent from clients that predate it.</summary>
+        [JsonPropertyName("y")]
+        public double? Y { get; init; }
+
         /// <summary>What this member's game said about everybody else in their party.</summary>
         [JsonPropertyName("observed")]
         public IReadOnlyList<ObservedKitDto>? Observed { get; init; }
@@ -520,7 +535,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     private sealed record TrailPointDto(
         [property: JsonPropertyName("x")] double X,
         [property: JsonPropertyName("z")] double Z,
-        [property: JsonPropertyName("age")] double AgeSeconds);
+        [property: JsonPropertyName("age")] double AgeSeconds)
+    {
+        [JsonPropertyName("y")]
+        public double? Y { get; init; }
+    }
 
     private sealed record ObservedKitDto(
         [property: JsonPropertyName("name")] string Name,

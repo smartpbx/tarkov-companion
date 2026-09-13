@@ -3579,6 +3579,29 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdateGroupMarks();
     }
 
+    /// <summary>Which floor of this map a squadmate is standing on, where that can be said.</summary>
+    /// <remarks>
+    /// The same selection the player's own position goes through, so two people on the same
+    /// staircase are described by the same rule rather than by two.
+    /// </remarks>
+    private string? FloorNameFor(GroupMemberView member)
+    {
+        if (member.Position is not { } position ||
+            _renderModel?.Variant is not { } variant ||
+            variant.Floors.Count <= 1)
+        {
+            // Nothing to say on a map drawn as one storey.
+            return null;
+        }
+
+        // A height of zero rebuilt from a client that published none is a specific claim, not
+        // a missing one, and on a five-floor map it would read as "ground floor". Saying so is
+        // the honest answer and is also a visible reason to update.
+        return member.HasKnownHeight
+            ? _presentationService.SelectFloor(variant, position)?.Name
+            : "floor unknown";
+    }
+
     private void UpdateGroupPanel(IReadOnlyList<GroupMemberView> members)
     {
         if (members.Count == 0)
@@ -3594,7 +3617,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var locations = Locations;
         var rows = members
             .OrderBy(member => member.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Select(member => Describe(member, IsOnThisMap(member.MapId), locations) with
+            .Select(member => Describe(member, IsOnThisMap(member.MapId), locations, FloorNameFor(member)) with
             {
                 Rgb = ColorFor(member.Name),
             })
@@ -3616,19 +3639,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public static GroupMemberPanelViewModel Describe(
         GroupMemberView member,
         bool isHere,
-        IReadOnlyList<MapLocation> locations)
+        IReadOnlyList<MapLocation> locations,
+        string? floorName = null)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(locations);
         var elsewhere = !isHere;
         var age = member.PositionAge;
+        // Supplied by the caller, which is the only thing that knows whether this map has
+        // floors at all: saying "floor unknown" about Factory's single storey would be noise,
+        // and saying nothing about Reserve's five would be the omission this fixes.
+        var floor = isHere && member.Position is not null ? floorName : null;
         return new(
             member.Name,
             DescribeWhere(member, locations),
             member.Position is { } position
                 ? string.Create(
                     CultureInfo.CurrentCulture,
-                    $"{position.X:F0}, {position.Z:F0} · {DescribeAge(age)}")
+                    $"{position.X:F0}, {position.Z:F0}{(floor is { Length: > 0 } ? $" · {floor}" : string.Empty)} · {DescribeAge(age)}")
                 : "No position shared",
             string.Join(" · ", member.Loadout.Concat(member.Quests)),
             elsewhere,
