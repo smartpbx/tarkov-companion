@@ -1132,7 +1132,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public MapFloorDefinition? SelectedFloor
     {
         get => _selectedFloor;
-        private set => Set(ref _selectedFloor, value);
+        private set
+        {
+            Set(ref _selectedFloor, value);
+            // The building's name belongs to the floor being shown, so changing floor by hand
+            // changes it too rather than leaving the last one's label behind.
+            UpdateArea();
+        }
     }
 
     /// <summary>
@@ -2981,13 +2987,105 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _ = SelectFloorAsync(target, automatic: true);
     }
 
+    /// <summary>Names the building the player is in, or says nothing.</summary>
+    private void UpdateArea() =>
+        Area = _playerPosition is { } position
+            ? MapAreaName.Describe(SelectedFloor, position.Position) ?? string.Empty
+            : string.Empty;
+
+    private string _area = string.Empty;
+
+    /// <summary>
+    /// Which building's floor the player is standing on, where the catalog names one.
+    /// </summary>
+    /// <remarks>
+    /// A floor number alone is not an answer on the maps that have this. The second floor of
+    /// dorms on Customs is 2.7 to 6.5 metres and the second floor of big red starts at 5.7, so
+    /// "2nd Floor" means two different heights depending on which building you are in. The
+    /// floor chosen from a player's height has always taken the named rectangles into account
+    /// and never said which one it matched.
+    /// </remarks>
+    public string Area
+    {
+        get => _area;
+        private set
+        {
+            Set(ref _area, value);
+            OnPropertyChanged(nameof(HasArea));
+        }
+    }
+
+    public bool HasArea => Area.Length > 0;
+    /// <summary>
+    /// Whether the map is showing a raid that has already been played.
+    /// </summary>
+    /// <remarks>
+    /// While it is, a live screenshot must not take the marker back: somebody stepping through
+    /// last night's raid has said what they want the map to show, and a new screenshot arriving
+    /// mid-replay would silently be answering a different question.
+    /// </remarks>
+    public bool IsReplaying { get; private set; }
+
+    /// <summary>
+    /// Shows a recorded raid up to one of its screenshots.
+    /// </summary>
+    /// <remarks>
+    /// The same marker and the same dotted trail the live map uses, because a replay is the
+    /// same claim about the same evidence: these places, in this order, each from a screenshot
+    /// the player took. Drawing it any other way would invent a distinction that is not there.
+    /// </remarks>
+    public void ShowReplay(IReadOnlyList<ScreenshotPosition> trail, int step)
+    {
+        ArgumentNullException.ThrowIfNull(trail);
+        if (trail.Count == 0)
+        {
+            ClearReplay();
+            return;
+        }
+
+        var index = Math.Clamp(step, 0, trail.Count - 1);
+        IsReplaying = true;
+        _playerPosition = trail[index];
+        _playerTrailPositions = trail.Take(index + 1).ToArray();
+        UpdatePlayerMarker();
+        UpdateArea();
+        CentreOnReplay();
+    }
+
+    /// <summary>Hands the map back to the live raid.</summary>
+    public void ClearReplay()
+    {
+        if (!IsReplaying)
+        {
+            return;
+        }
+
+        IsReplaying = false;
+        _playerPosition = null;
+        _playerTrailPositions = [];
+        UpdatePlayerMarker();
+        UpdateArea();
+    }
+
+    private void CentreOnReplay()
+    {
+        FollowsPlayer = true;
+        PlayerFollowRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
         ArgumentNullException.ThrowIfNull(trail);
+        if (IsReplaying)
+        {
+            return;
+        }
+
         _playerPosition = position;
         _playerTrailPositions = trail;
         UpdatePlayerMarker();
         FollowFloor(position);
+        UpdateArea();
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
