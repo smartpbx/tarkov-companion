@@ -453,7 +453,10 @@ public static class AppComposition
                 !document.RootElement.TryGetProperty("serverUri", out var server) ||
                 server.ValueKind != System.Text.Json.JsonValueKind.String ||
                 !Uri.TryCreate(server.GetString(), UriKind.Absolute, out var uri) ||
-                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                // The same rule the group key follows. The catalog mirror does not carry the
+                // key, but it is the same address read from the same file, and accepting an
+                // http host here while refusing it there would be a confusing half-measure.
+                !GroupSharingSettings.IsTransportAcceptable(uri))
             {
                 return null;
             }
