@@ -1744,6 +1744,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // map can mark them out from the ten it knows the map has.
         Map.ShowActiveExtracts(snapshot.Raid.ActiveExtracts);
         Map.ShowGroup(snapshot.Group.Members);
+        Map.ShowGroupMarks(snapshot.Group.Waypoints, snapshot.Group.Pings);
         HasScan = snapshot.Scan.Succeeded;
         LastScanName = snapshot.Scan.Succeeded ? snapshot.Scan.ItemName ?? "Unnamed item" : "No item scanned";
         LastScanValue = snapshot.Scan.Succeeded && snapshot.Scan.ValueRoubles is { } value

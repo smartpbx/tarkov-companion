@@ -121,6 +121,46 @@ public sealed class MapMarkerScale : INotifyPropertyChanged
 /// <param name="BearingDegrees">Their facing, converted into this map's frame.</param>
 /// <param name="Detail">Name and age together, for the tooltip.</param>
 /// <param name="IsStale">Whether their position is old enough that they have certainly moved.</param>
+/// <summary>
+/// A place the group marked, drawn on the map.
+/// </summary>
+/// <remarks>
+/// Waypoints and pings share one shape because they are the same gesture at two speeds: both
+/// are somebody saying "here". What differs is how long it means anything, so a ping is drawn
+/// hollow and a waypoint filled, and a waypoint somebody has reached is drawn quiet rather than
+/// removed, because "we went there" is worth keeping on screen.
+/// </remarks>
+public sealed record GroupMarkViewModel(
+    long Id,
+    double CenterX,
+    double CenterY,
+    string Label,
+    string Detail,
+    bool IsPing,
+    bool IsReached)
+{
+    public MapMarkerScale Scale { get; init; } = MapMarkerScale.Unscaled;
+
+    public double Extent => 40;
+
+    public double Left => CenterX - (Extent / 2);
+
+    public double Top => CenterY - (Extent / 2);
+
+    public double PinSize => 18;
+
+    /// <summary>Ochre, the colour this interface already uses for the group.</summary>
+    public string FillColor => IsPing ? "#00000000" : IsReached ? "#66C6A15B" : "#FFC6A15B";
+
+    public string OutlineColor => IsPing ? "#FFE0B45C" : "#FF0B1016";
+
+    public double OutlineWidth => IsPing ? 2.4 : 1.5;
+
+    public bool HasLabel => Label.Length > 0;
+
+    public Thickness LabelInset => new(0, (Extent / 2) + 2, 0, 0);
+}
+
 public sealed record GroupMarkerViewModel(
     string Name,
     double CenterX,
@@ -689,6 +729,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
+    private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
+    private IReadOnlyList<GroupWaypointView> _waypoints = [];
+    private IReadOnlyList<GroupPingView> _pings = [];
     private AvaloniaList<Point> _playerTrail = [];
     private string? _followedPositionFilename;
     private bool _followsPlayer = true;
@@ -2211,6 +2254,115 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// comparison is on names and positions rather than the list, which is rebuilt every few
     /// seconds by the group service and would never compare equal.
     /// </remarks>
+    /// <summary>Everything the group has marked on this map.</summary>
+    public IReadOnlyList<GroupMarkViewModel> GroupMarks
+    {
+        get => _groupMarks;
+        private set => Set(ref _groupMarks, value);
+    }
+
+    /// <summary>
+    /// Takes the group's waypoints and pings, which arrive with every exchange.
+    /// </summary>
+    /// <remarks>
+    /// The server expires pings, so whatever arrives is current and the client needs no timer
+    /// of its own. Redrawn unconditionally rather than compared first, because a ping's whole
+    /// life is forty-five seconds and a comparison that skipped a redraw would strand one on
+    /// the map after the server had forgotten it.
+    /// </remarks>
+    public void ShowGroupMarks(IReadOnlyList<GroupWaypointView> waypoints, IReadOnlyList<GroupPingView> pings)
+    {
+        ArgumentNullException.ThrowIfNull(waypoints);
+        ArgumentNullException.ThrowIfNull(pings);
+        _waypoints = waypoints;
+        _pings = pings;
+        UpdateGroupMarks();
+    }
+
+    private void UpdateGroupMarks()
+    {
+        var mapper = CreateCanvasMapper();
+        if (_renderModel is null || mapper is null || (_waypoints.Count == 0 && _pings.Count == 0))
+        {
+            GroupMarks = [];
+            return;
+        }
+
+        var marks = new List<GroupMarkViewModel>();
+        var numbered = 0;
+        foreach (var waypoint in _waypoints)
+        {
+            // Marks belong to a map. Projecting one from another map through this transform
+            // would put it somewhere plausible and wrong, the same trap as a member's position.
+            if (!string.Equals(waypoint.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            numbered++;
+            if (!TryPlace(mapper, waypoint.X, waypoint.Y, waypoint.Z, out var point))
+            {
+                continue;
+            }
+
+            var reached = waypoint.Reached is { Length: > 0 };
+            marks.Add(new(
+                waypoint.Id,
+                point.X,
+                point.Y,
+                waypoint.Label is { Length: > 0 } label ? label : numbered.ToString(CultureInfo.CurrentCulture),
+                reached
+                    ? $"{waypoint.Label ?? "Waypoint"} · reached by {waypoint.Reached}"
+                    : $"{waypoint.Label ?? "Waypoint"} · marked by {waypoint.By}",
+                IsPing: false,
+                IsReached: reached)
+            {
+                Scale = _markerScale,
+            });
+        }
+
+        foreach (var ping in _pings)
+        {
+            if (!string.Equals(ping.MapId, SelectedLocation?.Id, StringComparison.OrdinalIgnoreCase) ||
+                !TryPlace(mapper, ping.X, ping.Y, ping.Z, out var point))
+            {
+                continue;
+            }
+
+            marks.Add(new(
+                ping.Id,
+                point.X,
+                point.Y,
+                ping.Label ?? string.Empty,
+                $"{ping.By} is pointing here",
+                IsPing: true,
+                IsReached: false)
+            {
+                Scale = _markerScale,
+            });
+        }
+
+        GroupMarks = marks;
+    }
+
+    private bool TryPlace(Func<MapPoint, Point> mapper, double x, double y, double z, out Point point)
+    {
+        point = default;
+        if (_renderModel is null || !_renderModel.TryMapPosition(new WorldPosition(x, y, z), out var mapPoint))
+        {
+            return false;
+        }
+
+        var projected = mapper(mapPoint);
+        if (!double.IsFinite(projected.X) || !double.IsFinite(projected.Y))
+        {
+            return false;
+        }
+
+        point = projected;
+        return true;
+    }
+
     public void ShowGroup(IReadOnlyList<GroupMemberView> members)
     {
         ArgumentNullException.ThrowIfNull(members);
@@ -2225,6 +2377,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         _groupMembers = members;
         UpdateGroupMarkers();
+        UpdateGroupMarks();
     }
 
     private void UpdateGroupMarkers()

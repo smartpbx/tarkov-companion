@@ -184,7 +184,7 @@ public sealed class GroupSessionService : IAsyncDisposable
                 members.Length);
         }
 
-        Publish(new(
+        Publish(new GroupSnapshot(
             true,
             members,
             members.Length switch
@@ -193,7 +193,15 @@ public sealed class GroupSessionService : IAsyncDisposable
                 1 => $"Sharing as {settings.DisplayName}. One other person sharing.",
                 var count => $"Sharing as {settings.DisplayName}. {count} others sharing.",
             },
-            DateTimeOffset.UtcNow));
+            DateTimeOffset.UtcNow)
+        {
+            // The server expires pings for us, so whatever comes back is current by
+            // definition and the client needs no timer of its own.
+            Waypoints = (room?.Waypoints ?? []).Select(w =>
+                new GroupWaypointView(w.Id, w.By, w.MapId, w.X, w.Y, w.Z, w.Label, w.CompletedBy)).ToArray(),
+            Pings = (room?.Pings ?? []).Select(p =>
+                new GroupPingView(p.Id, p.By, p.MapId, p.X, p.Y, p.Z, p.Label, p.CreatedUtc)).ToArray(),
+        });
     }
 
     /// <summary>
@@ -286,5 +294,32 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private sealed record RoomStateDto(
         [property: JsonPropertyName("room")] string Room,
-        [property: JsonPropertyName("members")] IReadOnlyList<MemberStateDto> Members);
+        [property: JsonPropertyName("members")] IReadOnlyList<MemberStateDto> Members)
+    {
+        [JsonPropertyName("waypoints")]
+        public IReadOnlyList<WaypointDto> Waypoints { get; init; } = [];
+
+        [JsonPropertyName("pings")]
+        public IReadOnlyList<PingDto> Pings { get; init; } = [];
+    }
+
+    private sealed record WaypointDto(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("by")] string By,
+        [property: JsonPropertyName("mapId")] string MapId,
+        [property: JsonPropertyName("x")] double X,
+        [property: JsonPropertyName("y")] double Y,
+        [property: JsonPropertyName("z")] double Z,
+        [property: JsonPropertyName("label")] string? Label,
+        [property: JsonPropertyName("completedBy")] string? CompletedBy);
+
+    private sealed record PingDto(
+        [property: JsonPropertyName("id")] long Id,
+        [property: JsonPropertyName("by")] string By,
+        [property: JsonPropertyName("mapId")] string MapId,
+        [property: JsonPropertyName("x")] double X,
+        [property: JsonPropertyName("y")] double Y,
+        [property: JsonPropertyName("z")] double Z,
+        [property: JsonPropertyName("label")] string? Label,
+        [property: JsonPropertyName("createdUtc")] DateTimeOffset CreatedUtc);
 }

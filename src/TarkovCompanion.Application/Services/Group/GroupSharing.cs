@@ -94,12 +94,41 @@ public sealed record GroupMemberView(
 /// <param name="Members">Everyone else who has published recently.</param>
 /// <param name="Detail">A sentence saying what is happening, including why nothing is.</param>
 /// <param name="UpdatedUtc">When this last changed.</param>
+/// <summary>A place the group marked, which stays until somebody clears it.</summary>
+/// <param name="Reached">Who got there, once anybody has.</param>
+public sealed record GroupWaypointView(
+    long Id,
+    string By,
+    string MapId,
+    double X,
+    double Y,
+    double Z,
+    string? Label,
+    string? Reached);
+
+/// <summary>A place somebody is pointing at right now, which fades.</summary>
+public sealed record GroupPingView(
+    long Id,
+    string By,
+    string MapId,
+    double X,
+    double Y,
+    double Z,
+    string? Label,
+    DateTimeOffset CreatedUtc);
+
 public sealed record GroupSnapshot(
     bool IsSharing,
     IReadOnlyList<GroupMemberView> Members,
     string Detail,
     DateTimeOffset UpdatedUtc)
 {
+    /// <summary>Places the group marked, which stay until cleared.</summary>
+    public IReadOnlyList<GroupWaypointView> Waypoints { get; init; } = [];
+
+    /// <summary>Places somebody is pointing at now, which the server expires for us.</summary>
+    public IReadOnlyList<GroupPingView> Pings { get; init; } = [];
+
     public static GroupSnapshot Off { get; } = new(
         false,
         [],
