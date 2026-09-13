@@ -38,13 +38,50 @@ public sealed class MapSideFilterTests
         Assert.True(MapViewModel.CanBeTakenForTest(Extract(exit), MapFeatureFaction.Unknown));
 
     /// <summary>
-    /// A scav wants to know where the PMCs started, so spawns keep both sides.
+    /// A scav does not see PMC spawn points, because they are not news by the time they arrive.
     /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite, on the argument that "a scav wants to know where the
+    /// PMCs started". Reported as wrong and it is: a scav joins twenty minutes in, so a PMC
+    /// spawn point describes where somebody was at a time the scav was not in the raid. It was
+    /// also inconsistent — SpawnProximity has always filtered the panel by side, so the list
+    /// beside the map and the markers on it disagreed.
+    /// </remarks>
     [Fact]
-    public void SpawnsAreNotFiltered() =>
-        Assert.True(MapViewModel.CanBeTakenForTest(
-            new(MapOverlayKind.Spawns, new(0, 0), "Spawn") { Faction = MapFeatureFaction.Pmc },
+    public void AScavIsNotShownPmcSpawns() =>
+        Assert.False(MapViewModel.CanBeTakenForTest(
+            Spawn(MapFeatureFaction.Pmc),
             MapFeatureFaction.Scav));
+
+    [Fact]
+    public void AScavIsShownScavSpawns() =>
+        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(MapFeatureFaction.Scav), MapFeatureFaction.Scav));
+
+    /// <summary>At the start of a PMC raid, where the other PMCs began is the whole point.</summary>
+    [Fact]
+    public void APmcIsShownPmcSpawns() =>
+        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(MapFeatureFaction.Pmc), MapFeatureFaction.Pmc));
+
+    /// <summary>
+    /// A spawn the feed says nothing about stays, and so does every spawn on a raid whose side
+    /// was never established.
+    /// </summary>
+    /// <remarks>
+    /// Same rule the exits follow and the same reason: an empty layer reads as a broken
+    /// feature, and guessing a side away is worse than leaving it drawn.
+    /// </remarks>
+    [Theory]
+    [InlineData(MapFeatureFaction.Unknown)]
+    [InlineData(MapFeatureFaction.Shared)]
+    public void ASpawnWithNoStatedSideStays(MapFeatureFaction faction) =>
+        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(faction), MapFeatureFaction.Scav));
+
+    [Fact]
+    public void EverySpawnStaysWhenTheSideIsNotKnown() =>
+        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(MapFeatureFaction.Pmc), MapFeatureFaction.Unknown));
+
+    private static MapOverlayElement Spawn(MapFeatureFaction faction) =>
+        new(MapOverlayKind.Spawns, new(0, 0), "Spawn") { Faction = faction };
 
     [Fact]
     public void LockedDoorsAreNotFiltered() =>

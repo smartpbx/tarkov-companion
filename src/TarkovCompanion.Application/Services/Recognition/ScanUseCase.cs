@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.Runtime;
 using Microsoft.Extensions.Logging;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Abstractions;
@@ -16,7 +17,7 @@ public sealed class ScanUseCase : IScanUseCase
     private readonly IContainerRecognitionService _containers;
     private readonly IFleaRecognitionService _flea;
     private readonly IMapDataService _maps;
-    private readonly IRaidStateService _raidState;
+    private readonly IRaidActivityRecorder _raid;
     private readonly IItemRepository _items;
     private readonly IRecommendationEngine _recommendations;
     private readonly IScanRecommendationContextProvider _recommendationContext;
@@ -32,7 +33,7 @@ public sealed class ScanUseCase : IScanUseCase
         IContainerRecognitionService containers,
         IFleaRecognitionService flea,
         IMapDataService maps,
-        IRaidStateService raidState,
+        IRaidActivityRecorder raid,
         IItemRepository items,
         IRecommendationEngine recommendations,
         IScanRecommendationContextProvider recommendationContext,
@@ -47,7 +48,7 @@ public sealed class ScanUseCase : IScanUseCase
         _containers = containers ?? throw new ArgumentNullException(nameof(containers));
         _flea = flea ?? throw new ArgumentNullException(nameof(flea));
         _maps = maps ?? throw new ArgumentNullException(nameof(maps));
-        _raidState = raidState ?? throw new ArgumentNullException(nameof(raidState));
+        _raid = raid ?? throw new ArgumentNullException(nameof(raid));
         _items = items ?? throw new ArgumentNullException(nameof(items));
         _recommendations = recommendations ?? throw new ArgumentNullException(nameof(recommendations));
         _recommendationContext = recommendationContext ?? throw new ArgumentNullException(nameof(recommendationContext));
@@ -305,7 +306,7 @@ public sealed class ScanUseCase : IScanUseCase
         List<ScanEvidence> evidence,
         CancellationToken cancellationToken)
     {
-        var mapId = _raidState.Current.MapId;
+        var mapId = _raid.Current.MapId;
         if (string.IsNullOrWhiteSpace(mapId))
         {
             return (null, ScanCompletionStatus.Partial, "current_map_unavailable");
@@ -327,12 +328,17 @@ public sealed class ScanUseCase : IScanUseCase
         // exits also carries the clock. It falls into the unmatched lines because it is not an
         // extract name, which is exactly where to look for it.
         var leftover = result.UnmatchedLines.Concat(result.AmbiguousLines).ToArray();
-        _raidState.ApplyExtracts(
+        // Through the coordinator, not past it. The direct call left the map waiting for the
+        // next log line to redraw, and left ApplyExtractsAsync — the only writer of an
+        // "extracts" raid event — with no callers at all, so no raid has ever recorded which
+        // exits it was offered.
+        await _raid.ApplyExtractsAsync(
             result.Extracts,
             image.CapturedUtc,
+            cancellationToken,
             RaidTimer.Read(leftover),
             leftover,
-            result.Transits);
+            result.Transits).ConfigureAwait(false);
         foreach (var observation in result.Observations)
         {
             evidence.Add(new(
