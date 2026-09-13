@@ -487,6 +487,13 @@
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="6">
             <TextBlock Classes="chooserLabel" Text="Floor" />
+            <!-- Which building's floor, where the catalog names one. The second floor of dorms
+                 on Customs and the second floor of big red are different heights, so a floor
+                 number alone is not an answer on the maps that have this. -->
+            <TextBlock Classes="chooserLabel ochre"
+                       Text="{Binding Area}"
+                       IsVisible="{Binding HasArea}"
+                       VerticalAlignment="Center" />
             <ComboBox
                 x:Name="FloorChooser"
                 Classes="chooser"

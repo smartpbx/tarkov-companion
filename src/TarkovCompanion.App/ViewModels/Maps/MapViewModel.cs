@@ -1132,7 +1132,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public MapFloorDefinition? SelectedFloor
     {
         get => _selectedFloor;
-        private set => Set(ref _selectedFloor, value);
+        private set
+        {
+            Set(ref _selectedFloor, value);
+            // The building's name belongs to the floor being shown, so changing floor by hand
+            // changes it too rather than leaving the last one's label behind.
+            UpdateArea();
+        }
     }
 
     /// <summary>
@@ -2981,6 +2987,36 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _ = SelectFloorAsync(target, automatic: true);
     }
 
+    /// <summary>Names the building the player is in, or says nothing.</summary>
+    private void UpdateArea() =>
+        Area = _playerPosition is { } position
+            ? MapAreaName.Describe(SelectedFloor, position.Position) ?? string.Empty
+            : string.Empty;
+
+    private string _area = string.Empty;
+
+    /// <summary>
+    /// Which building's floor the player is standing on, where the catalog names one.
+    /// </summary>
+    /// <remarks>
+    /// A floor number alone is not an answer on the maps that have this. The second floor of
+    /// dorms on Customs is 2.7 to 6.5 metres and the second floor of big red starts at 5.7, so
+    /// "2nd Floor" means two different heights depending on which building you are in. The
+    /// floor chosen from a player's height has always taken the named rectangles into account
+    /// and never said which one it matched.
+    /// </remarks>
+    public string Area
+    {
+        get => _area;
+        private set
+        {
+            Set(ref _area, value);
+            OnPropertyChanged(nameof(HasArea));
+        }
+    }
+
+    public bool HasArea => Area.Length > 0;
+
     public void ShowPlayer(ScreenshotPosition? position, IReadOnlyList<ScreenshotPosition> trail)
     {
         ArgumentNullException.ThrowIfNull(trail);
@@ -2988,6 +3024,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _playerTrailPositions = trail;
         UpdatePlayerMarker();
         FollowFloor(position);
+        UpdateArea();
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
