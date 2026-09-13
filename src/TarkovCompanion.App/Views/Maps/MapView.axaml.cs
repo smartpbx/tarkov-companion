@@ -526,6 +526,22 @@ public sealed partial class MapView : UserControl
     private void FitClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.RequestFit();
 
+    private async void RotateClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            await RunGuardedAsync(viewModel, viewModel.RotateAsync);
+        }
+    }
+
+    private async void FloorVariantClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            await RunGuardedAsync(viewModel, viewModel.UseFloorVariantAsync);
+        }
+    }
+
     private async void AttributionClick(object? sender, RoutedEventArgs eventArgs)
     {
         if (DataContext is MapViewModel viewModel && TopLevel.GetTopLevel(this)?.Launcher is { } launcher)

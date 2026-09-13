@@ -1987,6 +1987,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IPriceHistoryService priceHistoryService,
         IRequirementCatalog requirementCatalog,
         IItemFactCatalog itemFactCatalog,
+        IQuestProgressService questProgress,
         IEventCatalog eventCatalog,
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
@@ -2050,7 +2051,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             SendReport = group.ReportProblemAsync,
         };
         Ammo = new(itemFactCatalog, itemRepository);
-        Keys = new(itemFactCatalog, itemRepository);
+        Keys = new(itemFactCatalog, itemRepository, questProgress);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
         Events = new(eventCatalog, eventTracker, itemRepository);
         Squad = new(itemRepository);
