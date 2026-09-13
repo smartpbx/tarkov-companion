@@ -25,6 +25,7 @@ public static class CrashLog
 
     private static readonly Lock Gate = new();
     private static string? _directory;
+    private static bool _subscribed;
     private static string _lastEntry = string.Empty;
     private static int _repeats;
     private static DateTimeOffset _repeatsSince;
@@ -34,7 +35,17 @@ public static class CrashLog
     public static void Install(string logDirectory)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(logDirectory);
-        _directory = logDirectory;
+        lock (Gate)
+        {
+            _directory = logDirectory;
+
+            // A new destination is a new log, so what was written last belongs to a file this
+            // one is no longer appending to. Left standing, the collapse below compares the
+            // first line of the new log against the last line of the old one and, when they
+            // match — which for the started line they always do — writes nothing at all.
+            _lastEntry = string.Empty;
+            _repeats = 0;
+        }
 
         // Which build wrote this, first thing. A log that cannot name its own build is a log
         // somebody has to guess about, and every assembly reported 1.0.0.0 until the packaging
@@ -45,6 +56,19 @@ public static class CrashLog
         Write("started", string.Create(
             CultureInfo.InvariantCulture,
             $"build {build} · {RuntimeInformation.OSDescription} · {RuntimeInformation.ProcessArchitecture}"));
+
+        // Once, however many times Install is called. The application calls it at startup and
+        // nowhere else, but a second subscription would write every unhandled exception twice,
+        // and the count only ever goes up.
+        lock (Gate)
+        {
+            if (_subscribed)
+            {
+                return;
+            }
+
+            _subscribed = true;
+        }
 
         AppDomain.CurrentDomain.UnhandledException += (_, arguments) =>
             Write("unhandled-exception", arguments.ExceptionObject as Exception);
@@ -89,7 +113,7 @@ public static class CrashLog
 
                 if (_repeats > 0)
                 {
-                    File.AppendAllText(path, string.Create(
+                    Append(path, string.Create(
                         CultureInfo.InvariantCulture,
                         $"{DateTimeOffset.UtcNow:O} [repeat] still failing ({_repeats + 1}x) since {_repeatsSince:HH:mm}{Environment.NewLine}"));
                     _repeats = 0;
@@ -98,7 +122,7 @@ public static class CrashLog
                 _lastEntry = line;
                 _repeatsSince = DateTimeOffset.UtcNow;
                 Roll(path);
-                File.AppendAllText(path, entry);
+                Append(path, entry);
             }
         }
         catch (Exception failure) when (failure is IOException
@@ -107,6 +131,29 @@ public static class CrashLog
         {
             // Diagnostics must never become the reason the application fails.
         }
+    }
+
+    /// <summary>
+    /// Appends a line, sharing the file both ways while it does.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="File.AppendAllText(string, string?)"/> holds the file as
+    /// <see cref="FileShare.Read"/>, and Windows negotiates sharing from both ends: for the
+    /// moment the append is open, every other handle asking for write access is refused, even
+    /// one that was itself willing to share. A diagnostic log is not worth refusing anybody
+    /// over. Ordering is not what the share mode protects anyway — every write in this class is
+    /// already serialised behind <see cref="Gate"/>, and the writes that are not are not ours
+    /// to order.
+    /// </remarks>
+    private static void Append(string path, string text)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.ReadWrite);
+        using var writer = new StreamWriter(stream);
+        writer.Write(text);
     }
 
     /// <summary>
