@@ -99,11 +99,25 @@ public sealed record OcrRequest(ScanContext Context, PixelRect? Region = null, s
 }
 
 /// <summary>
-/// Confidence is an engine-normalized quality score in the inclusive 0..1 range.
-/// It is suitable for ranking output from the same configured provider; it is not
-/// a calibrated probability that the text is correct.
+/// One line an engine read, with its own opinion of how well it read it.
 /// </summary>
-public sealed record OcrLine(string Text, PixelRect Bounds, Confidence Confidence);
+/// <remarks>
+/// <para>
+/// Confidence is an engine-normalized quality score in the inclusive 0..1 range. It is
+/// suitable for ranking output from the same configured provider; it is not a calibrated
+/// probability that the text is correct.
+/// </para>
+/// <para>
+/// <b>Null means the engine does not score at all</b>, which is different from scoring zero and
+/// has to stay different. The engine Windows provides returns no score of any kind, and
+/// reporting that as <see cref="Confidence.Unknown"/> made every reader treat a perfect read as
+/// a worthless one: the item resolver blends 80% similarity with 20% confidence, so a
+/// character-perfect match topped out at 0.80 against an auto-select threshold of 0.90 and the
+/// scanner could never select anything. Whoever blends this has to decide what to do with no
+/// opinion, and the type is what makes them.
+/// </para>
+/// </remarks>
+public sealed record OcrLine(string Text, PixelRect Bounds, Confidence? Confidence);
 
 public sealed record OcrResult(
     IReadOnlyList<OcrLine> Lines,

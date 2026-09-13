@@ -28,8 +28,18 @@ namespace TarkovCompanion.GroupServer;
 /// client already has.
 /// </para>
 /// </remarks>
-public sealed class CatalogMirror(HttpClient httpClient, TimeProvider timeProvider)
+public sealed class CatalogMirror(IHttpClientFactory httpClientFactory, TimeProvider timeProvider)
 {
+    /// <summary>
+    /// The named client this mirror fetches with.
+    /// </summary>
+    /// <remarks>
+    /// Named rather than typed. A typed client registration makes its own class transient, and
+    /// a transient mirror holds nothing: every request would start with an empty store and
+    /// re-download the catalog it exists to stop anybody re-downloading.
+    /// </remarks>
+    public const string HttpClientName = "catalog-upstream";
+
     /// <summary>How long a held snapshot is served before upstream is asked again.</summary>
     /// <remarks>
     /// The client's own freshness window for static data is nine hours. An hour here means the
@@ -53,12 +63,20 @@ public sealed class CatalogMirror(HttpClient httpClient, TimeProvider timeProvid
         "traders",
         "barters",
         "crafts",
-        "ammo",
-        "achievements",
-        "status",
     ];
 
-    private static readonly string[] Modes = ["regular", "pve"];
+    /// <summary>
+    /// The modes the client actually asks for.
+    /// </summary>
+    /// <remarks>
+    /// "pvp-season" was missing, which is the one a seasonal profile uses, so the mirror
+    /// refused the requests it most needed to serve. Three endpoints that do not exist upstream
+    /// were also listed -- "ammo", "achievements" and "status" -- and an allowlist entry for a
+    /// path that 404s is a path this server answers 503 to for ever, which is worse than not
+    /// listing it: the client falls back either way, and the failure looks like the mirror
+    /// being down rather than the path being wrong.
+    /// </remarks>
+    private static readonly string[] Modes = ["regular", "pve", "pvp-season"];
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly Dictionary<string, Snapshot> _held = new(StringComparer.Ordinal);
@@ -127,7 +145,8 @@ public sealed class CatalogMirror(HttpClient httpClient, TimeProvider timeProvid
                 }
             }
 
-            var body = await httpClient
+            var body = await httpClientFactory
+                .CreateClient(HttpClientName)
                 .GetByteArrayAsync(new Uri("https://json.tarkov.dev/" + path), cancellationToken)
                 .ConfigureAwait(false);
             // Checked before it is held. A truncated or error body served with a strong tag is

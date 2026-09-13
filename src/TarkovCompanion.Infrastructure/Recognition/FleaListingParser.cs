@@ -57,7 +57,10 @@ public sealed class FleaListingParser
                 quantity = parsedQuantity;
             }
 
-            var confidence = new Confidence(Math.Clamp(line.Confidence.Value * 0.98, 0, 1));
+            // A row read by an engine that does not score is still a row that was read. The
+            // small discount is about the parse rather than the reading, so it applies either
+            // way, and a missing opinion becomes a confident one rather than a worthless one.
+            var confidence = new Confidence(Math.Clamp((line.Confidence?.Value ?? 1) * 0.98, 0, 1));
             listings.Add(new(price, quantity, confidence, line.Bounds));
         }
 
