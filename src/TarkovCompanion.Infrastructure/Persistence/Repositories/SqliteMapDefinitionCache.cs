@@ -1,0 +1,202 @@
+using System.Text.Json;
+using Microsoft.Data.Sqlite;
+using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
+
+namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
+
+/// <summary>
+/// Builds a map's definition, extracts included, out of the synced catalog.
+/// </summary>
+/// <remarks>
+/// The definition this replaces was held in memory and filled from a list of maps that nothing
+/// ever supplied, so every lookup returned nothing. Reading the extract list off the screen
+/// then had nothing on earth to compare the lines against: the scan recognised the panel,
+/// matched none of it, and reported a partial result with no extracts in it.
+///
+/// The rows have been written on every sync since the first one. Names, positions and the
+/// faction that may use each exit are all already on disk, so this needs no request and no
+/// schema change.
+///
+/// Cached per map after the first read, and dropped on a sync, for the same reason the feature
+/// catalog is: a map is re-selected often and the catalog only changes between raids.
+/// </remarks>
+public sealed class SqliteMapDefinitionCache(
+    SqliteConnectionFactory connectionFactory,
+    TimeProvider? timeProvider = null) : IMapDefinitionCache
+{
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Dictionary<string, MapDefinition?> _byMap = new(StringComparer.OrdinalIgnoreCase);
+
+    public async Task<MapDefinition?> GetAsync(string mapId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_byMap.TryGetValue(mapId, out var cached))
+            {
+                return cached;
+            }
+
+            var definition = await LoadAsync(mapId, cancellationToken).ConfigureAwait(false);
+            _byMap[mapId] = definition;
+            return definition;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public void Invalidate()
+    {
+        _gate.Wait();
+        try
+        {
+            _byMap.Clear();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Finds the stored map by the slug the rest of the application uses.
+    /// </summary>
+    /// <remarks>
+    /// The table's own columns hold a display name and a normalized display name, neither of
+    /// which is the upstream slug, so the slug is read out of the payload exactly as the alias
+    /// and feature catalogs do. Any other pairing would hand one map's extract names to
+    /// another map's screen, which reads as confident and is wrong.
+    /// </remarks>
+    private async Task<MapDefinition?> LoadAsync(string mapId, CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        string? storedId = null;
+        var name = mapId;
+        int? pmcSeconds = null;
+        int? scavSeconds = null;
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText =
+                "SELECT id, name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json FROM maps;";
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (reader.IsDBNull(4) || !Matches(reader.GetString(4), mapId))
+                {
+                    continue;
+                }
+
+                storedId = reader.GetString(0);
+                name = reader.IsDBNull(1) ? mapId : reader.GetString(1);
+                pmcSeconds = reader.IsDBNull(2) ? null : reader.GetInt32(2);
+                scavSeconds = reader.IsDBNull(3) ? null : reader.GetInt32(3);
+                break;
+            }
+        }
+
+        if (storedId is null)
+        {
+            return null;
+        }
+
+        var provenance = new DataProvenance("tarkov.dev", _timeProvider.GetUtcNow(), Reference: storedId);
+        var extracts = await LoadExtractsAsync(connection, storedId, mapId, provenance, cancellationToken)
+            .ConfigureAwait(false);
+        return new(
+            mapId,
+            name,
+            pmcSeconds is null ? null : TimeSpan.FromSeconds(pmcSeconds.Value),
+            scavSeconds is null ? null : TimeSpan.FromSeconds(scavSeconds.Value),
+            [],
+            extracts,
+            null,
+            provenance);
+    }
+
+    private static async Task<IReadOnlyList<MapExtract>> LoadExtractsAsync(
+        SqliteConnection connection,
+        string storedId,
+        string mapId,
+        DataProvenance provenance,
+        CancellationToken cancellationToken)
+    {
+        var extracts = new List<MapExtract>();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, name, x, z, source_json FROM map_extracts WHERE map_id = $mapId;";
+        command.Parameters.AddWithValue("$mapId", storedId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            // The map projects world X and world Z; the Y column is height and is not a
+            // coordinate on the picture. Both halves have to be present or the extract is
+            // listed without a marker rather than drawn at the origin.
+            MapPoint? position = reader.IsDBNull(2) || reader.IsDBNull(3)
+                ? null
+                : new(reader.GetDouble(2), reader.GetDouble(3));
+            extracts.Add(new(
+                reader.GetString(0),
+                mapId,
+                reader.GetString(1),
+                position,
+                reader.IsDBNull(4) ? null : DescribeFaction(reader.GetString(4)),
+                provenance));
+        }
+
+        return extracts;
+    }
+
+    private static bool Matches(string sourceJson, string mapId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(sourceJson);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("normalizedName", out var slug) &&
+                slug.ValueKind == JsonValueKind.String &&
+                string.Equals(slug.GetString(), mapId, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            // A reshaped payload costs one map rather than the whole catalog.
+            return false;
+        }
+    }
+
+    /// <summary>Who may take this exit, in the words a player would use.</summary>
+    /// <remarks>
+    /// The only condition upstream publishes, and the one that matters most: a scav exit a PMC
+    /// cannot take is worse than no entry at all.
+    /// </remarks>
+    private static string? DescribeFaction(string sourceJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(sourceJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("faction", out var faction) ||
+                faction.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return faction.GetString()?.ToLowerInvariant() switch
+            {
+                "pmc" => "PMC only",
+                "scav" => "Scav only",
+                "shared" => "PMC and scav",
+                _ => null,
+            };
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+}
