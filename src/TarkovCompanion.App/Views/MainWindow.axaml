@@ -123,7 +123,7 @@
                     Classes.selected="{Binding IsSelected}"
                     Command="{Binding SelectCommand}">
               <Grid ColumnDefinitions="26,*,Auto">
-                <TextBlock Grid.Column="0" Classes="navGlyph" Text="{Binding Glyph}" />
+                <Path Grid.Column="0" Classes="navGlyph" Data="{Binding Glyph}" />
                 <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
                 <!-- A dot, not a number. The only thing it has to say is "there is something
                      here", and a count would invite reading it. -->
