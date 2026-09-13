@@ -214,6 +214,102 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Takes one of the group's marks off the map.
+    /// </summary>
+    /// <remarks>
+    /// The server has served DELETE /waypoints/{id} since the marks were written and no client
+    /// has ever called it, so every waypoint a squad has ever dropped is still on its map. A
+    /// plan that can only be added to stops being a plan somewhere around the fifth one.
+    ///
+    /// Anybody may remove anybody's, because the marks belong to the group rather than to
+    /// whoever dropped them — the server's own rule, and it has no identities to enforce a
+    /// different one with.
+    ///
+    /// Nothing is removed locally. The next exchange brings back a room without it, which is
+    /// the same single code path that draws every mark, so a remover never sees a map the
+    /// group does not have.
+    /// </remarks>
+    public async Task<bool> RemoveMarkAsync(long id, CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
+        if (!settings.IsUsable || id <= 0)
+        {
+            // Zero is the id a mark carries while it is still on its way to the server. There
+            // is nothing there to remove yet, and asking would delete whatever the server
+            // happened to number zero if it ever numbered anything zero.
+            return false;
+        }
+
+        return await SendAsync(
+            settings,
+            new Uri(new Uri(settings.ServerUri!), $"waypoints/{id}"),
+            $"Removed waypoint {id} for the group.",
+            "Could not remove a mark for the group.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Clears the group's marks, either the reached ones or all of them.
+    /// </summary>
+    /// <remarks>
+    /// Two buttons rather than one, because they answer different questions. "Clear reached"
+    /// is tidying after a run and throws nothing away that anybody still wants; "Clear all" is
+    /// starting again. Scoped to the open map, so clearing after a Customs raid does not take
+    /// the plan somebody made for Lighthouse with it.
+    /// </remarks>
+    public async Task<bool> ClearMarksAsync(string? mapId, bool reachedOnly, CancellationToken cancellationToken)
+    {
+        var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
+        if (!settings.IsUsable)
+        {
+            return false;
+        }
+
+        var query = new List<string>(2);
+        if (!string.IsNullOrWhiteSpace(mapId))
+        {
+            query.Add($"mapId={Uri.EscapeDataString(mapId)}");
+        }
+
+        if (reachedOnly)
+        {
+            query.Add("reachedOnly=true");
+        }
+
+        var relative = query.Count == 0 ? "waypoints" : $"waypoints?{string.Join('&', query)}";
+        return await SendAsync(
+            settings,
+            new Uri(new Uri(settings.ServerUri!), relative),
+            reachedOnly ? "Cleared the group's reached marks." : "Cleared the group's marks.",
+            "Could not clear the group's marks.",
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>One DELETE, said once, because the two above differ only in where they point.</summary>
+    private async Task<bool> SendAsync(
+        GroupSharingSettings settings,
+        Uri uri,
+        string done,
+        string failed,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, uri);
+            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            _logger.LogInformation("{Done}", done);
+            return true;
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(exception, "{Failed}", failed);
+            return false;
+        }
+    }
+
     private async Task PublishOnceAsync(CancellationToken cancellationToken)
     {
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);

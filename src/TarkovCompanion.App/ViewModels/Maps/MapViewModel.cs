@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Windows.Input;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Quests;
@@ -149,7 +150,30 @@ public sealed class MapNamePlacement : INotifyPropertyChanged
 /// removed, because "we went there" is worth keeping on screen.
 /// </remarks>
 /// <summary>Somebody asking that a place be marked for the group.</summary>
-public sealed record GroupMarkRequest(string MapId, WorldPosition Position, bool IsPing);
+public sealed record GroupMarkRequest(string MapId, WorldPosition Position, bool IsPing)
+{
+    /// <summary>
+    /// What the map calls the place this was put on, where it calls it anything.
+    /// </summary>
+    /// <remarks>
+    /// Worked out here rather than asked for: typing a name means alt-tabbing out of a raid to
+    /// a keyboard, which is the gesture the whole feature exists to avoid. Null where nothing
+    /// named is near enough, which leaves the mark numbered rather than misnamed.
+    /// </remarks>
+    public string? Label { get; init; }
+}
+
+/// <summary>One of the group's marks, in the list beside the map rather than on it.</summary>
+/// <remarks>
+/// The map can say where a mark is and nothing else. It cannot be clicked accurately while
+/// somebody is shooting at you, it cannot show a mark whose map is not open, and a marker with
+/// no name is a numbered dot in a crowd of numbered dots. The list is where a mark is read,
+/// removed, and told apart from the one next to it.
+/// </remarks>
+/// <param name="Id">The server's, which is what removing one needs.</param>
+/// <param name="Name">The place it was put on, or its number where nothing named was near.</param>
+/// <param name="Detail">Who marked it, or who reached it.</param>
+public sealed record MarkListItemViewModel(long Id, string Name, string Detail, bool IsReached);
 
 public sealed record GroupMarkViewModel(
     long Id,
@@ -1187,6 +1211,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
     private IReadOnlyList<GroupTrailViewModel> _groupTrails = [];
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
+    private IReadOnlyList<MarkListItemViewModel> _markList = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
     private IReadOnlyList<GroupPingView> _pings = [];
     private AvaloniaList<Point> _playerTrail = [];
@@ -1240,6 +1265,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestMapProjectionService? questProjectionService,
         IMapFeatureCatalog? featureCatalog = null)
     {
+        RemoveMarkCommand = new ParameterCommand<MarkListItemViewModel>(RemoveMark);
+        ClearReachedMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: true));
+        ClearMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: false));
         _ownedHttpClient = ownedHttpClient;
         _featureCatalog = featureCatalog;
         _catalogClient = catalogClient;
@@ -3185,6 +3213,39 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// The group's marks on this map, written out so they can be read and removed.
+    /// </summary>
+    /// <remarks>
+    /// Waypoints only. Pings are not in the list because a ping is gone before anybody could
+    /// act on a row for it, and pending marks are not in it because there is nothing to remove
+    /// until the server has numbered them.
+    /// </remarks>
+    public IReadOnlyList<MarkListItemViewModel> MarkList
+    {
+        get => _markList;
+        private set
+        {
+            Set(ref _markList, value);
+            OnPropertyChanged(nameof(HasMarkList));
+            OnPropertyChanged(nameof(HasReachedMarks));
+        }
+    }
+
+    public bool HasMarkList => _markList.Count > 0;
+
+    /// <summary>Whether clearing the reached ones would do anything, so the button can say so.</summary>
+    public bool HasReachedMarks => _markList.Any(mark => mark.IsReached);
+
+    /// <summary>Takes the mark a row names off the group's map.</summary>
+    public ICommand RemoveMarkCommand { get; }
+
+    /// <summary>Clears the marks somebody has already reached, on this map.</summary>
+    public ICommand ClearReachedMarksCommand { get; }
+
+    /// <summary>Clears every mark on this map.</summary>
+    public ICommand ClearMarksCommand { get; }
+
+    /// <summary>
     /// Takes the group's waypoints and pings, which arrive with every exchange.
     /// </summary>
     /// <remarks>
@@ -3269,10 +3330,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             (_waypoints.Count == 0 && _pings.Count == 0 && _pending.Count == 0))
         {
             GroupMarks = [];
+            MarkList = [];
             return;
         }
 
         var marks = new List<GroupMarkViewModel>();
+        // Built in the same pass that draws them, so a row and the dot it names always carry
+        // the same number. Two passes would drift the moment one of them skipped something.
+        var listed = new List<MarkListItemViewModel>();
         var numbered = 0;
         foreach (var waypoint in _waypoints)
         {
@@ -3284,17 +3349,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             }
 
             numbered++;
+            var reached = waypoint.Reached is { Length: > 0 };
+            var named = waypoint.Label is { Length: > 0 } given
+                ? given
+                : numbered.ToString(CultureInfo.CurrentCulture);
+            // Listed whether or not it can be placed. A mark this map's transform cannot draw
+            // is exactly the mark somebody needs a way to remove.
+            listed.Add(new(
+                waypoint.Id,
+                named,
+                reached ? $"reached by {waypoint.Reached}" : $"marked by {waypoint.By}",
+                reached));
+
             if (!TryPlace(mapper, waypoint.X, waypoint.Y, waypoint.Z, out var point))
             {
                 continue;
             }
 
-            var reached = waypoint.Reached is { Length: > 0 };
             marks.Add(new(
                 waypoint.Id,
                 point.X,
                 point.Y,
-                waypoint.Label is { Length: > 0 } label ? label : numbered.ToString(CultureInfo.CurrentCulture),
+                named,
                 reached
                     ? $"{waypoint.Label ?? "Waypoint"} · reached by {waypoint.Reached}"
                     : $"{waypoint.Label ?? "Waypoint"} · marked by {waypoint.By}",
@@ -3351,6 +3427,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         GroupMarks = marks;
+        MarkList = listed;
     }
 
     private bool TryPlace(Func<MapPoint, Point> mapper, double x, double y, double z, out Point point)
@@ -4433,9 +4510,89 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // plan the group never received.
         _pending.Add(new(location.Id, position, isPing, DateTimeOffset.UtcNow));
         UpdateGroupMarks();
-        GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing));
+        GroupMarkRequested?.Invoke(this, new(location.Id, position, isPing)
+        {
+            Label = WaypointNaming.Describe(position, _mapFeatures, _selectedVariant?.Labels ?? []),
+        });
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Raised when somebody takes one of the group's marks off the map.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as <see cref="GroupMarkRequested"/> and for the same reason: the map
+    /// knows which mark was clicked, and who is allowed to tell the group about it is not the
+    /// map's business.
+    /// </remarks>
+    public event EventHandler<long>? GroupMarkRemoveRequested;
+
+    /// <summary>
+    /// Takes a mark off the map, if it is one that can be taken off.
+    /// </summary>
+    /// <remarks>
+    /// Waypoints only. A ping is gone in forty-five seconds whatever anybody does, and the
+    /// server has no endpoint for removing one because there was never a reason to want it.
+    ///
+    /// A pending mark carries id 0, which is not an id the server ever issues — it is the
+    /// placeholder a mark wears between the gesture and the exchange that confirms it. Asking
+    /// to remove one would be asking the server to remove something it has not been told
+    /// about yet, so it is refused here and the mark can be removed a moment later.
+    /// </remarks>
+    public void RemoveMark(GroupMarkViewModel? mark)
+    {
+        if (mark is null || mark.IsPing)
+        {
+            return;
+        }
+
+        Remove(mark.Id, mark.Label);
+    }
+
+    /// <summary>Removes the mark a row in the list names.</summary>
+    public void RemoveMark(MarkListItemViewModel? mark) => Remove(mark?.Id ?? 0, mark?.Name);
+
+    private void Remove(long id, string? name)
+    {
+        if (id <= 0)
+        {
+            return;
+        }
+
+        Status = $"Removing {(name is { Length: > 0 } known ? known : "the mark")}…";
+        GroupMarkRemoveRequested?.Invoke(this, id);
+    }
+
+    /// <summary>
+    /// Raised when somebody clears the group's marks, with true for the reached ones only.
+    /// </summary>
+    public event EventHandler<bool>? GroupMarksClearRequested;
+
+    /// <summary>Clears the group's marks on this map, either the reached ones or all of them.</summary>
+    /// <remarks>
+    /// Two, because they answer different questions. Clearing the reached ones is tidying
+    /// after a run and throws away nothing anybody still wants; clearing all of them is
+    /// starting again, which is why it is the one that asks first.
+    /// </remarks>
+    public void ClearMarks(bool reachedOnly)
+    {
+        if (!HasMarkList)
+        {
+            return;
+        }
+
+        Status = reachedOnly ? "Clearing the marks you reached…" : "Clearing every mark on this map…";
+        GroupMarksClearRequested?.Invoke(this, reachedOnly);
+    }
+
+    /// <summary>Says what became of a removal, for the same reason marking says so.</summary>
+    public void ReportMarkRemoved(bool removed) =>
+        Status = removed ? "Mark removed" : "Mark not removed · check sharing on the Group page";
+
+    /// <summary>Says what became of a clear.</summary>
+    public void ReportMarksCleared(bool reachedOnly, bool cleared) => Status = cleared
+        ? reachedOnly ? "Cleared the marks you reached" : "Cleared every mark on this map"
+        : "Marks not cleared · check sharing on the Group page";
 
     /// <summary>
     /// Says what became of a mark, because the map draws it only once the server sends it back.
