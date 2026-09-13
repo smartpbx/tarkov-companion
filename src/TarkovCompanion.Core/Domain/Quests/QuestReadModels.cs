@@ -58,7 +58,22 @@ public sealed record QuestSummaryReadModel(
     bool HasFailureConditions,
     IReadOnlyList<string> FailureConditionNotes,
     IReadOnlyList<QuestPrerequisiteReadModel> Prerequisites,
-    IReadOnlyList<QuestObjectiveReadModel> Objectives);
+    IReadOnlyList<QuestObjectiveReadModel> Objectives)
+{
+    /// <summary>
+    /// What the trader is called, where the last sync stored a name for the id.
+    /// </summary>
+    /// <remarks>
+    /// An init property rather than another positional parameter: this record already takes
+    /// fifteen, and a sixteenth would be sixteen call sites changed to carry one optional word.
+    ///
+    /// Null where the traders table has nothing for the id, and the id is then what gets
+    /// printed. Wrong is worse than ugly, and a trader the catalog does not know about is
+    /// something to notice rather than something to hide behind a blank.
+    /// </remarks>
+    public string? TraderName { get; init; }
+}
+
 
 public sealed record OrphanedQuestProgress(
     QuestProgressEntityKind EntityKind,
@@ -114,7 +129,16 @@ public sealed record QuestMapObjectiveReadModel(
     bool? FoundInRaidRequired,
     IReadOnlyList<string> MapIds,
     IReadOnlyList<QuestObjectiveZone> Zones,
-    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets);
+    IReadOnlyList<QuestObjectiveItemTarget> ItemTargets)
+{
+    /// <summary>What the trader is called, where the last sync stored a name for the id.</summary>
+    /// <remarks>
+    /// The same reasoning as on <see cref="QuestSummaryReadModel"/>, and the same source: this
+    /// carried an id into the map projection, where anything drawing a quest objective had no
+    /// way to say whose quest it was.
+    /// </remarks>
+    public string? TraderName { get; init; }
+}
 
 public sealed record QuestMapObjectivesReadModel(
     QuestProfileScope Scope,

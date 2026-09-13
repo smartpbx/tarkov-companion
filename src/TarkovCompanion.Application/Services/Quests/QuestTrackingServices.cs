@@ -486,7 +486,8 @@ public sealed class QuestReadService(
     IQuestProgressStore progressStore,
     QuestEligibilityEvaluator eligibilityEvaluator,
     QuestTrackingOptions options,
-    TimeProvider? timeProvider = null) : IQuestReadService
+    TimeProvider? timeProvider = null,
+    ITraderCatalog? traderCatalog = null) : IQuestReadService
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly string _language = options.NormalizedLanguage;
@@ -698,7 +699,10 @@ public sealed class QuestReadService(
                     objective.FoundInRaidRequired,
                     associatedMapIds,
                     objective.Zones,
-                    objective.ItemTargets));
+                    objective.ItemTargets)
+                {
+                    TraderName = NameOfTrader(task.TraderId, context),
+                });
             }
         }
 
@@ -789,8 +793,22 @@ public sealed class QuestReadService(
                     context.Progress.Tasks.GetValueOrDefault(requirement.RequiredTaskId)?.State
                         ?? RecordedTaskState.Unknown))
                 .ToArray(),
-            objectives);
+            objectives)
+        {
+            TraderName = NameOfTrader(task.TraderId, context),
+        };
     }
+
+    /// <summary>
+    /// What a trader id is called, or null where the last sync stored no name for it.
+    /// </summary>
+    /// <remarks>
+    /// Null rather than the id, so the consumer decides what to print. The Quests page falls
+    /// back to the id, which is the honest answer: a trader the catalog does not know about is
+    /// something to notice rather than something to hide behind a blank.
+    /// </remarks>
+    private static string? NameOfTrader(string? traderId, ReadContext context) =>
+        traderId is { Length: > 0 } id && context.TraderNames.TryGetValue(id, out var name) ? name : null;
 
     private async Task<ReadContext> GetContextAsync(
         QuestProfileScope scope,
@@ -800,7 +818,12 @@ public sealed class QuestReadService(
         QuestProgressCommandService.EnsureScope(profile, scope);
         var progress = await progressStore.GetAsync(scope, cancellationToken).ConfigureAwait(false);
         var catalog = await questCatalog.GetAsync(scope.GameMode, _language, cancellationToken).ConfigureAwait(false);
-        return new(profile, progress, catalog);
+        var traders = traderCatalog is null
+            ? null
+            : await traderCatalog.GetNamesAsync(cancellationToken).ConfigureAwait(false);
+        return traders is null
+            ? new(profile, progress, catalog)
+            : new(profile, progress, catalog) { TraderNames = traders };
     }
 
     private static RecordedObjectivesSatisfaction ObjectiveSatisfaction(
@@ -902,6 +925,18 @@ public sealed class QuestReadService(
     private sealed record ReadContext(
         PlayerProfile Profile,
         QuestProgressSnapshot Progress,
-        QuestCatalogSnapshot? Catalog);
+        QuestCatalogSnapshot? Catalog)
+    {
+        /// <summary>
+        /// What the traders are called, read once for the whole board.
+        /// </summary>
+        /// <remarks>
+        /// Per read rather than per task, because a board is several hundred tasks and they
+        /// share about a dozen traders. Empty where nothing has synced yet, which prints ids
+        /// exactly as it did before — the same answer, and not a worse one.
+        /// </remarks>
+        public IReadOnlyDictionary<string, string> TraderNames { get; init; } =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+    }
 
 }
