@@ -179,6 +179,9 @@ public static class AppComposition
         // anywhere, so it is composed here explicitly rather than discovered.
         services.AddSingleton<IGroupSettingsStore>(_ =>
             new JsonFileGroupSettingsStore(Path.Combine(paths.Config, "group.json")));
+        // What the player is working on, for the group to see. Dead until tonight, because
+        // there was no quest progress to send.
+        services.AddSingleton<GroupQuestShare>();
         services.AddSingleton<GroupSessionService>();
         // Keeping the game's screenshot folder from growing without limit. Composed here
         // rather than discovered because it is the other half of the application that touches

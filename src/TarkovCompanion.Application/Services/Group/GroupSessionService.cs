@@ -50,13 +50,19 @@ public sealed class GroupSessionService : IAsyncDisposable
         IGroupSettingsStore settings,
         IRuntimeStateStore stateStore,
         HttpClient httpClient,
-        ILogger<GroupSessionService> logger)
+        ILogger<GroupSessionService> logger,
+        // Optional so a composition without quest storage still shares a position, which is
+        // what every test that builds this by hand relies on.
+        GroupQuestShare? quests = null)
     {
         _settings = settings;
         _stateStore = stateStore;
         _httpClient = httpClient;
         _logger = logger;
+        _quests = quests;
     }
+
+    private readonly GroupQuestShare? _quests;
 
     public void Start()
     {
@@ -194,7 +200,12 @@ public sealed class GroupSessionService : IAsyncDisposable
         }
 
         var snapshot = _stateStore.Current;
-        var payload = Describe(snapshot, settings);
+        // Read before the payload is assembled, and cached for a minute inside, because the
+        // publish loop runs every few seconds and a quest board does not.
+        var sharedQuests = settings.SharesQuests && _quests is not null
+            ? await _quests.GetAsync(cancellationToken).ConfigureAwait(false)
+            : [];
+        var payload = Describe(snapshot, settings, sharedQuests);
         using var request = new HttpRequestMessage(
             HttpMethod.Post,
             new Uri(new Uri(settings.ServerUri!), "state"))
@@ -327,7 +338,10 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// Loadout and quests are each behind their own switch, so agreeing to share a position is
     /// not agreeing to share a kit.
     /// </remarks>
-    private static MemberStateDto Describe(ApplicationRuntimeSnapshot snapshot, GroupSharingSettings settings)
+    private static MemberStateDto Describe(
+        ApplicationRuntimeSnapshot snapshot,
+        GroupSharingSettings settings,
+        IReadOnlyList<string> sharedQuests)
     {
         var raid = snapshot.Raid;
         var position = raid.LastKnownPosition;
@@ -341,7 +355,7 @@ public sealed class GroupSessionService : IAsyncDisposable
             position?.HeadingDegrees,
             position is null ? null : (DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime()).TotalSeconds,
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
-            settings.SharesQuests ? DescribeQuests(snapshot) : []);
+            sharedQuests);
     }
 
     /// <summary>
@@ -349,13 +363,16 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// </summary>
     /// <remarks>
     /// The game writes the player's own inventory nowhere the companion can read, which
-    /// docs/research/EFT_LOG_FACTS.md records in full, so there is nothing honest to send yet.
-    /// The switch exists and sends an empty list rather than pretending, because the day the
-    /// player builds a kit by hand on the loadout page this is where it will come from.
+    /// docs/research/EFT_LOG_FACTS.md records in full, so there is still nothing honest to
+    /// send. A squadmate running a companion that reads its quick bar out of a screenshot does
+    /// share a kit, which is why one member of a group can show one and another cannot; that
+    /// is the same reading, from the same picture, that #35 is for.
+    ///
+    /// The switch sends an empty list rather than pretending. The Group page says so beside
+    /// it, because a switch that silently does nothing is worse than one that is not there.
     /// </remarks>
     private static IReadOnlyList<string> DescribeLoadout(ApplicationRuntimeSnapshot snapshot) => [];
 
-    private static IReadOnlyList<string> DescribeQuests(ApplicationRuntimeSnapshot snapshot) => [];
 
     private static GroupMemberView Read(MemberStateDto member) => new(
         member.Name,

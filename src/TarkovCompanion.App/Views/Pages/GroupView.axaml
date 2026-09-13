@@ -28,9 +28,16 @@
             </StackPanel>
 
             <Border Classes="hairline" />
-            <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
             <CheckBox Content="Share my quest progress" IsChecked="{Binding SharesQuests, Mode=TwoWay}" />
-            <TextBlock Classes="caption" Text="Neither sends anything yet" />
+            <TextBlock Classes="caption" Text="Pinned and active quests, up to five" />
+            <CheckBox Content="Share my loadout" IsChecked="{Binding SharesLoadout, Mode=TwoWay}" />
+            <!-- Said plainly, because a switch that silently does nothing is worse than one
+                 that is not there. Somebody in the group running a companion that reads its
+                 quick bar out of a screenshot does share a kit, so a group can show one
+                 member's and not another's, which is exactly how this was reported. -->
+            <TextBlock Classes="caption"
+                       Text="Sends nothing yet · the game writes your own kit nowhere this can read"
+                       TextWrapping="Wrap" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Classes="primary" Command="{Binding SaveCommand}" Content="Save" />
