@@ -158,6 +158,19 @@ public sealed record GroupSnapshot(
     /// </remarks>
     public IReadOnlyList<string> MyLoadout { get; init; } = [];
 
+    /// <summary>When contact with the relay was lost, if what is here is the last good read.</summary>
+    /// <remarks>
+    /// Null while the exchange is working. Set on the first failed exchange and kept across
+    /// later ones, so the interface can say how long ago the group was really heard from
+    /// rather than presenting a three-minute-old picture as current.
+    ///
+    /// It exists because the alternative was worse: one failed exchange used to publish
+    /// <see cref="Off"/>, which empties Members, Waypoints and Pings, and the map cleared
+    /// every squadmate and every mark for five seconds until the next tick put them back.
+    /// A stale marker that says it is stale beats a marker that vanishes and returns.
+    /// </remarks>
+    public DateTimeOffset? StaleSince { get; init; }
+
     public static GroupSnapshot Off { get; } = new(
         false,
         [],
