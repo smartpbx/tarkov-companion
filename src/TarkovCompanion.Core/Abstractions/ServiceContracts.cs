@@ -39,7 +39,22 @@ public sealed record ExtractRecognitionResult(
     IReadOnlyList<string> AmbiguousLines,
     IReadOnlyList<string> UnmatchedLines,
     bool ProviderAvailable,
-    string? DiagnosticCode = null);
+    string? DiagnosticCode = null)
+{
+    /// <summary>
+    /// The transits the same screen offered, as the screen named them.
+    /// </summary>
+    /// <remarks>
+    /// The extract panel lists ways to another map alongside the exits from this one, each
+    /// labelled TRANSIT rather than EXFIL and drawn a different colour. They are not in any
+    /// extract catalog and never will be, so matching them against one produces nothing but a
+    /// list of lines that failed.
+    ///
+    /// Carried verbatim because "Transit to Factory" says everything a player needs and there
+    /// is nothing to look it up against.
+    /// </remarks>
+    public IReadOnlyList<string> Transits { get; init; } = [];
+}
 
 public enum ScanCompletionStatus
 {
@@ -546,10 +561,16 @@ public interface IRaidStateService
     /// draws it on the extract list screen, so photographing that screen hands over the exact
     /// number and nothing else has to be estimated.
     /// </param>
+    /// <param name="linesNotMatched">
+    /// What the scan read on that screen and could not match to an exit, so a scan that found
+    /// one exit out of eight can say so instead of looking like a screen with one exit on it.
+    /// </param>
     RaidSnapshot ApplyExtracts(
         IReadOnlyList<ActiveExtract> extracts,
         DateTimeOffset observedUtc,
-        TimeSpan? raidClock = null);
+        TimeSpan? raidClock = null,
+        IReadOnlyList<string>? linesNotMatched = null,
+        IReadOnlyList<string>? transits = null);
 }
 
 public interface IStrategyModel

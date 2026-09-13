@@ -159,6 +159,20 @@
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
+              <!-- The lines the scan read and could not place. Without them a scan that
+                   matched one exit out of eight is indistinguishable from a screen that had
+                   one exit on it, and the difference is the whole of what went wrong. -->
+              <!-- Transits are on the same panel, labelled differently and drawn a different
+                   colour, and they are not in any extract catalog. Leaving through Factory is
+                   a decision somebody makes off this screen, so it is worth repeating. -->
+              <TextBlock Classes="label"
+                         Text="{Binding Transits}"
+                         IsVisible="{Binding HasTransits}"
+                         TextWrapping="Wrap" />
+              <TextBlock Classes="caption"
+                         Text="{Binding ExtractsNotMatched}"
+                         IsVisible="{Binding HasExtractsNotMatched}"
+                         TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
         </Border>
