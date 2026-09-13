@@ -283,9 +283,6 @@ public static class AppComposition
             provider.GetRequiredService<IPlayerProfileService>(),
             provider.GetRequiredService<IEventCatalog>().GetAsync(CancellationToken.None).GetAwaiter().GetResult(),
             timeProvider));
-        services.AddSingleton<IAmmoIntelligenceService, AmmoIntelligenceService>();
-        services.AddSingleton<IKeyIntelligenceService, KeyIntelligenceService>();
-        services.AddSingleton<ILoadoutService, LoadoutIntelligenceService>();
         services.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 
         services.AddSingleton<SqliteMapFeatureCatalog>();

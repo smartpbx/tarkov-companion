@@ -359,18 +359,6 @@ public interface IEventTrackerService
     Task<EventProgress> GetProgressAsync(string eventId, CancellationToken cancellationToken);
 }
 
-public interface IAmmoIntelligenceService
-{
-    Task<AmmoIntelligence?> GetAsync(string itemId, PlayerProfile? profile, CancellationToken cancellationToken);
-
-    Task<IReadOnlyList<AmmoIntelligence>> GetCaliberAsync(string caliber, PlayerProfile? profile, CancellationToken cancellationToken);
-}
-
-public interface IKeyIntelligenceService
-{
-    Task<KeyIntelligence?> GetAsync(string itemId, PlayerProfile? profile, CancellationToken cancellationToken);
-}
-
 public interface IRecognitionService
 {
     Task<RecognitionResult> RecognizeAsync(CapturedImage image, CancellationToken cancellationToken);
@@ -634,9 +622,4 @@ public interface IRaidHistoryService
     Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken);
 
     Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken);
-}
-
-public interface ILoadoutService
-{
-    Task<LoadoutEvaluation> EvaluateAsync(LoadoutSelection selection, PlayerProfile? profile, CancellationToken cancellationToken);
 }

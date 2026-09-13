@@ -12,7 +12,7 @@ public sealed record AmmoAvailability(
     string? RequiredTaskId,
     IReadOnlySet<GameMode> GameModes);
 
-public sealed class AmmoIntelligenceService : IAmmoIntelligenceService
+public sealed class AmmoIntelligenceService
 {
     private readonly IReadOnlyDictionary<string, AmmoStats> _stats;
     private readonly IReadOnlyDictionary<string, AmmoPackContents> _packs;
