@@ -29,13 +29,21 @@ rm -rf -- "${TASK_PUBLISH_DIR}"
 rm -f -- "${TASK_PACKAGE}" "${TASK_TEMP_PACKAGE}"
 mkdir -p "${TASK_PUBLISH_DIR}" "${TASK_PROJECT_ROOT}/dist"
 
+# The application targets two frameworks: a portable one that Linux CI and the test projects
+# build against, and a Windows one that can see the OCR engine Windows already has. Only the
+# second one ships, and a publish of a multi-targeted project has to say which it wants or it
+# refuses with "specify a framework".
+readonly TASK_APP_FRAMEWORK="net10.0-windows10.0.19041.0"
+
 publish_project() {
     local project="$1"
+    local framework="${2:-}"
     "${TASK_DOTNET}" publish "${project}" \
         --configuration Release \
         --runtime win-x64 \
         --self-contained true \
         --no-restore \
+        ${framework:+--framework "${framework}"} \
         --output "${TASK_PUBLISH_DIR}" \
         --disable-build-servers \
         --maxcpucount:1 \
@@ -46,7 +54,7 @@ publish_project() {
         -p:DebugSymbols=false
 }
 
-publish_project "${TASK_APP_PROJECT}"
+publish_project "${TASK_APP_PROJECT}" "${TASK_APP_FRAMEWORK}"
 publish_project "${TASK_SIMULATOR_PROJECT}"
 
 cp "${TASK_PROJECT_ROOT}/README.md" "${TASK_PUBLISH_DIR}/README.md"
