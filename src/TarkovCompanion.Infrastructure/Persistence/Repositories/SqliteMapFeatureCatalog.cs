@@ -299,11 +299,17 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
                 continue;
             }
 
-            var startsAWord = char.IsUpper(character) && !char.IsUpper(trimmed[index - 1]);
-            var startsANumber = char.IsDigit(character) && char.IsLetter(trimmed[index - 1]);
-            if (index > 0 && (startsAWord || startsANumber) && spaced.Length > 0)
+            // The index guard has to come before the look-back, not beside it. Written as one
+            // condition it read correctly and evaluated trimmed[-1] on the first character.
+            if (index > 0 && spaced.Length > 0)
             {
-                spaced.Append(' ');
+                var previous = trimmed[index - 1];
+                var startsAWord = char.IsUpper(character) && !char.IsUpper(previous);
+                var startsANumber = char.IsDigit(character) && char.IsLetter(previous);
+                if (startsAWord || startsANumber)
+                {
+                    spaced.Append(' ');
+                }
             }
 
             spaced.Append(character);
