@@ -378,7 +378,7 @@ public sealed class AmmoPageViewModel : PageViewModel
 
     private static string DescribeTraits(AmmoStats stats)
     {
-        var traits = new List<string>(4);
+        var traits = new List<string>(5);
         if (stats.ProjectileCount > 1)
         {
             traits.Add($"{Count(stats.ProjectileCount)} projectiles");
@@ -387,6 +387,16 @@ public sealed class AmmoPageViewModel : PageViewModel
         if (stats.VelocityMetresPerSecond is { } velocity)
         {
             traits.Add($"{velocity.ToString("N0", CultureInfo.CurrentCulture)} m/s");
+        }
+
+        // Recoil has been in the synced stats since the first sync and shown nowhere. A round
+        // that adds a fifth to a weapon's recoil is a different choice from one that does not,
+        // which is the whole question this page exists to answer.
+        if (stats.RecoilModifier is { } recoil && Math.Abs(recoil) > 0.001)
+        {
+            traits.Add(string.Create(
+                CultureInfo.CurrentCulture,
+                $"{(recoil > 0 ? "+" : string.Empty)}{recoil:P0} recoil"));
         }
 
         if (stats.IsSubsonic)
