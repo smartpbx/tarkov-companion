@@ -18,6 +18,7 @@ using TarkovCompanion.Infrastructure.TarkovTracker;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class TarkovTrackerIntegrationTests
 {
     private const string TestToken = "PVP_not-a-real-credential";

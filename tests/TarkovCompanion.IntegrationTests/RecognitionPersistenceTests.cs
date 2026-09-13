@@ -6,6 +6,7 @@ using TarkovCompanion.Infrastructure.Recognition;
 
 namespace TarkovCompanion.IntegrationTests;
 
+[Collection(SqliteCollection.Name)]
 public sealed class RecognitionPersistenceTests
 {
     [Fact]
