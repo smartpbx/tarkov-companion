@@ -78,7 +78,7 @@ public sealed class VelopackUpdateGateway
         {
             _logger?.LogInformation(
                 exception,
-                "Updates are unavailable in this process; it was not started by the installed application.");
+                "Not started by the installed application, so it cannot update");
             return null;
         }
     }
@@ -96,7 +96,7 @@ public sealed class VelopackUpdateGateway
     {
         if (_manager.Value is not { IsInstalled: true } manager)
         {
-            return new("This copy was run from a folder rather than installed, so it cannot update itself.");
+            return new("Run from a folder, so it cannot update itself");
         }
 
         try
@@ -104,13 +104,13 @@ public sealed class VelopackUpdateGateway
             _pending = await manager.CheckForUpdatesAsync().ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             return _pending is null
-                ? new("You are on the newest build.")
-                : new($"Version {_pending.TargetFullRelease.Version} is available.", CanDownload: true);
+                ? new("On the newest build")
+                : new($"{_pending.TargetFullRelease.Version} is available", CanDownload: true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger?.LogWarning(exception, "Could not check for updates.");
-            return new($"Could not check for updates: {exception.Message}");
+            _logger?.LogWarning(exception, "Could not check");
+            return new($"Could not check · {exception.Message}");
         }
     }
 
@@ -126,13 +126,13 @@ public sealed class VelopackUpdateGateway
             await manager.DownloadUpdatesAsync(update).ConfigureAwait(true);
             cancellationToken.ThrowIfCancellationRequested();
             return new(
-                $"Version {update.TargetFullRelease.Version} is ready. It installs when the application closes.",
+                $"{update.TargetFullRelease.Version} is ready · it installs when this closes",
                 CanApply: true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger?.LogWarning(exception, "Could not download the update.");
-            return new($"Could not download the update: {exception.Message}", CanDownload: true);
+            _logger?.LogWarning(exception, "Could not download");
+            return new($"Could not download · {exception.Message}", CanDownload: true);
         }
     }
 

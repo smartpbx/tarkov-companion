@@ -190,7 +190,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                     Availability = current.Data.ItemCount > 0 ? DataAvailability.Cached : DataAvailability.Unavailable,
                     Detail = current.Data.ItemCount > 0
                         ? "Offline mode is enabled; using the local cache."
-                        : "Offline mode is enabled and no local game data is available.",
+                        : "Offline, and no local game data",
                 },
             });
             return;
@@ -298,7 +298,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 0,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                cached.LastError ?? "No local game data is available.");
+                cached.LastError ?? "No local game data");
         }
 
         if (_options.Offline)

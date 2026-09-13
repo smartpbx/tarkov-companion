@@ -898,7 +898,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private QuestMapProjectionReadModel? _questProjection;
     private Bitmap? _backgroundImage;
     private string _status = "Loading the tarkov.dev map catalog…";
-    private string _questLayerStatus = "Quest layer is off. Enable it to show static active or pinned objectives.";
+    private string _questLayerStatus = "Quest layer is off";
     private long _questRefreshGeneration;
     private double _canvasWidth = 900;
     private double _canvasHeight = 620;
@@ -1209,7 +1209,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     public Uri LicenseUri => MapPresentationService.LicenseUri;
 
-    public string TransformStatus => _renderModel?.TransformMessage ?? "No map transform is loaded; position markers are hidden.";
+    public string TransformStatus => _renderModel?.TransformMessage ?? "No map transform, so positions cannot be placed";
 
     public bool HasTiles => Tiles.Count > 0;
 
@@ -1264,7 +1264,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (Exception exception)
         {
-            Status = $"Map catalog invalid or unavailable: {exception.Message}";
+            Status = $"Map catalog unavailable · {exception.Message}";
         }
     }
 
@@ -1281,7 +1281,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         if (usableLocations == 0)
         {
             return skipped.Count == 0
-                ? "The tarkov.dev map catalog loaded but contains no map with a usable image."
+                ? "No map in the catalog has a usable image"
                 : $"The tarkov.dev map catalog loaded but no map has a usable image. Skipped {skipped.Count} location(s): {string.Join("; ", skipped)}";
         }
 
@@ -1320,7 +1320,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         await SelectLocationAsync(location).ConfigureAwait(true);
-        Status = $"Following the current raid on {location.Name}.";
+        Status = $"Following the raid on {location.Name}";
     }
 
     public async Task SelectLocationAsync(MapLocation location)
@@ -1409,7 +1409,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 Tiles = [];
                 BackgroundImage = null;
                 _renderModel = _renderModel with { Background = null };
-                Status = $"Floor '{floor.Name}' has no explicit upstream SVG layer or PNG tile asset.";
+                Status = $"No artwork for '{floor.Name}'";
                 UpdateOverlayElements();
                 NotifyPresentationProperties();
             }
@@ -2046,7 +2046,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             else
             {
                 var cached = variant.SvgPath is null
-                    ? new MapAssetCacheResult(null, "No upstream artwork is configured for this variant.")
+                    ? new MapAssetCacheResult(null, "No artwork for this view")
                     : await _assetCache.GetSvgAsync(variant, SelectedFloor, cancellationToken).ConfigureAwait(true);
                 var availability = cached.Asset?.Availability ?? MapAssetAvailability.Unavailable;
                 // Say which artwork is on screen. Left to be inferred, this branch produced a
@@ -2062,7 +2062,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     artwork: MapBackgroundKind.Svg);
                 BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
                 Status = cached.Asset is not null
-                    ? $"{cached.Message} SVG rendered from the retained original; floor groups remain separate from companion overlays."
+                    ? $"{cached.Message}"
                     : cached.Message ?? "Map artwork unavailable.";
             }
 
@@ -2109,7 +2109,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             };
         BackgroundImage = await LoadArtworkAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true);
         Status = cached.Asset is not null
-            ? $"{cached.Message} SVG floor rendered from the retained original."
+            ? $"{cached.Message}"
             : cached.Message ?? $"Floor '{floor.Name}' is unavailable.";
         UpdateOverlayElements();
         NotifyPresentationProperties();
@@ -2160,7 +2160,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         if (_profileService is null || _questReadService is null || _questProjectionService is null)
         {
-            ClearQuestLayer("Quest services are unavailable; no quest geometry is shown.");
+            ClearQuestLayer("Quest data unavailable");
             return;
         }
 
@@ -2168,7 +2168,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             SelectedVariant is not { } variant ||
             _mapCatalogProvenance is null)
         {
-            ClearQuestLayer("Select a tarkov.dev map variant to load quest associations.");
+            ClearQuestLayer("Pick a map view to place quests");
             return;
         }
 
@@ -2211,11 +2211,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
             var associationCount = _questProjection.Objectives.Count - exactCount;
             QuestLayerStatus = _questProjection.UnavailableReason ?? (_renderModel?.CanRender == true
-                ? $"Static quest layer · exact {exactCount} · association only {associationCount} · mode {scope.GameMode} · generation {scope.Generation}"
-                : $"Map artwork unavailable · {exactCount} exact source geometry item(s) hidden · association only {associationCount} · mode {scope.GameMode} · generation {scope.Generation}");
+                ? $"Quests · {exactCount} placed · {associationCount} roughly"
+                : $"No artwork · {exactCount} placed quests hidden · {associationCount} roughly");
             if (_questProjection.OrphanedProgress.Count > 0)
             {
-                QuestLayerStatus += $" · {_questProjection.OrphanedProgress.Count} orphaned local record(s)";
+                QuestLayerStatus += $" · {_questProjection.OrphanedProgress.Count} orphaned";
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -2302,10 +2302,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 : MapAssetAvailability.Available;
         Status = availability switch
         {
-            MapAssetAvailability.CachedOffline => $"Offline: loaded {Tiles.Count} cached tarkov.dev PNG tiles at zoom {zoom}.",
-            MapAssetAvailability.Available when Tiles.Count == plan.Tiles.Count => $"Loaded {Tiles.Count} cached tarkov.dev PNG tiles at zoom {zoom}.",
-            MapAssetAvailability.Available => $"Loaded {Tiles.Count} of {plan.Tiles.Count} PNG tiles; unavailable tiles remain blank.",
-            _ => "PNG map tiles are unavailable and no cached tiles could be used.",
+            MapAssetAvailability.CachedOffline => $"Offline · {Tiles.Count} cached tiles at zoom {zoom}",
+            MapAssetAvailability.Available when Tiles.Count == plan.Tiles.Count => $"{Tiles.Count} cached tiles at zoom {zoom}",
+            MapAssetAvailability.Available => $"{Tiles.Count} of {plan.Tiles.Count} tiles · the rest are blank",
+            _ => "No tiles available",
         };
         if (_renderModel?.Background is { } background)
         {
@@ -2949,7 +2949,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             new(
                 string.Create(
                     CultureInfo.CurrentCulture,
-                    $"Your last screenshot position · {taken} · facing {bearing:F0}° on this map"),
+                    $"You · {taken} · facing {bearing:F0}°"),
                 canvasPoint.X,
                 canvasPoint.Y,
                 bearing,
