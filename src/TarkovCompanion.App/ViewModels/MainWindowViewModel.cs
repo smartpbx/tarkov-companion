@@ -1126,9 +1126,13 @@ public sealed class HistoryPageViewModel : PageViewModel
             }
 
             Entries = entries;
+            // Said once here rather than on every row. EFT_LOG_FACTS.md records that the game
+            // never writes an outcome, so the Outcome column read "Not recorded" on every raid
+            // for ever — a column whose only possible value is the absence of a value. The
+            // field stays on RaidHistoryEntry in case the game ever starts saying.
             Status = Entries.Count == 0
                 ? "No local raid history has been recorded."
-                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}.";
+                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}. The game never records whether you survived, so no outcome is shown.";
             Evidence = $"SQLite · {Status}";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
