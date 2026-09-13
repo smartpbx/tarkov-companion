@@ -1,61 +1,103 @@
 # Tarkov Companion
 
-Tarkov Companion is a local-first Windows second-screen app for Escape from Tarkov. It turns user-triggered screen captures and normal game-produced files into explainable item, raid, map, ammunition, key, quest, hideout, event, loadout, and economy guidance. The source repository is private at <https://github.com/smartpbx/tarkov-companion>.
+A second-screen companion for Escape from Tarkov. It watches the files the game already writes
+and turns them into a live map, a raid record, and answers about items, ammunition, keys,
+quests, the hideout and the flea market.
 
-The app is deliberately external and read-only. It does not read game memory, inject code, hook rendering, inspect game traffic, send gameplay input, track enemies, automate the flea market, or draw over the game window. Traffic views are educational predictions based on public map knowledge—not live detections.
+**External and read-only toward the game.** It does not read game memory, inject code, hook
+rendering, inspect traffic, generate input, or draw over the game window. Everything it knows
+comes from two ordinary folders: the game's logs, and the screenshots you take yourself.
 
-## Current build state
+That boundary is about not interfering with the game, and `scripts/audit-safety.sh` enforces it
+on every build.
 
-The v1 build is in active development. See [BUILD_STATUS](docs/BUILD_STATUS.md) for verified progress and [LIVE_EFT_VALIDATION](docs/LIVE_EFT_VALIDATION.md) for the only validation that may remain after simulator and Windows VM testing.
+## Install
 
-## Install and run on Windows
+Download **`TarkovCompanionDesktop-win-Setup.exe`** from the
+[latest build](https://github.com/smartpbx/tarkov-companion/releases/tag/dev) and run it once.
+It installs per user, no administrator prompt, and starts itself.
 
-Download `TarkovCompanion-v1.0.0-win-x64.zip` from the Windows verification workflow's
-artifacts, then:
+After that it updates itself: it checks shortly after launch and every few hours, marks the
+Settings entry in the sidebar when a build is waiting, and installs it in place when you say so.
 
-1. Right-click the downloaded zip, choose Properties, tick **Unblock**, and apply. Windows
-   marks downloaded archives, and without this SmartScreen blocks the extracted application.
-2. Extract the archive anywhere you like. It is self-contained, so no .NET runtime is needed.
-3. Install the [Microsoft Visual C++ 2015-2022 x64 runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-   if it is not already present. The bundled Tesseract and Leptonica libraries depend on it,
-   and local OCR stays unavailable without it. A machine that runs Escape from Tarkov almost
-   certainly already has it.
-4. Run `TarkovCompanion.exe`. The first launch creates `%LOCALAPPDATA%\TarkovCompanion`,
-   downloads the current tarkov.dev catalogs, and takes roughly ten seconds on a normal
-   connection. Everything after that is local.
+Every published file carries a SHA256 in `VELOPACK-SHA256SUMS.txt`. Verifying before installing
+is worth the ten seconds.
 
-The application is unsigned, so SmartScreen may still warn on first run.
+Local text recognition needs the
+[Microsoft Visual C++ 2015-2022 x64 runtime](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+Everything else is self-contained.
 
-To check an installation without opening a window:
+## What it does
 
-```powershell
-TarkovCompanion.exe --self-test --output self-test.json
-```
+### The map
 
-Startup and crash detail is appended to `%LOCALAPPDATA%\TarkovCompanion\Logs\startup.log`.
+- Every map from tarkov.dev, in photographic tiles or the hand-drawn plan where a map publishes
+  both, chosen per map and remembered.
+- **Your position and heading**, read from the filename of a screenshot you took. The game
+  writes both into the name; nothing is captured and nothing is tracked.
+- **Where you have been**, as a dotted trail, and the view follows you when a new screenshot
+  lands.
+- **The floor you are standing on**, chosen from your height, without you asking.
+- **Extracts, transits, spawns and locked doors**, drawn from the catalog. Scav, PMC and
+  shared differ in both colour and shape, because colour alone fails at twelve pixels and for
+  a colourblind player.
+- **The extracts this raid actually offered**, once you have photographed the list.
+- Quest objectives projected onto the map.
 
-## Build
+### The raid
 
-Requirements: .NET SDK 10.0.401 or a compatible 10.0 feature-band patch.
+- Reads the game's own logs to follow the raid: loading, in raid, over. Scav or PMC. Survives
+  the companion being started mid-raid.
+- A summary when a raid ends, and a history of the ones before it.
+- Your squad, read from the same logs.
 
-```bash
-./scripts/build.sh
-./scripts/test.sh
-./scripts/package-windows.sh
-```
+### Scanning
 
-Linux demo mode:
+- Press the game's own screenshot key. That is the whole interface. The picture is read for
+  items, extract lists, containers and flea listings, and the filename gives your position.
+- Local text recognition, on your machine. No picture is uploaded and none is kept.
+- Screenshots older than a day go to the recycle bin, so the folder stops growing. The newest
+  is always kept, only files the game named are touched, and nothing is deleted outright.
 
-```bash
-dotnet run --project src/TarkovCompanion.App -- --demo
-```
+### Knowing things
 
-Build and test work runs in GitHub Actions. The Windows verification workflow packages the
-win-x64 archive, launches it on a hosted Windows runner, and publishes the self-test reports
-and a screenshot of the running application alongside the package.
+Item values and flea prices with local history, ammunition by what it actually penetrates, keys
+and what they open, quest progress and what is available now, hideout requirements, current
+events, and loadout analysis.
 
-## Data and attribution
+### Playing together
 
-Structured game data is sourced from [json.tarkov.dev](https://json.tarkov.dev). Third-party source, asset, and package details are recorded in [DATA_SOURCES](docs/DATA_SOURCES.md), [LICENSING](docs/LICENSING.md), and [THIRD_PARTY_NOTICES](docs/THIRD_PARTY_NOTICES.md).
+An opt-in group relay. Turn it on, type one group key, and your squad sees each other on one
+map: position, heading, map, raid state, and their loadout and quests if they share them.
 
-Escape from Tarkov and related marks are property of Battlestate Games. This independent project is not affiliated with or endorsed by Battlestate Games.
+- **Waypoints** stay until somebody clears them. **Pings** say "look here" and fade.
+- One key is both which group you are in and proof you belong. The server holds no secrets and
+  never sees the key, only a hash of it.
+- Nothing is sent while it is off. The relay keeps nothing on disk and forgets a member three
+  minutes after they stop publishing.
+
+Anything that can make an HTTPS request can join: the protocol is written out in full in
+[docs/GROUP_RELAY.md](docs/GROUP_RELAY.md).
+
+## Building it
+
+Nothing here is built or tested on the maintainer's workstation; everything runs in GitHub
+Actions. See [CONTRIBUTING.md](CONTRIBUTING.md) for the branch, worktree and verification rules.
+
+The gate that matters is **Windows verification**: it launches the packaged application on a
+real Windows runner, opens every page and photographs it. A build that fails it is never
+published, and that gate exists because a build once passed every test and could not open a
+window.
+
+## What is not done
+
+Tracked as [issues](https://github.com/smartpbx/tarkov-companion/issues). The larger ones: a 3D
+map, interior maps for buildings, label collision on crowded maps, a tablet companion so the
+game never has to be alt-tabbed, and an application icon.
+
+## Licence
+
+MIT. Map artwork comes from tarkov.dev under CC BY-NC-SA 4.0 and is fetched at runtime rather
+than redistributed here. Third-party dependencies are inventoried in
+[docs/THIRD_PARTY_INVENTORY.json](docs/THIRD_PARTY_INVENTORY.json), regenerated from the real
+dependency graph and verified on every build.

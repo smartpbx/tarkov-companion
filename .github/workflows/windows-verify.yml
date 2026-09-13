@@ -407,6 +407,7 @@ jobs:
             --mainExe TarkovCompanion.exe \
             --packTitle "Tarkov Companion" \
             --packAuthors "Clayton Mannerow" \
+            --icon artifacts/win-x64/Assets/TarkovCompanion.ico \
             --outputDir dist/velopack
           ls -la dist/velopack
 

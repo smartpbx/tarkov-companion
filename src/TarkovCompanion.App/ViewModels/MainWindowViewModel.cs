@@ -96,6 +96,19 @@ public sealed class NavigationItem : BindableViewModel
 
     public string Name { get; }
 
+    /// <summary>
+    /// The icon, as path geometry rather than a character.
+    /// </summary>
+    /// <remarks>
+    /// These were Unicode characters picked by eye, from completely different blocks: a map
+    /// symbol, a dingbat, an arrow, a rouble sign. Each block resolves to a different fallback
+    /// font, so every row rendered at its own size, weight, stroke and baseline, and the rail
+    /// looked ragged for a reason nobody could point at. Keys was tiny, Loadout was a dense
+    /// block, Flea was a letter.
+    ///
+    /// Drawn here they share one grid, one stroke width and one cap style, because they are one
+    /// set rather than fourteen characters that happened to be available.
+    /// </remarks>
     public string Glyph { get; }
 
     public PageViewModel Page { get; }
@@ -1294,20 +1307,20 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
         Navigation =
         [
-            CreateNavigation("Raid", "⌖", Raid),
-            CreateNavigation("Squad", "⚇", Squad),
-            CreateNavigation("Group", "⇄", Group),
-            CreateNavigation("Scanner", "⌁", Scanner),
-            CreateNavigation("Items", "◇", Items),
-            CreateNavigation("Ammo", "◉", Ammo),
-            CreateNavigation("Keys", "⌑", Keys),
-            CreateNavigation("Flea", "₽", Flea),
-            CreateNavigation("Quests", "✓", Quests),
-            CreateNavigation("Hideout", "⌂", Hideout),
-            CreateNavigation("Events", "⚑", Events),
-            CreateNavigation("Loadout", "▦", Loadout),
-            CreateNavigation("History", "◷", History),
-            CreateNavigation("Settings", "⚙", Settings),
+            CreateNavigation("Raid", "M8,1.5 V4.5 M8,11.5 V14.5 M1.5,8 H4.5 M11.5,8 H14.5 M8,5.2 A2.8,2.8 0 1 1 7.99,5.2 Z", Raid),
+            CreateNavigation("Squad", "M5.5,7 A2,2 0 1 1 5.49,7 Z M10.5,7 A2,2 0 1 1 10.49,7 Z M2,13.5 C2,11 3.6,10 5.5,10 C7.4,10 9,11 9,13.5 M9.6,10.1 C12,10.1 14,11.1 14,13.5", Squad),
+            CreateNavigation("Group", "M2.5,6 H11 M9,3.5 L11.5,6 L9,8.5 M13.5,10.5 H5 M7,8 L4.5,10.5 L7,13", Group),
+            CreateNavigation("Scanner", "M2,5 V2.5 H4.5 M11.5,2.5 H14 V5 M14,11.5 V14 H11.5 M4.5,14 H2 V11.5 M2.5,8 H13.5", Scanner),
+            CreateNavigation("Items", "M8,2 L14,5.2 V10.8 L8,14 L2,10.8 V5.2 Z M2,5.2 L8,8.4 L14,5.2 M8,8.4 V14", Items),
+            CreateNavigation("Ammo", "M8,1.5 C10,4 10.5,6 10.5,8.5 H5.5 C5.5,6 6,4 8,1.5 Z M5.5,8.5 H10.5 V12 H5.5 Z M5.5,12 H10.5 V14.5 H5.5 Z", Ammo),
+            CreateNavigation("Keys", "M6,10 A3,3 0 1 1 5.99,10 Z M8.1,8.2 L13.5,2.8 M11.5,4.8 L13,6.3 M12.6,3.7 L14,5.1", Keys),
+            CreateNavigation("Flea", "M2.5,8.5 L8.5,2.5 H13.5 V7.5 L7.5,13.5 Z M11,5 A0.9,0.9 0 1 1 10.99,5 Z", Flea),
+            CreateNavigation("Quests", "M3,8.5 L6.5,12 L13,4", Quests),
+            CreateNavigation("Hideout", "M2,7.5 L8,2 L14,7.5 M3.6,6.4 V14 H12.4 V6.4 M6.6,14 V9.5 H9.4 V14", Hideout),
+            CreateNavigation("Events", "M4,14 V2 M4,2.6 H12.5 L10.4,5.8 L12.5,9 H4", Events),
+            CreateNavigation("Loadout", "M2.5,2.5 H13.5 V13.5 H2.5 Z M2.5,8 H13.5 M8,2.5 V13.5", Loadout),
+            CreateNavigation("History", "M8,1.5 A6.5,6.5 0 1 1 2.4,4.8 M2.4,4.8 V1.8 M2.4,4.8 H5.4 M8,4.5 V8.5 L11,10.2", History),
+            CreateNavigation("Settings", "M2.5,4.5 H13.5 M2.5,8 H13.5 M2.5,11.5 H13.5 M6,2.9 V6.1 M10.5,6.4 V9.6 M5,9.9 V13.1", Settings),
         ];
 
         _currentPage = Navigation[0].Page;
