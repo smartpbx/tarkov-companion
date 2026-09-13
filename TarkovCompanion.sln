@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.Infrastruct
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.Platform.Windows", "src\TarkovCompanion.Platform.Windows\TarkovCompanion.Platform.Windows.csproj", "{53B78C1C-86B3-411C-8799-3D050F15950C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.Platform.Windows.Ocr", "src\TarkovCompanion.Platform.Windows.Ocr\TarkovCompanion.Platform.Windows.Ocr.csproj", "{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.App", "src\TarkovCompanion.App\TarkovCompanion.App.csproj", "{7F3D8C3B-50C9-458D-98F5-3603F4628AB5}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.EftSimulator", "src\TarkovCompanion.EftSimulator\TarkovCompanion.EftSimulator.csproj", "{8C2746A9-F488-48C6-8831-B44D2115FD54}"
@@ -88,17 +90,29 @@ Global
 		{7A83B9EE-E56A-4DB9-A706-15FF0E203A0B}.Release|x86.ActiveCfg = Release|Any CPU
 		{7A83B9EE-E56A-4DB9-A706-15FF0E203A0B}.Release|x86.Build.0 = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|x64.Build.0 = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|x64.Build.0 = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|x86.ActiveCfg = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Debug|x86.Build.0 = Debug|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Debug|x86.Build.0 = Debug|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|Any CPU.Build.0 = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|x64.ActiveCfg = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|x64.ActiveCfg = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|x64.Build.0 = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|x64.Build.0 = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|x86.ActiveCfg = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|x86.ActiveCfg = Release|Any CPU
 		{53B78C1C-86B3-411C-8799-3D050F15950C}.Release|x86.Build.0 = Release|Any CPU
+		{7F2C9A41-4E55-4B60-9F51-2A1D6B8C0E33}.Release|x86.Build.0 = Release|Any CPU
 		{7F3D8C3B-50C9-458D-98F5-3603F4628AB5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{7F3D8C3B-50C9-458D-98F5-3603F4628AB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7F3D8C3B-50C9-458D-98F5-3603F4628AB5}.Debug|x64.ActiveCfg = Debug|Any CPU
