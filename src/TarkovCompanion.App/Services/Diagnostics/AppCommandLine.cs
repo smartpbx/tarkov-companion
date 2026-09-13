@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace TarkovCompanion.App.Services.Diagnostics;
 
 public sealed record AppCommandLine(
@@ -30,6 +32,24 @@ public sealed record AppCommandLine(
     /// </remarks>
     public string? OcrProbePath { get; init; }
 
+    /// <summary>
+    /// The part of the screenshot to probe, as fractions of the frame: "x,y,w,h".
+    /// </summary>
+    /// <remarks>
+    /// Probing a whole frame cannot find a panel. Measured on a real 3840x1080 screenshot:
+    /// reading the whole thing returned 240 lines with the extract names not among the first
+    /// twelve any preparation printed, and reading the panel alone returned sixteen with every
+    /// name legible. Somebody probing a whole frame concludes the text is unreadable when it
+    /// is merely buried.
+    ///
+    /// Fractions rather than pixels, because the frame this is pointed at is not always the
+    /// frame the region was measured on.
+    /// </remarks>
+    public string? OcrProbeRegion { get; init; }
+
+    /// <summary>How many lines the probe prints per preparation. Twelve on a 32:9 frame is a rounding error.</summary>
+    public int? OcrProbeLines { get; init; }
+
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -45,6 +65,12 @@ public sealed record AppCommandLine(
         {
             StartPage = GetValue(args, "--page"),
             OcrProbePath = GetValue(args, "--ocr-probe"),
+            OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
+            OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
+                int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
+                count > 0
+                    ? count
+                    : null,
         };
     }
 
