@@ -62,13 +62,25 @@ public static class OcrProbe
             return 1;
         }
 
+        var region = ParseRegion(options.OcrProbeRegion, image);
+        var lineCount = options.OcrProbeLines ?? DefaultLines;
         Console.WriteLine($"{Path.GetFileName(screenshotPath)} · {image.Width}x{image.Height}");
+        if (region is { } cropped)
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"region {cropped.X},{cropped.Y} {cropped.Width}x{cropped.Height}"));
+        }
+
         Console.WriteLine();
         foreach (var (name, preparation) in Variants)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var result = await engine
-                .RecognizeAsync(image, new(ScanContext.Unknown) { Preparation = preparation }, cancellationToken)
+                .RecognizeAsync(
+                    image,
+                    new(ScanContext.Unknown, region) { Preparation = preparation },
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (!result.IsAvailable)
             {
@@ -79,28 +91,78 @@ public static class OcrProbe
             // The size it was actually read at, beside the time it took. At three times a
             // 3840x1080 frame is thirty-seven megapixels, and printing the number next to the
             // seconds makes the cost of a preparation obvious rather than implied.
-            var width = image.Width * preparation.SafeScale;
-            var height = image.Height * preparation.SafeScale;
+            var width = (region?.Width ?? image.Width) * preparation.SafeScale;
+            var height = (region?.Height ?? image.Height) * preparation.SafeScale;
             var megapixels = width / 1000d * height / 1000d;
             var detected = detector.Detect(image, result);
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"{name}: {detected.Context} {detected.Confidence.Value:F2} · {result.Lines.Count} lines · " +
                 $"{width}x{height} ({megapixels:F1} MP) · {result.Duration.TotalSeconds:F1}s"));
-            Console.WriteLine("  " + Sample(result.Lines));
+            Console.WriteLine("  " + Sample(result.Lines, lineCount));
             Console.WriteLine();
         }
 
         return 0;
     }
 
+    /// <summary>How many lines are printed unless somebody asks for more.</summary>
+    private const int DefaultLines = 12;
+
+    /// <summary>
+    /// Turns "x,y,w,h" in fractions of the frame into a rectangle in pixels.
+    /// </summary>
+    /// <remarks>
+    /// Fractions rather than pixels, because a region measured on one screenshot is usually
+    /// pointed at another. A value that will not parse is reported and ignored rather than
+    /// silently treated as the whole frame, which would look like the region simply did not
+    /// help.
+    /// </remarks>
+    public static PixelRect? ParseRegion(string? value, CapturedImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var parts = value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 4)
+        {
+            Console.Error.WriteLine($"Ignoring --ocr-probe-region '{value}': expected four numbers, x,y,w,h.");
+            return null;
+        }
+
+        var numbers = new double[4];
+        for (var index = 0; index < 4; index++)
+        {
+            if (!double.TryParse(parts[index], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[index]))
+            {
+                Console.Error.WriteLine($"Ignoring --ocr-probe-region '{value}': '{parts[index]}' is not a number.");
+                return null;
+            }
+        }
+
+        var x = Math.Clamp((int)Math.Round(numbers[0] * image.Width), 0, image.Width);
+        var y = Math.Clamp((int)Math.Round(numbers[1] * image.Height), 0, image.Height);
+        var width = Math.Clamp((int)Math.Round(numbers[2] * image.Width), 0, image.Width - x);
+        var height = Math.Clamp((int)Math.Round(numbers[3] * image.Height), 0, image.Height - y);
+        if (width <= 0 || height <= 0)
+        {
+            Console.Error.WriteLine($"Ignoring --ocr-probe-region '{value}': it selects nothing.");
+            return null;
+        }
+
+        return new(x, y, width, height);
+    }
+
     /// <summary>
     /// The first of what it read, so a person can see the difference rather than trust a score.
     /// </summary>
-    private static string Sample(IReadOnlyList<OcrLine> lines)
+    private static string Sample(IReadOnlyList<OcrLine> lines, int count)
     {
         var builder = new StringBuilder();
-        foreach (var line in lines.Take(12))
+        foreach (var line in lines.Take(count))
         {
             if (builder.Length > 0)
             {
@@ -108,6 +170,11 @@ public static class OcrProbe
             }
 
             builder.Append(line.Text);
+        }
+
+        if (lines.Count > count)
+        {
+            builder.Append(string.Create(CultureInfo.InvariantCulture, $" | (+{lines.Count - count} more)"));
         }
 
         return builder.Length == 0 ? "(nothing)" : builder.ToString();

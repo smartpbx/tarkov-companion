@@ -86,6 +86,44 @@ Bounded per room: sixty waypoints and thirty pings. Past that the oldest goes, s
 leaning on a mouse button loses their stalest plan rather than being refused or filling the
 server.
 
+## The game-data catalog
+
+Every client otherwise syncs several megabytes from json.tarkov.dev into its own database, on
+its own schedule, over its own connection. A group of five does that five times for five
+identical answers. This server is already running and already reachable by all of them.
+
+```
+GET /catalog                      what is held: path, tag, when it was fetched, how big
+GET /catalog/{mode}/{endpoint}    the payload, with a strong ETag
+```
+
+`mode` is `regular` or `pve`; `endpoint` is one of a fixed list (`items`, `maps`, `tasks`,
+`hideout`, `traders`, `barters`, `crafts`, `ammo`, `achievements`, `status`). **An allowlist,
+not a pattern** — an open proxy on a public address is somebody else's bandwidth bill, and "it
+only forwards to one host" stops being true the first time the path is built from user input.
+
+The tag is the SHA-256 of the bytes, which makes a snapshot content-addressed: two clients
+holding the same tag hold the same catalog, and a client that already has it gets a 304 and no
+body at all. Held for an hour before upstream is asked again.
+
+**Outside the group key, deliberately.** The catalog is public data anybody can fetch from
+json.tarkov.dev without asking permission, so a key here would protect nothing and would stop a
+client that has not been configured for a group from using the mirror at all.
+
+**It is never a dependency.** A client tries the mirror once, and on anything other than a good
+answer goes straight to upstream — which is what it did before this existed. A server with
+nothing held and no route upstream answers 503 rather than an error body, so the client falls
+back instead of caching a failure under a strong tag. The moment the mirror becomes required it
+has stopped being an optimisation, and that is not a trade this application makes.
+
+### What this is not, yet
+
+It serves the upstream payload byte for byte. The larger prize — fixing the parser once here
+when tarkov.dev next changes shape, rather than shipping a client build — needs the server to
+publish its own stable schema rather than upstream's, which means the deserialisation models
+moving somewhere both can see. That is a separate piece of work; this endpoint is where it
+would be served from.
+
 ## The second screen
 
 Alt-tabbing out of a raid to drop a waypoint is the thing that makes a companion not worth

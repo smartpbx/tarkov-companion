@@ -9,6 +9,7 @@
     "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
     "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj",
     "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj",
+    "src/TarkovCompanion.Platform.Windows.Ocr/TarkovCompanion.Platform.Windows.Ocr.csproj",
     "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
   ],
   "testProjects": [

@@ -130,7 +130,11 @@
             <TextBlock Classes="label" Text="Recognition provider" />
             <TextBlock Classes="value" Text="{Binding RecognitionProvider}" TextWrapping="Wrap" />
           </StackPanel>
+          <!-- Only for the engine that needs it. Windows has an OCR engine of its own and
+               needs no redistributable, so showing this unconditionally sends somebody after
+               a problem they do not have. -->
           <TextBlock Classes="note"
+                     IsVisible="{Binding RecognitionNeedsRuntime}"
                      Text="Needs the Microsoft Visual C++ 2015-2022 x64 runtime." />
         </StackPanel>
       </Border>

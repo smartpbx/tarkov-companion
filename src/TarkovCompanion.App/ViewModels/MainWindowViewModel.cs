@@ -1253,6 +1253,10 @@ public sealed class SettingsPageViewModel : PageViewModel
         RecognitionProvider = ocrStatus.Availability.IsAvailable
             ? $"Available · {ocrStatus.Availability.Provider}"
             : $"Unavailable · {ocrStatus.Availability.Provider} · {ocrStatus.Availability.Reason ?? "No reason was reported."}";
+        // The runtime warning belongs to one engine and not the other. Windows has its own OCR
+        // and needs no redistributable, so telling somebody running on it to go and install
+        // one sends them after a problem they do not have.
+        RecognitionNeedsRuntime = ocrStatus.Availability.Provider.StartsWith("tesseract", StringComparison.OrdinalIgnoreCase);
         IsOffline = options.Offline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
@@ -1669,6 +1673,9 @@ public sealed class SettingsPageViewModel : PageViewModel
     public string DatabasePath { get; }
 
     public string DiagnosticChannel { get; }
+
+    /// <summary>Whether the engine in use is the one that needs a Visual C++ redistributable.</summary>
+    public bool RecognitionNeedsRuntime { get; }
 
     public AsyncDelegateCommand SyncCommand { get; }
 

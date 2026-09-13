@@ -281,12 +281,56 @@ public sealed class TarkovDevJsonClient
         CancellationToken cancellationToken)
     {
         Exception? lastError = null;
-        for (var attempt = 1; attempt <= _options.MaxAttempts; attempt++)
+        // The mirror first where there is one, then upstream, always. A group server holding
+        // the catalog saves every client from pulling the same several megabytes, and a mirror
+        // that is off, unreachable or answering badly costs nothing: the loop moves on to the
+        // address the client used before a mirror existed.
+        foreach (var address in Addresses())
+        {
+            var isUpstream = address == _options.BaseAddress;
+            var result = await TryAsync(
+                address,
+                // One go at a mirror. Retrying something optional while upstream is sitting
+                // there waiting is time the player spends looking at an empty database.
+                isUpstream ? _options.MaxAttempts : 1,
+                isUpstream,
+                cacheKey,
+                cached,
+                cancellationToken).ConfigureAwait(false);
+            if (result.Response is { } response)
+            {
+                return response;
+            }
+
+            lastError = result.Error ?? lastError;
+        }
+
+        throw new TarkovDevRequestException(
+            $"The catalog request for '{cacheKey}' failed against every address.",
+            innerException: lastError);
+    }
+
+    /// <summary>One address, tried as many times as it is worth trying.</summary>
+    /// <remarks>
+    /// A failure against a mirror is returned rather than thrown, because upstream is next and
+    /// it is the answer the client would have had anyway. A failure against upstream is thrown
+    /// where the status says retrying cannot help, because there is nothing after it.
+    /// </remarks>
+    private async Task<(CachedResponse? Response, Exception? Error)> TryAsync(
+        Uri address,
+        int attempts,
+        bool isUpstream,
+        string cacheKey,
+        TarkovDevCacheEntry? cached,
+        CancellationToken cancellationToken)
+    {
+        Exception? lastError = null;
+        for (var attempt = 1; attempt <= attempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                using var request = CreateRequest(cacheKey, cached);
+                using var request = CreateRequest(address, cacheKey, cached);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(_options.RequestTimeout);
                 using var response = await _httpClient.SendAsync(
@@ -298,20 +342,24 @@ public sealed class TarkovDevJsonClient
                 {
                     var revalidated = cached with { CachedUtc = _timeProvider.GetUtcNow() };
                     await _cache.PutAsync(revalidated, cancellationToken).ConfigureAwait(false);
-                    return new(revalidated, true, false);
+                    return (new(revalidated, true, false), null);
                 }
 
                 if (!response.IsSuccessStatusCode)
                 {
                     var error = new TarkovDevRequestException(
-                        $"json.tarkov.dev returned {(int)response.StatusCode} for '{cacheKey}'.",
+                        $"The catalog at {address} returned {(int)response.StatusCode} for '{cacheKey}'.",
                         response.StatusCode);
-                    if (!IsTransient(response.StatusCode) || attempt == _options.MaxAttempts)
+                    if (isUpstream && (!IsTransient(response.StatusCode) || attempt == attempts))
                     {
                         throw error;
                     }
 
                     lastError = error;
+                    if (!isUpstream)
+                    {
+                        return (null, error);
+                    }
                 }
                 else
                 {
@@ -324,13 +372,13 @@ public sealed class TarkovDevJsonClient
                         response.Headers.ETag?.ToString(),
                         response.Content.Headers.LastModified ?? response.Headers.Date);
                     await _cache.PutAsync(entry, cancellationToken).ConfigureAwait(false);
-                    return new(entry, false, false);
+                    return (new(entry, false, false), null);
                 }
             }
             catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
             {
-                lastError = new TimeoutException($"json.tarkov.dev request for '{cacheKey}' timed out.", exception);
-                if (attempt == _options.MaxAttempts)
+                lastError = new TimeoutException($"The catalog request for '{cacheKey}' timed out.", exception);
+                if (attempt == attempts)
                 {
                     break;
                 }
@@ -338,7 +386,17 @@ public sealed class TarkovDevJsonClient
             catch (HttpRequestException exception)
             {
                 lastError = exception;
-                if (attempt == _options.MaxAttempts)
+                if (attempt == attempts)
+                {
+                    break;
+                }
+            }
+            catch (JsonException exception)
+            {
+                // A mirror serving something that is not the catalog is a mirror to walk away
+                // from, not one to retry. Upstream is next.
+                lastError = exception;
+                if (!isUpstream || attempt == attempts)
                 {
                     break;
                 }
@@ -347,14 +405,29 @@ public sealed class TarkovDevJsonClient
             await DelayBeforeRetryAsync(attempt, cancellationToken).ConfigureAwait(false);
         }
 
-        throw new TarkovDevRequestException(
-            $"json.tarkov.dev request for '{cacheKey}' failed after {_options.MaxAttempts} attempts.",
-            innerException: lastError);
+        return (null, lastError);
     }
 
-    private HttpRequestMessage CreateRequest(string cacheKey, TarkovDevCacheEntry? cached)
+    /// <summary>
+    /// Where to ask, in order: the group's mirror where there is one, then upstream.
+    /// </summary>
+    /// <remarks>
+    /// Upstream is always in the list and always last. A mirror is an optimisation, and the
+    /// moment it can stop a client working it has stopped being one.
+    /// </remarks>
+    private IEnumerable<Uri> Addresses()
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(_options.BaseAddress, cacheKey));
+        if (_options.MirrorAddress is { } mirror)
+        {
+            yield return mirror;
+        }
+
+        yield return _options.BaseAddress;
+    }
+
+    private HttpRequestMessage CreateRequest(Uri address, string cacheKey, TarkovDevCacheEntry? cached)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(address, cacheKey));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (cached?.ETag is not null && EntityTagHeaderValue.TryParse(cached.ETag, out var etag))
         {

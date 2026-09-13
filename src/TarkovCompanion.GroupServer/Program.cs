@@ -5,6 +5,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<GroupRooms>();
 builder.Services.AddSingleton<GroupMarks>();
+// One copy of the game-data catalog for the whole group, instead of five clients each pulling
+// several megabytes of the same answer. Its own client, with its own timeout, because a slow
+// upstream must not hold up the group exchange this server mainly exists for.
+builder.Services.AddHttpClient<CatalogMirror>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
+});
 
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
@@ -194,6 +202,46 @@ app.MapDelete("/state/{name}", Results<Ok, UnauthorizedHttpResult> (
 
     rooms.Remove(GroupKey.RoomFor(key), name);
     return TypedResults.Ok();
+});
+
+// The game-data catalog, served once for the group.
+//
+// Deliberately outside the group key. The catalog is public data that anybody can fetch from
+// json.tarkov.dev without asking anybody, so putting it behind the key would protect nothing
+// and would stop a client that has not been configured for a group from using the mirror at
+// all. What it is not is an open proxy: the path is checked against a list, and nothing else
+// is ever fetched.
+app.MapGet("/catalog", (CatalogMirror mirror) => TypedResults.Ok(mirror.Index()));
+
+app.MapGet("/catalog/{mode}/{endpoint}", async Task<IResult> (
+    string mode,
+    string endpoint,
+    CatalogMirror mirror,
+    HttpRequest request,
+    CancellationToken cancellationToken) =>
+{
+    if (!CatalogMirror.IsAllowed(mode, endpoint))
+    {
+        return TypedResults.NotFound();
+    }
+
+    var snapshot = await mirror.GetAsync(mode, endpoint, cancellationToken);
+    if (snapshot is null)
+    {
+        // Nothing held and upstream unreachable. 503 rather than an error body, so the client
+        // falls back to upstream instead of caching a failure under a strong tag.
+        return TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    // The whole point of a content-addressed snapshot: a client holding this tag is holding
+    // these bytes, and gets no body at all.
+    if (request.Headers.IfNoneMatch.Any(value => string.Equals(value, snapshot.ETag, StringComparison.Ordinal)))
+    {
+        return TypedResults.StatusCode(StatusCodes.Status304NotModified);
+    }
+
+    request.HttpContext.Response.Headers.ETag = snapshot.ETag;
+    return TypedResults.Bytes(snapshot.Body, "application/json");
 });
 
 app.Run();
