@@ -50,6 +50,20 @@ public sealed record AppCommandLine(
     /// <summary>How many lines the probe prints per preparation. Twelve on a 32:9 frame is a rounding error.</summary>
     public int? OcrProbeLines { get; init; }
 
+    /// <summary>
+    /// Options that were passed and are not recognised.
+    /// </summary>
+    /// <remarks>
+    /// An unknown option used to do nothing and say nothing, so an option that had not shipped
+    /// yet was indistinguishable from an option that had no effect. Somebody ran
+    /// <c>--ocr-probe-region</c> against a build without it, saw no region applied, and the
+    /// available conclusion was that the region had not helped.
+    ///
+    /// Reported rather than fatal. A flag from a newer build passed to an older one is a
+    /// mistake worth telling somebody about, not a reason to refuse to start.
+    /// </remarks>
+    public IReadOnlyList<string> UnknownOptions { get; init; } = [];
+
     public static AppCommandLine Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -66,6 +80,7 @@ public sealed record AppCommandLine(
             StartPage = GetValue(args, "--page"),
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
+            UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
                 count > 0
@@ -73,6 +88,63 @@ public sealed record AppCommandLine(
                     : null,
         };
     }
+
+    /// <summary>Every option in the list, so the parser can say which ones it did not know.</summary>
+    private static readonly string[] Known =
+    [
+        "--self-test",
+        "--demo",
+        "--headless",
+        "--developer-mode",
+        "--output",
+        "--demo-fixture",
+        "--diagnostic-channel",
+        "--page",
+        "--ocr-probe",
+        "--ocr-probe-region",
+        "--ocr-probe-lines",
+    ];
+
+    /// <summary>
+    /// Anything that looks like an option and is not one.
+    /// </summary>
+    /// <remarks>
+    /// Only what precedes a value is examined: an option's own value can be any string, and a
+    /// value beginning with two dashes is already refused by <see cref="GetValue"/>.
+    /// </remarks>
+    private static IReadOnlyList<string> FindUnknown(IReadOnlyList<string> args)
+    {
+        var unknown = new List<string>();
+        for (var index = 0; index < args.Count; index++)
+        {
+            var argument = args[index];
+            if (!argument.StartsWith("--", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (Known.Contains(argument, StringComparer.OrdinalIgnoreCase))
+            {
+                // Step over its value, so a value that happens to start with two dashes is not
+                // reported as an option. GetValue refuses those anyway; this keeps the two
+                // readings of the same list agreeing.
+                if (TakesValue(argument) && index + 1 < args.Count)
+                {
+                    index++;
+                }
+
+                continue;
+            }
+
+            unknown.Add(argument);
+        }
+
+        return unknown;
+    }
+
+    private static bool TakesValue(string option) => option is
+        "--output" or "--demo-fixture" or "--diagnostic-channel" or
+        "--page" or "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines";
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
         args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));
