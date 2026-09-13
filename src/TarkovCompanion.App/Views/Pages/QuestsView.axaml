@@ -13,7 +13,21 @@
             <TextBlock Classes="label" Text="{Binding CatalogStatus}" TextWrapping="Wrap" />
             <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
           </StackPanel>
-          <Button Grid.Column="1" Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Center" />
+          <!-- The level is typed here because the game never writes its own player's down, and
+               every level requirement on this page is measured against it. Left at the stored
+               1, a fresh install gates five hundred quests behind levels the player is past. -->
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <StackPanel Spacing="2">
+              <TextBlock Classes="label" Text="Level" />
+              <NumericUpDown Width="104"
+                             FormatString="0"
+                             Increment="1"
+                             Maximum="79"
+                             Minimum="1"
+                             Value="{Binding PlayerLevel, Mode=TwoWay}" />
+            </StackPanel>
+            <Button Command="{Binding RefreshCommand}" Content="Refresh" VerticalAlignment="Bottom" />
+          </StackPanel>
         </Grid>
       </Border>
 

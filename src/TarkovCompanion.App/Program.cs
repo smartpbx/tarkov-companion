@@ -123,11 +123,22 @@ internal static class Program
         && !options.DeveloperMode
         && options.StartPage is null;
 
-    public static AppBuilder BuildAvaloniaApp(App app) =>
-        AppBuilder.Configure(() => app)
+    /// <summary>
+    /// Builds the application, recording the toolkit's warnings when a tool asks for them.
+    /// </summary>
+    /// <remarks>
+    /// <c>LogToTrace</c> has always been here and had nowhere to write, so a binding to a
+    /// property that no longer exists was reported to nobody. The listener is added before the
+    /// builder so that warnings raised while the first page loads are caught too.
+    /// </remarks>
+    public static AppBuilder BuildAvaloniaApp(App app)
+    {
+        InterfaceWarningLog.TryStart();
+        return AppBuilder.Configure(() => app)
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
+    }
 
     /// <summary>
     /// Tears the application down without letting it outlive its own window.
