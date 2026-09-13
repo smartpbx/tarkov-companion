@@ -189,6 +189,67 @@ public interface IQuestProgressImportStore
         CancellationToken cancellationToken);
 }
 
+/// <summary>One quest-progress import that has already been applied, as it was recorded.</summary>
+/// <param name="ImportId">The import's own id, which is also what an undo takes.</param>
+/// <param name="ImportedUtc">When it was applied.</param>
+/// <param name="ProfileName">Whose progress it was, as their own installation named them.</param>
+/// <param name="SourceAppVersion">Which build exported it.</param>
+/// <param name="AppliedChangeCount">How much of it landed.</param>
+/// <param name="KeptLocalCount">How much was refused in favour of what was already here.</param>
+/// <param name="Conflicts">Each thing the two sides disagreed about, and which way it went.</param>
+/// <param name="Unresolved">Each thing that could not be read or matched at all.</param>
+public sealed record QuestImportRecord(
+    Guid ImportId,
+    DateTimeOffset ImportedUtc,
+    string ProfileName,
+    string SourceAppVersion,
+    int AppliedChangeCount,
+    int KeptLocalCount,
+    IReadOnlyList<QuestImportConflictRecord> Conflicts,
+    IReadOnlyList<QuestImportUnresolvedRecord> Unresolved);
+
+/// <summary>One disagreement between what was here and what arrived.</summary>
+/// <param name="EntityKind">A task or an objective.</param>
+/// <param name="EntityId">Which one.</param>
+/// <param name="LocalValueJson">What this installation had.</param>
+/// <param name="IncomingValueJson">What the file said.</param>
+/// <param name="Reason">Why it was a conflict rather than a straightforward change.</param>
+/// <param name="Resolution">Which way it was settled.</param>
+public sealed record QuestImportConflictRecord(
+    string EntityKind,
+    string EntityId,
+    string LocalValueJson,
+    string IncomingValueJson,
+    string Reason,
+    QuestImportResolution Resolution);
+
+/// <summary>One thing in the file that could not be matched to anything here.</summary>
+public sealed record QuestImportUnresolvedRecord(
+    string EntityKind,
+    string EntityId,
+    string IncomingValueJson,
+    string Reason);
+
+/// <summary>
+/// Reads back the imports already applied, and what each one could not do.
+/// </summary>
+/// <remarks>
+/// Every import records exactly which changes it refused and why, in
+/// <c>quest_progress_import_conflicts</c> and <c>quest_progress_import_unresolved</c>, and
+/// nothing has ever read either table. So an import that half-worked told the player "kept 3
+/// local · 2 unresolved" once, in a status line, and could never say which three or which two.
+///
+/// It is also what makes an undo survive a restart: the id an undo needs was held in memory
+/// only, so closing the application between importing and regretting it lost the way back.
+/// </remarks>
+public interface IQuestProgressImportHistory
+{
+    Task<IReadOnlyList<QuestImportRecord>> GetRecentAsync(
+        QuestProfileScope scope,
+        int limit,
+        CancellationToken cancellationToken);
+}
+
 public interface IQuestProgressImportPlanner
 {
     Task<QuestProgressImportPreview> PreviewAsync(
