@@ -1233,6 +1233,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
     private bool _isAutoFit = true;
+    private MapVariant? _floorVariant;
     private bool _disposed;
 
     public MapViewModel(
@@ -1302,6 +1303,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // when they arrive. Without this the toggle is evaluated once, against an empty
             // list, and never appears on any map: the feature is built, bound, and invisible.
             OnPropertyChanged(nameof(CanStack));
+            UpdateFloorVariant();
         }
     }
 
@@ -4121,6 +4123,72 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Whether a map has more than one floor to stack at all.</summary>
     public bool CanStack => Floors.Count > 1;
+
+    /// <summary>
+    /// The variant of this map that has floors, when the one on screen has none.
+    /// </summary>
+    /// <remarks>
+    /// Reported as "the 3d view doesnt seem to work at all for me". Part of that was a missing
+    /// style on the toggle and part was a notification that never fired, both since fixed. This
+    /// is the part that was left: only the interactive variant of a map carries layers — every
+    /// 2D and 3D variant upstream publishes carries none — so a player who switched artwork
+    /// loses the stack, the toggle correctly disappears, and nothing anywhere says why or how to
+    /// get it back. A feature that vanishes silently is indistinguishable from one that is
+    /// broken, which is exactly how it was reported.
+    /// </remarks>
+    public MapVariant? FloorVariant
+    {
+        get => _floorVariant;
+        private set
+        {
+            Set(ref _floorVariant, value);
+            OnPropertyChanged(nameof(HasFloorVariant));
+            OnPropertyChanged(nameof(FloorVariantHint));
+        }
+    }
+
+    public bool HasFloorVariant => _floorVariant is not null;
+
+    /// <summary>What is missing and where it went, in one line.</summary>
+    public string FloorVariantHint => _floorVariant is { } variant
+        ? $"{variant.Floors.Count} floors are on the {variant.DisplayName} map"
+        : string.Empty;
+
+    /// <summary>Switches to the variant of this map that has floors.</summary>
+    public async Task UseFloorVariantAsync()
+    {
+        if (_floorVariant is { } variant)
+        {
+            await SelectVariantAsync(variant).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// Works out whether floors exist somewhere else on this map.
+    /// </summary>
+    /// <remarks>
+    /// Read off the catalog rather than by loading anything: every variant's layer list is
+    /// parsed when the catalog is, so the answer is already in memory. Null when the variant on
+    /// screen already has floors, and null when no variant of this map has any — a map with one
+    /// floor is not missing anything, and saying so on Factory would be noise on every map that
+    /// is genuinely flat.
+    /// </remarks>
+    private void UpdateFloorVariant() => FloorVariant = CanStack
+        ? null
+        : FloorsElsewhere(SelectedLocation, SelectedVariant?.Key);
+
+    /// <summary>The rule on its own, so it can be checked without standing up a map.</summary>
+    public static MapVariant? FloorsElsewhere(MapLocation? location, string? selectedKey) =>
+        location?.Variants
+            .Where(candidate =>
+                candidate.HasRuntimeAsset &&
+                candidate.Floors.Count > 1 &&
+                !string.Equals(candidate.Key, selectedKey, StringComparison.OrdinalIgnoreCase))
+            // The interactive one first, because it is the one that also carries a transform and
+            // can therefore place the player on the floor it is showing them.
+            .OrderByDescending(candidate => candidate.IsInteractive)
+            .ThenByDescending(candidate => candidate.Floors.Count)
+            .FirstOrDefault();
 
     public bool HasFloorStack => _isStacked && _floorLayers.Count > 0;
 
