@@ -27,7 +27,7 @@ public sealed class MapGroupPanelTests
     {
         var row = MapViewModel.Describe(
             Member("Nate", "ground-zero", RaidLifecycleState.InRaid, side: "PMC"),
-            "ground-zero",
+            isHere: true,
             Locations);
 
         Assert.Equal("Nate", row.Name);
@@ -40,7 +40,7 @@ public sealed class MapGroupPanelTests
     {
         var row = MapViewModel.Describe(
             Member("Nate", "customs", RaidLifecycleState.InRaid),
-            "ground-zero",
+            isHere: false,
             Locations);
 
         Assert.True(row.IsElsewhere);
@@ -53,7 +53,7 @@ public sealed class MapGroupPanelTests
     {
         var row = MapViewModel.Describe(
             Member("Nate", "labyrinth", RaidLifecycleState.InRaid),
-            "ground-zero",
+            isHere: false,
             Locations);
 
         Assert.Equal("labyrinth · In raid", row.Where);
@@ -64,14 +64,14 @@ public sealed class MapGroupPanelTests
     {
         var fresh = MapViewModel.Describe(
             Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromSeconds(18)),
-            "ground-zero",
+            isHere: true,
             Locations);
         Assert.Equal("112, -44 · 18s ago", fresh.Position);
         Assert.False(fresh.IsStale);
 
         var old = MapViewModel.Describe(
             Member("Nate", "ground-zero", RaidLifecycleState.InRaid, age: TimeSpan.FromMinutes(8)),
-            "ground-zero",
+            isHere: true,
             Locations);
         Assert.Equal("112, -44 · 8m ago", old.Position);
         Assert.True(old.IsStale);
@@ -89,7 +89,7 @@ public sealed class MapGroupPanelTests
     {
         var row = MapViewModel.Describe(
             Member("Nate", null, RaidLifecycleState.Menu, hasPosition: false),
-            "ground-zero",
+            isHere: false,
             Locations);
 
         Assert.Equal("Menu", row.Where);
@@ -108,7 +108,7 @@ public sealed class MapGroupPanelTests
                 Loadout = ["6B43", "M4A1"],
                 Quests = ["Debut"],
             },
-            "ground-zero",
+            isHere: true,
             Locations);
 
         Assert.True(row.HasExtra);

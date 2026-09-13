@@ -500,6 +500,17 @@ public interface IRaidHistoryService
 
     Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Every screenshot position recorded during one raid, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// These have been written on every scan since the first raid and nothing has ever read
+    /// them back, so a raid's path survived a restart in the database and vanished from the
+    /// screen. They are the whole of what a replay needs: the trail is a record of the
+    /// player's own screenshots rather than any kind of tracking.
+    /// </remarks>
+    Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(Guid raidId, CancellationToken cancellationToken);
+
     Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken);
 
     Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken);
