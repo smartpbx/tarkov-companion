@@ -219,6 +219,22 @@ public sealed record QuestPanelViewModel(
     bool IsPinned,
     bool IsApproximate);
 
+/// <summary>
+/// One place another player could have started this raid, beside the map.
+/// </summary>
+/// <remarks>
+/// The first screenshot of a raid is taken where the player spawned, so the player spawn points
+/// near it are where everybody else began. That is worth knowing for about ninety seconds and
+/// then never again, which is why the panel is only on screen while a raid is running.
+/// </remarks>
+/// <param name="Name">What the map calls the spawn.</param>
+/// <param name="FromStart">How far it is from where this raid began.</param>
+/// <param name="FromPlayer">Where it lies from the player now, or nothing if they have not been seen.</param>
+public sealed record SpawnPanelViewModel(string Name, string FromStart, string FromPlayer)
+{
+    public bool HasFromPlayer => FromPlayer.Length > 0;
+}
+
 public sealed record GroupMemberPanelViewModel(
     string Name,
     string Where,
@@ -894,6 +910,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private IReadOnlyList<ActiveExtract> _activeExtracts = [];
     private IReadOnlyList<GroupMemberView> _groupMembers = [];
     private IReadOnlyList<GroupMemberPanelViewModel> _groupPanel = [];
+    private IReadOnlyList<SpawnPanelViewModel> _spawnPanel = [];
+    private string _spawnPanelDetail = string.Empty;
+    private IReadOnlyList<MapFeature> _mapFeatures = [];
     private IReadOnlyList<QuestPanelViewModel> _questPanel = [];
     private IReadOnlyDictionary<string, string> _groupColors =
         new Dictionary<string, string>(StringComparer.Ordinal);
@@ -2564,6 +2583,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _side = resolved;
         // Through the layers, so the extract row's count follows what is actually drawn.
         UpdateOverlays();
+        UpdateSpawnPanel();
     }
 
     /// <summary>
@@ -2754,6 +2774,68 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Whether anybody else is there at all, which is what puts the panel on screen.</summary>
     public bool HasGroupPanel => GroupPanel.Count > 0;
+
+    /// <summary>Where the other players started, for the column beside the map.</summary>
+    public IReadOnlyList<SpawnPanelViewModel> SpawnPanel
+    {
+        get => _spawnPanel;
+        private set
+        {
+            Set(ref _spawnPanel, value);
+            OnPropertyChanged(nameof(HasSpawnPanel));
+        }
+    }
+
+    public bool HasSpawnPanel => SpawnPanel.Count > 0;
+
+    /// <summary>
+    /// What the list is anchored to, said plainly.
+    /// </summary>
+    /// <remarks>
+    /// Never "your spawn". The anchor is the first screenshot of the raid, and somebody who
+    /// ran for a minute before taking one has an anchor a minute from where they started. The
+    /// player can judge that if they are told what it is; they cannot if it is called a spawn.
+    /// </remarks>
+    public string SpawnPanelDetail
+    {
+        get => _spawnPanelDetail;
+        private set => Set(ref _spawnPanelDetail, value);
+    }
+
+    /// <summary>
+    /// Works out where the other players in this raid started, from where this one did.
+    /// </summary>
+    /// <remarks>
+    /// Rebuilt on a new screenshot, a change of side and a change of map, which is every input
+    /// it has. It is cheap: a few hundred points filtered and sorted, once per screenshot.
+    /// </remarks>
+    private void UpdateSpawnPanel()
+    {
+        if (_mapFeatures.Count == 0 || _playerTrailPositions.Count == 0)
+        {
+            SpawnPanel = [];
+            SpawnPanelDetail = string.Empty;
+            return;
+        }
+
+        var anchor = _playerTrailPositions[0];
+        var near = SpawnProximity.Near(
+            _mapFeatures,
+            anchor.Position,
+            _playerPosition?.Position,
+            _side);
+        SpawnPanel = near
+            .Select(spawn => new SpawnPanelViewModel(
+                spawn.Name,
+                SpawnProximity.Describe(spawn.MetresFromStart) + " from your start",
+                spawn.MetresFromPlayer is { } fromPlayer && spawn.Bearing is { } bearing
+                    ? $"{SpawnProximity.Describe(fromPlayer)} {bearing} of you"
+                    : string.Empty))
+            .ToArray();
+        SpawnPanelDetail = near.Count == 0
+            ? string.Empty
+            : $"Measured from your first screenshot of this raid, {anchor.Timestamp.ToLocalTime():t}.";
+    }
 
     public void ShowGroup(IReadOnlyList<GroupMemberView> members)
     {
@@ -3086,6 +3168,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         UpdatePlayerMarker();
         FollowFloor(position);
         UpdateArea();
+        UpdateSpawnPanel();
 
         // Following happens once per screenshot rather than on every snapshot, or the view
         // would fight the player for control of the map several times a second.
@@ -3189,10 +3272,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             var features = await _featureCatalog.GetAsync(location.Id, cancellationToken).ConfigureAwait(true);
+            // Kept unprojected as well as projected. The panel measures distances in metres on
+            // the ground, which the picture's own coordinates cannot answer: a projection is
+            // pixels, and two maps at different scales would give the same run of pixels
+            // different meanings.
+            _mapFeatures = features;
+            UpdateSpawnPanel();
             return MapFeatureProjection.Project(variant, features);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
+            _mapFeatures = [];
+            UpdateSpawnPanel();
             return [];
         }
     }
