@@ -677,11 +677,17 @@
                           Content="{Binding FrameAreaText}" />
             <!-- The flat map answers "where". On a map with floors it cannot answer "which
                  floor", which is the question inside a building, and a stack answers both at
-                 once. Off until asked for. -->
+                 once. Off until asked for.
+
+                 One word, because the row is full. "Stack the floors" was clipped to "Stack"
+                 by the toolbar beside it, which is the toolbar saying there is no room rather
+                 than a label that wanted to be longer. It sits next to the floor chooser, so
+                 one word is enough to say which floors. -->
             <ToggleButton Classes="chooser"
                           IsVisible="{Binding CanStack}"
                           IsChecked="{Binding IsStacked, Mode=TwoWay}"
-                          Content="Stack the floors" />
+                          ToolTip.Tip="Draw the floors one above another instead of one at a time"
+                          Content="Stack" />
           </StackPanel>
         </StackPanel>
       </Border>

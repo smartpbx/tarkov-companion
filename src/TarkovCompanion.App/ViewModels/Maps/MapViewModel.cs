@@ -700,7 +700,7 @@ public sealed record MapPlaceNameViewModel(
 
     public double Height => 48;
 
-    public double Left => CenterX - (Width / 2);
+    public double Left => CenterX - (Width / 2) + Nudge;
 
     public double Top => CenterY - (Height / 2);
 
@@ -720,9 +720,45 @@ public sealed record MapPlaceNameViewModel(
 
     public double TextHeight => FontSize * 1.35;
 
-    public double TextLeft => CenterX - (TextWidth / 2);
+    public double TextLeft => CenterX - (TextWidth / 2) + Nudge;
 
     public double TextTop => CenterY - (TextHeight / 2);
+
+    /// <summary>How wide the canvas is, so a name at the edge of it can be kept inside.</summary>
+    public double CanvasWidth { get; init; }
+
+    /// <summary>
+    /// How far right a name has to move to stay on the map.
+    /// </summary>
+    /// <remarks>
+    /// Reported as two labels drawn on top of each other, which is what it looks like: on
+    /// Customs, "ministration Gate" beside "ry Checkpoint", both starting exactly at the map's
+    /// left edge. They are not overlapping. They are "Administration Gate" and "Factory
+    /// Checkpoint", each with its first few characters cut off by the canvas, landing on the
+    /// same row and reading as one illegible run.
+    ///
+    /// The catalog puts a label at the point it names, and a point near the edge of the map has
+    /// half its name past the edge. The canvas clips its children, so the half outside is
+    /// simply gone.
+    ///
+    /// Moved rather than dropped, and only as far as it takes. A name a few pixels inboard
+    /// still names the thing it is beside; half a name names nothing. Nothing moves at all
+    /// unless it would otherwise be cut, so a label in the middle of the map is untouched.
+    /// </remarks>
+    public double Nudge
+    {
+        get
+        {
+            var left = CenterX - (TextWidth / 2);
+            if (left < 0)
+            {
+                return -left;
+            }
+
+            var overhang = left + TextWidth - CanvasWidth;
+            return CanvasWidth > 0 && overhang > 0 ? -overhang : 0;
+        }
+    }
 }
 
 /// <summary>
@@ -2662,6 +2698,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     isDimmed)
                 {
                     Scale = _markerScale,
+                    // So a name at the edge of the map can be kept on it. The canvas clips its
+                    // children, and a label the catalog put near the edge otherwise loses
+                    // whatever falls outside.
+                    CanvasWidth = CanvasWidth,
                 });
                 continue;
             }
