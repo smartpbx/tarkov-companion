@@ -147,6 +147,10 @@ public static class AppComposition
         services.AddSingleton<SqliteQuestProgressStore>();
         services.AddSingleton<IQuestProgressStore>(provider =>
             provider.GetRequiredService<SqliteQuestProgressStore>());
+        // The read half of the import record, which was written to and never read from.
+        services.AddSingleton<SqliteQuestProgressImportHistory>();
+        services.AddSingleton<IQuestProgressImportHistory>(provider =>
+            provider.GetRequiredService<SqliteQuestProgressImportHistory>());
         services.AddSingleton(provider => new SqliteQuestProgressImportStore(
             provider.GetRequiredService<SqliteConnectionFactory>(),
             timeProvider));

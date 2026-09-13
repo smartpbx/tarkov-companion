@@ -66,6 +66,36 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
             </ScrollViewer>
+
+            <!-- What past imports refused. Every import has recorded exactly this and nothing
+                 has ever read it, so an import that half-worked said "kept 3 local, 2
+                 unresolved" once and could never say which three or which two. -->
+            <StackPanel Spacing="6" IsVisible="{Binding HasImportHistory}">
+              <Border Classes="hairline" />
+              <TextBlock Classes="label" Text="Imports already applied" />
+              <ItemsControl ItemsSource="{Binding ImportHistory}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QuestImportHistoryRowViewModel">
+                    <Border Classes="inset" Padding="9,7" Margin="0,0,0,5">
+                      <StackPanel Spacing="3">
+                        <TextBlock Classes="value" Text="{Binding Title}" TextWrapping="Wrap" />
+                        <TextBlock Classes="label" Text="{Binding Detail}" TextWrapping="Wrap" />
+                        <ItemsControl ItemsSource="{Binding Lines}" IsVisible="{Binding HasLines}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QuestImportHistoryLineViewModel">
+                              <Grid ColumnDefinitions="200,*" ColumnSpacing="10" Margin="0,2,0,0">
+                                <TextBlock Classes="caption" Text="{Binding What}" TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="1" Classes="caption" Text="{Binding Why}" TextWrapping="Wrap" />
+                              </Grid>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
           </StackPanel>
         </Border>
       </Expander>

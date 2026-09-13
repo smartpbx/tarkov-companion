@@ -11,6 +11,21 @@ namespace TarkovCompanion.App.ViewModels.Quests;
 
 public sealed record QuestBoardFilter(string Id, string Label);
 
+/// <summary>One import already applied, with everything it refused underneath it.</summary>
+/// <param name="Title">Whose progress it was and when it landed.</param>
+/// <param name="Detail">What it did, in counts.</param>
+/// <param name="Lines">Each thing it would not do, and why.</param>
+public sealed record QuestImportHistoryRowViewModel(
+    string Title,
+    string Detail,
+    IReadOnlyList<QuestImportHistoryLineViewModel> Lines)
+{
+    public bool HasLines => Lines.Count > 0;
+}
+
+/// <summary>One thing an import refused, named and explained.</summary>
+public sealed record QuestImportHistoryLineViewModel(string What, string Why);
+
 public sealed class QuestImportProposalViewModel(
     QuestImportProposal proposal,
     QuestImportResolution? resolution = null)
@@ -324,6 +339,8 @@ public sealed class QuestsPageViewModel : PageViewModel
     private bool _canDisconnectTarkovTracker;
 
     private readonly IItemRepository? _itemRepository;
+    private readonly IQuestProgressImportHistory? _importHistory;
+    private IReadOnlyList<QuestImportHistoryRowViewModel> _importHistoryRows = [];
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
 
     public QuestsPageViewModel(
@@ -337,7 +354,10 @@ public sealed class QuestsPageViewModel : PageViewModel
         TimeProvider timeProvider,
         // Optional so a composition without an item catalog is still a valid composition:
         // without one the objectives read as ids, which is what they did before.
-        IItemRepository? itemRepository = null)
+        IItemRepository? itemRepository = null,
+        // Optional for the same reason. Without it the page loses the record of what past
+        // imports refused, which is what it had until now.
+        IQuestProgressImportHistory? importHistory = null)
         : base(
             "Quests",
             "What you are working on, and what each one needs",
@@ -352,6 +372,7 @@ public sealed class QuestsPageViewModel : PageViewModel
         _map = map;
         _timeProvider = timeProvider;
         _itemRepository = itemRepository;
+        _importHistory = importHistory;
         RefreshCommand = new AsyncDelegateCommand(RefreshAsync);
         ExportProgressCommand = new AsyncDelegateCommand(ExportProgressAsync);
         PreviewImportCommand = new AsyncDelegateCommand(PreviewImportAsync);
@@ -363,6 +384,26 @@ public sealed class QuestsPageViewModel : PageViewModel
         DisconnectTarkovTrackerCommand = new AsyncDelegateCommand(DisconnectTarkovTrackerAsync);
         RefreshTarkovTrackerCommand = new AsyncDelegateCommand(RefreshTarkovTrackerAsync);
     }
+
+    /// <summary>
+    /// The imports already applied, and what each one refused.
+    /// </summary>
+    /// <remarks>
+    /// Every import records exactly which changes it would not make and why, and nothing had
+    /// ever read either table. So an import that half-worked said "kept 3 local · 2 unresolved"
+    /// once, in a status line, and could never say which three or which two.
+    /// </remarks>
+    public IReadOnlyList<QuestImportHistoryRowViewModel> ImportHistory
+    {
+        get => _importHistoryRows;
+        private set
+        {
+            SetProperty(ref _importHistoryRows, value);
+            OnPropertyChanged(nameof(HasImportHistory));
+        }
+    }
+
+    public bool HasImportHistory => _importHistoryRows.Count > 0;
 
     public IReadOnlyList<QuestBoardFilter> AvailableFilters => Filters;
 
@@ -630,6 +671,7 @@ public sealed class QuestsPageViewModel : PageViewModel
 
             ScopeStatus = $"{profile.Name} · {profile.GameMode}";
             await RefreshTarkovTrackerStatusAsync(_scope, cancellationToken).ConfigureAwait(true);
+            await LoadImportHistoryAsync(_scope, cancellationToken).ConfigureAwait(true);
             var board = await _readService.GetQuestBoardAsync(_scope, cancellationToken).ConfigureAwait(true);
             _allTasks = board.Tasks.Select(task => new QuestTaskViewModel(task, this)).ToArray();
             OrphanedProgress = board.OrphanedProgress
@@ -1003,6 +1045,55 @@ public sealed class QuestsPageViewModel : PageViewModel
             ExchangeStatus = $"Not applied · {exception.Message}";
         }
     }
+
+    /// <summary>
+    /// Reads back what past imports did, and what they refused to do.
+    /// </summary>
+    /// <remarks>
+    /// Also what makes an undo survive a restart: the id an undo needs was held in memory only,
+    /// so closing the application between importing and regretting it lost the way back.
+    /// </remarks>
+    private async Task LoadImportHistoryAsync(QuestProfileScope scope, CancellationToken cancellationToken)
+    {
+        if (_importHistory is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var records = await _importHistory.GetRecentAsync(scope, ImportHistoryDepth, cancellationToken)
+                .ConfigureAwait(true);
+            ImportHistory = records.Select(Describe).ToArray();
+            _lastImportId ??= records.Count > 0 ? records[0].ImportId : null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The record of past imports is an extra. A database that will not answer must not
+            // cost the player the quest board, which is the rest of this page.
+            ImportHistory = [];
+            ExchangeStatus = $"Past imports could not be read: {exception.Message}";
+        }
+    }
+
+    /// <summary>How many past imports are worth a glance. Beyond this is an audit, not a page.</summary>
+    private const int ImportHistoryDepth = 5;
+
+    private static QuestImportHistoryRowViewModel Describe(QuestImportRecord record) => new(
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"{record.ProfileName} · {record.ImportedUtc.ToLocalTime():g}"),
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"Applied {record.AppliedChangeCount} · kept {record.KeptLocalCount} local · {record.Unresolved.Count} unresolved · from {record.SourceAppVersion}"),
+        [.. record.Conflicts.Select(conflict => new QuestImportHistoryLineViewModel(
+            $"{conflict.EntityKind} {conflict.EntityId}",
+            conflict.Resolution == QuestImportResolution.KeepLocal
+                ? $"Kept what was here · {conflict.Reason}"
+                : $"Took what arrived · {conflict.Reason}")),
+         .. record.Unresolved.Select(unresolved => new QuestImportHistoryLineViewModel(
+            $"{unresolved.EntityKind} {unresolved.EntityId}",
+            $"Not applied · {unresolved.Reason}"))]);
 
     private async Task UndoLastImportAsync()
     {
