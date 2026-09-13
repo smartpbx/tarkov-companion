@@ -302,12 +302,6 @@
             <ItemsControl.ItemsPanel>
               <ItemsPanelTemplate><Canvas /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemContainerStyle>
-              <Style Selector="ContentPresenter">
-                <Setter Property="Canvas.Left" Value="{Binding Left}" />
-                <Setter Property="Canvas.Top" Value="{Binding Top}" />
-              </Style>
-            </ItemsControl.ItemContainerStyle>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:GroupMarkViewModel">
                 <Panel
@@ -315,8 +309,14 @@
                     Height="{Binding Extent}"
                     RenderTransformOrigin="50%,50%"
                     ToolTip.Tip="{Binding Detail}">
+                  <!-- Positioned by a translate inside the template, the way the member
+                       markers below are. Avalonia has no ItemContainerStyle; that is WPF, and
+                       borrowing the pattern without checking cost a build. -->
                   <Panel.RenderTransform>
-                    <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                    <TransformGroup>
+                      <ScaleTransform ScaleX="{Binding Scale.Inverse}" ScaleY="{Binding Scale.Inverse}" />
+                      <TranslateTransform X="{Binding Left}" Y="{Binding Top}" />
+                    </TransformGroup>
                   </Panel.RenderTransform>
                   <Ellipse
                       Width="{Binding PinSize}"
