@@ -1,7 +1,6 @@
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
-using TarkovCompanion.Core.Domain.Input;
 using TarkovCompanion.Core.Domain.Items;
 using TarkovCompanion.Core.Domain.Keys;
 using TarkovCompanion.Core.Domain.Loadouts;
