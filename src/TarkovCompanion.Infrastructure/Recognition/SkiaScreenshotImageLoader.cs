@@ -61,7 +61,11 @@ public sealed class SkiaScreenshotImageLoader : IScreenshotImageLoader
 
         var target = new SKImageInfo(info.Width, info.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using var bitmap = new SKBitmap(target);
-        if (codec.GetPixels(target, bitmap.GetPixels()) is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
+        // IncompleteInput was accepted here while the remark above claimed partial reads come
+        // back as failures. They do not: a truncated frame decodes "successfully" into an
+        // image whose missing rows are black, and that image reached the recogniser as though
+        // it were the screenshot the player took. A null sends it back to be read again.
+        if (codec.GetPixels(target, bitmap.GetPixels()) is not SKCodecResult.Success)
         {
             return null;
         }
