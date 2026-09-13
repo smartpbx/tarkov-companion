@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.Platform.Windows.Discovery;
@@ -29,17 +30,24 @@ public interface IEftPathProbe
     DateTimeOffset? NewestImageWrite(string path) => null;
 }
 
-public sealed class WindowsEftPathLocator(IEftPathProbe? probe = null) : IEftPathLocator
+public sealed class WindowsEftPathLocator(
+    IEftPathProbe? probe = null,
+    // Optional so a composition without stored settings still discovers, which is what every
+    // test that builds this by hand relies on.
+    IEftPathOverrideStore? overrides = null) : IEftPathLocator
 {
     private readonly IEftPathProbe _probe = probe ?? new SystemEftPathProbe();
 
-    public Task<EftPaths> FindAsync(CancellationToken cancellationToken)
+    public async Task<EftPaths> FindAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var named = overrides is null
+            ? EftPathOverrides.None
+            : await overrides.GetAsync(cancellationToken).ConfigureAwait(false);
         var candidates = _probe.GetCandidates();
         var install = FirstExisting(candidates.InstallRoots);
-        var logs = FirstExisting(candidates.LogRoots);
-        var screenshots = BestScreenshotRoot(candidates.ScreenshotRoots);
+        var logs = Named(named.LogRoot) ?? FirstExisting(candidates.LogRoots);
+        var screenshots = Named(named.ScreenshotRoot) ?? BestScreenshotRoot(candidates.ScreenshotRoots);
         var foundCount = new[] { install, logs, screenshots }.Count(path => path is not null);
         var confidence = foundCount switch
         {
@@ -48,8 +56,20 @@ public sealed class WindowsEftPathLocator(IEftPathProbe? probe = null) : IEftPat
             1 => new Confidence(0.60),
             _ => Confidence.Unknown,
         };
-        return Task.FromResult(new EftPaths(install, logs, screenshots, confidence));
+        return new EftPaths(install, logs, screenshots, confidence);
     }
+
+    /// <summary>
+    /// A folder the player named, when it is really there.
+    /// </summary>
+    /// <remarks>
+    /// It wins outright over everything discovery found: somebody who has typed a path has
+    /// answered the question the guessing exists to answer. A path that does not exist is
+    /// ignored rather than honoured, so a typo leaves the guesses working instead of leaving
+    /// the companion watching nothing.
+    /// </remarks>
+    private string? Named(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && _probe.DirectoryExists(path) ? path : null;
 
     private string? FirstExisting(IEnumerable<string> paths) =>
         Existing(paths).FirstOrDefault();
@@ -129,6 +149,7 @@ public sealed class SystemEftPathProbe : IEftPathProbe
     {
         var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var localLow = Directory.GetParent(localAppData)?.FullName is { } appData
             ? Path.Combine(appData, "LocalLow")
@@ -148,32 +169,67 @@ public sealed class SystemEftPathProbe : IEftPathProbe
             })
             .ToArray();
 
+        // Every folder a personal Documents or Pictures could be, because the one the API
+        // reports is only right when nothing has moved it.
+        //
+        // OneDrive redirects Documents on the machine this was written against and does not on
+        // the machine of the first person to install it, and those two cases produce different
+        // paths from the same call. Worse, a machine can have both at once: OneDrive owns the
+        // known folder while the game, configured earlier, still writes into the original. So
+        // both are offered and the one holding the newest screenshot wins.
+        var personalRoots = new[]
+            {
+                documents,
+                pictures,
+                Path.Combine(profile, "Documents"),
+                Path.Combine(profile, "Pictures"),
+                Path.Combine(profile, "OneDrive", "Documents"),
+                Path.Combine(profile, "OneDrive", "Pictures"),
+            }
+            .Concat(OneDriveRoots().SelectMany(root => new[]
+            {
+                Path.Combine(root, "Documents"),
+                Path.Combine(root, "Pictures"),
+            }))
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .ToArray();
+
         // The game writes its logs inside its own install directory, one folder per launch.
         // Looking only under LocalLow and Documents found nothing on a real installation, so
         // raid tracking never started at all. Install-relative paths come first because that
         // is where the logs actually are.
         var logRoots = installRoots
             .Select(root => Path.Combine(root, "Logs"))
-            .Concat(new[]
-            {
-                Path.Combine(localLow, "Battlestate Games", "EscapeFromTarkov", "Logs"),
-                Path.Combine(documents, "Escape from Tarkov", "Logs"),
-            })
+            .Append(Path.Combine(localLow, "Battlestate Games", "EscapeFromTarkov", "Logs"))
+            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov", "Logs")))
             .ToArray();
+
         // The game keeps its logs inside its own install directory, so its screenshots are
-        // looked for there first too. Only Documents and Pictures were offered before, which
-        // on an install like that finds nothing and leaves position permanently unavailable.
+        // looked for there first too. The explicit Screenshots folders come before the bare
+        // game folders, so that where nothing has an image in it the more specific guess wins
+        // rather than the folder that merely contains it.
         var screenshotRoots = installRoots
             .Select(root => Path.Combine(root, "Screenshots"))
-            .Concat(new[]
-            {
-                Path.Combine(documents, "Escape from Tarkov", "Screenshots"),
-                Path.Combine(pictures, "Escape from Tarkov"),
-                Path.Combine(pictures, "Escape from Tarkov", "Screenshots"),
-            })
+            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov", "Screenshots")))
+            .Concat(personalRoots.Select(root => Path.Combine(root, "Escape from Tarkov")))
             .ToArray();
         return new(installRoots, logRoots, screenshotRoots);
     }
+
+    /// <summary>
+    /// Wherever OneDrive says it has put the user's folders.
+    /// </summary>
+    /// <remarks>
+    /// OneDrive sets these itself, so they are right when it has redirected Documents and
+    /// absent when it has not. Reading them beats guessing at a folder name, which changes
+    /// with the account: a personal account is "OneDrive" and a work one is "OneDrive -
+    /// Contoso".
+    /// </remarks>
+    private static IEnumerable<string> OneDriveRoots() =>
+        new[] { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" }
+            .Select(Environment.GetEnvironmentVariable)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!);
 
     /// <summary>
     /// Where the game is installed, according to the game itself.

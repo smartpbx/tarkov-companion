@@ -129,6 +129,32 @@ public sealed class RaidObservationService : IAsyncDisposable
         _stopping.Dispose();
     }
 
+    private CancellationTokenSource? _session;
+
+    /// <summary>
+    /// Stops watching and looks for the folders again.
+    /// </summary>
+    /// <remarks>
+    /// Called when the player names a folder by hand. Discovery only runs between watching
+    /// sessions and a session runs until it is cancelled, so without this a saved folder would
+    /// do nothing at all until the next launch, which reads as the setting being ignored.
+    ///
+    /// Cancelling is the whole mechanism. The loop already treats a session ending as a reason
+    /// to rediscover and restart.
+    /// </remarks>
+    public void Rediscover()
+    {
+        try
+        {
+            Volatile.Read(ref _session)?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The session ended on its own between the read and the cancel, which is the
+            // outcome asked for.
+        }
+    }
+
     private async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -178,6 +204,11 @@ public sealed class RaidObservationService : IAsyncDisposable
                 paths.Confidence.Value);
 
             using var session = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // Held so that naming a folder by hand takes effect without a restart. The
+            // watchers run until they are cancelled, so without this the loop never comes back
+            // round to ask where the folders are, and somebody who had just typed one would
+            // see nothing happen.
+            _ = Interlocked.Exchange(ref _session, session);
             var watchers = new List<Task>(3);
             if (paths.LogRoot is not null)
             {
@@ -202,13 +233,14 @@ public sealed class RaidObservationService : IAsyncDisposable
             finally
             {
                 await session.CancelAsync().ConfigureAwait(false);
+                Interlocked.CompareExchange(ref _session, null, session);
             }
 
             if (!cancellationToken.IsCancellationRequested)
             {
                 Publish(EftObservationState.Idle with
                 {
-                    Detail = "Observation stopped unexpectedly and is restarting.",
+                    Detail = "Looking for the game folders again.",
                 });
                 await DelayAsync(RestartDelay, cancellationToken).ConfigureAwait(false);
             }
