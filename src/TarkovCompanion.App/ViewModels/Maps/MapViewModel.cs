@@ -1408,7 +1408,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Set(ref _zoomScale, value);
             _markerScale.Follow(value);
             // The names hold their size while the discs move together underneath them, so who
-            // collides with whom changes on every wheel notch.
+            // collides with whom changes on every wheel notch. Place names first, because the
+            // marker names are arranged around whichever of them survived.
+            ChoosePlaceNames();
             ArrangeNames();
             OnPropertyChanged(nameof(ViewportWidth));
             OnPropertyChanged(nameof(ViewportHeight));
@@ -2675,12 +2677,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             });
         }
 
-        // A place name that a marker already carries is the same name twice. Seen on Customs:
-        // "Warehouse 17" as a catalog place name and "Warehouse 17" as the exit a few pixels
-        // below it, plus "RUAF Roadblock" and "Trailer Park" doing the same. The marker wins,
-        // because it says the name and says more: that it is somewhere you can leave from.
-        PlaceNames = DropNamesTheMarkersAlreadyCarry(placeNames, markers);
+        // Two passes, answering different questions. This one drops a place name a marker
+        // already carries: "Warehouse 17" as a catalog label and "Warehouse 17" as the exit a
+        // few pixels below it. The marker wins, because it says the name and says more — that
+        // it is somewhere you can leave from.
+        //
+        // The result is kept whole rather than trimmed here, because the second pass depends on
+        // zoom and has to be redone on every wheel notch; a name dropped at one zoom has to be
+        // able to come back at another.
+        _allPlaceNames = DropNamesTheMarkersAlreadyCarry(placeNames, markers);
         Markers = markers;
+        ChoosePlaceNames();
         ArrangeNames();
         ReconcileSelection();
         UpdateQuestGeometry();
@@ -2734,6 +2741,65 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         return kept;
+    }
+
+    /// <summary>
+    /// Drops the place names that would be drawn over another one, or under a disc.
+    /// </summary>
+    /// <remarks>
+    /// A place name cannot be moved out of the way: the catalog decides where it goes, and a
+    /// name somewhere else is a name for somewhere else. So the only move is to drop one, which
+    /// is what this map already does with a marker's name that fits nowhere, and for the same
+    /// reason: an unreadable name is worse than a missing one, because it still costs the space
+    /// and still has to be read to be dismissed.
+    /// </remarks>
+    private IReadOnlyList<MapPlaceNameViewModel> _allPlaceNames = [];
+
+    /// <summary>
+    /// Draws the place names that fit, and drops the ones that would be drawn over something.
+    /// </summary>
+    /// <remarks>
+    /// Reported with a screenshot of Customs: "Administration Gate" and "Factory Checkpoint"
+    /// drawn on top of each other, both clipped and neither readable, and "Warehouse 17" with a
+    /// marker's disc sitting on the middle of the word.
+    ///
+    /// A place name cannot be moved out of the way — the catalog decides where it goes, and a
+    /// name somewhere else is a name for somewhere else — so the only move is to drop one. That
+    /// is already what this map does with a marker name that fits nowhere, and for the same
+    /// reason: an unreadable name is worse than a missing one, because it still costs the space
+    /// and still has to be read before it can be dismissed.
+    /// </remarks>
+    private void ChoosePlaceNames()
+    {
+        var placeNames = _allPlaceNames;
+        var markers = Markers;
+        if (placeNames.Count == 0)
+        {
+            PlaceNames = [];
+            return;
+        }
+
+        var candidates = placeNames
+            .Select(name => new MapPlaceNameCandidate(
+                name.TextLeft,
+                name.TextTop,
+                name.TextWidth,
+                name.TextHeight,
+                name.FontSize,
+                name.Text))
+            .ToArray();
+        var discs = markers.Select(marker => (marker.CenterX, marker.CenterY)).ToArray();
+        var drawn = MapPlaceNameLayout.Choose(candidates, discs, ZoomScale);
+        var kept = new List<MapPlaceNameViewModel>(placeNames.Count);
+        for (var index = 0; index < placeNames.Count; index++)
+        {
+            if (drawn[index])
+            {
+                kept.Add(placeNames[index]);
+            }
+        }
+
+        PlaceNames = kept;
     }
 
     /// <summary>
