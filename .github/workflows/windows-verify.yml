@@ -494,6 +494,23 @@ jobs:
             dist/SHA256SUMS.txt \
             dist/update.json
 
+          # Stale packages last, once nothing points at them any more.
+          #
+          # --clobber only replaces an asset of the same name, and a Velopack package carries
+          # its version in its filename, so not deleting left every build's nupkg on the
+          # release for ever: ~70 MB a build, twice an hour. Deleting them before the upload
+          # would have been worse — it is the delete-then-create hole in a smaller shape — so
+          # they go after the feed has been repointed and they are genuinely unreferenced.
+          gh release view dev --repo "$REPO" --json assets \
+            --jq '.assets[].name | select(endswith(".nupkg"))' \
+          | while read -r asset; do
+              case "$asset" in
+                *"-${VERSION}-"*) ;;
+                *) echo "removing superseded $asset"
+                   gh release delete-asset dev "$asset" --repo "$REPO" --yes || true ;;
+              esac
+            done
+
           # The tag follows the build rather than being recreated with it.
           git tag -f dev "${{ github.sha }}"
           git push -f origin dev
