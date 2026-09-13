@@ -100,6 +100,83 @@ public sealed class ExtractLineMatcherTests
         Assert.Null(ExtractLineMatcher.WithoutQualifier("(Flare)"));
     }
 
+    [Theory]
+    // Verbatim from a real screen. The zero of the slot number reads as a letter O or an
+    // at-sign far more often than as a digit, which is why the pattern accepts all three.
+    [InlineData("EXFILO1 Friendship Bridge (Co-Op)", "Friendship Bridge (Co-Op)")]
+    [InlineData("EXFIL@2 ZB-014", "ZB-014")]
+    [InlineData("EXFIL@3 Bridge V-Ex", "Bridge V-Ex")]
+    [InlineData("EXFIL05 Power Line Passage (Flare)", "Power Line Passage (Flare)")]
+    [InlineData("EXFILO2 Outskirts", "Outskirts")]
+    public void Takes_the_slot_label_off_the_front_of_an_exit(string line, string expected)
+    {
+        var (text, kind) = ExtractLineMatcher.StripRowPrefix(line);
+
+        Assert.Equal(ExtractLineMatcher.RowKind.Extract, kind);
+        Assert.Equal(expected, text);
+    }
+
+    [Theory]
+    [InlineData("TRANSIT01 Transit to Factory", "Transit to Factory")]
+    [InlineData("TRANSITO3 Transit to Lighthouse", "Transit to Lighthouse")]
+    public void Knows_a_transit_from_an_exit(string line, string expected)
+    {
+        // A way to another map, which no extract catalog contains and never will.
+        var (text, kind) = ExtractLineMatcher.StripRowPrefix(line);
+
+        Assert.Equal(ExtractLineMatcher.RowKind.Transit, kind);
+        Assert.Equal(expected, text);
+    }
+
+    [Theory]
+    [InlineData("Find an extraction point")]
+    [InlineData("0:12:28")]
+    [InlineData("Power Line Passage (Flare)")]
+    public void Leaves_a_line_with_no_slot_label_alone(string line)
+    {
+        var (text, kind) = ExtractLineMatcher.StripRowPrefix(line);
+
+        Assert.Equal(ExtractLineMatcher.RowKind.Unlabelled, kind);
+        Assert.Equal(line, text);
+    }
+
+    [Fact]
+    public void Reports_a_row_whose_name_did_not_read_as_a_row_all_the_same()
+    {
+        // "The screen had a fifth exit and it did not read" is a different fact from "there
+        // were four", and the panel is entitled to say which.
+        var (text, kind) = ExtractLineMatcher.StripRowPrefix("EXFIL@2 ");
+
+        Assert.Equal(ExtractLineMatcher.RowKind.Extract, kind);
+        Assert.Equal(string.Empty, text);
+    }
+
+    [Fact]
+    public void Matches_the_rows_that_the_slot_label_was_sinking()
+    {
+        // Every one of these was on the screen of the raid that matched one exit out of five.
+        // The prefix is eight characters against a name of six to eleven, so it dominated the
+        // edit distance and only the longest name on the screen survived.
+        Assert.True(Prefixed("EXFIL@3 Bridge V-Ex", "Bridge V-Ex") >= 0.65);
+        Assert.True(Prefixed("EXFILO2 Outskirts", "Outskirts") >= 0.65);
+        Assert.True(Prefixed("EXFILO1 Friendship Bridge (Co-Op)", "Friendship Bridge (Co-Op)") >= 0.65);
+
+        // And the one that already worked still does.
+        Assert.True(Prefixed("EXFIL05 Power Line Passage (Flare)", "Power Line Passage (Flare)") >= 0.65);
+    }
+
+    [Fact]
+    public void Is_still_beaten_by_a_name_the_engine_corrupted()
+    {
+        // "ZB-014" read as "ZB-214" on the same screen. Six characters with one wrong is not
+        // something a threshold can rescue, and pretending otherwise would match it to
+        // whatever else is nearest.
+        Assert.True(Prefixed("EXFIL@2 ZB-214", "ZB-014") < 0.86);
+    }
+
+    private static double Prefixed(string line, string catalogName) =>
+        Score(ExtractLineMatcher.StripRowPrefix(line).Text, catalogName);
+
     private static double Score(string line, string catalogName) => ExtractLineMatcher.Score(
         Normalizer.NormalizeForLookup(ExtractLineMatcher.StripTrailingMeasure(line)),
         Normalizer.NormalizeForLookup(catalogName),
