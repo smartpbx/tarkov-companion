@@ -36,6 +36,20 @@ public sealed record GroupMemberState(
     [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout,
     [property: JsonPropertyName("quests")] IReadOnlyList<string> Quests)
 {
+    /// <summary>How high this member is standing, where their screenshot said.</summary>
+    /// <remarks>
+    /// Optional so a client that predates this still parses, and because a member whose
+    /// position came from a source without a height has none to give.
+    ///
+    /// Waypoints have carried a height since they were added, on the grounds that it "matters
+    /// for a map with floors"; members did not, and the client rebuilt them at y = 0. Since the
+    /// floor stack is baselined at the selected floor, that put a squadmate standing in
+    /// Reserve's bunkers on whichever floor the reader happened to be looking at, with nothing
+    /// on screen to say otherwise.
+    /// </remarks>
+    [JsonPropertyName("y")]
+    public double? Y { get; init; }
+
     /// <summary>
     /// What this member's game told them about everybody else in their in-game party.
     /// </summary>
@@ -85,7 +99,12 @@ public sealed record GroupMemberState(
 public sealed record GroupTrailPoint(
     [property: JsonPropertyName("x")] double X,
     [property: JsonPropertyName("z")] double Z,
-    [property: JsonPropertyName("age")] double AgeSeconds);
+    [property: JsonPropertyName("age")] double AgeSeconds)
+{
+    /// <summary>How high this step was, where the screenshot said.</summary>
+    [JsonPropertyName("y")]
+    public double? Y { get; init; }
+}
 
 /// <summary>What one member's game said about another player, to be handed back to them.</summary>
 /// <param name="Name">The other player's in-game nickname, which is the only key there is.</param>

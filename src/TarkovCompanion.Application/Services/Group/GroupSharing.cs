@@ -90,6 +90,16 @@ public sealed record GroupMemberView(
     IReadOnlyList<string> Quests)
 {
     /// <summary>
+    /// Whether this member's height was published, as opposed to assumed.
+    /// </summary>
+    /// <remarks>
+    /// The position is rebuilt with y = 0 when it was not, and on a map with floors that is a
+    /// specific claim rather than a missing one. The map draws such a member quietly and says
+    /// the floor is unknown, instead of putting them confidently on the reader's own floor.
+    /// </remarks>
+    public bool HasKnownHeight { get; init; }
+
+    /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
     /// </summary>
     /// <remarks>
@@ -106,7 +116,7 @@ public sealed record GroupMemberView(
 /// rather than by position in the list, so a member who took three screenshots in ten seconds
 /// and then none for five minutes does not imply they walked the whole line recently.
 /// </remarks>
-public sealed record GroupTrailPointView(double X, double Z, TimeSpan Age);
+public sealed record GroupTrailPointView(double X, double Z, TimeSpan Age, double? Y = null);
 
 /// <summary>What the group looks like right now, for the interface to render.</summary>
 /// <param name="IsSharing">Whether this companion is publishing anything.</param>
