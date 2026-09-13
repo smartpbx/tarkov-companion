@@ -31,16 +31,43 @@ public sealed class GroupSelfDiagnosisTests
         Assert.Contains("Settings", detail, StringComparison.Ordinal);
     }
 
-    /// <summary>Watching the folder but nothing photographed yet is a different sentence.</summary>
+    /// <summary>Early in a raid, "take a screenshot" is the honest answer.</summary>
     [Fact]
-    public void ACompanionInARaidWithNoScreenshotYetSaysWhatToDo()
+    public void ACompanionEarlyInARaidIsJustToldToTakeOne()
     {
         var detail = GroupSessionService.DescribeSharing(
             "Geo",
             1,
-            Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid));
+            Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid, startedMinutesAgo: 0));
 
         Assert.Contains("take a screenshot in the raid", detail, StringComparison.Ordinal);
+        Assert.DoesNotContain("Steam", detail, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Well into a raid with nothing arriving, the likeliest cause is named.
+    /// </summary>
+    /// <remarks>
+    /// Escape from Tarkov's screenshot key defaults to F12 and so does Steam's. A player who
+    /// added the game to Steam as a non-Steam shortcut has the overlay active, and it takes
+    /// F12 before the game sees it — Steam writes a screenshot into its own userdata folder,
+    /// the game writes nothing, and this companion watches a correct folder that nothing ever
+    /// arrives in.
+    ///
+    /// That is indistinguishable from "has not taken one yet" unless it is said, and it cost a
+    /// player an evening. "Take a screenshot" is unhelpful advice to somebody who just did.
+    /// </remarks>
+    [Fact]
+    public void ACompanionWellIntoARaidWithNothingArrivingNamesTheSteamOverlay()
+    {
+        var detail = GroupSessionService.DescribeSharing(
+            "Geo",
+            1,
+            Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid, startedMinutesAgo: 6));
+
+        Assert.Contains("no screenshot has arrived this raid", detail, StringComparison.Ordinal);
+        Assert.Contains("Steam", detail, StringComparison.Ordinal);
+        Assert.Contains("rebind", detail, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -68,7 +95,11 @@ public sealed class GroupSelfDiagnosisTests
         var detail = GroupSessionService.DescribeSharing(
             "Geo",
             0,
-            Snapshot(watchingScreenshots: true, state: RaidLifecycleState.InRaid, hasPosition: true));
+            Snapshot(
+                watchingScreenshots: true,
+                state: RaidLifecycleState.InRaid,
+                hasPosition: true,
+                startedMinutesAgo: 20));
 
         Assert.Equal("Sharing as Geo · nobody else here", detail);
     }
@@ -86,7 +117,8 @@ public sealed class GroupSelfDiagnosisTests
         bool watchingScreenshots = true,
         bool supported = true,
         RaidLifecycleState state = RaidLifecycleState.InRaid,
-        bool hasPosition = false)
+        bool hasPosition = false,
+        int startedMinutesAgo = 0)
     {
         var store = new RuntimeStateStore(new(
             false,
@@ -108,6 +140,7 @@ public sealed class GroupSelfDiagnosisTests
             Raid = current.Raid with
             {
                 State = state,
+                StartedUtc = DateTimeOffset.UtcNow.AddMinutes(-startedMinutesAgo),
                 LastKnownPosition = hasPosition
                     ? new(
                         DateTimeOffset.UnixEpoch,
