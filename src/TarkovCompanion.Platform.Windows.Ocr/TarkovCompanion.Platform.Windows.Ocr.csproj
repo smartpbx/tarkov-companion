@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- The one project in the solution that is not net10.0. Windows.Media.Ocr lives in the
+         Windows SDK projections and needs a Windows target framework to see them.
+
+         It is its own project rather than a target framework added to an existing one so that
+         exactly one assembly carries the Windows requirement. Everything it depends on stays
+         portable and keeps building on Linux CI unchanged. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <!-- Linux CI builds this. The Windows SDK projections are NuGet ref assemblies, so the
+         compile works anywhere; only running it needs Windows, which the code checks for. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
+  </ItemGroup>
+</Project>

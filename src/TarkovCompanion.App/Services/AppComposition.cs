@@ -302,8 +302,31 @@ public static class AppComposition
         services.AddSingleton<IRaidStateService>(_ => new RaidStateService(commandLine.DeveloperMode || commandLine.Demo));
 
         services.AddSingleton<TesseractOcrEngine>();
+#if WINDOWS10_0_19041_0_OR_GREATER
+        // The engine Windows already has, preferred where it works. It needs no native binary
+        // and no Visual C++ redistributable, and on the extract panel it reads text the other
+        // engine's thresholding eats. Never a replacement: where Windows will not start it, the
+        // registration below falls through to Tesseract, and a machine where neither works says
+        // so on the Settings page rather than failing silently.
+        services.AddSingleton<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+        services.AddSingleton<IOcrEngine>(provider =>
+        {
+            var windows = provider.GetRequiredService<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+            return windows.Availability.IsAvailable
+                ? windows
+                : provider.GetRequiredService<TesseractOcrEngine>();
+        });
+        services.AddSingleton<IOcrEngineStatus>(provider =>
+        {
+            var windows = provider.GetRequiredService<TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine>();
+            return windows.Availability.IsAvailable
+                ? windows
+                : provider.GetRequiredService<TesseractOcrEngine>();
+        });
+#else
         services.AddSingleton<IOcrEngine>(provider => provider.GetRequiredService<TesseractOcrEngine>());
         services.AddSingleton<IOcrEngineStatus>(provider => provider.GetRequiredService<TesseractOcrEngine>());
+#endif
         services.AddSingleton<CanonicalItemResolverCache>();
         services.AddSingleton<ScanContextDetector>();
         services.AddSingleton<OcrCoordinator>();
