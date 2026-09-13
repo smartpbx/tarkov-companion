@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Services;
+using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 
