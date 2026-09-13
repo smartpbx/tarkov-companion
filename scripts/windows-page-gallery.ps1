@@ -9,8 +9,27 @@
     for.
 
     Each page is opened in its own launch, through the application's own --page
-    option, and photographed. A page that cannot present a window is a failure
-    and is reported as one; the screenshots are evidence for a person to read.
+    option, and photographed.
+
+    Presenting a window was the only thing ever checked, which is why a ragged
+    sidebar and several dead bindings shipped: CI took the picture and nobody
+    looked. Two things are now asserted as well.
+
+    The toolkit's own warnings are captured per page. Compiled bindings catch a
+    renamed property at build time, but nothing caught a value that will not
+    convert, a resource that is not there, or a path the toolkit cannot resolve
+    at run time. Each of those is a page asking for something it does not get,
+    each is reported at warning level, and LogToTrace had nowhere to write it.
+
+    Binding through an object that is null is recorded and counted but does not
+    fail the step. Every optional panel does it: the raid summary before a raid
+    has ended, the selected quest before one is chosen. Thirty of them on two
+    pages is worth removing, and that is a change to the views rather than a gate
+    on the build.
+
+    And the photograph is measured. A page that presents a window and then fails
+    to fill it in is a flat rectangle, and a flat rectangle passed every check
+    there was.
 
     Escape from Tarkov is neither required nor touched. Nothing here reads game
     memory or sends input to another process.
@@ -30,7 +49,25 @@ param(
 
     [int] $WindowTimeoutSeconds = 90,
 
-    [int] $SettleSeconds = 4
+    [int] $SettleSeconds = 4,
+
+    # A warning matching this is a failure. A property that does not exist, a value
+    # that will not convert, a resource that cannot be found: each is a page asking
+    # for something it does not get.
+    [string] $FailOnWarningPattern = "Could not find|does not have|Unable to resolve|Cannot resolve|Unable to convert|Static resource",
+
+    # A warning matching this is recorded and counted but does not fail the step.
+    # Binding through an object that is null is what every optional panel does: the
+    # raid summary before a raid ends, the selected quest before one is chosen. The
+    # toolkit reports each as an error and none of them is a fault. They are worth
+    # removing, and that is a change to the views rather than a gate on the build.
+    [string] $TolerateWarningPattern = "Value is null",
+
+    # A page that drew nothing is a near-uniform rectangle. Anything real clears
+    # both of these comfortably; a blank one clears neither.
+    [int] $MinimumDistinctColors = 48,
+
+    [double] $MinimumVariedFraction = 0.02
 )
 
 Set-StrictMode -Version Latest
@@ -72,14 +109,113 @@ if (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue) {
     }
 }
 
+<#
+    Measures how much of the photograph actually has something on it.
+
+    Sampled on a grid rather than pixel by pixel: a full 1920x1080 read through
+    GetPixel takes minutes in PowerShell, and every twelfth pixel answers the
+    question just as well. LockBits and one Marshal copy is the whole cost.
+#>
+function Measure-ImageContent {
+    param([string] $Path)
+
+    $Bitmap = [System.Drawing.Bitmap]::FromFile($Path)
+    try {
+        $Rect = New-Object System.Drawing.Rectangle 0, 0, $Bitmap.Width, $Bitmap.Height
+        $Data = $Bitmap.LockBits($Rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        try {
+            $Stride = [Math]::Abs($Data.Stride)
+            $Bytes = New-Object byte[] ($Stride * $Bitmap.Height)
+            [System.Runtime.InteropServices.Marshal]::Copy($Data.Scan0, $Bytes, 0, $Bytes.Length)
+        }
+        finally {
+            $Bitmap.UnlockBits($Data)
+        }
+
+        $Counts = @{}
+        $Sampled = 0
+        $Step = 12
+        for ($Y = 0; $Y -lt $Bitmap.Height; $Y += $Step) {
+            $Row = $Y * $Stride
+            for ($X = 0; $X -lt $Bitmap.Width; $X += $Step) {
+                $Offset = $Row + ($X * 4)
+                $Key = ($Bytes[$Offset + 2] -shl 16) -bor ($Bytes[$Offset + 1] -shl 8) -bor $Bytes[$Offset]
+                if ($Counts.ContainsKey($Key)) { $Counts[$Key]++ } else { $Counts[$Key] = 1 }
+                $Sampled++
+            }
+        }
+
+        if ($Sampled -eq 0) {
+            return [pscustomobject]@{ distinctColors = 0; variedFraction = 0.0 }
+        }
+
+        $Dominant = 0
+        foreach ($Count in $Counts.Values) { if ($Count -gt $Dominant) { $Dominant = $Count } }
+        return [pscustomobject]@{
+            distinctColors = $Counts.Count
+            variedFraction = [Math]::Round(($Sampled - $Dominant) / $Sampled, 4)
+        }
+    }
+    finally {
+        $Bitmap.Dispose()
+    }
+}
+
+<#
+    Closes a launch and waits for it, so whatever it writes on the way out has landed.
+    Safe to call twice; the second call finds it already gone.
+#>
+function Close-AppProcess {
+    param([System.Diagnostics.Process] $Process, [string] $Page)
+
+    try {
+        if (-not $Process.HasExited) {
+            $null = $Process.CloseMainWindow()
+            if (-not $Process.WaitForExit(20000)) { $Process.Kill($true) }
+            $null = $Process.WaitForExit(5000)
+        }
+    }
+    catch {
+        Write-Host "Could not close the process for '$Page': $($_.Exception.Message)"
+    }
+}
+
+<#
+    Reads the toolkit warnings one launch wrote, and says which of them matter.
+#>
+function Read-InterfaceWarnings {
+    param([string] $Path, [string] $Pattern, [string] $Tolerate)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [pscustomobject]@{ all = @(); failing = @() }
+    }
+
+    $Lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $Tolerated = @($Lines | Where-Object { $Tolerate -and $_ -match $Tolerate })
+    return [pscustomobject]@{
+        all = $Lines
+        tolerated = $Tolerated
+        failing = @($Lines | Where-Object { $_ -match $Pattern -and -not ($Tolerate -and $_ -match $Tolerate) })
+    }
+}
+
 $ResolvedAppPath = (Resolve-Path -LiteralPath $AppPath).Path
 New-Item -ItemType Directory -Path $ScreenshotDirectory -Force | Out-Null
 $Results = [System.Collections.Generic.List[object]]::new()
 
+$WarningDirectory = Join-Path $ScreenshotDirectory "warnings"
+New-Item -ItemType Directory -Path $WarningDirectory -Force | Out-Null
+
 foreach ($Page in $Pages) {
     $Screenshot = Join-Path $ScreenshotDirectory ("{0}.png" -f $Page.ToLowerInvariant())
+    $WarningLog = Join-Path $WarningDirectory ("{0}.log" -f $Page.ToLowerInvariant())
+    if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
     $Process = $null
     try {
+        # Read back after the window closes. The application only writes here when
+        # this is set, so a player's run costs nothing.
+        $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
         $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList @("--page", $Page) -PassThru
         # Reading Handle here is what makes ExitCode and WaitForExit reliable later.
         $null = $Process.Handle
@@ -98,8 +234,14 @@ foreach ($Page in $Pages) {
             $Results.Add([pscustomobject]@{
                 page = $Page
                 presented = $false
+                drew = $false
                 detail = "Exited with code $($Process.ExitCode) before showing a window."
                 screenshot = $null
+                distinctColors = 0
+                variedFraction = 0.0
+                warnings = @()
+                toleratedWarnings = @()
+                failingWarnings = @()
             })
             continue
         }
@@ -108,8 +250,14 @@ foreach ($Page in $Pages) {
             $Results.Add([pscustomobject]@{
                 page = $Page
                 presented = $false
+                drew = $false
                 detail = "No window within $WindowTimeoutSeconds second(s)."
                 screenshot = $null
+                distinctColors = 0
+                variedFraction = 0.0
+                warnings = @()
+                toleratedWarnings = @()
+                failingWarnings = @()
             })
             continue
         }
@@ -122,50 +270,82 @@ foreach ($Page in $Pages) {
             $Results.Add([pscustomobject]@{
                 page = $Page
                 presented = $false
+                drew = $false
                 detail = "Exited with code $($Process.ExitCode) shortly after showing its window."
                 screenshot = $null
+                distinctColors = 0
+                variedFraction = 0.0
+                warnings = @()
+                toleratedWarnings = @()
+                failingWarnings = @()
             })
             continue
         }
 
         Save-ScreenImage -Path $Screenshot
+
+        # Closed here rather than in the finally block, so the warnings written on
+        # the way out are in the file before it is read.
+        Close-AppProcess -Process $Process -Page $Page
+        $Content = Measure-ImageContent -Path $Screenshot
+        $Warnings = Read-InterfaceWarnings -Path $WarningLog -Pattern $FailOnWarningPattern -Tolerate $TolerateWarningPattern
+        $Drew = $Content.distinctColors -ge $MinimumDistinctColors -and $Content.variedFraction -ge $MinimumVariedFraction
+        $Detail = "Window shown after $([Math]::Round($Stopwatch.Elapsed.TotalSeconds, 2))s · $($Content.distinctColors) colours · $([Math]::Round($Content.variedFraction * 100, 1))% varied"
+        if (-not $Drew) { $Detail = "Drew almost nothing · $Detail" }
+        if ($Warnings.tolerated.Count -gt 0) { $Detail = "$($Warnings.tolerated.Count) null-source binding(s) · $Detail" }
+        if ($Warnings.failing.Count -gt 0) { $Detail = "$($Warnings.failing.Count) interface fault(s) · $Detail" }
+
         $Results.Add([pscustomobject]@{
             page = $Page
             presented = $true
-            detail = "Window shown after $([Math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)) second(s)."
+            drew = $Drew
+            detail = $Detail
             screenshot = (Split-Path -Leaf $Screenshot)
+            distinctColors = $Content.distinctColors
+            variedFraction = $Content.variedFraction
+            warnings = $Warnings.all
+            toleratedWarnings = $Warnings.tolerated
+            failingWarnings = $Warnings.failing
         })
     }
     catch {
         $Results.Add([pscustomobject]@{
             page = $Page
             presented = $false
+            drew = $false
             detail = $_.Exception.Message
             screenshot = $null
+            distinctColors = 0
+            variedFraction = 0.0
+            warnings = @()
+            toleratedWarnings = @()
+            failingWarnings = @()
         })
     }
     finally {
         if ($null -ne $Process) {
-            try {
-                if (-not $Process.HasExited) {
-                    $null = $Process.CloseMainWindow()
-                    if (-not $Process.WaitForExit(20000)) { $Process.Kill($true) }
-                }
-            }
-            catch {
-                Write-Host "Could not close the process for '$Page': $($_.Exception.Message)"
-            }
+            Close-AppProcess -Process $Process -Page $Page
             $Process.Dispose()
         }
+
+        Remove-Item Env:\TARKOV_COMPANION_UI_WARNING_LOG -ErrorAction SilentlyContinue
     }
 }
 
-$Failed = @($Results | Where-Object { -not $_.presented })
+$NoWindow = @($Results | Where-Object { -not $_.presented })
+$Blank = @($Results | Where-Object { $_.presented -and -not $_.drew })
+$Bound = @($Results | Where-Object { $_.failingWarnings.Count -gt 0 })
+$Failed = @($Results | Where-Object { -not $_.presented -or $_.failingWarnings.Count -gt 0 })
+
 $Report = [pscustomobject]@{
     generatedUtc = [DateTime]::UtcNow.ToString("o")
     appPath = $ResolvedAppPath
     pages = $Results
     failedCount = $Failed.Count
+    noWindowCount = $NoWindow.Count
+    blankCount = $Blank.Count
+    interfaceFaultCount = $Bound.Count
+    nullSourceBindingCount = @($Results | ForEach-Object { $_.toleratedWarnings.Count } | Measure-Object -Sum).Sum
 }
 
 $Directory = Split-Path -Parent ([System.IO.Path]::GetFullPath($OutputPath))
@@ -173,12 +353,34 @@ New-Item -ItemType Directory -Path $Directory -Force | Out-Null
 $Report | ConvertTo-Json -Depth 6 | Set-Content -Path $OutputPath -Encoding utf8
 
 foreach ($Result in $Results) {
-    $Mark = if ($Result.presented) { "ok  " } else { "FAIL" }
+    $Mark = if ($Result.presented -and $Result.drew -and $Result.failingWarnings.Count -eq 0) { "ok  " } else { "FAIL" }
     Write-Host "$Mark $($Result.page): $($Result.detail)"
+    foreach ($Line in $Result.failingWarnings) {
+        Write-Host "     $Line"
+    }
 }
 
-if ($Failed.Count -gt 0) {
-    throw "$($Failed.Count) destination(s) did not present a window: $(($Failed | ForEach-Object { $_.page }) -join ', ')"
+# Named separately because they are three different repairs. A page that shows no
+# window is broken, a page that shows an empty one did not load its data, and a
+# binding warning is a property the page asks for and no longer gets.
+$Problems = @()
+if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Object { $_.page }) -join ', ')" }
+if ($Bound.Count -gt 0) { $Problems += "interface faults: $(($Bound | ForEach-Object { $_.page }) -join ', ')" }
+
+# Reported rather than thrown, for now. The photograph is of the whole screen, so a
+# window that drew nothing still sits on a desktop with a taskbar on it, and the
+# measurement has not been watched across enough builds to be trusted as a gate.
+if ($Blank.Count -gt 0) {
+    Write-Host "NOTE drew almost nothing: $(($Blank | ForEach-Object { $_.page }) -join ', ')"
 }
 
-Write-Host "All $($Results.Count) destinations presented a window."
+if ($Problems.Count -gt 0) {
+    throw ($Problems -join " · ")
+}
+
+$NullSourced = @($Results | Where-Object { $_.toleratedWarnings.Count -gt 0 })
+if ($NullSourced.Count -gt 0) {
+    Write-Host "NOTE binding through a null source: $(($NullSourced | ForEach-Object { "$($_.page) ($($_.toleratedWarnings.Count))" }) -join ', ')"
+}
+
+Write-Host "All $($Results.Count) destinations presented a window and raised no interface faults."
