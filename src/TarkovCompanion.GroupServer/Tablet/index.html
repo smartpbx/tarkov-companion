@@ -261,6 +261,34 @@
     }
   }
 
+  // How far a name may reach, in metres.
+  //
+  // The same forty as WaypointNaming.WithinMetres on the desktop, deliberately: a mark made on
+  // the sofa should read the same as one made at the desk, and two different radii would mean
+  // the same spot got two different names depending on which screen dropped it. Forty metres is
+  // a building; further starts naming a mark after the thing across the road from it.
+  const NAME_WITHIN = 40;
+
+  // What to call a mark here, or null when nothing named is near enough.
+  //
+  // Nearest named landmark wins, which is the desktop's rule. Locks carry no name and are
+  // skipped by that alone. A mark called after something eighty metres away is worse than one
+  // called "3", because "3" is not a claim.
+  function nameFor(mapId, x, z) {
+    let best = null;
+    let nearest = NAME_WITHIN;
+    for (const mark of landmarks[mapId] ?? []) {
+      if (!mark.n) continue;
+      const distance = Math.hypot(mark.x - x, mark.z - z);
+      if (distance <= nearest) {
+        nearest = distance;
+        best = mark.n;
+      }
+    }
+
+    return best;
+  }
+
   // The height to mark at, taken from whoever on this map is nearest the tap.
   //
   // Zero is a claim, not an absence: GroupWaypointReach measures in three dimensions with a
@@ -431,7 +459,9 @@
       z: mark.z,
       colour: mark.k === "l" ? "#3c4c5a" : "#55707f",
       label: mark.n ?? "",
-      r: mark.k === "l" ? 2 : 3,
+      // A place is a name for an area rather than a thing standing somewhere, so it is drawn
+      // as the name alone. A dot would claim the middle of Dorms is a spot you can go to.
+      r: mark.k === "p" ? 0 : mark.k === "l" ? 2 : 3,
       quiet: true,
     }));
   }
@@ -563,7 +593,9 @@
           // which is what an older client does, and is the same answer as before for them.
           y: heightNear(mapId, x, z) ?? 0,
           z,
-          label: null,
+          // The place it was put on, worked out rather than asked for. Typing a name means a
+          // keyboard, and this screen exists so that nobody has to reach for one.
+          label: nameFor(mapId, x, z),
         }),
       });
       await refresh();

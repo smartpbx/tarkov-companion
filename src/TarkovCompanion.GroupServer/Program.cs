@@ -79,6 +79,11 @@ builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
 builder.Services.AddSingleton<CatalogMirror>();
 // The few hundred points a schematic can draw, derived from the mirror rather than fetched
 // whole by the page. See Landmarks for the measurement that decided that.
+builder.Services.AddHttpClient(Landmarks.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
+});
 builder.Services.AddSingleton<Landmarks>();
 
 // Reports are taken and kept here; the hourly relay-watch workflow turns them into issues
@@ -442,9 +447,13 @@ var landmarkJson = new JsonSerializerOptions(JsonSerializerDefaults.Web)
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
 };
 
-app.MapGet("/landmarks", async (HttpRequest request, Landmarks landmarks, CancellationToken cancellationToken) =>
+app.MapGet("/landmarks", async (
+    HttpRequest request,
+    Landmarks landmarks,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
 {
-    var all = await landmarks.GetAsync(cancellationToken).ConfigureAwait(false);
+    var all = await landmarks.GetAsync(timeProvider, cancellationToken).ConfigureAwait(false);
     request.HttpContext.Response.Headers.CacheControl = "public, max-age=3600";
     // Nulls dropped rather than written. A lock has neither a name nor a faction, and there are
     // more locks than anything else.

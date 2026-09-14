@@ -108,7 +108,67 @@ public sealed class LandmarksTests
         Assert.Equal(-40.8, mark.Z);
     }
 
+    [Fact]
+    public void PlaceNamesComeOutOfTheArtworksLabelLayer()
+    {
+        // The names a player actually says — Power Station, Main Office, Dorms — are in the map
+        // artwork rather than the game-data catalog, which is why they need a second file.
+        var built = Landmarks.BuildPlaces(Bytes(Artwork));
+
+        var places = built["interchange"];
+        Assert.Equal(2, places.Count);
+        Assert.All(places, place => Assert.Equal("p", place.Kind));
+        Assert.Contains(places, place => place.Name == "Power Station" && place.X == 10.5 && place.Z == -20.5);
+    }
+
+    [Fact]
+    public void ALabelDrawnAcrossTwoLinesIsFlattened()
+    {
+        // Labels are laid out as artwork and several carry line breaks so they sit inside a
+        // building. A name goes in a list, where a newline is a hole.
+        var built = Landmarks.BuildPlaces(Bytes(Artwork));
+
+        Assert.Contains(built["interchange"], place => place.Name == "Cargo Containers");
+    }
+
+    [Fact]
+    public void ALabelWithNoTextOrNoPositionIsNotAPlace()
+    {
+        var built = Landmarks.BuildPlaces(Bytes(
+            "{\"data\":{\"maps\":[{\"normalizedName\":\"customs\",\"maps\":[{\"labels\":[" +
+            "{\"text\":\"\",\"position\":[1,2]}," +
+            "{\"text\":\"Nowhere\"}," +
+            "{\"text\":\"Short\",\"position\":[1]}]}]}]}}"));
+
+        Assert.Empty(built);
+    }
+
+    [Fact]
+    public void ArtworkItDoesNotRecogniseCostsThePlaceNamesAndNothingElse()
+    {
+        Assert.Empty(Landmarks.BuildPlaces(Bytes("{\"nothing\":true}")));
+        Assert.Empty(Landmarks.BuildPlaces(Bytes("{\"data\":{\"maps\":[]}}")));
+    }
+
+    [Fact]
+    public void TheArtworkFilesRootIsABareArray()
+    {
+        // The shape it actually has. The first version of this called TryGetProperty on the
+        // root, which throws on an array rather than returning false, so it read nothing and
+        // the catch above it made that look like an upstream that was merely down.
+        var built = Landmarks.BuildPlaces(Bytes(Artwork));
+
+        Assert.Contains("interchange", built.Keys);
+    }
+
     private static byte[] Bytes(string json) => Encoding.UTF8.GetBytes(json);
+
+    /// <summary>The label layer, in the shape the-hideout's maps.json actually carries it.</summary>
+    private const string Artwork =
+        "[{\"normalizedName\":\"interchange\",\"primaryPath\":\"/map/interchange\",\"maps\":[{" +
+        "\"key\":\"interchange\",\"labels\":[" +
+        "{\"position\":[10.5,-20.5],\"text\":\"Power Station\",\"size\":90}," +
+        "{\"position\":[30,40],\"text\":\"Cargo\\n  Containers\",\"size\":90}]}]}]";
 
     /// <summary>The three shapes that matter, cut from the real payload.</summary>
     private const string Catalog = """
