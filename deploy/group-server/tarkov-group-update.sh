@@ -33,8 +33,57 @@ readonly REFUSED="${STATE}/REFUSED_SHA256"
 readonly REQUEST="${STATE}/UPDATE_NOW"
 readonly SERVICE="tarkov-group"
 readonly BASE="https://github.com/${REPO}/releases/download/${RELEASE}"
+# This script and the units that run it, as they travel inside the archive.
+#
+# They used to be installed by hand, once, and never again: the updater replaced the server
+# tree and nothing else, so every fix here sat in the repo doing nothing. CT 115 was still
+# running the 13 September copy a day after its stamp bug was fixed, with the bug live.
+readonly SELF="/opt/tarkov-group-update.sh"
+readonly UNITS="/etc/systemd/system"
+readonly SHIPPED="${INSTALL}/deploy"
 
 log() { printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+
+# Installs the units and this script from the build that has just proved it works.
+#
+# Only after the health check, never before. A broken build must not be able to take the thing
+# that would replace it down with it, and the rollback path below deliberately does not call
+# this: a build that did not answer has said nothing about whether its updater is sound.
+#
+# tarkov-group.service is deliberately not touched. It is hand-maintained on the host, carries
+# a drop-in with the admin key, and is the one unit whose contents this repository does not
+# know. The update machinery updates the update machinery; deploy/group-server/README.md still
+# owns the service.
+apply_deployment() {
+    [[ -d "${SHIPPED}" ]] || return 0
+    local changed=0 unit
+
+    for unit in tarkov-group-update.service tarkov-group-update.timer tarkov-group-update.path; do
+        if [[ -f "${SHIPPED}/${unit}" ]] && ! cmp -s "${SHIPPED}/${unit}" "${UNITS}/${unit}"; then
+            install -m 0644 "${SHIPPED}/${unit}" "${UNITS}/${unit}"
+            log "installed ${unit}"
+            changed=1
+        fi
+    done
+
+    # Written beside and renamed, never installed over. bash keeps a file offset into the
+    # script it is running and may read more from it as it goes, so replacing the bytes under
+    # a running script is a question about buffering rather than a guarantee -- a short script
+    # usually survives it. A rename swaps the directory entry and leaves the open inode alone,
+    # which removes the question instead of betting on it.
+    if [[ -f "${SHIPPED}/tarkov-group-update.sh" ]] && ! cmp -s "${SHIPPED}/tarkov-group-update.sh" "${SELF}"; then
+        install -m 0755 "${SHIPPED}/tarkov-group-update.sh" "${SELF}.incoming"
+        mv "${SELF}.incoming" "${SELF}"
+        log "installed the updater itself; the next run is the new one"
+    fi
+
+    if (( changed )); then
+        systemctl daemon-reload
+        # Enabled rather than only reloaded, because a unit that is new to this host has never
+        # been enabled. Already-enabled units are unaffected.
+        systemctl enable --now tarkov-group-update.timer tarkov-group-update.path || true
+    fi
+}
 
 work="$(mktemp -d)"
 trap 'rm -rf "${work}"' EXIT
@@ -114,6 +163,7 @@ for _ in $(seq 1 10); do
     sleep 2
     if wget -q --timeout=5 -O /dev/null http://127.0.0.1:8090/health 2>/dev/null; then
         log "updated to ${expected:0:12} and answering"
+        apply_deployment
         exit 0
     fi
 done
