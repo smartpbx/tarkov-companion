@@ -1,7 +1,7 @@
 # Concept render audit
 
-> **Status: not yet run with participants.** This is an expert review of the eight images in
-> `docs/design/v2/` by the author of this package, on 2026-09-14. It records what is visible in each
+> **Status: not yet run with participants.** This is a heuristic self-review of the eight images
+> in `docs/design/v2/` by the author of this package (not independent), on 2026-09-14. It records what is visible in each
 > image and why it matters for v2. It is not usability evidence and no participant has seen these
 > findings. The images are unchanged; nothing here edits or replaces them.
 
@@ -30,7 +30,7 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 | RA-X6 | Raid, Intel, Plan, Stash, Loot, both tablets | **The clock is unlabelled.** "18:42" beside a clock icon appears on pages with and without a raid; Raid's own phase control reads 0:00; both tablet renders show a device status-bar 18:42 as well. It could be local time, raid time, or time left. #261 (raid clock provenance) is a permanent regression fixture. | `truth` `contradiction` | RB-06 |
 | RA-X7 | Home, Raid, Intel, Plan, Stash | **"Data updated 12 min ago" does not say which data.** Loot Scan splits "Screenshot analysed 1.4 sec ago" from "Prices updated 12 min ago", which is better, so the renders are inconsistent with each other. | `truth` | RB-06 |
 | RA-X8 | All | **No degraded states.** No render shows empty, loading, offline, stale, partial, permission denied or failed, although #256 requires each to be distinct and actionable. | `missing` | RB-07 |
-| RA-X9 | All | **No accessibility variants.** No high-contrast, 200% text, narrow window, keyboard focus or screen-reader annotation. Several states rely on colour: member presence dots, amber versus green checks, Keep and Sell box outlines, and the traffic gradient. | `a11y` `missing` | RB-08 |
+| RA-X9 | All | **No accessibility variants.** No high-contrast, 200% text, narrow window, keyboard focus or screen-reader annotation. Several states rely on colour: member presence dots, amber versus green checks, the Loot Scan tile outlines, and the traffic gradient. | `a11y` `missing` | RB-08 |
 | RA-X10 | All | **Sample facts are not labelled in the images.** Photographic map and item imagery, quest names, member names (including a real first name and a real computer name), "Operation Railbird", and every price and count read as real. Home's "Dorms key spawn rate increased" and "New extract timing data (RUAF)" are fact-shaped claims with no source. | `truth` | RB-09 |
 | RA-X11 | Home, Raid, Plan | **Traffic provenance is incomplete and inconsistently worded.** Raid shows "MODELLED TRAFFIC · NOT LIVE", "1,284 historical raids" and "Data through Sep 12", but no source, generated time, model version, or what the confidence means. Plan shows "Estimated traffic · historical, not live" with no provenance at all. Home shows "Customs traffic model updated" with no version. | `truth` | RB-10 |
 | RA-X12 | Raid, Plan, Intel, Stash, Loot | **Different confidences look identical.** "Confidence 72%" (Raid model), "Confidence 72%" (Plan route), "Recommendation confidence 91%" (Intel), "Confidence 94%" (Loot detection), "96% confidently identified" (Stash). Same format for a model calibration, a route estimate, a rule outcome, a detection, and an identification rate. | `truth` | RB-10 |
@@ -40,7 +40,7 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 
 | ID | Observation | Risk | Brief |
 | --- | --- | --- | --- |
-| RA-H1 | Headline "Ready when you are" and the "Ready" pill while one of four setup steps (Profile & wipe) is incomplete. | `truth` | RB-05 |
+| RA-H1 | Headline "Ready when you are" and the "Ready" pill while one setup step (Profile & wipe) is incomplete. The render also says "Get ready in 3 steps" above four rows. | `truth` | RB-05 |
 | RA-H2 | "Current plan · Customs · 4 objectives · Lower-contact route ready" exists before a profile is chosen, so it is unclear whose quests the plan is built from. | `contradiction` | RB-11 |
 | RA-H3 | Status and action share one button shape: "Connected", "Ready", "Choose profile" and "Optional" all look like buttons. A player cannot tell a status from a control. | `a11y` `nav` | RB-11 |
 | RA-H4 | "Diagnostics: Local only · No personal data is collected" is an absolute claim; positions, raid history and team presence are personal. #256 asks for a privacy inventory instead. | `truth` | RB-12 |
@@ -97,7 +97,7 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 | RA-T3 | "3 of 4 ready" lists only objectives 1 and 4. | `contradiction` | RB-15 |
 | RA-T4 | Team objective 1 is "Meet at Warehouse 4", but map waypoint 1 is "Factory Far Corner". | `contradiction` | RB-15 |
 | RA-T5 | Presence uses three vocabularies ("Ready", "Active", "2 min ago") and colour dots; stale is conveyed by an amber dot. | `a11y` `truth` | RB-08 |
-| RA-T6 | Small touch targets and text: the member overflow "⋯" button and the map scale labels. | `a11y` | RB-17 |
+| RA-T6 | The "Required items" checkboxes are drawn much smaller than other controls, and the map scale text is small. The render has no physical scale, so target size can only be confirmed at real size (RB-17). | `a11y` | RB-17 |
 | RA-T7 | The QR code and "Expires in 09:42" look functional (the concept notes say decorative). | `truth` | RB-09 |
 | RA-T8 | "Shared plan · manual waypoints" label, expiring invite, session expiry, "Private relay". | `keep` | — |
 
@@ -110,7 +110,7 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 | RA-C3 | Layers: "Team marks" is unchecked, yet a mark "Added by Clayton · 4 sec" is shown. | `contradiction` | RB-18 |
 | RA-C4 | "This tablet · Owner" here, "Observer role" in render 5, for the same kind of paired tablet. | `contradiction` | RB-16 |
 | RA-C5 | No revision, acknowledgement or conflict state: only "Synced just now". #256 requires applied-revision confirmation and visible conflict resolution. | `missing` | RB-18 |
-| RA-C6 | Small touch targets: undo, redo and overflow at the map's lower right, and the layer checkboxes. | `a11y` | RB-17 |
+| RA-C6 | The layer checkboxes are drawn visibly smaller than other controls; undo, redo and overflow are drawn the same height as Ping, Waypoint and Route and need real-size confirmation. | `a11y` | RB-17 |
 | RA-C7 | Real-looking identity: "PAIRED TO CLAYTON-PC", "Added by Clayton". | `truth` | RB-09 |
 | RA-C8 | Persistent "Desktop now showing Raid · Customs · Floor 1", mode segmented control, "Loot scan armed · Waiting for your game screenshot", "Controls companion state only · No game input". | `keep` | — |
 
@@ -123,7 +123,7 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 | RA-S3 | "7 of 9 screenshots · 78%" does not explain how the total of 9 is known, and a screenshot percentage is not stash coverage. | `truth` | RB-19 |
 | RA-S4 | **"Source images discarded after analysis" is ambiguous:** it can be read as the companion deleting the player's EFT screenshot files. | `truth` `boundary` | RB-12 |
 | RA-S5 | "Estimated stash value ₽18.6M · 94% price coverage" during an incomplete scan, with gross or net unstated. | `truth` | RB-14 |
-| RA-S6 | "Finish scan" is primary while "Capture remaining area" is unchecked; the consequence of finishing with partial coverage is not stated. | `truth` | RB-19 |
+| RA-S6 | "Finish scan" is primary while "Capture remaining area" is still shown as pending ("–"); the consequence of finishing with partial coverage is not stated. | `truth` | RB-19 |
 | RA-S7 | Stash Scan sits under the Intel rail item, with a separate "Stash Scan ▾ · FULL STASH" top-bar control. | `nav` | RB-03 |
 | RA-S8 | "Watching EFT screenshots" uses a spinner as the only activity indicator. | `a11y` | RB-08 |
 | RA-S9 | Guided next step ("Next: scroll down one screen"), overlap handling, "Planning only · No game input is generated". | `keep` | — |
@@ -132,10 +132,10 @@ Every non-`keep` item maps to a numbered item in [revision-brief.md](revision-br
 
 | ID | Observation | Risk | Brief |
 | --- | --- | --- | --- |
-| RA-L1 | **Six items, five decisions.** "Container contents · 6 items (16/48 squares)", but "What should I take?" covers five and omits the Military cable tile (₽12k/sq); the summary "Take 3 · Swap 1 · Leave 1" totals 5. | `contradiction` | RB-20 |
+| RA-L1 | **Six items, five decisions.** "Container contents · 6 items (16/48 squares)", but "What should I take?" covers five and omits the unlabelled cable-coil tile (₽12k / sq, 1/1); the summary "Take 3 · Swap 1 · Leave 1" totals 5. | `contradiction` | RB-20 |
 | RA-L2 | **KEEP and TAKE are mixed.** Fuel conditioner and Virtex are "KEEP" although they are in the container, not carried; Bolts in the same container is "TAKE". No REVIEW decision is shown. | `contradiction` | RB-20 |
 | RA-L3 | **Free space does not add up.** The backpack reads "8 × 6 squares" and "5 free squares", but the hatched empty region is visibly larger, and no fit statement shows that the takes and swap fit. | `contradiction` | RB-20 |
-| RA-L4 | **The swap is impossible as drawn.** "Best swap: Leave Crickent → Take Electric drill · +₽92k". Crickent is in the container, so leaving it frees no backpack space. The panel names "Lowest carried: Wires · ₽12.4k/sq", which is what a swap would drop. +₽92k does not reconcile with a ₽32k/sq drill. | `contradiction` `truth` | RB-20 |
+| RA-L4 | **The swap is impossible as drawn.** "Best swap: Leave Crickent → Take Electric drill · +₽92k". Crickent is in the container, so leaving it frees no backpack space. The panel names "Lowest carried: Wires · ₽12.4k/sq", which is what a swap would drop. The gain's basis (item size, what is dropped, gross or net) is not shown, so +₽92k cannot be checked. | `contradiction` `truth` | RB-20 |
 | RA-L5 | "SWAP · Electric drill · Higher total value" while its ₽32k/sq is lower than two KEEP items; the reason is not explained. | `truth` | RB-20 |
 | RA-L6 | Per-square prices ("₽68k / square") with no gross or net and no per-item age. | `truth` | RB-14 |
 | RA-L7 | "Scan again" suggests the companion takes a new screenshot itself. It can only wait for the player's next screenshot or re-analyse this one. | `boundary` | RB-04 |

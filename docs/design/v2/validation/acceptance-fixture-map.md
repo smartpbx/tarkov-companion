@@ -28,7 +28,7 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 | --- | --- | --- | --- | --- |
 | UXF-J1-01 | Given a first launch with one required check incomplete, the readiness summary states the count ("1 item needs action") and no surface shows an unqualified "Ready". | #292, #267, #281 | e2e | Draft |
 | UXF-J1-02 | Every readiness check shows its status word, its own check time or last success, and one action; status is not rendered as a button. | #292, #281, #266 | e2e, a11y | Draft |
-| UXF-J1-03 | Before any setup, sample data can be explored and every sample surface is labelled as sample. | #292, #267 | e2e | Draft |
+| UXF-J1-03 | Before any setup, sample data can be explored and every sample surface is labelled as sample. | #292, #267, #264 | e2e | Draft |
 | UXF-J1-04 | The first-launch landing is **after H-03**: A Setup & Admin, Get ready; B Home. Completing the last required action announces once and returns focus to the control that opened the action. | #267, #292, #266 | e2e, a11y | Draft |
 
 ## J2 Loot decision
@@ -60,11 +60,11 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 
 | ID | Given / when / then | Consumers | Evidence | Status |
 | --- | --- | --- | --- | --- |
-| UXF-J4-01 | Requirements show confirmed and unknown separately, each with its source and time ("seen in stash scan at 18:20, 42 of 68 rows"); an unverified requirement is never shown as ready. | #288, #283, #269 | unit, e2e | Draft |
+| UXF-J4-01 | Requirements show confirmed and unknown separately, each with its source and time ("seen in stash scan at 18:20, 42 of 68 rows"); an unverified requirement is never shown as ready. | #288, #283, #274 | unit, e2e | Draft |
 | UXF-J4-02 | The extract is separate from objectives; objective counts match the list. | #288 | unit | Draft |
 | UXF-J4-03 | A route estimate is labelled modelled, shows full model provenance, and explains each trade-off with the data behind it. | #288, #275, #286 | unit, e2e | Draft |
 | UXF-J4-04 | Every map has an equivalent text list with the same route order, zones and extracts, reachable by keyboard and screen reader. | #286, #288, #266 | a11y, e2e | Draft |
-| UXF-J4-05 | Sharing requires an explicit scope: only me, my paired devices, or team; a role that cannot share to team is refused with the reason and the private plan is unaffected. | #288, #289, #278 | unit, e2e | Draft |
+| UXF-J4-05 | Sharing requires an explicit scope: only me, my paired devices, or team; a role that cannot share to team is refused with the reason and the private plan is unaffected. | #288, #289, #276 | unit, e2e | Draft |
 | UXF-J4-06 | When the route model fails, objectives, requirements and waypoints remain usable and a retry is offered. | #288, #275, #268 | e2e | Draft |
 
 ## J5 Paired tablet
@@ -96,13 +96,15 @@ From [capture-intent-mismatch.md](capture-intent-mismatch.md).
 
 | ID | Given / when / then | Consumers | Evidence | Status |
 | --- | --- | --- | --- | --- |
-| UXF-CAP-01 | A detected context that disagrees with the armed intent is queued as needing a decision, announced politely, shown on every paired device, and does not open a dialog, move focus, or bring the companion window forward. | #271, #264, #287, #290 | unit, e2e, a11y | Draft |
+| UXF-CAP-01 | A detected context that disagrees with the armed intent is queued as needing a decision, announced politely, shown on every paired device, and does not open a dialog, move focus, or bring the companion window forward. | #271, #264, #267, #276, #287, #290 | unit, e2e, a11y | Draft |
 | UXF-CAP-02 | A file still being written is waited for within a bound and is never analysed truncated; reaching the bound yields a decision item, not a silent drop. | #271 | unit, e2e | Draft |
 | UXF-CAP-03 | A duplicate file (same content, any name) produces no second result and can be analysed again deliberately. | #271 | unit | Draft |
 | UXF-CAP-04 | An unknown context changes no raid, stash or plan state; low confidence yields "couldn't tell", never a mismatch. | #271, #264, #299 | unit, e2e | Draft |
 | UXF-CAP-05 | A rejected capture does not advance a stash session; later captures in the same session wait as unread files. | #271, #283 | unit | Draft |
 | UXF-CAP-06 | Concurrent intent changes: the stale command is rejected with a visible conflict on its sender, and a screenshot binds to the intent revision in force when the file appeared. | #276, #277, #271 | protocol, unit | Draft |
-| UXF-CAP-07 | After analysis, skip, or pause, decoded pixels are released; the screenshot file is byte-for-byte unchanged and still in place; no image is persisted without Debug Capture. | #271, #281, #279 | unit, e2e | Draft |
+| UXF-CAP-07 | After analysis, skip, or pause, decoded pixels are released; the screenshot file is byte-for-byte unchanged and still in place; no image is persisted without Debug Capture. | #271, #281, #279, #264 | unit, e2e | Draft |
+
+No fixture here covers the "Flea listings you opened" intent: no journey exercises it, so #284 needs its own fixture rather than one inferred from these sessions.
 
 ## Workspace states
 
@@ -111,7 +113,7 @@ cases (empty, loading, offline, stale, partial, permission denied, failed, succe
 
 | ID | Given / when / then | Consumers | Evidence | Status |
 | --- | --- | --- | --- | --- |
-| UXF-ST-RAID | Each of the eight Raid states renders distinctly with the matrix's usable remainder, provenance, recovery, focus and announcement, and tablet behaviour. | #286, #267, #268, #277 | e2e, a11y | Draft |
+| UXF-ST-RAID | Each of the eight Raid states renders distinctly with the matrix's usable remainder, provenance, recovery, focus and announcement, and tablet behaviour. | #286, #267, #268, #276 | e2e, a11y | Draft |
 | UXF-ST-INTEL | As above for Intel. | #287, #267, #268 | e2e, a11y | Draft |
 | UXF-ST-PLAN | As above for Plan or Prepare. | #288, #267, #268 | e2e, a11y | Draft |
 | UXF-ST-TEAM | As above for Team. | #289, #290, #278 | e2e, a11y | Draft |

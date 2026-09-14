@@ -38,11 +38,11 @@ new line saying so.
 | ID | Proposal | Rationale | Status |
 | --- | --- | --- | --- |
 | M-01 | Test two navigation variants (A workspace rail; B workflow hub with contextual Intel) over identical sample content and identical task cards. | #265 asks for at least two variants where evidence shows ambiguity; the concept renders already show ambiguity (render audit RA-X3, RA-X13, RA-S7, RA-L8), and identical content means a difference can only come from navigation. | Proposed |
-| M-02 | Use small semantic HTML storyboards, not Avalonia prototypes or the concept images. | Participants who use keyboards, screen readers, magnification or touch can take part now, without building native code before navigation is decided. They cannot prove native accessibility (#266, #279 own that). | Proposed |
-| M-03 | Count only real players who did not author the materials and are not the decision owner; the pilot does not count. | Five authors or planners would validate their own assumptions. | Proposed |
+| M-02 | Use small semantic HTML storyboards, not Avalonia prototypes or the concept images. | They are built so participants who use keyboards, screen readers, magnification or touch can take part without native code being built before navigation is decided; that has been checked only by automated browser checks so far, and the pilot must confirm it. They cannot prove native accessibility (#266, #279 own that). | Proposed |
+| M-03 | Count only real internal players who did not author the materials, do not moderate or take notes, and are not the decision owner; the pilot does not count. | Five authors or planners would validate their own assumptions. | Proposed |
 | M-04 | Pre-register the variant comparison rules and report counts, never percentages. | With two or three people per variant, a rule written after the data could be fitted to it. | Proposed |
 | M-05 | Keep all raw session material outside this public repository; commit only de-identified synthesis. | The repository and release feed are public (#256 review snapshot). | Proposed |
-| M-06 | Retain raw recordings and notes for 30 days after sign-off. | Long enough to re-check a disputed finding; short enough to limit exposure. | Proposed |
+| M-06 | Retain raw recordings, notes and the ID-to-person mapping for 30 days after sign-off, and never more than 180 days after the participant's session. | Long enough to re-check a disputed finding or honour a late withdrawal; the outer limit stops an open gate from keeping raw material indefinitely. | Proposed |
 
 ## Design proposals needing a contract owner
 
@@ -54,7 +54,8 @@ These came out of writing the specifications. They are not validated and not con
 | P-02 | An armed Ammo, Keys or Quest items intent **narrows** a detected stash or loot grid instead of disagreeing with it. | Players open a stash to find ammo; forcing a mismatch dialog for that would be noise. | #264, #271 | Proposed |
 | P-03 | A capture binds to the intent revision in force when the file appeared, not when analysis starts. | Deterministic under device races; matches what the player armed when they pressed the key. | #271, #276 | Proposed |
 | P-04 | While an ordered stash-session capture awaits a decision, later captures in that session wait as unread files, not decoded pixels. | Preserves stitching order without holding pixels. | #271, #283 | Proposed |
-| P-05 | A low-confidence detection yields "couldn't tell", checked before comparison, so a guess never produces a mismatch. | Avoids asking the player to arbitrate between two things the companion is not sure of. | #264, #272 | Proposed |
+| P-05 | A low-confidence detection, or two contexts closer than the runner-up margin, yields "couldn't tell", checked before comparison, so a guess never produces a mismatch. | Avoids asking the player to arbitrate between two things the companion is not sure of. | #264, #272 | Proposed |
+| P-06 | An ordinary in-raid screenshot with nothing to analyse is "position only": recorded, not queued, not a mismatch, and does not use up the armed intent. | 249 of 282 sampled EFT screenshots were in-raid frames (docs/research/EFT_SCREENSHOT_FACTS.md); without this every routine position screenshot would enter Needs a decision. Found in the #265 audit. | #264, #271 | Proposed |
 
 ## Hypotheses awaiting sessions
 
@@ -76,18 +77,21 @@ All **Open**. Definitions and evidence are in [validation/research-plan.md](vali
 | H-12 | Paired tablet understood as own device | Device identity presentation for #290, #289 | Open | 2026-09-14 opened |
 | H-13 | Mismatch resolved without analysing the wrong thing | Decision dialog for #271, #287 | Open | 2026-09-14 opened |
 | H-14 | "File stays; decoded image discarded" understood | Privacy copy for #271, #292 | Open | 2026-09-14 opened |
-| H-15 | Counted status trusted more accurately than "Ready" | Status pattern for #267, #281 | Open | 2026-09-14 opened |
-| H-16 | Announced result with "Open result" beats auto-navigation | Result delivery for #271, #282, #283 | Open | 2026-09-14 opened |
+| H-15 | Counted status read correctly (no "Ready" pill comparison) | Status pattern for #267, #281 | Open | 2026-09-14 opened; 2026-09-14 reworded to what the storyboards can test |
+| H-16 | Announced result with "Open result" noticed without losing place (no auto-navigation comparison) | Result delivery for #271, #282, #283 | Open | 2026-09-14 opened; 2026-09-14 reworded to what the storyboards can test |
 | H-17 | Observed, Inferred, Manual, Estimated understood | Provenance labels for #291, #264 | Open | 2026-09-14 opened |
 | H-18 | List alternative is discoverable and sufficient | Map alternative for #286, #288, #266 | Open | 2026-09-14 opened |
 
-## Deferred
+## Deferred (proposed)
 
-| ID | Question | Why deferred | Risk | What would decide it | Status |
-| --- | --- | --- | --- | --- | --- |
-| D-01 | Does an armed Loot decision stay armed for the rest of a raid, or expire after one capture? | The storyboards show only a persistent armed intent, and expiry belongs to #271's contract. Testing one version only would bias the answer. | Players may analyse a later screenshot with a stale intent, or re-arm constantly. | A native #271 prototype with both behaviours, tested in J2-style sessions. | Deferred |
-| D-02 | Does the native application meet the accessibility flows? | Storyboards cannot produce UI Automation or Narrator evidence. | Treating storyboard results as accessibility evidence. | #266 and #279 evidence against UXF-A11Y fixtures. | Deferred |
-| D-03 | What do revised concept images show for navigation? | Revision brief item RB-03 depends on H-01 to H-07. | Rendering a navigation model before evidence exists repeats the first pass's ambiguity. | Decisions on H-01 to H-07. | Deferred |
+Only the decision owner can set Deferred. These are proposed by the #265 package and wait for that
+decision.
+
+| ID | Question | Why deferral is proposed | Risk | What would decide it | Status | History |
+| --- | --- | --- | --- | --- | --- | --- |
+| D-01 | Does an armed Loot decision stay armed for the rest of a raid, or expire after one capture? | The storyboards show only a persistent armed intent, and expiry belongs to #271's contract. Testing one version only would bias the answer. | Players may analyse a later screenshot with a stale intent, or re-arm constantly. | A native #271 prototype with both behaviours, tested in J2-style sessions. | Proposed deferral | 2026-09-14 proposed by #265 package |
+| D-02 | Does the native application meet the accessibility flows? | Storyboards cannot produce UI Automation or Narrator evidence. | Treating storyboard results as accessibility evidence. | #266 and #279 evidence against UXF-A11Y fixtures. | Proposed deferral | 2026-09-14 proposed by #265 package |
+| D-03 | What do revised concept images show for navigation? | Revision brief item RB-03 depends on H-01 to H-07. | Rendering a navigation model before evidence exists repeats the first pass's ambiguity. | Decisions on H-01 to H-07. | Proposed deferral | 2026-09-14 proposed by #265 package |
 
 ## Accepted
 

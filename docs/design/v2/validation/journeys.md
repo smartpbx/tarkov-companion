@@ -35,8 +35,8 @@ the screenshots you take."
 
 **Probes and expected answers**
 
-1. "Is the companion ready for everything now? How do you know?" Every check shows its own status and
-   check time; Team and tablet is optional and off; game data synced 12 minutes ago. *(H-15)*
+1. "Is the companion ready for everything now? How do you know?" Every check shows its own status, and a
+   check time where a check ran; Team and tablet is optional and off; game data synced 12 minutes ago. *(H-15)*
 2. "What happens to a screenshot you take in the game?" The file stays in the EFT folder; the
    decoded image is discarded after analysis; folder cleanup is off. *(H-14)*
 3. "If you close this and come back tomorrow, where would you go to change the screenshot folder?"
@@ -46,7 +46,7 @@ the screenshots you take."
 **Watch for:** reading a green "Found" as "everything is ready"; looking for a gear icon; in A,
 treating Setup & Admin as a settings dump rather than a starting point.
 
-**Fixtures:** UXF-J1-01 to UXF-J1-04.
+**Fixtures:** UXF-J1-01 to UXF-J1-04, UXF-CAP-07.
 
 ---
 
@@ -95,7 +95,7 @@ decide what you'd take."
 7. "What happened to the screenshot file of the loot?" It stays in the EFT folder; the decoded image
    was discarded. *(H-14)*
 
-**Fixtures:** UXF-J2-01 to UXF-J2-08, UXF-CAP-01, UXF-CAP-04.
+**Fixtures:** UXF-J2-01 to UXF-J2-08, UXF-CAP-01, UXF-CAP-07.
 
 ---
 
@@ -113,7 +113,7 @@ then find out what needs checking before you sell anything."
 | 1 | **Measure.** Say what to do next and how much is covered | Reads Next and Coverage | "Scroll down one screen so row 37 is at the top"; 42 of 68 rows |
 | 2 | Participant arms Full stash if not armed. **Inject** "File still being written" | Progress says the file is still being written and will not be skipped, then completes | Participant does not take the screenshot again or conclude it failed. Record what they say while it waits |
 | 3 | **Inject** "Duplicate of the last file". Ask (probe, now): "Did anything change?" | Announcement: already analysed; recent captures shows "Same file as capture N" | "No" |
-| 4 | **Inject** "Context unknown", then read card 2: *"That one was your stash, but the companion couldn't tell."* **Measure** | Header: "1 capture needs a decision", Decide, dialog "Couldn't tell what capture N shows" | Chooses Full stash and Analyse as chosen, or Skip and retake. **Incorrect:** Loot decision |
+| 4 | **Inject** "Context unknown", then read card 2: *"That one was your stash, but the companion couldn't tell."* **Measure** | Header: "1 capture needs a decision", Decide, dialog "Couldn't tell what capture N shows" | Nothing is pre-selected. Chooses Full stash and Analyse as chosen, or Skip and retake. **Incorrect:** Loot decision |
 | 5 | **Measure.** How many stacks need review, and why? | Groups panel after capture 3 | 26: 3 keys, 8 unreadable stack counts, 15 uncertain identities |
 | 6 | **Measure.** Stop here and keep what you have | Finish with partial coverage, Save partial snapshot | Saved; participant says rows not covered stay unknown |
 
@@ -135,7 +135,7 @@ the moderator says so if asked.
 5. "What happened to the stash screenshots on your computer?" Files remain; decoded images were
    discarded. *(H-14)*
 
-**Fixtures:** UXF-J3-01 to UXF-J3-07, UXF-CAP-02, UXF-CAP-03, UXF-CAP-05.
+**Fixtures:** UXF-J3-01 to UXF-J3-07, UXF-CAP-02, UXF-CAP-03, UXF-CAP-04, UXF-CAP-05, UXF-CAP-07.
 
 ---
 
@@ -158,7 +158,7 @@ you'd approach it, then share the plan with your own tablet only."
 
 1. "Does the hatched area around Dorms show where players are right now?" No. Modelled from a
    historical sample dataset: data through 2026-09-12, generated 2026-09-13 04:00 UTC, 1,284 raids,
-   9 of 12 zones covered, confidence medium, model traffic-sample-v0. *(H-10; `TRUTH-LIVE` is S0)*
+   6 of 9 zones covered, confidence medium, model traffic-sample-v0. *(H-10; `TRUTH-LIVE` is S0)*
 2. "How does the companion know you have the Dorm room 214 key?" Seen in a stash scan at 18:20 that
    covered 42 of 68 rows. *(H-17 pattern)*
 3. "Who can see the plan now?" Only your paired devices. *(scope)*
@@ -195,13 +195,13 @@ Finally, look at something on the tablet without changing the desktop."
    *(`SYNC-CONFLICT`)*
 5. "How long does a ping last?" 45 seconds, never saved. *(marks lifetime)*
 
-**Fixtures:** UXF-J5-01 to UXF-J5-07, UXF-CAP-06.
+**Fixtures:** UXF-J5-01 to UXF-J5-07. (UXF-CAP-06, the intent race, is exercised only by the moderator's "Tablet changes intent at the same time" injection outside the journeys.)
 
 ---
 
 ## J6 Debrief and correction
 
-**Start:** A `#/debrief` · B `#/history`.
+**Start:** A `#/debrief` · B `#/history`, opened from the moderator's J6 link, which switches the header to after the raid (local time 18:56, last raid ended 18:52:30).
 
 **Task card:** "Your Customs raid just ended. Check what the companion knows about it, fix what it
 got wrong, and tell it whether the traffic prediction matched what you saw."
@@ -215,7 +215,7 @@ got wrong, and tell it whether the traffic prediction matched what you saw."
 
 **Probes and expected answers**
 
-1. "Did you extract with ₽412,000 of loot?" Unknown. That was an estimate at 18:41 from a capture,
+1. "Did you extract with ₽258,000 of loot?" Unknown. That was an estimate at 18:41 from a capture,
    not extracted value. *(H-17; `TRUTH-VALUE`)*
 2. "Is this traffic prediction the latest model?" It is the prediction shown at raid time,
    preserved, not re-scored. *(H-10)*

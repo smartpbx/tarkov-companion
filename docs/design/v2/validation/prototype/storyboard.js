@@ -74,9 +74,13 @@
       marks: C.team.marks.slice(),
       intelOrigin: null,
       query: '',
-      shortcuts: true
+      postRaid: false,
+      queue: []
     };
   }
+
+  // Kept outside the session: a reset must not undo a participant's own display or shortcut choice.
+  var shortcutsOn = true;
 
   // ---------------------------------------------------------------- helpers
 
@@ -96,12 +100,14 @@
       (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
-  var politeTimer = null;
+  // One timer per region: an assertive message must not cancel a polite one already queued.
+  var announceTimers = {};
   function announce(text, assertive) {
-    var region = document.getElementById(assertive ? 'status-assertive' : 'status-polite');
+    var id = assertive ? 'status-assertive' : 'status-polite';
+    var region = document.getElementById(id);
     region.textContent = '';
-    clearTimeout(politeTimer);
-    politeTimer = setTimeout(function () { region.textContent = text; }, 60);
+    clearTimeout(announceTimers[id]);
+    announceTimers[id] = setTimeout(function () { region.textContent = text; }, 60);
   }
 
   // ---------------------------------------------------------------- routing
@@ -138,7 +144,7 @@
     $('#dialog-title').textContent = opts.title;
     $('#dialog-content').innerHTML = opts.body;
     $('#dialog-actions').innerHTML = opts.actions.map(function (a) {
-      return '<button type="submit" value="' + esc(a.value) + '"' + (a.primary ? ' class="primary"' : '') + '>' + esc(a.label) + '</button>';
+      return '<button type="submit" value="' + esc(a.value) + '"' + (a.primary ? ' class="primary"' : ' formnovalidate') + '>' + esc(a.label) + '</button>';
     }).join('');
     dialog.returnValue = '';
     if (opts.describedBy) dialog.setAttribute('aria-describedby', opts.describedBy); else dialog.removeAttribute('aria-describedby');
@@ -150,6 +156,10 @@
   function initDialog() {
     var dialog = $('#dialog');
     dialog.addEventListener('cancel', function () { dialog.returnValue = 'cancel'; });
+    // Enter on a radio or text field would submit with the first button, which is Skip or Cancel.
+    dialog.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && e.target.matches('input[type=radio], input[type=checkbox], input[type=text], select')) e.preventDefault();
+    });
     dialog.addEventListener('close', function () {
       var value = dialog.returnValue || 'cancel';
       var data = new FormData($('form', dialog));
@@ -174,8 +184,9 @@
     $('#sample-tag').textContent = C.sampleNotice;
     var bits = [];
     bits.push('<p class="context-item"><strong>' + esc(S.profileChosen ? C.profile.chosen : C.profile.none) + '</strong></p>');
-    bits.push('<p class="context-item">Local time <strong>' + esc(C.localTime) + '</strong></p>');
-    bits.push('<p class="context-item">' + esc(C.raid.state) + ' · ' + esc(C.raid.map) + ' · ' + esc(C.raid.side) + ' · elapsed <strong>' + esc(C.raid.elapsed) + '</strong></p>');
+    bits.push('<p class="context-item">Local time <strong>' + esc(S.postRaid ? C.postRaid.localTime : C.localTime) + '</strong></p>');
+    bits.push(S.postRaid ? '<p class="context-item">' + esc(C.postRaid.state) + '</p>'
+      : '<p class="context-item">' + esc(C.raid.state) + ' · ' + esc(C.raid.map) + ' · ' + esc(C.raid.side) + ' · elapsed <strong>' + esc(C.raid.elapsed) + '</strong></p>');
     var needs = S.profileChosen ? 0 : 1;
     bits.push('<p class="context-item"><a href="' + href(variantId === 'a' ? 'setup' : 'home') + '">' +
       (needs ? '1 setup item needs action' : 'Setup: nothing needs action') + '</a></p>');
@@ -215,7 +226,7 @@
 
   function stateBanner(key) {
     var st = S.stateBy[key];
-    if (!st || st === 'success') return '';
+    if (!st || st === 'success' || !C.states[key]) return '';
     var cell = C.states[key][st];
     return '<section class="banner-state ' + st + '" aria-labelledby="state-h">' +
       '<h2 id="state-h">' + esc(STATE_NAMES[st]) + '</h2><p>' + esc(cell[0]) + '</p>' +
@@ -228,7 +239,7 @@
       '<button type="button" data-action="map-view" data-view="list" aria-pressed="' + (S.mapView === 'list') + '">List</button></div>';
   }
 
-  function svgMap(id, routePoints, altPoints, caption) {
+  function svgMap(id, routePoints, altPoints, caption, youAge) {
     var z = C.raid.zones.map(function (zone) {
       var cls = zone.level.replace(' ', '-');
       return '<rect class="zone ' + cls + '" x="' + zone.x + '" y="' + zone.y + '" width="' + zone.w + '" height="' + zone.h + '"></rect>' +
@@ -247,8 +258,17 @@
       z + (altPoints ? '<polyline class="route alt" points="' + altPoints + '"></polyline>' : '') +
       '<polyline class="route" points="' + routePoints + '"></polyline>' + ex +
       '<circle class="you" cx="' + C.raid.you.x + '" cy="' + C.raid.you.y + '" r="5"></circle>' +
-      '<text x="' + (C.raid.you.x + 8) + '" y="' + (C.raid.you.y + 3) + '">You (1 min old)</text>' +
+      '<text x="' + (C.raid.you.x + 8) + '" y="' + (C.raid.you.y + 3) + '">You (' + esc(youAge || '1 min old') + ')</text>' +
+      '<text class="map-model-label" x="4" y="256">Modelled traffic · not live</text>' +
       '</svg><figcaption class="note">Hatched and outlined zones are modelled traffic levels, labelled in text. Diamonds are extracts.</figcaption></figure>';
+  }
+
+  // The List view carries everything the map shows, as text, for both Raid and Plan.
+  function mapList(routeHeading, steps) {
+    var r = C.raid;
+    return '<h3>Modelled traffic by zone</h3><ul>' + r.zones.map(function (z) { return '<li>' + esc(z.name) + ': ' + esc(z.level) + '</li>'; }).join('') +
+      '</ul><h3>Extracts</h3><ul>' + r.extracts.map(function (e) { return '<li>' + esc(e.name) + ': ' + esc(e.status) + '</li>'; }).join('') +
+      '</ul><h3>' + esc(routeHeading) + '</h3><ol>' + steps.map(function (v) { return '<li>' + esc(v) + '</li>'; }).join('') + '</ol>';
   }
 
   function modelFacts(m) {
@@ -302,12 +322,12 @@
   function viewHome() {
     var needs = S.profileChosen ? 'Nothing needs action.' : '1 item needs action.';
     var body = '<div class="split"><section class="panel" aria-labelledby="ready-h"><h2 id="ready-h">Get ready</h2>' +
-      '<p>' + needs + '</p>' + readinessList() +
+      '<p>' + needs + ' Everything else can wait, and sample data works before any of it.</p>' + readinessList() +
       '<div class="actions"><button type="button" class="primary" data-action="sample">Explore with sample data</button>' +
       '<a class="button" href="' + href('setup') + '">All setup</a></div></section>' +
       '<div class="grid"><section class="panel" aria-labelledby="continue-h"><h2 id="continue-h">Continue</h2><ul>' +
       '<li><a href="' + href('prepare') + '">Plan: Customs progression</a> <span class="muted">(' + esc(C.plan.requirementSummary) + ')</span></li>' +
-      '<li><a href="' + href('raid/loot') + '">Last capture: Loot decision at ' + esc(C.loot.screenshot) + '</a></li>' +
+      (S.capture.lootReady ? '<li><a href="' + href('raid/loot') + '">Last capture: Loot decision at ' + esc(S.capture.lootTime) + '</a></li>' : '<li>No capture this raid yet</li>') +
       '<li><a href="' + href('history') + '">Last raid: Customs, PMC, 18:30</a></li></ul></section>' +
       privacyPanel() + '</div></div>';
     return page('Home', 'What needs you now, and where you left off.', body, 'setup');
@@ -318,11 +338,12 @@
     var routes = r.routes;
     var sel = routes[0].id === S.route ? routes[0] : routes[1];
     var alt = sel === routes[0] ? routes[1] : routes[0];
-    var mapOrList = S.mapView === 'map'
-      ? svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route')
-      : '<h3>Modelled traffic by zone</h3><ul>' + r.zones.map(function (z) { return '<li>' + esc(z.name) + ': ' + esc(z.level) + '</li>'; }).join('') +
-        '</ul><h3>Extracts</h3><ul>' + r.extracts.map(function (e) { return '<li>' + esc(e.name) + ': ' + esc(e.status) + '</li>'; }).join('') +
-        '</ul><h3>Selected route</h3><ol>' + sel.via.map(function (v) { return '<li>' + esc(v) + '</li>'; }).join('') + '</ol>';
+    var st = S.stateBy.raid;
+    var stale = st === 'stale';
+    // A failed map draw leaves the list, so the page must not keep drawing the map it says failed.
+    var mapOrList = S.mapView === 'map' && st !== 'failed'
+      ? svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route', stale ? '6 min old' : null)
+      : mapList('Selected route', sel.via);
     var lastCapture = S.capture.lootReady
       ? '<p>Loot decision from your screenshot at ' + esc(S.capture.lootTime) + ': TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1.</p><a class="button" href="' + href('raid/loot') + '">Open loot decision</a>'
       : '<p>No capture this raid yet.</p>';
@@ -331,7 +352,7 @@
       '<section class="panel" aria-labelledby="now-h"><h2 id="now-h">Now</h2><dl class="facts">' +
       '<dt>Raid</dt><dd>' + esc(r.state) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' (' + esc(r.stateSource) + ')</dd>' +
       '<dt>Elapsed</dt><dd>' + esc(r.elapsed) + '</dd><dt>Time left</dt><dd>' + esc(r.remaining) + '</dd>' +
-      '<dt>Position</dt><dd>' + esc(r.position) + '</dd></dl>' +
+      '<dt>Position</dt><dd>' + esc(stale ? 'From your screenshot at 18:36:40 (6 min old)' : r.position) + '</dd></dl>' +
       '<div class="actions"><button type="button" data-action="stub" data-name="Correct raid state">Correct raid state</button></div></section>' +
       '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Routes to extract</h2><fieldset><legend>Route</legend><ul class="radio-list">' +
       routes.map(function (rt) {
@@ -412,10 +433,10 @@
     var ids = Object.keys(C.items).filter(function (id) { return !q || C.items[id].name.toLowerCase().indexOf(q) >= 0; });
     var form = variantId === 'a' ? '<form class="search-form" role="search" id="intel-search"><label for="intel-q">Search Intel</label>' +
       '<input type="search" id="intel-q" name="q" value="' + esc(S.query) + '"><button type="submit">Search</button></form>' : '';
-    return '<section class="panel" aria-labelledby="results-h">' + form + '<h2 id="results-h">' + (q ? ids.length + ' results for “' + esc(S.query) + '”' : 'Recent and planned items') + '</h2>' +
+    return '<section class="panel" aria-labelledby="results-h">' + form + '<h2 id="results-h">' + (q ? ids.length + (ids.length === 1 ? ' result' : ' results') + ' for “' + esc(S.query) + '”' : 'Recent and planned items') + '</h2>' +
       (ids.length ? '<ul>' + ids.map(function (id) {
         var link = variantId === 'a' ? base + id : intelHref(id);
-        return '<li><a href="' + link + '">' + esc(C.items[id].name) + '</a> <span class="muted">' + esc(C.items[id].type) + ' · ' + rub(C.items[id].net) + ' flea net est.</span></li>';
+        return '<li><a href="' + link + '" data-origin="result-' + id + '">' + esc(C.items[id].name) + '</a> <span class="muted">' + esc(C.items[id].type) + ' · ' + rub(C.items[id].net) + ' flea net est.</span></li>';
       }).join('') + '</ul>' : '<p>No sample item matches. Try “drill” or “key”.</p>') + '</section>';
   }
 
@@ -443,14 +464,16 @@
       '<p>Review: ' + esc(snap.reviewParts) + '.</p><p>Keys: ' + esc(snap.keys) + '.</p><p>Sell group: ' + esc(snap.sellValue) + '.</p></section>' +
       '<section class="panel" aria-labelledby="org-h"><h2 id="org-h">Manual organisation plan</h2><p class="note">You move the items. The companion does not sort, click or drag anything in the game. Items are listed where they were seen, not rearranged.</p><ol>' +
       C.stash.organise.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ol></section></div></div>';
-    return page('Stash scan', 'Observed from your screenshots; unknown stays unknown.', body, variantId === 'a' ? 'intel' : 'plan');
+    // Its own key in both variants, so an injected Intel or Plan state never shows different text here.
+    return page('Stash scan', 'Observed from your screenshots; unknown stays unknown.', body, 'stash');
   }
 
   function viewPlan(route) {
     if (route.parts[1] === 'stash') return viewStash();
     var P = C.plan;
-    var mapOrList = S.mapView === 'map' ? svgMap('planmap', P.route.points, null, 'Customs schematic with plan route') :
-      '<h3>Route order</h3><ol>' + P.route.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ol>';
+    var failed = S.stateBy.plan === 'failed';
+    var mapOrList = S.mapView === 'map' && !failed ? svgMap('planmap', P.route.points, null, 'Customs schematic with plan route') :
+      mapList('Route order', P.route.steps);
     var body = '<div class="split"><div class="grid"><section class="panel" aria-labelledby="bundles-h"><h2 id="bundles-h">Suggested bundles</h2><ul>' +
       P.bundles.map(function (b, i) { return '<li>' + (i === 0 ? '<strong aria-current="true">' : '') + esc(b.name) + (i === 0 ? '</strong> (open)' : '') + ' <span class="muted">' + esc(b.summary) + '</span></li>'; }).join('') + '</ul></section>' +
       '<section class="panel" aria-labelledby="obj-h"><h2 id="obj-h">Customs progression</h2><h3>Objectives</h3><ol>' +
@@ -458,10 +481,12 @@
       '<h3>Requirements: ' + esc(P.requirementSummary) + '</h3><ul>' + P.requirements.map(function (r) {
         return '<li><span class="status ' + (r.status === 'Confirmed' ? 'ok' : 'unknown') + '">' + esc(r.status) + '</span> ' + esc(r.name) + ' <span class="muted">(' + esc(r.source) + ')</span></li>';
       }).join('') + '</ul>' +
-      '<div class="actions"><a class="button" href="' + intelHref('dorm-key') + '">Details for Dorm room 214 key</a>' +
-      '<a class="button" href="' + href(V.stashBase + '/stash') + '">Open stash scan</a></div></section></div>' +
+      '<div class="actions"><a class="button" href="' + intelHref('dorm-key') + '" data-origin="plan-dorm-key">Details for Dorm room 214 key</a>' +
+      // Stash scan lives on Prepare in B. In A it lives under Intel only, so F-06 has one A answer.
+      (variantId === 'b' ? '<a class="button" href="' + href(V.stashBase + '/stash') + '">Open stash scan</a>' : '') + '</div></section></div>' +
       '<section class="panel" aria-labelledby="proute-h"><div class="page-head"><h2 id="proute-h">Route estimate</h2>' + mapToggle('route') + '</div>' + mapOrList +
-      '<p><strong>' + esc(P.route.estimate) + '</strong>, confidence ' + esc(P.route.confidence) + '. ' + esc(P.route.tradeoff) + '</p>' + modelFacts(C.raid.model) +
+      (failed ? '<p><strong>Route estimate unavailable:</strong> the route model failed. The route order above is from your objectives, not the model.</p>'
+        : '<p><strong>' + esc(P.route.estimate) + '</strong>, confidence ' + esc(P.route.confidence) + '. ' + esc(P.route.tradeoff) + '</p>' + modelFacts(C.raid.model)) +
       '<div class="actions"><a class="button primary" href="' + href('raid') + '">Open in Raid</a><button type="button" data-action="share-plan">Share…</button></div></section></div>';
     return page(V.planLabel, 'Bundle quests, check requirements and choose a route for the next raid.', body, 'plan');
   }
@@ -496,7 +521,7 @@
       var blocked = t.mode === 'follow';
       return '<li><button type="button" data-action="tablet-nav" data-label="' + esc(n.label) + '"' + (blocked ? ' aria-disabled="true" aria-describedby="follow-note"' : '') + '>' + esc(n.label) + '</button></li>';
     }).join('') + '</ul>' + (t.mode === 'follow' ? '<p id="follow-note" class="note">In Follow desktop, change mode to navigate from the tablet.</p>' : '') + '</nav>';
-    var body = '<p><a href="' + href('team') + '">Leave tablet preview</a></p><div class="split">' +
+    var body = '<p><a class="button" href="' + href('team') + '">Leave tablet preview</a></p><div class="split">' +
       '<section class="tablet-frame" aria-labelledby="tablet-h"><h2 id="tablet-h">Paired tablet (simulated)</h2>' +
       '<p class="muted">' + esc(C.team.device.relation) + ' ' + esc(C.team.device.scope) + '</p>' +
       '<fieldset class="segmented"><legend>Tablet mode</legend>' + modes.map(function (m) {
@@ -528,7 +553,9 @@
       '<section class="panel" aria-labelledby="corr-h"><h2 id="corr-h">Needs your review</h2><p id="cable-state">' + esc(cable) + '</p><div class="actions">' +
       (S.correction ? '<button type="button" data-action="undo-correct">Undo correction</button>' : '<button type="button" data-action="correct" data-item="military-cable" aria-describedby="cable-state">Correct match</button>') + '</div>' +
       '<p class="note">Corrections improve local evaluation only after you confirm them. Nothing is learned silently.</p></section>' +
-      '<section class="panel" aria-labelledby="pred-h"><h2 id="pred-h">Traffic prediction for this raid</h2><p><span class="model-label">Modelled · not live</span></p><p>' + esc(D.prediction) + '</p>' +
+      '<section class="panel" aria-labelledby="pred-h"><h2 id="pred-h">Traffic prediction for this raid</h2><p>' + esc(D.prediction) + '</p>' +
+      modelFacts({ label: 'Modelled traffic · not live · as shown at raid time', source: C.raid.model.source, dataThrough: C.raid.model.dataThrough,
+        generated: C.raid.model.generated, coverage: C.raid.model.coverage, confidence: C.raid.model.confidence, version: C.raid.model.version, why: C.raid.model.why }) +
       '<fieldset><legend>Compared with what you saw</legend><ul class="radio-list">' + ['Higher traffic than shown', 'About as shown', 'Lower traffic than shown', 'I did not notice'].map(function (o) {
         return '<li><label><input type="radio" name="traffic-feedback" data-action="feedback" value="' + esc(o) + '"> ' + esc(o) + '</label></li>';
       }).join('') + '</ul></fieldset><div class="actions"><button type="button" data-action="stub" data-name="Export this raid">Export this raid</button></div></section></div></div>';
@@ -562,13 +589,20 @@
     }
     var main = $('#main');
     var keep = fromUser ? null : focusSignature(document.activeElement);
+    // A background re-render keeps what the participant was in the middle of: the capture progress
+    // or result box, and search text typed but not yet submitted.
+    var stage = !fromUser && $('#stage-box') ? $('#stage-box').outerHTML : null;
+    var typed = {};
+    if (!fromUser) ['global-search', 'intel-q'].forEach(function (id) { var input = document.getElementById(id); if (input) typed[id] = input.value; });
     main.innerHTML = html;
+    if (stage) placeStage(stage);
+    Object.keys(typed).forEach(function (id) { var input = document.getElementById(id); if (input) input.value = typed[id]; });
     renderModerator(route);
     if (keep) restoreFocus(keep);
     document.title = ($('#main h1') ? $('#main h1').textContent : 'Storyboard') + ' · ' + V.name;
 
     if (!fromUser) return;
-    if (route.intel) { var ih = $('#intel-h'); if (ih) ih.focus(); announce('Intel opened: ' + C.items[route.intel].name); return; }
+    if (route.intel) { var ih = $('#intel-h'); if (ih) ih.focus(); announce('Intel opened: ' + (C.items[route.intel] || { name: route.intel }).name); return; }
     if (pendingFocus) {
       var target = document.querySelector('[data-origin="' + pendingFocus + '"]') || document.querySelector('[data-action="' + pendingFocus + '"]');
       pendingFocus = null;
@@ -584,19 +618,30 @@
   // A re-render replaces the DOM under the participant's focus. Find the same control again, or
   // fall back to the page heading, so a keyboard or screen-reader user is never dropped to <body>.
   function focusSignature(el) {
-    if (!el || el === document.body || !$('#main').contains(el) && !$('#context-bar').contains(el)) return null;
-    if (el.id) return '#' + el.id;
-    var sel = '';
-    ['data-action', 'data-label', 'data-kind', 'data-view', 'data-id', 'data-item', 'data-origin', 'name', 'value'].forEach(function (attr) {
+    if (!el || el === document.body) return null;
+    if (!['#main', '#context-bar', '#rail'].some(function (s) { return $(s).contains(el); })) return null;
+    if (el.id) return { sel: '#' + el.id, index: 0 };
+    var sel = el.tagName.toLowerCase();
+    ['data-action', 'data-label', 'data-kind', 'data-view', 'data-id', 'data-item', 'data-origin', 'name', 'value', 'href'].forEach(function (attr) {
       if (el.hasAttribute(attr)) sel += '[' + attr + '="' + String(el.getAttribute(attr)).replace(/"/g, '\\"') + '"]';
     });
-    return sel || 'h1';
+    // Several controls can match (every "What would change this" summary), so remember which one.
+    var index = Array.prototype.indexOf.call(document.querySelectorAll(sel), el);
+    return { sel: sel, index: Math.max(index, 0) };
   }
-  function restoreFocus(sel) {
+  function restoreFocus(sig) {
     var target = null;
-    try { target = document.querySelector(sel); } catch (err) { target = null; }
+    try { var all = document.querySelectorAll(sig.sel); target = all[sig.index] || all[0] || null; } catch (err) { target = null; }
     if (!target) target = $('#main h1');
     if (target) target.focus();
+  }
+
+  // The progress box goes after the page heading, so the h1 stays the first heading in main.
+  function placeStage(markup) {
+    var old = $('#stage-box'); if (old) old.remove();
+    var head = $('#main .page-head');
+    if (head) head.insertAdjacentHTML('afterend', markup); else $('#main').insertAdjacentHTML('afterbegin', markup);
+    return $('#stage-box');
   }
 
   // ---------------------------------------------------------------- capture flows
@@ -637,16 +682,26 @@
     });
   }
 
+  // Simulated captures follow the 18:41:07 loot screenshot and stay before the 18:42 header clock.
   function now() {
-    var s = String(10 + S.capture.seq % 50);
-    return '18:4' + (S.capture.seq % 10) + ':' + s;
+    var s = Math.min(59, 8 + (S.capture.seq - 2) * 3);
+    return '18:41:' + (s < 10 ? '0' : '') + s;
   }
 
   function simulateScreenshot(kind) {
     var c = S.capture;
-    if (c.running) { announce('A capture is still being analysed. The next one waits in order.'); }
     c.seq += 1;
     var cap = { n: c.seq, time: now(), intent: c.armed || 'auto', rev: c.rev };
+    processCapture(cap, kind);
+  }
+
+  function processCapture(cap, kind) {
+    var c = S.capture;
+    if (c.running && (kind === 'match' || kind === 'writing')) {
+      c.queue.push({ cap: cap, kind: kind });
+      announce('Capture ' + cap.n + ' waits until capture ' + c.running.n + ' finishes.');
+      return;
+    }
     if (kind === 'duplicate') {
       var prev = c.history[c.history.length - 1];
       c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, duplicate: true, outcome: 'Same file as capture ' + prev.n + '. Not analysed again.' });
@@ -660,7 +715,7 @@
     // in front of the game. The dialog opens only when the player chooses Decide.
     if (kind === 'unknown') { queueDecision(cap, 'Context unknown', null); return; }
     if (kind === 'mismatch') {
-      if (cap.intent === 'auto') { announce('Nothing is armed, so Auto-detect cannot disagree. Arm Loot decision first to rehearse a mismatch.'); c.seq -= 1; return; }
+      if (cap.intent === 'auto') { announce('Nothing is armed, so Auto-detect cannot disagree. Arm Loot decision first to rehearse a mismatch.'); if (c.seq === cap.n) c.seq -= 1; return; }
       queueDecision(cap, 'Detected ' + intentLabel(cap.intent === 'stash' ? 'loot' : 'stash') + ' but ' + intentLabel(cap.intent) + ' was armed', cap.intent === 'stash' ? 'loot' : 'stash');
       return;
     }
@@ -671,16 +726,13 @@
     var c = S.capture;
     c.running = cap;
     var i = 0, checks = 0;
-    var box = document.createElement('section');
-    box.className = 'panel';
-    box.setAttribute('aria-labelledby', 'stage-h');
-    box.id = 'stage-box';
-    var old = $('#stage-box'); if (old) old.remove();
-    $('#main').prepend(box);
+    placeStage('<section class="panel" id="stage-box" aria-labelledby="stage-h"></section>');
+    // A re-render replaces the box, so always write to whichever one is in the page now.
+    function box() { return $('#stage-box') || placeStage('<section class="panel" id="stage-box" aria-labelledby="stage-h"></section>'); }
     announce('Screenshot seen. Analysing as ' + intentLabel(asIntent) + '.');
     function draw() {
       var writing = stillWriting && checks < 3 && i === 1;
-      box.innerHTML = '<h2 id="stage-h">Capture ' + cap.n + ': ' + esc(intentLabel(asIntent)) + '</h2>' +
+      box().innerHTML = '<h2 id="stage-h">Capture ' + cap.n + ': ' + esc(intentLabel(asIntent)) + '</h2>' +
         (writing ? '<p>Screenshot is still being written by the game. Waiting (check ' + (checks + 1) + ' of 3). It will not be skipped.</p>' : '') +
         '<ol class="stages">' + C.captureStages.map(function (s, k) {
           return '<li class="' + (k < i ? 'done' : '') + '"' + (k === i ? ' aria-current="step"' : '') + '>' + esc(s) + '</li>';
@@ -688,10 +740,14 @@
     }
     function step() {
       draw();
-      if (stillWriting && i === 1 && checks < 3) { checks += 1; setTimeout(step, reduceMotion() ? 50 : 600); return; }
+      // Waiting is timing, not motion: reduced motion must not make the "still being written" step vanish.
+      if (stillWriting && i === 1 && checks < 3) {
+        if (checks === 0) announce('Screenshot still being written. Waiting; it will not be skipped.');
+        checks += 1; setTimeout(step, 600); return;
+      }
       if (i >= C.captureStages.length - 1) { finish(); return; }
       i += 1;
-      setTimeout(step, reduceMotion() ? 20 : 350);
+      setTimeout(step, 350);
     }
     function finish() {
       c.running = null;
@@ -700,11 +756,13 @@
       if (asIntent === 'loot') { c.lootReady = true; c.lootTime = cap.time; }
       c.history.push({ n: cap.n, time: cap.time, intent: asIntent, outcome: label + (stillWriting ? ' (waited for the file to finish writing)' : '') });
       var where = asIntent === 'stash' ? href(V.stashBase + '/stash') : asIntent === 'loot' ? href('raid/loot') : null;
-      box.innerHTML = '<h2 id="stage-h">Capture ' + cap.n + ' ready: ' + esc(intentLabel(asIntent)) + '</h2><p>' + esc(label) + '.</p>' +
+      box().innerHTML = '<h2 id="stage-h">Capture ' + cap.n + ' ready: ' + esc(intentLabel(asIntent)) + '</h2><p>' + esc(label) + '.</p>' +
         (where ? '<a class="button primary" href="' + where + '">Open result</a>' : '<p>This intent has no result page in the storyboard.</p>');
-      var remember = box.outerHTML;
-      if (location.hash === where) { render(false); $('#main').insertAdjacentHTML('afterbegin', remember); }
+      // Re-render wherever the participant is, so Raid's Latest capture and Home update too; render
+      // keeps the result box.
+      render(false);
       announce('Capture ' + cap.n + ' result ready: ' + intentLabel(asIntent) + '.');
+      if (c.queue.length) { var next = c.queue.shift(); setTimeout(function () { processCapture(next.cap, next.kind); }, 0); }
     }
     step();
   }
@@ -717,7 +775,7 @@
       describedBy: 'mm-desc',
       body: '<p id="mm-desc">Nothing has been changed yet. Choose how to analyse capture ' + cap.n + '.</p><dl class="facts">' +
         '<dt>You armed</dt><dd>' + esc(intentLabel(cap.intent)) + ' (rev ' + cap.rev + ', set on ' + esc(S.capture.origin) + ')</dd>' +
-        '<dt>Detected</dt><dd>' + esc(intentLabel(detected)) + ', confidence 0.91</dd><dt>Screenshot</dt><dd>' + esc(cap.time) + '. File stays in your EFT folder.</dd></dl>' +
+        '<dt>Detected</dt><dd>' + esc(intentLabel(detected)) + ', a strong match</dd><dt>Screenshot</dt><dd>' + esc(cap.time) + '. File stays in your EFT folder.</dd></dl>' +
         '<p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
       actions: [
         { label: 'Skip this screenshot', value: 'skip' },
@@ -736,7 +794,8 @@
         C.intents.filter(function (it) { return it.id !== 'auto'; })
           .sort(function (x, y) { return (y.id === cap.intent) - (x.id === cap.intent); })
           .map(function (it, k) {
-          return '<li><label><input type="radio" name="context" value="' + it.id + '"' + (k === 0 ? ' checked' : '') + '> ' + esc(it.label) + '</label></li>';
+          // Nothing pre-selected: J3 scores the participant's own choice.
+          return '<li><label><input type="radio" name="context" value="' + it.id + '"' + (k === 0 ? ' required' : '') + '> ' + esc(it.label) + '</label></li>';
         }).join('') + '</ul></fieldset><p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
       actions: [{ label: 'Skip this screenshot', value: 'skip' }, { label: 'Analyse as chosen', value: 'chosen', primary: true }],
       onClose: function (value, data) { settle(cap, value, data.get('context'), 'Context unknown'); return null; }
@@ -810,9 +869,9 @@
         body: '<p id="trace-desc">Someone at the desktop switched to ' + esc(t.desktopView) + ' (rev ' + t.desktopRev + '). Your change to ' + esc(label) + ' was based on rev ' + base + ' and was not applied.</p>',
         actions: [{ label: 'Keep desktop view', value: 'keep' }, { label: 'Show ' + label + ' on desktop', value: 'apply', primary: true }],
         onClose: function (value) {
-          if (value === 'apply') { applyControl(label); }
+          if (value === 'apply') applyControl(label);
           else announce('Kept desktop view: ' + t.desktopView + '.');
-          return null;
+          return document.querySelector('[data-action="tablet-nav"][data-label="' + label + '"]');
         }
       });
       announce('Change not applied: desktop changed first.', true);
@@ -866,20 +925,21 @@
   ];
 
   function renderModerator(route) {
-    var key = STATE_KEY[route.ws] || 'setup';
+    var key = route.parts[1] === 'stash' ? 'stash' : STATE_KEY[route.ws] || 'setup';
     var box = $('#moderator-content');
     var focusedId = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : null;
     box.innerHTML = '<div class="grid">' +
       '<section aria-labelledby="mod-j"><h2 id="mod-j">Journey start points</h2><ul>' + JOURNEYS.map(function (j) {
-        return '<li><a href="' + href(j[1]()) + '" data-action="journey">' + esc(j[0]) + '</a></li>';
+        return '<li><a href="' + href(j[1]()) + '" data-action="journey" data-journey="' + j[0].split(' ')[0] + '">' + esc(j[0]) + '</a></li>';
       }).join('') + '</ul><button type="button" id="mod-reset" data-action="reset">Reset session</button></section>' +
       '<section aria-labelledby="mod-c"><h2 id="mod-c">Simulate a screenshot</h2><p><label for="mod-shot">Outcome</label><br><select id="mod-shot">' +
       [['match', 'Matches what is armed'], ['mismatch', 'Detected context disagrees'], ['unknown', 'Context unknown'], ['writing', 'File still being written'],
         ['duplicate', 'Duplicate of the last file'], ['race', 'Tablet changes intent at the same time']].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') +
       '</select></p><button type="button" id="mod-shoot" data-action="shoot">Screenshot arrives</button></section>' +
-      '<section aria-labelledby="mod-s"><h2 id="mod-s">Workspace state</h2><p><label for="mod-state">State for ' + esc(key) + '</label><br><select id="mod-state" data-key="' + key + '">' +
+      '<section aria-labelledby="mod-s"><h2 id="mod-s">Workspace state</h2>' + (C.states[key] ? '<p><label for="mod-state">State for ' + esc(key) + '</label><br><select id="mod-state" data-key="' + key + '">' +
       Object.keys(STATE_NAMES).map(function (s) { return '<option value="' + s + '"' + (S.stateBy[key] === s ? ' selected' : '') + '>' + esc(STATE_NAMES[s]) + '</option>'; }).join('') +
-      '</select></p><button type="button" id="mod-apply-state" data-action="apply-state">Apply state</button>' +
+      '</select></p><button type="button" id="mod-apply-state" data-action="apply-state">Apply state</button>'
+        : '<p>Stash scan has no injected workspace states in either variant; see state-matrix.md.</p>') +
       '<p><button type="button" id="mod-desk" data-action="desktop-race">Desktop user switches view (for J5)</button></p>' +
       '<p><label><input type="checkbox" id="mod-failsave" data-action="toggle-failsave"' + (S.failNextSave ? ' checked' : '') + '> Next correction save fails (for J6)</label></p></section>' +
       '<section aria-labelledby="mod-a"><h2 id="mod-a">Display (prefer the real OS setting)</h2>' +
@@ -888,7 +948,7 @@
       '<p><label for="mod-text">Text size</label><br><select id="mod-text" data-action="text-size">' + ['100', '150', '200'].map(function (v) {
         return '<option value="' + v + '"' + (document.documentElement.style.fontSize === v + '%' || (!document.documentElement.style.fontSize && v === '100') ? ' selected' : '') + '>' + v + '%</option>';
       }).join('') + '</select></p>' +
-      '<p><label><input type="checkbox" id="mod-keys" data-action="toggle-keys"' + (S.shortcuts ? ' checked' : '') + '> Shortcut Alt+Shift+C opens Capture</label></p></section></div>';
+      '<p><label><input type="checkbox" id="mod-keys" data-action="toggle-keys"' + (shortcutsOn ? ' checked' : '') + '> Shortcut Alt+Shift+C opens Capture</label></p></section></div>';
     if (focusedId && document.getElementById(focusedId)) document.getElementById(focusedId).focus();
   }
 
@@ -920,27 +980,39 @@
       case 'add-mark': addMark(el.getAttribute('data-kind'), el); break;
       case 'recover': recover(el.getAttribute('data-key')); break;
       case 'reset':
-        resetSession(); document.body.classList.remove('hc', 'rm'); document.documentElement.style.fontSize = '';
+        resetSession();
         if (location.hash === href(V.first)) render(true); else go(V.first);
         announce('Session reset.');
         break;
-      case 'shoot': simulateScreenshot($('#mod-shot').value); break;
+      case 'shoot': simulateScreenshot($('#mod-shot').value); moderatorDone(null, e); break;
+      case 'skip': e.preventDefault(); $('#main').focus(); break;
+      case 'journey': S.postRaid = el.getAttribute('data-journey') === 'J6'; break;
       case 'apply-state': {
         var sel = $('#mod-state'); S.stateBy[sel.getAttribute('data-key')] = sel.value; render(false);
-        $('#mod-apply-state').focus();
+        moderatorDone($('#mod-apply-state'), e);
         var cell = C.states[sel.getAttribute('data-key')][sel.value];
         announce(cell ? cell[2] : 'Back to normal.');
         break;
       }
       case 'desktop-race':
-        S.tablet.desktopRev += 1; S.tablet.desktopView = 'Plan · Woods'; S.tablet.raceArmed = S.tablet.mode === 'control';
+        // History, not Plan: in A the participant is about to tap Plan, so switching the desktop there
+        // would make J5 step 2 a different puzzle in each variant.
+        S.tablet.desktopRev += 1; S.tablet.desktopView = V.historyLabel + ' · Woods'; S.tablet.raceArmed = S.tablet.mode === 'control';
         if (S.tablet.mode !== 'control') { S.tablet.tabletView = S.tablet.mode === 'follow' ? S.tablet.desktopView : S.tablet.tabletView; S.tablet.lastAck = 'Rev ' + S.tablet.desktopRev + ' changed at desktop'; }
-        render(false); $('#mod-desk').focus();
-        announce(S.tablet.mode === 'follow' ? 'Desktop changed to Plan, Woods. Tablet follows.' : 'Desktop changed to Plan, Woods.');
+        render(false); moderatorDone($('#mod-desk'), e);
+        announce('Desktop changed to ' + V.historyLabel + ', Woods.' + (S.tablet.mode === 'follow' ? ' Tablet follows.' : ''));
         break;
       case 'close-intel': pendingFocus = S.intelOrigin ? S.intelOrigin.focus : null; break;
       default: break;
     }
+  }
+
+  // A moderator clicking the panel must not take the participant's place. Pointer clicks return focus
+  // to where the participant was; a keyboard moderator keeps focus on the control they used.
+  var participantFocus = null;
+  function moderatorDone(control, e) {
+    if (e && e.detail > 0 && participantFocus) { restoreFocus(participantFocus); return; }
+    if (control) control.focus();
   }
 
   function focusAction(action, extra) {
@@ -959,7 +1031,7 @@
     }
     render(false);
     var h1 = $('#main h1'); if (h1) h1.focus();
-    announce('Recovered. Showing normal ' + key + ' state.');
+    announce('Recovered. Showing the normal state.');
   }
 
   function chooseProfile(opener) {
@@ -984,7 +1056,8 @@
       returnFocus: opener,
       body: '<p>The screenshot region was read as Military cable with confidence 0.58.</p><fieldset><legend>It is</legend><ul class="radio-list">' +
         ['Military cable', 'Power cord', 'Something else', 'Not an item'].map(function (o, k) {
-          return '<li><label><input type="radio" name="fix" value="' + o + '"' + (k === 1 ? ' checked' : '') + '> ' + o + '</label></li>';
+          // The current reading is selected, never the answer J2 and J6 score.
+          return '<li><label><input type="radio" name="fix" value="' + o + '"' + (k === 0 ? ' checked' : '') + '> ' + o + '</label></li>';
         }).join('') + '</ul></fieldset><p class="note">Saved as your correction, with the time. You can undo it.</p>',
       actions: [{ label: 'Cancel', value: 'cancel' }, { label: 'Save correction', value: 'save', primary: true }],
       onClose: function (value, data) {
@@ -1061,7 +1134,7 @@
     else if (a === 'feedback') announce('Recorded: ' + el.value + '.');
     else if (a === 'toggle-hc') { document.body.classList.toggle('hc', el.checked); }
     else if (a === 'toggle-rm') { document.body.classList.toggle('rm', el.checked); }
-    else if (a === 'toggle-keys') { S.shortcuts = el.checked; }
+    else if (a === 'toggle-keys') { shortcutsOn = el.checked; }
     else if (a === 'toggle-failsave') { S.failNextSave = el.checked; }
     else if (a === 'text-size') { document.documentElement.style.fontSize = el.value === '100' ? '' : el.value + '%'; }
   }
@@ -1083,7 +1156,7 @@
   }
 
   function onKey(e) {
-    if (!S.shortcuts || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+    if (!shortcutsOn || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
     if (e.key === 'C' || e.key === 'c') {
       if ($('#dialog').open) return;
       e.preventDefault();
@@ -1108,7 +1181,14 @@
   document.addEventListener('change', onChange);
   document.addEventListener('submit', onSubmit);
   document.addEventListener('keydown', onKey);
-  window.addEventListener('hashchange', function () { render(true); });
+  document.addEventListener('focusin', function (e) {
+    if (!e.target.closest('.moderator, dialog')) participantFocus = focusSignature(e.target) || participantFocus;
+  });
+  window.addEventListener('hashchange', function () {
+    // Only "#/..." addresses are pages. Anything else (a fragment link) must not route to Setup.
+    if (location.hash && !/^#\//.test(location.hash)) return;
+    render(true);
+  });
   if (!location.hash) history.replaceState(null, '', href(V.first));
   render(false);
 })();

@@ -1,6 +1,7 @@
 # Screener response
 
-> Blank template. Fill a copy in the private study folder only.
+> Blank template. Fill a copy in the private study folder only. Give the participant the screener
+> notice in [../participant-screening.md](../participant-screening.md) before the first question.
 
 | Field | Answer |
 | --- | --- |

@@ -1,8 +1,8 @@
 # Accessibility flows
 
 > **Status: not yet run.** No participant has used these flows. The only checks so far are automated
-> checks of the storyboard files themselves (listed at the end), which prove the storyboards are
-> usable enough to test with, and nothing about the native application.
+> checks of the storyboard files themselves (listed at the end), which show the storyboards are
+> technically ready for a pilot, and nothing about the native application.
 
 These flows are the #265 "annotated keyboard, screen-reader, touch, narrow-window, high-contrast, and
 high-text-scale flows". Each is written as the expected sequence, so a moderator or participant can
@@ -12,7 +12,7 @@ by participants who use the technology or setting in daily life ([participant-sc
 **What the storyboards can and cannot show.** They are HTML. Keyboard order, focus visibility,
 reflow, contrast, touch target size and motion are genuinely testable in them. Screen-reader
 behaviour is only indicative: NVDA, JAWS or VoiceOver in a browser reads ARIA roles, while the
-native companion will expose UI Automation to Narrator and NVDA through Avalonia. Every "SR" line
+native companion is expected to expose UI Automation (#266 and #279 verify) to Narrator and NVDA through Avalonia. Every "SR" line
 below is a vocabulary and sequencing expectation for #266 to implement natively, not a claim that
 the native app will behave this way.
 
@@ -26,10 +26,10 @@ the native app will behave this way.
 | Current location | Rail or hub link for the current destination has `aria-current="page"` and a visible non-colour marker (arrow and border). |
 | Status | One polite status region for background changes and confirmations; one assertive region only for refusals, failures of the player's own action, and conflicts. |
 | Focus | Page change: focus to the h1. Dialog open: focus to the dialog heading. Dialog close: focus back to the control that opened it, or to the h1 if that control no longer exists. Re-render: focus kept on the same control. Background events: focus never moves. |
-| Shortcuts | Alt+Shift+C opens Capture. It can be switched off (WCAG 2.1.4). No single-character shortcuts. |
+| Shortcuts | Alt+Shift+C opens Capture inside the companion window; it is not a system-wide hotkey. It can be switched off, and the native build should let it be remapped because Alt+Shift switches input language on Windows. There are no single-character shortcuts, so WCAG 2.1.4 is met. |
 | Colour | No state is conveyed by colour alone: decisions are words (TAKE, SWAP, LEAVE, REVIEW) with distinct border styles; statuses have a symbol and a word; traffic zones have a hatch density and a text level. |
-| Targets | At least 44 by 44 CSS px for every control, 48 px high for tablet mode and mark buttons. |
-| Motion | No motion carries information. With reduced motion, stage progress still updates but without transitions, and faster. |
+| Targets | Desktop controls at least 24 by 24 CSS px (WCAG 2.5.8, AA); tablet controls at least 44 by 44 CSS px (2.5.5), 48 px high for tablet mode and mark buttons. |
+| Motion | No motion carries information. With reduced motion, stage progress still updates without transitions; waits keep their timing, so the "still being written" step is not shortened. |
 
 Native translation notes for #266: h1 and landmarks map to UIA `LandmarkType` and heading levels;
 `aria-current` to selection state on the navigation item; polite and assertive regions to UIA
@@ -62,7 +62,7 @@ dialog title with `AutomationProperties.Name` on the window; hidden context text
 | 1 | *(moderator injects a disagreement)* | Unchanged | Header shows "1 capture needs a decision" and a Decide button; focus did not move |
 | 2 | Shift+Tab or Tab to Decide, Enter | Dialog heading | Title names detected and armed context |
 | 3 | Escape | Decide | Capture still pending |
-| 4 | Enter on Decide, Tab to "Skip this screenshot", Enter | The page heading or the next control that still exists | Polite: "Capture N skipped. Nothing changed." |
+| 4 | Enter on Decide, Tab to "Skip this screenshot", Enter | Decide, if another decision remains; otherwise the page h1 | Polite: "Capture N skipped. Nothing changed." |
 
 **Pass:** Enter on the heading does nothing; Escape never discards; focus never lands on the page body.
 
@@ -128,7 +128,7 @@ Either is a vocabulary finding for #266 and #274, not a storyboard defect.
 
 | # | Event or action | Expected speech |
 | --- | --- | --- |
-| 1 | Desktop changes view (moderator) | Polite only: "Desktop changed to Plan, Woods." Focus does not move and no dialog opens until the player acts |
+| 1 | Desktop changes view (moderator) | Polite only: "Desktop changed to Debrief, Woods." (B: History) Focus does not move and no dialog opens until the player acts |
 | 2 | Activate Prepare or Plan | Assertive: "Change not applied: desktop changed first." Dialog "Desktop changed first" with its description |
 | 3 | "Show Prepare on desktop" | Polite: "Desktop now shows Prepare. Confirmed at rev N." |
 
@@ -235,9 +235,15 @@ Run during any journey; the moderator notes every place focus went somewhere une
 
 ## Storyboard self-checks already run
 
-These were run once against the committed storyboard files with a headless browser, with network
-access observed rather than assumed. They are **not participant evidence**, and they say nothing
-about the native application. They are listed so a reviewer can repeat them.
+These were run once, against the storyboard files at commit 7cca6e8, with a headless browser, with
+network access observed rather than assumed. They are **not participant evidence**, and they say
+nothing about the native application. The check script was not committed, so they are not yet
+reproducible from the repository.
+
+The audit revision then changed the storyboard code (skip link, Debrief provenance, variant parity,
+focus restoration, degraded states, dialog defaults). It was re-checked only by loading every
+route of both variants in headless Chromium: each rendered its page heading with no script error.
+**The checks below were not re-run against the audit revision** and must be re-run before the pilot.
 
 - Both variants load from `file://` and make **no request other than `file://`**, before and after
   every flow below.
@@ -256,4 +262,6 @@ about the native application. They are listed so a reviewer can repeat them.
   Retry saves it.
 - No horizontal page scroll outside table regions at 320 CSS px with normal text, and at 768 and
   1280 px with 200% text, on nine routes per variant.
-- Every tablet-preview control is at least 44 by 44 CSS px at 1024 px wide.
+- Every tablet-preview control is at least 44 by 44 CSS px at 1024 px wide. (At 7cca6e8 the "Leave
+  tablet preview" link and the header setup links were inline text links, so this held for buttons
+  only; the audit revision made "Leave tablet preview" a button, and the header links still are not.)

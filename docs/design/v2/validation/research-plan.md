@@ -37,9 +37,9 @@ Each hypothesis has an ID used in [../decision-log.md](../decision-log.md) and
 
 | ID | Hypothesis | Main evidence |
 | --- | --- | --- |
-| H-01 | Players place tasks in Raid, Intel, Plan, Team, Debrief and Setup & Admin the way #256 intends. | Findability first clicks, both variants |
+| H-01 | Players place tasks in Raid, Intel, Plan, Team, Debrief and Setup & Admin the way #256 intends. | Findability first clicks in Variant A, which carries the #256 grouping. Variant B's results are reported as the alternative grouping, not as evidence for H-01 |
 | H-02 | One navigation model (A rail or B hub) produces fewer wrong first clicks and fewer assisted completions across the six journeys. | Journeys J1 to J6, findability tasks |
-| H-03 | A distinct Home (B) is used for first launch and "where was I"; A's labelled Setup & Admin as the first-launch landing is not mistaken for a settings dump. | J1, findability F-01 and F-11 |
+| H-03 | A distinct Home (B) is used for first launch and "where was I"; A's labelled Setup & Admin as the first-launch landing is not mistaken for a settings dump. | J1, which starts at each variant's own first-launch landing. F-01 and F-11 start from Raid, so they are descriptive only and are not evidence for the landing |
 | H-04 | A Capture action in the header on every page is found from any workspace without prompting. | J2, J3, findability F-05 |
 | H-05 | Intel opened beside the current page, at its own address (B), keeps context better than switching to an Intel workspace (A), without hiding Intel from people who start from an item. | J2 details step, F-02, F-12 |
 | H-06 | Stash scan is found under Intel (A) or under Prepare (B). | J3 start, F-06 |
@@ -50,9 +50,9 @@ Each hypothesis has an ID used in [../decision-log.md](../decision-log.md) and
 | H-11 | Follow desktop, Control desktop and Independent view, the navigation-owner line, and the conflict dialog are understood. | J5 |
 | H-12 | The paired tablet is understood as the player's own device, not a squad member. | J5 probe |
 | H-13 | The mismatch dialog is resolved without analysing the wrong thing, and participants understand nothing changed until they chose. | J2 injected mismatch, J3 injected cases |
-| H-14 | "The decoded image is discarded; the screenshot file stays in your EFT folder" is understood as written. | J1 privacy probe, J2 probe |
-| H-15 | A counted status ("1 setup item needs action") is trusted more accurately than a single "Ready" pill. | J1 probe, render-audit comparison |
-| H-16 | A finished capture that announces itself and offers "Open result" is found faster and disrupts less than one that navigates by itself. | J2, J3 |
+| H-14 | The storyboard's privacy line, "Capture analysis: the decoded image is discarded after analysis. The screenshot file stays in your EFT folder.", is understood as written. | J1 privacy probe, J2 probe |
+| H-15 | A counted status ("1 setup item needs action") is read correctly: participants can say what still needs action and do not read the page as fully ready. The storyboards have no single "Ready" pill, so this does not compare the two; the concept renders' pill is an expert-review issue (render-audit.md), not participant evidence. | J1 step 1 and its probe, F-01 |
+| H-16 | A finished capture that announces itself and offers "Open result" is noticed and opened without prompting, and participants keep their place. The storyboards have no self-navigating condition, so this does not compare the two. | J2, J3 |
 | H-17 | Observed, Inferred, Manual and Estimated labels in Debrief are understood and trusted appropriately. | J6 probes |
 | H-18 | The List alternative to every map is discoverable and enough to choose a route. | J4, accessibility sessions |
 
@@ -69,9 +69,20 @@ display settings; the storyboard folder is sent to them as files, because it nee
   their primary variant.
 - **Findability tasks on both variants.** The twelve findability tasks in
   [navigation-variants.md](navigation-variants.md) are split into two matched sets. Each
-  participant does set 1 on one variant and set 2 on the other; which set goes with which variant
-  alternates. This shows each variant every task without asking anyone to find the same thing
-  twice.
+  participant does set 1 on one variant and set 2 on the other. Which set goes on Variant A follows
+  the table below, so primary variant and findability set are crossed rather than tied together.
+  This shows each variant every task without asking anyone to find the same thing twice.
+  | Participant | Primary variant | Set on A | Set on B |
+  | --- | --- | --- | --- |
+  | P01 | A | 1 | 2 |
+  | P02 | B | 1 | 2 |
+  | P03 | A | 2 | 1 |
+  | P04 | B | 2 | 1 |
+  | P05 | A | 1 | 2 |
+  | P06 onward | Repeat from P02 | | |
+
+  A participant who withdraws or does not count keeps their row; the next counted recruit takes the
+  next row, and any scheduling adjustment is recorded (participant-screening.md).
 - **Journey order.** J1 first launch always comes first and J6 Debrief always last, because the
   story needs them there. J2 to J5 rotate by participant (P01 2-3-4-5, P02 3-4-5-2, P03 4-5-2-3,
   P04 5-2-3-4, P05 2-3-4-5).
@@ -81,12 +92,12 @@ display settings; the storyboard folder is sent to them as files, because it nee
 - **Comparison.** At the end, the moderator shows the other variant's path for two journeys the
   participant struggled with most, or J2 and J4 if none, and asks for a preference with reasons.
 
-### Session outline (75 to 90 minutes)
+### Session outline (85 to 95 minutes)
 
 | Part | Minutes | Content |
 | --- | --- | --- |
 | 0 | 5 | Consent ([consent-and-data-handling.md](consent-and-data-handling.md)), recording choice, background questions |
-| 1 | 15 | Findability: set 1 on one variant, set 2 on the other |
+| 1 | 20 | Findability: set 1 on one variant, set 2 on the other (twelve tasks; most take well under the 3-minute cap) |
 | 2 | 45 to 55 | Journeys J1 to J6 in the primary variant, each followed by a single ease question and probes |
 | 3 | 10 | Comparison walkthrough and preference |
 | 4 | 5 | Wrap-up, anything the participant wants to add, withdrawal reminder |
@@ -151,8 +162,10 @@ evidence for each:
 2. Each counted participant attempted J1 to J6, or the report records which journey was not
    attempted and why. A missing attempt is never filled in or estimated.
 3. Each variant was the primary variant for at least two counted participants.
-4. Accessibility flows were exercised by at least one participant who uses the relevant assistive
-   technology or setting in daily life, not by a sighted mouse user simulating it.
+4. Accessibility flows were exercised by at least one counted participant who uses, in daily life,
+   at least one of the technologies or settings in [accessibility-flows.md](accessibility-flows.md),
+   not by a sighted mouse user simulating it. Flows with no such participant are listed in the
+   report as not exercised.
 5. Findings are coded and rated, and every S0 and S1 finding has an owner issue.
 6. Every hypothesis in section 3 is accepted, rejected or deferred in
    [../decision-log.md](../decision-log.md) with the evidence that moved it.
@@ -161,4 +174,6 @@ evidence for each:
 
 If internal recruitment cannot meet a coverage requirement, the gate stays open. The decision
 owner may record a deliberate deferral in the decision log, naming the gap and its risk; a sighted
-simulation is not a substitute for it.
+simulation is not a substitute for it. A recorded deferral documents the gap honestly. It does not
+by itself meet the gate: that needs the #256 decision owner to amend #265's acceptance criteria
+on the issue.

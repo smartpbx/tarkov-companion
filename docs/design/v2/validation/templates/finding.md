@@ -5,7 +5,7 @@
 
 | Field | Value |
 | --- | --- |
-| ID | F-### |
+| ID | FND-### (not F-##, which names findability tasks) |
 | Title (what happened, not the fix) | |
 | Codes | |
 | Variant(s) | A / B / both |

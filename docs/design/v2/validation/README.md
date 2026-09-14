@@ -23,7 +23,7 @@ and changes none of the #264 contracts.
 | [navigation-variants.md](navigation-variants.md) | Variant A (workspace rail) and Variant B (workflow hub), and the findability tasks both get |
 | [journeys.md](journeys.md) | The six moderated journeys, with scripts, expected paths, and comprehension probes |
 | [accessibility-flows.md](accessibility-flows.md) | Annotated keyboard, screen-reader, touch, reflow, contrast, text-size, motion, map/list and focus flows |
-| [state-matrix.md](state-matrix.md) | Eight states for each of the six workspaces: trigger, remainder, provenance, recovery, focus, sync |
+| [state-matrix.md](state-matrix.md) | Eight states for each of the six destinations (five workspaces plus Setup & Admin): trigger, remainder, provenance, recovery, focus, sync |
 | [capture-intent-mismatch.md](capture-intent-mismatch.md) | Deterministic flow when armed intent and detected context disagree, plus still-writing, duplicate, unknown, and device-race cases |
 | [render-audit.md](render-audit.md) | Audit of the eight concept renders in `docs/design/v2/` |
 | [revision-brief.md](revision-brief.md) | What the next concept pass must change or add |
@@ -38,8 +38,10 @@ and changes none of the #264 contracts.
 The storyboards in [prototype/](prototype/) test **vocabulary and flow**. They have real landmarks,
 headings, accessible names, focus order, native dialogs, live regions, keyboard operation, touch
 sized targets, reflow, forced-colours support, reduced motion, and a list alternative for every map.
-That makes them usable by keyboard, screen-reader, magnifier and touch participants, so those people
-can take part in the navigation study rather than being excluded from it.
+They are built so keyboard, screen-reader, magnifier and touch participants can take part in the
+navigation study rather than being excluded from it. That has been checked by automated browser
+checks only, not yet with assistive-technology users; the pilot and each participant's pre-session
+setup check must confirm it.
 
 They **do not** prove:
 
@@ -65,9 +67,12 @@ live detection.
 
 ## When this package is done
 
-#265 is complete only when [validation-report.md](validation-report.md) records real sessions that
-meet the coverage in [participant-screening.md](participant-screening.md), findings are rated with
-[severity-rubric.md](severity-rubric.md), [../decision-log.md](../decision-log.md) moves each open
-hypothesis to accepted, rejected or deferred with evidence, and
-[acceptance-fixture-map.md](acceptance-fixture-map.md) is updated from those decisions. Until then
+#265 is complete only when every item in the completion gate in
+[research-plan.md](research-plan.md) section 8 is met, with the evidence in
+[validation-report.md](validation-report.md). In short: real sessions that meet the coverage in
+[participant-screening.md](participant-screening.md), every journey attempted or its gap recorded,
+each variant primary for at least two people, accessibility flows exercised by daily users of the
+technology, findings rated with [severity-rubric.md](severity-rubric.md) and every S0 and S1 owned,
+each hypothesis moved in [../decision-log.md](../decision-log.md) with evidence, and
+[acceptance-fixture-map.md](acceptance-fixture-map.md) revised from those decisions. Until then
 this pull request is groundwork, not a result.

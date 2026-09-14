@@ -7,7 +7,7 @@
 | Pseudonymous ID | |
 | Session date | |
 | Consent script version (commit) | |
-| Read by (moderator role, not name, in the repository) | |
+| Read by (role) | |
 
 | Question | Answer | Time |
 | --- | --- | --- |
@@ -16,7 +16,7 @@
 | Recording choice | Screen and audio / Audio only / Notes only | |
 | Participant agrees to the recording choice | Yes / No | |
 | Participant agrees to their assistive technology or setting being named in the report | Yes / No / Not applicable | |
-| Participant agrees to verbatim quotes in the public report | Yes, any / Ask each time / No | |
+| Participant agrees to verbatim quotes in the public report | Ask each time / No | |
 
 ## Quote approvals
 

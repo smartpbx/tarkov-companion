@@ -10,8 +10,7 @@ shows a difference caused by anything else, that is a storyboard defect: log it 
 ## What is identical in both
 
 - Every sample name, number, time, confidence value and model figure.
-- The header on every page: profile context, local time, raid state and elapsed time as two
-  separate labels, a counted setup status link, and a **Capture** button that shows what is armed.
+- The header on every page: profile context, local time as one label, raid state with elapsed time as another, a counted setup status link, and a **Capture** button that shows what is armed.
 - The Capture dialog, the nine capture intents (#264 `ScanIntent`), the stage progress, and every mismatch, unknown,
   still-writing, duplicate and device-race flow ([capture-intent-mismatch.md](capture-intent-mismatch.md)).
 - Raid, Loot decision, Stash scan, Team, the tablet preview, and the Debrief or History content.
@@ -109,6 +108,8 @@ The moderator panel links to each of these and resets the session.
 
 ## Findability tasks
 
+Known asymmetry: Variant A's Intel page lists recent and planned items with prices before any search, while Variant B shows results only after a header search. Record F-02 first clicks with that in mind.
+
 The same twelve task cards are used in both variants. Each participant does **set 1** on one
 variant and **set 2** on the other (research-plan.md §4). Start every task from the Raid page with
 the session reset. Read the card; do not name a destination.
@@ -120,12 +121,12 @@ Any listed alternative is correct. Record the first click even when the end is c
 
 | ID | Task card | Correct in A | Correct in B | Hypotheses |
 | --- | --- | --- | --- | --- |
-| F-01 | "You have just installed the companion. Check whether everything it needs is working." | Setup & Admin, Get ready; or the header setup link | Home, Get ready; or the header setup link | H-01, H-03, H-15 |
+| F-01 | "You have just installed the companion. Check whether everything it needs is working." | Setup & Admin, Get ready; or the header setup link | Home, Get ready; or the header setup link | H-01, H-15 (starts from Raid, so descriptive only for H-03) |
 | F-03 | "Change which folder the companion watches for screenshots." | Setup & Admin, Screenshot folder, Change folder | Header Setup or Home, Screenshot folder, Change folder | H-01, H-03 |
 | F-05 | "Tell the companion that your next screenshot is for a loot decision." | Header Capture, Loot decision, Arm | Same | H-04 |
 | F-07 | "See whether your teammate Moth is up to date." | Team, Members | Same | H-01 |
 | F-09 | "Check whether you have everything for your next Customs run." | Plan, Requirements | Prepare, Requirements; or Home, Continue, plan link | H-01, H-07 |
-| F-11 | "You restarted the companion. Pick up where you left off." | Raid; or Plan; or Debrief (A has no Home: record which one, and what the participant expected to see) | Home, Continue | H-03 |
+| F-11 | "You restarted the companion. Pick up where you left off." | Raid; or Plan; or Debrief (A has no Home: record which one, and what the participant expected to see) | Home, Continue | H-03, descriptive only: every A destination is correct, so F-11 cannot move a placement rule (metrics-and-analysis.md) |
 
 ### Set 2
 

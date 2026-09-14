@@ -13,7 +13,7 @@ Record these for every findability task and every journey step marked **Measure*
 
 | Measure | Definition | Values |
 | --- | --- | --- |
-| **Outcome** | Whether the success criterion in the script was met, and how | `Success` unaided · `Success with difficulty` (recovered from at least one wrong path without help) · `Assisted` (moderator gave any hint) · `Fail` (gave up, wrong end state believed correct, or the time cap passed) · `Not attempted` (skipped, stopped, or not reached) |
+| **Outcome** | Whether the success criterion in the script was met, and how | `Success` unaided · `Success with difficulty` (recovered from at least one wrong path without help) · `Assisted` (moderator gave any hint) · `Fail` (gave up, wrong end state believed correct, or the time cap passed) · `Not attempted` (skipped, stopped, not reached, or `covered by F-12` where journeys.md skips a step for that reason) |
 | **Time on task** | From the moment the participant finishes reading the task card and says "ready" to the moment the success criterion is met, they say they are done, or the cap passes | Seconds, or blank. Cap: 3 minutes for findability, 6 minutes per journey step unless the script says otherwise |
 | **First click** | The first navigation control activated (link, button, tab, rail item, search, keyboard shortcut) | The control's label, and `correct` or `wrong` against the expected path for that variant |
 | **Wrong paths** | Each time the participant enters a destination not on the expected path and has to come back | Count, and the destinations |
@@ -79,12 +79,22 @@ With two or three primary participants per variant, a difference of one person i
 comparison uses **pre-registered decision rules**, written here before any session so that results
 cannot shape the rules afterwards.
 
-A variant **loses a placement question** (for example, where Stash scan lives) when, for the
-relevant findability task or journey step:
+With five counted participants a task or step gets three attempts in one variant and two in the
+other, so raw counts would penalise the variant that happened to be tried more. Each rule below
+therefore compares **equal numbers of attempts**: when the counts differ, only the earliest
+attempts by participant order in the larger group are compared, as many as the smaller group has.
+The remaining attempts are reported alongside, but do not move a rule.
 
-- at least two more participants had a wrong first click or wrong path in it than in the other
-  variant, **and**
+A variant **loses a placement question** (for example, where Stash scan lives) when, for the
+relevant findability task or journey step, comparing equal numbers of attempts:
+
+- at least two more of its attempts had a wrong first click or wrong path than the other
+  variant's, **and**
 - at least one of those produced an S1 or S2 finding.
+
+A task whose card accepts every destination in one variant cannot produce a wrong first click
+there, so it cannot move a placement rule. F-11 is such a task (every A destination is correct);
+it is reported descriptively only.
 
 A variant is **disqualified for a journey** when it has any S0 finding, or an S1 finding seen by two
 or more participants, that the other variant does not have.
@@ -104,6 +114,6 @@ Wording patterns only; the angle-bracket values are placeholders, not results.
 | --- | --- |
 | "<n> of <N> participants opened Intel first when asked to find stash scan in Variant A" | "<x>% of users look in Intel" |
 | "Median time for the <n> unaided successes was <t> s" (only with every one of those times listed) | An average that leaves out a recorded unaided success, or includes an assisted one |
-| "No participant read the traffic label as live" (with each probe answer quoted or summarised) | "Users understand the traffic is modelled" |
+| "<n> of <N> participants read the traffic label as live" (with each probe answer quoted or summarised) | "Users understand the traffic is modelled" |
 | "Variant B had <k> fewer wrong paths in J2; below the pre-registered threshold" | "Variant B is better" |
 | "Not tested with a screen-reader user; recruitment gap recorded" | "Accessible" |

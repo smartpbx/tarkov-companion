@@ -13,6 +13,8 @@ window.STORYBOARD_CONTENT = {
   sampleNotice:
     'Sample data. Names, prices, sizes, counts, times and model figures are illustrative.',
   localTime: '18:42',
+  // J6 starts after the raid, so its header must not show a clock earlier than the raid's end.
+  postRaid: { localTime: '18:56', state: 'Not in raid · last raid ended 18:52:30 (game log)' },
   profile: {
     none: 'No profile chosen',
     chosen: 'Sample profile · PvP · wipe started 2026-06-17'
@@ -68,7 +70,7 @@ window.STORYBOARD_CONTENT = {
       source: 'Sample historical dataset (storyboard placeholder)',
       dataThrough: '2026-09-12',
       generated: '2026-09-13 04:00 UTC',
-      coverage: '1,284 raids (sample); 9 of 12 zones covered',
+      coverage: '1,284 raids (sample); 6 of 9 zones covered',
       confidence: 'Medium (sample calibration 0.72)',
       version: 'traffic-sample-v0',
       why: 'Shown because the Traffic layer is on for Customs, PMC, raid minutes 10 to 20.'
@@ -109,6 +111,8 @@ window.STORYBOARD_CONTENT = {
    *   TAKE fuel conditioner (1x2) + Virtex (1x1) + bolts (1x1) = 4 squares -> 0 free.
    *   SWAP electric drill (2x1) into the Wires slot (2x1): 58,000 - 24,000 = +34,000 net est.
    *   LEAVE Crickent; REVIEW military cable (low-confidence match). 3+1+1+1 = 6 of 6 items.
+   *   Carried after the moves: 6 - Wires + 4 = 9 items. Priced: fuel conditioner 110,000 + Virtex 72,000
+   *   + bolts 18,000 + electric drill 58,000 = 258,000 flea net est. (Debrief timeline).
    */
   loot: {
     detected: 'Loot container and carried backpack',
@@ -123,7 +127,7 @@ window.STORYBOARD_CONTENT = {
       { name: 'Water bottle', size: '1×2', squares: 2, note: 'Protected: food and water' },
       { name: '5.45×39 BP rounds', size: '1×1', squares: 1, note: 'Protected: loadout ammo' },
       { name: 'Spare headset', size: '2×2', squares: 4, note: 'Protected: pinned by you' },
-      { name: 'Gas analyzer', size: '1×2', squares: 2, note: 'Current quest (sample)' },
+      { name: 'Gas analyzer', size: '1×2', squares: 2, note: 'Protected: current quest (sample)' },
       { name: 'Wires', size: '2×1', squares: 2, note: 'Lowest unprotected: ₽12,000 per square net est.' }
     ],
     decisions: [
@@ -252,7 +256,7 @@ window.STORYBOARD_CONTENT = {
       { time: '18:30:12', text: 'Raid started: Customs, PMC', kind: 'Observed', source: 'Game log' },
       { time: '18:36:40', text: 'Position near Stronghold', kind: 'Observed', source: 'Your screenshot filename' },
       { time: '18:41:07', text: 'Loot decision: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1', kind: 'Estimated', source: 'Capture analysis' },
-      { time: '18:41:07', text: 'Estimated carried value ₽412,000 flea net est. (11 of 12 carried items priced)', kind: 'Estimated', source: 'Capture analysis; not extracted value' },
+      { time: '18:41:07', text: 'Estimated value taken this raid ₽258,000 flea net est. (4 of 9 carried items priced after the moves)', kind: 'Estimated', source: 'Capture analysis; not extracted value' },
       { time: '18:52:30', text: 'Raid ended', kind: 'Observed', source: 'Game log' },
       { time: '18:52:30', text: 'Extracted at ZB-1011', kind: 'Inferred', source: 'Last position and raid end; not confirmed by the game' },
       { time: '18:55:00', text: 'Outcome: Survived', kind: 'Manual', source: 'Entered by you' }
@@ -273,12 +277,12 @@ window.STORYBOARD_CONTENT = {
       loading: ['Extracts and objectives are listed while map tiles load.', 'Use list view', 'Loading Customs map.'],
       offline: ['Cached tiles, cached catalog and last-known-good model traffic-sample-v0 still work. Log and screenshot reading are local.', 'Retry now', 'Offline. Using cached data from 2026-09-13.'],
       stale: ['Position is 6 min old. Everything else is shown with its age.', 'How to update position', 'Position is stale.'],
-      partial: ['Traffic covers 9 of 12 zones. Extract list not photographed, so extracts are catalog-possible only.', 'Choose extract manually', 'Some layers are incomplete.'],
+      partial: ['Traffic covers 6 of 9 zones. Extract list not photographed, so extracts are catalog-possible only.', 'Choose extract manually', 'Some layers are incomplete.'],
       denied: ['Screenshot folder cannot be read. Manual map, extract and raid state still work.', 'Choose folder in Setup', 'Screenshot folder access denied.'],
       failed: ['Map drawing failed. The list view still has extracts, objectives and routes.', 'Retry map', 'Map failed to draw. List view available.']
     },
     intel: {
-      empty: ['No search yet. Recent, pinned and planned items are listed.', 'Search items', 'Intel: nothing searched yet.'],
+      empty: ['No search yet. Recent, pinned and planned items are listed.', 'Search items', 'Nothing searched yet.'],
       loading: ['Cached facts show now; prices refresh in the background.', 'Cancel refresh', 'Refreshing prices.'],
       offline: ['Cached catalog and prices from 2026-09-13 20:05. Prices are labelled with their age.', 'Retry now', 'Offline. Prices are from 2026-09-13.'],
       stale: ['Prices older than 1 hour are labelled stale and not used for SWAP advice.', 'Refresh prices', 'Prices are stale.'],
@@ -287,9 +291,9 @@ window.STORYBOARD_CONTENT = {
       failed: ['Search index failed. Browse by category still works.', 'Rebuild search', 'Search failed. Browse still works.']
     },
     plan: {
-      empty: ['No bundle yet. Three suggested bundles from your quests are ready to open.', 'Open a suggested bundle', 'Plan: no bundle yet.'],
+      empty: ['No bundle yet. Three suggested bundles from your quests are ready to open.', 'Open a suggested bundle', 'No bundle yet.'],
       loading: ['Objectives list now; route estimate is calculating.', 'Skip route estimate', 'Calculating route.'],
-      offline: ['Quests, hideout and last-known-good route model still work from cache.', 'Retry now', 'Offline. Plan uses cached data.'],
+      offline: ['Quests, hideout and last-known-good route model still work from cache.', 'Retry now', 'Offline. The plan uses cached data.'],
       stale: ['Profile progress was last imported 3 days ago and is labelled with that date.', 'Update progress', 'Quest progress is stale.'],
       partial: ['Food and water not checked; 2 of 3 requirements confirmed.', 'Check requirement', 'One requirement unknown.'],
       denied: ['Sharing to team needs the Member role. The plan stays private and editable.', 'Ask the owner', 'Sharing not allowed for your role.'],
@@ -305,7 +309,7 @@ window.STORYBOARD_CONTENT = {
       failed: ['Invite could not be created. Existing team and devices unaffected.', 'Try again', 'Invite failed.']
     },
     debrief: {
-      empty: ['No raids recorded yet. Import or finish a raid to see it here.', 'How raids are recorded', 'Debrief: no raids yet.'],
+      empty: ['No raids recorded yet. Import or finish a raid to see it here.', 'How raids are recorded', 'No raids recorded yet.'],
       loading: ['Raid list shows now; timeline details load when opened.', 'Cancel', 'Loading raid history.'],
       offline: ['All history is local and works offline. Only export to a team is unavailable.', 'Retry now', 'Offline. History is local.'],
       stale: ['This raid used model traffic-sample-v0; a newer model exists and is not applied retroactively.', 'Compare with newer model', 'A newer model exists.'],

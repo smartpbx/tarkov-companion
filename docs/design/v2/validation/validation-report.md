@@ -4,8 +4,8 @@
 >
 > No participant session has taken place. Every table below is intentionally empty. Do not fill a
 > cell with an estimate, an example, a persona, or a result from another study. Replace this banner
-> only when the first counted session is recorded, and then with "Status: in progress, N of 5
-> counted sessions".
+> only when the first counted session is recorded, and then with "Status: in progress, N counted
+> sessions of at least 5".
 
 | Field | Value |
 | --- | --- |
@@ -40,11 +40,28 @@ Record any departure from [research-plan.md](research-plan.md), with the reason.
 
 ## 3. Participants
 
-Pseudonymous IDs only. See [consent-and-data-handling.md](consent-and-data-handling.md).
+Pseudonymous IDs only. See [consent-and-data-handling.md](consent-and-data-handling.md). In a small
+internal group, a row combining expertise, squad, devices and assistive technology can identify a
+person, so per-participant rows carry only what the analysis needs and coverage is reported as
+counts.
 
-| ID | Counted | Expert | Regular/returning | Accessibility-relevant (technology or setting, if shared) | Squad | Second screen | Seen v2 concepts | Primary variant | Findability set on A | Device | Session length |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| *(none yet)* | | | | | | | | | | | |
+| ID | Counted | Primary variant | Findability set on A |
+| --- | --- | --- | --- |
+| *(none yet)* | | | |
+
+| Coverage (from participant-screening.md) | Counted participants meeting it |
+| --- | --- |
+| Expert | — |
+| Regular or returning | — |
+| Accessibility-relevant | — |
+| Screen-reader user | — |
+| Squad player | — |
+| Second-screen user | — |
+| Not seen v2 concepts | — |
+| Helped plan v2 (familiarity flag) | — |
+
+Assistive technology is named only in the assistive-technology table in section 5, and only where
+the consent record allows it.
 
 ## 4. Findability results
 
@@ -58,11 +75,18 @@ One row per task and variant. Counts only. Times listed individually for unaided
 
 ## 5. Journey results
 
-| Journey step | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong paths | Unaided times (s) | Ease (each response) |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| J1.1 | A | — | — | — | — | — | — | — | — | — |
-| J1.1 | B | — | — | — | — | — | — | — | — | — |
-| *(every Measure step in [journeys.md](journeys.md), both variants)* | | | | | | | | | | |
+| Journey step | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong paths | Unaided times (s) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| J1.1 | A | — | — | — | — | — | — | — | — |
+| J1.1 | B | — | — | — | — | — | — | — | — |
+| *(every Measure step in [journeys.md](journeys.md), both variants)* | | | | | | | | | |
+
+Ease is asked once per journey, so it has its own table.
+
+| Journey | Variant | Ease responses (each, 1 to 7) | Skipped |
+| --- | --- | --- | --- |
+| J1 | A | — | — |
+| *(J1 to J6, both variants)* | | | |
 
 ### Assistive-technology sessions
 
@@ -82,7 +106,7 @@ Reported separately and never averaged with the tables above.
 
 Full records use [templates/finding.md](templates/finding.md); this is the register.
 
-| ID | Title | Codes | Screens | Variant | Participants | Final severity | Owner issue | Status |
+| ID (FND-###) | Title | Codes | Screens | Variant | Participants | Final severity | Owner issue | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | *(none yet)* | | | | | | | | |
 
