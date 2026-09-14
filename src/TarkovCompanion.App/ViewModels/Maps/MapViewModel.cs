@@ -1416,7 +1416,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private double _canvasHeight = 620;
     private double _zoomScale = 1;
     private bool _isAutoFit = true;
-    private bool _showsGroupNames = true;
+    private bool _showsGroupNames;
     private int _rotationDegrees;
     private MapVariant? _floorVariant;
     private bool _disposed;
@@ -4542,6 +4542,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// beside the name in the group panel, so on a two-man the names are redundant, and on a
     /// five-man they are the only thing telling one dot from the next. Which of those you are in
     /// is not something the map can work out.
+    ///
+    /// Off unless asked for. Reported after it shipped on, having been predicted when it was
+    /// approved: the colour already answers "which of you is that" for the group sizes people
+    /// actually play, and a name over every dot is ink on the thing the map is for.
     ///
     /// Remembered like the artwork and rotation choices, and against no particular map, because
     /// it is a fact about how somebody reads a map rather than about the map.

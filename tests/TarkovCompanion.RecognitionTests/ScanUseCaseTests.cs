@@ -366,5 +366,22 @@ public sealed class ScanUseCaseTests
             return Task.FromResult(
                 state.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits));
         }
+
+        /// <summary>Counted rather than ignored, so a test can assert what reached the raid.</summary>
+        public int SalesRecorded { get; private set; }
+
+        public int QuestsRecorded { get; private set; }
+
+        public Task RecordSaleAsync(FleaSaleObservation sale, CancellationToken cancellationToken)
+        {
+            SalesRecorded++;
+            return Task.CompletedTask;
+        }
+
+        public Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken)
+        {
+            QuestsRecorded++;
+            return Task.CompletedTask;
+        }
     }
 }

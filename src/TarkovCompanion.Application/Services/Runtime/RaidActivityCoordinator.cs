@@ -1,6 +1,7 @@
 using System.Text.Json;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Runtime;
@@ -47,6 +48,12 @@ public interface IRaidActivityRecorder
         TimeSpan? raidClock = null,
         IReadOnlyList<string>? linesNotMatched = null,
         IReadOnlyList<string>? transits = null);
+
+    /// <summary>Ties a flea sale to the raid it happened during, if one was open.</summary>
+    Task RecordSaleAsync(FleaSaleObservation sale, CancellationToken cancellationToken);
+
+    /// <summary>Ties a quest the game announced to the raid it was announced during.</summary>
+    Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken);
 }
 
 public sealed class RaidActivityCoordinator(
@@ -130,6 +137,52 @@ public sealed class RaidActivityCoordinator(
                 "scan",
                 result.ObservedUtc,
                 JsonSerializer.Serialize(result),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// Records a flea sale against the raid it happened during, if one was open.
+    /// </summary>
+    /// <remarks>
+    /// FleaSaleStateService keeps every sale and says in its own remark that it keeps them for
+    /// the session only, so a sale survived until the application closed and was then gone.
+    /// Nothing ever tied one to a raid.
+    ///
+    /// No open raid means no record, deliberately. Most selling is done in the menu, and
+    /// attaching a menu sale to the last raid would put it in the record of something that had
+    /// already finished.
+    /// </remarks>
+    public Task RecordSaleAsync(FleaSaleObservation sale, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        return raidStateService.Current.RaidId is not { } raidId
+            ? Task.CompletedTask
+            : raidHistoryService.RecordEventAsync(
+                raidId,
+                "sale",
+                sale.ObservedUtc,
+                JsonSerializer.Serialize(sale),
+                cancellationToken);
+    }
+
+    /// <summary>
+    /// Records a quest the game announced against the raid it was announced during.
+    /// </summary>
+    /// <remarks>
+    /// QuestLogProgressService already applies these to recorded progress, which answers "what
+    /// have I done"; this answers "what happened in that raid", and they are different
+    /// questions. The first is a running total and the second is a record.
+    /// </remarks>
+    public Task RecordQuestAsync(QuestStatusObservation quest, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(quest);
+        return raidStateService.Current.RaidId is not { } raidId
+            ? Task.CompletedTask
+            : raidHistoryService.RecordEventAsync(
+                raidId,
+                "quest",
+                quest.ObservedUtc,
+                JsonSerializer.Serialize(quest),
                 cancellationToken);
     }
 
