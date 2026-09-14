@@ -288,6 +288,36 @@ public sealed class DownstreamShapeContractTests
     }
 
     [Fact]
+    public void OriginAndCellClaimsDoNotFormAHostileCartesianAmplifier()
+    {
+        var sharedItem = V2ContractTestData.Complete("grid.item", V2ContractTestData.Item());
+        var cells = Enumerable.Range(0, GridGeometry.MaxCells)
+            .Select(index => new GridCellRecognition(
+                new GridCellAddress(index / GridGeometry.MaxColumns, index % GridGeometry.MaxColumns),
+                sharedItem))
+            .ToArray();
+        var grid = UnreadGrid(cells);
+        var sharedOrigin = new EvidenceCandidate<GridCellAddress?>(
+            "origin", "Origin", new GridCellAddress(0, 0), V2ContractTestData.ScreenshotProvenance());
+        var origins = new EvidencedValue<GridCellAddress?>(
+            "region.origin",
+            null,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
+            V2ContractTestData.ScreenshotProvenance(),
+            candidates: Enumerable.Repeat(sharedOrigin, GridGeometry.MaxCells).ToArray());
+
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var region = new StashCaptureRegion("region-0", "artifact-0", 0, "stash", origins, grid);
+        timer.Stop();
+
+        Assert.Equal(GridGeometry.MaxCells, region.Grid.Cells.Count);
+        Assert.Equal(GridGeometry.MaxCells, region.OriginInContainer.Candidates.Count);
+        Assert.True(
+            timer.Elapsed < TimeSpan.FromSeconds(10),
+            $"Linear placement validation took {timer.Elapsed}; origin and cell claims may be multiplying again.");
+    }
+
+    [Fact]
     public void StashRegionsKeepIdentityOrderMembershipOriginAndCoverage()
     {
         var stash = new StashRecognition(

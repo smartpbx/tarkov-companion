@@ -177,13 +177,21 @@ container has one coverage entry of observed and total cells, at most 16,384 eac
 unscrolled space is reported rather than invented. A nested container path extends its parent's
 path, its parent is covered, and a cell in a region of that parent opened it.
 
+Placement validation is linear in the evidence claims. It derives the furthest possible origin on
+each axis once, then the maximum asserted geometry, cell, and footprint extent on that axis once;
+it does not rescan every cell and span for every origin candidate. Extents are compared with the
+remaining bounded container space before addition, so neither large candidate collections nor
+coordinate arithmetic can amplify or overflow validation.
+
 A flea page keeps each row's own bounds separately from the item icon, the item's condition, and
 every raw OCR line.
 
 An `Auto` request reports the detected context; it does not coerce an uncertain frame into a
-requested shape. A typed result requires a complete detected context of its own kind. A frame
-that cannot be placed returns `UnresolvedContextRecognitionResult`, whose detected context is
-absent and whose candidates, bounds, confidence, provenance, and corrections describe the
+requested shape. Each allowlisted payload type maps to exactly one `RecognizedContext`, and the
+public `RecognitionResultEnvelope<T>` requires that complete context during direct construction
+and deserialization; the named result wrappers are conveniences, not the coherence boundary. A
+frame that cannot be placed carries `UnresolvedContextRecognition`, whose current detected context
+must be absent while its candidates, bounds, confidence, provenance, and corrections describe the
 ambiguity. User or paired-device review appends a correction with its origin, time, and sequence
 instead of replacing OCR evidence.
 
@@ -341,12 +349,14 @@ than by line: the flag pair across ordinary multi-line formatting, and a `SetWin
 `HWNDPARENT` call in the same or an adjacent statement as a quoted literal of the game's window or
 process name, however the handle variable is named and whatever nested calls its arguments
 contain. Build output under `bin` and `obj` is not scanned. Hidden and ignore-matched source is
-scanned: it does not become safety-exempt because of a filename or local ignore rule. Neither
-scanner follows directory symlinks, so a link inside an owned scan root cannot expand the scan
-outside the repository. The line scanner intentionally uses no-follow `rg` when available and
-falls back to recursive no-follow `grep -r` when `rg` is absent, so missing `rg` alone is not a
-failure. A self-test places prohibited content beyond a directory symlink and requires the scan
-universe to stay on the near side. An error from the selected scanner, no available line scanner,
-or an unavailable or failing required `git` or `perl` tool fails the audit instead of reading as
-no match. The source audit is a ratchet, not a proof; semantic architecture tests separately
-assert that v2 protocols have no game-control or live-enemy vocabulary.
+scanned: it does not become safety-exempt because of a filename or local ignore rule. Every file
+and directory under an owned scan root is inspected with `lstat` before file or directory tests;
+any symbolic link fails the audit instead of being followed or silently omitted. The same
+preflight governs both no-follow `rg` and recursive no-follow `grep -r`, and the Perl scanner
+applies the same rule during its own traversal, so their source universes cannot disagree around a
+link. Missing `rg` alone is not a failure because `grep` is the intentional fallback. Self-tests
+require all available line scanners and Perl to reject both a compiled-C# file symlink and a
+directory symlink. An error from the selected scanner, no available line scanner, or an unavailable
+or failing required `git` or `perl` tool fails the audit instead of reading as no match. The source
+audit is a ratchet, not a proof; semantic architecture tests separately assert that v2 protocols
+have no game-control or live-enemy vocabulary.

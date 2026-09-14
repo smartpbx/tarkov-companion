@@ -18,6 +18,74 @@ public enum RecognizedContext
     Flea,
 }
 
+/// <summary>The one wire context each closed recognition payload is allowed to claim.</summary>
+internal static class RecognitionPayloadContexts
+{
+    public static RecognizedContext? Require(Type payloadType)
+    {
+        V2WirePayloads.Require(V2WirePayloads.Recognition, payloadType, "recognition");
+
+        if (payloadType == typeof(RecognizedItem))
+        {
+            return RecognizedContext.Item;
+        }
+
+        if (payloadType == typeof(GridRecognition))
+        {
+            return RecognizedContext.Grid;
+        }
+
+        if (payloadType == typeof(LootRecognition))
+        {
+            return RecognizedContext.Loot;
+        }
+
+        if (payloadType == typeof(StashRecognition))
+        {
+            return RecognizedContext.Stash;
+        }
+
+        if (payloadType == typeof(AmmoRecognition))
+        {
+            return RecognizedContext.Ammo;
+        }
+
+        if (payloadType == typeof(KeyRecognition))
+        {
+            return RecognizedContext.Keys;
+        }
+
+        if (payloadType == typeof(QuestItemRecognition))
+        {
+            return RecognizedContext.QuestItems;
+        }
+
+        if (payloadType == typeof(FleaPageRecognition))
+        {
+            return RecognizedContext.Flea;
+        }
+
+        if (payloadType == typeof(ExtractMapRecognition))
+        {
+            return RecognizedContext.ExtractsAndMap;
+        }
+
+        if (payloadType == typeof(HealthCharacterRecognition))
+        {
+            return RecognizedContext.HealthAndCharacter;
+        }
+
+        if (payloadType == typeof(UnresolvedContextRecognition))
+        {
+            return null;
+        }
+
+        // Require above keeps this unreachable unless the allowlist and its required-context
+        // mapping drift apart during a contract change.
+        throw new InvalidOperationException($"Allowlisted recognition payload {payloadType.Name} has no context mapping.");
+    }
+}
+
 public sealed record RecognitionResultHeader
 {
     public RecognitionResultHeader(
@@ -64,9 +132,27 @@ public sealed record RecognitionResultEnvelope<T>
 {
     public RecognitionResultEnvelope(RecognitionResultHeader header, EvidencedValue<T> result)
     {
-        V2WirePayloads.Require(V2WirePayloads.Recognition, typeof(T), "recognition");
+        var requiredContext = RecognitionPayloadContexts.Require(typeof(T));
         Header = V2ContractGuard.NotNull(header, nameof(header));
         Result = V2ContractGuard.NotNull(result, nameof(result));
+
+        // This is the public wire root, not merely a building block for the convenience wrappers
+        // below. Bind its exact payload type to the context claim here so direct construction and
+        // hostile JSON cannot label one recognized shape as another. Unresolved frames retain
+        // context candidates, but their current context remains absent.
+        var detectedContext = header.DetectedContext;
+        var contextMatches = requiredContext is null
+            ? detectedContext.Value is null
+            : detectedContext.Status.Completeness == ResultCompleteness.Complete &&
+              detectedContext.Value == requiredContext;
+        if (!contextMatches)
+        {
+            throw new ArgumentException(
+                requiredContext is null
+                    ? "An unresolved recognition payload must not claim a detected context."
+                    : $"A {typeof(T).Name} payload requires a complete {requiredContext} detected context.",
+                nameof(header));
+        }
 
         if (result.Provenance.ObservedUtc < header.CapturedUtc ||
             result.Candidates.Any(candidate => candidate.Provenance.ObservedUtc < header.CapturedUtc) ||
@@ -464,6 +550,13 @@ public sealed record StashCaptureRegion
         OriginInContainer = V2ContractGuard.NotNull(originInContainer, nameof(originInContainer));
         Grid = V2ContractGuard.NotNull(grid, nameof(grid));
 
+        // Every origin claim must fit, but walking every grid and span claim again for each
+        // candidate makes hostile evidence a Cartesian amplifier. Placement constraints are
+        // independent on each axis, so the furthest claimed origin and the largest required
+        // geometry/cell/span extents are sufficient. Each input claim is visited once.
+        var hasPlacedOrigin = false;
+        var furthestOriginRow = 0;
+        var furthestOriginColumn = 0;
         foreach (var possibleOrigin in V2ContractGuard.Values(originInContainer))
         {
             if (possibleOrigin is not { } origin)
@@ -471,36 +564,91 @@ public sealed record StashCaptureRegion
                 continue;
             }
 
-            var remainingRows = GridGeometry.MaxRows - origin.Row;
-            var remainingColumns = GridGeometry.MaxColumns - origin.Column;
-            if (V2ContractGuard.Values(grid.Geometry.Rows).Any(rows => rows > remainingRows) ||
-                V2ContractGuard.Values(grid.Geometry.Columns).Any(columns => columns > remainingColumns))
-            {
-                throw new ArgumentException("A placed region cannot extend past the container cell space.", nameof(originInContainer));
-            }
+            hasPlacedOrigin = true;
+            furthestOriginRow = Math.Max(furthestOriginRow, origin.Row);
+            furthestOriginColumn = Math.Max(furthestOriginColumn, origin.Column);
+        }
 
-            // A region whose dimensions were unread can still contain determined cells. Check an
-            // absolute address as remaining room instead of adding origin + offset: both are
-            // bounded independently, and subtraction cannot wrap at the edge of the cell space.
-            foreach (var cell in grid.Cells)
+        if (!hasPlacedOrigin)
+        {
+            return;
+        }
+
+        var maximumGeometryRows = 0;
+        foreach (var possibleRows in V2ContractGuard.Values(grid.Geometry.Rows))
+        {
+            if (possibleRows is { } rows)
             {
-                if (cell.Anchor.Row >= remainingRows || cell.Anchor.Column >= remainingColumns)
+                maximumGeometryRows = Math.Max(maximumGeometryRows, rows);
+            }
+        }
+
+        var maximumGeometryColumns = 0;
+        foreach (var possibleColumns in V2ContractGuard.Values(grid.Geometry.Columns))
+        {
+            if (possibleColumns is { } columns)
+            {
+                maximumGeometryColumns = Math.Max(maximumGeometryColumns, columns);
+            }
+        }
+
+        var maximumCellRows = 0;
+        var maximumCellColumns = 0;
+        var maximumFootprintRows = 0;
+        var maximumFootprintColumns = 0;
+        foreach (var cell in grid.Cells)
+        {
+            // Addresses and spans are individually bounded, but subtraction is still used before
+            // addition so this stays overflow-safe if those public bounds are ever revised.
+            maximumCellRows = Math.Max(maximumCellRows, cell.Anchor.Row + 1);
+            maximumCellColumns = Math.Max(maximumCellColumns, cell.Anchor.Column + 1);
+            foreach (var footprint in GridFootprintClaims.Enumerate(cell.Item))
+            {
+                if (footprint.HeightCells is { } height)
                 {
-                    throw new ArgumentException(
-                        "A placed cell must sit inside the container cell space.",
-                        nameof(originInContainer));
+                    if (height > GridGeometry.MaxRows - cell.Anchor.Row)
+                    {
+                        throw new ArgumentException(
+                            "A placed footprint cannot extend past the container cell space.",
+                            nameof(originInContainer));
+                    }
+
+                    maximumFootprintRows = Math.Max(maximumFootprintRows, cell.Anchor.Row + height);
                 }
 
-                if (GridFootprintClaims.Exceeds(
-                    cell.Item,
-                    remainingRows - cell.Anchor.Row,
-                    remainingColumns - cell.Anchor.Column))
+                if (footprint.WidthCells is { } width)
                 {
-                    throw new ArgumentException(
-                        "A placed footprint cannot extend past the container cell space.",
-                        nameof(originInContainer));
+                    if (width > GridGeometry.MaxColumns - cell.Anchor.Column)
+                    {
+                        throw new ArgumentException(
+                            "A placed footprint cannot extend past the container cell space.",
+                            nameof(originInContainer));
+                    }
+
+                    maximumFootprintColumns = Math.Max(maximumFootprintColumns, cell.Anchor.Column + width);
                 }
             }
+        }
+
+        var remainingRows = GridGeometry.MaxRows - furthestOriginRow;
+        var remainingColumns = GridGeometry.MaxColumns - furthestOriginColumn;
+        if (maximumGeometryRows > remainingRows || maximumGeometryColumns > remainingColumns)
+        {
+            throw new ArgumentException("A placed region cannot extend past the container cell space.", nameof(originInContainer));
+        }
+
+        if (maximumCellRows > remainingRows || maximumCellColumns > remainingColumns)
+        {
+            throw new ArgumentException(
+                "A placed cell must sit inside the container cell space.",
+                nameof(originInContainer));
+        }
+
+        if (maximumFootprintRows > remainingRows || maximumFootprintColumns > remainingColumns)
+        {
+            throw new ArgumentException(
+                "A placed footprint cannot extend past the container cell space.",
+                nameof(originInContainer));
         }
     }
 
@@ -936,25 +1084,9 @@ public sealed record UnresolvedContextRecognition(IReadOnlyList<RawOcrLine> RawO
 public abstract record ContextualRecognitionResult<T>
     where T : class, IRecognitionPayload
 {
-    private protected ContextualRecognitionResult(
-        RecognitionResultEnvelope<T> recognition,
-        RecognizedContext? requiredContext)
+    private protected ContextualRecognitionResult(RecognitionResultEnvelope<T> recognition)
     {
         ArgumentNullException.ThrowIfNull(recognition);
-        var detected = recognition.Header.DetectedContext;
-        var matches = requiredContext is null
-            ? detected.Value is null
-            : detected.Value == requiredContext && detected.Status.Completeness == ResultCompleteness.Complete;
-
-        if (!matches)
-        {
-            throw new ArgumentException(
-                requiredContext is null
-                    ? "An unresolved result must not claim a detected context."
-                    : $"Recognition context must be a complete {requiredContext}.",
-                nameof(recognition));
-        }
-
         Recognition = recognition;
     }
 
@@ -964,7 +1096,7 @@ public abstract record ContextualRecognitionResult<T>
 public sealed record ItemRecognitionResult : ContextualRecognitionResult<RecognizedItem>
 {
     public ItemRecognitionResult(RecognitionResultEnvelope<RecognizedItem> recognition)
-        : base(recognition, RecognizedContext.Item)
+        : base(recognition)
     {
     }
 }
@@ -972,7 +1104,7 @@ public sealed record ItemRecognitionResult : ContextualRecognitionResult<Recogni
 public sealed record GridRecognitionResult : ContextualRecognitionResult<GridRecognition>
 {
     public GridRecognitionResult(RecognitionResultEnvelope<GridRecognition> recognition)
-        : base(recognition, RecognizedContext.Grid)
+        : base(recognition)
     {
     }
 }
@@ -980,7 +1112,7 @@ public sealed record GridRecognitionResult : ContextualRecognitionResult<GridRec
 public sealed record LootRecognitionResult : ContextualRecognitionResult<LootRecognition>
 {
     public LootRecognitionResult(RecognitionResultEnvelope<LootRecognition> recognition)
-        : base(recognition, RecognizedContext.Loot)
+        : base(recognition)
     {
     }
 }
@@ -988,7 +1120,7 @@ public sealed record LootRecognitionResult : ContextualRecognitionResult<LootRec
 public sealed record StashRecognitionResult : ContextualRecognitionResult<StashRecognition>
 {
     public StashRecognitionResult(RecognitionResultEnvelope<StashRecognition> recognition)
-        : base(recognition, RecognizedContext.Stash)
+        : base(recognition)
     {
     }
 }
@@ -996,7 +1128,7 @@ public sealed record StashRecognitionResult : ContextualRecognitionResult<StashR
 public sealed record AmmoRecognitionResult : ContextualRecognitionResult<AmmoRecognition>
 {
     public AmmoRecognitionResult(RecognitionResultEnvelope<AmmoRecognition> recognition)
-        : base(recognition, RecognizedContext.Ammo)
+        : base(recognition)
     {
     }
 }
@@ -1004,7 +1136,7 @@ public sealed record AmmoRecognitionResult : ContextualRecognitionResult<AmmoRec
 public sealed record KeyRecognitionResult : ContextualRecognitionResult<KeyRecognition>
 {
     public KeyRecognitionResult(RecognitionResultEnvelope<KeyRecognition> recognition)
-        : base(recognition, RecognizedContext.Keys)
+        : base(recognition)
     {
     }
 }
@@ -1012,7 +1144,7 @@ public sealed record KeyRecognitionResult : ContextualRecognitionResult<KeyRecog
 public sealed record QuestItemRecognitionResult : ContextualRecognitionResult<QuestItemRecognition>
 {
     public QuestItemRecognitionResult(RecognitionResultEnvelope<QuestItemRecognition> recognition)
-        : base(recognition, RecognizedContext.QuestItems)
+        : base(recognition)
     {
     }
 }
@@ -1020,7 +1152,7 @@ public sealed record QuestItemRecognitionResult : ContextualRecognitionResult<Qu
 public sealed record FleaRecognitionResult : ContextualRecognitionResult<FleaPageRecognition>
 {
     public FleaRecognitionResult(RecognitionResultEnvelope<FleaPageRecognition> recognition)
-        : base(recognition, RecognizedContext.Flea)
+        : base(recognition)
     {
     }
 }
@@ -1029,7 +1161,7 @@ public sealed record FleaRecognitionResult : ContextualRecognitionResult<FleaPag
 public sealed record ExtractMapRecognitionResult : ContextualRecognitionResult<ExtractMapRecognition>
 {
     public ExtractMapRecognitionResult(RecognitionResultEnvelope<ExtractMapRecognition> recognition)
-        : base(recognition, RecognizedContext.ExtractsAndMap)
+        : base(recognition)
     {
     }
 }
@@ -1037,7 +1169,7 @@ public sealed record ExtractMapRecognitionResult : ContextualRecognitionResult<E
 public sealed record HealthCharacterRecognitionResult : ContextualRecognitionResult<HealthCharacterRecognition>
 {
     public HealthCharacterRecognitionResult(RecognitionResultEnvelope<HealthCharacterRecognition> recognition)
-        : base(recognition, RecognizedContext.HealthAndCharacter)
+        : base(recognition)
     {
     }
 }
@@ -1045,7 +1177,7 @@ public sealed record HealthCharacterRecognitionResult : ContextualRecognitionRes
 public sealed record UnresolvedContextRecognitionResult : ContextualRecognitionResult<UnresolvedContextRecognition>
 {
     public UnresolvedContextRecognitionResult(RecognitionResultEnvelope<UnresolvedContextRecognition> recognition)
-        : base(recognition, requiredContext: null)
+        : base(recognition)
     {
     }
 }

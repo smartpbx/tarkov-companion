@@ -333,12 +333,12 @@ public sealed class RecognitionContractTests
     }
 
     [Fact]
-    public void TypedResultRejectsTheWrongOrAnIncompleteDetectedContext()
+    public void BareEnvelopeRejectsTheWrongOrAnIncompleteDetectedContext()
     {
         var item = V2ContractTestData.Complete("result.item", V2ContractTestData.Item());
 
-        Assert.Throws<ArgumentException>(() => new ItemRecognitionResult(
-            new RecognitionResultEnvelope<RecognizedItem>(V2ContractTestData.Header(RecognizedContext.Stash), item)));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<RecognizedItem>(
+            V2ContractTestData.Header(RecognizedContext.Stash), item));
 
         var partialContext = new RecognitionResultHeader(
             "result-1",
@@ -352,8 +352,60 @@ public sealed class RecognitionContractTests
                 RecognizedContext.Item,
                 new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
                 V2ContractTestData.ScreenshotProvenance()));
-        Assert.Throws<ArgumentException>(() => new ItemRecognitionResult(
-            new RecognitionResultEnvelope<RecognizedItem>(partialContext, item)));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<RecognizedItem>(partialContext, item));
+    }
+
+    [Fact]
+    public void EveryAllowlistedRecognitionPayloadHasOneExactContextAtTheBareEnvelope()
+    {
+        AssertBareEnvelopeContext<RecognizedItem>(RecognizedContext.Item);
+        AssertBareEnvelopeContext<GridRecognition>(RecognizedContext.Grid);
+        AssertBareEnvelopeContext<LootRecognition>(RecognizedContext.Loot);
+        AssertBareEnvelopeContext<StashRecognition>(RecognizedContext.Stash);
+        AssertBareEnvelopeContext<AmmoRecognition>(RecognizedContext.Ammo);
+        AssertBareEnvelopeContext<KeyRecognition>(RecognizedContext.Keys);
+        AssertBareEnvelopeContext<QuestItemRecognition>(RecognizedContext.QuestItems);
+        AssertBareEnvelopeContext<FleaPageRecognition>(RecognizedContext.Flea);
+        AssertBareEnvelopeContext<ExtractMapRecognition>(RecognizedContext.ExtractsAndMap);
+        AssertBareEnvelopeContext<HealthCharacterRecognition>(RecognizedContext.HealthAndCharacter);
+
+        _ = new RecognitionResultEnvelope<UnresolvedContextRecognition>(
+            V2ContractTestData.Header(null),
+            V2ContractTestData.Unknown<UnresolvedContextRecognition>("result.unresolved"));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<UnresolvedContextRecognition>(
+            V2ContractTestData.Header(RecognizedContext.Stash),
+            V2ContractTestData.Unknown<UnresolvedContextRecognition>("result.unresolved")));
+    }
+
+    [Fact]
+    public void HostileJsonCannotRelabelABareEnvelopeOrGiveAnUnresolvedPayloadAContext()
+    {
+        var resolved = JsonSerializer.SerializeToNode(
+            new RecognitionResultEnvelope<RecognizedItem>(
+                V2ContractTestData.Header(RecognizedContext.Item),
+                V2ContractTestData.Unknown<RecognizedItem>("result.item")),
+            JsonOptions)!;
+        resolved["header"]!["detectedContext"]!["value"] = nameof(RecognizedContext.Stash);
+        AssertBareEnvelopeRejected<RecognizedItem>(resolved);
+
+        var incomplete = JsonSerializer.SerializeToNode(
+            new RecognitionResultEnvelope<RecognizedItem>(
+                V2ContractTestData.Header(RecognizedContext.Item),
+                V2ContractTestData.Unknown<RecognizedItem>("result.item")),
+            JsonOptions)!;
+        incomplete["header"]!["detectedContext"]!["status"]!["completeness"] =
+            nameof(ResultCompleteness.Partial);
+        AssertBareEnvelopeRejected<RecognizedItem>(incomplete);
+
+        var unresolved = JsonSerializer.SerializeToNode(
+            new RecognitionResultEnvelope<UnresolvedContextRecognition>(
+                V2ContractTestData.Header(null),
+                V2ContractTestData.Unknown<UnresolvedContextRecognition>("result.unresolved")),
+            JsonOptions)!;
+        unresolved["header"]!["detectedContext"]!["value"] = nameof(RecognizedContext.Stash);
+        unresolved["header"]!["detectedContext"]!["status"]!["completeness"] =
+            nameof(ResultCompleteness.Partial);
+        AssertBareEnvelopeRejected<UnresolvedContextRecognition>(unresolved);
     }
 
     [Fact]
@@ -386,8 +438,8 @@ public sealed class RecognitionContractTests
         Assert.Equal(
             [RecognizedContext.Stash, RecognizedContext.Loot],
             roundTrip.Recognition.Header.DetectedContext.Candidates.Select(candidate => candidate.Value));
-        Assert.Throws<ArgumentException>(() => new UnresolvedContextRecognitionResult(
-            new RecognitionResultEnvelope<UnresolvedContextRecognition>(V2ContractTestData.Header(RecognizedContext.Stash), payload)));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<UnresolvedContextRecognition>(
+            V2ContractTestData.Header(RecognizedContext.Stash), payload));
     }
 
     [Fact]
@@ -478,6 +530,31 @@ public sealed class RecognitionContractTests
 
     private static JsonNode ExtractEnvelopeCandidateNode() =>
         JsonNode.Parse(ExtractCandidateNode()["recognition"]!.ToJsonString())!;
+
+    private static void AssertBareEnvelopeContext<T>(RecognizedContext expectedContext)
+        where T : class, IRecognitionPayload
+    {
+        _ = new RecognitionResultEnvelope<T>(
+            V2ContractTestData.Header(expectedContext),
+            V2ContractTestData.Unknown<T>($"result.{typeof(T).Name}"));
+
+        var wrongContext = expectedContext == RecognizedContext.Item
+            ? RecognizedContext.Grid
+            : RecognizedContext.Item;
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<T>(
+            V2ContractTestData.Header(wrongContext),
+            V2ContractTestData.Unknown<T>($"result.{typeof(T).Name}")));
+    }
+
+    private static void AssertBareEnvelopeRejected<T>(JsonNode node)
+        where T : class, IRecognitionPayload
+    {
+        var failure = Record.Exception(() =>
+            JsonSerializer.Deserialize<RecognitionResultEnvelope<T>>(node.ToJsonString(), JsonOptions));
+
+        Assert.NotNull(failure);
+        Assert.True(failure is JsonException || failure.GetBaseException() is ArgumentException, failure.ToString());
+    }
 
     private static void AssertBareEnvelopeRejected(JsonNode node)
     {
