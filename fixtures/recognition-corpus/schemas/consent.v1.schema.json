@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/consent.v1.schema.json",
+  "title": "Recognition corpus consent record",
+  "type": "object",
+  "required": ["schemaVersion", "consentId", "consentHash", "allowedUses", "retention", "revocation"],
+  "properties": {
+    "schemaVersion": { "const": "consent.v1" },
+    "consentId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "consentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "allowedUses": { "type": "array", "minItems": 1, "items": { "enum": ["benchmark", "train", "tune"] } },
+    "retention": {
+      "type": "object",
+      "required": ["expiresUtc"],
+      "properties": { "expiresUtc": { "type": "string", "format": "date-time" } },
+      "additionalProperties": true
+    },
+    "revocation": {
+      "type": "object",
+      "required": ["state"],
+      "properties": { "state": { "enum": ["active", "revoked", "expired"] } },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

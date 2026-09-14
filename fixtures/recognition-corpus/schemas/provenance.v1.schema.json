@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/provenance.v1.schema.json",
+  "title": "Recognition corpus provenance and immutable context",
+  "type": "object",
+  "required": ["schemaVersion", "captureIntentId", "sessionId", "correlationId", "captureOrdinal", "deviceClass", "surface", "resolution", "uiScale", "locale", "gameVersion", "companionUiVersion"],
+  "properties": {
+    "schemaVersion": { "const": "provenance.v1" },
+    "captureIntentId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "sessionId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "correlationId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "captureOrdinal": { "type": "integer", "minimum": 0 },
+    "workspaceId": { "type": "string" },
+    "profileId": { "type": "string" },
+    "mapId": { "type": "string" },
+    "floorId": { "type": "string" },
+    "planId": { "type": "string" },
+    "objectiveIds": { "type": "array", "items": { "type": "string" } },
+    "selectedReference": { "type": "string" },
+    "priorScanReference": { "type": "string" },
+    "deviceClass": { "enum": ["desktop", "tablet", "phone", "unknown"] },
+    "surface": { "enum": ["companion-window", "paired-device", "user-screenshot", "unknown"] },
+    "resolution": { "type": "object", "required": ["width", "height"], "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } }, "additionalProperties": true },
+    "uiScale": { "type": "number", "exclusiveMinimum": 0 },
+    "locale": { "type": "string", "minLength": 2 },
+    "gameVersion": { "type": "string", "minLength": 1 },
+    "companionUiVersion": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": true
+}

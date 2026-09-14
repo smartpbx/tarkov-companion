@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/predictions.v1.schema.json",
+  "title": "Truth-free typed recognition predictions",
+  "type": "object",
+  "required": ["schemaVersion", "runId", "producer", "predictions"],
+  "properties": {
+    "schemaVersion": { "const": "predictions.v1" },
+    "runId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "producer": { "type": "object", "required": ["id", "version"], "properties": { "id": { "type": "string" }, "version": { "type": "string" } }, "additionalProperties": true },
+    "predictions": { "type": "array", "items": { "type": "object", "required": ["sampleId", "intent", "type", "status", "confidence"], "properties": { "sampleId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }, "intent": { "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"] }, "type": { "enum": ["context", "region", "grid-cell", "item", "attribute", "extract", "timer", "health", "recommendation"] }, "status": { "enum": ["detected", "abstained", "unavailable"] }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }, "claims": { "type": "array", "items": { "type": "object", "required": ["claimId", "kind"], "properties": { "claimId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" }, "kind": { "type": "string", "minLength": 1 }, "value": {} }, "additionalProperties": true } }, "performance": { "type": "object", "properties": { "elapsedMilliseconds": { "type": "number", "minimum": 0 } }, "additionalProperties": true } }, "additionalProperties": true } }
+  },
+  "additionalProperties": true
+}

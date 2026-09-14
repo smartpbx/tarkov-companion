@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../tools/RecognitionCorpus/TarkovCompanion.RecognitionCorpus.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../fixtures/recognition-corpus/baselines/current-main.v1.json" Link="fixtures/recognition-corpus/baselines/current-main.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../fixtures/recognition-corpus/examples/synthetic-run-plan.v1.json" Link="fixtures/recognition-corpus/examples/synthetic-run-plan.v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

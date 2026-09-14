@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/aggregate-results.v1.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "policyVersion", "evidenceClass", "slices"],
+  "properties": { "schemaVersion": { "const": "aggregate-results.v1" }, "policyVersion": { "const": "recognition-scorer-policy.v1" }, "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] }, "slices": { "type": "array", "items": { "type": "object", "required": ["intent", "sequence", "status", "numerator", "denominator", "excludedUnknowns", "independentSplitUnits", "coverage", "abstentionRate", "confidentWrongRate", "confidenceInterval"], "properties": { "intent": { "type": "string" }, "sequence": { "type": "object" }, "status": { "enum": ["reported", "insufficient-data"] }, "numerator": { "type": "integer", "minimum": 0 }, "denominator": { "type": "integer", "minimum": 0 }, "excludedUnknowns": { "type": "integer", "minimum": 0 }, "independentSplitUnits": { "type": "integer", "minimum": 0 }, "coverage": { "type": "number", "minimum": 0, "maximum": 1 }, "abstentionRate": { "type": "number", "minimum": 0, "maximum": 1 }, "confidentWrongRate": { "type": "number", "minimum": 0, "maximum": 1 }, "confidenceInterval": { "type": "object" }, "performance": { "type": "object" } }, "additionalProperties": true } } },
+  "additionalProperties": true
+}

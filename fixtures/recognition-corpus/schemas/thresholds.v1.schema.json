@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/thresholds.v1.schema.json",
+  "type": "object",
+  "required": ["schemaVersion", "policyVersion", "frozenBeforeTuning", "minimumIndependentSplitUnits", "minimumKnownClaims", "candidateThresholds", "unsupportedDisposition"],
+  "properties": { "schemaVersion": { "const": "thresholds.v1" }, "policyVersion": { "const": "recognition-scorer-policy.v1" }, "frozenBeforeTuning": { "const": true }, "minimumIndependentSplitUnits": { "type": "integer", "minimum": 5 }, "minimumKnownClaims": { "type": "integer", "minimum": 1 }, "candidateThresholds": { "type": "object" }, "unsupportedDisposition": { "const": "insufficient-data" } },
+  "additionalProperties": true
+}
