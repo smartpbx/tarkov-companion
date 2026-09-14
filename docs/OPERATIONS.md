@@ -91,7 +91,7 @@ somebody in a room of their own where everything works and nobody is there.
 The install link, the in-app updater and the relay updater all read the same rolling
 pre-release. If it is gone or behind:
 
-1. Check the latest run of `windows-verify.yml` on `main`. The publish step only runs there.
+1. Check the latest run of `windows-verify.yml` on `main`, and its **`publish` job** in particular. Publishing is its own job: it needs `windows-verify` to have passed, it is the only job in the workflow holding a write token, and it does not run for a pull request at all.
 2. The publish never deletes the release, uploads packages before the feed files, and refuses
    to publish a version below what is already live — so a half-finished run leaves the previous
    build whole rather than leaving the feed pointing at nothing.
