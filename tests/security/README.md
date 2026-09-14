@@ -24,11 +24,12 @@ other file.
   recorded result of actually sending it. `docs/security/CONTROLS_AND_RESIDUAL_RISK.md` states,
   per finding, whether the corresponding control was reviewed by reading source or verified by an
   actual test run — never conflate the two.
-- **Not a substitute for real coverage.** `docs/security/PHASE_STATUS.md` recommends wiring these
-  into `tests/TarkovCompanion.IntegrationTests` (which already exercises `GroupServer` behavior
-  end-to-end, per its `Simulator` subdirectory) as concrete next-step work for whoever owns that
-  project. Until that happens, each fixture is documentation with a stable, referenceable shape —
-  nothing more.
+- **Not a substitute for real coverage.** Existing relay behavior is covered at unit level under
+  `tests/TarkovCompanion.UnitTests` (`GroupKeyTests`, `GroupMarksTests`, `GroupRoomsTests`, and
+  related files). `TarkovCompanion.IntegrationTests` does **not** reference GroupServer; its
+  `Simulator` area exercises `TarkovCompanion.EftSimulator`. These fixtures therefore need either
+  focused unit assertions or a purpose-built relay integration harness. Until that happens, each
+  fixture is documentation with a stable, referenceable shape — nothing more.
 
 ## Index
 
@@ -43,6 +44,7 @@ other file.
 | `fixtures/admin-report-reference-traversal.json` | ABUSE-ADMIN-REPORT-REFERENCE-TRAVERSAL |
 
 The remaining abuse cases in `docs/security/ABUSE_CASES.md` have no fixture here, usually because
-the scenario is a sequencing/timing property (ABUSE-ADMIN-KEY-TIMING) or a real-world event
-outside HTTP request shape (ABUSE-TABLET-KEY-LEAK, ABUSE-DPAPI-SAME-USER-MALWARE) that a JSON
-fixture would not usefully represent.
+the scenario is a sequencing/timing property (ABUSE-ADMIN-KEY-TIMING), a local or operator trust
+event (ABUSE-GROUP-KEY-LOCAL-RECOVERY, ABUSE-RELAY-PLAINTEXT-KEY), or a future review/control
+failure (ABUSE-ANTICHEAT-UNREVIEWED-EVIDENCE-SURFACE) that a standalone JSON request would not
+usefully prove.

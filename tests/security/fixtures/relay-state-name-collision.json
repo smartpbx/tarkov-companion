@@ -6,7 +6,7 @@
     "note": "Two POST /state calls to the same room, same X-Group-Key, using the same display name. The relay stores members by name, so the second call silently replaces the first (docs/GROUP_RELAY.md: 'publishing again under the same name replaces your previous entry')."
   },
   "scenario": {
-    "room": "9f2c000000000000000000000000000",
+    "room": "9f2c0000000000000000000000000000",
     "sequence": [
       {
         "step": 1,
@@ -45,6 +45,6 @@
         }
       }
     ],
-    "observedEffect": "Every other room member's next /state reply lists one entry named MaxGooner at (5.0, 5.0) — the impostor's position — with no indication the identity changed hands."
+    "modeledEffect": "Every other room member's next /state reply lists one entry named MaxGooner at (5.0, 5.0) — the impostor's position — with no indication the identity changed hands."
   }
 }

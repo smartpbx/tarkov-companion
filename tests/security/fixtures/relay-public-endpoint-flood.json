@@ -1,9 +1,9 @@
 {
   "_meta": {
     "abuseCase": "ABUSE-RELAY-PUBLIC-ENDPOINT-DOS",
-    "boundary": "TB-7",
+    "boundary": "TB-4 / TB-5",
     "documented": "docs/security/ABUSE_CASES.md",
-    "note": "/catalog, /landmarks, and /search require no key (RelayAccess.IsGroupPath excludes them by design) and carry no request-rate limit anywhere in Program.cs, unlike /report which has ProblemReports.IsRateLimited."
+    "note": "/catalog, /landmarks, and /search require no key (RelayAccess.IsGroupPath excludes them by design) and carry no application request-rate limit. Catalog upstream fetches are constrained by the path/mode allowlist and cache; repeated relay work is not caller-limited. /report has a per-derived-room counter, but rotating invented keys bypasses a relay-wide bound on an open relay."
   },
   "scenario": {
     "targets": [
@@ -12,10 +12,10 @@
       { "method": "GET", "path": "/catalog/pve/items" }
     ],
     "actor": "anonymous, no X-Group-Key header sent or required",
-    "amplificationNote": "/catalog/{mode}/{endpoint} proxies to json.tarkov.dev on a cache miss (CatalogMirror.cs), so a sustained flood against a cold cache pressures the upstream source as well as the relay process itself.",
+    "amplificationNote": "/catalog/{mode}/{endpoint} fetches json.tarkov.dev on a cold or expired allowed path. The fixed mode/path allowlist, one-hour cache, and single fetch gate bound upstream amplification; they do not rate-limit repeated work at the relay HTTP surface.",
     "contrastEndpoint": {
       "path": "/report",
-      "control": "ProblemReports.IsRateLimited caps this specific endpoint at 3 requests per room per hour"
+      "control": "ProblemReports.IsRateLimited caps one derived room at 3 requests per hour, but is not a process-wide or per-IP limit"
     }
   }
 }

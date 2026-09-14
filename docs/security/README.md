@@ -15,12 +15,29 @@ did not.
 | What could go wrong at each boundary? | [ABUSE_CASES.md](ABUSE_CASES.md) |
 | What stops each abuse case, and what is left over if it fails? | [CONTROLS_AND_RESIDUAL_RISK.md](CONTROLS_AND_RESIDUAL_RISK.md) |
 | Does the architecture actually keep the anti-cheat promises in `docs/SAFETY.md`? | [ANTI_CHEAT_REVIEW.md](ANTI_CHEAT_REVIEW.md) |
-| What hasn't been built yet, and what threat modeling does it still owe? | [TBD_COMPONENTS.md](TBD_COMPONENTS.md) |
+| What is future or being rebuilt, and what threat modeling does it still owe? | [TBD_COMPONENTS.md](TBD_COMPONENTS.md) |
 | Exactly what shipped in this pass, and what remains before #317 can close? | [PHASE_STATUS.md](PHASE_STATUS.md) |
 
 Illustrative fixtures for the abuse cases live in `tests/security/` (owned alongside this
 directory) — see `tests/security/README.md` for what they are and, as importantly, what they are
 not.
+
+## Product presentation contract
+
+This directory is the canonical, complete account of the product's safety boundaries, review
+method, trust model, controls, and accepted or deferred risks. The v2 Setup/Admin surface must
+provide a clearly labelled route to this material (a bundled view or a link to the matching
+version of these documents) so a player or operator can inspect the full reasoning without
+reading the repository.
+
+Routine desktop and tablet workflows should use progressive disclosure: a concise statement of
+what is happening, with "why", source, and technical detail available on demand. Concision must
+never hide a consent choice, data leaving a device, pairing/authentication state, an active or
+deferred risk, the effective transport security, a degraded/failure state, or evidence provenance.
+Historical/modelled guidance
+must still show its source, data-through/generated timestamps, coverage, confidence, and model
+version and must never be styled as live. This PR records that product requirement; implementing
+the Setup/Admin surface remains future work listed in [TBD_COMPONENTS.md](TBD_COMPONENTS.md).
 
 ## Non-negotiable boundaries this document set assumes
 
@@ -46,13 +63,16 @@ against this list — not a restatement of the list itself.
 Everything documented here was produced by reading the repository as it exists on `main` at the
 time of writing (commit `76b506f` and earlier) — `AGENTS.md`, `README.md`, `docs/SAFETY.md`,
 `docs/ARCHITECTURE.md`, `docs/GROUP_RELAY.md`, `docs/OPERATIONS.md`, the ADRs in `docs/adr/`, and
-the source of `TarkovCompanion.GroupServer`, the DPAPI secret store, the TarkovTracker client,
-and the CI workflows that gate safety and secrets. No component's behavior is asserted from an
-issue description alone where the source was available to check against it; where the source
-disagreed with an issue's plan, the source is what is documented.
+the current source for GroupServer, group-session/settings storage, screenshot/GDI capture and
+recognition/retention, profile and quest import/export, raid-history export, DPAPI, TarkovTracker,
+Velopack/relay updating, and the CI workflows that gate safety and secrets. No component's
+behavior is asserted from an issue description alone where source
+was available; disagreements between source and normative policy are recorded as open findings
+rather than resolved by rewriting the policy in this worktree.
 
-Components described in open v2 issues (#304, #305, #306, #310, #311, and others) that have no
-implementation in `src/` yet are listed in [TBD_COMPONENTS.md](TBD_COMPONENTS.md) rather than
-modeled as if they existed. `docs/V2_CONTRACT.md`, owned by #264, had not landed on `main` at the
-time of writing; this document set treats the evidence/provenance rules in `docs/SAFETY.md` as
-the current normative source and will need reconciling against the v2 contract once it merges.
+Components described in open v2 issues (#304, #305, #306, #310, #311, and others) that are absent
+or scheduled for a material rebuild are listed in [TBD_COMPONENTS.md](TBD_COMPONENTS.md) rather
+than modeled as if their future design existed. `docs/V2_CONTRACT.md`, owned by #264, had not
+landed on baseline `main`; this document set treats the evidence/provenance rules in
+`docs/SAFETY.md` as the current normative source and will need reconciling against the v2 contract
+once it merges.

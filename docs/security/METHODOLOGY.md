@@ -12,9 +12,10 @@ It is not, and does not claim to be, any of the following:
 - **A penetration test.** Nobody sent traffic at a running relay or a running desktop build as
   part of this pass. Every abuse case is a reasoned scenario grounded in the real request
   handlers, not an observed exploit.
-- **A fuzzing or static-analysis run.** No tool was executed against the codebase for this pass
-  beyond the CI checks that already run automatically (`audit-safety.sh`, `scan-secrets.sh`) and
-  are cited as such.
+- **A fuzzing or semantic static-analysis run.** The correction used only the short validation
+  commands listed in `PHASE_STATUS.md`: JSON parsing, identifier/link/diff checks, and the existing
+  lexical repository scripts (`sweep-prose.sh`, `audit-safety.sh`, `scan-secrets.sh`). None is a
+  substitute for adversarial execution or semantic analysis.
 - **A completed adversarial review of #317's full acceptance criteria.** #317 asks for review of
   serialization, cryptography, state machines, external data sources, secret handling,
   authorization, error handling, and platform boundaries, each with verification evidence and an
@@ -31,32 +32,36 @@ interchangeable:
 | --- | --- | --- |
 | **Implemented** | The code that enforces this exists and was read during this review. | "reads `X`, which does `Y`" |
 | **Reviewed** | A person (or agent, in this pass) read the implementation and reasoned about whether it holds, without running it. | "reviewed by reading `path/File.cs`" |
-| **Tested (automated)** | An automated test exercises this and runs somewhere — locally, in CI, or both — and the run was observed to pass. | "covered by `TestName` in CI" |
+| **Tested (automated)** | A named automated test or check exercises this, and a specific run at a known commit was observed to pass. Workflow configuration by itself is not a run. | "covered by `TestName`; passing run `<link-or-id>` at `<commit>`" |
 | **Tested (manual)** | A person ran the system and observed the behavior directly. | "verified manually on `dev` on `<date>`" |
 | **Planned** | The control does not exist yet; it is proposed or tracked by an issue. | "planned — see #NNN" |
 
 A finding may never claim "tested" when only "reviewed" or "planned" is true. Every entry in
 [CONTROLS_AND_RESIDUAL_RISK.md](CONTROLS_AND_RESIDUAL_RISK.md) states its evidence tier
-explicitly, and this pass introduces no entry above **Reviewed** except for the two controls that
-already run in `ci.yml` / `windows-verify.yml` (`audit-safety.sh`, `scan-secrets.sh`), which are
-cited as **Tested (automated)** because their CI runs are observable in the workflow files
-themselves, not because this pass executed them.
+explicitly. This document treats `audit-safety.sh` and `scan-secrets.sh` as **Reviewed** controls:
+their workflow steps were read, but a workflow file proves configuration, not execution. A
+passing GitHub Actions result for an exact head may be recorded separately as **Tested
+(automated)** evidence after it has completed; it does not prove that a lexical pattern catches
+mechanisms the pattern does not name.
 
 ## Severity taxonomy
 
 Aligned to #317's acceptance criteria (critical/high/medium/low), applied per finding:
 
 - **Critical** — breaks an immutable boundary in `docs/SAFETY.md` (memory access, injection,
-  traffic decoding, input synthesis, live tracking, overlay), or fully compromises a secret that
-  gates access to another user's data (group key derivation, admin key, DPAPI-protected token)
-  with no attacker precondition beyond network reach.
-- **High** — a realistic actor gets unauthorized read/write of another player's or another
-  group's data, or can impersonate a party member, without needing a secret they shouldn't have.
-- **Medium** — degrades availability or integrity for a bounded blast radius (one room, one
-  report queue) but does not cross a trust boundary into data the actor shouldn't see or control.
-- **Low** — requires an already-privileged position (holding the admin key, running as the same
-  Windows user, controlling the update channel) or has effect bounded by an existing structural
-  control (a byte cap, a count cap, a TTL).
+  traffic decoding, input synthesis, live tracking, overlay), or gives an ordinary remote actor
+  broad arbitrary-code/cross-user secret compromise with no meaningful prerequisite or
+  containment.
+- **High** — a realistic failure gives unauthorized access to another player's or group's
+  sensitive data, violates a current normative safety rule, impersonates a party member without
+  detection, or compromises an update channel with code-execution impact. A privileged attacker
+  precondition reduces likelihood; it does not automatically turn high impact into Low.
+- **Medium** — degrades availability or integrity beyond one user's process, or exposes one
+  room/credential only after a meaningful prerequisite such as same-user device access or relay
+  operator access.
+- **Low** — has low impact and is bounded by an effective structural control such as a global byte
+  cap, count cap, or TTL. A control that can be bypassed by choosing a new attacker-controlled
+  key does not qualify as a bound.
 
 **No unresolved high or critical finding may be silently accepted.** Every High/Critical entry in
 the residual-risk register carries an explicit acceptance decision (accept / mitigate / defer)
@@ -74,8 +79,9 @@ for concrete failure scenarios:
 - **STRIDE category** — Spoofing, Tampering, Repudiation, Information disclosure, Denial of
   service, or Elevation of privilege.
 - **Actor** — from [ASSETS_AND_ACTORS.md](ASSETS_AND_ACTORS.md).
-- **Scenario** — concrete inputs or sequence, not a general description ("a client POSTs
-  `/waypoints` 61 times to the same room in one call", not "an attacker floods waypoints").
+- **Scenario** — concrete inputs or sequence, not a general description ("a client sends 61
+  sequential `POST /waypoints` requests to a room that already has five marks", not "an attacker
+  floods waypoints").
 - **Cross-reference** — the ID of the matching row in
   [CONTROLS_AND_RESIDUAL_RISK.md](CONTROLS_AND_RESIDUAL_RISK.md).
 
@@ -102,9 +108,10 @@ independent things, and says which of the three actually holds for that boundary
 
 ## What "TBD" means here
 
-An entry marked TBD is not a placeholder for effort not yet spent — it names a component that has
-no implementation in `src/` as of this pass (verified by directory listing, not by assumption).
-Modeling a nonexistent component's data flow would be inventing detail this review cannot back
-with source, which is exactly the kind of unearned confidence #317 asks this review to avoid.
-[TBD_COMPONENTS.md](TBD_COMPONENTS.md) lists what each one will owe once it exists, so the debt is
-visible rather than silently dropped.
+An entry marked TBD is not a placeholder for effort not yet spent. It names either a component
+with no implementation in `src/` or a planned rebuild whose future trust boundary cannot be
+inferred from today's implementation. The entry must say which condition applies and cite the
+current source that was checked. Modeling a nonexistent or not-yet-chosen design would be
+inventing detail this review cannot back with source, which is exactly the kind of unearned
+confidence #317 asks this review to avoid. [TBD_COMPONENTS.md](TBD_COMPONENTS.md) lists what each
+future component or rebuild will owe, so the debt is visible rather than silently dropped.

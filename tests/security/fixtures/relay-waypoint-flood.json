@@ -3,7 +3,7 @@
     "abuseCase": "ABUSE-RELAY-WAYPOINT-FLOOD",
     "boundary": "TB-4 / TB-6",
     "documented": "docs/security/ABUSE_CASES.md",
-    "note": "docs/GROUP_RELAY.md 'Limits' section: sixty waypoints and thirty pings per group; past that the oldest goes. A burst of 61 posts evicts the squad's oldest real waypoint rather than being refused."
+    "note": "The limits are per room, not relay-wide. With five legitimate marks already present, 61 posts evict all five legitimate marks and the first spam mark rather than being refused. This fixture documents within-room replacement only; rotating invented keys creates a separate unbounded cross-room growth case."
   },
   "scenario": {
     "request": {
@@ -21,6 +21,7 @@
     },
     "repeatCount": 61,
     "existingRoomWaypointsBeforeFlood": 5,
-    "observedEffect": "After 61 rapid posts, the cap of 60 evicts the 5 pre-existing legitimate waypoints (oldest-first) along with 55 of the spam ones, leaving only the 6 most recent spam entries — the squad's actual plan is gone."
+    "modeledEffect": "Five existing plus 61 rapid posts produces 66 insertions against a per-room cap of 60. Oldest-first eviction removes the 5 pre-existing legitimate waypoints and the first spam waypoint, leaving 60 spam entries — the squad's actual plan is gone.",
+    "globalBound": "None. GroupMarks has no global room or waypoint cap, and seven-day waypoint pruning runs only when persisted state is loaded."
   }
 }

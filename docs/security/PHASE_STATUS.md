@@ -1,83 +1,75 @@
 # Phase status
 
-This tracks exactly what this pass of #317 delivered against #317's own acceptance criteria and
-closeout checklist, so nobody has to re-derive it from reading every file. **This PR does not
-close #317** — it lays the foundation the rest of #317's acceptance criteria build on.
+This records what the docs-only phase of #317 delivers and what remains. **This PR does not close
+#317.** It establishes a source-grounded baseline and explicitly records current source/policy
+conflicts; it does not make those findings safe by documenting them.
 
-## What this pass delivered
+## What this phase delivers
 
-- `SYSTEM_AND_TRUST_BOUNDARIES.md` — a system/data-flow diagram and ten named trust boundaries
-  (TB-1 through TB-10), each with a source citation, covering every component #317 names that
-  actually exists in `src/` today: desktop application, group relay, tablet, update mechanism,
-  data ingestion. Update mechanism and data ingestion are covered as part of TB-3/TB-5/TB-10 rather
-  than as separate top-level boundaries, since the source did not support treating them as
-  architecturally distinct trust changes from the boundaries they're folded into.
-- `ASSETS_AND_ACTORS.md` — 13 classified assets, 10 actors, and a matrix tying actors to the
-  boundaries where they're the relevant threat source.
-- `ABUSE_CASES.md` — 14 STRIDE-categorized abuse cases across 6 boundaries, each with a concrete
-  scenario and (for 7 of them) an illustrative fixture in `tests/security/fixtures/`.
-- `CONTROLS_AND_RESIDUAL_RISK.md` — 10 open findings and 4 closed findings, every one with an
-  evidence tier and, for open findings, an explicit acceptance decision — including one High
-  finding recorded as **not yet decided** rather than silently accepted or silently dropped
-  (RISK-UPDATE-CHANNEL-TRUST).
-- `ANTI_CHEAT_REVIEW.md` — all 8 immutable boundaries from `docs/SAFETY.md` reviewed against the
-  real architecture, with an explicit "held / held as policy only" verdict per boundary rather than
-  a blanket restatement of the policy.
-- `TBD_COMPONENTS.md` — 9 components named in open v2 issues with no implementation in `src/` yet,
-  each with the specific threat-model debt it will owe once built.
-- `tests/security/` — illustrative fixture files for 6 of the 15 abuse cases (see that directory's
-  `README.md` for exactly what they are and are not).
+- `SYSTEM_AND_TRUST_BOUNDARIES.md` — the current data flow and eleven named trust boundaries,
+  including both pixel-ingress paths, plaintext group-key handling, full relay state shape,
+  accepted LAN HTTP, unbounded cross-room marks, current import/export surfaces, catalog stale
+  fallback, and the distinct relay/Desktop update implementations.
+- `ASSETS_AND_ACTORS.md` — 14 assets and 12 actors, including a malicious/compromised relay
+  operator and the actual local/in-process/network locations of the reusable group/admin keys.
+- `ABUSE_CASES.md` — 23 concrete cases covering all eleven named boundaries; seven have illustrative
+  JSON fixtures under `tests/security/fixtures/`.
+- `CONTROLS_AND_RESIDUAL_RISK.md` — 15 open and three closed findings. Every open finding has an
+  explicit Accept/Mitigate/Defer disposition. Five High findings remain open with required
+  mitigation: room-key guessing, undetectable display-name impersonation, cleartext/receiver key
+  disclosure, release-channel trust, and the current relay transmission of log-derived party data
+  contrary to `docs/SAFETY.md`.
+- `ANTI_CHEAT_REVIEW.md` — all eight immutable boundaries reviewed against current source, with
+  lexical checks described as partial tripwires rather than certification.
+- `TBD_COMPONENTS.md` — eleven future components or material rebuilds, each saying whether source is
+  absent or a current implementation is expected to change.
+- `README.md` — the progressive-disclosure product contract: full version-matched material is
+  reachable from Setup/Admin, while routine UI stays concise without hiding consent, outbound
+  data, auth state, active risk, failure, or evidence provenance.
+- `tests/security/` — seven valid illustrative JSON files. They are not wired to a test runner and
+  are not represented as executed behavior.
 
-## What #317 asks for that this pass does not close
+## What #317 still requires
 
-Quoted or paraphrased directly from #317's acceptance criteria, matched against what actually
-happened:
+1. **Complete adversarial implementation review.** This phase does not complete the requested
+   line-by-line review of every serializer, migration/state transition, external dependency,
+   error path, authorization path, or Windows P/Invoke lifetime. The remaining areas are listed
+   in `CONTROLS_AND_RESIDUAL_RISK.md`.
+2. **Mitigate and verify the open High findings.** Documentation is not mitigation. In
+   particular, RISK-RELAY-OBSERVED-DATA-POLICY is a current source/current policy conflict and is
+   release-blocking until product source stops the transmission or a separately authorized
+   policy decision changes the contract outside this worktree.
+3. **Implement and review v2-only boundaries.** Pairing/local gateway, rebuilt operator/report
+   lifecycle, evidence envelopes, historical model snapshots, new recognition, and Setup/Admin
+   disclosure cannot be threat-modeled as completed systems before their designs exist. Each row
+   in `TBD_COMPONENTS.md` names the review debt it creates.
+4. **Executable security verification.** This worktree owns documentation and illustrative
+   fixtures only. It does not add a security test project, workflow, or stronger static analyzer.
+   Fixtures still need behavior assertions in the appropriate test suites, and anti-cheat data-
+   contract assertions must land with #264/#305/#311.
+5. **Release evidence.** GitHub Actions remains the integration gate. A configured workflow is not
+   a passing run; #317 closeout must link exact-head runs and any required manual `dev` evidence.
 
-1. **"Complete an adversarial review of: data serialization... cryptographic operations... state
-   machine transitions... external data sources... secret handling... authorization... error
-   handling... platform boundaries."** This pass reviewed cryptographic operations (group key
-   hashing, admin key comparison, DPAPI), secret handling (DPAPI store), and a slice of external
-   data sources (TarkovTracker redirect handling, catalog integrity) as part of building the
-   abuse-case and control register — but did not perform the full line-by-line review of
-   serialization/deserialization surfaces, SQLite state-machine transitions, or Windows P/Invoke
-   surfaces beyond DPAPI. `CONTROLS_AND_RESIDUAL_RISK.md`'s final section lists these explicitly.
-2. **"No unresolved high or critical findings may be present at v2 release."** One High finding
-   (RISK-UPDATE-CHANNEL-TRUST) is recorded, open, with no acceptance decision — by design, per
-   `METHODOLOGY.md`'s rule that a finding may not be silently accepted. It needs an owner who can
-   decide whether update-client version pinning is worth adding, which this pass is not positioned
-   to decide unilaterally as a docs-only worktree. **This is the one item that most needs
-   follow-up before #317 can close**, and it is called out here rather than buried in the register.
-3. **Security review workflow and automation files** (#317's "Owned work" section names these
-   alongside docs and fixtures). This pass added no `scripts/` or `.github/workflows/` changes —
-   the task dispatching this work scoped it to `docs/security/**` and narrow `tests/security/**`
-   fixtures specifically, excluding `scripts/audit-safety.sh` and workflow files as another
-   agent's owned paths. Any new automation (a security-findings-summary CI step, wiring the
-   fixtures into an executable test suite) is out of scope for this worktree.
-4. **RISK-ANTICHEAT-REVIEW-DISCIPLINE's recommended tests** (deterministic assertions that new
-   evidence surfaces in #305/#311 can't express a live-enemy concept) are recommendations for
-   those issues' own implementation work, not something this docs-only pass can add without
-   touching their owned source.
+## Recommended next steps
 
-## Recommended next steps, in order
+1. Resolve RISK-RELAY-OBSERVED-DATA-POLICY without silently relaxing `docs/SAFETY.md`.
+2. Assign #304/#310 owners for authenticated confidential LAN transport, scoped pairing
+   credentials, key-at-rest handling, relay/operator trust, global mark/request limits, and
+   bounded report lifecycle.
+3. Complete the Velopack/update-channel review and choose a tested rollback/downgrade policy.
+4. Wire the seven fixtures into executable unit or purpose-built relay integration cases where
+   they can assert actual handlers rather than prose.
+5. Extend this living register as each `TBD_COMPONENTS.md` design lands; do not mark a planned
+   boundary Reviewed before source exists.
 
-1. Get an owner and a decision on RISK-UPDATE-CHANNEL-TRUST (the one open High finding).
-2. Wire the `tests/security/fixtures/` files into `TarkovCompanion.IntegrationTests` as actual
-   assertions once an owner picks this up on `dev` or in CI — this pass deliberately did not do
-   that, since it would require running `dotnet` locally, which is out of bounds for this
-   worktree and this host per `AGENTS.md`.
-3. Extend `CONTROLS_AND_RESIDUAL_RISK.md`'s "explicitly did not reach" list (serialization,
-   SQLite state machine, broader platform boundaries) in a follow-up review pass.
-4. Re-review `ANTI_CHEAT_REVIEW.md` boundary 8 once `docs/V2_CONTRACT.md` (#264) merges.
-5. As each `TBD_COMPONENTS.md` entry gets implemented, extend the existing documents (new `TB-N`,
-   new abuse cases, new register rows) rather than starting new ones.
+## Verification performed for this correction
 
-## Verification performed for this pass
+- No `dotnet`, MSBuild, build, product test, debugger, Docker, or VM command was run locally.
+- All seven fixtures were parsed with `jq -e . tests/security/fixtures/*.json`.
+- Abuse/risk and fixture/abuse identifier sets were compared in both directions with short shell
+  extraction checks; every risk now has an abuse case and every abuse case has one risk.
+- Documentation links/paths, `git diff --check`, `scripts/sweep-prose.sh`,
+  `scripts/audit-safety.sh`, and `scripts/scan-secrets.sh` were run as short static checks only.
 
-Consistent with the resource constraints in this task and `AGENTS.md`: no `dotnet`, MSBuild,
-build, test, or package command was run on this host. No debugger, Docker, or VM was launched.
-Everything in this document set is a **Reviewed**-tier claim (source read, reasoned about, not
-executed) except the two CI-check citations (`audit-safety.sh`, `scan-secrets.sh` running in
-`ci.yml`/`windows-verify.yml`), which are **Tested (automated)** because their execution is a fact
-about those workflow files themselves, observable without running anything locally. Heavy
-verification — running the fixtures as real tests, an actual adversarial pass with tooling — is
-left serialized for GitHub Actions and the `dev` host, per `AGENTS.md`'s resource-safety rules.
+Those bullets report static commands, not product behavior. Exact-head GitHub Actions results are
+recorded in PR #319 after the pushed correction and remain the required integration evidence.

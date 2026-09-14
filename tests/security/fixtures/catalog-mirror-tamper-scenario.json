@@ -18,6 +18,6 @@
       "basePrice": 999999
     },
     "mirrorBehavior": "CatalogMirror serves the tampered bytes with a validly-computed ETag/SHA-256 of those exact (tampered) bytes -- the mirror has no independent source to detect the discrepancy against.",
-    "observedEffect": "Every client of this relay that fetches the mirrored catalog sees the manipulated basePrice as if it were authentic, and the relay's own integrity check (its self-computed hash) offers no signal that anything changed upstream."
+    "modeledEffect": "Every client of this relay that fetches the mirrored catalog sees the manipulated basePrice as if it were authentic, and the relay's own integrity check (its self-computed hash) offers no signal that anything changed upstream."
   }
 }

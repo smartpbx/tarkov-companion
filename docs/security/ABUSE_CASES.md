@@ -1,57 +1,69 @@
 # Abuse cases
 
 STRIDE-style, one row per case. `Fixture` names the illustrative file in
-`tests/security/fixtures/` where one exists (see that directory's `README.md` for what a fixture
-is and is not). `→ Risk` is the row ID in `CONTROLS_AND_RESIDUAL_RISK.md`.
+`tests/security/fixtures/` where one exists. Fixtures are documentation inputs, not executed
+proof; `tests/security/README.md` makes that distinction explicit. `→ Risk` is the matching row in
+`CONTROLS_AND_RESIDUAL_RISK.md`.
+
+## TB-1 / TB-2: EFT visible/file output and local storage ↔ Desktop
+
+| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
+| --- | --- | --- | --- | --- | --- |
+| ABUSE-ANTICHEAT-UNREVIEWED-EVIDENCE-SURFACE | Tampering / information disclosure | ACT-12 | A future recognizer adds an `enemyPosition` or equivalent field derived from a visible capture and presents it as current. The change uses no forbidden API string, so `audit-safety.sh` passes even though the data model and UI violate the no-live-enemy/no-ESP boundary. A directory or package listing would not expose the violation; review and a deterministic contract test must. | — | RISK-ANTICHEAT-REVIEW-DISCIPLINE |
+| ABUSE-SCREENSHOT-RETENTION-SURPRISE | Tampering / repudiation | ACT-1 | A player has no readable screenshot-retention settings and assumes cleanup is off. The store selects its enabled 24-hour default, and a periodic retention pass moves matching old game screenshots to the recycle bin while preserving the newest. The files are recoverable and tightly selected, but the default is still a user-file mutation that must be disclosed and reviewed in #309. | — | RISK-SCREENSHOT-RETENTION-DEFAULT |
 
 ## TB-4 / TB-6: Desktop ↔ Relay ↔ Squadmate
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
-| ABUSE-RELAY-NAME-COLLISION | Spoofing | ACT-4 | A member publishes `POST /state` with `"name": "MaxGooner"`, the same display name an existing member is using. The relay's storage is keyed by name, so this silently overwrites the legitimate member's entry (`GroupRooms`/`GroupContracts.cs` semantics; documented as intended behavior in `docs/GROUP_RELAY.md`, "publishing again under the same name replaces your previous entry"). Every other member now sees the impostor's position under the real member's name until the real member republishes. | `relay-state-name-collision.json` | RISK-RELAY-IDENTITY |
-| ABUSE-RELAY-STALE-FRESHNESS | Tampering | ACT-4 | A member sends `"positionAge": 0.1` on every publish regardless of when the position was actually captured, since `positionAge` is entirely client-computed and never cross-checked by the relay (`docs/GROUP_RELAY.md`). Squadmates read a stale marker as fresh. | `relay-state-fabricated-freshness.json` | RISK-RELAY-CLIENT-TRUST |
-| ABUSE-RELAY-WEAK-KEY-GUESS | Spoofing | ACT-5 | An attacker who knows nothing about a group tries a dictionary of common 8-16 character strings as `X-Group-Key` against an open (unregistered) relay. No rate limiting or lockout exists on `/state`, so guesses cost one HTTP request each (`GroupKey.MinimumLength = 8`, no attempt counter in `GroupKey.cs`/`Program.cs`). A successful guess joins the room silently — the relay cannot distinguish a guess from a legitimate member (`docs/GROUP_RELAY.md`: "A 401 does not mean a wrong key... a key nobody else uses names a group nobody else is in"). | `relay-state-weak-key-brute-force.json` | RISK-RELAY-KEY-BRUTEFORCE |
-| ABUSE-RELAY-WAYPOINT-FLOOD | Denial of service | ACT-4 or ACT-5 (any holder of a valid key for the target room) | A member calls `POST /waypoints` 61 times in a burst against one room. The 60-waypoint cap means the 61st push evicts the oldest waypoint rather than being refused (`docs/GROUP_RELAY.md`, "Limits"). A malicious or buggy client can evict a squad's real plan by flooding. | `relay-waypoint-flood.json` | RISK-RELAY-MARK-CAP |
-| ABUSE-RELAY-PUBLIC-ENDPOINT-DOS | Denial of service | ACT-5 | An anonymous client sends a sustained burst of requests to `/catalog`, `/landmarks`, or `/search` — none require a key (`RelayAccess.IsGroupPath` excludes them) and none carry a request-rate limit anywhere in `Program.cs`. `/catalog/{mode}/{endpoint}` in particular proxies to upstream on a cache miss, so a flood could also pressure `json.tarkov.dev`. | `relay-public-endpoint-flood.json` | RISK-RELAY-NO-RATE-LIMIT |
-| ABUSE-RELAY-LEAVE-WRONG-NAME | Tampering (self-inflicted, but a real support cost) | ACT-1 | The client calls `DELETE /state/{name}` using the *currently configured* display name after the player renamed mid-session, rather than the name that was actually published. This removes nothing (or removes the wrong entry) and leaves the stale marker standing — the exact failure `docs/GROUP_RELAY.md` calls out by name ("Withdraw the name that was published, not the one currently configured"). | — | RISK-RELAY-IDENTITY |
+| ABUSE-RELAY-NAME-COLLISION | Spoofing | ACT-4 | A member publishes `POST /state` with the same display name as an existing member. `GroupRooms` stores entries by name, so the later request silently replaces the legitimate member's state. Other members see the impostor's position under the real member's name until another publish. | `relay-state-name-collision.json` | RISK-RELAY-IDENTITY |
+| ABUSE-RELAY-STALE-FRESHNESS | Tampering | ACT-4 | A client sends `"positionAge": 0.1` on every publish although its last position capture is 30 minutes old. The relay records server-observed `sinceSeconds`, but never cross-checks client-reported `positionAge`; squadmates read stale coordinates as freshly captured. | `relay-state-fabricated-freshness.json` | RISK-RELAY-CLIENT-TRUST |
+| ABUSE-RELAY-WEAK-KEY-GUESS | Spoofing / information disclosure | ACT-5 | An attacker tries common strings of at least eight characters as `X-Group-Key`. On an open relay, a miss returns an empty room while a live-room hit returns member state. On a closed relay, an unregistered hash returns 403 while a guessed registered key reaches the room. No per-IP/key attempt limit or backoff exists, so each guess costs one request. | `relay-state-weak-key-brute-force.json` | RISK-RELAY-KEY-BRUTEFORCE |
+| ABUSE-RELAY-WAYPOINT-FLOOD | Denial of service | ACT-4 | Starting with five legitimate waypoints, a member sends 61 new waypoints. Oldest-first eviction removes the five legitimate entries and the first spam entry, leaving 60 spam entries. The per-room cap bounds this room but lets a member erase the group's plan. | `relay-waypoint-flood.json` | RISK-RELAY-MARK-CAP |
+| ABUSE-RELAY-CROSS-ROOM-MARK-GROWTH | Denial of service | ACT-5 | On an open relay, an attacker repeatedly chooses a new acceptable key and posts one waypoint. Each key creates another permanent `GroupMarks` room; no relay-wide room/waypoint cap or live expiry removes it, and every waypoint write serializes all non-empty rooms to `marks.json`. Per-room caps do not bound aggregate memory, CPU, or disk growth. | — | RISK-RELAY-MARK-CAP |
+| ABUSE-RELAY-LEAVE-WRONG-NAME | Tampering | ACT-1 | A client renames mid-session and sends `DELETE /state/{current-name}` instead of the name actually published. The stale entry remains until expiry or the wrong entry is removed. Current `GroupSessionService` avoids this by retaining the registered identity, but this remains a state-transition regression case. | — | RISK-RELAY-IDENTITY |
+| ABUSE-RELAY-PLAINTEXT-KEY | Information disclosure / spoofing | ACT-11 | A malicious or compromised relay process/TLS endpoint records `X-Group-Key` before calling `GroupKey.RoomFor`. It can later replay that reusable credential against the room. HTTPS protects the hop from an on-path observer; it cannot hide plaintext from the receiving process. | — | RISK-RELAY-KEY-DISCLOSURE |
+| ABUSE-RELAY-CLEARTEXT-CREDENTIAL | Information disclosure / spoofing / tampering | ACT-5 | A desktop accepts a private-address `http://` relay, or a tablet/operator opens the relay's direct HTTP origin. An on-path LAN actor reads or modifies `X-Group-Key`, `X-Admin-Key`, and associated room/admin traffic, then replays the recovered credential. The optional HTTPS tunnel does not protect a direct HTTP route. | — | RISK-RELAY-KEY-DISCLOSURE |
+| ABUSE-RELAY-OBSERVED-DATA-POLICY | Information disclosure / policy violation | ACT-12 | Group sharing is enabled while the own-loadout switch is off. `GroupSessionService` still reads observed party kits from game logs and serializes names, loadouts, levels, sides, and scav-lock times into `Observed`. The relay prunes names outside the current room, but third-party log-derived data has already been transmitted contrary to `docs/SAFETY.md`'s current rule. | — | RISK-RELAY-OBSERVED-DATA-POLICY |
 
-## TB-7: Player ↔ Tablet
-
-| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
-| --- | --- | --- | --- | --- | --- |
-| ABUSE-TABLET-KEY-LEAK | Information disclosure | ACT-9 | The group key is typed into a tablet's browser (`docs/GROUP_RELAY.md`, `Tablet.cs`). The tablet has no separate identity or scope from a full desktop member — anyone who later reads that browser's history, or the device itself if lost, recovers a credential with full read/write of the room for as long as the group keeps using that key. There is no per-device revocation; the only remedy is rotating the group's key, which affects every member. | — | RISK-TABLET-NO-SCOPING |
-
-## TB-5: Relay ↔ upstream / self-update
+## TB-4 / TB-5: Anonymous client ↔ Relay ↔ Upstream
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
-| ABUSE-CATALOG-UPSTREAM-TAMPER | Tampering | ACT-7 | `json.tarkov.dev` (or a MITM presenting a valid cert on a compromised path) serves a manipulated catalog payload. `CatalogMirror` forwards it byte-for-byte and computes its own SHA-256 as a cache tag — that hash authenticates *mirror-to-client consistency*, not *upstream authenticity*, because it is computed from whatever upstream sent rather than checked against any pinned or independently-obtained value (`CatalogMirror.cs`). Every client of that relay receives the manipulated data with the mirror's confirmation attached. | `catalog-mirror-tamper-scenario.json` | RISK-CATALOG-INTEGRITY |
-| ABUSE-RELAY-UPDATE-DOWNGRADE | Elevation of privilege | ACT-8 | An attacker who can influence what `GROUPSERVER-SHA256SUMS.txt` resolves to for a target relay (DNS/TLS compromise of the release host, or compromise of the GitHub account/Action publishing it) could point `RelayUpdate` at an older, vulnerable checksum. `RelayUpdate` verifies the *checksum* of what it fetches, but the update trigger has no independent version-monotonicity check on the relay side — the anti-downgrade guarantee documented in `docs/OPERATIONS.md` ("refuses to publish a version below what is already live") is enforced entirely by the *publish* pipeline, not by the *update client*. | — | RISK-UPDATE-CHANNEL-TRUST |
+| ABUSE-RELAY-PUBLIC-ENDPOINT-DOS | Denial of service | ACT-5 | An anonymous client sustains requests to `/catalog`, `/landmarks`, or `/search`; none requires a key or has an application request-rate limit. Cold/expired allowed catalog paths can also cause bounded upstream fetches, while repeated search and response work continues to consume relay resources. | `relay-public-endpoint-flood.json` | RISK-RELAY-NO-RATE-LIMIT |
 
-## TB-8: Operator ↔ Relay
-
-| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
-| --- | --- | --- | --- | --- | --- |
-| ABUSE-ADMIN-REPORT-REFERENCE-TRAVERSAL | Tampering / information disclosure | ACT-6 (if the validation below were absent) | A caller supplies `GET /reports/../../../../etc/passwd` (or any non-hex, wrong-length value) as `{reference}`, attempting to read outside the reports directory. `ProblemReports.Read` validates the reference is exactly 12 lowercase-hex characters before using it in a filename glob, which structurally excludes `.` and `/` (`ProblemReports.cs`). This case is included because it is the kind of input #317 asks to be reviewed explicitly ("archive traversal in reports"), and because the control is a validation the caller could get wrong on a future change — it is not free of that risk just because it is correct today. | `admin-report-reference-traversal.json` | RISK-REPORT-TRAVERSAL (closed — see register) |
-| ABUSE-ADMIN-KEY-TIMING | Information disclosure | ACT-5 | An attacker times `X-Admin-Key` comparisons to recover the admin key byte-by-byte. `RelayAdmin.IsAuthorised` uses `CryptographicOperations.FixedTimeEquals`, which is constant-time for equal-length inputs (`RelayAdmin.cs`). Included for the same reason as the traversal case — a correct control worth naming, not a live gap. | — | RISK-ADMIN-KEY-TIMING (closed — see register) |
-| ABUSE-ADMIN-REPORT-FLOOD | Denial of service | ACT-5 (or a misbehaving legitimate client) | A client posts `/report` in a tight loop to exhaust the relay's report queue or generate noise for the operator. `ProblemReports.IsRateLimited` caps it at 3 per room per hour and `MaximumBytes = 64 * 1024` caps each report's size (`ProblemReports.cs`). Included as a verified-working bound, cross-referenced against ABUSE-RELAY-PUBLIC-ENDPOINT-DOS to show the contrast: `/report` has a documented limiter and `/catalog`/`/search`/`/landmarks` do not. | — | RISK-REPORT-RATE-LIMIT (closed — see register) |
-
-## TB-2: Local filesystem ↔ Desktop
+## TB-5 / TB-10: Upstream and release channels
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
-| ABUSE-DPAPI-SAME-USER-MALWARE | Information disclosure | ACT-10 | Malware running as the same Windows user as the player calls `CryptUnprotectData` with the same entropy value (`WindowsDpapiSecretStore.cs`, `Entropy`, a fixed non-secret constant) against the same protected file and recovers the TarkovTracker bearer token in plaintext, exactly as the legitimate application would. DPAPI `CurrentUser` scope defends against a different OS user or an offline disk copy, not against code already running as the player. | — | RISK-DPAPI-SAMEUSER |
+| ABUSE-CATALOG-UPSTREAM-TAMPER | Tampering | ACT-7 | `json.tarkov.dev`, or a path presenting a valid certificate, serves a manipulated catalog. `CatalogMirror` computes a SHA-256 ETag from the received bytes, which proves mirror/client consistency rather than authenticity. Every consumer accepts the changed value with no independent signature or second source. | `catalog-mirror-tamper-scenario.json` | RISK-CATALOG-INTEGRITY |
+| ABUSE-CATALOG-STALE-FALLBACK | Tampering / repudiation | ACT-7 | A held snapshot is older than the one-hour freshness window and refresh fails. `CatalogMirror.GetAsync` returns the held snapshot silently; the response contains its content ETag but no failure/freshness signal. A client can make a price, quest, or map decision from old data believing the mirror request succeeded normally. | — | RISK-CATALOG-INTEGRITY |
+| ABUSE-UPDATE-CHANNEL-DOWNGRADE | Elevation of privilege | ACT-8 | A compromised release channel presents an older relay artifact with its matching same-channel checksum, or manipulates the Velopack feed/package set seen by the desktop. Relay source has no independently stored minimum version; desktop project source delegates the decision to Velopack and shows no independently anchored version rule. This is a threat scenario for the full #317 cryptographic/update review, not a claim that this pass executed a downgrade. | — | RISK-UPDATE-CHANNEL-TRUST |
+
+## TB-8 / TB-9: Operator and problem reports
+
+| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
+| --- | --- | --- | --- | --- | --- |
+| ABUSE-ADMIN-REPORT-REFERENCE-TRAVERSAL | Tampering / information disclosure | ACT-6 if validation regresses | A caller supplies `GET /reports/../../../../etc/passwd`. `ProblemReports.Read` currently requires exactly 12 lowercase hexadecimal characters before building its filename glob, excluding `.` and `/`; this is a closed regression case, not a current exploit. | `admin-report-reference-traversal.json` | RISK-REPORT-TRAVERSAL |
+| ABUSE-ADMIN-KEY-TIMING | Information disclosure | ACT-5 | A remote attacker times `X-Admin-Key` comparisons. `RelayAdmin.IsAuthorised` currently uses `CryptographicOperations.FixedTimeEquals`, preventing byte-by-byte early exit for equal-length values; different lengths may still be distinguishable. This is a closed byte-recovery regression case with the length caveat retained in the register. | — | RISK-ADMIN-KEY-TIMING |
+| ABUSE-ADMIN-REPORT-FLOOD | Denial of service | ACT-5 | On an open relay, an anonymous caller posts three reports using one acceptable invented group key, then changes the key and repeats. Each key hashes to a fresh per-room/hour bucket. Kestrel limits each body to 32 KiB, but the number of buckets and retained `reports/*.md` files has no global count, TTL, or disk quota. | — | RISK-REPORT-RATE-LIMIT |
+
+## TB-2 / TB-7: Local credential storage
+
+| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
+| --- | --- | --- | --- | --- | --- |
+| ABUSE-GROUP-KEY-LOCAL-RECOVERY | Information disclosure / spoofing | ACT-9 or ACT-10 | A later tablet/browser user reads `localStorage["key"]`, or same-user malware reads desktop `Config/group.json`. Both recover the reusable plaintext group key and gain the room's full read/write authority until every member rotates it. There is no per-device revocation. | — | RISK-GROUP-KEY-LOCAL-EXPOSURE |
+| ABUSE-DPAPI-SAME-USER-MALWARE | Information disclosure | ACT-10 | Malware running as the same Windows user calls `CryptUnprotectData` with the application's fixed entropy against the protected file and recovers the TarkovTracker token. DPAPI `CurrentUser` defends against another OS user/offline disk copy, not code already running as the player. | — | RISK-DPAPI-SAMEUSER |
 
 ## TB-3: Desktop ↔ public data sources
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
-| ABUSE-TARKOVTRACKER-REDIRECT | Elevation of privilege | ACT-7 | `api.tarkovtracker.org` (or a MITM) responds to `GET /token` or `GET /progress` with a 3xx redirect to an attacker-controlled host, attempting to have the client leak the bearer token to it on the follow-up request. `TarkovTrackerApiClient` disables `AllowAutoRedirect` on the underlying handler (`TarkovTrackerApiClient.cs`), so the redirect is surfaced as a response rather than followed. Included as a verified-working control matching #317's explicit "session hijacking" / secret-exfiltration abuse-case request. | — | RISK-TARKOVTRACKER-REDIRECT (closed — see register) |
+| ABUSE-TARKOVTRACKER-REDIRECT | Elevation of privilege | ACT-7 | `api.tarkovtracker.org` returns a redirect to an attacker host while the client carries a bearer token. `TarkovTrackerApiClient` sets `AllowAutoRedirect = false`, so the redirect is returned rather than followed; this is a closed regression case. | — | RISK-TARKOVTRACKER-REDIRECT |
 
-## Boundary this section deliberately does not model
+## TB-11: User-controlled import/export files ↔ Desktop
 
-Abuse cases against EFT itself (TB-1) — e.g., "what if the game's log format changes to include
-more player data" — belong in `docs/RECOGNITION.md` / `docs/research/EFT_LOG_FACTS.md` as data
-contract questions, not here: TB-1 is a one-way, read-only boundary this project never attacks or
-defends against, only reads honestly. `ANTI_CHEAT_REVIEW.md` covers whether the *project's own
-code* respects that boundary, which is the actual security question TB-1 raises.
+| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
+| --- | --- | --- | --- | --- | --- |
+| ABUSE-LOCAL-IMPORT-REPLAY | Tampering | ACT-1 | A player imports an older but schema-valid profile envelope. `JsonFilePlayerProfileService` validates shape and bounds, then replaces current profile state without comparing the envelope's exported/updated time to the current profile. Quest exchange adds a checksum and preview, but an author of a tampered document can recompute its same-document checksum. Existing controls reduce accidents; they do not authenticate authorship or establish monotonic freshness. | — | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
+| ABUSE-LOCAL-EXPORT-DISCLOSURE | Information disclosure | ACT-1 | A player shares a raid-history export believing it is a coarse summary. Current JSON/CSV output includes profile id, map, mode, exact start/end UTC, outcome, and free-form notes for every listed raid. Export is user initiated, but no phase-1 product disclosure or minimization review establishes that the recipient scope was understood. | — | RISK-LOCAL-IMPORT-EXPORT-INTEGRITY |
