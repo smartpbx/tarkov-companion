@@ -1,0 +1,24 @@
+-- A table that records which recorded quest progress the catalog no longer carries, written
+-- on every sync and read by nothing -- and superseded before anybody noticed it was there.
+--
+-- #174 proposed reading it rather than dropping it, on the grounds that "an import that
+-- silently discards entries is worth a line somebody can see". That line already exists. The
+-- Quests page shows it, under "Orphaned progress", and has done since the quest board was
+-- built: QuestTrackingServices.BuildOrphans computes the same answer live by comparing the
+-- profile's recorded progress against the catalog that is actually loaded.
+--
+-- The live answer is strictly better than the stored one, in three ways:
+--
+--   * it covers four kinds rather than two -- tasks, objectives, item holdings and pins,
+--     where the table holds only tasks and objectives;
+--   * it is current, where the table is as old as the last sync, so progress recorded since
+--     then is missing from it and progress since resolved is still in it;
+--   * it is per profile as read, where the table is written for every profile on the machine
+--     at once, by a SQL join that has to restate the game-mode mapping in a CASE expression.
+--
+-- So this is the same shape as the sixteen tables 0007 dropped and the four that 0009 did: a
+-- parallel copy that a later design superseded and nobody removed. Dropping it changes nothing
+-- on screen, and stops three statements running inside the refresh's write transaction on
+-- every sync.
+
+DROP TABLE IF EXISTS quest_catalog_orphans;
