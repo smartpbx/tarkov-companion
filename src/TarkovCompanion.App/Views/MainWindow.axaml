@@ -58,7 +58,7 @@
     </DataTemplate>
   </Window.DataTemplates>
 
-  <Grid RowDefinitions="66,*,Auto" ColumnDefinitions="188,*">
+  <Grid RowDefinitions="66,*,Auto" ColumnDefinitions="Auto,*">
 
     <!-- The status bar has two tiers. Map, raid and position are the raid readout: they are
          set at reading size because they are what a player glances at mid-raid. Observation,
@@ -116,24 +116,49 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="1" Grid.Column="0" Classes="chrome rail" Padding="0,10">
-      <ItemsControl ItemsSource="{Binding Navigation}">
-        <ItemsControl.ItemTemplate>
-          <DataTemplate x:DataType="vm:NavigationItem">
-            <Button Classes.nav="True"
-                    Classes.selected="{Binding IsSelected}"
-                    Command="{Binding SelectCommand}">
-              <Grid ColumnDefinitions="26,*,Auto">
-                <Path Grid.Column="0" Classes="navGlyph" Data="{Binding Glyph}" />
-                <TextBlock Grid.Column="1" Text="{Binding Name}" VerticalAlignment="Center" />
-                <!-- A dot, not a number. The only thing it has to say is "there is something
-                     here", and a count would invite reading it. -->
-                <Ellipse Grid.Column="2" Classes="navNotice" IsVisible="{Binding HasNotice}" />
-              </Grid>
-            </Button>
-          </DataTemplate>
-        </ItemsControl.ItemTemplate>
-      </ItemsControl>
+    <!-- The rail's width is bound rather than fixed at 188. The companion shares a 3840x1080
+         screen with the game, and at the window's minimum width the map is 584 pixels; 188 of
+         rail is 188 the map does not have. Collapsed it is 48 and the names move to tooltips.
+
+         Not automatic: a rail that collapsed itself at some width would be a rail that changed
+         shape while somebody was aiming at it. -->
+    <Border Grid.Row="1" Grid.Column="0" Classes="chrome rail" Padding="0,10" Width="{Binding RailWidth}">
+      <DockPanel>
+        <Button DockPanel.Dock="Bottom"
+                Classes="railToggle"
+                Click="RailToggleClick"
+                Content="{Binding RailToggleLabel}"
+                HorizontalAlignment="Stretch"
+                ToolTip.Tip="Collapse the list to icons, and back" />
+        <ItemsControl ItemsSource="{Binding Navigation}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:NavigationItem">
+              <StackPanel>
+                <!-- A hairline rather than a heading: the rail is short of height, not of
+                     labels, and fourteen rows in one ungrouped run is a list somebody reads
+                     from the top every time. It also survives the collapse, where a heading
+                     could not. -->
+                <Border Classes="hairline" Margin="10,7,10,6" IsVisible="{Binding StartsGroup}" />
+                <Button Classes.nav="True"
+                        Classes.selected="{Binding IsSelected}"
+                        Command="{Binding SelectCommand}"
+                        ToolTip.Tip="{Binding Name}">
+                  <Grid ColumnDefinitions="26,*,Auto">
+                    <Path Grid.Column="0" Classes="navGlyph" Data="{Binding Glyph}" />
+                    <TextBlock Grid.Column="1"
+                               Text="{Binding Name}"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).IsRailCollapsed, Converter={x:Static BoolConverters.Not}}" />
+                    <!-- A dot, not a number. The only thing it has to say is "there is something
+                         here", and a count would invite reading it. -->
+                    <Ellipse Grid.Column="2" Classes="navNotice" IsVisible="{Binding HasNotice}" />
+                  </Grid>
+                </Button>
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </DockPanel>
     </Border>
 
     <!-- The header row is Auto rather than a fixed height so that a page which declines it

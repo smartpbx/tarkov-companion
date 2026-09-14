@@ -15,6 +15,7 @@ using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
@@ -215,6 +216,10 @@ public static class AppComposition
         // way to say where they were.
         services.AddSingleton<IEftPathOverrideStore>(_ =>
             new JsonFileEftPathOverrideStore(Path.Combine(paths.Config, "game-folders.json")));
+        // Where the window was and how the rail was left. The shell opened at 1500 by 900 in
+        // whatever place the operating system chose, every launch, and no store had an entry.
+        services.AddSingleton<IShellLayoutStore>(_ =>
+            new JsonFileShellLayoutStore(Path.Combine(paths.Config, "shell.json")));
         services.AddSingleton<ScreenshotRetentionService>();
         // Updating from inside the application, so a fix does not need somebody to download an
         // artifact and swap a folder by hand.
