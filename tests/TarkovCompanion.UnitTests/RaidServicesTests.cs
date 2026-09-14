@@ -57,6 +57,75 @@ public sealed class RaidServicesTests
     }
 
     /// <summary>
+    /// Adopting makes the running raid the one already on record.
+    /// </summary>
+    /// <remarks>
+    /// This service is memory, so a companion restarted mid-raid gives the raid a new identity
+    /// and an empty trail. Whether this raid is that raid is a question about what was
+    /// recorded, so the answer is handed in; what this does is make the two the same raid.
+    /// </remarks>
+    [Fact]
+    public void AnAdoptedRaidKeepsTheIdentityAndTrailAlreadyRecorded()
+    {
+        var service = new RaidStateService();
+        var recorded = Guid.NewGuid();
+        var started = new DateTimeOffset(2026, 9, 14, 2, 0, 0, TimeSpan.Zero);
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            started.AddMinutes(11),
+            "customs",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.80),
+            "A raid was already running when the companion started."));
+
+        var adopted = service.Adopt(recorded, started, [Position(started.AddMinutes(4))]);
+
+        Assert.Equal(recorded, adopted.RaidId);
+        Assert.Equal(started, adopted.StartedUtc);
+        Assert.Single(adopted.PositionTrail);
+        Assert.Equal("screenshot.png", adopted.LastKnownPosition?.Filename);
+    }
+
+    /// <summary>
+    /// Nothing to take over outside a raid, and taking over anyway would poison the next one.
+    /// </summary>
+    [Fact]
+    public void AdoptingIntoTheMenuDoesNothing()
+    {
+        var service = new RaidStateService();
+
+        var adopted = service.Adopt(Guid.NewGuid(), DateTimeOffset.UnixEpoch, []);
+
+        Assert.Null(adopted.RaidId);
+        Assert.Empty(adopted.PositionTrail);
+    }
+
+    /// <summary>
+    /// A recorded raid with no start time is still this raid.
+    /// </summary>
+    /// <remarks>
+    /// Inventing one from the restart would date the raid to the moment the companion came
+    /// back, which is the mistake adoption exists to undo.
+    /// </remarks>
+    [Fact]
+    public void AdoptingARaidWithNoRecordedStartKeepsTheOneThisRunWorkedOut()
+    {
+        var service = new RaidStateService();
+        var noticed = new DateTimeOffset(2026, 9, 14, 2, 11, 0, TimeSpan.Zero);
+        service.Apply(new(
+            RaidEvidenceKind.LogLine,
+            noticed,
+            "customs",
+            RaidLifecycleState.InRaid,
+            new Confidence(0.80),
+            "A raid was already running when the companion started."));
+
+        var adopted = service.Adopt(Guid.NewGuid(), null, []);
+
+        Assert.Equal(noticed, adopted.StartedUtc);
+    }
+
+    /// <summary>
     /// A clock that steps backwards must not stop the raid being tracked.
     /// </summary>
     /// <remarks>

@@ -89,6 +89,10 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
 
 - Everyone has a colour of their own, the same on the map and in the list beside it, so three
   people on one map say which is which.
+- **Tonight** ranks the maps by where the group's quests overlap, so the decision made before
+  any other one stops being four people reading their lists to each other. One row per map:
+  "You: 3 (1 pinned) · Geo: 2". Click it to switch the map and mark the objectives. It works
+  on your own, with nobody else sharing anything.
 - **Waypoints** stay until somebody clears them and tick themselves off when you get there.
   **Pings** say "look here" and fade. Right-click to mark, hold shift to ping.
 - One key is both which group you are in and proof you belong. The server holds no secrets and

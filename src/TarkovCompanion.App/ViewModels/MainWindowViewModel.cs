@@ -10,6 +10,7 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
@@ -261,6 +262,66 @@ public sealed record ActiveExtractViewModel(string Name, string Confidence, stri
 /// <param name="Detail">How full, against the longest seen this raid.</param>
 public sealed record HudBarViewModel(string Kind, string Detail);
 
+/// <summary>
+/// One map the group could queue, and why.
+/// </summary>
+/// <remarks>
+/// The counts are the whole row. "You: 3 (1 pinned) · Geo: 2" is a sentence somebody reads
+/// once and then says out loud, which is what this replaces: four people reading their quest
+/// lists to each other before every session.
+///
+/// Named per person rather than totalled, because a map where one person has five and nobody
+/// else has any is a different night from one where four people have two each, and a single
+/// number cannot tell them apart.
+/// </remarks>
+public sealed class TonightMapViewModel
+{
+    public TonightMapViewModel(string mapName, TonightMapRow row, Func<Task> show)
+    {
+        MapName = mapName;
+        Row = row;
+        Detail = Describe(row);
+        ShowCommand = new AsyncDelegateCommand(show);
+    }
+
+    /// <summary>What the map is called here, rather than the id the catalog keys it by.</summary>
+    public string MapName { get; }
+
+    public TonightMapRow Row { get; }
+
+    /// <summary>Who has what here, in the order a person would say it.</summary>
+    public string Detail { get; }
+
+    /// <summary>Quests across the group, which is the number the list is ordered by.</summary>
+    public int Total => Row.Total;
+
+    /// <summary>Switches the map to this one and lights its objectives.</summary>
+    public AsyncDelegateCommand ShowCommand { get; }
+
+    /// <summary>
+    /// You first, then everyone else, and nobody with nothing to do here.
+    /// </summary>
+    /// <remarks>
+    /// Your own count leads because it is the one the reader can act on alone. The pinned
+    /// count rides along in brackets rather than as its own column: it is you saying which of
+    /// your own quests matter, and it only means anything beside the count it is part of.
+    /// </remarks>
+    private static string Describe(TonightMapRow row)
+    {
+        var parts = new List<string>();
+        if (row.Yours > 0)
+        {
+            parts.Add(row.YoursPinned > 0
+                ? string.Create(CultureInfo.CurrentCulture, $"You: {row.Yours} ({row.YoursPinned} pinned)")
+                : string.Create(CultureInfo.CurrentCulture, $"You: {row.Yours}"));
+        }
+
+        parts.AddRange(row.Others.Select(other =>
+            string.Create(CultureInfo.CurrentCulture, $"{other.Name}: {other.Count}")));
+        return string.Join(" · ", parts);
+    }
+}
+
 public sealed class RaidPageViewModel : PageViewModel
 {
     /// <inheritdoc />
@@ -303,6 +364,9 @@ public sealed class RaidPageViewModel : PageViewModel
     private string _hudDetail = string.Empty;
     private readonly IItemRepository? _items;
     private readonly Func<string, string>? _nameTask;
+    private readonly Func<IReadOnlyList<QuestSummaryReadModel>>? _questBoard;
+    private IReadOnlyList<TonightMapViewModel> _tonight = [];
+    private string _tonightSignature = string.Empty;
     private string _timeLeft = "Unknown";
     private string _timeLeftDetail = "No raid in progress";
 
@@ -342,7 +406,12 @@ public sealed class RaidPageViewModel : PageViewModel
         // Names a task the same way. A function rather than the quest service, because the
         // shell already holds a loaded quest board and a second read of the catalog here would
         // be a second answer to a question already answered.
-        Func<string, string>? nameTask = null)
+        Func<string, string>? nameTask = null,
+        // The quest board the shell already holds, for ranking tonight's maps by where the
+        // group's quests overlap. A function rather than the quest service for the reason the
+        // name lookup above is one: the board is loaded and reading the catalog again here
+        // would be a second answer to a question already answered.
+        Func<IReadOnlyList<QuestSummaryReadModel>>? questBoard = null)
         : base("Raid reference", "The map, and where your screenshots put you", "No raid evidence")
     {
         Map = map;
@@ -350,6 +419,7 @@ public sealed class RaidPageViewModel : PageViewModel
         _maps = maps;
         _items = items;
         _nameTask = nameTask;
+        _questBoard = questBoard;
         Replay = new(map);
         DismissSummaryCommand = new DelegateCommand(DismissSummary);
     }
@@ -505,8 +575,134 @@ public sealed class RaidPageViewModel : PageViewModel
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
+        UpdateTonight(snapshot);
         ObserveLifecycle(snapshot);
     }
+
+    /// <summary>
+    /// Which map the group should queue, while there is still time to choose one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only in the menu. It is the decision made before a raid and it is not a decision any
+    /// more once one has started, so a card offering to switch the map mid-raid would be in
+    /// the way of the map the player is actually standing on.
+    /// </para>
+    /// <para>
+    /// Ranked on every tick and the rows are replaced only when the answer changes. The
+    /// snapshot arrives every few seconds and the rows carry commands; swapping them each time
+    /// would rebuild the list under anybody in the middle of clicking a row. The ranking
+    /// itself is a walk of the quest board, which is cheap enough to do rather than cache and
+    /// then have to work out when the cache is wrong.
+    /// </para>
+    /// </remarks>
+    private void UpdateTonight(ApplicationRuntimeSnapshot snapshot)
+    {
+        if (_questBoard is null)
+        {
+            return;
+        }
+
+        var rows = Choose(
+            snapshot.Raid.State,
+            _questBoard(),
+            snapshot.Group.Members,
+            Map.Locations,
+            ShowTonightMapAsync);
+        var signature = string.Join("|", rows.Select(row => $"{row.MapName}={row.Detail}"));
+        if (signature == _tonightSignature)
+        {
+            return;
+        }
+
+        _tonightSignature = signature;
+        Tonight = rows;
+    }
+
+    /// <summary>
+    /// Which maps to offer, given what the group is working on and where the player is.
+    /// </summary>
+    /// <remarks>
+    /// A static seam, the way the group panel beside the map has one: this is the whole of the
+    /// decision, and the alternative is a test that stands up a map view model to read three
+    /// lines of text out of it.
+    /// </remarks>
+    /// <param name="state">Where the player is, because this is only a question in the menu.</param>
+    /// <param name="board">Every task the local catalog knows, with this profile's progress.</param>
+    /// <param name="members">The rest of the group, as they last described themselves.</param>
+    /// <param name="locations">The maps this companion can actually show.</param>
+    /// <param name="show">What a row does when it is clicked.</param>
+    public static IReadOnlyList<TonightMapViewModel> Choose(
+        RaidLifecycleState state,
+        IReadOnlyList<QuestSummaryReadModel> board,
+        IReadOnlyList<GroupMemberView> members,
+        IReadOnlyList<MapLocation> locations,
+        Func<string, Task> show)
+    {
+        if (state != RaidLifecycleState.Menu)
+        {
+            return [];
+        }
+
+        var rows = new List<TonightMapViewModel>();
+        foreach (var row in TonightMaps.Rank(board, members))
+        {
+            // A map this catalog cannot name is a map this card cannot switch to, and a row
+            // that does nothing when clicked is worse than a row that is not there.
+            var location = locations.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, row.MapId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(candidate.SourceId, row.MapId, StringComparison.OrdinalIgnoreCase));
+            if (location is null)
+            {
+                continue;
+            }
+
+            var mapId = location.Id;
+            rows.Add(new(location.Name, row, () => show(mapId)));
+        }
+
+        return rows;
+    }
+
+    /// <summary>Switches to that map and lights the objectives on it.</summary>
+    /// <remarks>
+    /// Both halves, because the card's claim is "there are four things to do here" and
+    /// switching to a map with the quest layer off would answer it with an empty map. The
+    /// layer is left on afterwards: it was turned on by somebody asking to see quests.
+    /// </remarks>
+    private async Task ShowTonightMapAsync(string mapId)
+    {
+        try
+        {
+            await Map.FollowRaidAsync(mapId).ConfigureAwait(true);
+            Map.ToggleOverlay(MapOverlayKind.QuestObjectives, true);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Map.ReportInteractionFailure(exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// Where the group's quests overlap, best map first.
+    /// </summary>
+    /// <remarks>
+    /// Empty outside the menu and empty when nothing overlaps, which includes playing alone
+    /// with no quests on any map this companion can place.
+    /// </remarks>
+    public IReadOnlyList<TonightMapViewModel> Tonight
+    {
+        get => _tonight;
+        private set
+        {
+            if (SetProperty(ref _tonight, value))
+            {
+                OnPropertyChanged(nameof(HasTonight));
+            }
+        }
+    }
+
+    public bool HasTonight => Tonight.Count > 0;
 
     /// <summary>
     /// What the game's own display said, as the last screenshot showed it.
@@ -2248,7 +2444,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 : null;
 
         Map = map;
-        Raid = new(map, raidHistoryService, maps, itemRepository, quests.NameOfTask);
+        Raid = new(map, raidHistoryService, maps, itemRepository, quests.NameOfTask, quests.BoardTasks);
         Scanner = new(scanUseCase, scanHistory);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;

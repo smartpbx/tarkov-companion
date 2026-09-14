@@ -338,7 +338,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         // publish loop runs every few seconds and a quest board does not.
         var sharedQuests = settings.SharesQuests && _quests is not null
             ? await _quests.GetAsync(cancellationToken).ConfigureAwait(false)
-            : [];
+            : SharedQuests.None;
         // What this game has said about the others, which is the one thing each of them cannot
         // read about themselves. Sent whenever sharing is on, because it is about the people
         // who asked to be in this group and it is the only route any of them has to their own
@@ -512,7 +512,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     private static MemberStateDto Describe(
         ApplicationRuntimeSnapshot snapshot,
         GroupSharingSettings settings,
-        IReadOnlyList<string> sharedQuests,
+        SharedQuests sharedQuests,
         IReadOnlyList<ObservedKit> observed)
     {
         var raid = snapshot.Raid;
@@ -527,8 +527,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             position?.HeadingDegrees,
             position is null ? null : (DateTimeOffset.UtcNow - position.Timestamp.ToUniversalTime()).TotalSeconds,
             settings.SharesLoadout ? DescribeLoadout(snapshot) : [],
-            sharedQuests)
+            sharedQuests.Names)
         {
+            // The same quests the names above are the head of, by catalog id. Names are for
+            // a squadmate to read and ids are for their companion to place, and tonight's map
+            // is a question about where the group's lists overlap rather than what they say.
+            QuestIds = sharedQuests.TaskIds,
             // Published because a map with floors cannot place somebody without it, and the
             // waypoints beside them have carried one from the beginning.
             Y = position?.Position.Y,
@@ -650,6 +654,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Loadout ?? [],
         member.Quests ?? [])
     {
+        QuestIds = member.QuestIds ?? [],
         HasKnownHeight = member.Y is not null,
         Extracts = member.Extracts ?? [],
         Transits = member.Transits ?? [],
@@ -920,6 +925,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout,
         [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests)
     {
+        /// <summary>Which quests those are, so a receiver can place them on a map.</summary>
+        [JsonPropertyName("questIds")]
+        public IReadOnlyList<string>? QuestIds { get; init; }
+
         /// <summary>How high they were standing, absent from clients that predate it.</summary>
         [JsonPropertyName("y")]
         public double? Y { get; init; }

@@ -61,6 +61,17 @@ public sealed record RaidEvidence(
     /// </remarks>
     public string? EventId { get; init; }
 
+    /// <summary>
+    /// Whether this is the companion catching up on a raid that was already running.
+    /// </summary>
+    /// <remarks>
+    /// Only the startup replay sets it. A raid recovered this way is one the previous run of
+    /// the companion may already have been recording, so whatever acts on it has to look for
+    /// that row before opening a new one — and no other evidence can be, because every other
+    /// piece arrives from a log line written while this process was watching.
+    /// </remarks>
+    public bool ResumesSession { get; init; }
+
     /// <summary>How <see cref="Side"/> was established, in the player's own words.</summary>
     /// <remarks>
     /// There are two routes and they differ in kind. Which profile ran the raid is an

@@ -24,7 +24,7 @@ public sealed class GroupQuestShareTests
             Quest("Debut", RecordedTaskState.Active),
             Quest("Zhivchik", RecordedTaskState.Active, isPinned: true));
 
-        Assert.Equal(["Zhivchik", "Debut"], await share.GetAsync(CancellationToken.None));
+        Assert.Equal(["Zhivchik", "Debut"], (await share.GetAsync(CancellationToken.None)).Names);
     }
 
     /// <summary>
@@ -39,7 +39,7 @@ public sealed class GroupQuestShareTests
     {
         var share = Share(Quest("Debut", state));
 
-        Assert.Empty(await share.GetAsync(CancellationToken.None));
+        Assert.Empty((await share.GetAsync(CancellationToken.None)).Names);
     }
 
     /// <summary>A pinned quest is shared whatever state it is recorded in.</summary>
@@ -48,7 +48,7 @@ public sealed class GroupQuestShareTests
     {
         var share = Share(Quest("Debut", RecordedTaskState.NotStarted, isPinned: true));
 
-        Assert.Equal(["Debut"], await share.GetAsync(CancellationToken.None));
+        Assert.Equal(["Debut"], (await share.GetAsync(CancellationToken.None)).Names);
     }
 
     /// <summary>Five is what fits in a squadmate's panel.</summary>
@@ -59,7 +59,73 @@ public sealed class GroupQuestShareTests
             .Select(index => Quest("Quest " + index, RecordedTaskState.Active))
             .ToArray());
 
-        Assert.Equal(5, (await share.GetAsync(CancellationToken.None)).Count);
+        Assert.Equal(5, (await share.GetAsync(CancellationToken.None)).Names.Count);
+    }
+
+    /// <summary>
+    /// The ids are what a squadmate's companion can act on, where the names are what they read.
+    /// </summary>
+    [Fact]
+    public async Task TheCatalogIdGoesAlongsideTheName()
+    {
+        var share = Share(Quest("Debut", RecordedTaskState.Active));
+
+        Assert.Equal(["debut"], (await share.GetAsync(CancellationToken.None)).TaskIds);
+    }
+
+    /// <summary>
+    /// More ids than names, because an id is counted rather than read.
+    /// </summary>
+    /// <remarks>
+    /// Five names is what fits in a squadmate's panel. Ranking tonight's maps by where the
+    /// group's lists overlap wants the whole list, and a sixth quest that only exists on the
+    /// sender's screen cannot be ranked by anybody.
+    /// </remarks>
+    [Fact]
+    public async Task EveryQuestIsSentByIdEvenThoughOnlyFiveAreNamed()
+    {
+        var share = Share(Enumerable.Range(0, 9)
+            .Select(index => Quest("Quest " + index, RecordedTaskState.Active))
+            .ToArray());
+
+        var shared = await share.GetAsync(CancellationToken.None);
+
+        Assert.Equal(5, shared.Names.Count);
+        Assert.Equal(9, shared.TaskIds.Count);
+    }
+
+    /// <summary>
+    /// Forty, which is more quests than anybody has open at once and the bound the wire
+    /// contract enforces at the other end.
+    /// </summary>
+    [Fact]
+    public async Task NoMoreThanFortyIds()
+    {
+        var share = Share(Enumerable.Range(0, 60)
+            .Select(index => Quest($"Quest {index:D2}", RecordedTaskState.Active))
+            .ToArray());
+
+        Assert.Equal(40, (await share.GetAsync(CancellationToken.None)).TaskIds.Count);
+    }
+
+    /// <summary>
+    /// One ordering, so the names are the head of the ids.
+    /// </summary>
+    /// <remarks>
+    /// Two orderings would let a squadmate's panel say one thing and their map rank another,
+    /// off the same exchange.
+    /// </remarks>
+    [Fact]
+    public async Task TheNamesAreTheHeadOfTheIds()
+    {
+        var share = Share(
+            Quest("Debut", RecordedTaskState.Active),
+            Quest("Zhivchik", RecordedTaskState.Active, isPinned: true));
+
+        var shared = await share.GetAsync(CancellationToken.None);
+
+        Assert.Equal(["zhivchik", "debut"], shared.TaskIds);
+        Assert.Equal(["Zhivchik", "Debut"], shared.Names);
     }
 
     /// <summary>
@@ -84,7 +150,7 @@ public sealed class GroupQuestShareTests
     {
         var share = new GroupQuestShare(new StubProfiles(), new ThrowingQuests());
 
-        Assert.Empty(await share.GetAsync(CancellationToken.None));
+        Assert.Empty((await share.GetAsync(CancellationToken.None)).Names);
     }
 
     private static GroupQuestShare Share(params QuestSummaryReadModel[] tasks) =>

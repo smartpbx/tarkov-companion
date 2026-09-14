@@ -71,6 +71,46 @@ public sealed class GroupSessionServiceTests
         Assert.Contains("last heard", group.Detail, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// A squadmate's quest ids arrive as ids, for the receiver to place.
+    /// </summary>
+    /// <remarks>
+    /// The names beside them are what a person reads, and they were all the exchange carried:
+    /// a squadmate's list could be printed and nothing else. The id is the key the local quest
+    /// catalog is indexed by, so with it the receiver can ask its own catalog which maps the
+    /// group's quests point at and rank tonight's options by where they overlap.
+    /// </remarks>
+    [Fact]
+    public async Task ASquadmatesQuestIdsSurviveTheExchange()
+    {
+        var handler = new StubHandler(_ => Task.FromResult(Json(
+            """{"members":[{"name":"Geo","quests":["Debut"],"questIds":["5936d90786f7742b1420ba5b"]}]}""")));
+        await using var service = Service(handler, out var store);
+
+        service.Start();
+        await WaitForDetailAsync(store, _ => store.Current.Group.Members.Count > 0);
+
+        var member = store.Current.Group.Members.Single();
+        Assert.Equal(["Debut"], member.Quests);
+        Assert.Equal(["5936d90786f7742b1420ba5b"], member.QuestIds);
+    }
+
+    /// <summary>
+    /// A squadmate whose companion predates the ids is read rather than refused.
+    /// </summary>
+    [Fact]
+    public async Task AMemberWhoSendsNoQuestIdsIsStillRead()
+    {
+        var handler = new StubHandler(_ => Task.FromResult(Json(
+            """{"members":[{"name":"Geo","quests":["Debut"]}]}""")));
+        await using var service = Service(handler, out var store);
+
+        service.Start();
+        await WaitForDetailAsync(store, _ => store.Current.Group.Members.Count > 0);
+
+        Assert.Empty(store.Current.Group.Members.Single().QuestIds);
+    }
+
     /// <summary>A refused key is an answer, not a bad moment — and it says which rule it broke.</summary>
     /// <remarks>
     /// This asserted "Wrong group key" until the message was corrected. A 401 from this relay

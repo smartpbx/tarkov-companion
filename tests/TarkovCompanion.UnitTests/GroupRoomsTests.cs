@@ -251,6 +251,7 @@ public sealed class GroupMemberStateValidationTests
         {
             Observed = null!,
             Trail = null!,
+            QuestIds = null!,
         };
 
         Assert.Null(state.Validate());
@@ -280,6 +281,31 @@ public sealed class GroupMemberStateValidationTests
             {
                 Trail = Enumerable.Range(0, 13).Select(i => new GroupTrailPoint(i, i, i)).ToArray(),
             }).Validate() ?? string.Empty,
+            StringComparison.Ordinal);
+
+    /// <summary>
+    /// Forty ids, which is more quests than anybody has open at once.
+    /// </summary>
+    /// <remarks>
+    /// Bounded on its own terms rather than with the names beside it. A name is read and five
+    /// fill a panel; an id is counted, and ranking tonight's maps by where the group overlaps
+    /// wants the whole active list.
+    /// </remarks>
+    [Fact]
+    public void TooManyQuestIdsAreRefused() =>
+        Assert.Contains(
+            "at most forty",
+            (Valid() with
+            {
+                QuestIds = [.. Enumerable.Range(0, 41).Select(index => $"task-{index}")],
+            }).Validate() ?? string.Empty,
+            StringComparison.Ordinal);
+
+    [Fact]
+    public void AnOverlongQuestIdIsRefused() =>
+        Assert.Contains(
+            "64 characters",
+            (Valid() with { QuestIds = [new string('t', 65)] }).Validate() ?? string.Empty,
             StringComparison.Ordinal);
 
     [Fact]

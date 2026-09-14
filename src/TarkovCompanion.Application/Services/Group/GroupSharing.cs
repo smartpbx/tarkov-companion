@@ -207,6 +207,19 @@ public sealed record GroupMemberView(
     public TimeSpan? RaidClockAge { get; init; }
 
     /// <summary>
+    /// Which quests they named, by catalog id, where they chose to share them.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Quests"/> is what a person reads and this is what a companion can act on.
+    /// Resolved against this machine's own quest catalog, so an id it does not carry is a
+    /// quest added since this copy last synced rather than something to guess at.
+    ///
+    /// Longer than the names: an id is counted rather than read, and ranking tonight's maps
+    /// by where the group's lists overlap wants the whole list rather than the top of it.
+    /// </remarks>
+    public IReadOnlyList<string> QuestIds { get; init; } = [];
+
+    /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
     /// </summary>
     /// <remarks>

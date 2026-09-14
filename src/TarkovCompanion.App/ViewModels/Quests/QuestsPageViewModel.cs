@@ -962,6 +962,20 @@ public sealed class QuestsPageViewModel : PageViewModel
     internal string NameOfTask(string taskId) => _allTasks
         .FirstOrDefault(task => string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Name ?? taskId;
 
+    /// <summary>
+    /// The board this page has loaded, for anything that needs to ask it a question.
+    /// </summary>
+    /// <remarks>
+    /// The same board and the same reason as <see cref="NameOfTask"/>: it is loaded on startup
+    /// and refreshed on every change, and a second read of the catalog elsewhere would be a
+    /// second answer that could disagree with the one on screen.
+    ///
+    /// Every task rather than the filtered list. A caller asking which maps a squadmate's
+    /// quests are on is asking about the catalog, not about what this page is showing.
+    /// </remarks>
+    internal IReadOnlyList<QuestSummaryReadModel> BoardTasks() =>
+        [.. _allTasks.Select(task => task.Model)];
+
     internal string NameOfItem(string itemId) =>
         _itemNames.TryGetValue(itemId, out var name) ? name : itemId;
 
