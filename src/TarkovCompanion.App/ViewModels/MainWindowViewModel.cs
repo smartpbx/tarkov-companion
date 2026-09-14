@@ -2496,7 +2496,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             SendReport = group.ReportProblemAsync,
         };
         Ammo = new(itemFactCatalog, itemRepository);
-        Keys = new(itemFactCatalog, itemRepository, questProgress);
+        Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
         Events = new(eventCatalog, eventTracker, itemRepository);
         Squad = new(itemRepository);

@@ -88,12 +88,19 @@ public sealed class SqliteMapDefinitionCache(
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                if (reader.IsDBNull(4) || !Matches(reader.GetString(4), mapId))
+                // Either name for the same map. The slug is what a raid reports and what every
+                // caller has asked with until now; the id column is the game's own, and it is
+                // what the item facts carry — a key's map is "56f40101d2720b2a4d8b45d6" and
+                // nothing in the application could turn that into "Customs", so the Keys page
+                // printed the identifier under a heading that said "Map id".
+                var id = reader.GetString(0);
+                if (!string.Equals(id, mapId, StringComparison.OrdinalIgnoreCase) &&
+                    (reader.IsDBNull(4) || !Matches(reader.GetString(4), mapId)))
                 {
                     continue;
                 }
 
-                storedId = reader.GetString(0);
+                storedId = id;
                 name = reader.IsDBNull(1) ? mapId : reader.GetString(1);
                 pmcSeconds = reader.IsDBNull(2) ? null : reader.GetInt32(2);
                 scavSeconds = reader.IsDBNull(3) ? null : reader.GetInt32(3);

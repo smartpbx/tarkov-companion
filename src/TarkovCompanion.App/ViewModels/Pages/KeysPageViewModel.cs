@@ -11,6 +11,7 @@ public sealed record KeyLockViewModel(string LockId);
 public sealed record KeyRowViewModel(
     string ItemId,
     string Name,
+    string MapId,
     string Map,
     bool HasMap,
     string LockSummary,
@@ -75,6 +76,8 @@ public sealed class KeysPageViewModel : PageViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
     private readonly IQuestProgressService? _questProgress;
+    private readonly IMapDataService? _maps;
+    private readonly Dictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
     private IReadOnlyList<KeyRowViewModel> _keys = [];
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
@@ -86,13 +89,59 @@ public sealed class KeysPageViewModel : PageViewModel
     public KeysPageViewModel(
         IItemFactCatalog catalog,
         IItemRepository itemRepository,
-        IQuestProgressService? questProgress = null)
+        IQuestProgressService? questProgress = null,
+        // Names the map a key belongs to. Without it the rows print the raw identifier, which
+        // is what they did: every key on the page read "Map id 56f40101d2720b2a4d8b45d6".
+        //
+        // The maps table rather than the map catalog, and that distinction is the whole of why
+        // the first attempt at this changed nothing. A key's map id is the game's own —
+        // 56f40101d2720b2a4d8b45d6 — and the map catalog is the-hideout's maps.json, whose
+        // locations are keyed by normalised name and carry no such id at all: MapLocation's
+        // SourceId reads an "id" property that file does not have, so it is null for every
+        // location and no lookup through it can ever match. The maps table is synced from
+        // tarkov.dev and is keyed by exactly that id.
+        IMapDataService? maps = null)
         : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
         _questProgress = questProgress;
+        _maps = maps;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+    }
+
+    /// <summary>
+    /// What a map is called, asked once per map rather than once per key.
+    /// </summary>
+    /// <remarks>
+    /// Two hundred and fifty-seven keys across a dozen maps, so the cache is the difference
+    /// between a dozen reads and two hundred and fifty-seven. The id is kept as the answer when
+    /// the table has nothing, which is the rule the rest of the application follows: a name
+    /// nobody has yet is better shown as the id than as "Unknown".
+    /// </remarks>
+    private async Task<string> NameOfMapAsync(string mapId, CancellationToken cancellationToken)
+    {
+        if (_maps is null)
+        {
+            return mapId;
+        }
+
+        if (_mapNames.TryGetValue(mapId, out var cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var name = (await _maps.GetAsync(mapId, cancellationToken).ConfigureAwait(true))?.Name ?? mapId;
+            _mapNames[mapId] = name;
+            return name;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _mapNames[mapId] = mapId;
+            return mapId;
+        }
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
@@ -259,7 +308,12 @@ public sealed class KeysPageViewModel : PageViewModel
         return new(
             facts.ItemId,
             item?.Name ?? facts.ItemId,
-            facts.MapId ?? UnknownMap,
+            facts.MapId ?? string.Empty,
+            // Named where the maps table has it, and the identifier until it does. A key
+            // belongs to a place, and "56f40101d2720b2a4d8b45d6" is not one.
+            facts.MapId is { } mapId
+                ? await NameOfMapAsync(mapId, cancellationToken).ConfigureAwait(true)
+                : UnknownMap,
             facts.MapId is not null,
             facts.Locks.Count switch
             {
