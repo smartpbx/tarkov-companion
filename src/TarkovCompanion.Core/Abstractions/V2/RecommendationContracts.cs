@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.Core.Abstractions.V2;
@@ -68,11 +69,48 @@ public sealed record RecommendationSensitivity(
         V2ContractGuard.DefinedOptional(AlternativeAction, nameof(AlternativeAction));
 }
 
+/// <summary>The two named inputs every opportunity-cost figure is computed from.</summary>
+/// <remarks>
+/// A provenance tree says what was combined but not which input was the price, so the roles are
+/// named here. Two identical provenances would leave the roles interchangeable, and a role this
+/// record does not name would be one nothing checks, so both fail instead of being skipped.
+/// </remarks>
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record OpportunityCostLineage
+{
+    public OpportunityCostLineage(EvidenceProvenance price, EvidenceProvenance footprint)
+    {
+        Price = V2ContractGuard.NotNull(price, nameof(price));
+        Footprint = V2ContractGuard.NotNull(footprint, nameof(footprint));
+
+        if (price.SourceClass == EvidenceSourceClass.Unknown || footprint.SourceClass == EvidenceSourceClass.Unknown)
+        {
+            throw new ArgumentException("An opportunity-cost input must name its source class.");
+        }
+
+        if (price == footprint)
+        {
+            throw new ArgumentException("The price and footprint must be distinguishable inputs.", nameof(footprint));
+        }
+    }
+
+    public EvidenceProvenance Price { get; }
+
+    public EvidenceProvenance Footprint { get; }
+}
+
 /// <summary>
 /// One decision. Opportunity cost is the value given up against the best economic alternative;
-/// it is absent rather than zero when a price or footprint is unknown. Combined figures carry
-/// <see cref="EvidenceSourceClass.DerivedCalculation"/> provenance naming every input.
+/// it is absent rather than zero when a price or footprint is unknown.
 /// </summary>
+/// <remarks>
+/// Any figure (the value, a candidate, or a correction) is a computation, so it needs
+/// <see cref="OpportunityCostLineage"/>, and the value and each candidate carry
+/// <see cref="EvidenceSourceClass.DerivedCalculation"/> or
+/// <see cref="EvidenceSourceClass.ModelledEstimate"/> provenance whose input tree holds the price
+/// exactly once, then the footprint exactly once. Without that, a bare catalog price or a screenshot
+/// reading could be presented as the cost of a choice.
+/// </remarks>
 public sealed record RecommendationDecision
 {
     public RecommendationDecision(
@@ -80,6 +118,7 @@ public sealed record RecommendationDecision
         string summary,
         IReadOnlyList<RecommendationReason> reasons,
         EvidencedValue<long?> opportunityCostRoubles,
+        OpportunityCostLineage? opportunityCostLineage,
         IReadOnlyList<RecommendationSensitivity> changesTheAnswer)
     {
         Action = V2ContractGuard.Defined(action, nameof(action));
@@ -88,12 +127,15 @@ public sealed record RecommendationDecision
             V2ContractGuard.List(reasons, nameof(reasons)).OrderByDescending(reason => reason.Priority).ToArray(),
             nameof(reasons));
         OpportunityCostRoubles = V2ContractGuard.AtLeast(opportunityCostRoubles, 0, nameof(opportunityCostRoubles));
+        OpportunityCostLineage = opportunityCostLineage;
         ChangesTheAnswer = V2ContractGuard.List(changesTheAnswer, nameof(changesTheAnswer));
 
         if (Reasons.Count == 0)
         {
             throw new ArgumentException("A decision must give at least one reason.", nameof(reasons));
         }
+
+        ValidateOpportunityCost();
     }
 
     public RecommendationAction Action { get; }
@@ -105,7 +147,50 @@ public sealed record RecommendationDecision
 
     public EvidencedValue<long?> OpportunityCostRoubles { get; }
 
+    /// <summary>Null only when the opportunity cost carries no figure anywhere.</summary>
+    public OpportunityCostLineage? OpportunityCostLineage { get; }
+
     public IReadOnlyList<RecommendationSensitivity> ChangesTheAnswer { get; }
+
+    private void ValidateOpportunityCost()
+    {
+        var cost = OpportunityCostRoubles;
+        if (cost.Value is null && cost.Candidates.Count == 0 && cost.Corrections.Count == 0)
+        {
+            return;
+        }
+
+        if (OpportunityCostLineage is not { } lineage)
+        {
+            throw new ArgumentException(
+                "An opportunity-cost figure must name its price and footprint.",
+                "opportunityCostLineage");
+        }
+
+        // A correction has no provenance of its own; it revises the value, whose provenance stands.
+        foreach (var provenance in cost.Candidates.Select(candidate => candidate.Provenance).Prepend(cost.Provenance))
+        {
+            if (provenance.SourceClass is not (EvidenceSourceClass.DerivedCalculation or EvidenceSourceClass.ModelledEstimate))
+            {
+                throw new ArgumentException(
+                    $"An opportunity cost is computed, so {provenance.SourceClass} provenance cannot carry one.",
+                    "opportunityCostRoubles");
+            }
+
+            var inputs = provenance.DescendantInputs().ToList();
+            var price = inputs.FindIndex(input => input == lineage.Price);
+            var footprint = inputs.FindIndex(input => input == lineage.Footprint);
+            if (price < 0 ||
+                footprint < price ||
+                inputs.FindLastIndex(input => input == lineage.Price) != price ||
+                inputs.FindLastIndex(input => input == lineage.Footprint) != footprint)
+            {
+                throw new ArgumentException(
+                    "An opportunity cost's inputs must hold its price once, then its footprint once.",
+                    "opportunityCostLineage");
+            }
+        }
+    }
 }
 
 /// <summary>A recommendation is advice for review; it cannot perform the advised action.</summary>

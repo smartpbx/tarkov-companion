@@ -213,6 +213,47 @@ public sealed record EvidenceProvenance
     /// <summary>The newest instant this claim's evidence represents.</summary>
     public DateTimeOffset EvidenceThroughUtc => DataThroughUtc ?? ObservedUtc;
 
+    // Synthesized record equality compares Inputs by reference, so the same lineage read back from
+    // JSON, or named twice in one envelope, compared unequal and could not be reconciled. Inputs
+    // are compared in order; the tree is bounded, so the comparison is too.
+    public bool Equals(EvidenceProvenance? other) =>
+        other is not null &&
+        (ReferenceEquals(this, other) ||
+         (SourceClass == other.SourceClass &&
+          string.Equals(SourceIdentifier, other.SourceIdentifier, StringComparison.Ordinal) &&
+          ObservedUtc == other.ObservedUtc &&
+          DataThroughUtc == other.DataThroughUtc &&
+          GeneratedUtc == other.GeneratedUtc &&
+          Confidence == other.Confidence &&
+          Coverage == other.Coverage &&
+          Producer == other.Producer &&
+          string.Equals(Reference, other.Reference, StringComparison.Ordinal) &&
+          Inputs.SequenceEqual(other.Inputs)));
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(SourceClass);
+        hash.Add(SourceIdentifier);
+        hash.Add(ObservedUtc);
+        hash.Add(DataThroughUtc);
+        hash.Add(GeneratedUtc);
+        hash.Add(Confidence);
+        hash.Add(Coverage);
+        hash.Add(Producer);
+        hash.Add(Reference);
+        foreach (var input in Inputs)
+        {
+            hash.Add(input);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>Every input below this claim, depth first, each before its own inputs.</summary>
+    internal IEnumerable<EvidenceProvenance> DescendantInputs() =>
+        Inputs.SelectMany(input => new[] { input }.Concat(input.DescendantInputs()));
+
     private void ValidateIntelligenceProvenance()
     {
         if (DataThroughUtc is null || GeneratedUtc is null || Coverage is null)
