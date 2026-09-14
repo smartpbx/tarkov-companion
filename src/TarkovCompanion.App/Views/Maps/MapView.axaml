@@ -488,6 +488,42 @@
                Drawn before the markers so a line never sits on top of the dot it ends at, and
                dashed like the player's own trail: the points are screenshots minutes apart and
                a solid line between two of them would claim a route nobody observed. -->
+          <!-- Everywhere this player has been on this map, oldest faintest. raid_events has kept
+               every position of every raid since the first one, and the only readers were a
+               single raid's replay and a distance sum.
+
+               Drawn first, under everything: it is background rather than a thing to read, and
+               a past raid sitting on top of the present one would be a past raid mistaken for
+               it. Dashed like the other trails, because the points are screenshots minutes
+               apart and a solid line between two of them claims a route nobody observed.
+
+               This is where somebody stood and nothing else — never a heat map and never a
+               danger colouring. A raid is a handful of screenshots, and four points dressed up
+               as a density is a claim the data cannot carry. -->
+          <ItemsControl
+              ItemsSource="{Binding VisitedTrails}"
+              IsVisible="{Binding HasVisitedTrails}"
+              Width="{Binding CanvasWidth}"
+              Height="{Binding CanvasHeight}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <Canvas />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:VisitedTrailViewModel">
+                <Polyline
+                    Points="{Binding Points}"
+                    IsVisible="{Binding HasPath}"
+                    IsHitTestVisible="False"
+                    Stroke="{Binding StrokeColor}"
+                    StrokeThickness="2"
+                    StrokeDashArray="1,2.4"
+                    StrokeLineCap="Round" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
           <ItemsControl
               ItemsSource="{Binding GroupTrails}"
               IsVisible="{Binding HasGroupTrails}"
@@ -818,6 +854,15 @@
           <Button Classes="viewControl" Classes.on="{Binding AutoSelectsFloor}" Click="AutoFloorClick" Content="Floors"
                   ToolTip.Tip="Change floor to the one you are standing on, from the height in your screenshot" />
           <Button Classes="viewControl" Classes.on="{Binding IsAutoFit}" Click="FitClick" Content="Fit" ToolTip.Tip="Scale the whole map to the panel and centre it. Double-click the map does the same." />
+          <!-- Off unless asked for, and loaded when it is. It is the one layer that grows with
+               how much somebody has played, and on a map they know well it is a great deal of
+               ink over the things they opened the map to read. -->
+          <Button
+              Classes="viewControl"
+              Classes.on="{Binding ShowsVisited}"
+              Click="VisitedClick"
+              Content="{Binding VisitedLabel}"
+              ToolTip.Tip="Draw where your own screenshots put you in past raids on this map" />
           <!-- A setting rather than a given, which is how it was asked for: the colour of
                somebody's dot already appears beside their name in the group panel, so on a
                two-man the names are redundant and on a five-man they are the only thing that

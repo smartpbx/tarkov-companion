@@ -96,6 +96,112 @@ public sealed class SqliteRaidHistoryService(
     /// A payload that will not parse is skipped rather than failing the read. One unreadable
     /// screenshot costs one point on a trail, and a trail missing a point is still a trail.
     /// </remarks>
+    /// <summary>
+    /// Every raid's trail on one map, newest first.
+    /// </summary>
+    /// <remarks>
+    /// The same rows <see cref="ListPositionsAsync"/> reads, asked for by map rather than by
+    /// raid — one query joined to raids for the map and the start time, rather than one query
+    /// per raid, because a player who has run Customs two hundred times would otherwise cost
+    /// two hundred round trips to draw one layer.
+    ///
+    /// Grouped rather than flattened. The points of one raid are a path and the points of two
+    /// are not: joining the last position of Tuesday to the first of Wednesday would draw a
+    /// line across the map that nobody walked.
+    ///
+    /// The limit counts raids, not points, because that is what the caller is choosing between.
+    /// </remarks>
+    public async Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
+        string mapId,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
+        if (limit <= 0)
+        {
+            return [];
+        }
+
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        // The inner select picks the raids; the join then takes every position belonging to
+        // them. Ordering by start descending and then by event time ascending gives newest
+        // raid first with each raid's own points in the order they were taken.
+        command.CommandText = """
+            SELECT raid.id, raid.start_utc, event.payload_json
+            FROM raid_events AS event
+            JOIN raids AS raid ON raid.id = event.raid_id
+            WHERE event.type = 'position'
+              AND raid.id IN (
+                  SELECT id FROM raids
+                  WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
+                  ORDER BY start_utc DESC
+                  LIMIT $limit
+              )
+            ORDER BY raid.start_utc DESC, event.timestamp_utc, event.id;
+            """;
+        command.Parameters.AddWithValue("$mapId", mapId.Trim());
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var trails = new List<RaidTrail>();
+        var points = new List<ScreenshotPosition>();
+        var currentId = Guid.Empty;
+        DateTimeOffset? currentStart = null;
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!Guid.TryParse(reader.GetString(0), out var raidId) || reader.IsDBNull(2))
+            {
+                continue;
+            }
+
+            if (raidId != currentId)
+            {
+                Flush();
+                currentId = raidId;
+                currentStart = reader.IsDBNull(1) ? null : ReadTime(reader.GetString(1));
+            }
+
+            // The same refusal the single-raid read makes: a payload that is valid JSON but is
+            // not one of these deserialises to a record of defaults, which draws a point at the
+            // origin that nobody stood on. Every real one came from a screenshot and has its
+            // name.
+            try
+            {
+                if (JsonSerializer.Deserialize<ScreenshotPosition>(reader.GetString(2), JsonOptions)
+                    is { Filename.Length: > 0 } position)
+                {
+                    points.Add(position);
+                }
+            }
+            catch (JsonException)
+            {
+                // One unreadable screenshot costs one point on one trail.
+            }
+        }
+
+        Flush();
+        return trails;
+
+        void Flush()
+        {
+            // A raid whose every position was unreadable is not an empty trail, it is no trail.
+            if (currentId != Guid.Empty && points.Count > 0)
+            {
+                trails.Add(new(currentId, currentStart, [.. points]));
+            }
+
+            points.Clear();
+        }
+    }
+
+    /// <summary>Reads a stored instant, or nothing rather than a wrong one.</summary>
+    private static DateTimeOffset? ReadTime(string stored) =>
+        DateTimeOffset.TryParse(stored, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : null;
+
     public async Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
         Guid raidId,
         CancellationToken cancellationToken)

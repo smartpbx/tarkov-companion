@@ -423,6 +423,51 @@ public sealed record GroupMemberPanelViewModel(
 /// player's own trail and for the same reason: the points are screenshots minutes apart, and a
 /// solid line between two of them would claim a route that was never observed.
 /// </remarks>
+/// <summary>One past raid's path across this map.</summary>
+/// <remarks>
+/// raid_events has kept every position of every raid since the first one, and the only readers
+/// were a single raid's replay and a distance sum. A player who has run Customs two hundred
+/// times had two hundred trails in the database and could see one at a time, from the History
+/// page, one raid at a time.
+///
+/// This is where that player stood and nothing else. It is never a heat map and never a danger
+/// colouring: a raid is a handful of screenshots, and four points dressed up as a density would
+/// be a claim the data cannot carry — the same objection that keeps the loot layer off the map.
+/// </remarks>
+/// <param name="RaidId">Which raid, so a trail can be opened as its own replay.</param>
+/// <param name="Points">Where the player was, in canvas coordinates, oldest first.</param>
+/// <param name="Rank">How far back this raid is, zero being the most recent.</param>
+/// <param name="Total">How many raids are drawn, which is what the fade is scaled against.</param>
+public sealed record VisitedTrailViewModel(Guid RaidId, AvaloniaList<Point> Points, int Rank, int Total)
+{
+    /// <summary>Two points is a line; one is a dot nobody can read as a path.</summary>
+    public bool HasPath => Points.Count > 1;
+
+    /// <summary>
+    /// Faded by how far back the raid is, oldest faintest.
+    /// </summary>
+    /// <remarks>
+    /// By rank rather than by date. Somebody who played twenty raids last night and then
+    /// nothing for a month wants last night's twenty told apart from each other, which a fade
+    /// measured in days would render as twenty identical lines.
+    ///
+    /// The newest is deliberately not full strength: this layer sits under the current raid's
+    /// own trail, and a past raid as bright as the present one is a past raid being mistaken
+    /// for it.
+    /// </remarks>
+    public string StrokeColor
+    {
+        get
+        {
+            var share = Total <= 1 ? 0 : (double)Rank / (Total - 1);
+            var alpha = (int)Math.Round(0x60 - (share * 0x48));
+            return string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"#{Math.Clamp(alpha, 0x18, 0x60):X2}8FA8B8");
+        }
+    }
+}
+
 public sealed record GroupTrailViewModel(string Name, AvaloniaList<Point> Points, TimeSpan OldestAge)
 {
     /// <summary>That member's colour, which is also their dot and their row in the panel.</summary>
@@ -1274,6 +1319,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly MapVariantSelectionService _selectionService;
     private readonly IPlayerProfileService? _profileService;
     private readonly IMapFeatureCatalog? _featureCatalog;
+    private readonly IRaidHistoryService? _raidHistory;
     private readonly IQuestReadService? _questReadService;
     private readonly QuestMapProjectionService? _questProjectionService;
     private readonly MapPresentationService _presentationService = new();
@@ -1317,6 +1363,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         new Dictionary<string, string>(StringComparer.Ordinal);
     private IReadOnlyList<GroupMarkerViewModel> _groupMarkers = [];
     private IReadOnlyList<GroupTrailViewModel> _groupTrails = [];
+    private IReadOnlyList<VisitedTrailViewModel> _visitedTrails = [];
+    private IReadOnlyList<RaidTrail> _visited = [];
+    private bool _showsVisited;
     private IReadOnlyList<GroupMarkViewModel> _groupMarks = [];
     private IReadOnlyList<MarkListItemViewModel> _markList = [];
     private IReadOnlyList<GroupWaypointView> _waypoints = [];
@@ -1352,7 +1401,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IPlayerProfileService profileService,
         IQuestReadService questReadService,
         QuestMapProjectionService questProjectionService,
-        IMapFeatureCatalog? featureCatalog = null)
+        IMapFeatureCatalog? featureCatalog = null,
+        // Optional so every composition that builds this by hand keeps working. Without it the
+        // Visited layer is simply not offered, which is what the map did before it existed.
+        IRaidHistoryService? raidHistory = null)
         : this(
             null,
             catalogClient,
@@ -1361,7 +1413,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             profileService,
             questReadService,
             questProjectionService,
-            featureCatalog)
+            featureCatalog,
+            raidHistory)
     {
     }
 
@@ -1373,13 +1426,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IPlayerProfileService? profileService,
         IQuestReadService? questReadService,
         QuestMapProjectionService? questProjectionService,
-        IMapFeatureCatalog? featureCatalog = null)
+        IMapFeatureCatalog? featureCatalog = null,
+        IRaidHistoryService? raidHistory = null)
     {
         RemoveMarkCommand = new ParameterCommand<MarkListItemViewModel>(RemoveMark);
         ClearReachedMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: true));
         ClearMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: false));
         _ownedHttpClient = ownedHttpClient;
         _featureCatalog = featureCatalog;
+        _raidHistory = raidHistory;
         _catalogClient = catalogClient;
         _assetCache = assetCache;
         _selectionService = selectionService;
@@ -3498,6 +3553,138 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public bool HasGroupTrails => GroupTrails.Count > 0;
 
     /// <summary>
+    /// Every past raid's path on this map, oldest faintest.
+    /// </summary>
+    /// <remarks>
+    /// Off unless asked for. It is the one layer that grows with how much somebody has played,
+    /// and on a map they know well it is a great deal of ink over the things they opened the
+    /// map to read.
+    /// </remarks>
+    public IReadOnlyList<VisitedTrailViewModel> VisitedTrails
+    {
+        get => _visitedTrails;
+        private set
+        {
+            Set(ref _visitedTrails, value);
+            OnPropertyChanged(nameof(HasVisitedTrails));
+        }
+    }
+
+    public bool HasVisitedTrails => _visitedTrails.Count > 0;
+
+    /// <summary>Whether the layer is drawn at all.</summary>
+    public bool ShowsVisited
+    {
+        get => _showsVisited;
+        private set
+        {
+            if (Set(ref _showsVisited, value))
+            {
+                OnPropertyChanged(nameof(VisitedLabel));
+            }
+        }
+    }
+
+    /// <summary>What the button says, which is a count once there is one.</summary>
+    public string VisitedLabel => ShowsVisited && _visitedTrails.Count > 0
+        ? $"Visited · {_visitedTrails.Count}"
+        : "Visited";
+
+    /// <summary>Turns the layer on or off, loading it the first time it is asked for.</summary>
+    /// <remarks>
+    /// Loaded on demand rather than with the map. Most sessions never ask for it, and a read
+    /// across every raid on a map is not work to do on the way to drawing one.
+    /// </remarks>
+    public async Task ToggleVisitedAsync()
+    {
+        ShowsVisited = !ShowsVisited;
+        if (!ShowsVisited)
+        {
+            VisitedTrails = [];
+            return;
+        }
+
+        await LoadVisitedAsync(_lifetime.Token).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Reads the trails for the open map and projects them onto it.
+    /// </summary>
+    /// <remarks>
+    /// Bounded at a few dozen raids. The answer grows without limit and the question does not:
+    /// past about this many the lines stop being distinguishable from each other and the layer
+    /// says "you have been here a lot", which the count on the button already says.
+    /// </remarks>
+    private async Task LoadVisitedAsync(CancellationToken cancellationToken)
+    {
+        if (_raidHistory is null || SelectedLocation is not { } location)
+        {
+            VisitedTrails = [];
+            return;
+        }
+
+        try
+        {
+            _visited = await _raidHistory
+                .ListTrailsForMapAsync(location.Id, VisitedRaidLimit, cancellationToken)
+                .ConfigureAwait(true);
+            UpdateVisitedTrails();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _visited = [];
+            VisitedTrails = [];
+            Status = $"Could not read where you have been: {exception.Message}";
+        }
+    }
+
+    /// <summary>How many past raids are worth drawing at once.</summary>
+    private const int VisitedRaidLimit = 40;
+
+    /// <summary>
+    /// Projects the loaded trails through the current transform.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the read so a zoom, a floor change or a different artwork redraws them
+    /// without going back to the database for rows that have not changed.
+    /// </remarks>
+    private void UpdateVisitedTrails()
+    {
+        var mapper = CreateCanvasMapper();
+        if (!ShowsVisited || _renderModel is null || mapper is null || _visited.Count == 0)
+        {
+            VisitedTrails = [];
+            return;
+        }
+
+        var drawn = new List<VisitedTrailViewModel>(_visited.Count);
+        for (var index = 0; index < _visited.Count; index++)
+        {
+            var points = new AvaloniaList<Point>();
+            foreach (var position in _visited[index].Positions)
+            {
+                if (_renderModel.TryMapPosition(position.Position, out var mapPoint))
+                {
+                    var point = mapper(mapPoint);
+                    if (double.IsFinite(point.X) && double.IsFinite(point.Y))
+                    {
+                        points.Add(point);
+                    }
+                }
+            }
+
+            // A raid whose points this transform cannot place is not drawn as a stub.
+            if (points.Count > 1)
+            {
+                drawn.Add(new(_visited[index].RaidId, points, index, _visited.Count));
+            }
+        }
+
+        VisitedTrails = drawn;
+        OnPropertyChanged(nameof(VisitedLabel));
+    }
+
+    /// <summary>
     /// Takes the group's latest positions, to be drawn alongside the player's own.
     /// </summary>
     /// <remarks>
@@ -4287,6 +4474,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         GroupMarkers = markers;
         UpdateGroupTrails(mapper);
+        UpdateVisitedTrails();
         // The names are laid out against the feature names, so a new set of markers has to go
         // through the same arrangement rather than being placed where they happen to land.
         ArrangeNames();
