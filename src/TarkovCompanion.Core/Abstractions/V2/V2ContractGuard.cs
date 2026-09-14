@@ -1,3 +1,5 @@
+using TarkovCompanion.Core.Domain.Evidence;
+
 namespace TarkovCompanion.Core.Abstractions.V2;
 
 /// <summary>
@@ -10,32 +12,74 @@ internal static class V2ContractGuard
         where T : class =>
         value ?? throw new ArgumentNullException(parameterName);
 
-    public static IReadOnlyList<T> List<T>(IReadOnlyList<T>? values, string parameterName)
-        where T : class
-    {
-        ArgumentNullException.ThrowIfNull(values, parameterName);
-        var copy = values.ToArray();
-        if (copy.Any(value => value is null))
-        {
-            throw new ArgumentException("A contract list cannot contain null entries.", parameterName);
-        }
+    public static IReadOnlyList<T> List<T>(IReadOnlyList<T>? values, string parameterName) =>
+        EvidenceGuard.ReadOnly(values, parameterName);
 
-        return copy;
-    }
+    public static string Required(string value, string parameterName) =>
+        EvidenceGuard.Required(value, parameterName);
 
-    public static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
+    public static string? Optional(string? value) => EvidenceGuard.TrimOptional(value);
 
     public static DateTimeOffset Utc(DateTimeOffset value, string parameterName) =>
-        value == default
-            ? throw new ArgumentException("A UTC timestamp is required.", parameterName)
-            : value.ToUniversalTime();
+        EvidenceGuard.Utc(value, parameterName);
 
-    // A default identifier struct skips its constructor, including during deserialization of
-    // a missing field, so records that hold one check it again.
+    public static DateTimeOffset? UtcOptional(DateTimeOffset? value, string parameterName) =>
+        EvidenceGuard.UtcOptional(value, parameterName);
+
+    public static TEnum Defined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum =>
+        EvidenceGuard.Defined(value, parameterName);
+
+    public static TEnum? DefinedOptional<TEnum>(TEnum? value, string parameterName)
+        where TEnum : struct, Enum =>
+        value is { } present ? EvidenceGuard.Defined(present, parameterName) : null;
+
+    /// <summary>Checks the value, every candidate, and every correction against a lower bound.</summary>
+    public static EvidencedValue<int?> AtLeast(EvidencedValue<int?> field, int minimum, string parameterName)
+    {
+        NotNull(field, parameterName);
+        if (Values(field).Any(value => value < minimum))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, $"{field.FieldId} must be at least {minimum}.");
+        }
+
+        return field;
+    }
+
+    public static EvidencedValue<long?> AtLeast(EvidencedValue<long?> field, long minimum, string parameterName)
+    {
+        NotNull(field, parameterName);
+        if (Values(field).Any(value => value < minimum))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, $"{field.FieldId} must be at least {minimum}.");
+        }
+
+        return field;
+    }
+
+    public static EvidencedValue<TEnum?> Defined<TEnum>(EvidencedValue<TEnum?> field, string parameterName)
+        where TEnum : struct, Enum
+    {
+        NotNull(field, parameterName);
+        foreach (var value in Values(field))
+        {
+            if (value is { } present)
+            {
+                EvidenceGuard.Defined(present, parameterName);
+            }
+        }
+
+        return field;
+    }
+
+    private static IEnumerable<T?> Values<T>(EvidencedValue<T?> field)
+        where T : struct =>
+        new[] { field.Value }
+            .Concat(field.Candidates.Select(candidate => candidate.Value))
+            .Concat(field.Corrections.SelectMany(correction => new[] { correction.OriginalValue, correction.CorrectedValue }));
+
+    // A default identifier struct skips its constructor, including a missing JSON field under
+    // non-canonical options, so records that hold one check it again.
     public static CaptureSessionId Defined(CaptureSessionId value, string parameterName) =>
         value.Value == Guid.Empty ? throw new ArgumentException("A capture session id is required.", parameterName) : value;
 
@@ -51,6 +95,9 @@ internal static class V2ContractGuard
     public static StateStreamId Defined(StateStreamId value, string parameterName) =>
         string.IsNullOrWhiteSpace(value.Value) ? throw new ArgumentException("A stream id is required.", parameterName) : value;
 
+    public static StateRevision Positive(StateRevision value, string parameterName) =>
+        value.Value < 1 ? throw new ArgumentOutOfRangeException(parameterName, "A change revision starts at one.") : value;
+
     public static V2ContractVersion Defined(V2ContractVersion value, string parameterName) =>
-        value.Major < 1 ? throw new ArgumentException("A contract version is required.", parameterName) : value;
+        value.IsDefined ? value : throw new ArgumentException("A contract version is required.", parameterName);
 }

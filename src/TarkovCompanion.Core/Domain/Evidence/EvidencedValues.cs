@@ -1,8 +1,10 @@
+using System.Text.Json.Serialization;
+
 namespace TarkovCompanion.Core.Domain.Evidence;
 
 public enum ResultCompleteness
 {
-    Unknown,
+    Unknown = 0,
     Unavailable,
     Partial,
     Complete,
@@ -11,16 +13,33 @@ public enum ResultCompleteness
 /// <summary>Freshness is separate because a complete result may still be stale.</summary>
 public enum FreshnessState
 {
-    Unknown,
+    Unknown = 0,
     Current,
     Stale,
 }
 
-public sealed record ResultStatus(
-    ResultCompleteness Completeness,
-    FreshnessState Freshness,
-    string? Code = null,
-    string? Detail = null);
+public sealed record ResultStatus
+{
+    public ResultStatus(
+        ResultCompleteness completeness,
+        FreshnessState freshness,
+        string? code = null,
+        string? detail = null)
+    {
+        Completeness = EvidenceGuard.Defined(completeness, nameof(completeness));
+        Freshness = EvidenceGuard.Defined(freshness, nameof(freshness));
+        Code = EvidenceGuard.TrimOptional(code);
+        Detail = EvidenceGuard.TrimOptional(detail);
+    }
+
+    public ResultCompleteness Completeness { get; }
+
+    public FreshnessState Freshness { get; }
+
+    public string? Code { get; }
+
+    public string? Detail { get; }
+}
 
 public sealed record EvidenceCandidate<T>
 {
@@ -54,7 +73,7 @@ public sealed record EvidenceCandidate<T>
 
 public enum CorrectionOriginClass
 {
-    User,
+    User = 1,
     DesktopApplication,
     PairedDevice,
     ReviewedImport,
@@ -82,7 +101,7 @@ public sealed record EvidenceCorrection<T>
         OriginalValue = originalValue;
         CorrectedValue = correctedValue;
         CorrectedUtc = EvidenceGuard.Utc(correctedUtc, nameof(correctedUtc));
-        OriginClass = originClass;
+        OriginClass = EvidenceGuard.Defined(originClass, nameof(originClass));
         OriginIdentifier = EvidenceGuard.Required(originIdentifier, nameof(originIdentifier));
         Reason = EvidenceGuard.TrimOptional(reason);
     }
@@ -103,8 +122,18 @@ public sealed record EvidenceCorrection<T>
 }
 
 /// <summary>A value plus everything needed to inspect, revise, and honestly display the claim.</summary>
+/// <remarks>
+/// <see cref="Value"/> is the current value: the last correction's value when corrections exist,
+/// otherwise what was recognized. <see cref="RecognizedValue"/> is always the original. Each
+/// correction starts from the value the previous one left, so a history cannot be spliced.
+/// Only scalar values (strings and value types) are corrected in place; a composite payload is
+/// corrected through its own evidenced fields, which keeps the chain comparison exact after a
+/// serialization round trip.
+/// </remarks>
 public sealed record EvidencedValue<T>
 {
+    private static readonly bool IsScalar = typeof(T) == typeof(string) || typeof(T).IsValueType;
+
     public EvidencedValue(
         string fieldId,
         T? value,
@@ -122,33 +151,25 @@ public sealed record EvidencedValue<T>
         Status = status;
         Provenance = provenance;
         Bounds = bounds;
-        Candidates = candidates?.ToArray() ?? [];
-        Corrections = corrections?.ToArray() ?? [];
+        Candidates = EvidenceGuard.ReadOnly(candidates ?? [], nameof(candidates));
+        Corrections = EvidenceGuard.ReadOnly(corrections ?? [], nameof(corrections));
 
-        if (Candidates.Any(candidate => candidate is null) || Corrections.Any(correction => correction is null))
-        {
-            throw new ArgumentException("Candidates and corrections cannot contain null entries.");
-        }
-
-        // An undetermined claim must not look like a read zero, false, or name. Candidates may
-        // still describe the ambiguity; the value itself stays absent until something decides it.
-        // Presence is tested, not equality with default, so EvidencedValue<int> cannot pass off
-        // 0 as unknown: undetermined numbers and flags need a nullable payload type.
+        // An undetermined claim must not look like a read zero, false, or name, and a complete
+        // one must say what it found. Presence is tested rather than equality with default, so
+        // EvidencedValue<int> cannot be Unknown at all: undetermined numbers need int?.
+        // Candidates may still describe an ambiguity while the value itself stays absent.
         if (status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable &&
             value is not null)
         {
-            throw new ArgumentException(
-                $"A {status.Completeness} result cannot carry a value.",
-                nameof(value));
+            throw new ArgumentException($"A {status.Completeness} result cannot carry a value.", nameof(value));
         }
 
-        for (var index = 0; index < Corrections.Count; index++)
+        if (status.Completeness == ResultCompleteness.Complete && value is null)
         {
-            if (Corrections[index].Sequence != index + 1)
-            {
-                throw new ArgumentException("Corrections must be contiguous and ordered from sequence one.", nameof(corrections));
-            }
+            throw new ArgumentException("A complete result must carry its value.", nameof(value));
         }
+
+        ValidateCorrections(value, provenance);
     }
 
     public string FieldId { get; }
@@ -164,4 +185,48 @@ public sealed record EvidencedValue<T>
     public IReadOnlyList<EvidenceCandidate<T>> Candidates { get; }
 
     public IReadOnlyList<EvidenceCorrection<T>> Corrections { get; }
+
+    [JsonIgnore]
+    public T? RecognizedValue => Corrections.Count == 0 ? Value : Corrections[0].OriginalValue;
+
+    private void ValidateCorrections(T? value, EvidenceProvenance provenance)
+    {
+        if (Corrections.Count == 0)
+        {
+            return;
+        }
+
+        if (!IsScalar)
+        {
+            throw new ArgumentException(
+                "Composite values are corrected through their evidenced fields, not replaced whole.",
+                "corrections");
+        }
+
+        var comparer = EqualityComparer<T?>.Default;
+        for (var index = 0; index < Corrections.Count; index++)
+        {
+            var correction = Corrections[index];
+            if (correction.Sequence != index + 1)
+            {
+                throw new ArgumentException("Corrections must be contiguous and ordered from sequence one.", "corrections");
+            }
+
+            var previousUtc = index == 0 ? provenance.ObservedUtc : Corrections[index - 1].CorrectedUtc;
+            if (correction.CorrectedUtc < previousUtc)
+            {
+                throw new ArgumentException("A correction cannot predate the evidence or correction before it.", "corrections");
+            }
+
+            if (index > 0 && !comparer.Equals(correction.OriginalValue, Corrections[index - 1].CorrectedValue))
+            {
+                throw new ArgumentException("Each correction must start from the value the previous one left.", "corrections");
+            }
+        }
+
+        if (!comparer.Equals(value, Corrections[^1].CorrectedValue))
+        {
+            throw new ArgumentException("The current value must be the last correction's value.", nameof(value));
+        }
+    }
 }

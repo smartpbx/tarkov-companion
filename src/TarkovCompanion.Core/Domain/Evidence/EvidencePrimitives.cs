@@ -1,10 +1,12 @@
+using System.Collections.ObjectModel;
+
 namespace TarkovCompanion.Core.Domain.Evidence;
 
 /// <summary>Where a claim came from, without implying more authority than the source has.</summary>
 public enum EvidenceSourceClass
 {
-    Unknown,
-    UserEntered,
+    Unknown = 0,
+    UserEntered = 1,
     GameWrittenScreenshot,
     ExternalVisiblePixels,
     GameWrittenLog,
@@ -14,12 +16,13 @@ public enum EvidenceSourceClass
     HistoricalAggregate,
     ModelledEstimate,
     PairedDeviceAction,
+    DerivedCalculation,
 }
 
 /// <summary>What a confidence score means; an absent score is not a score of zero.</summary>
 public enum EvidenceConfidenceKind
 {
-    Unscored,
+    Unscored = 1,
     Deterministic,
     ProviderScore,
     CalibratedEstimate,
@@ -32,7 +35,9 @@ public sealed record EvidenceConfidence
         double? score = null,
         string? calibrationReference = null)
     {
-        if (score is { } value && (double.IsNaN(value) || value is < 0 or > 1))
+        EvidenceGuard.Defined(kind, nameof(kind));
+
+        if (score is { } value && (!double.IsFinite(value) || value is < 0 or > 1))
         {
             throw new ArgumentOutOfRangeException(nameof(score), "Confidence must be between 0 and 1.");
         }
@@ -86,7 +91,7 @@ public sealed record EvidenceCoverage
             throw new ArgumentOutOfRangeException(nameof(sampleSize), "Sample size cannot be negative.");
         }
 
-        if (fraction is { } value && (double.IsNaN(value) || value is < 0 or > 1))
+        if (fraction is { } value && (!double.IsFinite(value) || value is < 0 or > 1))
         {
             throw new ArgumentOutOfRangeException(nameof(fraction), "Coverage fraction must be between 0 and 1.");
         }
@@ -125,8 +130,17 @@ public sealed record ProducerIdentity
 }
 
 /// <summary>The mandatory audit trail for an observed, curated, historical, or generated claim.</summary>
+/// <remarks>
+/// A combined calculation (value per square is a price and a footprint) names each input's own
+/// provenance. An input that is itself a model estimate keeps the result a model estimate: a
+/// derived calculation over one would otherwise launder a prediction into an ordinary number.
+/// </remarks>
 public sealed record EvidenceProvenance
 {
+    public const int MaxInputDepth = 8;
+
+    public const int MaxInputCount = 256;
+
     public EvidenceProvenance(
         EvidenceSourceClass sourceClass,
         string sourceIdentifier,
@@ -136,12 +150,13 @@ public sealed record EvidenceProvenance
         DateTimeOffset? dataThroughUtc = null,
         DateTimeOffset? generatedUtc = null,
         EvidenceCoverage? coverage = null,
-        string? reference = null)
+        string? reference = null,
+        IReadOnlyList<EvidenceProvenance>? inputs = null)
     {
         ArgumentNullException.ThrowIfNull(confidence);
         ArgumentNullException.ThrowIfNull(producer);
 
-        SourceClass = sourceClass;
+        SourceClass = EvidenceGuard.Defined(sourceClass, nameof(sourceClass));
         SourceIdentifier = EvidenceGuard.Required(sourceIdentifier, nameof(sourceIdentifier));
         ObservedUtc = EvidenceGuard.Utc(observedUtc, nameof(observedUtc));
         DataThroughUtc = EvidenceGuard.UtcOptional(dataThroughUtc, nameof(dataThroughUtc));
@@ -150,6 +165,7 @@ public sealed record EvidenceProvenance
         Producer = producer;
         Coverage = coverage;
         Reference = EvidenceGuard.TrimOptional(reference);
+        Inputs = EvidenceGuard.ReadOnly(inputs ?? [], nameof(inputs));
 
         if (DataThroughUtc > ObservedUtc)
         {
@@ -170,6 +186,8 @@ public sealed record EvidenceProvenance
         {
             ValidateIntelligenceProvenance();
         }
+
+        ValidateInputs();
     }
 
     public EvidenceSourceClass SourceClass { get; }
@@ -190,6 +208,11 @@ public sealed record EvidenceProvenance
 
     public string? Reference { get; }
 
+    public IReadOnlyList<EvidenceProvenance> Inputs { get; }
+
+    /// <summary>The newest instant this claim's evidence represents.</summary>
+    public DateTimeOffset EvidenceThroughUtc => DataThroughUtc ?? ObservedUtc;
+
     private void ValidateIntelligenceProvenance()
     {
         if (DataThroughUtc is null || GeneratedUtc is null || Coverage is null)
@@ -208,11 +231,56 @@ public sealed record EvidenceProvenance
             throw new ArgumentException("Historical and modelled intelligence requires a model version.");
         }
     }
+
+    private void ValidateInputs()
+    {
+        var accepts = SourceClass is EvidenceSourceClass.DerivedCalculation
+            or EvidenceSourceClass.HistoricalAggregate
+            or EvidenceSourceClass.ModelledEstimate;
+
+        if (!accepts && Inputs.Count > 0)
+        {
+            throw new ArgumentException($"{SourceClass} evidence is direct and cannot name inputs.", "inputs");
+        }
+
+        if (SourceClass == EvidenceSourceClass.DerivedCalculation && (Inputs.Count == 0 || GeneratedUtc is null))
+        {
+            throw new ArgumentException("A derived calculation must name its inputs and generation time.", "inputs");
+        }
+
+        if (Depth(this) > MaxInputDepth || Count(this) > MaxInputCount)
+        {
+            throw new ArgumentException("Provenance inputs exceed the contract bounds.", "inputs");
+        }
+
+        if (SourceClass != EvidenceSourceClass.ModelledEstimate && Inputs.Any(ContainsModelledEstimate))
+        {
+            throw new ArgumentException(
+                "A claim computed from a modelled estimate must itself be a modelled estimate.",
+                "inputs");
+        }
+
+        var through = SourceClass == EvidenceSourceClass.DerivedCalculation ? GeneratedUtc : DataThroughUtc;
+        if (through is { } limit && Inputs.Any(input => input.EvidenceThroughUtc > limit))
+        {
+            throw new ArgumentException("An input cannot be newer than the claim computed from it.", "inputs");
+        }
+    }
+
+    private static bool ContainsModelledEstimate(EvidenceProvenance provenance) =>
+        provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
+        provenance.Inputs.Any(ContainsModelledEstimate);
+
+    private static int Depth(EvidenceProvenance provenance) =>
+        1 + (provenance.Inputs.Count == 0 ? 0 : provenance.Inputs.Max(Depth));
+
+    private static int Count(EvidenceProvenance provenance) =>
+        provenance.Inputs.Count + provenance.Inputs.Sum(Count);
 }
 
 public enum EvidenceCoordinateSpace
 {
-    SourcePixels,
+    SourcePixels = 1,
     CaptureRegionPixels,
     GridCellPixels,
 }
@@ -245,7 +313,7 @@ public sealed record EvidenceRegion
         Y = y;
         Width = width;
         Height = height;
-        CoordinateSpace = coordinateSpace;
+        CoordinateSpace = EvidenceGuard.Defined(coordinateSpace, nameof(coordinateSpace));
     }
 
     public int X { get; }
@@ -282,4 +350,26 @@ internal static class EvidenceGuard
 
     public static DateTimeOffset? UtcOptional(DateTimeOffset? value, string parameterName) =>
         value is null ? null : Utc(value.Value, parameterName);
+
+    // A numeric JSON value or a cast can carry a number no member names; zero is only valid where
+    // the enum names it Unknown.
+    public static TEnum Defined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum =>
+        Enum.IsDefined(value)
+            ? value
+            : throw new ArgumentOutOfRangeException(parameterName, value, $"Undefined {typeof(TEnum).Name} value.");
+
+    // Copied so a caller's list cannot change after validation, and wrapped so the exposed list
+    // cannot be cast back to a mutable array.
+    public static ReadOnlyCollection<T> ReadOnly<T>(IEnumerable<T>? values, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        var copy = values.ToArray();
+        if (copy.Any(value => value is null))
+        {
+            throw new ArgumentException("A contract list cannot contain null entries.", parameterName);
+        }
+
+        return Array.AsReadOnly(copy);
+    }
 }

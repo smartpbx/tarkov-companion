@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 
@@ -5,99 +6,208 @@ namespace TarkovCompanion.UnitTests.V2Contracts;
 
 public sealed class CaptureAndWorkspaceContractTests
 {
-    private static readonly WorkspaceOrigin Origin = new(
-        new WorkspaceId(Guid.Parse("10000000-0000-0000-0000-000000000001")),
-        new CompanionDeviceId(Guid.Parse("10000000-0000-0000-0000-000000000002")),
-        WorkspaceOriginKind.DesktopApplication,
-        "desktop-primary");
+    private static readonly WorkspaceOrigin Origin = V2ContractTestData.Origin;
+
+    private static readonly CaptureSessionId SessionId = V2ContractTestData.SessionId;
+
+    private static readonly CaptureSessionRequest Request =
+        new(SessionId, ScanIntent.Stash, Origin, V2ContractTestData.ObservedUtc);
+
+    private static readonly ResultStatus Partial = new(ResultCompleteness.Partial, FreshnessState.Current);
 
     [Fact]
-    public void CaptureProgressMustBelongToOneSessionAndBeMonotonic()
+    public void GuidedSessionTracksEachCaptureByArtifactAndOrdinal()
     {
-        var sessionId = new CaptureSessionId(Guid.Parse("10000000-0000-0000-0000-000000000003"));
-        var request = new CaptureSessionRequest(sessionId, ScanIntent.Stash, Origin, V2ContractTestData.ObservedUtc);
-        var progress = new[]
-        {
-            new CaptureStageProgress(sessionId, 0, CaptureSessionStage.Armed, V2ContractTestData.ObservedUtc),
-            new CaptureStageProgress(sessionId, 1, CaptureSessionStage.Decoding, V2ContractTestData.ObservedUtc.AddSeconds(1)),
-        };
+        var snapshot = Snapshot(
+            Partial,
+            (CaptureSessionStage.Armed, null, null),
+            (CaptureSessionStage.AwaitingCapture, null, null),
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Settling, "shot-1", 1),
+            (CaptureSessionStage.Decoding, "shot-0", 0),
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Decoding, "shot-0", 0),
+            (CaptureSessionStage.Complete, "shot-0", 0),
+            (CaptureSessionStage.Failed, "shot-1", 1));
 
-        var snapshot = new CaptureSessionSnapshot(
-            request,
-            progress,
-            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current));
+        var roundTrip = JsonSerializer.Deserialize<CaptureSessionSnapshot>(
+            JsonSerializer.Serialize(snapshot, V2ContractJson.Options), V2ContractJson.Options)!;
 
-        Assert.Equal(2, snapshot.Progress.Count);
-        Assert.Equal(CaptureSessionStage.Decoding, snapshot.Progress[^1].Stage);
+        Assert.Equal(9, roundTrip.Progress.Count);
+        Assert.Equal("shot-1", roundTrip.Progress[^1].ArtifactId);
+        Assert.Equal(1, roundTrip.Progress[^1].CaptureOrdinal);
     }
 
     [Fact]
-    public void CaptureProgressRejectsSequenceGaps()
+    public void CaptureStagesMoveForwardAndEndAtTheirTerminal()
     {
-        var sessionId = new CaptureSessionId(Guid.Parse("10000000-0000-0000-0000-000000000003"));
-        var request = new CaptureSessionRequest(sessionId, ScanIntent.Stash, Origin, V2ContractTestData.ObservedUtc);
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Matching, "shot-0", 0),
+            (CaptureSessionStage.Decoding, "shot-0", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Failed, "shot-0", 0),
+            (CaptureSessionStage.Decoding, "shot-0", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Settling, "shot-9", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.AwaitingCapture, null, null),
+            (CaptureSessionStage.Armed, null, null)));
+    }
 
+    [Fact]
+    public void SessionTerminalIsFinalAndStatusCannotOverclaim()
+    {
+        var complete = new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current);
+
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
+            (CaptureSessionStage.Cancelled, null, null),
+            (CaptureSessionStage.Settling, "shot-0", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            complete,
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Complete, null, null)));
+        Assert.Throws<ArgumentException>(() => Snapshot(complete, (CaptureSessionStage.Settling, "shot-0", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(Partial, (CaptureSessionStage.Failed, null, null)));
+        Assert.Equal(
+            ResultCompleteness.Complete,
+            Snapshot(complete, (CaptureSessionStage.Complete, "shot-0", 0), (CaptureSessionStage.Complete, null, null)).Status.Completeness);
+    }
+
+    [Fact]
+    public void StageProgressPairsArtifactWithOrdinalAndScope()
+    {
+        Assert.Throws<ArgumentException>(() => Progress(0, CaptureSessionStage.Decoding, null, null));
+        Assert.Throws<ArgumentException>(() => Progress(0, CaptureSessionStage.Armed, "shot-0", 0));
+        Assert.Throws<ArgumentException>(() => Progress(0, CaptureSessionStage.Complete, "shot-0", null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Progress(0, (CaptureSessionStage)99, null, null));
+        Assert.Throws<ArgumentException>(() => new CaptureSessionSnapshot(Request, [null!], Partial));
+    }
+
+    [Fact]
+    public void ProgressCannotPredateTheRequest()
+    {
         Assert.Throws<ArgumentException>(() => new CaptureSessionSnapshot(
-            request,
-            [new CaptureStageProgress(sessionId, 1, CaptureSessionStage.Decoding, V2ContractTestData.ObservedUtc)],
-            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current)));
+            Request,
+            [new CaptureStageProgress(SessionId, 0, CaptureSessionStage.Armed, V2ContractTestData.ObservedUtc.AddSeconds(-1))],
+            Partial));
     }
 
     [Fact]
-    public void DefaultIdentifiersAndReversedExpiryAreRejected()
+    public void DefaultIdentifiersEnumsAndReversedExpiryAreRejected()
     {
-        var sessionId = new CaptureSessionId(Guid.Parse("10000000-0000-0000-0000-000000000003"));
-
         Assert.Throws<ArgumentException>(() =>
             new CaptureSessionRequest(default, ScanIntent.Loot, Origin, V2ContractTestData.ObservedUtc));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new CaptureSessionRequest(SessionId, default, Origin, V2ContractTestData.ObservedUtc));
         Assert.Throws<ArgumentException>(() =>
             new WorkspaceOrigin(default, Origin.DeviceId, WorkspaceOriginKind.PairedDevice, "tablet"));
-        Assert.Throws<ArgumentException>(() => new StateAcknowledgement(
-            default,
-            new StateChangeId(Guid.Parse("10000000-0000-0000-0000-000000000004")),
-            new StateRevision(1),
-            new StateRevision(1),
-            AcknowledgementDisposition.Applied,
-            Origin,
-            V2ContractTestData.ObservedUtc));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WorkspaceOrigin(Origin.WorkspaceId, Origin.DeviceId, default, "tablet"));
         Assert.Throws<ArgumentOutOfRangeException>(() => new CaptureSessionRequest(
-            sessionId,
-            ScanIntent.Loot,
-            Origin,
-            V2ContractTestData.ObservedUtc,
+            SessionId, ScanIntent.Loot, Origin, V2ContractTestData.ObservedUtc,
             ExpiresUtc: V2ContractTestData.ObservedUtc.AddSeconds(-1)));
     }
 
     [Fact]
-    public void RevisionsAdvanceWithinTheirNamedStream()
+    public void VersionsReadWithinTheirMajorUpToTheirMinorAndNegotiateDown()
     {
-        var mapRevision = new StateRevision(3);
-        var stashRevision = new StateRevision(11);
+        var reader = new V2ContractVersion(2, 1);
 
-        Assert.Equal(4, mapRevision.Next().Value);
-        Assert.Equal(12, stashRevision.Next().Value);
-        Assert.NotEqual(mapRevision, stashRevision);
+        Assert.True(reader.CanRead(new V2ContractVersion(2, 0)));
+        Assert.True(reader.CanRead(reader));
+        Assert.False(reader.CanRead(new V2ContractVersion(2, 2)));
+        Assert.False(reader.CanRead(new V2ContractVersion(3, 0)));
+        Assert.False(reader.CanRead(default));
+        Assert.Equal(new V2ContractVersion(2, 1), V2ContractVersion.Negotiate(new V2ContractVersion(2, 3), reader));
+        Assert.Null(V2ContractVersion.Negotiate(reader, new V2ContractVersion(3, 0)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new V2ContractVersion(2, V2ContractVersion.MaxMinor + 1));
     }
 
     [Theory]
-    [InlineData(AcknowledgementDisposition.Applied)]
-    [InlineData(AcknowledgementDisposition.RejectedStale)]
-    [InlineData(AcknowledgementDisposition.RejectedConflict)]
-    [InlineData(AcknowledgementDisposition.UnsupportedVersion)]
-    public void AcknowledgementPreservesRequestedAndAppliedRevision(
-        AcknowledgementDisposition disposition)
+    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 0)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 8, 0)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 6, 0)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 6, 5)]
+    public void AcknowledgementStatesItsRevisionsAndVersions(
+        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor)
     {
-        var acknowledgement = new StateAcknowledgement(
-            new StateStreamId("map.markers"),
-            new StateChangeId(Guid.Parse("10000000-0000-0000-0000-000000000004")),
-            new StateRevision(8),
-            new StateRevision(7),
-            disposition,
-            Origin,
-            V2ContractTestData.ObservedUtc);
+        var acknowledgement = Acknowledge(disposition, requested, applied, new V2ContractVersion(2, requestedMinor));
 
-        Assert.Equal(8, acknowledgement.RequestedRevision.Value);
-        Assert.Equal(7, acknowledgement.AppliedRevision.Value);
-        Assert.Equal(disposition, acknowledgement.Disposition);
+        var roundTrip = JsonSerializer.Deserialize<StateAcknowledgement>(
+            JsonSerializer.Serialize(acknowledgement, V2ContractJson.Options), V2ContractJson.Options)!;
+
+        Assert.Equal(requested, roundTrip.RequestedRevision.Value);
+        Assert.Equal(applied, roundTrip.AppliedRevision.Value);
+        Assert.Equal(disposition, roundTrip.Disposition);
+        Assert.Equal(V2ContractVersion.Current, roundTrip.ReceiverContractVersion);
     }
+
+    [Theory]
+    [InlineData(AcknowledgementDisposition.Applied, 8, 7, 0)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 7, 0)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 7, 0)]
+    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 5)]
+    [InlineData(AcknowledgementDisposition.Applied, 0, 0, 0)]
+    public void AcknowledgementRejectsInconsistentOutcomes(
+        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor)
+    {
+        Assert.ThrowsAny<ArgumentException>(() =>
+            Acknowledge(disposition, requested, applied, new V2ContractVersion(2, requestedMinor)));
+    }
+
+    [Fact]
+    public void RevisionedStateCarriesOnlyAllowlistedPayloadsFromRevisionOne()
+    {
+        var mark = new MapMarkState("customs", null, 120.5, -40, "Regroup here", null);
+        var state = new RevisionedState<MapMarkState>(
+            new StateStreamId("map.marks"), new StateRevision(1), ChangeId(), V2ContractVersion.Current,
+            Origin, V2ContractTestData.ObservedUtc, mark);
+
+        var roundTrip = JsonSerializer.Deserialize<RevisionedState<MapMarkState>>(
+            JsonSerializer.Serialize(state, V2ContractJson.Options), V2ContractJson.Options)!;
+
+        Assert.Equal(mark, roundTrip.Value);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RevisionedState<MapMarkState>(
+            new StateStreamId("map.marks"), new StateRevision(0), ChangeId(), V2ContractVersion.Current,
+            Origin, V2ContractTestData.ObservedUtc, mark));
+        Assert.Throws<ArgumentException>(() => new RevisionedState<GameInputCommand>(
+            new StateStreamId("control"), new StateRevision(1), ChangeId(), V2ContractVersion.Current,
+            Origin, V2ContractTestData.ObservedUtc, new GameInputCommand("F")));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MapMarkState("customs", null, double.NaN, 0, null, null));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MapMarkState("customs", null, 0, 0, new string('x', 81), null));
+    }
+
+    private static StateChangeId ChangeId() => new(Guid.Parse("10000000-0000-0000-0000-000000000004"));
+
+    private static StateAcknowledgement Acknowledge(
+        AcknowledgementDisposition disposition, long requested, long applied, V2ContractVersion requestedVersion) => new(
+        new StateStreamId("map.marks"),
+        ChangeId(),
+        new StateRevision(requested),
+        new StateRevision(applied),
+        disposition,
+        requestedVersion,
+        V2ContractVersion.Current,
+        Origin,
+        V2ContractTestData.ObservedUtc);
+
+    private static CaptureStageProgress Progress(long sequence, CaptureSessionStage stage, string? artifactId, int? ordinal) => new(
+        SessionId, sequence, stage, V2ContractTestData.ObservedUtc.AddSeconds(sequence), artifactId, ordinal);
+
+    private static CaptureSessionSnapshot Snapshot(
+        ResultStatus status,
+        params (CaptureSessionStage Stage, string? ArtifactId, int? Ordinal)[] stages) => new(
+        Request,
+        stages.Select((stage, index) => Progress(index, stage.Stage, stage.ArtifactId, stage.Ordinal)).ToArray(),
+        status);
+
+    private sealed record GameInputCommand(string Key) : IWorkspaceStatePayload;
 }

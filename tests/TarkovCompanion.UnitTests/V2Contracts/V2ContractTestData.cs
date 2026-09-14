@@ -8,6 +8,18 @@ internal static class V2ContractTestData
     public static readonly DateTimeOffset ObservedUtc =
         new(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>The screenshot predates its acquisition, as a late import does.</summary>
+    public static readonly DateTimeOffset CapturedUtc = ObservedUtc.AddMinutes(-3);
+
+    public static readonly WorkspaceOrigin Origin = new(
+        new WorkspaceId(Guid.Parse("10000000-0000-0000-0000-000000000001")),
+        new CompanionDeviceId(Guid.Parse("10000000-0000-0000-0000-000000000002")),
+        WorkspaceOriginKind.DesktopApplication,
+        "desktop-primary");
+
+    public static readonly CaptureSessionId SessionId =
+        new(Guid.Parse("20000000-0000-0000-0000-000000000001"));
+
     public static EvidenceProvenance ScreenshotProvenance() => new(
         EvidenceSourceClass.GameWrittenScreenshot,
         "fixture://extract-screen",
@@ -15,10 +27,10 @@ internal static class V2ContractTestData
         new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.96),
         new ProducerIdentity("fixture-ocr", "2.0"));
 
-    public static EvidenceProvenance PublicDataProvenance() => new(
+    public static EvidenceProvenance PublicDataProvenance(DateTimeOffset? observedUtc = null) => new(
         EvidenceSourceClass.PublicStructuredData,
         "fixture://catalog",
-        ObservedUtc,
+        observedUtc ?? ObservedUtc.AddDays(-2),
         EvidenceConfidence.Certain,
         new ProducerIdentity("fixture-catalog", "2.0"));
 
@@ -32,22 +44,30 @@ internal static class V2ContractTestData
         ObservedUtc.AddHours(-1),
         new EvidenceCoverage(240, 0.80, "Two hundred forty historical route samples"));
 
+    public static ResultStatus CompleteStatus { get; } = new(ResultCompleteness.Complete, FreshnessState.Current);
+
     public static EvidencedValue<T> Complete<T>(
         string fieldId,
-        T? value,
+        T value,
         EvidenceProvenance? provenance = null,
         EvidenceRegion? bounds = null,
         IReadOnlyList<EvidenceCandidate<T>>? candidates = null,
         IReadOnlyList<EvidenceCorrection<T>>? corrections = null) => new(
         fieldId,
         value,
-        new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current),
+        CompleteStatus,
         provenance ?? ScreenshotProvenance(),
         bounds,
         candidates,
         corrections);
 
-    public static RecognizedItem Item(string id = "item-a", int width = 1, int height = 1) => new(
+    public static EvidencedValue<T> Unknown<T>(string fieldId, EvidenceProvenance? provenance = null) => new(
+        fieldId,
+        default,
+        new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
+        provenance ?? ScreenshotProvenance());
+
+    public static RecognizedItem Item(string id = "item-a", int width = 1, int height = 1, ItemConditionReading? condition = null) => new(
         Complete("item.id", id),
         Complete("item.name", "Item A"),
         Complete<int?>("item.quantity", 1),
@@ -55,7 +75,7 @@ internal static class V2ContractTestData
         Complete<int?>("item.height", height),
         Complete<bool?>("item.rotated", false),
         Complete<bool?>("item.foundInRaid", true),
-        Complete<ItemConditionReading>("item.condition", null));
+        Complete("item.condition", condition ?? ItemConditionReading.NotApplicable));
 
     public static GridRecognition Grid(params GridCellRecognition[] cells) => new(
         new GridGeometry(
@@ -65,11 +85,19 @@ internal static class V2ContractTestData
             Complete<int?>("grid.cellHeight", 63)),
         cells);
 
-    public static RecognitionResultHeader Header(RecognizedContext context) => new(
+    public static GridCellRecognition Cell(int row, int column, RecognizedItem? item = null, string? nested = null) => new(
+        new GridCellAddress(row, column),
+        Complete($"grid.{row}.{column}", item ?? Item()),
+        nested);
+
+    public static RecognitionResultHeader Header(RecognizedContext? context) => new(
         "result-1",
         V2ContractVersion.Current,
-        new CaptureSessionId(Guid.Parse("20000000-0000-0000-0000-000000000001")),
+        SessionId,
         "artifact-1",
+        CapturedUtc,
         ScanIntent.Auto,
-        context);
+        context is { } detected
+            ? Complete<RecognizedContext?>("context", detected)
+            : Unknown<RecognizedContext?>("context"));
 }

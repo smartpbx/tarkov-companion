@@ -5,7 +5,7 @@ namespace TarkovCompanion.Core.Abstractions.V2;
 
 public enum ScanIntent
 {
-    Auto,
+    Auto = 1,
     Loot,
     Stash,
     Ammo,
@@ -18,15 +18,21 @@ public enum ScanIntent
 
 public enum CaptureSourceKind
 {
-    GameWrittenScreenshot,
+    GameWrittenScreenshot = 1,
     UserSelectedImage,
     ClipboardImage,
     ExternalVisiblePixelCapture,
 }
 
+/// <summary>
+/// Session stages in pipeline order. <see cref="Armed"/> and <see cref="AwaitingCapture"/>
+/// belong to the session; <see cref="Settling"/> through <see cref="AwaitingReview"/> belong to
+/// one capture; the three terminal stages end either one capture or, without an artifact, the
+/// whole session.
+/// </summary>
 public enum CaptureSessionStage
 {
-    Armed,
+    Armed = 1,
     AwaitingCapture,
     Settling,
     Decoding,
@@ -70,9 +76,15 @@ public sealed record CaptureSessionRequest(
 {
     public CaptureSessionId SessionId { get; } = V2ContractGuard.Defined(SessionId, nameof(SessionId));
 
+    public ScanIntent Intent { get; } = V2ContractGuard.Defined(Intent, nameof(Intent));
+
     public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
 
     public DateTimeOffset RequestedUtc { get; } = V2ContractGuard.Utc(RequestedUtc, nameof(RequestedUtc));
+
+    public string? ProfileId { get; } = V2ContractGuard.Optional(ProfileId);
+
+    public string? MapId { get; } = V2ContractGuard.Optional(MapId);
 
     public DateTimeOffset? ExpiresUtc { get; } = ExpiresUtc is not { } expires
         ? null
@@ -81,29 +93,77 @@ public sealed record CaptureSessionRequest(
             : expires.ToUniversalTime();
 }
 
-public sealed record CaptureStageProgress(
-    CaptureSessionId SessionId,
-    long Sequence,
-    CaptureSessionStage Stage,
-    DateTimeOffset ChangedUtc,
-    int? Percent = null,
-    string? Detail = null)
+public sealed record CaptureStageProgress
 {
-    public CaptureSessionId SessionId { get; } = V2ContractGuard.Defined(SessionId, nameof(SessionId));
+    public CaptureStageProgress(
+        CaptureSessionId sessionId,
+        long sequence,
+        CaptureSessionStage stage,
+        DateTimeOffset changedUtc,
+        string? artifactId = null,
+        int? captureOrdinal = null,
+        int? percent = null,
+        string? detail = null)
+    {
+        SessionId = V2ContractGuard.Defined(sessionId, nameof(sessionId));
+        Sequence = sequence >= 0 ? sequence : throw new ArgumentOutOfRangeException(nameof(sequence));
+        Stage = V2ContractGuard.Defined(stage, nameof(stage));
+        ChangedUtc = V2ContractGuard.Utc(changedUtc, nameof(changedUtc));
+        ArtifactId = V2ContractGuard.Optional(artifactId);
+        CaptureOrdinal = captureOrdinal is null or >= 0
+            ? captureOrdinal
+            : throw new ArgumentOutOfRangeException(nameof(captureOrdinal));
+        Percent = percent is null or (>= 0 and <= 100) ? percent : throw new ArgumentOutOfRangeException(nameof(percent));
+        Detail = V2ContractGuard.Optional(detail);
 
-    public long Sequence { get; } = Sequence >= 0
-        ? Sequence
-        : throw new ArgumentOutOfRangeException(nameof(Sequence));
+        if ((ArtifactId is null) != (CaptureOrdinal is null))
+        {
+            throw new ArgumentException("An artifact and its capture ordinal travel together.", nameof(captureOrdinal));
+        }
 
-    public DateTimeOffset ChangedUtc { get; } = ChangedUtc == default
-        ? throw new ArgumentException("A UTC timestamp is required.", nameof(ChangedUtc))
-        : ChangedUtc.ToUniversalTime();
+        if (IsSessionStage(stage) && ArtifactId is not null)
+        {
+            throw new ArgumentException($"{stage} belongs to the session, not a capture.", nameof(artifactId));
+        }
 
-    public int? Percent { get; } = Percent is null or >= 0 and <= 100
-        ? Percent
-        : throw new ArgumentOutOfRangeException(nameof(Percent));
+        if (IsCaptureStage(stage) && ArtifactId is null)
+        {
+            throw new ArgumentException($"{stage} belongs to one capture and must name its artifact.", nameof(artifactId));
+        }
+    }
+
+    public CaptureSessionId SessionId { get; }
+
+    public long Sequence { get; }
+
+    public CaptureSessionStage Stage { get; }
+
+    public DateTimeOffset ChangedUtc { get; }
+
+    public string? ArtifactId { get; }
+
+    /// <summary>The capture's position in the session's ordered queue, starting at zero.</summary>
+    public int? CaptureOrdinal { get; }
+
+    public int? Percent { get; }
+
+    public string? Detail { get; }
+
+    internal static bool IsSessionStage(CaptureSessionStage stage) =>
+        stage is CaptureSessionStage.Armed or CaptureSessionStage.AwaitingCapture;
+
+    internal static bool IsCaptureStage(CaptureSessionStage stage) =>
+        stage is >= CaptureSessionStage.Settling and <= CaptureSessionStage.AwaitingReview;
+
+    internal static bool IsTerminal(CaptureSessionStage stage) =>
+        stage is CaptureSessionStage.Complete or CaptureSessionStage.Cancelled or CaptureSessionStage.Failed;
 }
 
+/// <summary>
+/// An ordered session history. Each capture moves forward through its stages (a decode retry
+/// may return from Decoding to Settling) and nothing follows its terminal stage. A session
+/// terminal stage is final for everything. The status cannot claim more than the history shows.
+/// </summary>
 public sealed record CaptureSessionSnapshot
 {
     public CaptureSessionSnapshot(
@@ -111,32 +171,89 @@ public sealed record CaptureSessionSnapshot
         IReadOnlyList<CaptureStageProgress> progress,
         ResultStatus status)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(progress);
-        ArgumentNullException.ThrowIfNull(status);
-        progress = V2ContractGuard.List(progress, nameof(progress));
+        Request = V2ContractGuard.NotNull(request, nameof(request));
+        Progress = V2ContractGuard.List(progress, nameof(progress));
+        Status = V2ContractGuard.NotNull(status, nameof(status));
 
-        if (progress.Any(item => item.SessionId != request.SessionId))
+        var sessionStage = (CaptureSessionStage?)null;
+        var captures = new Dictionary<int, (string ArtifactId, CaptureSessionStage Stage)>();
+        for (var index = 0; index < Progress.Count; index++)
         {
-            throw new ArgumentException("Every progress update must belong to the capture session.", nameof(progress));
-        }
+            var item = Progress[index];
+            if (item.SessionId != request.SessionId)
+            {
+                throw new ArgumentException("Every progress update must belong to the capture session.", nameof(progress));
+            }
 
-        for (var index = 0; index < progress.Count; index++)
-        {
-            if (progress[index].Sequence != index)
+            if (item.Sequence != index)
             {
                 throw new ArgumentException("Progress sequences must be contiguous and start at zero.", nameof(progress));
             }
 
-            if (index > 0 && progress[index].ChangedUtc < progress[index - 1].ChangedUtc)
+            var previousUtc = index == 0 ? request.RequestedUtc : Progress[index - 1].ChangedUtc;
+            if (item.ChangedUtc < previousUtc)
             {
-                throw new ArgumentException("Progress timestamps cannot move backwards.", nameof(progress));
+                throw new ArgumentException("Progress cannot predate the request or move backwards.", nameof(progress));
             }
+
+            if (sessionStage is { } ended && CaptureStageProgress.IsTerminal(ended))
+            {
+                throw new ArgumentException("Nothing follows the session's terminal stage.", nameof(progress));
+            }
+
+            if (item.CaptureOrdinal is not { } ordinal)
+            {
+                if (sessionStage is { } current && item.Stage < current)
+                {
+                    throw new ArgumentException("Session stages cannot move backwards.", nameof(progress));
+                }
+
+                if (CaptureStageProgress.IsTerminal(item.Stage) &&
+                    captures.Values.Any(capture => !CaptureStageProgress.IsTerminal(capture.Stage)) &&
+                    item.Stage == CaptureSessionStage.Complete)
+                {
+                    throw new ArgumentException("A session cannot complete while a capture is unfinished.", nameof(progress));
+                }
+
+                sessionStage = item.Stage;
+                continue;
+            }
+
+            if (captures.TryGetValue(ordinal, out var capture))
+            {
+                if (!string.Equals(capture.ArtifactId, item.ArtifactId, StringComparison.Ordinal))
+                {
+                    throw new ArgumentException("A capture ordinal names exactly one artifact.", nameof(progress));
+                }
+
+                var retry = capture.Stage == CaptureSessionStage.Decoding && item.Stage == CaptureSessionStage.Settling;
+                if (CaptureStageProgress.IsTerminal(capture.Stage) || (item.Stage < capture.Stage && !retry))
+                {
+                    throw new ArgumentException("A capture's stages move forward and end at its terminal stage.", nameof(progress));
+                }
+            }
+            else if (captures.Values.Any(existing => string.Equals(existing.ArtifactId, item.ArtifactId, StringComparison.Ordinal)))
+            {
+                throw new ArgumentException("An artifact belongs to exactly one capture ordinal.", nameof(progress));
+            }
+
+            captures[ordinal] = (item.ArtifactId!, item.Stage);
         }
 
-        Request = request;
-        Progress = progress.ToArray();
-        Status = status;
+        var allowed = sessionStage switch
+        {
+            CaptureSessionStage.Failed => status.Completeness == ResultCompleteness.Unavailable,
+            CaptureSessionStage.Cancelled => status.Completeness != ResultCompleteness.Complete,
+            CaptureSessionStage.Complete => status.Completeness is ResultCompleteness.Partial or ResultCompleteness.Complete,
+            _ => status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Partial,
+        };
+
+        if (!allowed)
+        {
+            throw new ArgumentException(
+                $"Status {status.Completeness} is inconsistent with session stage {sessionStage?.ToString() ?? "none"}.",
+                nameof(status));
+        }
     }
 
     public CaptureSessionRequest Request { get; }
@@ -156,7 +273,7 @@ public sealed record VisibleCaptureArtifact(
 {
     public string ArtifactId { get; } = V2ContractGuard.Required(ArtifactId, nameof(ArtifactId));
 
-    public EvidenceProvenance Provenance { get; } = V2ContractGuard.NotNull(Provenance, nameof(Provenance));
+    public CaptureSourceKind SourceKind { get; } = V2ContractGuard.Defined(SourceKind, nameof(SourceKind));
 
     public int PixelWidth { get; } = PixelWidth > 0
         ? PixelWidth
@@ -166,9 +283,12 @@ public sealed record VisibleCaptureArtifact(
         ? PixelHeight
         : throw new ArgumentOutOfRangeException(nameof(PixelHeight));
 
-    public DateTimeOffset CapturedUtc { get; } = CapturedUtc == default
-        ? throw new ArgumentException("A UTC timestamp is required.", nameof(CapturedUtc))
-        : CapturedUtc.ToUniversalTime();
+    public DateTimeOffset CapturedUtc { get; } = V2ContractGuard.Utc(CapturedUtc, nameof(CapturedUtc));
+
+    public EvidenceProvenance Provenance { get; } =
+        V2ContractGuard.NotNull(Provenance, nameof(Provenance)).ObservedUtc < CapturedUtc
+            ? throw new ArgumentException("A capture cannot be acquired before it was taken.", nameof(Provenance))
+            : Provenance;
 }
 
 /// <summary>The reviewed game-facing seam: observe visible pixels only after a user request.</summary>

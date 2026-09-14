@@ -22,8 +22,6 @@ public readonly record struct WorkspaceId
 
 public readonly record struct CompanionDeviceId
 {
-    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
-    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
     [JsonConstructor]
     public CompanionDeviceId(Guid value)
     {
@@ -40,12 +38,17 @@ public readonly record struct CompanionDeviceId
 
 public readonly record struct StateStreamId
 {
-    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
-    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    public const int MaxLength = 128;
+
     [JsonConstructor]
     public StateStreamId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (value.Trim().Length > MaxLength)
+        {
+            throw new ArgumentOutOfRangeException(nameof(value));
+        }
+
         Value = value.Trim();
     }
 
@@ -56,8 +59,6 @@ public readonly record struct StateStreamId
 
 public readonly record struct StateChangeId
 {
-    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
-    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
     [JsonConstructor]
     public StateChangeId(Guid value)
     {
@@ -72,10 +73,9 @@ public readonly record struct StateChangeId
     public Guid Value { get; }
 }
 
+/// <summary>A stream-local revision. Zero means nothing has been applied; a change starts at one.</summary>
 public readonly record struct StateRevision
 {
-    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
-    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
     [JsonConstructor]
     public StateRevision(long value)
     {
@@ -94,11 +94,12 @@ public readonly record struct StateRevision
 
 public enum WorkspaceOriginKind
 {
-    DesktopApplication,
+    DesktopApplication = 1,
     PairedDevice,
     User,
 }
 
+/// <summary>Audit metadata for who made a change. It is not authentication.</summary>
 public sealed record WorkspaceOrigin(
     WorkspaceId WorkspaceId,
     CompanionDeviceId DeviceId,
@@ -109,55 +110,168 @@ public sealed record WorkspaceOrigin(
 
     public CompanionDeviceId DeviceId { get; } = V2ContractGuard.Defined(DeviceId, nameof(DeviceId));
 
+    public WorkspaceOriginKind Kind { get; } = V2ContractGuard.Defined(Kind, nameof(Kind));
+
     public string InstanceId { get; } = V2ContractGuard.Required(InstanceId, nameof(InstanceId));
 }
 
-/// <summary>A state revision is monotonic within its named stream, not across the workspace.</summary>
-public sealed record RevisionedState<T>(
-    StateStreamId StreamId,
-    StateRevision Revision,
-    StateChangeId ChangeId,
-    V2ContractVersion ContractVersion,
-    WorkspaceOrigin Origin,
-    DateTimeOffset ChangedUtc,
-    T Value)
+/// <summary>Arms companion context for the next capture; it never reaches or controls EFT.</summary>
+public sealed record CaptureIntentState(
+    ScanIntent Intent,
+    DateTimeOffset ArmedUtc,
+    DateTimeOffset? ExpiresUtc) : IWorkspaceStatePayload
 {
-    public StateStreamId StreamId { get; } = V2ContractGuard.Defined(StreamId, nameof(StreamId));
+    public ScanIntent Intent { get; } = V2ContractGuard.Defined(Intent, nameof(Intent));
 
-    public StateChangeId ChangeId { get; } = V2ContractGuard.Defined(ChangeId, nameof(ChangeId));
+    public DateTimeOffset ArmedUtc { get; } = V2ContractGuard.Utc(ArmedUtc, nameof(ArmedUtc));
 
-    public V2ContractVersion ContractVersion { get; } = V2ContractGuard.Defined(ContractVersion, nameof(ContractVersion));
+    public DateTimeOffset? ExpiresUtc { get; } =
+        V2ContractGuard.UtcOptional(ExpiresUtc, nameof(ExpiresUtc)) is { } expires && expires < ArmedUtc
+            ? throw new ArgumentOutOfRangeException(nameof(ExpiresUtc), "An intent cannot expire before it was armed.")
+            : ExpiresUtc?.ToUniversalTime();
+}
 
-    public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
+/// <summary>The user's own annotation on a map, in map coordinates. It is never a player position.</summary>
+public sealed record MapMarkState(
+    string MapId,
+    string? FloorId,
+    double X,
+    double Y,
+    string? Label,
+    DateTimeOffset? ExpiresUtc) : IWorkspaceStatePayload
+{
+    public const int MaxLabelLength = 80;
 
-    public DateTimeOffset ChangedUtc { get; } = V2ContractGuard.Utc(ChangedUtc, nameof(ChangedUtc));
+    public string MapId { get; } = V2ContractGuard.Required(MapId, nameof(MapId));
 
-    public T Value { get; } = Value is null ? throw new ArgumentNullException(nameof(Value)) : Value;
+    public string? FloorId { get; } = V2ContractGuard.Optional(FloorId);
+
+    public double X { get; } = double.IsFinite(X) ? X : throw new ArgumentOutOfRangeException(nameof(X));
+
+    public double Y { get; } = double.IsFinite(Y) ? Y : throw new ArgumentOutOfRangeException(nameof(Y));
+
+    public string? Label { get; } = V2ContractGuard.Optional(Label) is { Length: > MaxLabelLength }
+        ? throw new ArgumentOutOfRangeException(nameof(Label))
+        : V2ContractGuard.Optional(Label);
+
+    public DateTimeOffset? ExpiresUtc { get; } = V2ContractGuard.UtcOptional(ExpiresUtc, nameof(ExpiresUtc));
+}
+
+/// <summary>A state revision is monotonic within its named stream, not across the workspace.</summary>
+public sealed record RevisionedState<T>
+    where T : class, IWorkspaceStatePayload
+{
+    public RevisionedState(
+        StateStreamId streamId,
+        StateRevision revision,
+        StateChangeId changeId,
+        V2ContractVersion contractVersion,
+        WorkspaceOrigin origin,
+        DateTimeOffset changedUtc,
+        T value)
+    {
+        V2WirePayloads.Require(V2WirePayloads.WorkspaceState, typeof(T), "workspace-state");
+        StreamId = V2ContractGuard.Defined(streamId, nameof(streamId));
+        Revision = V2ContractGuard.Positive(revision, nameof(revision));
+        ChangeId = V2ContractGuard.Defined(changeId, nameof(changeId));
+        ContractVersion = V2ContractGuard.Defined(contractVersion, nameof(contractVersion));
+        Origin = V2ContractGuard.NotNull(origin, nameof(origin));
+        ChangedUtc = V2ContractGuard.Utc(changedUtc, nameof(changedUtc));
+        Value = V2ContractGuard.NotNull(value, nameof(value));
+    }
+
+    public StateStreamId StreamId { get; }
+
+    public StateRevision Revision { get; }
+
+    public StateChangeId ChangeId { get; }
+
+    public V2ContractVersion ContractVersion { get; }
+
+    public WorkspaceOrigin Origin { get; }
+
+    public DateTimeOffset ChangedUtc { get; }
+
+    public T Value { get; }
 }
 
 public enum AcknowledgementDisposition
 {
-    Applied,
+    Applied = 1,
     RejectedStale,
     RejectedConflict,
     UnsupportedVersion,
 }
 
-public sealed record StateAcknowledgement(
-    StateStreamId StreamId,
-    StateChangeId ChangeId,
-    StateRevision RequestedRevision,
-    StateRevision AppliedRevision,
-    AcknowledgementDisposition Disposition,
-    WorkspaceOrigin Origin,
-    DateTimeOffset AcknowledgedUtc,
-    string? Detail = null)
+/// <summary>
+/// The receiver's answer to one change. <see cref="RequestedRevision"/> is the revision the
+/// change carried; <see cref="AppliedRevision"/> is the receiver's stream revision after
+/// handling it. Applied means they are equal; stale means the receiver already holds that
+/// revision or a later one; conflict means the receiver holds an earlier, divergent revision;
+/// an unsupported version means the receiver cannot read the change's contract version and left
+/// its stream untouched.
+/// </summary>
+public sealed record StateAcknowledgement
 {
-    public StateStreamId StreamId { get; } = V2ContractGuard.Defined(StreamId, nameof(StreamId));
+    public StateAcknowledgement(
+        StateStreamId streamId,
+        StateChangeId changeId,
+        StateRevision requestedRevision,
+        StateRevision appliedRevision,
+        AcknowledgementDisposition disposition,
+        V2ContractVersion requestedContractVersion,
+        V2ContractVersion receiverContractVersion,
+        WorkspaceOrigin origin,
+        DateTimeOffset acknowledgedUtc,
+        string? detail = null)
+    {
+        StreamId = V2ContractGuard.Defined(streamId, nameof(streamId));
+        ChangeId = V2ContractGuard.Defined(changeId, nameof(changeId));
+        RequestedRevision = V2ContractGuard.Positive(requestedRevision, nameof(requestedRevision));
+        AppliedRevision = appliedRevision;
+        Disposition = V2ContractGuard.Defined(disposition, nameof(disposition));
+        RequestedContractVersion = V2ContractGuard.Defined(requestedContractVersion, nameof(requestedContractVersion));
+        ReceiverContractVersion = V2ContractGuard.Defined(receiverContractVersion, nameof(receiverContractVersion));
+        Origin = V2ContractGuard.NotNull(origin, nameof(origin));
+        AcknowledgedUtc = V2ContractGuard.Utc(acknowledgedUtc, nameof(acknowledgedUtc));
+        Detail = V2ContractGuard.Optional(detail);
 
-    public StateChangeId ChangeId { get; } = V2ContractGuard.Defined(ChangeId, nameof(ChangeId));
+        var readable = receiverContractVersion.CanRead(requestedContractVersion);
+        var consistent = disposition switch
+        {
+            AcknowledgementDisposition.Applied => readable && appliedRevision == requestedRevision,
+            AcknowledgementDisposition.RejectedStale => readable && appliedRevision.Value >= requestedRevision.Value,
+            AcknowledgementDisposition.RejectedConflict => readable && appliedRevision.Value < requestedRevision.Value,
+            AcknowledgementDisposition.UnsupportedVersion => !readable,
+            _ => false,
+        };
 
-    public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
+        if (!consistent)
+        {
+            throw new ArgumentException(
+                $"{disposition} is inconsistent with revisions {requestedRevision.Value}/{appliedRevision.Value} " +
+                $"and versions {requestedContractVersion}/{receiverContractVersion}.",
+                nameof(disposition));
+        }
+    }
 
-    public DateTimeOffset AcknowledgedUtc { get; } = V2ContractGuard.Utc(AcknowledgedUtc, nameof(AcknowledgedUtc));
+    public StateStreamId StreamId { get; }
+
+    public StateChangeId ChangeId { get; }
+
+    public StateRevision RequestedRevision { get; }
+
+    public StateRevision AppliedRevision { get; }
+
+    public AcknowledgementDisposition Disposition { get; }
+
+    public V2ContractVersion RequestedContractVersion { get; }
+
+    public V2ContractVersion ReceiverContractVersion { get; }
+
+    public WorkspaceOrigin Origin { get; }
+
+    public DateTimeOffset AcknowledgedUtc { get; }
+
+    public string? Detail { get; }
 }
