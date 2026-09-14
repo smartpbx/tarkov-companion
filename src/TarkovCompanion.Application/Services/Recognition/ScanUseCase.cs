@@ -325,9 +325,17 @@ public sealed class ScanUseCase : IScanUseCase
         }
 
         // The game draws the remaining time on this screen, so the same picture that named the
-        // exits also carries the clock. It falls into the unmatched lines because it is not an
-        // extract name, which is exactly where to look for it.
+        // exits also carries the clock.
+        //
+        // Read from every line, not from the ones that failed to match an exit. The clock is on
+        // the panel header — "Find an extraction point 0:12:28" — which matching strips and then
+        // discards as a header, so it reached neither diagnostic list. It arrived only when OCR
+        // happened to break it onto a line of its own.
+        //
+        // The leftovers are still what goes into the raid record as the unreadable rows, which
+        // is what they are for; they are simply no longer the road the clock travels on.
         var leftover = result.UnmatchedLines.Concat(result.AmbiguousLines).ToArray();
+        var clock = RaidTimer.Read(result.RawLines.Count > 0 ? result.RawLines : leftover);
         // Through the coordinator, not past it. The direct call left the map waiting for the
         // next log line to redraw, and left ApplyExtractsAsync — the only writer of an
         // "extracts" raid event — with no callers at all, so no raid has ever recorded which
@@ -336,7 +344,7 @@ public sealed class ScanUseCase : IScanUseCase
             result.Extracts,
             image.CapturedUtc,
             cancellationToken,
-            RaidTimer.Read(leftover),
+            clock,
             leftover,
             result.Transits).ConfigureAwait(false);
         foreach (var observation in result.Observations)

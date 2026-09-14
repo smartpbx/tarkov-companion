@@ -356,6 +356,11 @@ public sealed class RaidPageViewModel : PageViewModel
     /// supplied that one line says the history was not read and the rest is unaffected.
     /// </remarks>
     private readonly IMapDataService? _maps;
+    /// <summary>Raid lengths already looked up, keyed by map and side together.</summary>
+    /// <remarks>
+    /// By map alone, it could only ever hold one of the two durations, and what it held was the
+    /// PMC one whatever side the player was on.
+    /// </remarks>
     private readonly Dictionary<string, TimeSpan?> _raidLengths = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The last raid we were told about, so a tick has something to recompute from.</summary>
@@ -832,30 +837,34 @@ public sealed class RaidPageViewModel : PageViewModel
             return null;
         }
 
-        if (!_raidLengths.TryGetValue(mapId, out var length))
+        // Side included, because the answer differs by it. A scav raid counted from the PMC
+        // length promises time nobody has: on Customs that is forty minutes against about
+        // twenty-five.
+        var key = $"{mapId}|{raid.Side ?? string.Empty}";
+        if (!_raidLengths.TryGetValue(key, out var length))
         {
             // Remembered before the lookup returns, so a snapshot every second does not start
             // a query every second while the first one is still running.
-            _raidLengths[mapId] = null;
-            _ = RememberLengthAsync(mapId);
+            _raidLengths[key] = null;
+            _ = RememberLengthAsync(key, mapId, raid.Side);
             return null;
         }
 
         return length;
     }
 
-    private async Task RememberLengthAsync(string mapId)
+    private async Task RememberLengthAsync(string key, string mapId, string? side)
     {
         try
         {
             var map = await _maps!.GetAsync(mapId, CancellationToken.None).ConfigureAwait(true);
-            _raidLengths[mapId] = map?.PmcRaidDuration;
+            _raidLengths[key] = RaidTimer.LengthFor(side, map?.PmcRaidDuration, map?.ScavRaidDuration);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             // A length nobody could read means the timer counts nothing rather than counting
             // down from a number that was invented.
-            _raidLengths[mapId] = null;
+            _raidLengths[key] = null;
         }
     }
 

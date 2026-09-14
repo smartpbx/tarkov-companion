@@ -158,3 +158,60 @@ public sealed class RaidTimerTests
             new TimeSpan(0, 28, 10),
             RaidTimer.Read(["0:28:10", "EXFIL 3: ZB-014 ??:??:??"]));
 }
+
+/// <summary>
+/// How long the counted fallback thinks a raid is, for the side being played.
+/// </summary>
+/// <remarks>
+/// Both the shell and the coordinator read <c>PmcRaidDuration</c> whatever the side, while
+/// <c>LengthFor</c>'s own remark promised the opposite. A scav raid counted down from the PMC
+/// length promises time nobody has — on Customs that is forty minutes against about
+/// twenty-five — and it counts down convincingly the whole way.
+/// </remarks>
+public sealed class RaidLengthBySideTests
+{
+    private static readonly TimeSpan Pmc = TimeSpan.FromMinutes(40);
+    private static readonly TimeSpan Scav = TimeSpan.FromMinutes(25);
+
+    [Theory]
+    [InlineData("pmc")]
+    [InlineData("PMC")]
+    [InlineData("usec")]
+    [InlineData("bear")]
+    public void APmcRaidUsesThePmcDuration(string side) =>
+        Assert.Equal(Pmc, RaidTimer.LengthFor(side, Pmc, Scav));
+
+    [Theory]
+    [InlineData("scav")]
+    [InlineData("Scav")]
+    [InlineData("savage")]
+    public void AScavRaidUsesTheScavDuration(string side) =>
+        Assert.Equal(Scav, RaidTimer.LengthFor(side, Pmc, Scav));
+
+    [Fact]
+    public void AnUnknownSideIsUnknownRatherThanPmc()
+    {
+        // The honest answer. Null leaves the panel saying it does not know; the PMC number
+        // would be a confident wrong answer, and it is wrong in the direction that matters —
+        // too much time rather than too little.
+        Assert.Null(RaidTimer.LengthFor(null, Pmc, Scav));
+        Assert.Null(RaidTimer.LengthFor("", Pmc, Scav));
+        Assert.Null(RaidTimer.LengthFor("something else", Pmc, Scav));
+    }
+
+    [Fact]
+    public void ACatalogThatDoesNotStateThatSideSaysSo()
+    {
+        // Not every map publishes a scav duration. Falling back to the PMC one would be the
+        // same wrong answer arriving by a different route.
+        Assert.Null(RaidTimer.LengthFor("scav", Pmc, null));
+        Assert.Equal(Pmc, RaidTimer.LengthFor("pmc", Pmc, null));
+    }
+
+    [Fact]
+    public void TheSideIsMatchedPastSurroundingSpace()
+    {
+        // It arrives as whatever string the logs and the wire carry.
+        Assert.Equal(Scav, RaidTimer.LengthFor("  scav  ", Pmc, Scav));
+    }
+}

@@ -135,7 +135,7 @@ public sealed class RaidActivityCoordinator(
                 history,
                 mapId,
                 current.UpdatedUtc,
-                await RaidLengthAsync(mapId, cancellationToken).ConfigureAwait(false));
+                await RaidLengthAsync(mapId, current.Side, cancellationToken).ConfigureAwait(false));
             foreach (var abandoned in resumption.Close)
             {
                 await raidHistoryService.EndAsync(
@@ -203,7 +203,15 @@ public sealed class RaidActivityCoordinator(
         }
     }
 
-    private async Task<TimeSpan?> RaidLengthAsync(string? mapId, CancellationToken cancellationToken)
+    /// <summary>How long this raid runs, for the side it is being run as.</summary>
+    /// <remarks>
+    /// This returned the PMC duration whatever the side, so a scav raid's expected end was
+    /// computed from a length it never had.
+    /// </remarks>
+    private async Task<TimeSpan?> RaidLengthAsync(
+        string? mapId,
+        string? side,
+        CancellationToken cancellationToken)
     {
         if (mapDataService is null || mapId is null)
         {
@@ -211,7 +219,7 @@ public sealed class RaidActivityCoordinator(
         }
 
         var map = await mapDataService.GetAsync(mapId, cancellationToken).ConfigureAwait(false);
-        return map?.PmcRaidDuration;
+        return RaidTimer.LengthFor(side, map?.PmcRaidDuration, map?.ScavRaidDuration);
     }
 
     public async Task<RaidSnapshot> ApplyPositionAsync(ScreenshotPosition position, CancellationToken cancellationToken)
