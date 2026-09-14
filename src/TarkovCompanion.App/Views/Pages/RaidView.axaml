@@ -89,6 +89,22 @@
                         </StackPanel>
                       </Grid>
                     </Border>
+                    <!-- What the game actually said during the raid, read back out of the
+                         raid's own record. Position, scan, state and extracts were the whole of
+                         what a raid recorded; the quests it announced went to progress and the
+                         sales went to a session-only list, and neither was tied to the raid.
+
+                         Absent rather than empty where nothing happened. "Handed in: nothing"
+                         on every raid that handed nothing in is a line that earns its space
+                         once in twenty. -->
+                    <StackPanel Spacing="1" IsVisible="{Binding HasQuests}">
+                      <TextBlock Classes="label" Text="Quests" />
+                      <TextBlock Text="{Binding Quests}" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Spacing="1" IsVisible="{Binding HasSales}">
+                      <TextBlock Classes="label" Text="Flea" />
+                      <TextBlock Text="{Binding Sales}" TextWrapping="Wrap" />
+                    </StackPanel>
                     <StackPanel Spacing="1">
                       <TextBlock Classes="label" Text="Scanned" />
                       <TextBlock Text="{Binding Scans}" TextWrapping="Wrap" />

@@ -136,6 +136,12 @@ public sealed class RaidActivityCoordinatorTests
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
 
+        public Task<IReadOnlyList<string>> ListEventPayloadsAsync(
+            Guid raidId,
+            string type,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+
         public Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
             string mapId,
             int limit,
@@ -186,6 +192,12 @@ public sealed class RaidActivityCoordinatorTests
 
         public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
+
+        public Task<IReadOnlyList<string>> ListEventPayloadsAsync(
+            Guid raidId,
+            string type,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
 
         public Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
             string mapId,

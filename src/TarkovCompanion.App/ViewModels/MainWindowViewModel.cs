@@ -16,6 +16,7 @@ using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels;
@@ -300,6 +301,8 @@ public sealed class RaidPageViewModel : PageViewModel
     private RaidSnapshot? _lastRaid;
     private IReadOnlyList<HudBarViewModel> _hudBars = [];
     private string _hudDetail = string.Empty;
+    private readonly IItemRepository? _items;
+    private readonly Func<string, string>? _nameTask;
     private string _timeLeft = "Unknown";
     private string _timeLeftDetail = "No raid in progress";
 
@@ -332,12 +335,21 @@ public sealed class RaidPageViewModel : PageViewModel
         IRaidHistoryService? raidHistoryService = null,
         // Optional only so the compositions that build this by hand keep working; without it
         // the timer falls back to whatever a screenshot last showed.
-        IMapDataService? maps = null)
+        IMapDataService? maps = null,
+        // Names the items a raid's record only holds ids for. Without it the flea line reads
+        // as hexadecimal, which is the defect the trader ids had until they were resolved.
+        IItemRepository? items = null,
+        // Names a task the same way. A function rather than the quest service, because the
+        // shell already holds a loaded quest board and a second read of the catalog here would
+        // be a second answer to a question already answered.
+        Func<string, string>? nameTask = null)
         : base("Raid reference", "The map, and where your screenshots put you", "No raid evidence")
     {
         Map = map;
         _raidHistoryService = raidHistoryService;
         _maps = maps;
+        _items = items;
+        _nameTask = nameTask;
         Replay = new(map);
         DismissSummaryCommand = new DelegateCommand(DismissSummary);
     }
@@ -761,6 +773,8 @@ public sealed class RaidPageViewModel : PageViewModel
         }
 
         string history;
+        var quests = string.Empty;
+        var sales = string.Empty;
         try
         {
             var raids = await _raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(true);
@@ -770,6 +784,12 @@ public sealed class RaidPageViewModel : PageViewModel
                 : entry.EndedUtc is { } endedUtc
                     ? string.Create(CultureInfo.CurrentCulture, $"Saved · closed {endedUtc.ToLocalTime():g}")
                     : "Saved · no end time";
+
+            // Out of the raid's own record rather than counted as they went past. Counting
+            // works only while the application that saw them is still running; this is the
+            // answer a raid opened from History a week later would get.
+            quests = await DescribeQuestsAsync(raidId, cancellationToken).ConfigureAwait(true);
+            sales = await DescribeSalesAsync(raidId, cancellationToken).ConfigureAwait(true);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -780,7 +800,103 @@ public sealed class RaidPageViewModel : PageViewModel
         // the older answer must not overwrite the newer one.
         if (_summaryRaidId == raidId && Summary is { } summary)
         {
-            Summary = summary with { History = history };
+            Summary = summary with { History = history, Quests = quests, Sales = sales };
+        }
+    }
+
+    /// <summary>
+    /// The quests the game announced during one raid, named where the catalog knows them.
+    /// </summary>
+    /// <remarks>
+    /// Only hand-ins and failures. A quest starting during a raid is the game catching up with
+    /// a decision made in the menu, and listing it under "what happened in that raid" would
+    /// credit the raid with something it did not do.
+    /// </remarks>
+    private async Task<string> DescribeQuestsAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService!
+            .ListEventPayloadsAsync(raidId, "quest", cancellationToken)
+            .ConfigureAwait(true);
+        var named = new List<string>();
+        foreach (var payload in payloads)
+        {
+            if (Read<QuestStatusObservation>(payload) is not { } quest ||
+                quest.State is not (RecordedTaskState.Completed or RecordedTaskState.Failed))
+            {
+                continue;
+            }
+
+            var name = _nameTask?.Invoke(quest.TaskId) ?? quest.TaskId;
+            var line = quest.State == RecordedTaskState.Failed ? $"{name} (failed)" : name;
+            if (!named.Contains(line, StringComparer.Ordinal))
+            {
+                named.Add(line);
+            }
+        }
+
+        return named.Count == 0 ? string.Empty : "Handed in: " + string.Join(" · ", named);
+    }
+
+    /// <summary>What sold on the flea while one raid was open.</summary>
+    /// <remarks>
+    /// Counted per item rather than per offer, because two offers for the same thing is one
+    /// sentence a player would say: "two Salewas went".
+    /// </remarks>
+    private async Task<string> DescribeSalesAsync(Guid raidId, CancellationToken cancellationToken)
+    {
+        var payloads = await _raidHistoryService!
+            .ListEventPayloadsAsync(raidId, "sale", cancellationToken)
+            .ConfigureAwait(true);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var payload in payloads)
+        {
+            if (Read<FleaSaleObservation>(payload) is not { HandbookItemId: { Length: > 0 } itemId } sale)
+            {
+                continue;
+            }
+
+            counts[itemId] = counts.GetValueOrDefault(itemId) + Math.Max(1, sale.Count);
+        }
+
+        if (counts.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Named from the catalog rather than from the Quests page's own cache, which only holds
+        // items looked up for a selected quest — so a sold item would almost always have come
+        // out as its id. That is the defect the trader ids had until #194 and the Bring lines
+        // had until they were given a lookup of their own.
+        var named = new List<string>(counts.Count);
+        foreach (var (itemId, count) in counts)
+        {
+            var item = _items is null
+                ? null
+                : await _items.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+            named.Add($"{count}× {item?.Name ?? itemId}");
+        }
+
+        return "Sold: " + string.Join(" · ", named);
+    }
+
+    /// <summary>
+    /// Reads one stored payload, or nothing rather than failing the whole summary.
+    /// </summary>
+    /// <remarks>
+    /// A row that will not parse costs its own line. The summary appears when a raid ends and
+    /// is the one moment somebody is definitely looking at the application, so it is the worst
+    /// possible place to raise an exception over a malformed row.
+    /// </remarks>
+    private static T? Read<T>(string payload)
+        where T : class
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<T>(payload);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
         }
     }
 
@@ -2132,7 +2248,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
                 : null;
 
         Map = map;
-        Raid = new(map, raidHistoryService, maps);
+        Raid = new(map, raidHistoryService, maps, itemRepository, quests.NameOfTask);
         Scanner = new(scanUseCase, scanHistory);
         Items = new(itemSearchService, itemRepository);
         Quests = quests;

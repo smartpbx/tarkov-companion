@@ -44,6 +44,26 @@ public sealed record RaidSummaryViewModel(
     string History)
 {
     /// <summary>
+    /// The quests the game announced during this raid, where any were.
+    /// </summary>
+    /// <remarks>
+    /// Read back out of the raid's own record rather than counted as they went past. Counting
+    /// works only while the application that saw them is still running; a raid opened from
+    /// History a week later has to ask the database.
+    ///
+    /// An init property rather than two more positional parameters on a record that already
+    /// takes eleven.
+    /// </remarks>
+    public string Quests { get; init; } = string.Empty;
+
+    /// <summary>What sold on the flea while this raid was open.</summary>
+    public string Sales { get; init; } = string.Empty;
+
+    public bool HasQuests => Quests.Length > 0;
+
+    public bool HasSales => Sales.Length > 0;
+
+    /// <summary>
     /// What the summary says about how the raid went.
     /// </summary>
     /// <remarks>
