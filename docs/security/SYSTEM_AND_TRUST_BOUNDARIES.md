@@ -184,6 +184,12 @@ the persistent waypoint namespace: per-room caps do not cap the number of rooms.
 allowlists derived room hashes, but registration does not prove who supplied a key and does not
 make an active room key unguessable.
 
+The same client-to-relay boundary carries problem-report bodies. The relay accepts and persists an
+untrusted client-supplied body verbatim, then returns an opaque reference. The client-side bundle
+is not reliably redacted today: `Observation.Detail` can carry raw roots, and the app-log tail can
+retain roots, screenshot filenames, and coordinates. This contradicts `docs/SAFETY.md`'s
+restriction on exporting diagnostic path segments and is open as RISK-REPORT-REDACTION.
+
 ### TB-5: Group relay ↔ upstream/self-update
 
 The relay fetches `json.tarkov.dev` catalog bytes, the-hideout landmark names, and GitHub release
@@ -233,12 +239,9 @@ compelled, or compromised operator/process with host/request-processing access.
 
 ### TB-9: Relay ↔ GitHub Actions problem-report flow
 
-The relay accepts and persists an untrusted client-supplied body verbatim, then returns an opaque
-reference. The client-side bundle is not reliably redacted today: `Observation.Detail` can carry
-raw roots, and the app-log tail can retain roots, screenshot filenames, and coordinates. This
-contradicts `docs/SAFETY.md`'s restriction on exporting diagnostic path segments and is open as
-RISK-REPORT-REDACTION; report-body access belongs to the keyed operator boundary TB-8, not Actions.
-`relay-watch.yml` uses the relay admin key only to list report reference, size, and received time,
+For a report body accepted under TB-4, report-body access belongs to the keyed operator boundary
+TB-8, not Actions. `relay-watch.yml` uses the relay admin key only to list report reference, size,
+and received time,
 then uses the GitHub-provisioned repository token to open an issue containing that metadata. It
 never fetches a report body, and the relay itself holds no GitHub credential. The current
 three-per-derived-room/hour counter does not bound relay-wide abuse on an open relay: an anonymous
