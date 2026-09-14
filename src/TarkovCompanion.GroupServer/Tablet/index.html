@@ -54,6 +54,10 @@
   .note { color: var(--quiet); font-size: 13px; margin: 10px 0 0; }
   .bad { color: var(--alarm); }
   .good { color: var(--sage); }
+  .grow { flex: 1 1 140px; min-width: 0; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .form input { flex: 1 1 160px; min-width: 0; }
+  .price { color: var(--ochre); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .modes { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .modes button[aria-pressed="true"] { background: var(--ochre); color: #1b1710; border-color: var(--ochre); }
   .empty { color: var(--quiet); font-size: 13px; }
@@ -93,7 +97,14 @@
   </section>
 
   <section>
-    <h2>Group</h2>
+    <h2>Worth</h2>
+    <div class="form">
+      <input id="find" placeholder="What is it worth?" autocomplete="off" enterkeyhint="search">
+      <button type="button" id="findGo">Search</button>
+    </div>
+    <div id="found"><p class="empty">Type a name. No alt-tab.</p></div>
+
+    <h2 style="margin-top:16px">Group</h2>
     <div id="members"><p class="empty">Nobody is sharing yet.</p></div>
     <h2 style="margin-top:16px">Marks</h2>
     <div id="marks"><p class="empty">Nothing marked.</p></div>
@@ -433,6 +444,70 @@
       setStatus(error.message, "bad");
     }
   }
+
+  // What an item is worth, asked of the relay rather than answered by downloading the catalog.
+  //
+  // The items file is 16,713,367 bytes, 1,887,826 gzipped, for 5,320 items. A tablet on a sofa
+  // is not fetching that to answer one question, so the question travels instead and comes back
+  // a few hundred bytes later.
+  //
+  // No group key: this is public game data, and it means the answer works before anybody joins.
+  const roubles = (value) => value == null ? null : value.toLocaleString() + " ₽";
+
+  /// A div with text in it, set as text rather than markup because an item name is upstream's.
+  function text(value, className) {
+    const element = document.createElement("div");
+    if (className) element.className = className;
+    element.textContent = value;
+    return element;
+  }
+
+  async function findItems() {
+    const query = $("find").value.trim();
+    const holder = $("found");
+    holder.replaceChildren();
+    if (query.length < 2) {
+      holder.appendChild(text("Type a name. No alt-tab.", "empty"));
+      return;
+    }
+
+    let results;
+    try {
+      const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+      if (!response.ok) throw new Error(`The relay answered ${response.status}.`);
+      results = await response.json();
+    } catch (error) {
+      holder.appendChild(text(error.message, "bad"));
+      return;
+    }
+
+    if (results.length === 0) {
+      holder.appendChild(text(`Nothing matching "${query}".`, "empty"));
+      return;
+    }
+
+    for (const item of results) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.style.display = "flex";
+      row.style.gap = "10px";
+      row.style.alignItems = "center";
+      const left = document.createElement("div");
+      left.className = "grow";
+      left.appendChild(text(item.name, "name"));
+      // Said as what it is. A flea price is what somebody pays; a base price is the game's own
+      // number and is not what anything sells for, so it is never printed as though it were.
+      left.appendChild(text(
+        item.flea != null ? "24h flea average" : item.base != null ? "no flea price · base value" : "not priced",
+        "meta"));
+      row.appendChild(left);
+      row.appendChild(text(roubles(item.flea ?? item.base) ?? "—", "price"));
+      holder.appendChild(row);
+    }
+  }
+
+  $("findGo").addEventListener("click", findItems);
+  $("find").addEventListener("keydown", (event) => { if (event.key === "Enter") findItems(); });
 
   $("clearReached").addEventListener("click", () => clearMarks(true));
   $("clearAll").addEventListener("click", () => clearMarks(false));

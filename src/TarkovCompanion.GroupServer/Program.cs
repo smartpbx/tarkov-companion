@@ -85,6 +85,9 @@ builder.Services.AddHttpClient(Landmarks.HttpClientName, client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
 });
 builder.Services.AddSingleton<Landmarks>();
+// Answers "what is this worth" against the catalog the relay already holds, so a tablet asks
+// a question rather than downloading 1.9 MB to answer it itself.
+builder.Services.AddSingleton<ItemSearch>();
 
 // Reports are taken and kept here; the hourly relay-watch workflow turns them into issues
 // using the token GitHub Actions already gives it for its own repository. So this box holds no
@@ -446,6 +449,21 @@ var landmarkJson = new JsonSerializerOptions(JsonSerializerDefaults.Web)
 {
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
 };
+
+// What an item is worth, for the second screen.
+//
+// No key, like /catalog and /landmarks: this is public game data, and the alternative is a
+// tablet pulling the whole catalog to answer one question.
+//
+// The query is a search term and never a path, so there is nothing here for it to escape into.
+app.MapGet("/search", async Task<IResult> (
+    string? q,
+    ItemSearch search,
+    CancellationToken cancellationToken) =>
+{
+    var found = await search.FindAsync(q, cancellationToken).ConfigureAwait(false);
+    return TypedResults.Ok(found);
+});
 
 app.MapGet("/landmarks", async (
     HttpRequest request,

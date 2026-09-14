@@ -215,6 +215,32 @@ else; the relay asks again an hour later rather than on every request.
 
 The whole answer is 33,015 bytes for all fifteen maps.
 
+## Searching the catalog
+
+`GET /search?q=salewa` returns up to twelve items with their prices. No key, like `/catalog` and
+`/landmarks`.
+
+```json
+[{"id":"544fb45d4bdc2dee738b4568","name":"Salewa first aid kit",
+  "shortName":"Salewa","flea":31747,"base":15090}]
+```
+
+`flea` is the 24-hour average and is absent when nothing has traded; `base` is the game's own
+number and is never printed as though it were a selling price.
+
+Searched here rather than on the page for the same reason landmarks are derived here: the items
+catalog is 16,713,367 bytes, 1,887,826 gzipped, for 5,320 items. One search is about 460 bytes.
+
+Two files go into it. Every item's `name` in the catalog is a token — literally `"{id} Name"` —
+and `items_en` is the dictionary that turns it into "Colt M4A1 5.56x45 assault rifle". All 5,320
+resolve through it. The desktop has always fetched both; the mirror carried only the first until
+now, so anything searching it would have matched ids.
+
+Matching is word by word rather than as one string: "factory key" finds "Factory emergency exit
+key", which a contiguous match never would. Every word has to appear somewhere, and where they
+appear is what orders the results — an exact short name first, then a name starting with what was
+typed, then every word starting a word of the name.
+
 ## What the server does not do
 
 - It keeps no history. Where people have been would be easy to record and is deliberately not.
