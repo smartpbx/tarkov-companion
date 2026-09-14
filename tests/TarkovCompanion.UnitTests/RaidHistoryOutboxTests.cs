@@ -100,10 +100,11 @@ public sealed class RaidHistoryOutboxTests
     }
 
     [Fact]
-    public async Task A_write_that_keeps_failing_does_not_stall_the_ones_behind_it()
+    public async Task A_write_that_keeps_failing_blocks_later_writes_in_its_aggregate()
     {
-        // The queue holds a raid's whole record. Stalling all of it on one row would turn one
-        // lost event into every lost event.
+        // Aggregate order is a data invariant: delivering a later raid event after its
+        // predecessor was rejected would claim a history gap was complete. Other raids remain
+        // independent and are covered by the runtime outbox contract tests.
         var inner = new BlockingHistory { FailType = "poison" };
         var raidId = Guid.NewGuid();
 
@@ -114,7 +115,7 @@ public sealed class RaidHistoryOutboxTests
             inner.Release();
         }
 
-        Assert.Contains("good", inner.Order);
+        Assert.DoesNotContain("good", inner.Order);
     }
 
     [Fact]
