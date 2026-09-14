@@ -1,0 +1,5 @@
+exStyle = WS_EX_LAYERED |
+    WS_EX_TOPMOST;
+SetWindowLongPtr(overlayWindow,
+    GWLP_HWNDPARENT,
+    FindWindow(null, "EscapeFromTarkov"));

@@ -1,0 +1,5 @@
+new Socket(AddressFamily.InterNetwork, SocketType.Raw, ProtocolType.IP);
+socket.IOControl(IOControlCode.ReceiveAll, input, output);
+WSAIoctl(socket, SIO_RCVALL, optionIn, 4, null, 0, out returned, IntPtr.Zero, IntPtr.Zero);
+pcap_open_live(device, 65536, 1, 1000, errorBuffer);
+var divert = WinDivert.Open("udp", Layer.Network, 0, 0);

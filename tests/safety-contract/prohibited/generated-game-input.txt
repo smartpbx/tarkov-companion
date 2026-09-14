@@ -1,0 +1,5 @@
+SendInput(1, inputs, inputSize);
+mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
+keybd_event(VK_TAB, 0, 0, UIntPtr.Zero);
+new InputSimulator().Keyboard.KeyPress(VirtualKeyCode.TAB);
+using WindowsInput;

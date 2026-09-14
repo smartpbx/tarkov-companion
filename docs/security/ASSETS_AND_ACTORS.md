@@ -1,0 +1,59 @@
+# Assets and actors
+
+## Assets
+
+Each asset names the boundary (from `SYSTEM_AND_TRUST_BOUNDARIES.md`) where it is created or
+first crosses a trust line, its classification, and the source this pass verified it against.
+
+| ID | Asset | Classification | Where it lives | Verified against |
+| --- | --- | --- | --- | --- |
+| A-1 | Player's own profile, raid, and quest history | Personal, local | By default, profile state (including profile-level progress collections) is JSON under `%LOCALAPPDATA%\TarkovCompanion\Config\profile.json`; raid history and additional quest-progress stores are in SQLite. `portable.flag` instead selects install-adjacent `Data`, and composition can supply an explicit data-root override. | `AppDataPaths.Resolve`; `AppComposition.cs`; `JsonFilePlayerProfileService.cs`; `docs/DATABASE.md` |
+| A-2 | Other players' data embedded in EFT's own logs (party nicknames, ids, levels, loadouts, health state, dogtag killer/victim names) | Personal, third-party; current policy says local-only and never transmitted | Read from game log files. Current source also puts an `Observed` subset (name, loadout, level, side, scav-lock time) into the relay payload whenever sharing is on, contrary to `docs/SAFETY.md`'s current "Never transmitted" rule; this is OPEN as RISK-RELAY-OBSERVED-DATA-POLICY, not treated here as permission | `docs/SAFETY.md`; `GroupKitShare.cs`; `GroupKitMirror.cs`; `GroupSessionService.Describe`; `GroupContracts.cs` |
+| A-3 | Screenshot filenames, screenshot-file pixels, and user-triggered visible window/desktop pixels | Personal, local | Filename metadata enters through the watcher; a game-written screenshot is read and decoded in full by `SkiaScreenshotImageLoader`; `GdiScreenCaptureService` separately captures visible pixels into memory and never persists those capture bytes. Independently, screenshot cleanup defaults to enabled and moves qualifying game-written files older than 24 hours to the recycle bin while retaining the newest file | `RaidObservationService.cs`; `SkiaScreenshotImageLoader.cs`; `GdiScreenCaptureService.cs`; `ScanUseCase.cs`; `ScreenshotRetention.cs`; `JsonFileScreenshotRetentionStore.cs` |
+| A-4 | TarkovTracker bearer token | Secret | DPAPI `CurrentUser`-protected file under `Secrets/` | `WindowsDpapiSecretStore.cs` |
+| A-5 | Group key | Reusable shared credential (per group) | Stored plaintext in desktop `Config/group.json` and tablet browser `localStorage`; sent in plaintext `X-Group-Key` headers over HTTPS or explicitly accepted local/LAN HTTP. The relay process parses plaintext before hashing it to a 32-hex room id. Relay persistence uses the derived id, and stock source does not intentionally log the plaintext key | `JsonFileGroupSettingsStore.cs`; `GroupSharing.cs`; `GroupSessionService.cs`; `Tablet/index.html`; `Program.TryReadKey`; `GroupKey.RoomFor` |
+| A-6 | Relay admin key (`TARKOV_RELAY_ADMIN_KEY`) | High-value secret | GitHub repo secret; `/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on CT 115; entered into admin-page `sessionStorage` and sent in `X-Admin-Key` using the page's HTTPS or HTTP origin | `docs/OPERATIONS.md`; `RelayAdmin.cs`; `Admin/index.html`; `deploy/group-server/tarkov-group.service` |
+| A-7 | In-room member state (name, map/raid/side, position/height/heading/age, own loadout/quests, observed-party subset, trail, extracts/transits, raid clock) | Shared within one group; medium sensitivity, with A-2's current policy conflict for the observed-party subset | Relay memory only; a read expires an entry after more than three minutes of silence, while the one-minute sweeper means an unread entry can remain for nearly four minutes. Never written to disk. | `GroupSessionService.Describe`; `GroupContracts.cs`; `GroupRooms.cs`; `Program.cs` |
+| A-8 | Waypoints and pings | Shared within one group, low sensitivity, ownerless by design | Pings are memory-only and omitted/removed after 45 seconds on room read or a later ping insertion. Waypoints are persisted in `marks.json`; the 60-waypoint cap is per room, the room dictionary has no global cap, and the documented seven-day pruning occurs only while loading after a restart | `GroupMarks.cs`; `docs/GROUP_RELAY.md`; `docs/OPERATIONS.md` |
+| A-9 | Room registry (which rooms may use a closed relay) | Operational, low sensitivity (hashes + labels, no keys) | `rooms.json` on relay disk | `docs/OPERATIONS.md`, `docs/GROUP_RELAY.md` |
+| A-10 | Problem report bodies | Personal, potentially sensitive diagnostic content | The desktop assembles `Observation.Detail`, recent screenshot names, and an app-log tail into a user-submitted report; current redaction is incomplete, so raw roots, screenshot filenames, and coordinates can remain. The relay accepts and persists the submitted body verbatim in `reports/*.md`, readable with the admin key. Kestrel's effective request-body ceiling is 32 KiB; files have no count, age, or disk-quota lifecycle today. | `SupportBundle.Describe`; `RaidObservationService.cs`; `FileLoggerProvider.cs`; `Program.cs`; `ProblemReports.cs`; `docs/OPERATIONS.md` |
+| A-11 | Desktop/relay release artifacts, Velopack feed metadata, and published checksum files | Supply-chain critical | GitHub Releases `dev` channel. The deployed relay shell updater verifies its published checksum; `RelayUpdate.cs` only reads status/checksum and writes an update-request marker. Desktop source delegates feed/package handling to Velopack and does not explicitly consume `VELOPACK-SHA256SUMS.txt` | `VelopackUpdateGateway.cs`; `RelayUpdate.cs`; `deploy/group-server/tarkov-group-update.sh`; `windows-verify.yml` |
+| A-12 | Third-party game-data catalog (tarkov.dev, the-hideout) | Public but integrity-relevant — feeds gameplay decisions | Cached locally and on the relay | `docs/DATA_SOURCES.md`, `CatalogMirror.cs` |
+| A-13 | GitHub Actions token used by `relay-watch.yml` | Secret, scope-limited to this repository | GitHub-provisioned, ephemeral per run | `docs/OPERATIONS.md` |
+| A-14 | Profile, quest-progress, and raid-history import/export payloads | Personal, user-controlled file boundary | Profile JSON can be exported/imported through `IPlayerProfileService`; quest progress uses a checksummed JSON envelope with preview/confirm; raid history can be written as JSON or CSV. These source surfaces exist even where current UI exposure is limited | `JsonFilePlayerProfileService.cs`; `ProjectQuestProgressJson.cs`; `QuestProgressExchangeService.cs`; `SqliteRaidHistoryService.cs`; `RaidHistoryOutbox.cs` |
+
+## Actors
+
+| ID | Actor | Trust level | Capability | Notes |
+| --- | --- | --- | --- | --- |
+| ACT-1 | The player | Trusted (their own machine, their own data) | Full control of their own desktop install | The only actor with legitimate access to A-1, A-3, A-4 |
+| ACT-2 | Squadmate (party member the player has already met in-game) | Semi-trusted, permitted per `docs/SAFETY.md` | Reads what the player already sees in the raid | Distinct from ACT-3 — this is the "permitted" case in `docs/SAFETY.md`'s log-data rule |
+| ACT-3 | A stranger described in the player's own EFT logs (never encountered, or an enemy) | Untrusted, explicitly prohibited from aggregation | None — `docs/SAFETY.md` forbids using this data at all | The boundary the enemy-tracking prohibition exists to enforce |
+| ACT-4 | Group relay member holding a valid group key | Semi-trusted within one room | Publishes/reads `/state`, drops/clears any mark in the room (ownerless by design) | Can rename to collide with another member's display name — see ABUSE-RELAY-NAME-COLLISION |
+| ACT-5 | Anonymous, LAN, or on-path network client reaching the relay, with no key or an invented one | Untrusted | On an open relay, any acceptable invented key selects a room, mark namespace, and fresh per-room report-limit bucket. On any relay, can call public data routes. On accepted local/LAN HTTP, an on-path client can observe or modify group/admin headers and bodies | `GroupSharing.IsTransportAcceptable`; `RelayAccess.IsGroupPath`; `ProblemReports.IsRateLimited`; `GroupMarks.cs` |
+| ACT-6 | Relay operator | Trusted for their own relay | Reads every group's report bodies, registers/adopts rooms, requests an update | Holds A-6; `docs/OPERATIONS.md` documents this as a distinct, more powerful role than any group key |
+| ACT-7 | Compromised, malicious, unavailable, or malfunctioning upstream data source (json.tarkov.dev, the-hideout, api.tarkovtracker.org) | Untrusted content/availability, authenticated transport when TLS succeeds | Could serve manipulated catalog/map/progress data, fail refreshes, or return malformed content over an otherwise-valid HTTPS connection | No independent content authenticity is documented for catalog/landmark fetches; stale mirror fallback is also triggered by ordinary failure — see RISK-CATALOG-INTEGRITY |
+| ACT-8 | Attacker controlling or spoofing the release/update channel | Untrusted, supply-chain impact if successful | Could influence release assets/feed metadata through compromise of GitHub, publishing credentials, or a validly authenticated network path | Relay verification is anchored to a checksum fetched from the same channel; desktop behavior is delegated to Velopack (TB-10) |
+| ACT-9 | Compromised or lost tablet device (or a later browser user) | Untrusted once compromised, otherwise same as ACT-4 | Can read the reusable key from `localStorage`, then exercise the same room-scoped read/write authority as any member | The key is the only credential; there is no per-device revocation short of rotating it for everybody |
+| ACT-10 | Same-Windows-user local malware | Untrusted, high local privilege | Can read plaintext `Config/group.json` and can call `CryptUnprotectData` to recover A-4 exactly as the desktop app does | DPAPI protects A-4 from other users/offline copies, but A-5 is deliberately plaintext today |
+| ACT-11 | Malicious, compelled, or compromised relay operator/process | Untrusted with respect to members' reusable credentials and content, despite having legitimate host administration | Controls the origin/request-processing environment, can inspect plaintext `X-Group-Key` after transport termination, inspect live room state and retained reports, modify responses, or retain material the stock process does not persist | Distinct from ACT-6 performing expected administration; source behavior cannot make the relay blind to A-5 |
+| ACT-12 | Current or future product implementation/change, including dependency or generated code | Not trusted to meet policy without source review and deterministic enforcement | Can transmit a prohibited field or add semantically prohibited UI behavior without using a token named by the lexical audit | Models implementation-caused boundary failures, accidental or malicious; see RISK-ANTICHEAT-REVIEW-DISCIPLINE and RISK-RELAY-OBSERVED-DATA-POLICY |
+
+## Actor ↔ boundary matrix
+
+Which actor is the relevant threat source at each trust boundary; used to keep abuse cases from
+drifting onto an actor that boundary cannot actually see.
+
+| Boundary | Primary actor(s) of concern |
+| --- | --- |
+| TB-1 EFT ↔ Desktop | ACT-1 (accidental), ACT-12 |
+| TB-2 Filesystem ↔ Desktop | ACT-1 (retention/import mistake), ACT-10 |
+| TB-3 Desktop ↔ public data | ACT-7 |
+| TB-4 Desktop/network client ↔ Relay | ACT-4, ACT-5, ACT-11 |
+| TB-5 Relay ↔ upstream/self-update | ACT-7, ACT-8, ACT-11 |
+| TB-6 Player ↔ Squadmate | ACT-2, ACT-4 |
+| TB-7 Player ↔ Tablet | ACT-9 |
+| TB-8 Operator ↔ Relay | ACT-6, ACT-5 (attempting admin routes), ACT-11 |
+| TB-9 Relay ↔ Actions | ACT-6, ACT-5 (report flooding), ACT-11 |
+| TB-10 Build ↔ artifact | ACT-8, ACT-12 |
+| TB-11 Import/export files ↔ Desktop | ACT-1 (mistake or untrusted file), ACT-10 |

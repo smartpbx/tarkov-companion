@@ -1,0 +1,8 @@
+CreateRemoteThread(gameHandle, null, 0, injectedAddress, null, 0, out threadId);
+VirtualAllocEx(gameHandle, IntPtr.Zero, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+VirtualProtectEx(gameHandle, address, size, PAGE_EXECUTE_READWRITE, out oldProtect);
+SetWindowsHookEx(hookType, callback, module, threadId);
+LocalHook.Create(target, detour, null); // EasyHook
+using Reloaded.Hooks;
+var present = new Vortice.Direct3D11.SwapChainHook(device);
+var hook = new Direct3D11PresentHook(swapChain);

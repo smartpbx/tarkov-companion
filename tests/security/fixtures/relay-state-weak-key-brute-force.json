@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-WEAK-KEY-GUESS",
+    "boundary": "TB-4",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "GroupKey accepts any non-whitespace value whose trimmed length is at least 8 and raw length is at most 128; its source comment says key length is doing all of the work. Registration allowlists room hashes but does not rate-limit guesses at an active key. No per-IP/key attempt counter or backoff exists in Program.cs."
+  },
+  "scenario": {
+    "target": "an active room on either an open relay or a closed relay whose room hash is registered",
+    "attempts": [
+      { "key": "password", "path": "/state", "method": "GET" },
+      { "key": "12345678", "path": "/state", "method": "GET" },
+      { "key": "tarkovpm", "path": "/state", "method": "GET" },
+      { "key": "customs01", "path": "/state", "method": "GET" }
+    ],
+    "costPerAttempt": "one unauthenticated HTTP request, no backoff, no CAPTCHA, no per-IP counter",
+    "successCondition": "A guessed live key returns the group's member list. On an open relay, misses return an empty room; on a closed relay, unregistered hashes return 403, so neither mode removes the online oracle for an active registered key."
+  }
+}
