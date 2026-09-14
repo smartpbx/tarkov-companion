@@ -181,7 +181,15 @@ function Send-DiagnosticCommand {
         scenario = $Scenario
     }
 
-    $Payload | ConvertTo-Json | Set-Content -LiteralPath $TemporaryPath -Encoding utf8
+    # Windows PowerShell's -Encoding utf8 writes a BOM. The packaged channel deliberately
+    # deserializes untrusted command files as JSON bytes; emit the same BOM-free UTF-8 form its
+    # integration fixture writes, or a rejected file gets a different diagnostic response name
+    # and the smoke can only report a misleading response timeout.
+    $Utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText(
+        $TemporaryPath,
+        ($Payload | ConvertTo-Json -Compress),
+        $Utf8WithoutBom)
     Move-Item -LiteralPath $TemporaryPath -Destination $CommandPath
     Wait-Path -Path $ResponsePath
     return Get-Content -LiteralPath $ResponsePath -Raw | ConvertFrom-Json
