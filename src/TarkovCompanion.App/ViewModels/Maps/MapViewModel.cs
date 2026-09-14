@@ -1947,7 +1947,6 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             if (initial is not null)
             {
                 await SelectLocationAsync(initial).ConfigureAwait(true);
-                await OpenAsRequestedAsync().ConfigureAwait(true);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1968,31 +1967,24 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             string.Equals(location.Name, mapId, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
-    /// Applies the floor and the stack a diagnostic launch asked for, once the map is drawn.
+    /// The floor a diagnostic launch asked to open on, if this variant has it.
     /// </summary>
     /// <remarks>
-    /// After the map rather than with it. The floors belong to the variant that was selected,
-    /// so neither of these exists to be applied until the selection has come back.
+    /// Applied where the default floor is chosen rather than afterwards, and on every variant
+    /// load rather than once. The first attempt selected it after the map came back and it did
+    /// not stick: populating the chooser raises its own selection-changed, which loads the
+    /// variant again, and a variant load resets the floor to the catalog's default and rebuilds
+    /// the render model. The gallery photographed the request being overwritten — "Floor: Base"
+    /// on a launch that asked for the 3rd floor, and a flat map under a lit Stack toggle.
     ///
-    /// Each is ignored where the map cannot do it: a floor this map does not have, or a stack
-    /// on a map with one floor. A launch asking for the impossible photographs the map it did
-    /// get, which is a picture worth having, rather than failing to start.
+    /// Sticky, therefore, for the life of the process. That costs nothing on an ordinary launch
+    /// because nothing passes these, and it is what a launch that did pass them wants.
     /// </remarks>
-    private async Task OpenAsRequestedAsync()
-    {
-        if (_openOnFloor is { } wanted &&
-            Floors.FirstOrDefault(floor =>
-                string.Equals(floor.Id, wanted, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(floor.Name, wanted, StringComparison.OrdinalIgnoreCase)) is { } floorToShow)
-        {
-            await SelectFloorAsync(floorToShow).ConfigureAwait(true);
-        }
-
-        if (_openStacked && CanStack)
-        {
-            IsStacked = true;
-        }
-    }
+    private MapFloorDefinition? RequestedFloor(MapVariant variant) => _openOnFloor is { } wanted
+        ? variant.Floors.FirstOrDefault(floor =>
+            string.Equals(floor.Id, wanted, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(floor.Name, wanted, StringComparison.OrdinalIgnoreCase))
+        : null;
 
     /// <summary>
     /// Describes what the catalog load actually produced.
@@ -2888,7 +2880,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
             SelectedVariant = variant;
             Floors = variant.Floors;
-            SelectedFloor = variant.Floors.FirstOrDefault(floor => floor.IsVisibleByDefault) ?? variant.Floors.FirstOrDefault();
+            SelectedFloor = RequestedFloor(variant)
+                ?? variant.Floors.FirstOrDefault(floor => floor.IsVisibleByDefault)
+                ?? variant.Floors.FirstOrDefault();
             Tiles = [];
             BackgroundImage = null;
             CanvasWidth = 900;
@@ -2944,6 +2938,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             UpdateOverlays();
             NotifyPresentationProperties();
             await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
+            await OpenStackedAsync(cancellationToken).ConfigureAwait(true);
+            // Said on the map rather than swallowed. A diagnostic launch that asked for a floor
+            // this map does not have photographs the map it did get, and the picture has to say
+            // which of those happened or it reads as the option doing nothing.
+            if (_openOnFloor is { } asked && RequestedFloor(variant) is null)
+            {
+                Status = $"{Status} · No floor named \"{asked}\" on this map";
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -4910,6 +4912,36 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     /// <summary>Whether a map has more than one floor to stack at all.</summary>
     public bool CanStack => Floors.Count > 1;
+
+    /// <summary>
+    /// Opens with the floors stacked, where a diagnostic launch asked for it.
+    /// </summary>
+    /// <remarks>
+    /// Not through the property, and that is the point. Setting it returns early when it is
+    /// already true, so once the first variant load had turned it on, every later load rebuilt
+    /// the render model and left the stack geometry behind it un-rebuilt — a lit toggle over a
+    /// flat map, which is exactly what the gallery photographed the first time it was told to
+    /// open stacked. This says it again on every load, and awaits it rather than dropping the
+    /// task on the floor, so the picture is taken after the stack is drawn.
+    /// </remarks>
+    private async Task OpenStackedAsync(CancellationToken cancellationToken)
+    {
+        if (!_openStacked || !CanStack)
+        {
+            return;
+        }
+
+        if (!_isStacked)
+        {
+            _isStacked = true;
+            OnPropertyChanged(nameof(IsStacked));
+            OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(StackTilt));
+            OnPropertyChanged(nameof(ShowsFlatBackground));
+        }
+
+        await LoadFloorStackAsync(cancellationToken).ConfigureAwait(true);
+    }
 
     /// <summary>
     /// The variant of this map that has floors, when the one on screen has none.

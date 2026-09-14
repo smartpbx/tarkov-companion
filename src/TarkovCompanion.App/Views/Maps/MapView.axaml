@@ -888,16 +888,27 @@
       </Border>
     </Grid>
 
-    <!-- Bottom left: what the map is doing, in one line, expandable when it matters. -->
+    <!-- Bottom left: what the map is doing, in one line, expandable when it matters.
+
+         The header is trimmed rather than clipped. A plain string header is cut off by the
+         expander's own width wherever it happens to reach, which the gallery caught on
+         Streets: "Map asset downloaded from tarkov.dev. Showing upstream SVG layer 'Ground"
+         stops mid-word with nothing to say it had more to say. An ellipsis says so, the
+         tooltip gives it back, and opening the expander now shows it in full — it said
+         everything except the line somebody was reading. -->
     <Expander
         Classes="floating"
         Margin="12"
         MaxWidth="520"
         HorizontalAlignment="Left"
         VerticalAlignment="Bottom"
-        Header="{Binding Status}"
+        ToolTip.Tip="{Binding Status}"
         IsExpanded="False">
+      <Expander.Header>
+        <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" MaxWidth="460" />
+      </Expander.Header>
       <StackPanel Spacing="6" MaxWidth="490">
+        <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding TransformStatus}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding QuestLayerStatus}" TextWrapping="Wrap" />
         <StackPanel Orientation="Horizontal" Spacing="4">
