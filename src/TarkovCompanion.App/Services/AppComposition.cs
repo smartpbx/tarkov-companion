@@ -132,7 +132,12 @@ public static class AppComposition
         services.AddSingleton<SqliteRuntimeDataStore>();
         services.AddSingleton<IRuntimeDataStore>(provider => provider.GetRequiredService<SqliteRuntimeDataStore>());
         services.AddSingleton<SqliteRaidHistoryService>();
-        services.AddSingleton<IRaidHistoryService>(provider => provider.GetRequiredService<SqliteRaidHistoryService>());
+        // Behind a queue, so a database busy with the hourly catalog refresh cannot stall the
+        // watcher reading the game's log. A write that arrives late is a row with the right
+        // timestamp; an observation that never happens is gone.
+        services.AddSingleton<IRaidHistoryService>(provider => new RaidHistoryOutbox(
+            provider.GetRequiredService<SqliteRaidHistoryService>(),
+            provider.GetService<ILogger<RaidHistoryOutbox>>()));
         services.AddSingleton<SqliteRecognitionCatalogRepository>();
         services.AddSingleton<IRecognitionCatalogRepository>(provider =>
             provider.GetRequiredService<SqliteRecognitionCatalogRepository>());
