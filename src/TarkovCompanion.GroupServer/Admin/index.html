@@ -80,6 +80,15 @@
   </section>
 
   <section>
+    <h2>Build</h2>
+    <div id="update" class="empty">Type the admin key.</div>
+    <div class="form" style="margin-top:10px">
+      <button id="check">Check again</button>
+      <button id="now">Update now</button>
+    </div>
+  </section>
+
+  <section>
     <h2>Registered rooms</h2>
     <div id="registered"></div>
     <div class="form" style="margin-top:10px">
@@ -186,6 +195,8 @@ async function refresh() {
     })));
   });
 
+  await refreshUpdate();
+
   const unregistered = $("unregistered");
   unregistered.replaceChildren();
   if (view.unregistered.length === 0) {
@@ -200,6 +211,63 @@ async function refresh() {
     }, "primary")));
   });
 }
+
+function short(checksum) { return checksum ? checksum.slice(0, 12) : "unknown"; }
+
+async function refreshUpdate() {
+  const panel = $("update");
+  let state;
+  try {
+    state = await call("/admin/update");
+  } catch (error) {
+    panel.textContent = error.message;
+    panel.className = "bad";
+    return;
+  }
+
+  panel.replaceChildren();
+  if (!state.available) {
+    panel.appendChild(text(state.detail, "quiet"));
+    return;
+  }
+
+  // Said in this order because it is the order it matters in: a refused build explains a relay
+  // that is behind and will stay behind, which nothing else on this page would show.
+  if (state.refused && state.refused === state.published) {
+    panel.appendChild(text(
+      `The published build ${short(state.refused)} was installed here, did not answer, and was rolled back.`,
+      "bad"));
+    panel.appendChild(text("It is not retried until a newer one is published.", "quiet"));
+  } else if (!state.published) {
+    panel.appendChild(text(state.detail || "The published checksum could not be read.", "bad"));
+    panel.appendChild(text(`On ${short(state.installed)}.`, "quiet"));
+  } else if (state.installed === state.published) {
+    panel.appendChild(text(`Up to date, on ${short(state.installed)}.`, "good"));
+  } else {
+    panel.appendChild(text(`A newer build is published: ${short(state.published)}.`, "quiet"));
+    panel.appendChild(text(`This relay is on ${short(state.installed)}.`, "quiet"));
+  }
+
+  if (state.requested) {
+    panel.appendChild(text("An update has been asked for and has not started yet.", "quiet"));
+  }
+}
+
+$("check").addEventListener("click", refreshUpdate);
+
+$("now").addEventListener("click", async () => {
+  const panel = $("update");
+  try {
+    const state = await call("/admin/update", { method: "POST" });
+    panel.replaceChildren();
+    panel.className = "quiet";
+    panel.appendChild(text(state.detail, "quiet"));
+  } catch (error) {
+    panel.replaceChildren();
+    panel.className = "bad";
+    panel.appendChild(text(error.message, "bad"));
+  }
+});
 
 $("load").addEventListener("click", refresh);
 keyBox.addEventListener("keydown", (event) => { if (event.key === "Enter") { refresh(); } });

@@ -28,6 +28,9 @@ readonly PREVIOUS="/opt/tarkov-group.previous"
 readonly STATE="/var/lib/tarkov-group"
 readonly STAMP="${STATE}/INSTALLED_SHA256"
 readonly REFUSED="${STATE}/REFUSED_SHA256"
+# Written by the relay's admin panel and watched by tarkov-group-update.path. The relay runs
+# unprivileged and cannot start a unit; it can write one file in the directory it already owns.
+readonly REQUEST="${STATE}/UPDATE_NOW"
 readonly SERVICE="tarkov-group"
 readonly BASE="https://github.com/${REPO}/releases/download/${RELEASE}"
 
@@ -40,6 +43,11 @@ trap 'rm -rf "${work}"' EXIT
 # which the runbook already recorded and this script originally ignored. wget is present on a
 # minimal Debian by default, which is the point of using it.
 fetch() { wget -q --timeout=60 --tries=3 -O "$2" "$1"; }
+
+# Removed first, before anything can fail or exit early. Left in place it would retrigger the
+# path unit the instant this run finished, which for an up-to-date relay is a loop that asks
+# GitHub for a checksum for ever.
+rm -f "${REQUEST}"
 
 log "checking ${REPO} ${RELEASE}"
 fetch "${BASE}/${SUMS}" "${work}/${SUMS}"
