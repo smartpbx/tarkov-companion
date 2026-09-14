@@ -1818,7 +1818,10 @@ public sealed class SettingsPageViewModel : PageViewModel
             _installedBuild = _updates.InstalledBuild;
             if (!_updates.IsInstalled)
             {
-                _updateStatus = "Run from a folder, so it cannot update itself";
+                // Not the same sentence as InstalledBuild directly above it, which already
+                // says "Running from a folder, not installed". Said twice it was a fact
+                // repeated; said once with what to do about it, it is an answer.
+                _updateStatus = "Only an installed build updates itself. Run the installer once and this keeps itself current.";
             }
         }
         // The engine explains exactly why it is unavailable - a missing Visual C++ runtime
@@ -2110,11 +2113,24 @@ public sealed class SettingsPageViewModel : PageViewModel
             if (SetProperty(ref _isBusyWithUpdate, value))
             {
                 OnPropertyChanged(nameof(IsUpdateIdle));
+                OnPropertyChanged(nameof(CanCheckForUpdate));
             }
         }
     }
 
     public bool IsUpdateIdle => !IsBusyWithUpdate;
+
+    /// <summary>
+    /// Whether checking for an update can do anything.
+    /// </summary>
+    /// <remarks>
+    /// A build running from an extracted folder has no installation to replace, so the check
+    /// can only come back and say so. The page offered the button anyway, directly under a line
+    /// already saying it could not update itself, and pressing it printed that same sentence a
+    /// third time. A control that cannot act is better switched off than left to explain
+    /// itself afterwards.
+    /// </remarks>
+    public bool CanCheckForUpdate => _updates is { IsInstalled: true } && IsUpdateIdle;
 
     public bool SupportsUpdates => _updates is not null;
 
