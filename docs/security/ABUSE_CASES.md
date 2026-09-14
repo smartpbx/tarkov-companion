@@ -45,9 +45,14 @@ proof; `tests/security/README.md` makes that distinction explicit. `→ Risk` is
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
 | ABUSE-REPORT-INCOMPLETE-REDACTION | Information disclosure / policy violation | ACT-12 | A player uses the ordinary Report Problem flow. `SupportBundle.Describe` inserts `Observation.Detail` verbatim, where current observation can include raw log/screenshot roots; its 120-line app-log tail can also carry raw roots, screenshot filenames, and X/Y/Z. `Redact` runs only on those tail lines and does not provide a whole-bundle allowlist. The relay accepts any non-empty body and persists it verbatim, so normal use can transmit prohibited diagnostic path segments and coordinates contrary to `docs/SAFETY.md`. | — | RISK-REPORT-REDACTION |
-| ABUSE-ADMIN-REPORT-FLOOD | Denial of service | ACT-5 | On an open relay, an anonymous caller posts three reports using one acceptable invented group key, then changes the key and repeats. Each key hashes to a fresh per-room/hour bucket. Kestrel limits each body to 32 KiB, but the number of buckets and retained `reports/*.md` files has no global count, TTL, or disk quota. | — | RISK-REPORT-RATE-LIMIT |
 
-## TB-8 / TB-9: Operator access and report metadata automation
+## TB-4 / TB-9: Report ingestion → metadata automation
+
+| ID | STRIDE | Actor | Scenario | Fixture | → Risk |
+| --- | --- | --- | --- | --- | --- |
+| ABUSE-ADMIN-REPORT-FLOOD | Denial of service | ACT-5 | On an open relay, an anonymous caller posts three reports using one acceptable invented group key, then changes the key and repeats. Each key hashes to a fresh per-room/hour bucket. Kestrel limits each body to 32 KiB, but the number of buckets and retained `reports/*.md` files has no global count, TTL, or disk quota. `relay-watch.yml` can then create GitHub issues containing the unbounded reports' reference, size, and received-time metadata, though no report body crosses TB-9. | — | RISK-REPORT-RATE-LIMIT |
+
+## TB-8: Operator access
 
 | ID | STRIDE | Actor | Scenario | Fixture | → Risk |
 | --- | --- | --- | --- | --- | --- |
