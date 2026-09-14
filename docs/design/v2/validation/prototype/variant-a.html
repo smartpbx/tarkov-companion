@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storyboard A · Tarkov Companion v2 validation</title>
+<link rel="stylesheet" href="storyboard.css">
+</head>
+<body data-variant="a">
+<a class="skip-link" href="#main" data-action="skip">Skip to content</a>
+<header class="banner" id="banner">
+  <div class="banner-row">
+    <p class="product"><span class="product-name">Tarkov Companion</span> <span class="variant-tag">Storyboard A</span></p>
+    <p class="sample-tag" id="sample-tag"></p>
+  </div>
+  <div class="banner-row context" id="context-bar"></div>
+</header>
+<div class="layout">
+  <nav class="rail" id="rail" aria-label="Workspaces"></nav>
+  <main id="main" tabindex="-1"></main>
+</div>
+<div id="status-polite" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="status-assertive" class="visually-hidden" role="alert" aria-atomic="true"></div>
+<dialog id="dialog" aria-labelledby="dialog-title">
+  <form method="dialog" class="dialog-body">
+    <h2 id="dialog-title" tabindex="-1"></h2>
+    <div id="dialog-content"></div>
+    <div class="dialog-actions" id="dialog-actions"></div>
+  </form>
+</dialog>
+<aside class="moderator" aria-labelledby="moderator-title">
+  <details id="moderator">
+    <summary id="moderator-title">Moderator controls (not part of the design)</summary>
+    <div id="moderator-content"></div>
+  </details>
+</aside>
+<script src="content.js"></script>
+<script src="storyboard.js"></script>
+</body>
+</html>
