@@ -22,7 +22,47 @@ public sealed record SyncReport(DateTimeOffset StartedUtc, DateTimeOffset Finish
 
 public sealed record PriceHistoryPoint(DateTimeOffset TimestampUtc, long? FleaPriceRoubles, long? TraderValueRoubles, string Source);
 
-public sealed record ItemNeedSummary(int QuestCount, int FoundInRaidQuestCount, int HideoutCount);
+/// <summary>
+/// How much of one item the player's own progress still asks for, and from how many quests.
+/// </summary>
+/// <remarks>
+/// The first three are quantities of the item, not counts of quests, and the names used to say
+/// otherwise: <c>QuestCount</c> summed the outstanding amounts across every requirement, so one
+/// quest asking for two of something reported two. The scanner reads them as quantities and its
+/// sentences are correct — "Outstanding quests still need 2" — but the Keys page read the same
+/// field as a number of quests and printed "225 quests you are tracking ask for it" beside a
+/// dorm key, on a profile tracking nothing at all.
+///
+/// So the quantities say they are quantities, and the two counts of quests are their own fields.
+/// </remarks>
+/// <param name="OutstandingItems">How many of the item uncompleted quests still ask for.</param>
+/// <param name="OutstandingFoundInRaidItems">How many of those must be found in raid.</param>
+/// <param name="HideoutCount">How many the planned hideout upgrades still ask for.</param>
+public sealed record ItemNeedSummary(
+    int OutstandingItems,
+    int OutstandingFoundInRaidItems,
+    int HideoutCount)
+{
+    /// <summary>
+    /// How many uncompleted quests ask for it at all.
+    /// </summary>
+    /// <remarks>
+    /// Distinct quests, so a quest with two objectives wanting the same item counts once. An
+    /// init property because every existing caller wants the quantities and this record is
+    /// constructed positionally in several places.
+    /// </remarks>
+    public int QuestsNeedingIt { get; init; }
+
+    /// <summary>
+    /// How many of those the player is actually on — active or pinned.
+    /// </summary>
+    /// <remarks>
+    /// The distinction the Keys page needs and could not make. "A quest you are on needs it" and
+    /// "a quest ahead of you needs it" are both reasons to keep a key and they are not the same
+    /// strength, and on a fresh wipe every quest in the game is ahead of you.
+    /// </remarks>
+    public int TrackedQuestsNeedingIt { get; init; }
+}
 
 public sealed record CaptureRequest(string WindowSelector, PixelRect? Region, bool AllowDesktopFallback, string Reason);
 

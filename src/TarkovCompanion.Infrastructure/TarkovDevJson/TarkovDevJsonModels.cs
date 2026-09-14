@@ -27,7 +27,21 @@ public sealed class TarkovDevItem
 
     public required string Name { get; init; }
 
-    public required string ShortName { get; init; }
+    /// <summary>
+    /// The short name, or empty where upstream stopped sending one.
+    /// </summary>
+    /// <remarks>
+    /// Not required, and that is the whole of #119's cheap half. Persistence already falls back
+    /// to the full name when this is blank, so a payload without it works — but while the
+    /// marker was here System.Text.Json threw before any of that code ran, and one renamed
+    /// field took the entire items endpoint down for every installed client until a new build
+    /// shipped.
+    ///
+    /// Required is for the fields a record is meaningless without: the id it is keyed by, and
+    /// the name and size persistence refuses a hollow row for. A display name with a documented
+    /// fallback is not one of them.
+    /// </remarks>
+    public string ShortName { get; init; } = string.Empty;
 
     public string Description { get; init; } = string.Empty;
 
@@ -85,7 +99,14 @@ public sealed class TarkovDevItemCategory
 {
     public required string Id { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>What it is called, or empty where upstream stopped saying so.</summary>
+    /// <remarks>
+    /// Falls back to the id on the way into the database, which is this application's standing
+    /// rule for a name it does not have — "wrong is worse than ugly", as the trader lookup puts
+    /// it. Losing a name is then a row that reads awkwardly; requiring one made it an endpoint
+    /// that did not load at all.
+    /// </remarks>
+    public string Name { get; init; } = string.Empty;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
@@ -135,7 +156,14 @@ public sealed class TarkovDevMap
 {
     public required string Id { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>What it is called, or empty where upstream stopped saying so.</summary>
+    /// <remarks>
+    /// Falls back to the id on the way into the database, which is this application's standing
+    /// rule for a name it does not have — "wrong is worse than ugly", as the trader lookup puts
+    /// it. Losing a name is then a row that reads awkwardly; requiring one made it an endpoint
+    /// that did not load at all.
+    /// </remarks>
+    public string Name { get; init; } = string.Empty;
 
     public string? NormalizedName { get; init; }
 
@@ -194,7 +222,14 @@ public sealed class TarkovDevMapExtract
 {
     public required string Id { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>What it is called, or empty where upstream stopped saying so.</summary>
+    /// <remarks>
+    /// Falls back to the id on the way into the database, which is this application's standing
+    /// rule for a name it does not have — "wrong is worse than ugly", as the trader lookup puts
+    /// it. Losing a name is then a row that reads awkwardly; requiring one made it an endpoint
+    /// that did not load at all.
+    /// </remarks>
+    public string Name { get; init; } = string.Empty;
 
     public TarkovDevMapPosition? Position { get; init; }
 
@@ -247,7 +282,14 @@ public sealed class TarkovDevTask
 {
     public required string Id { get; init; }
 
-    public required string Name { get; init; }
+    /// <summary>What it is called, or empty where upstream stopped saying so.</summary>
+    /// <remarks>
+    /// Falls back to the id on the way into the database, which is this application's standing
+    /// rule for a name it does not have — "wrong is worse than ugly", as the trader lookup puts
+    /// it. Losing a name is then a row that reads awkwardly; requiring one made it an endpoint
+    /// that did not load at all.
+    /// </remarks>
+    public string Name { get; init; } = string.Empty;
 
     public string? NormalizedName { get; init; }
 

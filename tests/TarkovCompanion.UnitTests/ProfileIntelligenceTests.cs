@@ -63,8 +63,75 @@ public sealed class ProfileNeedAggregationTests
 
         var result = aggregator.GetItemNeed(profile, "bolts");
 
-        Assert.Equal(0, result.Summary.QuestCount);
+        Assert.Equal(0, result.Summary.OutstandingItems);
         Assert.Equal(0, result.Summary.HideoutCount);
+    }
+
+    /// <summary>
+    /// One quest wanting two of something is one quest that wants it.
+    /// </summary>
+    /// <remarks>
+    /// The summary used to report only a sum of outstanding quantities, under a field called
+    /// QuestCount, and the Keys page read it as a number of quests.
+    /// </remarks>
+    [Fact]
+    public void QuestsAreCountedOncePerQuestAndQuantitiesSeparately()
+    {
+        var profile = TestProfile.Create();
+        var aggregator = new ProfileNeedAggregationService(
+            [
+                new("task-a", "objective-1", "bolts", 2, false),
+                new("task-a", "objective-2", "bolts", 3, false),
+                new("task-b", "objective-3", "bolts", 1, false),
+            ],
+            []);
+
+        var summary = aggregator.GetItemNeed(profile, "bolts").Summary;
+
+        Assert.Equal(6, summary.OutstandingItems);
+        Assert.Equal(2, summary.QuestsNeedingIt);
+    }
+
+    /// <summary>
+    /// Only the quests the player is actually on count as tracked.
+    /// </summary>
+    /// <remarks>
+    /// The filter was "not completed", which on a fresh profile is every quest in the game, and
+    /// the reason it produced said "you are tracking".
+    /// </remarks>
+    [Fact]
+    public void OnlyTheQuestsTheProfileIsOnCountAsTracked()
+    {
+        var profile = TestProfile.Create();
+        var aggregator = new ProfileNeedAggregationService(
+            [
+                new("task-a", "objective-1", "bolts", 1, false),
+                new("task-b", "objective-2", "bolts", 1, false),
+            ],
+            []);
+
+        var summary = aggregator
+            .GetItemNeed(profile, "bolts", new HashSet<string>(StringComparer.Ordinal) { "task-a" })
+            .Summary;
+
+        Assert.Equal(2, summary.QuestsNeedingIt);
+        Assert.Equal(1, summary.TrackedQuestsNeedingIt);
+    }
+
+    [Fact]
+    public void NothingIsTrackedWhenNobodyCouldSay()
+    {
+        // Null is "no board could be read", and reporting everything as tracked would be the
+        // direction that misleads.
+        var profile = TestProfile.Create();
+        var aggregator = new ProfileNeedAggregationService(
+            [new("task-a", "objective-1", "bolts", 1, false)],
+            []);
+
+        var summary = aggregator.GetItemNeed(profile, "bolts").Summary;
+
+        Assert.Equal(1, summary.QuestsNeedingIt);
+        Assert.Equal(0, summary.TrackedQuestsNeedingIt);
     }
 
     private static EventDefinition TestEvent(string eventId, params string[] itemIds) => new(

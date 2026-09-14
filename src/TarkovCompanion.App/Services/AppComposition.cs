@@ -291,7 +291,15 @@ public static class AppComposition
         // a clean install, where the database is still empty at composition time, and the
         // block itself was enough to stall a scan waiting behind it.
         services.AddSingleton(_ => new ProfileNeedAggregationService([], []));
-        services.AddSingleton<IQuestProgressService, ProfileQuestProgressService>();
+        // Built rather than resolved by type so the quest board comes in, which is the only
+        // place the set of quests the player is actually on exists: the profile holds what has
+        // been completed and nothing else. Without it the Keys page can say a quest is ahead of
+        // you and never that you are on one, which is the weaker half of the answer.
+        services.AddSingleton<IQuestProgressService>(provider => new ProfileQuestProgressService(
+            provider.GetRequiredService<IPlayerProfileService>(),
+            provider.GetRequiredService<ProfileNeedAggregationService>(),
+            provider.GetRequiredService<IQuestReadService>(),
+            timeProvider));
         services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();
         services.AddSingleton<RecommendationContextService>();
         // Built from the event catalog rather than by type. Registered by type it received an

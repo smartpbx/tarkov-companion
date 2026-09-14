@@ -2606,7 +2606,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// would put every marker in the wrong place to make the picture bigger.
     /// </remarks>
     private void UpdateContentBounds() =>
-        ContentBounds = AreaBoundsOnCanvas() ?? MapFitBounds.Choose(MeasureContent(Tiles), DrawnBounds());
+        ContentBounds = AreaBoundsOnCanvas()
+            // Framing a building is a deliberate request for that building, so the markers
+            // outside it are not allowed to widen it back out.
+            ?? MapFitBounds.WithMarkers(
+                MapFitBounds.Choose(MeasureContent(Tiles), DrawnBounds()),
+                [.. Markers.Select(marker => new Point(marker.CenterX, marker.CenterY))]);
 
     /// <summary>
     /// The building the player is in, as a rectangle on the canvas, when one is being framed.

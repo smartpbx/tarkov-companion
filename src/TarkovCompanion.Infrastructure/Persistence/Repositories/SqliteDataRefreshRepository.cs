@@ -121,7 +121,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 "INSERT INTO item_categories(id, name) VALUES ($id, $name);",
                 cancellationToken,
                 ("$id", category.Id),
-                ("$name", category.Name)).ConfigureAwait(false);
+                ("$name", Named(category.Name, category.Id))).ConfigureAwait(false);
         }
 
         foreach (var item in data.Items.Values)
@@ -223,7 +223,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         """,
                         cancellationToken,
                         ("$id", map.Id),
-                        ("$name", map.Name),
+                        ("$name", Named(map.Name, map.Id)),
                         ("$normalizedName", TextNormalizer.Normalize(map.Name)),
                         ("$duration", map.RaidDuration is null ? null : checked(map.RaidDuration * 60)),
                         ("$sourceJson", JsonSerializer.Serialize(map, SerializerOptions))).ConfigureAwait(false);
@@ -245,7 +245,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             cancellationToken,
                             ("$id", $"{map.Id}:{extractOrdinal}:{extract.Id}"),
                             ("$mapId", map.Id),
-                            ("$name", extract.Name),
+                            ("$name", Named(extract.Name, extract.Id)),
                             ("$x", extract.Position?.X),
                             ("$y", extract.Position?.Y),
                             ("$z", extract.Position?.Z),
@@ -339,7 +339,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         """,
                         cancellationToken,
                         ("$id", task.Id),
-                        ("$name", task.Name),
+                        ("$name", Named(task.Name, task.Id)),
                         ("$traderId", task.TraderId),
                         ("$minLevel", task.MinimumPlayerLevel),
                         ("$mapId", task.PrimaryMapId),
@@ -365,7 +365,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$sourceMode", provenance.SourceMode),
                         ("$language", provenance.Language),
                         ("$id", task.Id),
-                        ("$name", task.Name),
+                        ("$name", Named(task.Name, task.Id)),
                         ("$normalizedName", task.NormalizedName),
                         ("$traderId", task.TraderId),
                         ("$minLevel", task.MinimumPlayerLevel),
@@ -1007,6 +1007,22 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
             return null;
         }
     }
+
+    /// <summary>
+    /// What to store when upstream stopped sending a name.
+    /// </summary>
+    /// <remarks>
+    /// The id, which is this application's standing rule for a name it does not have: the
+    /// trader lookup's own remark says "wrong is worse than ugly, and a trader the catalog does
+    /// not know about" prints as its id, and #242 records the same decision for two dozen exits
+    /// upstream names with internal tokens.
+    ///
+    /// It exists because these columns are NOT NULL. Relaxing the required markers on the
+    /// models without this would have moved the failure from a deserialiser that throws to an
+    /// INSERT that throws halfway through a refresh transaction, which is strictly worse.
+    /// </remarks>
+    private static string Named(string? name, string id) =>
+        string.IsNullOrWhiteSpace(name) ? id : name;
 
     private static void ValidateItems(TarkovDevItemsData data)
     {

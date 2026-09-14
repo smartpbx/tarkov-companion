@@ -19,14 +19,61 @@ namespace TarkovCompanion.UnitTests;
 public sealed class KeyValueTests
 {
     [Fact]
-    public void A_quest_you_are_tracking_beats_every_other_signal()
+    public void A_quest_you_are_on_beats_every_other_signal()
     {
         // Selling a key a hand-in needs is the mistake the verdict exists to prevent, and it is
         // the one input here that is a fact about this player rather than an opinion about a key.
-        var verdict = KeyValue.Judge(1_000, dearerThan: 0.01, lockCount: 0, maximumUses: 1, Needs(quests: 1));
+        var verdict = KeyValue.Judge(1_000, dearerThan: 0.01, lockCount: 0, maximumUses: 1, Needs(tracked: 1));
 
         Assert.Equal(KeepOrSell.Keep, verdict.Call);
-        Assert.Contains("quest", verdict.Reason, StringComparison.Ordinal);
+        Assert.Contains("a quest you are on needs it", verdict.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A quest you have not started yet is a weaker claim, and gets its own answer.
+    /// </summary>
+    /// <remarks>
+    /// It was worded as the strong one and counted as neither. The page said "225 quests you
+    /// are tracking ask for it" beside a dorm key on a profile tracking nothing, because the
+    /// filter was "not completed" — on a fresh wipe, every quest in the game — and the number
+    /// was a sum of outstanding item quantities rather than a count of quests.
+    /// </remarks>
+    [Fact]
+    public void A_quest_ahead_of_you_is_a_weaker_keep_and_says_so()
+    {
+        var verdict = KeyValue.Judge(1_000, dearerThan: 0.01, lockCount: 0, maximumUses: 1, Needs(ahead: 4));
+
+        Assert.Equal(KeepOrSell.KeepForLater, verdict.Call);
+        Assert.Contains("4 quests ahead of you need it", verdict.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_quest_you_are_on_outranks_one_that_is_merely_ahead()
+    {
+        // Both are true of the same key, and only the stronger is worth the row.
+        var verdict = KeyValue.Judge(1_000, dearerThan: 0.9, lockCount: 0, maximumUses: 1, Needs(tracked: 1, ahead: 9));
+
+        Assert.Equal(KeepOrSell.Keep, verdict.Call);
+        Assert.DoesNotContain("ahead", verdict.Reason, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// One quest wanting two of something is one quest, not two.
+    /// </summary>
+    /// <remarks>
+    /// The counts are counts now and the quantities are their own fields, which is the half of
+    /// this that was wrong even when the number was small.
+    /// </remarks>
+    [Fact]
+    public void Quantities_are_not_counted_as_quests()
+    {
+        var needs = new ItemNeedSummary(OutstandingItems: 7, OutstandingFoundInRaidItems: 0, HideoutCount: 0)
+        {
+            QuestsNeedingIt = 1,
+            TrackedQuestsNeedingIt = 1,
+        };
+
+        Assert.Contains("a quest you are on needs it", KeyValue.Judge(1_000, 0.5, 0, null, needs).Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -158,7 +205,22 @@ public sealed class KeyValueTests
         Assert.Empty(KeyValue.Rank([("unpriced", 0)]));
     }
 
-    private static ItemNeedSummary Needs(int quests = 0, int hideout = 0) => new(quests, 0, hideout);
+    /// <summary>
+    /// What the player's own progress asks for.
+    /// </summary>
+    /// <remarks>
+    /// The quantities and the counts are separate arguments because they are separate facts:
+    /// one quest can want three of something, and the page has to be able to say which number
+    /// it means.
+    /// </remarks>
+    private static ItemNeedSummary Needs(int tracked = 0, int ahead = 0, int hideout = 0) =>
+        new(OutstandingItems: tracked + ahead, OutstandingFoundInRaidItems: 0, HideoutCount: hideout)
+        {
+            // A quest you are on is also a quest that is ahead of you, so the wider count
+            // includes it — which is what makes the ordering in Judge worth testing.
+            QuestsNeedingIt = tracked + ahead,
+            TrackedQuestsNeedingIt = tracked,
+        };
 
     /// <summary>
     /// The named keys, padded out to a market large enough to rank.

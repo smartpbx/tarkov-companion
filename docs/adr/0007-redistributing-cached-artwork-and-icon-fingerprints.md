@@ -1,6 +1,6 @@
 # ADR 0007: Re-serving cached map artwork, and downloading item icons to fingerprint
 
-Status: Proposed — 2026-09-14. Needs Clayton's acceptance before either half is built.
+Status: Accepted — 2026-09-14. Both halves accepted as written.
 
 This is a reading of the published terms and of what this project already does. It is not
 legal advice, and where the reading is uncertain it says so rather than rounding to a

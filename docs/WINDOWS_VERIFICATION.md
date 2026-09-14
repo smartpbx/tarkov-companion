@@ -15,6 +15,11 @@ demand.
 Escape from Tarkov is not installed on the runner and is not required. Nothing in this
 workflow reads game memory, sends input to another process, or inspects network traffic.
 
+Verifying and publishing are separate jobs. `windows-verify` builds, tests, launches and
+photographs, and hands the result to `publish` as an artifact; `publish` is the only job with a
+write token and it does not run for a pull request. So a pull request gets the whole gauntlet
+and has neither a step that could publish nor a token that could.
+
 ## What the workflow does
 
 1. Publishes the self-contained win-x64 archive with `scripts/package-windows.sh`, the same

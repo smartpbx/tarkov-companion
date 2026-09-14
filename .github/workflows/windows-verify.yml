@@ -37,8 +37,16 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
+# Read by default, so a run that is not publishing cannot. The write is on the publish job
+# alone, and that job does not run for a pull request at all — which is the whole of the
+# scoped-down Ambitious 6: publishing moves out of the PR-triggered path so a PR run has no
+# step that could publish and no token that could.
+#
+# The exposure was never a stranger: smartpbx is the only collaborator with push, fork PRs get
+# a read-only token with no secrets, and there is no pull_request_target anywhere. This is the
+# structure saying so rather than a comment saying so.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Runs alongside the Windows job so a compile error or a failing test surfaces without
@@ -486,6 +494,44 @@ jobs:
             dist/SHA256SUMS.txt
           if-no-files-found: warn
 
+      # Everything the publish job needs, handed over rather than published from here. This
+      # job runs for pull requests, so it must not be the one holding the write token.
+      #
+      # error rather than warn: a payload missing a file is a publish that would upload a
+      # partial feed, and this is the last point at which that is a build failure instead of
+      # a release.
+      - name: Hand the release payload to the publish job
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-release-payload
+          path: |
+            dist/velopack/*
+            dist/VELOPACK-SHA256SUMS.txt
+            dist/SHA256SUMS.txt
+            dist/update.json
+            dist/TarkovCompanion-v1.0.0-win-x64.zip
+          if-no-files-found: error
+
+
+  # Publishing, and nothing else. It needs the write token, so it is the only job that has one
+  # and it does not run for a pull request — a PR run therefore has no step that could publish
+  # and no token that could, which is what "structurally cannot" means here.
+  #
+  # On ubuntu rather than windows because every step below is bash, gh and git; the Windows
+  # runner's only job is producing the payload and saying it passed.
+  #
+  # A failure here leaves the previous dev release whole. Nothing is deleted before the new
+  # assets are uploaded and the two feed files are written last, so the worst case is that dev
+  # does not advance — visible, and fixed by re-running.
+  publish:
+    needs: windows-verify
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
       # Velopack turns the verified publish directory into an installer plus a delta feed.
       #
       # This replaced a hand-written swap script that never once completed on a real machine.
@@ -497,8 +543,15 @@ jobs:
       #
       # The version carries the run number so every verified build is strictly newer than the
       # last one. Velopack compares versions and will not offer a build it considers older.
+      - uses: actions/checkout@v5
+
+      - name: Collect the verified Windows payload
+        uses: actions/download-artifact@v5
+        with:
+          name: windows-release-payload
+          path: dist
+
       - name: Collect the group server build
-        if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         uses: actions/download-artifact@v5
         with:
           name: group-server-release
@@ -508,7 +561,7 @@ jobs:
       # actually runs and is replaced constantly; a tagged release is a build somebody
       # decided to keep, and it is never deleted or moved.
       - name: Publish a tagged release
-        if: success() && startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -521,7 +574,7 @@ jobs:
       # fixed place to look for a newer version of itself. Only reached when every check above
       # passed, so nothing that failed verification is ever offered as an update.
       - name: Publish the verified build for in-app update
-        if: success() && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -599,4 +652,3 @@ jobs:
             --title "Latest verified build" \
             --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanionDesktop-win-Setup.exe; after that the application updates itself." \
             --prerelease
-
