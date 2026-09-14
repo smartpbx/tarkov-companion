@@ -102,6 +102,32 @@ public sealed class MapVariantSelectionService(IMapVariantPreferenceStore prefer
         return (quarters < 0 ? quarters + 4 : quarters) * 90;
     }
 
+    /// <summary>
+    /// The key the group-name setting is remembered under.
+    /// </summary>
+    /// <remarks>
+    /// Not a location, deliberately. Whether somebody wants their squadmates' names drawn is a
+    /// fact about how they read a map, not about which map. The leading character cannot
+    /// collide with a location id, which are slugs, for the same reason the two suffixes above
+    /// cannot.
+    /// </remarks>
+    private const string GroupNamesKey = "#group-names";
+
+    /// <summary>Whether squadmates' names are drawn beside their dots. On unless turned off.</summary>
+    /// <remarks>
+    /// Default on because the case it answers is the one that hurts: on a five-man, a dot in
+    /// one of eight hues is not an answer to "which of you is that". Somebody on a two-man can
+    /// turn it off in one press, and it stays off.
+    /// </remarks>
+    public async Task<bool> GroupNamesAsync(CancellationToken cancellationToken)
+    {
+        var stored = await preferenceStore.GetAsync(GroupNamesKey, cancellationToken).ConfigureAwait(false);
+        return !string.Equals(stored, "off", StringComparison.Ordinal);
+    }
+
+    public Task ChooseGroupNamesAsync(bool shown, CancellationToken cancellationToken) =>
+        preferenceStore.SetAsync(GroupNamesKey, shown ? "on" : "off", cancellationToken);
+
     public async Task<MapVariant?> SelectAsync(MapLocation location, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(location);
