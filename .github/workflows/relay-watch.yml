@@ -31,7 +31,25 @@ jobs:
         run: |
           set -uo pipefail
           if [ -z "${RELAY:-}" ]; then
-            echo "No RELAY_HEALTH_URL repository variable is set; nothing to watch." >&2
+            # Said where somebody will see it rather than on stderr of a green run. This
+            # workflow has reported success hourly since it was written while watching nothing
+            # at all, and the desktop "Report a problem" button files through it — so player
+            # reports have been landing on the relay and becoming issues never.
+            #
+            # Still not a failure. An unset variable is a thing nobody has done yet, not a
+            # thing that broke, and a red cross every hour would be noise somebody learns to
+            # ignore. A warning annotation and a line in the summary is the loudest thing that
+            # is still true.
+            echo "::warning title=Relay watch is not configured::Set the RELAY_HEALTH_URL repository variable to the relay's /health address. Until then this workflow checks nothing and files no reports."
+            {
+              echo '### Relay watch is not configured'
+              echo
+              echo 'No `RELAY_HEALTH_URL` repository variable is set, so this run checked nothing.'
+              echo
+              echo 'While it is unset the relay is unwatched **and** problem reports sent by the'
+              echo 'desktop "Report a problem" button are never turned into issues — they stay on'
+              echo 'the relay until somebody reads them by hand.'
+            } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
