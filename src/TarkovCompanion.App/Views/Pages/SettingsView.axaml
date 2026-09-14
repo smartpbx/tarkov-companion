@@ -69,7 +69,7 @@
               <TextBlock Classes="caption" Text="{Binding DiagnosticsStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="Report a problem sends this to the group's relay, which opens an issue and gives you the link. Copy diagnostics puts the same text on your clipboard instead. Both contain build, folders, sync state, the shape of your screenshot names and this application's recent log — no game logs, no group key, no screenshots and no coordinates." />
+                       Text="Sends build, folders, sync state and this app's own log. Never game logs, the group key or coordinates." />
             <TextBlock Classes="prose" Text="{Binding UpdateStatus}" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Command="{Binding CheckForUpdateCommand}"
@@ -85,7 +85,7 @@
                       IsVisible="{Binding CanRestartForUpdate}" />
             </StackPanel>
             <TextBlock Classes="note"
-                       Text="Only builds that passed Windows verification are offered. The download is checked against its published checksum before anything is unpacked, and the build you are running is kept alongside the new one." />
+                       Text="Only verified builds are offered, checksum-checked before unpacking, and the build you are running is kept." />
           </StackPanel>
         </Border>
         <Border Classes="panel">
@@ -171,7 +171,7 @@
           <StackPanel Spacing="8">
             <TextBlock Classes="sectionTitle" Text="Scanning" />
             <TextBlock Classes="prose"
-                       Text="Press the game's own screenshot key. The picture is read for items, extract lists and prices, and its filename gives your position on the map."
+                       Text="Press the game's own screenshot key. The picture is read, and its filename gives your position."
                        TextWrapping="Wrap" />
             <TextBlock Classes="note"
                        Text="F12 by default. Nothing needs focus." />
