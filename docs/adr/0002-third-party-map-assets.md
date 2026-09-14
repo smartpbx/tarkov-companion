@@ -16,6 +16,20 @@ The simulator and tests remain functional with a clearly synthetic code-rendered
 
 The implementation reads `https://raw.githubusercontent.com/the-hideout/tarkov-dev/main/src/data/maps.json` through a bounded, cancellation-aware client and keeps the catalog separate from the asset cache. The UI prefers an explicitly configured PNG tile background when available, retains SVG floor-group metadata, never guesses missing asset URLs, and persists only the chosen variant key per location. Cache metadata records attribution, CC BY-NC-SA 4.0, the source URI, retrieval time, and SHA-256 content hash.
 
+## Narrowed by ADR 0007 (2026-09-14)
+
+"The app downloads/caches originals for local use only under the current terms" above was this
+project's own conservative posture, decided when nothing here served anything to anybody. It was
+never a limit CC BY-NC-SA 4.0 imposed: that licence grants the right to "copy and redistribute
+the material in any medium or format" for NonCommercial purposes under Attribution and
+ShareAlike.
+
+ADR 0007 narrows the phrase to what it was actually protecting — **no bundling into source or
+release archives, and no commercial distribution** — and permits the group relay to serve cached
+map artwork to the group's own devices on four conditions: attribution visible on the page that
+draws it, unmodified bytes, non-commercial use, and the upstream anti-cheat prohibition restated
+where it can be read. Read ADR 0007 before acting on this decision.
+
 ## Consequences
 
 The MIT code release stays cleanly separable from asset obligations. Offline visual coverage depends on prior cache or distributable assets. Any future bundled/commercial map art requires a fresh written license review.
