@@ -1,6 +1,6 @@
 # Tarkov Companion v2 UI concepts
 
-These directional renders support GitHub issue #256. They make the proposed information
+These directional renders support GitHub issues #256 and #318. They make the proposed information
 architecture and interaction priorities concrete; they are not pixel-perfect implementation
 contracts and are not runtime assets.
 
@@ -36,6 +36,8 @@ shared these invariants:
   a stash, recognises ammo/key storage, and produces a manual keep/sell/use/organise plan.
 - `v2-loot-scan-concept.png` — a fast in-raid screenshot result that ranks visible loot by value per
   square plus current/future quest, hideout, craft/barter, scarcity, and carried-inventory context.
+- `v2-high-value-loot-layer-concept.png` — the Raid workspace filtered to potential high-value loot
+  locations, with value/quest/floor controls, compact provenance, routing, and paired-tablet parity.
 
 ## Interpretation notes
 
