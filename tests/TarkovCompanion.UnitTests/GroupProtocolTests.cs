@@ -1,3 +1,5 @@
+using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Core.Domain.Raids;
 using TarkovCompanion.GroupServer;
 
 namespace TarkovCompanion.UnitTests;
@@ -78,4 +80,61 @@ public sealed class GroupProtocolTests
 
         public void Advance(TimeSpan by) => _now += by;
     }
+}
+
+/// <summary>
+/// A member who has stopped publishing is drawn as a guess, not as live.
+/// </summary>
+/// <remarks>
+/// The other half of #139's Now 27. The server says how long since it heard from somebody; this
+/// is the rule that turns that into a dimmed marker, and the reason the number was added.
+/// </remarks>
+public sealed class GroupQuietMemberTests
+{
+    [Fact]
+    public void SilenceShorterThanThreeTicksIsNotQuiet()
+    {
+        // One missed exchange is a slow request and two is a bad moment. Dimming a squadmate
+        // mid-raid for a hiccup is worse than a marker a few seconds stale, because a dimmed
+        // squadmate reads as "they are gone".
+        Assert.False(Member(GroupPublishing.Interval * 2).HasGoneQuiet);
+    }
+
+    [Fact]
+    public void SilencePastThreeTicksIsQuiet() =>
+        Assert.True(Member(GroupPublishing.QuietAfter + TimeSpan.FromSeconds(1)).HasGoneQuiet);
+
+    [Fact]
+    public void ExactlyThreeTicksIsNotYetQuiet()
+    {
+        // The boundary belongs to the member: three ticks is the last one that could still be
+        // in flight.
+        Assert.False(Member(GroupPublishing.QuietAfter).HasGoneQuiet);
+    }
+
+    [Fact]
+    public void ARelayTooOldToSayIsNotTreatedAsSilence()
+    {
+        // An older relay sends no sinceSeconds at all. Reading that as silence would dim every
+        // member of every group the moment the relay fell behind the client, which is backwards:
+        // knowing less is not evidence that something is wrong.
+        Assert.False(Member(null).HasGoneQuiet);
+    }
+
+    [Fact]
+    public void QuietIsADifferentQuestionFromAStalePosition()
+    {
+        // A member can be publishing every five seconds and still have an old screenshot, and a
+        // crashed one has a position age frozen at whatever it last said.
+        var publishingButUnphotographed = Member(TimeSpan.FromSeconds(1)) with
+        {
+            PositionAge = TimeSpan.FromMinutes(10),
+        };
+
+        Assert.False(publishingButUnphotographed.HasGoneQuiet);
+        Assert.Equal(TimeSpan.FromMinutes(10), publishingButUnphotographed.PositionAge);
+    }
+
+    private static GroupMemberView Member(TimeSpan? since) =>
+        new("Geo", "bigmap", RaidLifecycleState.InRaid, "pmc", null, null, null, [], []) { Since = since };
 }

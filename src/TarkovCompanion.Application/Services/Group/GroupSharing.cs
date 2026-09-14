@@ -50,7 +50,7 @@ public sealed record GroupSharingSettings(
         Uri.TryCreate(ServerUri, UriKind.Absolute, out var uri) &&
         IsTransportAcceptable(uri) &&
         !string.IsNullOrWhiteSpace(DisplayName) &&
-        IsKeyLongEnough;
+        IsKeyWithinLimits;
 
     /// <summary>
     /// Whether the key may be sent to this address at all.
@@ -128,10 +128,11 @@ public sealed record GroupSharingSettings(
     /// The key is the only thing between a group and a stranger who guesses it.
     /// </summary>
     /// <remarks>
-    /// Eight characters, matching the server, and checked here as well so somebody is told
-    /// before they try rather than by a refusal afterwards.
+    /// Both ends, matching the server, and checked here as well so somebody is told before they
+    /// try rather than by a refusal afterwards. It was called IsKeyLongEnough while testing the
+    /// ceiling too, which is the kind of name that survives until somebody trusts it.
     /// </remarks>
-    public bool IsKeyLongEnough =>
+    public bool IsKeyWithinLimits =>
         Key is not null &&
         Key.Trim().Length >= GroupKeyLimits.Minimum &&
         Key.Trim().Length <= GroupKeyLimits.Maximum;
@@ -146,7 +147,7 @@ public sealed record GroupSharingSettings(
         : string.IsNullOrWhiteSpace(Key) ? "the group's key"
         : Key.Trim().Length < GroupKeyLimits.Minimum
             ? $"a group key of at least {GroupKeyLimits.Minimum} characters"
-        : !IsKeyLongEnough ? $"a group key of at most {GroupKeyLimits.Maximum} characters"
+        : !IsKeyWithinLimits ? $"a group key of at most {GroupKeyLimits.Maximum} characters"
         : null;
 }
 
@@ -179,6 +180,30 @@ public sealed record GroupMemberView(
     IReadOnlyList<string> Loadout,
     IReadOnlyList<string> Quests)
 {
+    /// <summary>
+    /// How long since the relay last heard from this member at all.
+    /// </summary>
+    /// <remarks>
+    /// Not the same question as <see cref="PositionAge"/>, which ages the screenshot a position
+    /// came from. A companion that crashed mid-raid keeps republishing nothing, so its last
+    /// exchange's position age was frozen and the panel read "12s ago" for the three minutes
+    /// until the room forgot them — the marker looked live right up to the moment it vanished.
+    ///
+    /// Null from a relay too old to send it, which is treated as "not gone quiet" rather than
+    /// as silence: an older relay is a reason to know less, not a reason to dim everybody.
+    /// </remarks>
+    public TimeSpan? Since { get; init; }
+
+    /// <summary>
+    /// Whether this member has missed enough ticks to be drawn as a guess.
+    /// </summary>
+    /// <remarks>
+    /// Three, because one missed exchange is a slow request and two is a bad moment; three is a
+    /// companion that has stopped. Shorter would dim somebody mid-raid for a hiccup, which is
+    /// worse than a marker a few seconds stale — a dimmed squadmate reads as "they are gone".
+    /// </remarks>
+    public bool HasGoneQuiet => Since is { } since && since > GroupPublishing.QuietAfter;
+
     /// <summary>
     /// Whether this member's height was published, as opposed to assumed.
     /// </summary>
@@ -334,6 +359,26 @@ public sealed record GroupSnapshot(
 /// every check here and came back 401 — and the message said "wrong group key", which sent
 /// people to compare keys that were identical and fine.
 /// </remarks>
+/// <summary>
+/// How often a member publishes, and how long a silence has to be to mean something.
+/// </summary>
+/// <remarks>
+/// Here rather than inside the session service because the interval and the rule that depends
+/// on it are one decision: "three missed ticks" is only a number if the tick is defined beside
+/// it, and two files each holding half of that is how they drift apart.
+/// </remarks>
+public static class GroupPublishing
+{
+    /// <summary>How often each member publishes itself and reads the room.</summary>
+    public static readonly TimeSpan Interval = TimeSpan.FromSeconds(5);
+
+    /// <summary>How many exchanges a member may miss before being drawn as a guess.</summary>
+    public const int MissedTicks = 3;
+
+    /// <summary>The silence that means a companion has stopped rather than stumbled.</summary>
+    public static readonly TimeSpan QuietAfter = Interval * MissedTicks;
+}
+
 public static class GroupKeyLimits
 {
     public const int Minimum = 8;

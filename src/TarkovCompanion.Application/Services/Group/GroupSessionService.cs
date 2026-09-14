@@ -34,7 +34,7 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// Five seconds. Fast enough that a squadmate's marker feels current, slow enough that a
     /// group of six is a trivial amount of traffic for a small self-hosted service.
     /// </remarks>
-    private static readonly TimeSpan PublishInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PublishInterval = GroupPublishing.Interval;
 
     /// <summary>How long one exchange with the relay may take before it is abandoned.</summary>
     /// <remarks>
@@ -68,6 +68,18 @@ public sealed class GroupSessionService : IAsyncDisposable
     private GroupSnapshot? _lastGood;
     private readonly CancellationTokenSource _stopping = new();
     private Task? _worker;
+
+    /// <summary>
+    /// The name this service last published, and where, or null when nothing is registered.
+    /// </summary>
+    /// <remarks>
+    /// Kept because withdrawing needs the *previous* identity, not the current settings. When a
+    /// player renames themselves, the settings already say the new name by the time anything
+    /// notices, and a DELETE built from them would remove the marker that was just created and
+    /// leave the old one standing for the full three minutes — the exact stale marker this is
+    /// meant to prevent, with an extra step.
+    /// </remarks>
+    private (string Server, string Key, string Name)? _registered;
     private bool _disposed;
 
     public GroupSessionService(
@@ -320,6 +332,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         var settings = await _settings.GetAsync(cancellationToken).ConfigureAwait(false);
         if (!settings.IsEnabled)
         {
+            // Turning sharing off is a thing to say, not a thing to stop saying. Left to time
+            // out, the player vanishes from everybody's map three minutes after they thought
+            // they had gone.
+            await WithdrawRegisteredAsync().ConfigureAwait(false);
             // Deliberate, not a failure, so there is nothing to keep warm.
             _lastGood = null;
             Publish(settings.ResetReason is { Length: > 0 } reason
@@ -330,6 +346,9 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         if (!settings.IsUsable)
         {
+            // Half-edited settings are the same situation as switched off: nothing more will be
+            // published under the old identity, so it should not be left standing.
+            await WithdrawRegisteredAsync().ConfigureAwait(false);
             Publish(GroupSnapshot.Off with
             {
                 Detail = $"Needs {settings.MissingPiece}",
@@ -337,6 +356,17 @@ public sealed class GroupSessionService : IAsyncDisposable
             });
             return;
         }
+
+        // A renamed member is a new member to the relay, which keys a room by display name. The
+        // old name keeps its marker until the room forgets it, so the group sees the player
+        // twice — once where they are and once where they were.
+        var identity = (settings.ServerUri!.Trim(), settings.Key!.Trim(), settings.DisplayName!.Trim());
+        if (_registered is { } previous && previous != identity)
+        {
+            await WithdrawAsync(previous).ConfigureAwait(false);
+        }
+
+        _registered = identity;
 
         var snapshot = _stateStore.Current;
         // Read before the payload is assembled, and cached for a minute inside, because the
@@ -666,6 +696,9 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Quests ?? [])
     {
         QuestIds = member.QuestIds ?? [],
+        // The relay's own measure of how long since it heard from them, which is the only
+        // honest one: a member's own report cannot say how long ago it arrived.
+        Since = member.SinceSeconds is { } quiet ? TimeSpan.FromSeconds(quiet) : null,
         HasKnownHeight = member.Y is not null,
         Extracts = member.Extracts ?? [],
         Transits = member.Transits ?? [],
@@ -879,7 +912,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         //
         // Before the token is cancelled, because it uses it; and on its own short budget, so
         // a relay that has gone away cannot hold the application open while it closes.
-        await LeaveRoomAsync().ConfigureAwait(false);
+        await WithdrawRegisteredAsync().ConfigureAwait(false);
         await _stopping.CancelAsync().ConfigureAwait(false);
         if (_worker is { } worker)
         {
@@ -895,32 +928,40 @@ public sealed class GroupSessionService : IAsyncDisposable
         _stopping.Dispose();
     }
 
+    /// <summary>Withdraws whatever this service last registered, if anything.</summary>
+    private async Task WithdrawRegisteredAsync()
+    {
+        if (_registered is { } registered)
+        {
+            _registered = null;
+            await WithdrawAsync(registered).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Tells the relay this member is going, so the others stop drawing them.</summary>
     /// <remarks>
+    /// Takes the identity explicitly rather than reading the settings, because two of the three
+    /// callers are withdrawing something the settings no longer describe: a renamed member and a
+    /// switched-off session.
+    ///
     /// Best effort and silent. Failing to say goodbye costs the group three minutes of a stale
-    /// marker, which is exactly what happened every time before this; it must not cost anybody
-    /// a hung close.
+    /// marker, which is what happened every time before this; it must not cost anybody a hung
+    /// close, so it runs on its own short budget and swallows everything.
     /// </remarks>
-    private async Task LeaveRoomAsync()
+    private async Task WithdrawAsync((string Server, string Key, string Name) identity)
     {
         try
         {
-            var settings = await _settings.GetAsync(CancellationToken.None).ConfigureAwait(false);
-            if (!settings.IsUsable)
-            {
-                return;
-            }
-
             using var leaving = new CancellationTokenSource(TimeSpan.FromSeconds(2));
             using var request = new HttpRequestMessage(
                 HttpMethod.Delete,
-                new Uri(new Uri(settings.ServerUri!), $"state/{Uri.EscapeDataString(settings.DisplayName!.Trim())}"));
-            request.Headers.Add("X-Group-Key", settings.Key!.Trim());
+                new Uri(new Uri(identity.Server), $"state/{Uri.EscapeDataString(identity.Name)}"));
+            request.Headers.Add("X-Group-Key", identity.Key);
             using var response = await _httpClient.SendAsync(request, leaving.Token).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            // Nothing to do about it and nobody to tell: the application is closing.
+            // Nothing to do about it and, by the time it matters, nobody to tell.
         }
     }
 
@@ -936,6 +977,17 @@ public sealed class GroupSessionService : IAsyncDisposable
         [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout,
         [property: JsonPropertyName("quests")] IReadOnlyList<string>? Quests)
     {
+        /// <summary>
+        /// How long since the relay heard from this member, which only the relay can say.
+        /// </summary>
+        /// <remarks>
+        /// Read but never sent: a member has no idea how long ago its own last message arrived,
+        /// and a client that sent a number here would be asserting something about a clock it
+        /// does not have.
+        /// </remarks>
+        [JsonPropertyName("sinceSeconds")]
+        public double? SinceSeconds { get; init; }
+
         /// <summary>Which quests those are, so a receiver can place them on a map.</summary>
         [JsonPropertyName("questIds")]
         public IReadOnlyList<string>? QuestIds { get; init; }
