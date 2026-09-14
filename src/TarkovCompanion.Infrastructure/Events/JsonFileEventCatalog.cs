@@ -25,7 +25,7 @@ namespace TarkovCompanion.Infrastructure.Events;
 /// picks up new or changed definitions.
 /// </para>
 /// </remarks>
-public sealed class JsonFileEventCatalog(string definitionsDirectory) : IEventCatalog
+public sealed class JsonFileEventCatalog(string definitionsDirectory) : IEventCatalog, IEventAuthoring
 {
     /// <summary>Provenance source recorded on every definition this catalog returns.</summary>
     /// <remarks>
@@ -96,6 +96,113 @@ public sealed class JsonFileEventCatalog(string definitionsDirectory) : IEventCa
             _gate.Release();
         }
     }
+
+    /// <inheritdoc />
+    public string DefinitionsDirectory => _directory;
+
+    /// <summary>
+    /// Writes one definition and drops the cache, so the page shows it without a restart.
+    /// </summary>
+    /// <remarks>
+    /// Written through a temporary file and moved into place, the way every other settings
+    /// write in this application is. A half-written definition is one the loader skips in
+    /// silence, and the author would be looking at a page that did not list the event they
+    /// had just saved.
+    ///
+    /// The file is named by the id rather than by the name, so re-saving an event replaces its
+    /// own file instead of leaving the old one beside it for the duplicate-id rule to arbitrate.
+    /// </remarks>
+    public async Task SaveAsync(EventDefinition definition, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(definition.Id);
+        Directory.CreateDirectory(_directory);
+
+        var document = new DefinitionDocument(
+            definition.Id,
+            definition.Name,
+            definition.StartUtc,
+            definition.EndUtc,
+            definition.Active,
+            [.. definition.ApplicableItemIds],
+            string.IsNullOrWhiteSpace(definition.RulesJson) ? null : definition.RulesJson,
+            // Written, but the loader ignores the source and caps the confidence, so what goes
+            // here cannot overstate what the file is: a person typed it.
+            new ProvenanceDocument(
+                definition.Provenance.ObservedUtc,
+                definition.Provenance.SourceUpdatedUtc,
+                definition.Provenance.Reference,
+                new ConfidenceDocument(
+                    Math.Min(definition.Provenance.Confidence?.Value ?? MaximumConfidence, MaximumConfidence))));
+
+        var path = PathFor(definition.Id);
+        var temporary = path + ".tmp";
+        await using (var stream = new FileStream(
+            temporary, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
+        {
+            await JsonSerializer.SerializeAsync(stream, document, WriteOptions, cancellationToken).ConfigureAwait(false);
+        }
+
+        File.Move(temporary, path, overwrite: true);
+        Invalidate();
+    }
+
+    /// <inheritdoc />
+    public Task DeleteAsync(string eventId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        var path = PathFor(eventId);
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+            Invalidate();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Forgets what was read, so the next read goes back to the directory.
+    /// </summary>
+    /// <remarks>
+    /// The cache had no invalidation and its own remark said a restart was what picked up a
+    /// change — which was true while a person edited these files in a text editor, and stops
+    /// being true the moment the application can write one itself.
+    /// </remarks>
+    public void Invalidate()
+    {
+        _gate.Wait();
+        try
+        {
+            _cached = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// The file one id owns, with anything that is not a plain id character replaced.
+    /// </summary>
+    /// <remarks>
+    /// An id reaches this from a text box, so it is not allowed to choose the path. Only the
+    /// file name is derived from it and every separator, dot and wildcard is replaced, so the
+    /// worst a hostile id can do is collide with another event's file inside the directory the
+    /// catalog already owns.
+    /// </remarks>
+    private string PathFor(string eventId)
+    {
+        var safe = new string([.. eventId.Trim().Select(c =>
+            char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '-')]);
+        return Path.Combine(_directory, safe + ".json");
+    }
+
+    private static readonly JsonSerializerOptions WriteOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
 
     /// <summary>
     /// Reads the directory once. Returns <see langword="null"/> when the directory exists but

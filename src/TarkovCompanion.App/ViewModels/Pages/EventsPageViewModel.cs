@@ -3,6 +3,7 @@ using System.Windows.Input;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 
 namespace TarkovCompanion.App.ViewModels;
@@ -25,7 +26,12 @@ public sealed record EventItemViewModel(
     ICommand MarkSafeCommand,
     ICommand MarkAllergicCommand,
     ICommand MarkUntestedCommand,
-    ICommand MarkUnknownCommand);
+    ICommand MarkUnknownCommand,
+    bool CanEdit,
+    ICommand RemoveCommand);
+
+/// <summary>One item the search found, offered for adding to the selected event.</summary>
+public sealed record EventItemMatchViewModel(string ItemId, string ItemName, ICommand AddCommand);
 
 /// <summary>
 /// Lists the locally configured seasonal events and records, per item, what happened when the
@@ -60,40 +66,116 @@ public sealed class EventsPageViewModel : PageViewModel
     /// </remarks>
     private int? _knownItemCount;
 
-    private const string EmptyGuidanceText =
-        "Put a JSON file in %LOCALAPPDATA%\\TarkovCompanion\\Config\\Events " +
-        "(Data\\Config\\Events when portable) and restart. Shape: assets/events/README.md.";
+    private const string EmptyGuidanceText = "Name one above to create it.";
 
     private const string StateGuidanceText = "Untested is the default. Unknown means you cannot say.";
+
+    /// <summary>How many search hits are worth offering at once.</summary>
+    private const int MatchLimit = 25;
 
     private readonly IEventCatalog _catalog;
     private readonly IEventTrackerService _tracker;
     private readonly IItemRepository _itemRepository;
+    private readonly IEventAuthoring? _authoring;
 
     private IReadOnlyDictionary<string, EventDefinition> _definitions =
         new Dictionary<string, EventDefinition>(StringComparer.Ordinal);
 
     private IReadOnlyList<EventSummaryViewModel> _events = [];
     private IReadOnlyList<EventItemViewModel> _items = [];
+    private IReadOnlyList<EventItemMatchViewModel> _matches = [];
     private EventSummaryViewModel? _selected;
     private bool _hasEvents;
     private string _status = "Reading local event definitions…";
     private string _detail = "Select an event to see the items it applies to.";
     private string _progress = "No event selected.";
+    private string _newEventName = string.Empty;
+    private string _itemQuery = string.Empty;
+    private string _searchStatus = string.Empty;
+    private bool _confirmingDelete;
 
     public EventsPageViewModel(
         IEventCatalog catalog,
         IEventTrackerService tracker,
-        IItemRepository itemRepository)
+        IItemRepository itemRepository,
+        IEventAuthoring? authoring = null)
         : base("Events", "Seasonal events, and what you record against them", "Runtime state not loaded")
     {
         _catalog = catalog;
         _tracker = tracker;
         _itemRepository = itemRepository;
+        _authoring = authoring;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
+        CreateCommand = new AsyncDelegateCommand(() => CreateAsync(CancellationToken.None));
+        SearchCommand = new AsyncDelegateCommand(() => SearchAsync(CancellationToken.None));
+        DeleteCommand = new AsyncDelegateCommand(() => DeleteAsync(CancellationToken.None));
     }
 
     public AsyncDelegateCommand RefreshCommand { get; }
+
+    public AsyncDelegateCommand CreateCommand { get; }
+
+    public AsyncDelegateCommand SearchCommand { get; }
+
+    public AsyncDelegateCommand DeleteCommand { get; }
+
+    /// <summary>Whether this page may write definitions, which is what shows the editing controls.</summary>
+    /// <remarks>
+    /// Nothing is registered for tests that only read, and a page that offered a Create button
+    /// which then did nothing would be worse than one that offers none.
+    /// </remarks>
+    public bool CanEdit => _authoring is not null;
+
+    /// <summary>Where definitions are kept, shown so a person can find the files.</summary>
+    public string DefinitionsDirectory => _authoring?.DefinitionsDirectory ?? string.Empty;
+
+    /// <summary>The name typed for a new event.</summary>
+    public string NewEventName
+    {
+        get => _newEventName;
+        set => SetProperty(ref _newEventName, value);
+    }
+
+    /// <summary>What to search the item catalog for.</summary>
+    public string ItemQuery
+    {
+        get => _itemQuery;
+        set => SetProperty(ref _itemQuery, value);
+    }
+
+    public string SearchStatus
+    {
+        get => _searchStatus;
+        private set => SetProperty(ref _searchStatus, value);
+    }
+
+    public IReadOnlyList<EventItemMatchViewModel> Matches
+    {
+        get => _matches;
+        private set => SetProperty(ref _matches, value);
+    }
+
+    /// <summary>
+    /// Deleting takes two presses, and this is the label that says which one is next.
+    /// </summary>
+    /// <remarks>
+    /// A definition is a list somebody built by hand, and the button sits beside the ones that
+    /// record a result. Two presses rather than a dialog: the second press is the confirmation,
+    /// and changing the selection or reloading puts it back.
+    /// </remarks>
+    public string DeleteLabel => _confirmingDelete ? "Confirm delete" : "Delete event";
+
+    private bool ConfirmingDelete
+    {
+        get => _confirmingDelete;
+        set
+        {
+            if (SetProperty(ref _confirmingDelete, value))
+            {
+                OnPropertyChanged(nameof(DeleteLabel));
+            }
+        }
+    }
 
     public string EmptyGuidance => EmptyGuidanceText;
 
@@ -149,7 +231,15 @@ public sealed class EventsPageViewModel : PageViewModel
         get => _selected;
         set
         {
-            if (SetProperty(ref _selected, value) && value is not null)
+            if (!SetProperty(ref _selected, value))
+            {
+                return;
+            }
+
+            ConfirmingDelete = false;
+            Matches = [];
+            SearchStatus = string.Empty;
+            if (value is not null)
             {
                 _ = ShowEventAsync(value, CancellationToken.None);
             }
@@ -188,7 +278,16 @@ public sealed class EventsPageViewModel : PageViewModel
 
     public Task LoadAsync() => LoadAsync(CancellationToken.None);
 
-    public async Task LoadAsync(CancellationToken cancellationToken)
+    public Task LoadAsync(CancellationToken cancellationToken) => LoadAsync(cancellationToken, null);
+
+    /// <summary>Reads the catalog, optionally staying on the event that was being edited.</summary>
+    /// <remarks>
+    /// Every write reloads, because the catalog is the only place the definitions live and a
+    /// page holding its own copy would be the second answer that could disagree. Staying on the
+    /// event is what makes adding three items feel like adding three items rather than like
+    /// three separate visits to the page.
+    /// </remarks>
+    private async Task LoadAsync(CancellationToken cancellationToken, string? selectEventId)
     {
         try
         {
@@ -211,6 +310,14 @@ public sealed class EventsPageViewModel : PageViewModel
             Detail = HasEvents
                 ? "Select an event to see the items it applies to."
                 : string.Empty;
+
+            // Last, so the detail line the selection produces is not overwritten by the one
+            // that describes having no selection.
+            if (selectEventId is not null)
+            {
+                Selected = Events.FirstOrDefault(
+                    summary => string.Equals(summary.EventId, selectEventId, StringComparison.Ordinal));
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -264,7 +371,9 @@ public sealed class EventsPageViewModel : PageViewModel
                     new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Safe, CancellationToken.None)),
                     new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Allergic, CancellationToken.None)),
                     new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Untested, CancellationToken.None)),
-                    new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Unknown, CancellationToken.None))));
+                    new AsyncDelegateCommand(() => SetStateAsync(definition.Id, itemId, EventItemState.Unknown, CancellationToken.None)),
+                    CanEdit,
+                    new AsyncDelegateCommand(() => RemoveItemAsync(definition.Id, itemId, CancellationToken.None))));
             }
 
             Items = rows
@@ -350,6 +459,197 @@ public sealed class EventsPageViewModel : PageViewModel
         {
             Detail = $"Not recorded · {exception.Message}";
         }
+    }
+
+    /// <summary>Creates an empty event under the typed name and selects it.</summary>
+    /// <remarks>
+    /// Empty, because the items are chosen next and choosing them one at a time against a real
+    /// list is the part a text editor was bad at. The id is made from the name so the file on
+    /// disk is findable by somebody who later wants to edit it by hand, which the file format
+    /// still allows.
+    ///
+    /// An id already in use is refused rather than replaced. Two events called the same thing is
+    /// a state somebody chose; one silently overwriting the other is not.
+    /// </remarks>
+    private async Task CreateAsync(CancellationToken cancellationToken)
+    {
+        if (_authoring is null)
+        {
+            return;
+        }
+
+        var name = NewEventName.Trim();
+        if (name.Length == 0)
+        {
+            Status = "Type a name first";
+            return;
+        }
+
+        var id = Slug(name);
+        if (id.Length == 0)
+        {
+            Status = "That name has no letters or digits in it";
+            return;
+        }
+
+        if (_definitions.ContainsKey(id))
+        {
+            Status = $"{name} already exists";
+            return;
+        }
+
+        try
+        {
+            await _authoring.SaveAsync(
+                new EventDefinition(
+                    id,
+                    name,
+                    null,
+                    null,
+                    true,
+                    new HashSet<string>(StringComparer.Ordinal),
+                    "{}",
+                    new DataProvenance("local event definition", DateTimeOffset.UtcNow)),
+                cancellationToken).ConfigureAwait(true);
+            NewEventName = string.Empty;
+            await LoadAsync(cancellationToken, id).ConfigureAwait(true);
+            Status = $"Created {name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Status = $"Not created · {exception.Message}";
+        }
+    }
+
+    /// <summary>Deletes the selected event, on the second press.</summary>
+    private async Task DeleteAsync(CancellationToken cancellationToken)
+    {
+        if (_authoring is null || Selected is not { } summary)
+        {
+            return;
+        }
+
+        if (!ConfirmingDelete)
+        {
+            ConfirmingDelete = true;
+            Detail = $"Press again to delete {summary.Name}";
+            return;
+        }
+
+        try
+        {
+            await _authoring.DeleteAsync(summary.EventId, cancellationToken).ConfigureAwait(true);
+            ConfirmingDelete = false;
+            await LoadAsync(cancellationToken, null).ConfigureAwait(true);
+            Status = $"Deleted {summary.Name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            ConfirmingDelete = false;
+            Status = $"Not deleted · {exception.Message}";
+        }
+    }
+
+    /// <summary>Searches the item catalog for things to add to the selected event.</summary>
+    /// <remarks>
+    /// The items already on the event are left out of the results, so the list is what can be
+    /// added rather than what matched.
+    /// </remarks>
+    private async Task SearchAsync(CancellationToken cancellationToken)
+    {
+        if (Selected is not { } summary || !_definitions.TryGetValue(summary.EventId, out var definition))
+        {
+            SearchStatus = "Select an event first";
+            return;
+        }
+
+        var query = ItemQuery.Trim();
+        if (query.Length == 0)
+        {
+            Matches = [];
+            SearchStatus = string.Empty;
+            return;
+        }
+
+        try
+        {
+            var hits = await _itemRepository.SearchAsync(query, MatchLimit, cancellationToken).ConfigureAwait(true);
+            var rows = hits
+                .Where(hit => !definition.ApplicableItemIds.Contains(hit.Item.Id))
+                .Select(hit => new EventItemMatchViewModel(
+                    hit.Item.Id,
+                    hit.Item.Name,
+                    new AsyncDelegateCommand(() => AddItemAsync(definition.Id, hit.Item.Id, CancellationToken.None))))
+                .ToArray();
+            Matches = rows;
+            SearchStatus = rows.Length == 0
+                ? $"Nothing to add for \"{query}\""
+                : $"{rows.Length} to add";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Matches = [];
+            SearchStatus = $"Search failed · {exception.Message}";
+        }
+    }
+
+    private Task AddItemAsync(string eventId, string itemId, CancellationToken cancellationToken) =>
+        ChangeItemsAsync(eventId, items => items.Add(itemId), "Added", cancellationToken);
+
+    private Task RemoveItemAsync(string eventId, string itemId, CancellationToken cancellationToken) =>
+        ChangeItemsAsync(eventId, items => items.Remove(itemId), "Removed", cancellationToken);
+
+    /// <summary>Rewrites one definition's item list and reloads onto it.</summary>
+    /// <remarks>
+    /// The recorded results are keyed by event and item together and are not touched here, so an
+    /// item removed by accident and added back still has what was recorded against it.
+    /// </remarks>
+    private async Task ChangeItemsAsync(
+        string eventId,
+        Action<HashSet<string>> change,
+        string what,
+        CancellationToken cancellationToken)
+    {
+        if (_authoring is null || !_definitions.TryGetValue(eventId, out var definition))
+        {
+            return;
+        }
+
+        var items = new HashSet<string>(definition.ApplicableItemIds, StringComparer.Ordinal);
+        change(items);
+        try
+        {
+            await _authoring.SaveAsync(definition with { ApplicableItemIds = items }, cancellationToken)
+                .ConfigureAwait(true);
+            var query = ItemQuery;
+            await LoadAsync(cancellationToken, eventId).ConfigureAwait(true);
+            ItemQuery = query;
+            await SearchAsync(cancellationToken).ConfigureAwait(true);
+            Detail = $"{what} · {items.Count} item(s) in {definition.Name}";
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            Detail = $"Not saved · {exception.Message}";
+        }
+    }
+
+    /// <summary>An id made from a name, using only the characters a file name can hold.</summary>
+    private static string Slug(string name)
+    {
+        var slug = new System.Text.StringBuilder(name.Length);
+        foreach (var character in name.ToLowerInvariant())
+        {
+            if (char.IsAsciiLetterOrDigit(character))
+            {
+                slug.Append(character);
+            }
+            else if (slug.Length > 0 && slug[^1] != '-')
+            {
+                slug.Append('-');
+            }
+        }
+
+        return slug.ToString().Trim('-');
     }
 
     /// <summary>Shapes one definition for the list, including whether it is in force.</summary>

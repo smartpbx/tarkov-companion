@@ -2438,6 +2438,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IBarterCatalog barters,
         ITraderCatalog traderCatalog,
         IEventCatalog eventCatalog,
+        IEventAuthoring eventAuthoring,
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
@@ -2504,7 +2505,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
-        Events = new(eventCatalog, eventTracker, itemRepository);
+        Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);
 
