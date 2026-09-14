@@ -2169,6 +2169,19 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             }
 
             await RefreshQuestLayerAsync(cancellationToken).ConfigureAwait(true);
+            // The stack is baselined on the floor being read — FloorStack.OffsetOf puts the
+            // selected floor at zero so every marker lines up with it — so changing floors has
+            // to rebuild it. It never did: the stack stayed baselined on whichever floor was
+            // selected when it was switched on.
+            //
+            // And this is also what was quietly killing it. Populating the floor chooser
+            // raises its own SelectionChanged, which arrives here, and the first thing this
+            // does is cancel _selectionLoad — the token the variant load's stack fetch is
+            // running on. That fetch is a per-floor download and rasterise, so it was still in
+            // flight, and it unwound into the load's own OperationCanceledException handler
+            // without assigning a single layer or saying one word. Rebuilding here is what
+            // makes the cancellation harmless: the load that cancelled it puts it back.
+            await LoadFloorStackAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
