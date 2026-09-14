@@ -97,6 +97,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
+          # The units and the updater travel with the build they update to.
+          #
+          # /opt/tarkov-group-update.sh and the unit files were installed by hand, once, by
+          # whoever followed deploy/group-server/README.md, and the updater replaces the server
+          # tree and nothing else. So every fix to deploy/group-server/ sat in the repo doing
+          # nothing: CT 115 was still running the 13 September updater a day after its stamp
+          # bug was fixed here, with the bug live.
+          mkdir -p artifacts/group-server/deploy
+          cp deploy/group-server/tarkov-group-update.sh \
+             deploy/group-server/tarkov-group-update.service \
+             deploy/group-server/tarkov-group-update.timer \
+             deploy/group-server/tarkov-group-update.path \
+             artifacts/group-server/deploy/
           # Reproducible on purpose. The relay's updater compares the published checksum
           # against the one it installed and restarts when they differ, and fresh mtimes,
           # owners and directory order made the hash change on every green run — so nearly
