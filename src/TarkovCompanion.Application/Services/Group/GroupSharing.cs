@@ -258,6 +258,24 @@ public sealed record GroupSnapshot(
     /// </remarks>
     public IReadOnlyList<string> MyLoadout { get; init; } = [];
 
+    /// <summary>
+    /// This player's own level, faction and scav timer, as their squadmates' games saw them.
+    /// </summary>
+    /// <remarks>
+    /// The same asymmetry as the kit, and the same route back. The Quests level is typed by
+    /// hand because nothing could read it; the profile's faction is never set; and a player's
+    /// own scav cooldown appears nowhere in this application — while every squadmate's game
+    /// has written all three down about them.
+    ///
+    /// Null until somebody else in the same party is also running this companion, which is the
+    /// same condition MyLoadout has always carried.
+    /// </remarks>
+    public int? MyLevel { get; init; }
+
+    public string? MySide { get; init; }
+
+    public DateTimeOffset? MyScavLockedUntil { get; init; }
+
     /// <summary>When contact with the relay was lost, if what is here is the last good read.</summary>
     /// <remarks>
     /// Null while the exchange is working. Set on the first failed exchange and kept across

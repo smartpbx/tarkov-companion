@@ -38,6 +38,18 @@
             <TextBlock Classes="caption"
                        Text="Read off a squadmate's game, not yours · matched on your in-game nickname"
                        TextWrapping="Wrap" />
+            <!-- The same asymmetry as the kit, and the same route back. Every squadmate's game
+                 has written this player's level, side and scav timer down; their own game has
+                 not, which is why the Quests level is typed by hand and the scav cooldown
+                 appears nowhere else in the application.
+
+                 Absent rather than three rows of "not known": a blank panel looks broken, and
+                 an absent one has nothing to add yet — which is the truth until somebody else
+                 in the party is also running this. -->
+            <TextBlock Classes="value"
+                       Text="{Binding MyProfile}"
+                       IsVisible="{Binding HasMyProfile}"
+                       TextWrapping="Wrap" />
 
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Classes="primary" Command="{Binding SaveCommand}" Content="Save" />

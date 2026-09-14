@@ -3,7 +3,36 @@ using TarkovCompanion.Core.Domain.Raids;
 namespace TarkovCompanion.Application.Services.Group;
 
 /// <summary>What one player's game said about another, to be handed back to them.</summary>
-public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout);
+public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
+{
+    /// <summary>
+    /// The three things the game tells everybody about somebody except that somebody.
+    /// </summary>
+    /// <remarks>
+    /// The same asymmetry the kit exploits. GroupNotificationParser.ReadMemberUpdate has read
+    /// Side, Level and SavageLockTime since it was written, and every one of them describes
+    /// another player — a member's own notifications carry a bare profile id.
+    ///
+    /// So the level on the Quests page is typed by hand, the profile's faction is never set,
+    /// and a player's own scav cooldown appears nowhere in the application, while four other
+    /// people's games have all three written down.
+    ///
+    /// Init properties so a client that predates them still parses, exactly like the kit.
+    /// </remarks>
+    public int? Level { get; init; }
+
+    public string? Side { get; init; }
+
+    public DateTimeOffset? ScavLockedUntil { get; init; }
+
+    /// <summary>Whether this observation is worth publishing at all.</summary>
+    /// <remarks>
+    /// A member with no readable gear used to be dropped outright, which would now drop their
+    /// level and scav timer with it. The test is whether anything is known, not whether the
+    /// kit is.
+    /// </remarks>
+    public bool HasAnything => Loadout.Count > 0 || Level is not null || Side is not null || ScavLockedUntil is not null;
+}
 
 /// <summary>
 /// Hands each member of a group the one thing their own game will not tell them.
@@ -72,9 +101,18 @@ public static class GroupKitMirror
                 .OfType<string>()
                 .Distinct(StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
-            if (loadout.Length > 0)
+            var entry = new ObservedKit(nickname, loadout)
             {
-                observed.Add(new(nickname, loadout));
+                Level = member.Level,
+                Side = member.Side,
+                ScavLockedUntil = member.ScavLockedUntil,
+            };
+
+            // A member with no readable gear was dropped outright, which would now drop their
+            // level and scav timer with it.
+            if (entry.HasAnything)
+            {
+                observed.Add(entry);
             }
         }
 
@@ -115,6 +153,56 @@ public static class GroupKitMirror
     /// The first answer wins. Two squadmates describing the same person are describing the
     /// same kit, and picking between them would be inventing a disagreement.
     /// </remarks>
+    /// <summary>
+    /// Everything the group observed about one player, or nothing if nobody did.
+    /// </summary>
+    /// <remarks>
+    /// The same nickname match <see cref="Find"/> uses, returning the whole observation rather
+    /// than just the kit. There is no better key: the logs carry a nickname, the relay carries
+    /// what somebody typed, and a player's own account id is absent from their own logs
+    /// entirely.
+    ///
+    /// The first observation that carries each field wins, taken independently. Two squadmates
+    /// may have seen this player at different moments — one with a level and no scav timer,
+    /// the other the reverse — and taking the first entry whole would discard half of what the
+    /// group actually knows.
+    /// </remarks>
+    public static ObservedKit? FindAll(
+        IEnumerable<IReadOnlyList<ObservedKit>> published,
+        string? name)
+    {
+        ArgumentNullException.ThrowIfNull(published);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return null;
+        }
+
+        var wanted = name.Trim();
+        ObservedKit? found = null;
+        foreach (var observations in published)
+        {
+            foreach (var observed in observations)
+            {
+                if (!string.Equals(observed.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                found = found is null
+                    ? observed
+                    : found with
+                    {
+                        Loadout = found.Loadout.Count > 0 ? found.Loadout : observed.Loadout,
+                        Level = found.Level ?? observed.Level,
+                        Side = found.Side ?? observed.Side,
+                        ScavLockedUntil = found.ScavLockedUntil ?? observed.ScavLockedUntil,
+                    };
+            }
+        }
+
+        return found;
+    }
+
     public static IReadOnlyList<string> Find(
         IEnumerable<IReadOnlyList<ObservedKit>> published,
         string? name)

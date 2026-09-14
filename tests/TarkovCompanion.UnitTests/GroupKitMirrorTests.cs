@@ -49,12 +49,24 @@ public sealed class GroupKitMirrorTests
         Assert.Equal(["helmet name"], kit.Loadout);
     }
 
+    /// <summary>
+    /// A member whose gear resolved to nothing is still worth publishing, if anything else was.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the opposite, and the premise has genuinely changed rather than the
+    /// rule being wrong. The entry carried a kit and nothing else, so an empty kit was an empty
+    /// entry; it now also carries the level, side and scav timer that the member's own game
+    /// will not tell them, and dropping the entry would drop those with it.
+    /// </remarks>
     [Fact]
-    public void Says_nothing_about_a_member_whose_gear_resolved_to_nothing()
+    public void A_member_whose_gear_resolved_to_nothing_still_carries_what_else_is_known()
     {
         var squad = Squad(Member("Nikita", ("FirstPrimaryWeapon", "unknown")));
 
-        Assert.Empty(GroupKitMirror.Describe(squad, Names));
+        var kit = Assert.Single(GroupKitMirror.Describe(squad, Names));
+
+        Assert.Empty(kit.Loadout);
+        Assert.NotNull(kit.Level);
     }
 
     [Fact]
@@ -137,6 +149,63 @@ public sealed class GroupKitMirrorTests
 
     private static SquadSnapshot Squad(params GroupMember[] members) =>
         new(members, null, null, DateTimeOffset.UnixEpoch);
+
+    [Fact]
+    public void A_member_nothing_is_known_about_is_left_out_entirely()
+    {
+        // The rule that survived the change: an entry carrying nothing is an entry that says
+        // nothing, and publishing one would put a name in everybody's room for no reason.
+        var squad = Squad(new GroupMember(
+            "pid:Anonymous",
+            1,
+            "Anonymous",
+            Side: null,
+            Level: null,
+            IsLeader: false,
+            IsReady: true,
+            ScavLockedUntil: null,
+            Equipment: []));
+
+        Assert.Empty(GroupKitMirror.Describe(squad, Names));
+    }
+
+    [Fact]
+    public void The_scav_timer_and_the_side_ride_along_with_the_kit()
+    {
+        // All three come off the same notification the kit does, and every one of them
+        // describes somebody other than the person reading it — which is the whole reason the
+        // group can hand them back.
+        var squad = Squad(Member("Nikita", ("Headwear", "helmet")));
+
+        var kit = Assert.Single(GroupKitMirror.Describe(squad, Names));
+
+        Assert.Equal(40, kit.Level);
+        Assert.Equal("Bear", kit.Side);
+    }
+
+    [Fact]
+    public void One_squadmate_missing_a_field_does_not_erase_what_another_saw()
+    {
+        // Two squadmates may have seen this player at different moments. Taking the first
+        // entry whole would discard half of what the group actually knows.
+        var partial = new ObservedKit("Nikita", []) { Level = 40 };
+        var other = new ObservedKit("Nikita", ["helmet name"])
+        {
+            ScavLockedUntil = DateTimeOffset.Parse("2026-09-14T04:00:00Z"),
+        };
+
+        var found = GroupKitMirror.FindAll([[partial], [other]], "Nikita");
+
+        Assert.Equal(40, found!.Level);
+        Assert.NotNull(found.ScavLockedUntil);
+        Assert.Equal(["helmet name"], found.Loadout);
+    }
+
+    [Fact]
+    public void Nobody_having_seen_this_player_is_nothing_rather_than_an_empty_answer()
+    {
+        Assert.Null(GroupKitMirror.FindAll([[new ObservedKit("Geo", [])]], "Nikita"));
+    }
 
     private static GroupMember Member(string nickname, params (string Slot, string Template)[] gear) =>
         new(
