@@ -11,6 +11,7 @@ public sealed record KeyLockViewModel(string LockId);
 public sealed record KeyRowViewModel(
     string ItemId,
     string Name,
+    string MapId,
     string Map,
     bool HasMap,
     string LockSummary,
@@ -75,6 +76,8 @@ public sealed class KeysPageViewModel : PageViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
     private readonly IQuestProgressService? _questProgress;
+    private readonly Func<string, string>? _nameOfMap;
+    private int? _namedMapCount;
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
     private IReadOnlyList<KeyRowViewModel> _keys = [];
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
@@ -86,14 +89,46 @@ public sealed class KeysPageViewModel : PageViewModel
     public KeysPageViewModel(
         IItemFactCatalog catalog,
         IItemRepository itemRepository,
-        IQuestProgressService? questProgress = null)
+        IQuestProgressService? questProgress = null,
+        // Names the map a key belongs to. Without it the rows print the raw identifier, which
+        // is what they did: every key on the page read "Map id 56f40101d2720b2a4d8b45d6".
+        Func<string, string>? nameOfMap = null)
         : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
         _questProgress = questProgress;
+        _nameOfMap = nameOfMap;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
+
+    /// <summary>
+    /// Renames the rows once the map catalog has arrived.
+    /// </summary>
+    /// <remarks>
+    /// The same shape as History's, and for the same reason: the map catalog loads after this
+    /// page does, so a Keys page opened before it holds identifiers. The rows are rewritten in
+    /// place from the id they already carry rather than reloading the key table, and the
+    /// catalog's size is the only change signal there is.
+    /// </remarks>
+    public void RenameMaps(int knownMapCount)
+    {
+        if (_nameOfMap is null || _namedMapCount == knownMapCount || _allKeys.Count == 0)
+        {
+            return;
+        }
+
+        _namedMapCount = knownMapCount;
+        _allKeys = [.. _allKeys.Select(Rename)];
+        Keys = [.. Keys.Select(Rename)];
+        if (_selected is { } selected)
+        {
+            _selected = Rename(selected);
+        }
+    }
+
+    private KeyRowViewModel Rename(KeyRowViewModel row) =>
+        row.HasMap ? row with { Map = _nameOfMap!(row.MapId) } : row;
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
@@ -259,7 +294,10 @@ public sealed class KeysPageViewModel : PageViewModel
         return new(
             facts.ItemId,
             item?.Name ?? facts.ItemId,
-            facts.MapId ?? UnknownMap,
+            facts.MapId ?? string.Empty,
+            // Named where the map catalog has loaded, and the identifier until it has. A key
+            // belongs to a place, and "56f40101d2720b2a4d8b45d6" is not one.
+            facts.MapId is { } mapId ? _nameOfMap?.Invoke(mapId) ?? mapId : UnknownMap,
             facts.MapId is not null,
             facts.Locks.Count switch
             {

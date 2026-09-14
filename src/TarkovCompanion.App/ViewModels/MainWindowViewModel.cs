@@ -2496,7 +2496,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             SendReport = group.ReportProblemAsync,
         };
         Ammo = new(itemFactCatalog, itemRepository);
-        Keys = new(itemFactCatalog, itemRepository, questProgress);
+        Keys = new(itemFactCatalog, itemRepository, questProgress, ResolveMapName);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
         Events = new(eventCatalog, eventTracker, itemRepository);
         Squad = new(itemRepository);
@@ -3117,6 +3117,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         // The map catalog loads after History does, so rows opened before it holds tokens
         // rather than names. Cheap: it returns immediately unless the catalog actually grew.
         History.RenameMaps(Map.Locations.Count);
+        // The Keys page has the same shape and had the same fault, printing a raw identifier
+        // for the map each key belongs to.
+        Keys.RenameMaps(Map.Locations.Count);
         // Before the status bar, which now prints the clock the raid page works out. Two
         // places computing the same countdown would eventually disagree about it.
         Raid.Apply(snapshot, now);
