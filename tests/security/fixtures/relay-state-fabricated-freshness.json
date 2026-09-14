@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-STALE-FRESHNESS",
+    "boundary": "TB-6",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "positionAge is entirely client-reported and never cross-checked against server-observed time. A client can claim its position is fresh indefinitely."
+  },
+  "scenario": {
+    "request": {
+      "method": "POST",
+      "path": "/state",
+      "headers": { "X-Group-Key": "<a valid group key>" },
+      "body": {
+        "name": "Geo",
+        "mapId": "customs",
+        "raidState": "InRaid",
+        "x": 187.4,
+        "z": -92.8,
+        "positionAge": 0.1
+      },
+      "repeatedEverySeconds": 3,
+      "actualLastCaptureAgeSeconds": 1800
+    },
+    "contrastField": {
+      "name": "sinceSeconds",
+      "note": "Server-set and read-only per docs/GROUP_RELAY.md — cannot be spoofed the same way, because the relay computes it from when it last heard from the member at all, not from anything the client sends."
+    },
+    "modeledEffect": "Squadmates reading positionAge see a marker that always looks fresh, even though the underlying screenshot position has not updated in 30 minutes."
+  }
+}

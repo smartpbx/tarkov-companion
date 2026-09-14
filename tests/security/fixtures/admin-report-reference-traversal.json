@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-ADMIN-REPORT-REFERENCE-TRAVERSAL",
+    "boundary": "TB-8",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "status": "Control verified present by reading source (ProblemReports.Read) -- this fixture documents the attempted input, not a live gap.",
+    "note": "ProblemReports.Read requires the reference be exactly 12 lowercase-hex characters before it is used in a filename glob, which structurally excludes '.' and '/'."
+  },
+  "scenario": {
+    "endpoint": {
+      "method": "GET",
+      "path": "/reports/{reference}",
+      "headers": { "X-Admin-Key": "<the relay's admin key>" }
+    },
+    "maliciousReferences": [
+      "../../../../etc/passwd",
+      "..%2f..%2f..%2fetc%2fpasswd",
+      "0000000000000000000000/../../secret",
+      "AAAAAAAAAAAA",
+      "not-hex-at-all"
+    ],
+    "expectedHandlerBehavior": "ProblemReports.Read returns null for every value above: length != 12 or a character outside [0-9a-f] fails the guard before Directory.EnumerateFiles ever runs, so no path-traversal glob is constructed.",
+    "validReferenceShape": "12 lowercase hex characters, e.g. \"a1b2c3d4e5f6\", produced only by ProblemReports.Accept as SHA-256(room:timestamp)[..12]"
+  }
+}

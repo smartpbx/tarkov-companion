@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-CATALOG-UPSTREAM-TAMPER",
+    "boundary": "TB-5",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "CatalogMirror.cs computes its SHA-256 tag from whatever bytes upstream returned. That tag proves mirror-to-client consistency, not upstream authenticity -- there is no independently pinned expected hash to compare against."
+  },
+  "scenario": {
+    "upstream": "json.tarkov.dev",
+    "legitimateResponseExcerpt": {
+      "id": "544fb45d4bdc2dee738b4568",
+      "name": "5448be9a4bdc2dfd2f8b456a Name",
+      "basePrice": 15090
+    },
+    "tamperedResponseExcerpt": {
+      "id": "544fb45d4bdc2dee738b4568",
+      "name": "5448be9a4bdc2dfd2f8b456a Name",
+      "basePrice": 999999
+    },
+    "mirrorBehavior": "CatalogMirror serves the tampered bytes with a validly-computed ETag/SHA-256 of those exact (tampered) bytes -- the mirror has no independent source to detect the discrepancy against.",
+    "modeledEffect": "Every client of this relay that fetches the mirrored catalog sees the manipulated basePrice as if it were authentic, and the relay's own integrity check (its self-computed hash) offers no signal that anything changed upstream."
+  }
+}

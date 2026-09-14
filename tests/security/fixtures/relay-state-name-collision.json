@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-NAME-COLLISION",
+    "boundary": "TB-4 / TB-6",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "Two POST /state calls to the same room, same X-Group-Key, using the same display name. The relay stores members by name, so the second call silently replaces the first (docs/GROUP_RELAY.md: 'publishing again under the same name replaces your previous entry')."
+  },
+  "scenario": {
+    "room": "9f2c0000000000000000000000000000",
+    "sequence": [
+      {
+        "step": 1,
+        "actor": "legitimate member",
+        "request": {
+          "method": "POST",
+          "path": "/state",
+          "headers": { "X-Group-Key": "<the group's real key>" },
+          "body": {
+            "name": "MaxGooner",
+            "mapId": "customs",
+            "raidState": "InRaid",
+            "side": "pmc",
+            "x": 56.16,
+            "z": 110.52,
+            "heading": 214.5
+          }
+        }
+      },
+      {
+        "step": 2,
+        "actor": "impostor holding the same room key",
+        "request": {
+          "method": "POST",
+          "path": "/state",
+          "headers": { "X-Group-Key": "<the group's real key>" },
+          "body": {
+            "name": "MaxGooner",
+            "mapId": "customs",
+            "raidState": "InRaid",
+            "side": "pmc",
+            "x": 5.0,
+            "z": 5.0,
+            "heading": 0.0
+          }
+        }
+      }
+    ],
+    "modeledEffect": "Every other room member's next /state reply lists one entry named MaxGooner at (5.0, 5.0) — the impostor's position — with no indication the identity changed hands."
+  }
+}
