@@ -2,6 +2,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Profile;
+using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Recommendations;
 
 namespace TarkovCompanion.Application.Services.Profile;
@@ -79,23 +80,47 @@ public sealed class ProfileNeedAggregationService
         return quest;
     }
 
-    public AggregatedItemNeed GetItemNeed(PlayerProfile profile, string itemId)
+    /// <param name="trackedTaskIds">
+    /// The quests the player is actually on — active or pinned. Null where nobody could say,
+    /// and then nothing is reported as tracked rather than everything being reported as such,
+    /// which is the direction that cannot mislead.
+    /// </param>
+    public AggregatedItemNeed GetItemNeed(
+        PlayerProfile profile,
+        string itemId,
+        IReadOnlySet<string>? trackedTaskIds = null)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
 
-        var questCount = 0;
-        var foundInRaidQuestCount = 0;
+        var outstandingItems = 0;
+        var outstandingFoundInRaidItems = 0;
+        // Distinct quests, not requirements. A quest with two objectives wanting the same item
+        // is one quest that wants it, and the Keys page says so in words — "two quests need it"
+        // has to mean two quests.
+        var questsNeedingIt = new HashSet<string>(StringComparer.Ordinal);
+        var trackedQuestsNeedingIt = new HashSet<string>(StringComparer.Ordinal);
         foreach (var requirement in _questRequirements.Where(x =>
                      StringComparer.Ordinal.Equals(x.ItemId, itemId) &&
                      !profile.CompletedTaskIds.Contains(x.TaskId)))
         {
             var progress = profile.ObjectiveProgress.GetValueOrDefault(requirement.ObjectiveId);
             var remaining = Math.Max(0, requirement.Required - progress);
-            questCount = checked(questCount + remaining);
+            outstandingItems = checked(outstandingItems + remaining);
             if (requirement.FoundInRaidRequired)
             {
-                foundInRaidQuestCount = checked(foundInRaidQuestCount + remaining);
+                outstandingFoundInRaidItems = checked(outstandingFoundInRaidItems + remaining);
+            }
+
+            if (remaining <= 0)
+            {
+                continue;
+            }
+
+            questsNeedingIt.Add(requirement.TaskId);
+            if (trackedTaskIds?.Contains(requirement.TaskId) == true)
+            {
+                trackedQuestsNeedingIt.Add(requirement.TaskId);
             }
         }
 
@@ -107,19 +132,99 @@ public sealed class ProfileNeedAggregationService
         var hideoutRemaining = Math.Max(0, hideoutRequired - owned);
 
         return new(
-            new(questCount, foundInRaidQuestCount, hideoutRemaining),
+            new(outstandingItems, outstandingFoundInRaidItems, hideoutRemaining)
+            {
+                QuestsNeedingIt = questsNeedingIt.Count,
+                TrackedQuestsNeedingIt = trackedQuestsNeedingIt.Count,
+            },
             profile.WishlistItemIds.Contains(itemId));
     }
 }
 
 public sealed class ProfileQuestProgressService(
     IPlayerProfileService profileService,
-    ProfileNeedAggregationService aggregationService) : IQuestProgressService
+    ProfileNeedAggregationService aggregationService,
+    // Which quests the player is on, which the profile does not carry: the board holds recorded
+    // state and pins, and the profile holds only what has been completed. Optional so the
+    // compositions that build this by hand keep working; without it nothing is reported as
+    // tracked, which is the direction that cannot mislead.
+    IQuestReadService? quests = null,
+    TimeProvider? timeProvider = null) : IQuestProgressService
 {
+    /// <summary>
+    /// How long the tracked set is reused for.
+    /// </summary>
+    /// <remarks>
+    /// The Keys page asks this once per key and there are two hundred and fifty-seven of them,
+    /// so without a cache one page load is two hundred and fifty-seven reads of the whole quest
+    /// board. A minute is long enough to make that one read and short enough that pinning a
+    /// quest shows up while somebody is still looking at the page.
+    /// </remarks>
+    private static readonly TimeSpan RereadAfter = TimeSpan.FromMinutes(1);
+
+    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private IReadOnlySet<string>? _tracked;
+    private DateTimeOffset _readUtc = DateTimeOffset.MinValue;
+
     public async Task<ItemNeedSummary> GetItemNeedsAsync(string itemId, CancellationToken cancellationToken)
     {
         var profile = await profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
-        return aggregationService.GetItemNeed(profile, itemId).Summary;
+        var tracked = await TrackedAsync(profile, cancellationToken).ConfigureAwait(false);
+        return aggregationService.GetItemNeed(profile, itemId, tracked).Summary;
+    }
+
+    /// <summary>
+    /// The quests the player is on: active, or pinned whatever their state.
+    /// </summary>
+    /// <remarks>
+    /// The same rule the group exchange uses to decide what is worth telling a squadmate, and
+    /// for the same reason — a pin is the player saying which one they are actually doing.
+    ///
+    /// A board that cannot be read reports nothing tracked rather than failing the caller. The
+    /// verdict then falls back to "a quest ahead of you needs it", which is true and weaker,
+    /// instead of a page that cannot say anything at all.
+    /// </remarks>
+    private async Task<IReadOnlySet<string>?> TrackedAsync(
+        PlayerProfile profile,
+        CancellationToken cancellationToken)
+    {
+        if (quests is null)
+        {
+            return null;
+        }
+
+        if (_timeProvider.GetUtcNow() - _readUtc < RereadAfter)
+        {
+            return _tracked;
+        }
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_timeProvider.GetUtcNow() - _readUtc < RereadAfter)
+            {
+                return _tracked;
+            }
+
+            var scope = new QuestProfileScope(profile.Id, profile.GameMode, profile.ProfileGeneration);
+            var board = await quests.GetQuestBoardAsync(scope, cancellationToken).ConfigureAwait(false);
+            _tracked = board.Tasks
+                .Where(task => task.IsPinned || task.RecordedState == RecordedTaskState.Active)
+                .Select(task => task.TaskId)
+                .ToHashSet(StringComparer.Ordinal);
+            _readUtc = _timeProvider.GetUtcNow();
+            return _tracked;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _readUtc = _timeProvider.GetUtcNow();
+            return _tracked;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 }
 
@@ -157,8 +262,8 @@ public sealed class RecommendationContextService(
 
         return new(
             isFoundInRaid,
-            need.Summary.QuestCount,
-            need.Summary.FoundInRaidQuestCount,
+            need.Summary.OutstandingItems,
+            need.Summary.OutstandingFoundInRaidItems,
             need.Summary.HideoutCount,
             need.IsWishlisted,
             eventState,

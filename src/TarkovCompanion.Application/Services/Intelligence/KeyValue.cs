@@ -7,7 +7,21 @@ public enum KeepOrSell
 {
     /// <summary>Nothing here is a strong enough signal to say, and it says so.</summary>
     NoCall,
+
+    /// <summary>A quest the player is on needs it. The strongest thing this can say.</summary>
     Keep,
+
+    /// <summary>
+    /// A quest still ahead of them needs it.
+    /// </summary>
+    /// <remarks>
+    /// Its own answer rather than a Keep with different words, because the two are read at
+    /// different moments: one is "do not sell this today" and the other is "this will matter
+    /// eventually, and on a fresh wipe so will almost everything". Collapsing them into Keep is
+    /// how the page came to mark two hundred and thirty-six keys of two hundred and fifty-seven
+    /// as Keep and mean nothing by it.
+    /// </remarks>
+    KeepForLater,
     Sell,
 }
 
@@ -83,11 +97,25 @@ public static class KeyValue
         // Your own progress first, and it is not close. Every other signal here is the market's
         // opinion about a key in general; this one is a fact about the quest you are on, and
         // selling a key a hand-in needs is the mistake this whole verdict exists to prevent.
-        if (needs is { QuestCount: > 0 })
+        if (needs is { TrackedQuestsNeedingIt: > 0 })
         {
-            return new(KeepOrSell.Keep, needs.QuestCount == 1
-                ? "a quest you are tracking asks for it"
-                : $"{needs.QuestCount} quests you are tracking ask for it");
+            return new(KeepOrSell.Keep, needs.TrackedQuestsNeedingIt == 1
+                ? "a quest you are on needs it"
+                : $"{needs.TrackedQuestsNeedingIt} quests you are on need it");
+        }
+
+        // Then the quests that are still ahead of you, which is a weaker claim and said as one.
+        // On a fresh wipe that is every quest in the game, so it cannot carry the same weight as
+        // the one above it — but a key for a quest you have not started yet is still a key you
+        // will want, and calling it a sell is the same mistake one step later.
+        //
+        // This used to be the only branch, and it was worded as the one above: "225 quests you
+        // are tracking ask for it", beside a dorm key, on a profile tracking nothing.
+        if (needs is { QuestsNeedingIt: > 0 })
+        {
+            return new(KeepOrSell.KeepForLater, needs.QuestsNeedingIt == 1
+                ? "a quest ahead of you needs it"
+                : $"{needs.QuestsNeedingIt} quests ahead of you need it");
         }
 
         if (needs is { HideoutCount: > 0 })

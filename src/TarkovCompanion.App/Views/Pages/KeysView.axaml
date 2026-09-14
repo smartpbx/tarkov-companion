@@ -33,6 +33,7 @@
                   <TextBlock Grid.Column="1"
                              Classes="lede"
                              Classes.sage="{Binding IsKeep}"
+                             Classes.ochre="{Binding IsKeepForLater}"
                              Classes.coral="{Binding IsSell}"
                              Text="{Binding VerdictLabel}"
                              VerticalAlignment="Center" />

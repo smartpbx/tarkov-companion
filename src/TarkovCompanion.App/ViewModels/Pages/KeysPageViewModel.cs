@@ -30,11 +30,22 @@ public sealed record KeyRowViewModel(
     public string VerdictLabel => Verdict.Call switch
     {
         KeepOrSell.Keep => "Keep",
+        KeepOrSell.KeepForLater => "Keep for later",
         KeepOrSell.Sell => "Sell",
         _ => "—",
     };
 
     public bool IsKeep => Verdict.Call == KeepOrSell.Keep;
+
+    /// <summary>
+    /// Drawn differently from a Keep, because it is a weaker claim.
+    /// </summary>
+    /// <remarks>
+    /// On a fresh wipe every quest is ahead of you, so this is most of the table. Given the
+    /// same colour as a Keep it would drown the handful of keys a quest actually on the board
+    /// needs, which are the ones worth finding at a glance.
+    /// </remarks>
+    public bool IsKeepForLater => Verdict.Call == KeepOrSell.KeepForLater;
 
     public bool IsSell => Verdict.Call == KeepOrSell.Sell;
 
