@@ -96,7 +96,7 @@ public sealed class V2ArchitectureContractTests
     [Fact]
     public void EvidencedPayloadValuesCanBeAbsentWithoutLookingRead()
     {
-        // EvidencedValue<int>.Value is 0 when unknown, which a consumer can mistake for a read zero.
+        // EvidencedValue<int> or <SomeEnum> cannot be Unknown at all, because presence is the test.
         var evidencedTypes = V2Types()
             .SelectMany(ExposedTypes)
             .SelectMany(Flatten)
@@ -110,12 +110,23 @@ public sealed class V2ArchitectureContractTests
         Assert.NotEmpty(evidencedTypes);
         foreach (var argument in evidencedTypes.Select(type => type.GetGenericArguments()[0]))
         {
-            var absentable =
-                !argument.IsValueType ||
-                Nullable.GetUnderlyingType(argument) is not null ||
-                (argument.IsEnum && Enum.GetName(argument, 0) == "Unknown");
+            var absentable = !argument.IsValueType || Nullable.GetUnderlyingType(argument) is not null;
             Assert.True(absentable, $"EvidencedValue<{argument.Name}> cannot represent an absent value.");
         }
+    }
+
+    [Fact]
+    public void ValueStructsDeserializeThroughTheirValidatingConstructor()
+    {
+        var structs = V2Types()
+            .Where(type => type.IsValueType && !type.IsEnum)
+            .ToArray();
+
+        Assert.NotEmpty(structs);
+        Assert.All(structs, type => Assert.Contains(
+            type.GetConstructors(),
+            constructor => constructor.GetParameters().Length > 0 &&
+                constructor.IsDefined(typeof(System.Text.Json.Serialization.JsonConstructorAttribute))));
     }
 
     [Fact]

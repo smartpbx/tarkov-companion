@@ -76,8 +76,8 @@ Completeness and freshness are separate axes:
 
 A result may be both `Partial` and `Stale`. Unknown, unavailable, and stale must never be collapsed
 to an empty collection, false, zero, or complete result. An `Unknown` or `Unavailable` value
-therefore carries no value, and numeric and boolean payload fields use nullable types so an
-undetermined quantity serializes as absent rather than as a read zero.
+therefore carries no value. Presence is the test, so numeric, boolean, and enum payload fields use
+nullable types and an undetermined quantity serializes as absent rather than as a read zero.
 
 ## Contextual capture
 
@@ -98,10 +98,22 @@ must obey the privacy rules in `docs/SAFETY.md`.
 ## Typed recognition
 
 Recognition is a closed set of typed result envelopes rather than one nullable bag. V2 defines
-item, grid, loot, stash, ammo, key, quest-item, flea-listing, extract/map, and
-health/character results. Every envelope carries the contract version, result and capture IDs,
-requested intent, detected context, status, and complete evidence metadata. Recognized fields
-and grid cells use the same evidence container.
+item, grid, loot, stash, ammo, key, quest-item, flea-listing, extract/map, and health/character
+results. Every envelope carries the contract version, result and capture IDs, requested intent,
+detected context, status, and complete evidence metadata. Recognized fields and grid cells use the
+same evidence container. Null evidence containers, value objects, and lists are rejected,
+lists are copied at construction, and identifier structs deserialize through their validating
+constructors.
+
+An item carries its displayed footprint (width and height in cells after rotation), a rotation
+flag, stack quantity, found-in-raid state, and visible condition (durability, uses, or resource),
+so fit, swap, and value-per-square calculations need no local DTO. A grid cell's address is the
+top-left cell of that footprint. A stash result is a set of capture regions, each with its
+own identity, capture order, container path, artifact, and evidenced origin in container
+coordinates; overlap is the intersection of placed footprints, and a region with an undetermined
+origin is not stitched. Each captured container has one coverage entry of observed and total
+cells, so closed or unscrolled space is reported rather than invented. A flea page keeps each
+row's own bounds separately from the item icon, the item's condition, and every raw OCR line.
 
 An `Auto` request reports the detected context; it does not coerce an uncertain frame into a
 requested shape. Ambiguity preserves ordered candidates. User or paired-device review appends a
@@ -176,7 +188,8 @@ manufacture missing evidence.
 CI runs constructor/serialization tests, public-surface architecture tests, and the safety audit.
 Positive fixtures prove ordinary window discovery, visible user capture, public data access, and
 historical modelling remain expressible. Negative fixtures prove known memory, injection/hook,
-packet-capture, generated keyboard/mouse/controller input, and topmost-window or overlay APIs or
-dependencies fail the audit, one fixture line at a time. V2 adds audit patterns; it does not remove
-v1 ones. The source audit is a ratchet, not a proof; semantic architecture tests separately assert
-that v2 protocols have no game-control or live-enemy vocabulary.
+packet-capture, generated keyboard/mouse/controller input, and overlay APIs or dependencies fail
+the audit, one fixture line at a time. Patterns target the prohibited capability rather than
+adjacent API names: ordinary process lookup, physical hotkey observation, and companion-window
+placement stay allowed. The source audit is a ratchet, not a proof; semantic architecture tests
+separately assert that v2 protocols have no game-control or live-enemy vocabulary.

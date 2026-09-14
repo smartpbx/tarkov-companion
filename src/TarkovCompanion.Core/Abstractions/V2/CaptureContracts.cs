@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.Core.Abstractions.V2;
@@ -42,6 +43,9 @@ public enum CaptureSessionStage
 
 public readonly record struct CaptureSessionId
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public CaptureSessionId(Guid value)
     {
         if (value == Guid.Empty)
@@ -64,23 +68,17 @@ public sealed record CaptureSessionRequest(
     string? MapId = null,
     DateTimeOffset? ExpiresUtc = null)
 {
-    public DateTimeOffset RequestedUtc { get; } = RequireUtc(RequestedUtc, nameof(RequestedUtc));
+    public CaptureSessionId SessionId { get; } = V2ContractGuard.Defined(SessionId, nameof(SessionId));
+
+    public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
+
+    public DateTimeOffset RequestedUtc { get; } = V2ContractGuard.Utc(RequestedUtc, nameof(RequestedUtc));
 
     public DateTimeOffset? ExpiresUtc { get; } = ExpiresUtc is not { } expires
         ? null
         : expires == default || expires < RequestedUtc
             ? throw new ArgumentOutOfRangeException(nameof(ExpiresUtc), "A capture request cannot expire before it was made.")
             : expires.ToUniversalTime();
-
-    private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
-    {
-        if (value == default)
-        {
-            throw new ArgumentException("A UTC timestamp is required.", parameterName);
-        }
-
-        return value.ToUniversalTime();
-    }
 }
 
 public sealed record CaptureStageProgress(
@@ -91,6 +89,8 @@ public sealed record CaptureStageProgress(
     int? Percent = null,
     string? Detail = null)
 {
+    public CaptureSessionId SessionId { get; } = V2ContractGuard.Defined(SessionId, nameof(SessionId));
+
     public long Sequence { get; } = Sequence >= 0
         ? Sequence
         : throw new ArgumentOutOfRangeException(nameof(Sequence));
@@ -114,6 +114,7 @@ public sealed record CaptureSessionSnapshot
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(progress);
         ArgumentNullException.ThrowIfNull(status);
+        progress = V2ContractGuard.List(progress, nameof(progress));
 
         if (progress.Any(item => item.SessionId != request.SessionId))
         {
@@ -153,7 +154,9 @@ public sealed record VisibleCaptureArtifact(
     DateTimeOffset CapturedUtc,
     EvidenceProvenance Provenance)
 {
-    public string ArtifactId { get; } = Required(ArtifactId, nameof(ArtifactId));
+    public string ArtifactId { get; } = V2ContractGuard.Required(ArtifactId, nameof(ArtifactId));
+
+    public EvidenceProvenance Provenance { get; } = V2ContractGuard.NotNull(Provenance, nameof(Provenance));
 
     public int PixelWidth { get; } = PixelWidth > 0
         ? PixelWidth
@@ -166,12 +169,6 @@ public sealed record VisibleCaptureArtifact(
     public DateTimeOffset CapturedUtc { get; } = CapturedUtc == default
         ? throw new ArgumentException("A UTC timestamp is required.", nameof(CapturedUtc))
         : CapturedUtc.ToUniversalTime();
-
-    private static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
 }
 
 /// <summary>The reviewed game-facing seam: observe visible pixels only after a user request.</summary>

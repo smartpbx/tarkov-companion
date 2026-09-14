@@ -2,4 +2,7 @@ Process.GetProcessesByName("EscapeFromTarkov");
 EnumWindows(enumerateVisibleWindow, IntPtr.Zero);
 GetWindowRect(gameWindow, out visibleBounds);
 graphics.CopyFromScreen(visibleBounds.Left, visibleBounds.Top, 0, 0, size);
+OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, gameProcessId);
+GetAsyncKeyState(VK_SNAPSHOT);
+SetWindowPos(companionWindow, HWND_NOTOPMOST, x, y, width, height, flags);
 HttpClient.GetAsync("https://api.tarkov.dev/graphql");

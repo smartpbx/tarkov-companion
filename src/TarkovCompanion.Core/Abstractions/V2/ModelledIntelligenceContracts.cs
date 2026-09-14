@@ -9,13 +9,7 @@ public sealed record IntelligenceInputReference(
     public EvidenceProvenance Provenance { get; } =
         Provenance ?? throw new ArgumentNullException(nameof(Provenance));
 
-    public string EvidenceId { get; } = Required(EvidenceId, nameof(EvidenceId));
-
-    private static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
+    public string EvidenceId { get; } = V2ContractGuard.Required(EvidenceId, nameof(EvidenceId));
 }
 
 /// <summary>A bounded summary of past observations, never a claim about present player state.</summary>
@@ -42,13 +36,8 @@ public sealed record HistoricalIntelligence<T>
             throw new ArgumentException("Historical intelligence must identify its inputs.", nameof(inputs));
         }
 
-        if (inputs.Any(input => input is null))
-        {
-            throw new ArgumentException("Intelligence inputs cannot be null.", nameof(inputs));
-        }
-
         Value = value;
-        Inputs = inputs.ToArray();
+        Inputs = V2ContractGuard.List(inputs, nameof(inputs));
     }
 
     public string IntelligenceId { get; }
@@ -90,13 +79,8 @@ public sealed record ModelledIntelligence<T>
             throw new ArgumentException("Modelled intelligence must identify its inputs.", nameof(inputs));
         }
 
-        if (inputs.Any(input => input is null))
-        {
-            throw new ArgumentException("Intelligence inputs cannot be null.", nameof(inputs));
-        }
-
         Estimate = estimate;
-        Inputs = inputs.ToArray();
+        Inputs = V2ContractGuard.List(inputs, nameof(inputs));
     }
 
     public string IntelligenceId { get; }

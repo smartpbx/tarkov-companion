@@ -1,8 +1,13 @@
+using System.Text.Json.Serialization;
+
 namespace TarkovCompanion.Core.Abstractions.V2;
 
 /// <summary>The semantic version of the v2 contract, independent of the application version.</summary>
 public readonly record struct V2ContractVersion
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public V2ContractVersion(int major, int minor)
     {
         if (major < 1)

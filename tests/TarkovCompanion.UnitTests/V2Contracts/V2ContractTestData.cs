@@ -34,7 +34,7 @@ internal static class V2ContractTestData
 
     public static EvidencedValue<T> Complete<T>(
         string fieldId,
-        T value,
+        T? value,
         EvidenceProvenance? provenance = null,
         EvidenceRegion? bounds = null,
         IReadOnlyList<EvidenceCandidate<T>>? candidates = null,
@@ -46,6 +46,24 @@ internal static class V2ContractTestData
         bounds,
         candidates,
         corrections);
+
+    public static RecognizedItem Item(string id = "item-a", int width = 1, int height = 1) => new(
+        Complete("item.id", id),
+        Complete("item.name", "Item A"),
+        Complete<int?>("item.quantity", 1),
+        Complete<int?>("item.width", width),
+        Complete<int?>("item.height", height),
+        Complete<bool?>("item.rotated", false),
+        Complete<bool?>("item.foundInRaid", true),
+        Complete<ItemConditionReading>("item.condition", null));
+
+    public static GridRecognition Grid(params GridCellRecognition[] cells) => new(
+        new GridGeometry(
+            Complete<int?>("grid.rows", 4),
+            Complete<int?>("grid.columns", 10),
+            Complete<int?>("grid.cellWidth", 63),
+            Complete<int?>("grid.cellHeight", 63)),
+        cells);
 
     public static RecognitionResultHeader Header(RecognizedContext context) => new(
         "result-1",

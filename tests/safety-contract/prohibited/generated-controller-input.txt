@@ -1,1 +1,2 @@
 <PackageReference Include="Nefarius.ViGEm.Client" />
+vJoyInterface.SetAxis(value, deviceId, HID_USAGE_X);

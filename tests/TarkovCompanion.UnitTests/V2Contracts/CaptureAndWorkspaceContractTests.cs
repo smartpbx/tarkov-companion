@@ -44,6 +44,31 @@ public sealed class CaptureAndWorkspaceContractTests
     }
 
     [Fact]
+    public void DefaultIdentifiersAndReversedExpiryAreRejected()
+    {
+        var sessionId = new CaptureSessionId(Guid.Parse("10000000-0000-0000-0000-000000000003"));
+
+        Assert.Throws<ArgumentException>(() =>
+            new CaptureSessionRequest(default, ScanIntent.Loot, Origin, V2ContractTestData.ObservedUtc));
+        Assert.Throws<ArgumentException>(() =>
+            new WorkspaceOrigin(default, Origin.DeviceId, WorkspaceOriginKind.PairedDevice, "tablet"));
+        Assert.Throws<ArgumentException>(() => new StateAcknowledgement(
+            default,
+            new StateChangeId(Guid.Parse("10000000-0000-0000-0000-000000000004")),
+            new StateRevision(1),
+            new StateRevision(1),
+            AcknowledgementDisposition.Applied,
+            Origin,
+            V2ContractTestData.ObservedUtc));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CaptureSessionRequest(
+            sessionId,
+            ScanIntent.Loot,
+            Origin,
+            V2ContractTestData.ObservedUtc,
+            ExpiresUtc: V2ContractTestData.ObservedUtc.AddSeconds(-1)));
+    }
+
+    [Fact]
     public void RevisionsAdvanceWithinTheirNamedStream()
     {
         var mapRevision = new StateRevision(3);

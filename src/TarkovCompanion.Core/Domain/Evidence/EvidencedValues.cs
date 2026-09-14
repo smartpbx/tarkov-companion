@@ -125,10 +125,17 @@ public sealed record EvidencedValue<T>
         Candidates = candidates?.ToArray() ?? [];
         Corrections = corrections?.ToArray() ?? [];
 
+        if (Candidates.Any(candidate => candidate is null) || Corrections.Any(correction => correction is null))
+        {
+            throw new ArgumentException("Candidates and corrections cannot contain null entries.");
+        }
+
         // An undetermined claim must not look like a read zero, false, or name. Candidates may
         // still describe the ambiguity; the value itself stays absent until something decides it.
+        // Presence is tested, not equality with default, so EvidencedValue<int> cannot pass off
+        // 0 as unknown: undetermined numbers and flags need a nullable payload type.
         if (status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable &&
-            !EqualityComparer<T?>.Default.Equals(value, default))
+            value is not null)
         {
             throw new ArgumentException(
                 $"A {status.Completeness} result cannot carry a value.",

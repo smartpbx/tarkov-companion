@@ -23,15 +23,11 @@ public sealed record RecommendationReason(
     int Priority,
     EvidenceProvenance Provenance)
 {
-    public string Code { get; } = Required(Code, nameof(Code));
+    public string Code { get; } = V2ContractGuard.Required(Code, nameof(Code));
 
-    public string Explanation { get; } = Required(Explanation, nameof(Explanation));
+    public string Explanation { get; } = V2ContractGuard.Required(Explanation, nameof(Explanation));
 
-    private static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
+    public EvidenceProvenance Provenance { get; } = V2ContractGuard.NotNull(Provenance, nameof(Provenance));
 }
 
 public sealed record RecommendationDecision(
@@ -39,17 +35,10 @@ public sealed record RecommendationDecision(
     string Summary,
     IReadOnlyList<RecommendationReason> Reasons)
 {
-    public string Summary { get; } = Required(Summary, nameof(Summary));
+    public string Summary { get; } = V2ContractGuard.Required(Summary, nameof(Summary));
 
     public IReadOnlyList<RecommendationReason> Reasons { get; } =
-        Reasons?.OrderByDescending(reason => reason.Priority).ToArray()
-        ?? throw new ArgumentNullException(nameof(Reasons));
-
-    private static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
+        V2ContractGuard.List(Reasons, nameof(Reasons)).OrderByDescending(reason => reason.Priority).ToArray();
 }
 
 /// <summary>A recommendation is advice for review; it cannot perform the advised action.</summary>
@@ -67,9 +56,11 @@ public sealed record RecommendationResult
         ArgumentNullException.ThrowIfNull(decision);
 
         RecommendationId = recommendationId.Trim();
-        ContractVersion = contractVersion;
+        ContractVersion = V2ContractGuard.Defined(contractVersion, nameof(contractVersion));
         RulesetVersion = rulesetVersion.Trim();
-        CaptureSessionId = captureSessionId;
+        CaptureSessionId = captureSessionId is { } session
+            ? V2ContractGuard.Defined(session, nameof(captureSessionId))
+            : null;
         Decision = decision;
     }
 

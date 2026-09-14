@@ -2,11 +2,11 @@
 set -euo pipefail
 
 readonly TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# The v2 contract adds capability patterns; it does not relax v1 ones. OpenProcess is the gateway
-# to process memory, GetAsyncKeyState polls game input, and SetWindowPos/WS_EX_TOPMOST is how a
-# window is pinned over the game. Ordinary discovery (Process.GetProcessesByName, EnumWindows)
-# and visible capture do not need any of them. ViGEm/vJoy synthesize controller input.
-readonly TASK_FORBIDDEN_PATTERN='OpenProcess|ReadProcessMemory|WriteProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtReadVirtualMemory|NtWriteVirtualMemory|NtQueryVirtualMemory|SetWindowsHookEx|SendInput|mouse_event|keybd_event|GetAsyncKeyState|InputSimulator|WindowsInput|ViGEm|vJoy|WinDivert|SharpPcap|PacketDotNet|SocketType\.Raw|IOControlCode\.ReceiveAll|SIO_RCVALL|pcap_open_live|EasyHook|Reloaded\.Hooks|MemorySharp|GameOverlay|Vortice\.Direct3D.*Hook|Direct3D.*PresentHook|SetWindowPos|WS_EX_TOPMOST'
+# Ordinary process/window discovery, physical hotkey observation, and companion-window placement
+# are allowed. Match the APIs that perform the prohibited capability (memory read/write, injection
+# or hooks, generated keyboard/mouse/controller input, packet capture, overlay libraries), not
+# adjacent API names such as OpenProcess, GetAsyncKeyState, or SetWindowPos.
+readonly TASK_FORBIDDEN_PATTERN='ReadProcessMemory|WriteProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtReadVirtualMemory|NtWriteVirtualMemory|NtQueryVirtualMemory|SetWindowsHookEx|SendInput|mouse_event|keybd_event|InputSimulator|WindowsInput|ViGEm|vJoy|WinDivert|SharpPcap|PacketDotNet|SocketType\.Raw|IOControlCode\.ReceiveAll|SIO_RCVALL|pcap_open_live|EasyHook|Reloaded\.Hooks|MemorySharp|GameOverlay|Vortice\.Direct3D.*Hook|Direct3D.*PresentHook'
 readonly TASK_FIXTURE_ROOT="${TASK_PROJECT_ROOT}/tests/safety-contract"
 
 scan_safety_patterns() {

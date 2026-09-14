@@ -45,7 +45,7 @@ versions. Adapters must be explicit because missing v1 metadata cannot be invent
 types add some nesting, but that cost is the mechanism that prevents field and result evidence
 from being discarded.
 
-Safety auditing gains both allowed and prohibited fixtures and keeps every v1 pattern. Pattern
-matching remains a narrow early warning and architecture tests enforce protocol shape; neither is
-treated as a substitute for review. Transport authentication and feature composition remain outside
-this ADR.
+Safety auditing gains both allowed and prohibited fixtures and targets prohibited capabilities
+rather than adjacent API names. Pattern matching remains a narrow early warning and architecture
+tests enforce protocol shape; neither is treated as a substitute for review. Transport
+authentication and feature composition remain outside this ADR.

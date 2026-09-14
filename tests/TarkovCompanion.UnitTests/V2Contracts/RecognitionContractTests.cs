@@ -75,6 +75,7 @@ public sealed class RecognitionContractTests
         Assert.Equal(capturedUtc, payload.RaidTimeRemaining.Value.AsOfUtc);
         Assert.Equal(TimeSpan.Zero, payload.RaidTimeRemaining.Value.AsOfUtc?.Offset);
         Assert.Equal(V2ContractTestData.ObservedUtc, payload.RaidTimeRemaining.Provenance.ObservedUtc);
+        Assert.Equal(original.Recognition.Header, roundTrip.Recognition.Header);
         Assert.Contains("\"ObservedOnExtractScreen\"", json, StringComparison.Ordinal);
     }
 
@@ -119,10 +120,5 @@ public sealed class RecognitionContractTests
         Assert.Throws<ArgumentException>(() => new ItemRecognitionResult(envelope));
     }
 
-    private static RecognizedItem Item() => new(
-        V2ContractTestData.Complete("item.id", "item-a"),
-        V2ContractTestData.Complete("item.name", "Item A"),
-        V2ContractTestData.Complete<int?>("item.quantity", 1),
-        V2ContractTestData.Complete<int?>("item.slots", 1),
-        V2ContractTestData.Complete<bool?>("item.foundInRaid", true));
+    private static RecognizedItem Item() => V2ContractTestData.Item();
 }

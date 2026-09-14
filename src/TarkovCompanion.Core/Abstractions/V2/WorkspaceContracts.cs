@@ -1,7 +1,12 @@
+using System.Text.Json.Serialization;
+
 namespace TarkovCompanion.Core.Abstractions.V2;
 
 public readonly record struct WorkspaceId
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public WorkspaceId(Guid value)
     {
         if (value == Guid.Empty)
@@ -17,6 +22,9 @@ public readonly record struct WorkspaceId
 
 public readonly record struct CompanionDeviceId
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public CompanionDeviceId(Guid value)
     {
         if (value == Guid.Empty)
@@ -32,6 +40,9 @@ public readonly record struct CompanionDeviceId
 
 public readonly record struct StateStreamId
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public StateStreamId(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
@@ -45,6 +56,9 @@ public readonly record struct StateStreamId
 
 public readonly record struct StateChangeId
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public StateChangeId(Guid value)
     {
         if (value == Guid.Empty)
@@ -60,6 +74,9 @@ public readonly record struct StateChangeId
 
 public readonly record struct StateRevision
 {
+    // System.Text.Json builds a struct through its implicit parameterless constructor unless told
+    // otherwise, which silently round-tripped ids to Guid.Empty and addresses to (0, 0).
+    [JsonConstructor]
     public StateRevision(long value)
     {
         if (value < 0)
@@ -88,13 +105,11 @@ public sealed record WorkspaceOrigin(
     WorkspaceOriginKind Kind,
     string InstanceId)
 {
-    public string InstanceId { get; } = Required(InstanceId, nameof(InstanceId));
+    public WorkspaceId WorkspaceId { get; } = V2ContractGuard.Defined(WorkspaceId, nameof(WorkspaceId));
 
-    private static string Required(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Trim();
-    }
+    public CompanionDeviceId DeviceId { get; } = V2ContractGuard.Defined(DeviceId, nameof(DeviceId));
+
+    public string InstanceId { get; } = V2ContractGuard.Required(InstanceId, nameof(InstanceId));
 }
 
 /// <summary>A state revision is monotonic within its named stream, not across the workspace.</summary>
@@ -107,17 +122,17 @@ public sealed record RevisionedState<T>(
     DateTimeOffset ChangedUtc,
     T Value)
 {
-    public DateTimeOffset ChangedUtc { get; } = RequireUtc(ChangedUtc, nameof(ChangedUtc));
+    public StateStreamId StreamId { get; } = V2ContractGuard.Defined(StreamId, nameof(StreamId));
 
-    private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
-    {
-        if (value == default)
-        {
-            throw new ArgumentException("A UTC timestamp is required.", parameterName);
-        }
+    public StateChangeId ChangeId { get; } = V2ContractGuard.Defined(ChangeId, nameof(ChangeId));
 
-        return value.ToUniversalTime();
-    }
+    public V2ContractVersion ContractVersion { get; } = V2ContractGuard.Defined(ContractVersion, nameof(ContractVersion));
+
+    public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
+
+    public DateTimeOffset ChangedUtc { get; } = V2ContractGuard.Utc(ChangedUtc, nameof(ChangedUtc));
+
+    public T Value { get; } = Value is null ? throw new ArgumentNullException(nameof(Value)) : Value;
 }
 
 public enum AcknowledgementDisposition
@@ -138,15 +153,11 @@ public sealed record StateAcknowledgement(
     DateTimeOffset AcknowledgedUtc,
     string? Detail = null)
 {
-    public DateTimeOffset AcknowledgedUtc { get; } = RequireUtc(AcknowledgedUtc, nameof(AcknowledgedUtc));
+    public StateStreamId StreamId { get; } = V2ContractGuard.Defined(StreamId, nameof(StreamId));
 
-    private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
-    {
-        if (value == default)
-        {
-            throw new ArgumentException("A UTC timestamp is required.", parameterName);
-        }
+    public StateChangeId ChangeId { get; } = V2ContractGuard.Defined(ChangeId, nameof(ChangeId));
 
-        return value.ToUniversalTime();
-    }
+    public WorkspaceOrigin Origin { get; } = V2ContractGuard.NotNull(Origin, nameof(Origin));
+
+    public DateTimeOffset AcknowledgedUtc { get; } = V2ContractGuard.Utc(AcknowledgedUtc, nameof(AcknowledgedUtc));
 }

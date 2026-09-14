@@ -109,6 +109,23 @@ public sealed class EvidenceContractTests
             V2ContractTestData.ScreenshotProvenance()));
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(7)]
+    public void NonNullableValueTypeCannotPretendToBeUnknown(int value)
+    {
+        Assert.Throws<ArgumentException>(() => new EvidencedValue<int>(
+            "item.quantity",
+            value,
+            new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Unknown),
+            V2ContractTestData.ScreenshotProvenance()));
+        Assert.Throws<ArgumentException>(() => new EvidencedValue<bool>(
+            "item.foundInRaid",
+            false,
+            new ResultStatus(ResultCompleteness.Unavailable, FreshnessState.Unknown),
+            V2ContractTestData.ScreenshotProvenance()));
+    }
+
     [Fact]
     public void CorrectionHistoryMustBeContiguous()
     {
