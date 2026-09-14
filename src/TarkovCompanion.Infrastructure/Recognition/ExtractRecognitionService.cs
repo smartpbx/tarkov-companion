@@ -174,6 +174,9 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
             ambiguous.Count > 0 || unmatched.Count > 0 ? "extracts_partial" : null)
         {
             Transits = [.. transits.Distinct(StringComparer.CurrentCultureIgnoreCase)],
+            // As read, before StripRowPrefix and StripTrailingMeasure take anything off. What
+            // this screen says about the raid clock is on a line that matching throws away.
+            RawLines = [.. lines.Select(line => line.Text).Where(text => !string.IsNullOrWhiteSpace(text))],
         };
     }
 

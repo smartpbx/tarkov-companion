@@ -56,6 +56,30 @@ public sealed record RaidTimeRemaining(TimeSpan? Remaining, RaidTimeBasis Basis)
 public static partial class RaidTimer
 {
     /// <summary>
+    /// How long a raid runs on this map for the side it is being run as.
+    /// </summary>
+    /// <remarks>
+    /// A scav raid starts partway through and is the shorter of the two. Both the shell and the
+    /// coordinator read <c>PmcRaidDuration</c> whatever the side, so a scav counting down from
+    /// the PMC length was promised time nobody has — on Customs, forty minutes instead of about
+    /// twenty-five.
+    ///
+    /// A side that is not known, or a catalog that does not state that side's length, returns
+    /// null rather than the other side's number. Null is a visible unknown; the wrong duration
+    /// is a confident wrong answer that counts down convincingly.
+    ///
+    /// The side arrives as the string the logs and the wire carry, so it is matched
+    /// case-insensitively rather than parsed into an enum nobody else here has.
+    /// </remarks>
+    public static TimeSpan? LengthFor(string? side, TimeSpan? pmc, TimeSpan? scav) =>
+        side?.Trim().ToLowerInvariant() switch
+        {
+            "scav" or "savage" => scav,
+            "pmc" or "usec" or "bear" => pmc,
+            _ => null,
+        };
+
+    /// <summary>
     /// The raid clock as the game draws it: hours, minutes, seconds.
     /// </summary>
     /// <remarks>

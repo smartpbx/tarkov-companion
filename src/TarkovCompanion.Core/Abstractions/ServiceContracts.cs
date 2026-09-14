@@ -94,6 +94,26 @@ public sealed record ExtractRecognitionResult(
     /// is nothing to look it up against.
     /// </remarks>
     public IReadOnlyList<string> Transits { get; init; } = [];
+
+    /// <summary>
+    /// Every line the screen was read as, before anything was stripped from it.
+    /// </summary>
+    /// <remarks>
+    /// The raid clock is on this screen and is the game's own number, so it outranks anything
+    /// the companion counts. It was transported in <see cref="UnmatchedLines"/> and
+    /// <see cref="AmbiguousLines"/> — the diagnostics for lines that failed to match an exit —
+    /// on the reasoning that a clock is not an extract name so it must land there.
+    ///
+    /// It does not. The real row reads <c>Find an extraction point 0:12:28</c>: the clock is
+    /// stripped as a trailing measure, the remainder is recognised as the panel header, and the
+    /// whole line is dropped before either diagnostic list sees it. The clock only ever arrived
+    /// when OCR happened to break it onto a line of its own, which is why it worked in a test
+    /// that supplied two separate strings and not on a screenshot.
+    ///
+    /// So the raw lines are carried in their own right. Evidence the player photographed is not
+    /// a by-product of failing to match something else.
+    /// </remarks>
+    public IReadOnlyList<string> RawLines { get; init; } = [];
 }
 
 public enum ScanCompletionStatus
