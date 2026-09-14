@@ -40,8 +40,11 @@ public static class MapFeatureProjection
         // One exit published once per faction is one exit. Upstream ships it twice, less than a
         // metre apart, and the map drew both: two labels reading "RUAF Roadblock" above and
         // below a single disc, because at map zoom the two discs are the same pixel.
+        // One marker per spawn area rather than per spawn point. A group of players arriving
+        // together occupies a dozen positions within a few metres, and drawn one each that is
+        // 273 markers on Customs and 400 on Streets, which buries the exits.
         var elements = new List<MapOverlayElement>(features.Count);
-        foreach (var feature in MapFeatureMerge.Collapse(features))
+        foreach (var feature in SpawnGrouping.Collapse(MapFeatureMerge.Collapse(features)))
         {
             // Loot never becomes a marker. Eight hundred of them would bury the exits, and
             // falling through to the extract layer -- which is what the layer mapping below
