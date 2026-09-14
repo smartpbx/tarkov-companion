@@ -74,34 +74,15 @@
                  something that failed to load. The panel had no reason to be empty — this is
                  the one page that has to explain itself to somebody's friend on their first
                  evening, and none of what is below was written anywhere they would look. -->
-            <StackPanel Spacing="10" IsVisible="{Binding HasNoMembers}">
-              <TextBlock Classes="caption"
-                         Text="Everything on this page is optional. The companion reads your own game, draws your own map and tracks your own quests whether or not anybody else is running it."
-                         TextWrapping="Wrap" />
-              <Border Classes="hairline" />
-              <StackPanel Spacing="3">
-                <TextBlock Classes="label" Text="What a group adds" />
-                <TextBlock Classes="caption"
-                           Text="Each other on one map: where you are, which way you are facing, which map you are on and whether you are in a raid. Waypoints that stay until somebody clears them and tick themselves off when you get there, and pings that say &quot;look here&quot; and fade."
-                           TextWrapping="Wrap" />
-                <TextBlock Classes="caption"
-                           Text="And the things your own game will not tell you. Your kit, your level and your scav timer are all written down by every squadmate's game and by nobody else's, including yours."
-                           TextWrapping="Wrap" />
-              </StackPanel>
-              <Border Classes="hairline" />
-              <StackPanel Spacing="3">
-                <TextBlock Classes="label" Text="The key is the group" />
-                <TextBlock Classes="caption"
-                           Text="One value, typed the same by everybody who should see each other. It is not a password to a room somebody owns: a different key is a different group, and it answers with nobody in it. The server never sees the key itself, only a hash of it."
-                           TextWrapping="Wrap" />
-              </StackPanel>
-              <Border Classes="hairline" />
-              <StackPanel Spacing="3">
-                <TextBlock Classes="label" Text="While this is off" />
-                <TextBlock Classes="caption"
-                           Text="Nothing is sent. When it is on, what goes is listed beside each switch on the left and nothing else. The relay keeps nothing on disk but the group's own marks, and forgets a member three minutes after they stop publishing."
-                           TextWrapping="Wrap" />
-              </StackPanel>
+            <!-- Said once, and short. The key line is already captioned beside the box that
+                 takes it; repeating it here was the page telling you twice. -->
+            <StackPanel Spacing="8" IsVisible="{Binding HasNoMembers}">
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="Optional. The companion reads your own game without it." />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="A group adds each other on one map, waypoints and pings, and the kit and level your own game never tells you." />
+              <TextBlock Classes="caption" TextWrapping="Wrap"
+                         Text="Nothing is sent while this is off." />
             </StackPanel>
             <ItemsControl ItemsSource="{Binding Members}">
               <ItemsControl.ItemTemplate>
