@@ -1892,6 +1892,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         return new(httpClient, catalogClient, assetCache, new(preferences), null, null, null);
     }
 
+    /// <summary>
+    /// The map, floor and stacking a diagnostic launch asked to open on.
+    /// </summary>
+    /// <remarks>
+    /// Set before <see cref="InitializeAsync"/> runs, which is why it is a method rather than
+    /// an option on the constructor: the catalog has not loaded yet and none of these can be
+    /// resolved until it has.
+    /// </remarks>
+    /// <param name="mapId">Which map, or null for the usual default.</param>
+    /// <param name="floor">Which floor once it has loaded, by name or id.</param>
+    /// <param name="stacked">Whether to draw the floors as a stack.</param>
+    public void OpenOn(string? mapId, string? floor, bool stacked)
+    {
+        _openOnMapId = mapId;
+        _openOnFloor = floor;
+        _openStacked = stacked;
+    }
+
+    private string? _openOnMapId;
+    private string? _openOnFloor;
+    private bool _openStacked;
+
     public async Task InitializeAsync()
     {
         try
@@ -1914,13 +1936,18 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Locations = result.Catalog.Locations
                 .Where(location => location.Variants.Any(variant => variant.HasRuntimeAsset))
                 .ToArray();
-            var initial = Locations.FirstOrDefault(location =>
+            // A named map wins over the default, and a name the catalog does not carry falls
+            // back rather than opening on nothing: a diagnostic launch that silently showed a
+            // different map than it was asked for is worse than one that shows the usual one.
+            var initial = Find(_openOnMapId)
+                ?? Locations.FirstOrDefault(location =>
                     string.Equals(location.Id, "customs", StringComparison.OrdinalIgnoreCase))
                 ?? Locations.FirstOrDefault();
             Status = DescribeCatalog(result, Locations.Count);
             if (initial is not null)
             {
                 await SelectLocationAsync(initial).ConfigureAwait(true);
+                await OpenAsRequestedAsync().ConfigureAwait(true);
             }
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -1929,6 +1956,41 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception)
         {
             Status = $"Map catalog unavailable · {exception.Message}";
+        }
+    }
+
+    /// <summary>The location a diagnostic launch named, by id or by the name on screen.</summary>
+    private MapLocation? Find(string? mapId) => mapId is null
+        ? null
+        : Locations.FirstOrDefault(location =>
+            string.Equals(location.Id, mapId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(location.SourceId, mapId, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(location.Name, mapId, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Applies the floor and the stack a diagnostic launch asked for, once the map is drawn.
+    /// </summary>
+    /// <remarks>
+    /// After the map rather than with it. The floors belong to the variant that was selected,
+    /// so neither of these exists to be applied until the selection has come back.
+    ///
+    /// Each is ignored where the map cannot do it: a floor this map does not have, or a stack
+    /// on a map with one floor. A launch asking for the impossible photographs the map it did
+    /// get, which is a picture worth having, rather than failing to start.
+    /// </remarks>
+    private async Task OpenAsRequestedAsync()
+    {
+        if (_openOnFloor is { } wanted &&
+            Floors.FirstOrDefault(floor =>
+                string.Equals(floor.Id, wanted, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(floor.Name, wanted, StringComparison.OrdinalIgnoreCase)) is { } floorToShow)
+        {
+            await SelectFloorAsync(floorToShow).ConfigureAwait(true);
+        }
+
+        if (_openStacked && CanStack)
+        {
+            IsStacked = true;
         }
     }
 
@@ -2298,6 +2360,33 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IsAutoFit = false;
         FollowsPlayer = false;
     }
+
+    /// <summary>
+    /// Whether there is anywhere to drag the map to.
+    /// </summary>
+    /// <remarks>
+    /// Panning moves the scroll offset, and a scroll offset has no range when the content is
+    /// no larger than the panel it sits in. The map opens fitted — the whole of it on screen
+    /// by definition — so the first thing a player does with it, dragging, does nothing at
+    /// all, and does nothing silently.
+    ///
+    /// Reported as "i cant move the map around or anything". Nothing is broken: there is
+    /// nowhere to go. What was missing is anything saying so, which is the difference between
+    /// a map that is fitted and a map that is dead.
+    ///
+    /// A seam, so the rule can be checked without a window: the arithmetic is the whole claim.
+    /// </remarks>
+    public static bool CanPan(Size extent, Size viewport) =>
+        extent.Width > viewport.Width + 0.5 || extent.Height > viewport.Height + 0.5;
+
+    /// <summary>Answers a drag that had nowhere to go.</summary>
+    /// <remarks>
+    /// Said on the drag rather than on the fit, because that is the moment somebody is asking
+    /// the question. Saying it beside the zoom controls when the map settles would be a notice
+    /// nobody was looking for, every time the map is fitted.
+    /// </remarks>
+    public void ReportNothingToPan() =>
+        Status = "The whole map is in view. Zoom in, and then it can be dragged.";
 
     /// <summary>Whether this map publishes both a tile set and a drawing.</summary>
     public bool HasArtworkChoice

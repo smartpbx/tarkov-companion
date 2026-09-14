@@ -293,10 +293,13 @@ jobs:
       # resource that is not there, a path that cannot be resolved. Binding through a null
       # object is counted and reported instead, because every optional panel does it. How
       # much each page drew is measured and reported alongside them.
+      # The map now gets three shots of its own on top of the fourteen pages: stacked,
+      # a named floor, and a second map. Seventeen launches rather than fourteen, hence
+      # the longer bound.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
-        timeout-minutes: 12
+        timeout-minutes: 16
         shell: powershell
         run: |
           ./scripts/windows-page-gallery.ps1 `

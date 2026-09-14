@@ -51,6 +51,24 @@ public sealed record AppCommandLine(
     public int? OcrProbeLines { get; init; }
 
     /// <summary>
+    /// A map to open on, instead of the default one.
+    /// </summary>
+    /// <remarks>
+    /// The map is the most complex thing here and the hardest to see from Linux, and the page
+    /// gallery photographs it in exactly one state: cold launch, default map, base floor, flat.
+    /// So the gallery proves the map draws something rather than that it draws this map, or
+    /// this floor, or the stack. Every map defect reported so far was found by looking at a
+    /// picture, and these are the pictures nobody was taking.
+    /// </remarks>
+    public string? MapId { get; init; }
+
+    /// <summary>A floor to select once that map has loaded, by name or id.</summary>
+    public string? MapFloor { get; init; }
+
+    /// <summary>Whether to open with the floors drawn as a stack.</summary>
+    public bool StacksFloors { get; init; }
+
+    /// <summary>
     /// Options that were passed and are not recognised.
     /// </summary>
     /// <remarks>
@@ -78,6 +96,9 @@ public sealed record AppCommandLine(
             GetValue(args, "--diagnostic-channel"))
         {
             StartPage = GetValue(args, "--page"),
+            MapId = GetValue(args, "--map"),
+            MapFloor = GetValue(args, "--floor"),
+            StacksFloors = HasFlag(args, "--stack"),
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
             UnknownOptions = FindUnknown(args),
@@ -100,6 +121,9 @@ public sealed record AppCommandLine(
         "--demo-fixture",
         "--diagnostic-channel",
         "--page",
+        "--map",
+        "--floor",
+        "--stack",
         "--ocr-probe",
         "--ocr-probe-region",
         "--ocr-probe-lines",
@@ -144,7 +168,8 @@ public sealed record AppCommandLine(
 
     private static bool TakesValue(string option) => option is
         "--output" or "--demo-fixture" or "--diagnostic-channel" or
-        "--page" or "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines";
+        "--page" or "--map" or "--floor" or
+        "--ocr-probe" or "--ocr-probe-region" or "--ocr-probe-lines";
 
     private static bool HasFlag(IReadOnlyList<string> args, string flag) =>
         args.Any(arg => string.Equals(arg, flag, StringComparison.OrdinalIgnoreCase));

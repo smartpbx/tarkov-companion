@@ -429,6 +429,20 @@ public sealed partial class MapView : UserControl
                 return;
             }
 
+            // A drag with nowhere to go is answered rather than ignored. The map opens fitted,
+            // so the whole of it is on screen and the scroll offset it pans with has no range;
+            // the first thing anybody does with a map did nothing, silently. Reported as "i
+            // cant move the map around or anything".
+            //
+            // The press is left alive rather than cancelled, so releasing it still clears the
+            // selection and releases the capture the way an ordinary click does. Saying the
+            // same sentence again on the next move costs nothing: it is the same string.
+            if (!MapViewModel.CanPan(Viewport.Extent, Viewport.Viewport))
+            {
+                (DataContext as MapViewModel)?.ReportNothingToPan();
+                return;
+            }
+
             // The cursor changes only once a drag is under way, so a click never flashes it.
             _dragging = true;
             if (sender is Control surface)
