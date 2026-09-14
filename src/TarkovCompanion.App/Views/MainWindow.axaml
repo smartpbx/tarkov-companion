@@ -58,6 +58,19 @@
     </DataTemplate>
   </Window.DataTemplates>
 
+  <!-- One transform on the root, so nothing else in the application has to know about scale.
+       LayoutTransformControl rather than a RenderTransform, because the shell has to be
+       measured at its new size: a render transform would draw a larger window inside the old
+       one's bounds and clip everything past the edge.
+
+       Two honest caveats. A ComboBox dropdown and a tooltip are separate top-level windows and
+       stay at their designed size — that is the platform, not a thing this can reach. And the
+       map's pointer maths is unaffected, because GetPosition already reads through every
+       transform above the surface. -->
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding InterfaceScale}" ScaleY="{Binding InterfaceScale}" />
+    </LayoutTransformControl.LayoutTransform>
   <Grid RowDefinitions="66,*,Auto" ColumnDefinitions="Auto,*">
 
     <!-- The status bar has two tiers. Map, raid and position are the raid readout: they are
@@ -209,4 +222,5 @@
       </Panel>
     </Border>
   </Grid>
+  </LayoutTransformControl>
 </Window>

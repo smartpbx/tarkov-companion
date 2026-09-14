@@ -2469,6 +2469,47 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     /// <summary>A chevron pointing the way the next press moves it.</summary>
     public string RailToggleLabel => IsRailCollapsed ? "\u203a" : "\u2039";
 
+    /// <summary>
+    /// How large everything is drawn, as a multiple of the size it was designed at.
+    /// </summary>
+    /// <remarks>
+    /// Seven fixed pixel sizes in the type scale, every column fixed, and no LayoutTransform
+    /// anywhere: the only lever anybody had was Windows scaling, which scales the game on the
+    /// same machine. This is the companion's own.
+    ///
+    /// One transform on the root, so nothing else has to know. Two honest caveats: a ComboBox
+    /// dropdown and a tooltip are separate top-level windows and stay at their designed size,
+    /// and the map's own pointer maths is unaffected because it already reads positions through
+    /// the transforms above it.
+    /// </remarks>
+    public double InterfaceScale
+    {
+        get => _layout.Scale;
+        private set
+        {
+            var wanted = ShellLayout.NearestScale(value);
+            if (_layout.Scale.Equals(wanted))
+            {
+                return;
+            }
+
+            _layout = _layout with { Scale = wanted };
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(InterfaceScaleLabel));
+            _ = SaveLayoutAsync();
+        }
+    }
+
+    /// <summary>The size as somebody would say it, for the Settings row.</summary>
+    public string InterfaceScaleLabel => InterfaceScale.ToString("P0", CultureInfo.CurrentCulture);
+
+    /// <summary>Steps one size larger or smaller, stopping at the ends.</summary>
+    public void StepInterfaceScale(int direction) =>
+        InterfaceScale = ShellLayout.StepScale(_layout.Scale, direction);
+
+    /// <summary>Back to the size everything was designed at.</summary>
+    public void ResetInterfaceScale() => InterfaceScale = 1;
+
     /// <summary>Collapses or expands the rail, and remembers which.</summary>
     public void ToggleRail()
     {
@@ -2489,7 +2530,15 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     {
         _layout = isMaximized
             ? _layout with { IsMaximized = true }
-            : new(width, height, left, top, false, IsRailCollapsed);
+            : _layout with
+            {
+                Width = width,
+                Height = height,
+                Left = left,
+                Top = top,
+                IsMaximized = false,
+                IsRailCollapsed = IsRailCollapsed,
+            };
         _ = SaveLayoutAsync();
     }
 
@@ -2512,6 +2561,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         {
             _layout = (await _layoutStore.GetAsync(_lifetime.Token).ConfigureAwait(true)).ClampTo(screens);
             IsRailCollapsed = _layout.IsRailCollapsed;
+            OnPropertyChanged(nameof(InterfaceScale));
+            OnPropertyChanged(nameof(InterfaceScaleLabel));
             return _layout;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
