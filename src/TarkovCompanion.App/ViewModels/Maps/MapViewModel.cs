@@ -1764,7 +1764,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public double ViewportHeight => (IsQuarterTurned ? CanvasWidth : CanvasHeight) * ZoomScale;
 
     /// <summary>Whether the map is on its side, which is what swaps width and height.</summary>
-    public bool IsQuarterTurned => RotationDegrees is 90 or 270;
+    public bool IsQuarterTurned => QuarterTurned(RotationDegrees);
+
+    /// <summary>
+    /// The rule itself, so the fit and the viewport measurement cannot disagree about it.
+    /// </summary>
+    /// <remarks>
+    /// A half turn is not a quarter turn: it leaves the map the same shape it was, so nothing
+    /// swaps. Treating it as one would shrink every upside-down map for no reason.
+    /// </remarks>
+    private static bool QuarterTurned(int degrees) => degrees is 90 or 270;
 
     /// <summary>
     /// How far round this map is turned, clockwise, as one of 0, 90, 180 or 270.
@@ -2352,9 +2361,39 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
 
         var content = ContentBounds;
-        var width = content.Width > 0 ? content.Width : CanvasWidth;
-        var height = content.Height > 0 ? content.Height : CanvasHeight;
+        var drawnWidth = content.Width > 0 ? content.Width : CanvasWidth;
+        var drawnHeight = content.Height > 0 ? content.Height : CanvasHeight;
+
+        // Against the shape the map is drawn in, not the shape it is stored in. A quarter turn
+        // renders the surface as height by width — which is why the viewport measurement swaps
+        // them — and fitting the unturned box solves for the wrong rectangle: the scale that
+        // comes out is the one that would have fitted the map the way round it was.
+        //
+        // Reported as the fit being "a little zoomed out" after rotating. It is most visible on
+        // a tall map turned onto a wide screen, which is the case the turn exists for.
+        var width = IsQuarterTurned ? drawnHeight : drawnWidth;
+        var height = IsQuarterTurned ? drawnWidth : drawnHeight;
         ZoomScale = ClampZoom(Math.Min(availableWidth / width, availableHeight / height));
+    }
+
+    /// <summary>
+    /// The scale that fits the given content into the given panel, as ApplyFit computes it.
+    /// </summary>
+    /// <remarks>
+    /// A seam, so the arithmetic can be checked without a map, a catalog and two HTTP clients —
+    /// the same reason the side rule and the surface turn have one.
+    /// </remarks>
+    public static double FitScaleForTest(
+        double availableWidth,
+        double availableHeight,
+        double contentWidth,
+        double contentHeight,
+        int rotationDegrees)
+    {
+        var turned = QuarterTurned(rotationDegrees);
+        var width = turned ? contentHeight : contentWidth;
+        var height = turned ? contentWidth : contentHeight;
+        return ClampZoom(Math.Min(availableWidth / width, availableHeight / height));
     }
 
     // A tile grid can be several times the panel's size, so the lower bound has to allow a
