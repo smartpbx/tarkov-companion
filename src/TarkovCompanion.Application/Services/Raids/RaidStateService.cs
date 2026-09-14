@@ -103,6 +103,9 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
             // A clock belongs to the raid it was read in, exactly like the trail.
             RaidClock = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClock,
             RaidClockReadUtc = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.RaidClockReadUtc,
+            // And so does what the display said. A bar read in the last raid describes a body
+            // that raid is over for.
+            Hud = enteringRaid || enteringNewRaid || clearingRaid ? null : Current.Hud,
             IsManualMapOverride = isManual,
             // A raid keeps the side it started with; evidence that cannot tell does not
             // overwrite what an earlier, better-informed line already established. The basis

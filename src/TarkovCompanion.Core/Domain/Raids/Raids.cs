@@ -72,6 +72,39 @@ public sealed record RaidEvidence(
     public string? SideBasis { get; init; }
 }
 
+/// <summary>One bar of the game's own display, and how long it has ever been.</summary>
+/// <remarks>
+/// The longest seen is kept per raid rather than for all time. A bar's full length is a fact
+/// about this screen at this resolution, and a player who changed either would otherwise be
+/// measured for the rest of the wipe against a bar that no longer exists.
+/// </remarks>
+/// <param name="Kind">Which bar, by the colour a player can see.</param>
+/// <param name="Length">How long the drawn part was, in pixels.</param>
+/// <param name="LongestSeen">The longest this colour has been this raid.</param>
+public sealed record RaidHudBar(string Kind, int Length, int LongestSeen)
+{
+    /// <summary>
+    /// How full it is against the longest seen, or null while that is all there is.
+    /// </summary>
+    /// <remarks>
+    /// Null on the first reading rather than one. A companion that answered "full" the first
+    /// time it saw a bar would be right only by accident, and wrong in the one case that
+    /// matters: the first screenshot a player takes after running themselves empty.
+    /// </remarks>
+    public double? Fraction => LongestSeen <= 0 || LongestSeen <= Length ? null : (double)Length / LongestSeen;
+}
+
+/// <summary>What the game's display said, and when it said it.</summary>
+/// <param name="IsPresent">Whether the display was drawn in that frame at all.</param>
+/// <param name="Detail">What was found, or why nothing was.</param>
+/// <param name="ReadUtc">When the screenshot it came from was taken.</param>
+/// <param name="Bars">The bars, longest first.</param>
+public sealed record RaidHudReading(
+    bool IsPresent,
+    string Detail,
+    DateTimeOffset ReadUtc,
+    IReadOnlyList<RaidHudBar> Bars);
+
 public sealed record RaidSnapshot(
     Guid? RaidId,
     RaidLifecycleState State,
@@ -117,6 +150,26 @@ public sealed record RaidSnapshot(
     public TimeSpan? RaidClock { get; init; }
 
     public DateTimeOffset? RaidClockReadUtc { get; init; }
+
+    /// <summary>
+    /// The two bars the game draws in the corner, as the last screenshot showed them.
+    /// </summary>
+    /// <remarks>
+    /// Read on every frame, turned into one evidence string, and dropped. HudBar.Fraction has
+    /// no production caller at all: the whole reading was computed and discarded, so a player
+    /// who photographed themselves at a quarter of something had handed over the number and
+    /// been told nothing.
+    ///
+    /// A reading with the moment it was read, like the raid clock above and for the same
+    /// reason. Bars move continuously, so a reading four minutes old is a claim about four
+    /// minutes ago and has to be shown as one.
+    ///
+    /// Named by colour throughout, which is not squeamishness. What each bar measures has not
+    /// been established, the code that reads them says so, and calling one "stamina" would be a
+    /// guess printed as a fact — while a player looking at their own screen knows which bar is
+    /// which by looking at it.
+    /// </remarks>
+    public RaidHudReading? Hud { get; init; }
 
     /// <summary>
     /// Lines the last extract scan read and could not match to an exit on this map.

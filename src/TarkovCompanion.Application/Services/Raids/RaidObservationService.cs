@@ -534,12 +534,75 @@ public sealed class RaidObservationService : IAsyncDisposable
             {
                 _stateStore.Update(current => current with { Scan = result });
             }
+
+            // Separately from the scan result, and deliberately. IsWorthReporting discards an
+            // in-raid frame that found no item, which is most of them — and those frames still
+            // carry the game's own display, which is the thing this reads. Tying the two
+            // together is why the reading was computed on every screenshot and never once
+            // shown.
+            RecordHud(outcome);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _logger.LogWarning(exception, "Could not scan the screenshot {Filename}.", Path.GetFileName(path));
         }
     }
+
+    /// <summary>
+    /// Carries the game's own display onto the raid, with how long each bar has ever been.
+    /// </summary>
+    /// <remarks>
+    /// The longest seen is per raid, not for all time. A bar's full length is a fact about this
+    /// screen at this resolution, and a player who changed either would otherwise be measured
+    /// for the rest of the wipe against a bar that no longer exists. Cleared when a raid ends,
+    /// alongside everything else that belongs to one.
+    ///
+    /// A frame with no display drawn is recorded as one. The game fades it out of roughly one
+    /// screenshot in eight, and "the display was not in that frame" is a different statement
+    /// from "the bar was empty" — showing the second when the first is true is how a companion
+    /// tells somebody they are dying when they are not.
+    /// </remarks>
+    private void RecordHud(ScanOutcome outcome)
+    {
+        if (outcome.Recognition.Hud is not { } hud)
+        {
+            return;
+        }
+
+        _stateStore.Update(current =>
+        {
+            // Keyed to the raid rather than reset by a guess. A new raid id means the lengths
+            // remembered describe a body the previous raid is over for.
+            if (_longestRaidId != current.Raid.RaidId)
+            {
+                _longestRaidId = current.Raid.RaidId;
+                _longestBars.Clear();
+            }
+
+            var bars = new List<RaidHudBar>(hud.Bars.Count);
+            foreach (var bar in hud.Bars)
+            {
+                var kind = bar.Kind.ToString();
+                var longest = Math.Max(_longestBars.GetValueOrDefault(kind), bar.Length);
+                _longestBars[kind] = longest;
+                bars.Add(new(kind, bar.Length, longest));
+            }
+
+            return current with
+            {
+                Raid = current.Raid with
+                {
+                    Hud = new(hud.IsPresent, hud.Detail, outcome.ObservedUtc, bars),
+                },
+            };
+        });
+    }
+
+    /// <summary>The longest each bar has been drawn this raid, by colour.</summary>
+    private readonly Dictionary<string, int> _longestBars = new(StringComparer.Ordinal);
+
+    /// <summary>Which raid those lengths belong to, so they are cleared with it.</summary>
+    private Guid? _longestRaidId;
 
     /// <summary>
     /// Says which folder is being watched and how much has come out of it.
