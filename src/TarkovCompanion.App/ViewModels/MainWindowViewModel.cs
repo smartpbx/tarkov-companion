@@ -250,6 +250,16 @@ public abstract class PageViewModel(string title, string description, string evi
 /// <param name="Evidence">Which engine read it and when, for when the reading turns out wrong.</param>
 public sealed record ActiveExtractViewModel(string Name, string Confidence, string Evidence);
 
+/// <summary>One of the two bars the game draws in the corner of the screen.</summary>
+/// <remarks>
+/// Named by the colour a player can see. What each bar measures has not been established, and
+/// calling one "stamina" would be a guess printed as a fact — while somebody looking at their
+/// own screen knows which is which by looking at it.
+/// </remarks>
+/// <param name="Kind">"Blue" or "Green", as the player sees them.</param>
+/// <param name="Detail">How full, against the longest seen this raid.</param>
+public sealed record HudBarViewModel(string Kind, string Detail);
+
 public sealed class RaidPageViewModel : PageViewModel
 {
     /// <inheritdoc />
@@ -288,6 +298,8 @@ public sealed class RaidPageViewModel : PageViewModel
 
     /// <summary>The last raid we were told about, so a tick has something to recompute from.</summary>
     private RaidSnapshot? _lastRaid;
+    private IReadOnlyList<HudBarViewModel> _hudBars = [];
+    private string _hudDetail = string.Empty;
     private string _timeLeft = "Unknown";
     private string _timeLeftDetail = "No raid in progress";
 
@@ -477,11 +489,78 @@ public sealed class RaidPageViewModel : PageViewModel
             : "Transits offered: " + string.Join(" · ", raid.Transits);
         _lastRaid = raid;
         UpdateTimeLeft(raid, nowUtc);
+        UpdateHud(raid, nowUtc);
         Evidence = raid.UpdatedUtc == DateTimeOffset.UnixEpoch
             ? "No raid evidence"
             : $"{raid.Confidence.Value:P0} confidence · observed {FormatAge(raid.UpdatedUtc, nowUtc)}";
         ObserveLifecycle(snapshot);
     }
+
+    /// <summary>
+    /// What the game's own display said, as the last screenshot showed it.
+    /// </summary>
+    /// <remarks>
+    /// Read on every frame, turned into one evidence string, and dropped: HudBar.Fraction had
+    /// no production caller anywhere. So a player who photographed themselves at a quarter of
+    /// something had handed the number over and been told nothing.
+    ///
+    /// Named by colour, because what each bar measures has not been established — the code that
+    /// reads them says so outright, and a player looking at their own screen knows which is
+    /// which by looking at it. Calling one "stamina" would be a guess printed as a fact.
+    /// </remarks>
+    public IReadOnlyList<HudBarViewModel> HudBars
+    {
+        get => _hudBars;
+        private set
+        {
+            SetProperty(ref _hudBars, value);
+            OnPropertyChanged(nameof(HasHudBars));
+        }
+    }
+
+    public bool HasHudBars => _hudBars.Count > 0;
+
+    /// <summary>Whether the display was in the frame, and how old the frame is.</summary>
+    public string HudDetail
+    {
+        get => _hudDetail;
+        private set => SetProperty(ref _hudDetail, value);
+    }
+
+    public bool HasHudDetail => _hudDetail.Length > 0;
+
+    private void UpdateHud(RaidSnapshot raid, DateTimeOffset nowUtc)
+    {
+        if (raid.Hud is not { } hud)
+        {
+            HudBars = [];
+            HudDetail = string.Empty;
+            return;
+        }
+
+        HudBars = hud.IsPresent
+            ? [.. hud.Bars.Select(bar => new HudBarViewModel(bar.Kind, Describe(bar)))]
+            : [];
+
+        // The age is on the reading rather than on each bar. Bars move continuously, so a
+        // reading four minutes old is a claim about four minutes ago, and showing it without
+        // saying so is the difference between a readout and a guess.
+        HudDetail = hud.IsPresent
+            ? $"From your screenshot {FormatAge(hud.ReadUtc, nowUtc)}"
+            : $"{hud.Detail} · {FormatAge(hud.ReadUtc, nowUtc)}";
+    }
+
+    /// <summary>
+    /// How full one bar is, against the longest it has been this raid.
+    /// </summary>
+    /// <remarks>
+    /// The first reading has nothing to compare against and says so, rather than reading
+    /// "100%" — which would be right only by accident, and wrong in the one case that matters:
+    /// the first screenshot somebody takes after running themselves empty.
+    /// </remarks>
+    private static string Describe(RaidHudBar bar) => bar.Fraction is { } fraction
+        ? string.Create(CultureInfo.CurrentCulture, $"{fraction:P0} of the longest seen this raid")
+        : "the longest seen this raid so far";
 
     /// <summary>
     /// How long is left, from whichever source has the better claim.
@@ -507,6 +586,9 @@ public sealed class RaidPageViewModel : PageViewModel
         if (_lastRaid is { } raid)
         {
             UpdateTimeLeft(raid, nowUtc);
+            // The age on the display reading moves with the clock beside it, for the same
+            // reason: a reading whose age is frozen is a reading that looks current.
+            UpdateHud(raid, nowUtc);
         }
     }
 
