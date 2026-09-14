@@ -98,22 +98,25 @@ public sealed class RecognitionContractTests
     }
 
     [Fact]
-    public void EveryOuterExtractCandidateUsesCaptureTimeAndCandidateProvenance()
+    public void BareExtractEnvelopeUsesCaptureTimeForCurrentAndCandidatePayloads()
     {
         var current = ExtractPayload("0:28:10", ObservedClock(V2ContractTestData.CapturedUtc));
-        var lateCandidate = ExtractPayload("0:27:00", ObservedClock(V2ContractTestData.ObservedUtc));
+        var late = ExtractPayload("0:27:00", ObservedClock(V2ContractTestData.ObservedUtc));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<ExtractMapRecognition>(
+            V2ContractTestData.Header(RecognizedContext.ExtractsAndMap),
+            V2ContractTestData.Complete("result.extractMap", late)));
+
         var result = V2ContractTestData.Complete(
             "result.extractMap",
             current,
             candidates:
             [
                 new EvidenceCandidate<ExtractMapRecognition>(
-                    "late", "Late candidate", lateCandidate, V2ContractTestData.ScreenshotProvenance()),
+                    "late", "Late candidate", late, V2ContractTestData.ScreenshotProvenance()),
             ]);
 
-        Assert.Throws<ArgumentException>(() => new ExtractMapRecognitionResult(
-            new RecognitionResultEnvelope<ExtractMapRecognition>(
-                V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), result)));
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<ExtractMapRecognition>(
+            V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), result));
 
         var beforeCapture = new EvidenceProvenance(
             EvidenceSourceClass.GameWrittenScreenshot,
@@ -132,6 +135,20 @@ public sealed class RecognitionContractTests
 
         Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<ExtractMapRecognition>(
             V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), badProvenance));
+    }
+
+    [Fact]
+    public void HostileJsonCannotBypassCaptureTimeThroughABareExtractEnvelope()
+    {
+        var badCurrent = ExtractEnvelopeCandidateNode();
+        badCurrent["result"]!["value"]!["raidTimeRemaining"]!["value"]!["asOfUtc"] =
+            V2ContractTestData.ObservedUtc.ToString("O");
+        AssertBareEnvelopeRejected(badCurrent);
+
+        var badCandidate = ExtractEnvelopeCandidateNode();
+        badCandidate["result"]!["candidates"]![0]!["value"]!["raidTimeRemaining"]!["value"]!["asOfUtc"] =
+            V2ContractTestData.ObservedUtc.ToString("O");
+        AssertBareEnvelopeRejected(badCandidate);
     }
 
     [Fact]
@@ -249,6 +266,8 @@ public sealed class RecognitionContractTests
         Assert.Equal(ExtractAvailability.Pending, roundTrip.Availability.Value);
         Assert.Equal("reserve", roundTrip.DestinationMapId.Value);
         Assert.Null(roundTrip.CanonicalId.Value);
+        Assert.Empty(roundTrip.CanonicalId.Candidates);
+        Assert.Empty(roundTrip.CanonicalId.Corrections);
         Assert.Throws<ArgumentException>(() => new ExtractRecognition(
             transit.SlotLabel,
             V2ContractTestData.Complete<ExtractKind?>("extract.kind", ExtractKind.Exfil),
@@ -264,11 +283,53 @@ public sealed class RecognitionContractTests
             transit.DestinationMapId,
             transit.Availability));
 
+        var candidateId = new EvidencedValue<string>(
+            "extract.id",
+            null,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
+            V2ContractTestData.ScreenshotProvenance(),
+            candidates:
+            [
+                new EvidenceCandidate<string>(
+                    "reserve-transit", "Reserve transit", "reserve-transit",
+                    V2ContractTestData.ScreenshotProvenance()),
+            ]);
+        Assert.Throws<ArgumentException>(() => new ExtractRecognition(
+            transit.SlotLabel,
+            transit.Kind,
+            candidateId,
+            transit.DisplayName,
+            transit.DestinationMapId,
+            transit.Availability));
+
+        var correctedId = V2ContractTestData.Complete(
+            "extract.id",
+            "reserve-transit",
+            corrections:
+            [
+                new EvidenceCorrection<string>(
+                    1, "reserve-transit-ocr", "reserve-transit", V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]);
+        Assert.Throws<ArgumentException>(() => new ExtractRecognition(
+            transit.SlotLabel,
+            transit.Kind,
+            correctedId,
+            transit.DisplayName,
+            transit.DestinationMapId,
+            transit.Availability));
+
         var node = JsonSerializer.SerializeToNode(transit, JsonOptions)!;
         node["canonicalId"] = JsonSerializer.SerializeToNode(
             V2ContractTestData.Complete("extract.id", "reserve-transit"), JsonOptions);
         Assert.ThrowsAny<ArgumentException>(() =>
             JsonSerializer.Deserialize<ExtractRecognition>(node.ToJsonString(), JsonOptions));
+
+        var candidateNode = JsonSerializer.SerializeToNode(transit, JsonOptions)!;
+        candidateNode["canonicalId"]!["candidates"] = JsonSerializer.SerializeToNode(
+            candidateId.Candidates, JsonOptions);
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<ExtractRecognition>(candidateNode.ToJsonString(), JsonOptions));
     }
 
     [Fact]
@@ -413,6 +474,19 @@ public sealed class RecognitionContractTests
                 V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), outer));
 
         return JsonSerializer.SerializeToNode(result, JsonOptions)!;
+    }
+
+    private static JsonNode ExtractEnvelopeCandidateNode() =>
+        JsonNode.Parse(ExtractCandidateNode()["recognition"]!.ToJsonString())!;
+
+    private static void AssertBareEnvelopeRejected(JsonNode node)
+    {
+        var failure = Record.Exception(() =>
+            JsonSerializer.Deserialize<RecognitionResultEnvelope<ExtractMapRecognition>>(
+                node.ToJsonString(), JsonOptions));
+
+        Assert.NotNull(failure);
+        Assert.True(failure is JsonException || failure.GetBaseException() is ArgumentException, failure.ToString());
     }
 
     private static void AssertRejected(JsonNode node)

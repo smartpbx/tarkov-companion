@@ -161,10 +161,12 @@ Grids live in one finite cell space of 256 rows by 64 columns, whether or not a 
 was read, and cells are at most 1024 pixels on a side. Rows, columns, spans, anchors, and cell
 pixels are bounded in the value, every candidate, and every correction. Every anchor is placed
 inside the grid (or that bounded space when the size was unread) before any footprint is expanded,
-even when the item or its size is absent, and a known width or height must fit on its own. Fit is
-compared as remaining room, so no sum can overflow, and a grid naming more footprints than it has
-cells is refused before any walk. Expansion is therefore bounded by the cell space, not by the
-payload.
+even when the item or its size is absent. The current item, every item candidate, and every
+determined width or height claim in their values, candidates, and correction histories must fit on
+its own. The same enumeration governs absolute container placement, so neither an item candidate
+nor a span candidate can escape the 256-by-64 space. Fit is compared as remaining room, so no sum
+can overflow, and a grid naming more footprints than it has cells is refused before any walk.
+Expansion is therefore bounded by the cell space, not by the payload.
 
 A stash result is a set of capture regions, each with its own identity, capture ordinal, artifact,
 container path, and evidenced origin in container coordinates. Regions keep their session capture
@@ -186,8 +188,8 @@ ambiguity. User or paired-device review appends a correction with its origin, ti
 instead of replacing OCR evidence.
 
 Extract rows distinguish `Exfil` from `Transit` (a way to another map, with a destination map ID
-and an absent canonical extract ID because there is no catalog match) and read availability as
-`Active`, `Conditional`, `Pending`, or `Closed`.
+and no canonical-ID value, candidates, or corrections because there is no extract-catalog match)
+and read availability as `Active`, `Conditional`, `Pending`, or `Closed`.
 The slot label is kept as read.
 
 The extract/map result permanently carries each raw OCR line before matching or filtering. The raid
@@ -202,9 +204,11 @@ game-written log, user-entered, or derived evidence and is arithmetic rather tha
 so it is not capped.
 The source, basis, bound, and as-of rules apply to the recognized clock, every clock candidate,
 and every correction. Result-level extract/map candidates are checked the same way, and every
-observed reading in any of those paths is as of the result header's capture time. The raw line
-`Find an extraction point 0:28:10` and its observed-clock provenance are regression fixtures. A
-counted map duration must never be presented as an observed remaining time.
+observed reading in any of those paths is as of the result header's capture time. This is enforced
+by the public `RecognitionResultEnvelope<ExtractMapRecognition>` constructor and deserialization
+boundary, not only by an optional typed-result wrapper. The raw line `Find an extraction point
+0:28:10` and its observed-clock provenance are regression fixtures. A counted map duration must
+never be presented as an observed remaining time.
 
 Health recognition represents an absent or illegible display as unknown or unavailable; it
 does not turn missing pixels into full health or a destroyed limb.
@@ -256,10 +260,17 @@ inputs, in order, so an allowlisted list cannot be advertised beside a different
 input's evidence ID and provenance appear once, and the list holds at most 256 inputs. No input
 may be newer than the output's data-through time.
 
-Presentation must say “historical,” “modelled,” or “predicted,” show freshness and confidence,
-and never use language implying a detected person or current location. Model inputs may include
-static spawns, map topology, points of interest, extracts, elapsed raid phase, and bounded past
-observations. They may not include EFT packets, process memory, or live player observations.
+Routine presentation keeps a compact category identity — “Historical,” “Modelled,” or
+“Predicted” — and never uses language implying a detected person or current location. Freshness
+and confidence appear inline whenever either could materially change a decision. Full source,
+observed/data-through/generated timestamps, coverage, confidence and calibration, and model
+version remain available on demand in a `Why` or details surface and in the version-matched
+Setup/Admin `Data & Privacy` explanation; progressive disclosure never removes them from stored
+evidence or relaxes validation. Active consent and sharing state, security state, destructive
+effects, failures, and decision-changing uncertainty remain visible rather than being hidden in
+details. Model inputs may include static spawns, map topology, points of interest, extracts,
+elapsed raid phase, and bounded past observations. They may not include EFT packets, process
+memory, or live player observations.
 
 ## Workspace, device, revision, and acknowledgement
 
@@ -330,9 +341,12 @@ than by line: the flag pair across ordinary multi-line formatting, and a `SetWin
 `HWNDPARENT` call in the same or an adjacent statement as a quoted literal of the game's window or
 process name, however the handle variable is named and whatever nested calls its arguments
 contain. Build output under `bin` and `obj` is not scanned. Hidden and ignore-matched source is
-scanned: it does not become safety-exempt because of a filename or local ignore rule. The line
-scanner intentionally uses `rg` when available and falls back to `grep` when `rg` is absent, so
-missing `rg` alone is not a failure. An error from the selected scanner, no available line
-scanner, or an unavailable or failing required `git` or `perl` tool fails the audit instead of
-reading as no match. The source audit is a ratchet, not a proof; semantic architecture tests
-separately assert that v2 protocols have no game-control or live-enemy vocabulary.
+scanned: it does not become safety-exempt because of a filename or local ignore rule. Neither
+scanner follows directory symlinks, so a link inside an owned scan root cannot expand the scan
+outside the repository. The line scanner intentionally uses no-follow `rg` when available and
+falls back to recursive no-follow `grep -r` when `rg` is absent, so missing `rg` alone is not a
+failure. A self-test places prohibited content beyond a directory symlink and requires the scan
+universe to stay on the near side. An error from the selected scanner, no available line scanner,
+or an unavailable or failing required `git` or `perl` tool fails the audit instead of reading as
+no match. The source audit is a ratchet, not a proof; semantic architecture tests separately
+assert that v2 protocols have no game-control or live-enemy vocabulary.
