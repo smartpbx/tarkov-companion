@@ -1,5 +1,5 @@
 SetWindowLong(overlayWindow, GWL_EXSTYLE, style | WS_EX_TRANSPARENT);
 CreateWindowEx(WS_EX_TOPMOST | WS_EX_LAYERED, className, title, WS_POPUP, 0, 0, width, height, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
 var exStyle = WS_EX_LAYERED | WS_EX_TOPMOST;
-SetWindowLongPtr(overlayWindow, GWLP_HWNDPARENT, gameWindowHandle);
+SetWindowLongPtr(overlayWindow, GWLP_HWNDPARENT, FindWindow(null, "EscapeFromTarkov"));
 SetWindowLong(overlay, GWL_HWNDPARENT, FindWindow(null, "EscapeFromTarkov"));
