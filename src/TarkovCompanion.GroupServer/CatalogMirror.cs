@@ -58,6 +58,11 @@ public sealed class CatalogMirror(IHttpClientFactory httpClientFactory, TimeProv
     private static readonly string[] Endpoints =
     [
         "items",
+        // The names. Every item's own "name" field is a token -- literally "{id} Name" -- and
+        // this is the file that turns it into "Colt M4A1 5.56x45 assault rifle". All 5,320
+        // items resolve through it. Without it a search against this mirror returns ids, which
+        // is what the desktop would have shown too had it not always fetched both.
+        "items_en",
         "maps",
         "tasks",
         "hideout",
