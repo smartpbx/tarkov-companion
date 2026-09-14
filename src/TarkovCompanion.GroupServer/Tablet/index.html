@@ -82,6 +82,7 @@
 <main>
   <section>
     <h2>Where everybody is</h2>
+    <div class="modes" id="maps"></div>
     <div class="modes">
       <button type="button" id="modeWaypoint" aria-pressed="true">Tap to place a waypoint</button>
       <button type="button" id="modePing" aria-pressed="false">Tap to ping</button>
@@ -119,6 +120,17 @@
   let name = store.get("name", "");
   let mode = "waypoint";
   let room = null;
+  // Which map this screen is about.
+  //
+  // Everything used to be drawn on one grid regardless of map, so two friends in different
+  // raids were plotted against each other at coordinates that have nothing in common, and the
+  // auto-framing then zoomed out to contain both. A tap then marked whichever map the first
+  // member in the list happened to be on, which is not an order that means anything to the
+  // person tapping.
+  //
+  // Null means "follow the group", which re-picks whenever the room changes. Choosing one
+  // pins it, so a map does not move out from under somebody about to tap it.
+  let chosenMap = null;
   let timer = null;
 
   $("key").value = key;
@@ -175,6 +187,81 @@
     return `${Math.round(seconds / 60)}m ago`;
   };
 
+  /// Which maps the room is spread across, most-populated first.
+  function mapsInUse() {
+    const counts = new Map();
+    for (const member of room?.members ?? []) {
+      if (member.mapId) {
+        counts.set(member.mapId, (counts.get(member.mapId) ?? 0) + 1);
+      }
+    }
+
+    return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }
+
+  // The map being shown: the chosen one while it still has somebody on it, otherwise wherever
+  // most of the group is.
+  //
+  // The chosen one is dropped when its last member leaves rather than kept, because a map
+  // nobody is on has nothing to draw and no sensible place to mark.
+  function activeMap() {
+    const inUse = mapsInUse();
+    if (chosenMap && inUse.some(([id]) => id === chosenMap)) {
+      return chosenMap;
+    }
+
+    chosenMap = null;
+    return inUse.length > 0 ? inUse[0][0] : null;
+  }
+
+  // One button per map, and none at all when there is only one — a chooser with a single
+  // option is a control that asks a question with one answer.
+  function renderMaps() {
+    const holder = $("maps");
+    holder.replaceChildren();
+    const inUse = mapsInUse();
+    if (inUse.length < 2) {
+      return;
+    }
+
+    const active = activeMap();
+    for (const [mapId, count] of inUse) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = count === 1 ? `${mapId} · 1` : `${mapId} · ${count}`;
+      button.setAttribute("aria-pressed", mapId === active ? "true" : "false");
+      button.addEventListener("click", () => {
+        chosenMap = mapId;
+        render();
+      });
+      holder.appendChild(button);
+    }
+  }
+
+  // The height to mark at, taken from whoever on this map is nearest the tap.
+  //
+  // Zero is a claim, not an absence: GroupWaypointReach measures in three dimensions with a
+  // 50 m radius, so on a map whose ground is not at zero every mark spent part of that radius
+  // on a height error before the horizontal distance was counted, and waypoints ticked
+  // themselves off late or never.
+  function heightNear(mapId, x, z) {
+    let best = null;
+    let nearest = Infinity;
+    for (const member of room?.members ?? []) {
+      if (member.mapId !== mapId || member.x == null || member.z == null || member.y == null) {
+        continue;
+      }
+
+      const distance = Math.hypot(member.x - x, member.z - z);
+      if (distance < nearest) {
+        nearest = distance;
+        best = member.y;
+      }
+    }
+
+    return best;
+  }
+
   function render() {
     const members = room?.members ?? [];
     const holder = $("members");
@@ -182,9 +269,13 @@
     if (members.length === 0) {
       holder.innerHTML = '<p class="empty">Nobody is sharing yet.</p>';
     }
+    const onScreen = activeMap();
     for (const member of members) {
       const row = document.createElement("div");
-      row.className = "row" + ((member.positionAge ?? 0) > 300 ? " stale" : "");
+      // Somebody on another map is dimmed the same way somebody stale is, because in both
+      // cases their marker is not on the plot and the row is the only place that says so.
+      const elsewhere = onScreen !== null && member.mapId !== onScreen;
+      row.className = "row" + ((member.positionAge ?? 0) > 300 || elsewhere ? " stale" : "");
       const where = member.mapId
         ? `${member.mapId} · ${member.raidState}${member.side ? " · " + member.side : ""}`
         : member.raidState;
@@ -204,14 +295,19 @@
       holder.appendChild(row);
     }
 
+    // The map on screen, like everything else here. Listing every map's marks under buttons
+    // that clear one map's would be a list that disagrees with the buttons beneath it.
+    const shown = activeMap();
     const marks = [
       ...(room?.waypoints ?? []).map((w) => ({ ...w, kind: "Waypoint" })),
       ...(room?.pings ?? []).map((p) => ({ ...p, kind: "Ping" })),
-    ];
+    ].filter((mark) => mark.mapId === shown);
     const markHolder = $("marks");
     markHolder.innerHTML = "";
     if (marks.length === 0) {
-      markHolder.innerHTML = '<p class="empty">Nothing marked.</p>';
+      markHolder.innerHTML = shown
+        ? '<p class="empty">Nothing marked on this map.</p>'
+        : '<p class="empty">Nothing marked.</p>';
     }
     for (const mark of marks) {
       const row = document.createElement("div");
@@ -219,7 +315,7 @@
       row.innerHTML = '<div><div class="name"><span></span></div><div class="meta"></div></div>';
       const [title, meta] = [row.querySelector(".name span"), row.querySelector(".meta")];
       title.textContent = `${mark.kind}${mark.label ? " · " + mark.label : ""}`;
-      meta.textContent = `by ${mark.by} · ${mark.mapId} · ${Math.round(mark.x)}, ${Math.round(mark.z)}` +
+      meta.textContent = `by ${mark.by} · ${Math.round(mark.x)}, ${Math.round(mark.z)}` +
         (mark.completedBy ? ` · reached by ${mark.completedBy}` : "");
       // Waypoints only. A ping is gone in forty-five seconds whatever anybody does, so the
       // server has no endpoint for removing one and a button here would be a button that lies.
@@ -233,7 +329,11 @@
       markHolder.appendChild(row);
     }
 
-    const waypoints = room?.waypoints ?? [];
+    renderMaps();
+
+    // Scoped to the map on screen, so the buttons describe what pressing them would do.
+    const mapId = activeMap();
+    const waypoints = (room?.waypoints ?? []).filter((w) => w.mapId === mapId);
     $("clearAll").disabled = waypoints.length === 0;
     $("clearReached").disabled = !waypoints.some((w) => w.completedBy);
 
@@ -263,7 +363,7 @@
   // the plan somebody made for Lighthouse with it. With nobody on a map there is no scope to
   // apply and the buttons stay out of it rather than clearing everything everywhere.
   async function clearMarks(reachedOnly) {
-    const mapId = (room?.members ?? []).find((m) => m.mapId)?.mapId;
+    const mapId = activeMap();
     if (!key) return;
     if (!mapId) {
       setStatus("Nobody is on a map yet, so there is nothing to clear", "bad");
@@ -293,18 +393,31 @@
   const context = canvas.getContext("2d");
   let frame = null;
 
+  // Only what is on the map being shown.
+  //
+  // This took everything with an x and a z regardless of map, so the schematic was two raids
+  // drawn on top of each other and the framing had to zoom out far enough to hold both.
   function points() {
+    const mapId = activeMap();
+    if (!mapId) {
+      return [];
+    }
+
     const found = [];
     for (const member of room?.members ?? []) {
-      if (member.x != null && member.z != null) {
+      if (member.mapId === mapId && member.x != null && member.z != null) {
         found.push({ x: member.x, z: member.z, colour: colourFor(member.name), label: member.name, r: 7 });
       }
     }
     for (const w of room?.waypoints ?? []) {
-      found.push({ x: w.x, z: w.z, colour: w.completedBy ? "#4d5f55" : "#c7a66b", label: w.label || "waypoint", r: 5 });
+      if (w.mapId === mapId) {
+        found.push({ x: w.x, z: w.z, colour: w.completedBy ? "#4d5f55" : "#c7a66b", label: w.label || "waypoint", r: 5 });
+      }
     }
     for (const p of room?.pings ?? []) {
-      found.push({ x: p.x, z: p.z, colour: "#c77b6b", label: p.label || "ping", r: 5 });
+      if (p.mapId === mapId) {
+        found.push({ x: p.x, z: p.z, colour: "#c77b6b", label: p.label || "ping", r: 5 });
+      }
     }
     return found;
   }
@@ -373,7 +486,8 @@
 
   canvas.addEventListener("click", async (event) => {
     if (!frame || !key) return;
-    const mapId = (room?.members ?? []).find((m) => m.mapId)?.mapId;
+    // The map this screen is showing, which is the one the tap was aimed at.
+    const mapId = activeMap();
     if (!mapId) {
       setStatus("Nobody is on a map yet, so there is nowhere to mark", "bad");
       return;
@@ -386,7 +500,16 @@
     try {
       await call(mode === "ping" ? "/pings" : "/waypoints", {
         method: "POST",
-        body: JSON.stringify({ by: name || "tablet", mapId, x, y: 0, z, label: null }),
+        body: JSON.stringify({
+          by: name || "tablet",
+          mapId,
+          x,
+          // Whoever is nearest, or zero when nobody on this map has published a height —
+          // which is what an older client does, and is the same answer as before for them.
+          y: heightNear(mapId, x, z) ?? 0,
+          z,
+          label: null,
+        }),
       });
       await refresh();
     } catch (error) {
