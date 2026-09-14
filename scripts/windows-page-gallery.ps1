@@ -65,7 +65,11 @@ param(
     # change makes one of these a duller picture rather than a red build.
     [object[]] $MapViews = @(
         @{ name = "map-stacked"; args = @("--page", "Raid", "--map", "customs", "--stack") },
-        @{ name = "map-floor";   args = @("--page", "Raid", "--map", "customs", "--floor", "3rd Floor") },
+        # The quotes are inside the string on purpose. Start-Process joins ArgumentList with
+        # spaces and quotes nothing, so a bare "3rd Floor" reached the application as two
+        # arguments and it opened on a floor named "3rd" -- which the map said out loud, in the
+        # status line, which is how this was found.
+        @{ name = "map-floor";   args = @("--page", "Raid", "--map", "customs", "--floor", '"3rd Floor"') },
         @{ name = "map-streets"; args = @("--page", "Raid", "--map", "streets-of-tarkov") }
     ),
 
