@@ -263,6 +263,25 @@
     <Setter Property="TextElement.Foreground" Value="{StaticResource InkBrightBrush}" />
   </Style>
 
+  <!-- A whole list row that is also a button. The panels beside the map draw their rows as
+       Border.inset, so a row that can be clicked is drawn the same way rather than as a
+       control sitting in a list: the same inset fill and hairline, left-aligned, the full
+       width of the column. What marks it as clickable is that it lights up under the pointer,
+       which is what a row in a list does anyway. -->
+  <Style Selector="Button.row">
+    <Setter Property="Background" Value="{StaticResource InsetBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+    <Setter Property="Padding" Value="9,7" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="FontWeight" Value="Normal" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+  <Style Selector="Button.row:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource InkFaintBrush}" />
+  </Style>
+
   <!-- Navigation rail. The glyph is grey until its page is open, so the rail shows one cyan
        mark and the eye finds the current page without reading thirteen names.
 

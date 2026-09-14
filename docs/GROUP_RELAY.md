@@ -42,11 +42,15 @@ open. Call it every few seconds while you want to be visible.
   "heading": 214.5,
   "positionAge": 12.4,
   "loadout": ["M4A1", "Slick"],
-  "quests": ["Debut"]
+  "quests": ["Debut"],
+  "questIds": ["5936d90786f7742b1420ba5b"]
 }
 ```
 
-Everything except `name` may be null or omitted. `name` is required, is at most 48 characters,
+Everything except `name` may be null or omitted. Optional fields have been added since this
+example was written; `GroupMemberState` in `src/TarkovCompanion.GroupServer/GroupContracts.cs`
+is the full list, and each one is an init property so a client that predates it is neither
+required to send it nor refused for sending nothing. `name` is required, is at most 48 characters,
 and is the identity within the group: publishing again under the same name replaces your
 previous entry rather than adding a second one.
 
@@ -58,6 +62,12 @@ previous entry rather than adding a second one.
 - `heading` — degrees, 0..360, a compass bearing in game axes where +z is 0 and +x is 90.
 - `positionAge` — seconds since that position was recorded, so others can judge how stale the
   marker is rather than guessing.
+- `quests` — what you are working on, for a squadmate to read. At most 24, and ours sends 5,
+  which is what fits in a panel.
+- `questIds` — the same quests by catalog id, for a squadmate's client to act on: with an id it
+  can ask its own quest catalog which maps those quests point at and rank where the group's
+  lists overlap. At most 40, each at most 64 characters. Ids are resolved against the
+  receiver's own catalog, so one it does not carry is passed over rather than guessed at.
 
 The reply is everyone else in the group:
 

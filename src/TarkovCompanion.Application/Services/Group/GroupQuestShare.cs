@@ -4,6 +4,22 @@ using TarkovCompanion.Core.Domain.Quests;
 namespace TarkovCompanion.Application.Services.Group;
 
 /// <summary>
+/// What the player is working on, in the two forms a group needs it in.
+/// </summary>
+/// <remarks>
+/// The names are read by a person and the ids are read by a companion. A squadmate's panel
+/// holds about five lines, so that is how many names there is any point sending; the ids are
+/// counted rather than read, and ranking tonight's maps by where the group overlaps wants the
+/// whole active list rather than the top of it.
+/// </remarks>
+/// <param name="Names">The first few, pinned first, for a squadmate to read.</param>
+/// <param name="TaskIds">All of them, by catalog id, for a squadmate's companion to place.</param>
+public sealed record SharedQuests(IReadOnlyList<string> Names, IReadOnlyList<string> TaskIds)
+{
+    public static SharedQuests None { get; } = new([], []);
+}
+
+/// <summary>
 /// What the player is working on, for the group to see.
 /// </summary>
 /// <remarks>
@@ -25,17 +41,26 @@ public sealed class GroupQuestShare(
     IQuestReadService quests,
     TimeProvider? timeProvider = null)
 {
-    /// <summary>How many are worth sending, which is what fits in a squadmate's panel.</summary>
+    /// <summary>How many names are worth sending, which is what fits in a squadmate's panel.</summary>
     private const int Maximum = 5;
+
+    /// <summary>
+    /// How many ids are worth sending.
+    /// </summary>
+    /// <remarks>
+    /// More than the names, because an id is not read. Forty is more quests than anybody has
+    /// open at once, and it is the bound the wire contract enforces on the other end.
+    /// </remarks>
+    private const int MaximumIds = 40;
 
     private static readonly TimeSpan RereadAfter = TimeSpan.FromMinutes(1);
 
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private IReadOnlyList<string> _shared = [];
+    private SharedQuests _shared = SharedQuests.None;
     private DateTimeOffset _readUtc = DateTimeOffset.MinValue;
 
-    public async Task<IReadOnlyList<string>> GetAsync(CancellationToken cancellationToken)
+    public async Task<SharedQuests> GetAsync(CancellationToken cancellationToken)
     {
         var now = _timeProvider.GetUtcNow();
         if (now - _readUtc < RereadAfter)
@@ -71,12 +96,22 @@ public sealed class GroupQuestShare(
         }
     }
 
-    /// <summary>Pinned first, then active, and never more than fits in a panel.</summary>
-    private static IReadOnlyList<string> Choose(IReadOnlyList<QuestSummaryReadModel> tasks) => tasks
-        .Where(task => task.IsPinned || task.RecordedState == RecordedTaskState.Active)
-        .OrderByDescending(task => task.IsPinned)
-        .ThenBy(task => task.Name, StringComparer.CurrentCultureIgnoreCase)
-        .Select(task => task.Name)
-        .Take(Maximum)
-        .ToArray();
+    /// <summary>Pinned first, then active, in one order that both lists are cut from.</summary>
+    /// <remarks>
+    /// One ordering rather than two, so the names a squadmate reads are the head of the ids
+    /// their companion counts. Two orderings would let the panel say one thing and the map
+    /// rank another, off the same exchange.
+    /// </remarks>
+    private static SharedQuests Choose(IReadOnlyList<QuestSummaryReadModel> tasks)
+    {
+        var chosen = tasks
+            .Where(task => task.IsPinned || task.RecordedState == RecordedTaskState.Active)
+            .OrderByDescending(task => task.IsPinned)
+            .ThenBy(task => task.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Take(MaximumIds)
+            .ToArray();
+        return new(
+            [.. chosen.Take(Maximum).Select(task => task.Name)],
+            [.. chosen.Select(task => task.TaskId)]);
+    }
 }

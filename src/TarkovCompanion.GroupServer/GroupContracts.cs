@@ -112,11 +112,38 @@ public sealed record GroupMemberState(
             return "An extract name must be 64 characters or fewer.";
         }
 
+        // Ids rather than names, so they are bounded on their own terms: a name is read and
+        // five of them fill a panel, an id is counted and the whole active list is worth
+        // having. Forty is more quests than anybody has open at once.
+        if (QuestIds is { } ids && (ids.Count > 40 || ids.Any(id => id is null || id.Length > 64)))
+        {
+            return "A quest id list may carry at most forty ids of 64 characters or fewer.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
             : null;
     }
+
+    /// <summary>
+    /// Which quests those are, by catalog id, so a receiver can place them on a map.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Quests"/> is what a squadmate reads and this is what their companion can
+    /// act on. A name is a string that happens to match; an id is the key the local quest
+    /// catalog is indexed by, so the receiver can ask its own catalog which maps the quest
+    /// wants and rank tonight's options by where the group overlaps.
+    ///
+    /// Resolved against the receiver's catalog rather than sent with maps attached. Both ends
+    /// have the same catalog, and an id that the receiver's copy does not know is a quest
+    /// added since they last synced — which is an answer, where a map id from a stranger's
+    /// catalog would be a claim this cannot check.
+    ///
+    /// An init property, so a client that predates it neither sends nor trips over it.
+    /// </remarks>
+    [JsonPropertyName("questIds")]
+    public IReadOnlyList<string> QuestIds { get; init; } = [];
 
     /// <summary>How high this member is standing, where their screenshot said.</summary>
     /// <remarks>

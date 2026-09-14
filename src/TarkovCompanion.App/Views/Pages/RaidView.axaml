@@ -124,6 +124,39 @@
           </StackPanel>
         </Border>
 
+        <!-- Which map to queue, while queueing one is still the decision in front of you. The
+             counts are the row: "You: 3 (1 pinned) · Geo: 2" is what somebody would otherwise
+             say out loud after four people had read their quest lists to each other.
+
+             Menu only, and gone the moment a raid starts. A card offering to switch the map
+             mid-raid would be in the way of the map the player is standing on. -->
+        <Border Classes="panel" IsVisible="{Binding HasTonight}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Tonight" />
+            <ItemsControl ItemsSource="{Binding Tonight}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:TonightMapViewModel">
+                  <Button Classes="row"
+                          Command="{Binding ShowCommand}"
+                          Margin="0,0,0,4"
+                          ToolTip.Tip="Show this map and mark its objectives">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <StackPanel Spacing="2">
+                        <TextBlock Classes="value" Text="{Binding MapName}" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1"
+                                 Classes="metric"
+                                 Text="{Binding Total}"
+                                 VerticalAlignment="Center" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
         <!-- One instrument with three readouts, rather than three boxes. Each readout is a
              label, a value and a caption, and none carries an accent border: at rest all
              three say "nothing observed", and three accent-bordered boxes saying that made
