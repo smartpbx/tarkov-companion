@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 
@@ -74,6 +75,41 @@ public sealed class RecognitionContractTests
             new RaidClockReading(TimeSpan.FromMinutes(28), default, V2ContractTestData.CapturedUtc));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new RaidClockReading(TimeSpan.FromMinutes(-1), RaidClockBasis.CountedFromRaidStart, V2ContractTestData.CapturedUtc));
+    }
+
+    [Fact]
+    public void ObservedClockStopsShortOfAnHourSoTheUnknownMarkerCannotPass()
+    {
+        var justUnder = TimeSpan.FromHours(1) - TimeSpan.FromSeconds(1);
+
+        Assert.Equal(TimeSpan.FromHours(1), RaidClockReading.MaxObservedRemaining);
+        Assert.Equal(justUnder, new RaidClockReading(justUnder, RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc).Remaining);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RaidClockReading(TimeSpan.FromHours(1), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RaidClockReading(new TimeSpan(22, 22, 22), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc));
+
+        // A counted clock is arithmetic from a known raid start, not a reading, and keeps its semantics.
+        Assert.Equal(
+            TimeSpan.FromHours(1),
+            new RaidClockReading(TimeSpan.FromHours(1), RaidClockBasis.CountedFromRaidStart, V2ContractTestData.CapturedUtc).Remaining);
+    }
+
+    [Theory]
+    [InlineData("22:22:22")]
+    [InlineData("01:00:00")]
+    [InlineData("1.00:00:00")]
+    public void HostileJsonCannotCarryAnObservedClockOfAnHourOrMore(string remaining)
+    {
+        var json = JsonSerializer.Serialize(ExtractResult("0:28:10", ObservedClock(V2ContractTestData.CapturedUtc)), JsonOptions);
+        var node = JsonNode.Parse(json)!;
+        var clock = node["recognition"]!["result"]!["value"]!["raidTimeRemaining"]!["value"]!;
+        Assert.Equal("00:28:10", clock["remaining"]!.GetValue<string>());
+
+        clock["remaining"] = remaining;
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<ExtractMapRecognitionResult>(node.ToJsonString(), JsonOptions));
     }
 
     [Fact]

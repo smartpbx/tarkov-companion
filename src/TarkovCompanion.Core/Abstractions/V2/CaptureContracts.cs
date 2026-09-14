@@ -162,7 +162,8 @@ public sealed record CaptureStageProgress
 /// <summary>
 /// An ordered session history. Each capture moves forward through its stages (a decode retry
 /// may return from Decoding to Settling) and nothing follows its terminal stage. A session
-/// terminal stage is final for everything. The status cannot claim more than the history shows.
+/// terminal stage is final for everything. Capture ordinals number the queue from zero without
+/// gaps, in the order captures first appear. The status cannot claim more than the history shows.
 /// </summary>
 public sealed record CaptureSessionSnapshot
 {
@@ -175,8 +176,12 @@ public sealed record CaptureSessionSnapshot
         Progress = V2ContractGuard.List(progress, nameof(progress));
         Status = V2ContractGuard.NotNull(status, nameof(status));
 
+        // Ordinals are contiguous from zero, so the ordinal is the capture's index here, and the
+        // unfinished count is kept as it changes rather than recounted for every session update.
         var sessionStage = (CaptureSessionStage?)null;
-        var captures = new Dictionary<int, (string ArtifactId, CaptureSessionStage Stage)>();
+        var captures = new List<(string ArtifactId, CaptureSessionStage Stage)>();
+        var artifacts = new HashSet<string>(StringComparer.Ordinal);
+        var unfinished = 0;
         for (var index = 0; index < Progress.Count; index++)
         {
             var item = Progress[index];
@@ -208,9 +213,7 @@ public sealed record CaptureSessionSnapshot
                     throw new ArgumentException("Session stages cannot move backwards.", nameof(progress));
                 }
 
-                if (CaptureStageProgress.IsTerminal(item.Stage) &&
-                    captures.Values.Any(capture => !CaptureStageProgress.IsTerminal(capture.Stage)) &&
-                    item.Stage == CaptureSessionStage.Complete)
+                if (item.Stage == CaptureSessionStage.Complete && unfinished > 0)
                 {
                     throw new ArgumentException("A session cannot complete while a capture is unfinished.", nameof(progress));
                 }
@@ -219,8 +222,9 @@ public sealed record CaptureSessionSnapshot
                 continue;
             }
 
-            if (captures.TryGetValue(ordinal, out var capture))
+            if (ordinal < captures.Count)
             {
+                var capture = captures[ordinal];
                 if (!string.Equals(capture.ArtifactId, item.ArtifactId, StringComparison.Ordinal))
                 {
                     throw new ArgumentException("A capture ordinal names exactly one artifact.", nameof(progress));
@@ -231,13 +235,37 @@ public sealed record CaptureSessionSnapshot
                 {
                     throw new ArgumentException("A capture's stages move forward and end at its terminal stage.", nameof(progress));
                 }
+
+                if (CaptureStageProgress.IsTerminal(item.Stage))
+                {
+                    unfinished--;
+                }
+
+                captures[ordinal] = (capture.ArtifactId, item.Stage);
+                continue;
             }
-            else if (captures.Values.Any(existing => string.Equals(existing.ArtifactId, item.ArtifactId, StringComparison.Ordinal)))
+
+            // The queue is numbered from zero with no holes, and a capture first appears in queue
+            // order. Uniqueness alone let one capture arrive as ordinal 99, which reads as a
+            // normal history while ninety-nine queued captures vanished without a single stage.
+            if (ordinal != captures.Count)
+            {
+                throw new ArgumentException(
+                    $"Capture ordinals start at zero and enter the queue in order; expected {captures.Count}, not {ordinal}.",
+                    nameof(progress));
+            }
+
+            if (!artifacts.Add(item.ArtifactId!))
             {
                 throw new ArgumentException("An artifact belongs to exactly one capture ordinal.", nameof(progress));
             }
 
-            captures[ordinal] = (item.ArtifactId!, item.Stage);
+            if (!CaptureStageProgress.IsTerminal(item.Stage))
+            {
+                unfinished++;
+            }
+
+            captures.Add((item.ArtifactId!, item.Stage));
         }
 
         var allowed = sessionStage switch

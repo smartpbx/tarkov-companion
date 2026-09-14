@@ -147,9 +147,9 @@ public sealed record RecognizedItem(
 
     public EvidencedValue<int?> Quantity { get; } = V2ContractGuard.AtLeast(Quantity, 1, nameof(Quantity));
 
-    public EvidencedValue<int?> WidthCells { get; } = V2ContractGuard.AtLeast(WidthCells, 1, nameof(WidthCells));
+    public EvidencedValue<int?> WidthCells { get; } = GridBounds.Within(WidthCells, 1, GridGeometry.MaxColumns, nameof(WidthCells));
 
-    public EvidencedValue<int?> HeightCells { get; } = V2ContractGuard.AtLeast(HeightCells, 1, nameof(HeightCells));
+    public EvidencedValue<int?> HeightCells { get; } = GridBounds.Within(HeightCells, 1, GridGeometry.MaxRows, nameof(HeightCells));
 
     public EvidencedValue<bool?> Rotated { get; } = V2ContractGuard.NotNull(Rotated, nameof(Rotated));
 
@@ -165,12 +165,12 @@ public readonly record struct GridCellAddress
     [JsonConstructor]
     public GridCellAddress(int row, int column)
     {
-        if (row < 0)
+        if (row is < 0 or >= GridGeometry.MaxRows)
         {
             throw new ArgumentOutOfRangeException(nameof(row));
         }
 
-        if (column < 0)
+        if (column is < 0 or >= GridGeometry.MaxColumns)
         {
             throw new ArgumentOutOfRangeException(nameof(column));
         }
@@ -184,19 +184,57 @@ public readonly record struct GridCellAddress
     public int Column { get; }
 }
 
+/// <summary>
+/// A recognized grid's size. Rows, columns, anchors, and footprints all live inside one finite
+/// cell space of <see cref="MaxRows"/> by <see cref="MaxColumns"/>, whether or not this grid's own
+/// size was read.
+/// </summary>
+/// <remarks>
+/// The bounds are generous rather than measured: a stash is ten columns wide and a few dozen
+/// rows tall. What matters is that they exist. Without them an anchor near int.MaxValue made
+/// <c>row + height</c> wrap negative and pass the fit check, and in a grid of unread size a
+/// single footprint a hundred thousand cells each way expanded into ten billion occupied cells.
+/// </remarks>
 public sealed record GridGeometry(
     EvidencedValue<int?> Rows,
     EvidencedValue<int?> Columns,
     EvidencedValue<int?> CellWidthPixels,
     EvidencedValue<int?> CellHeightPixels)
 {
-    public EvidencedValue<int?> Rows { get; } = V2ContractGuard.AtLeast(Rows, 1, nameof(Rows));
+    public const int MaxRows = 256;
 
-    public EvidencedValue<int?> Columns { get; } = V2ContractGuard.AtLeast(Columns, 1, nameof(Columns));
+    public const int MaxColumns = 64;
 
-    public EvidencedValue<int?> CellWidthPixels { get; } = V2ContractGuard.AtLeast(CellWidthPixels, 1, nameof(CellWidthPixels));
+    /// <summary>Every cell in the bounded space; no grid, footprint set, or coverage exceeds it.</summary>
+    public const int MaxCells = MaxRows * MaxColumns;
 
-    public EvidencedValue<int?> CellHeightPixels { get; } = V2ContractGuard.AtLeast(CellHeightPixels, 1, nameof(CellHeightPixels));
+    public const int MaxCellPixels = 1024;
+
+    public EvidencedValue<int?> Rows { get; } = GridBounds.Within(Rows, 1, MaxRows, nameof(Rows));
+
+    public EvidencedValue<int?> Columns { get; } = GridBounds.Within(Columns, 1, MaxColumns, nameof(Columns));
+
+    public EvidencedValue<int?> CellWidthPixels { get; } = GridBounds.Within(CellWidthPixels, 1, MaxCellPixels, nameof(CellWidthPixels));
+
+    public EvidencedValue<int?> CellHeightPixels { get; } = GridBounds.Within(CellHeightPixels, 1, MaxCellPixels, nameof(CellHeightPixels));
+}
+
+/// <summary>Two-sided bounds for evidenced cell counts, in the value, candidates, and corrections.</summary>
+internal static class GridBounds
+{
+    public static EvidencedValue<int?> Within(EvidencedValue<int?> field, int minimum, int maximum, string parameterName)
+    {
+        V2ContractGuard.AtLeast(field, minimum, parameterName);
+        var values = new[] { field.Value }
+            .Concat(field.Candidates.Select(candidate => candidate.Value))
+            .Concat(field.Corrections.SelectMany(correction => new[] { correction.OriginalValue, correction.CorrectedValue }));
+        if (values.Any(value => value > maximum))
+        {
+            throw new ArgumentOutOfRangeException(parameterName, $"{field.FieldId} must be at most {maximum}.");
+        }
+
+        return field;
+    }
 }
 
 /// <summary>
@@ -224,12 +262,42 @@ public sealed record GridRecognition : IRecognitionPayload
         Geometry = V2ContractGuard.NotNull(geometry, nameof(geometry));
         Cells = V2ContractGuard.List(cells, nameof(cells));
 
-        // Footprints are checked only where every dimension involved is known; an unknown span
-        // is not assumed to be one cell, and an unknown grid is not assumed to be unbounded.
+        // An unread grid is bounded by the contract's cell space, never assumed to be unbounded.
+        var rows = geometry.Rows.Value ?? GridGeometry.MaxRows;
+        var columns = geometry.Columns.Value ?? GridGeometry.MaxColumns;
+
+        // Anchors are distinct cells of the grid, so a longer list must repeat one. Refuse it
+        // before walking anything.
+        if (Cells.Count > rows * columns)
+        {
+            throw new ArgumentException("A grid cannot hold more footprints than it has cells.", nameof(cells));
+        }
+
+        // Every anchor and every known span is placed before any footprint is expanded, and the
+        // fit is compared as remaining room so no sum can overflow. An anchor sits inside the grid
+        // even when its item or its size was not read; a known width or height must fit on its
+        // own, because an unread height does not make a width that is too wide any narrower.
+        foreach (var cell in Cells)
+        {
+            if (cell.Anchor.Row >= rows || cell.Anchor.Column >= columns)
+            {
+                throw new ArgumentException("An anchor must sit inside the recognized grid.", nameof(cells));
+            }
+
+            if (cell.Item.Value is { } item &&
+                (item.HeightCells.Value > rows - cell.Anchor.Row || item.WidthCells.Value > columns - cell.Anchor.Column))
+            {
+                throw new ArgumentException("A footprint cannot extend past the recognized grid.", nameof(cells));
+            }
+        }
+
+        // Footprints are expanded only where both spans are known; an unknown span is not assumed
+        // to be one cell. Each step either claims a new cell of the bounded grid or throws, so the
+        // walk ends within rows * columns steps however the payload is shaped.
         var occupied = new HashSet<GridCellAddress>();
         foreach (var cell in Cells)
         {
-            if (cell.Item.Value is not { } item)
+            if (cell.Item.Value is not { WidthCells.Value: { } width, HeightCells.Value: { } height })
             {
                 if (!occupied.Add(cell.Anchor))
                 {
@@ -237,22 +305,6 @@ public sealed record GridRecognition : IRecognitionPayload
                 }
 
                 continue;
-            }
-
-            if (item.WidthCells.Value is not { } width || item.HeightCells.Value is not { } height)
-            {
-                if (!occupied.Add(cell.Anchor))
-                {
-                    throw new ArgumentException("Two footprints cannot share an anchor.", nameof(cells));
-                }
-
-                continue;
-            }
-
-            if (geometry.Rows.Value is { } rows && cell.Anchor.Row + height > rows ||
-                geometry.Columns.Value is { } columns && cell.Anchor.Column + width > columns)
-            {
-                throw new ArgumentException("A footprint cannot extend past the recognized grid.", nameof(cells));
             }
 
             for (var row = cell.Anchor.Row; row < cell.Anchor.Row + height; row++)
@@ -334,6 +386,13 @@ public sealed record StashCaptureRegion
         ContainerPath = ContainerPaths.Validate(containerPath, nameof(containerPath));
         OriginInContainer = V2ContractGuard.NotNull(originInContainer, nameof(originInContainer));
         Grid = V2ContractGuard.NotNull(grid, nameof(grid));
+
+        if (originInContainer.Value is { } origin &&
+            (grid.Geometry.Rows.Value > GridGeometry.MaxRows - origin.Row ||
+             grid.Geometry.Columns.Value > GridGeometry.MaxColumns - origin.Column))
+        {
+            throw new ArgumentException("A placed region cannot extend past the container cell space.", nameof(originInContainer));
+        }
     }
 
     public string RegionId { get; }
@@ -359,8 +418,8 @@ public sealed record StashContainerCoverage
         EvidencedValue<int?> totalCells)
     {
         ContainerPath = ContainerPaths.Validate(containerPath, nameof(containerPath));
-        ObservedCells = V2ContractGuard.AtLeast(observedCells, 0, nameof(observedCells));
-        TotalCells = V2ContractGuard.AtLeast(totalCells, 1, nameof(totalCells));
+        ObservedCells = GridBounds.Within(observedCells, 0, GridGeometry.MaxCells, nameof(observedCells));
+        TotalCells = GridBounds.Within(totalCells, 1, GridGeometry.MaxCells, nameof(totalCells));
 
         if (observedCells.Value > totalCells.Value)
         {
@@ -390,10 +449,19 @@ public sealed record StashRecognition : IRecognitionPayload
         TotalKnownValueRoubles = V2ContractGuard.AtLeast(totalKnownValueRoubles, 0, nameof(totalKnownValueRoubles));
         UnresolvedCells = V2ContractGuard.AtLeast(unresolvedCells, 0, nameof(unresolvedCells));
 
-        if (CapturedRegions.Select(region => region.RegionId).Distinct(StringComparer.Ordinal).Count() != CapturedRegions.Count ||
-            CapturedRegions.Select(region => region.CaptureOrdinal).Distinct().Count() != CapturedRegions.Count)
+        if (CapturedRegions.Select(region => region.RegionId).Distinct(StringComparer.Ordinal).Count() != CapturedRegions.Count)
         {
-            throw new ArgumentException("Region ids and capture ordinals must be unique.", nameof(capturedRegions));
+            throw new ArgumentException("Region ids must be unique.", nameof(capturedRegions));
+        }
+
+        // Regions keep their session ordinals, so a failed or omitted capture leaves a gap rather
+        // than renumbering the evidence; strictly ascending also makes the ordinals unique.
+        for (var index = 1; index < CapturedRegions.Count; index++)
+        {
+            if (CapturedRegions[index].CaptureOrdinal <= CapturedRegions[index - 1].CaptureOrdinal)
+            {
+                throw new ArgumentException("Capture ordinals must be unique and in ascending order.", nameof(capturedRegions));
+            }
         }
 
         var covered = Coverage.Select(item => item.ContainerPath).ToHashSet(StringComparer.Ordinal);
@@ -416,10 +484,12 @@ public sealed record StashRecognition : IRecognitionPayload
             throw new ArgumentException("A nested container path must extend the container it was opened from.", nameof(capturedRegions));
         }
 
+        // A set, not a scan per covered path: both sides grow with the payload.
+        var openedPaths = opened.Select(item => item.Path).ToHashSet(StringComparer.Ordinal);
         foreach (var path in covered)
         {
             if (ContainerPaths.Parent(path) is { } parent &&
-                (!covered.Contains(parent) || !opened.Any(item => item.Path == path)))
+                (!covered.Contains(parent) || !openedPaths.Contains(path)))
             {
                 throw new ArgumentException($"Nested container {path} has no covered parent cell that opened it.", nameof(coverage));
             }
@@ -578,6 +648,16 @@ public enum RaidClockBasis
 /// </summary>
 public sealed record RaidClockReading
 {
+    /// <summary>The exclusive upper bound on a clock read off the extract screen.</summary>
+    /// <remarks>
+    /// Where the game draws <c>??:??:??</c> for an undecided time, OCR returns <c>22:22:22</c>,
+    /// which only the one-hour raid-clock cap rejected (docs/research/EFT_SCREENSHOT_FACTS.md,
+    /// and <c>RaidTimer</c> in Application). That was luck in the reader; here it is a rule, so a
+    /// transport cannot carry a misread the reader would have dropped. A counted clock is
+    /// arithmetic from a known raid start rather than a reading of pixels, so it is not capped.
+    /// </remarks>
+    public static TimeSpan MaxObservedRemaining { get; } = TimeSpan.FromHours(1);
+
     public RaidClockReading(TimeSpan remaining, RaidClockBasis basis, DateTimeOffset asOfUtc)
     {
         Remaining = remaining >= TimeSpan.Zero
@@ -585,6 +665,13 @@ public sealed record RaidClockReading
             : throw new ArgumentOutOfRangeException(nameof(remaining), "A raid clock reading must be zero or more.");
         Basis = V2ContractGuard.Defined(basis, nameof(basis));
         AsOfUtc = V2ContractGuard.Utc(asOfUtc, nameof(asOfUtc));
+
+        if (basis == RaidClockBasis.ObservedOnExtractScreen && remaining >= MaxObservedRemaining)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(remaining),
+                "An observed raid clock is under one hour; a longer reading is a misread, such as ??:??:?? read as 22:22:22.");
+        }
     }
 
     public TimeSpan Remaining { get; }
