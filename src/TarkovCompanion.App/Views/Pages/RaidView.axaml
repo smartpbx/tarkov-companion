@@ -197,6 +197,26 @@
                                    VerticalAlignment="Center" />
                       </Grid>
                       <TextBlock Classes="label" Text="{Binding Objectives}" TextWrapping="Wrap" />
+                      <!-- The two lines that only matter before the raid starts. The map
+                           arrives on profileStatus about a minute before the raid does, and
+                           that minute is the last one in which either can be acted on;
+                           afterwards they are a list of what could have been brought.
+
+                           Kept apart because they are different mistakes made at different
+                           moments: a key you forgot is a raid you cannot finish, and an item
+                           you meant to hand in is a raid you finish and then repeat.
+
+                           No tick beside either. The logs never state what is in the player's
+                           inventory, so a checkbox would be somebody keeping a list by hand
+                           about a thing the application cannot see. -->
+                      <TextBlock Classes="caption ochre"
+                                 Text="{Binding Bring}"
+                                 IsVisible="{Binding HasBring}"
+                                 TextWrapping="Wrap" />
+                      <TextBlock Classes="caption"
+                                 Text="{Binding HandIn}"
+                                 IsVisible="{Binding HasHandIn}"
+                                 TextWrapping="Wrap" />
                       <!-- An exact point is somewhere to walk to; an association is only a
                            claim that the quest has something to do with this map. -->
                       <TextBlock Classes="caption"
