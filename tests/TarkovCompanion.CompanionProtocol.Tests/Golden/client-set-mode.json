@@ -1,0 +1,14 @@
+{
+  "protocolVersion": { "major": 2, "minor": 0 },
+  "sessionId": { "value": "20000000-0000-0000-0000-000000000002" },
+  "clientSentUtc": "2026-09-14T20:00:00+00:00",
+  "command": {
+    "type": "setInteractionMode",
+    "mode": "Independent",
+    "commandId": { "value": "40000000-0000-0000-0000-000000000001" },
+    "requestedRevision": { "value": 1 },
+    "issuedUtc": "2026-09-14T20:00:00+00:00",
+    "expiresUtc": "2026-09-14T20:01:00+00:00",
+    "offlineQueuePreview": null
+  }
+}
