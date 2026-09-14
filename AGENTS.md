@@ -3,32 +3,27 @@
 Read the rules below before touching anything. **Where to read what** at the end of this file is
 the orientation map: what this project is, how it works, and what it is meant to become.
 
-## Workstation safety — non-negotiable
+## Development-host resource safety
 
-This repository triggered two workstation hard lockups on 2026-09-10. A local
-.NET debugger run was associated with kernel page-table corruption (`BUG: Bad
-page map`), followed later by a 12-CPU soft lockup and network-stack deadlock.
-These rules override every conflicting instruction elsewhere in this repository:
+This repository triggered two hard lockups on Clayton's workstation on 2026-09-10. A local
+.NET debugger run was associated with kernel page-table corruption (`BUG: Bad page map`),
+followed later by a 12-CPU soft lockup and network-stack deadlock. Development has since moved
+to the dedicated host named `dev`; the restrictions below preserve that boundary without
+preventing work on the development host.
 
-1. Never attach, launch, or use a .NET debugger on Clayton's workstation.
-2. Never run .NET workloads locally. This includes `dotnet`, MSBuild,
-   `scripts/bootstrap.sh`, `scripts/build.sh`, `scripts/test.sh`,
-   `scripts/package-windows.sh`, the simulator, and any IDE build/test/debug
-   action.
-3. Never start Docker, a container stack, or the local Windows VM for this
-   repository on Clayton's workstation.
-4. Do not launch local Orca worker/sub-agent terminals for this repository.
-   The current assistant may make edits, use Git/GitHub CLI, and run short
-   read-only inspection commands only.
-5. Build- and test-shaped work must run in GitHub Actions. If it cannot run in
-   CI, use the maintainer's remote development container, whose address is kept
-   outside this repository, after verifying the remote checkout path. Never
-   silently fall back to local execution.
-6. Do not run multiple heavy jobs concurrently on that container; check its
-   existing workload first and clean up agent processes when finished.
-7. If work requires anything beyond editing files, Git, `gh`, or short
-   read-only commands on the workstation, stop and ask Clayton first.
-8. Every delegated task or handoff must repeat these workstation restrictions.
+1. Never build, test, debug, start Docker, launch a VM, or run repository agents on Clayton's
+   workstation. If the current host is not the dedicated development host, stop and ask Clayton.
+2. .NET workloads, debuggers, containers, VMs, and Orca sub-agents are permitted on `dev`.
+3. Check CPU load, available memory, disk space, and existing repository processes before a
+   heavy job or a multi-agent wave.
+4. Do not run multiple heavy builds, test suites, containers, or VMs concurrently unless the
+   resource check shows comfortable headroom. Prefer one shared verification job after parallel
+   editing work instead of one full build per agent.
+5. Clean up agent, debugger, VM, and container processes when their work is finished.
+6. GitHub Actions remains the required integration evidence for substantive changes; local
+   verification on `dev` is supplementary and must not replace the CI gate.
+7. Every delegated task or handoff must name its worktree/owned paths, repeat the anti-cheat
+   boundaries below, and tell the worker to keep heavy verification serialized.
 
 1. This application is external and read-only relative to Escape from Tarkov.
 2. Never read or write Escape from Tarkov process memory.
