@@ -18,11 +18,25 @@ barter_outputs       #139-Next-1   reader approved, not yet built
 trader_levels        #139-Next-1   reader approved, not yet built; also #146 for trader names
 trader_offers        #139-Next-1   reader approved, not yet built
 
-# Surfaced by fixing this sweep's own DELETE blind spot, and not previously known. The quest
-# board reads quest_catalog_tasks, not these. Filed rather than dropped, because the right
-# answer may be to read them rather than delete them.
-tasks                #174          superseded by quest_catalog_tasks; decide read or drop
+# Surfaced by fixing this sweep's own DELETE blind spot. #174 proposed dropping the first two.
+# They cannot be dropped, and the reason is the same for both: each is the parent row of a
+# table that IS read, and foreign keys are on.
+#
+#   task_objectives.task_id     REFERENCES tasks(id)
+#   item_category_membership.category_id REFERENCES item_categories(id)
+#
+# SqliteRequirementCatalog joins task_objectives, and SqliteItemRepository reads
+# item_category_membership. Dropping either parent means rebuilding a child table to remove
+# the constraint, and stopping the writes means the child inserts fail outright. So "written
+# and never read" is true of the columns and false of the rows: the rows are what makes the
+# read data insertable.
+#
+# This is the sweep reporting exactly what it was built to report and the answer being "keep".
+tasks                #174          parent of task_objectives, which is read; FK, cannot drop
+item_categories      #174          parent of item_category_membership, which is read; FK, cannot drop
 # task_objectives and task_objective_items are NOT here: the sweep says they are read, and
 # listing them failed the stale check, which is the ratchet working in the other direction.
-item_categories      #174          written by the item refresh, read by nothing
+#
+# This one is genuinely unreferenced, and the answer is to read it rather than drop it: an
+# import that silently discards entries is worth a line somebody can see.
 quest_catalog_orphans #174         the import records what it refused and nothing shows it
