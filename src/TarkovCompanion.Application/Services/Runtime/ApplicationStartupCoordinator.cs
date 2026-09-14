@@ -4,6 +4,7 @@ using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
@@ -30,8 +31,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly RuntimeOptions _options;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<ApplicationStartupCoordinator> _logger;
-    private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
+    private readonly object _backgroundGate = new();
+    private readonly BackgroundWorkSupervisor _supervisor;
+    private readonly FeatureLifecycleCoordinator _lifecycle;
     private Task? _backgroundRefresh;
 
     public ApplicationStartupCoordinator(
@@ -81,6 +84,27 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _logger = logger;
         _ocrStatus = ocrStatus;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _supervisor = new(
+            _timeProvider,
+            new(
+                capacity: 16,
+                reservedInteractiveAdmission: 2,
+                maxConcurrent: 4,
+                lightLimit: 4,
+                ioLimit: 2,
+                cpuLimit: 1,
+                maxPriorityBurst: 6,
+                terminalHistoryLimit: 64,
+                defaultStopTimeout: options.RefreshTimeout));
+        _lifecycle = new(
+            BuildFeatureGraph(),
+            _timeProvider,
+            new(
+                maxParallelStarts: 3,
+                startTimeout: options.RefreshTimeout,
+                stopTimeout: TimeSpan.FromSeconds(10)));
+        _supervisor.Changed += PublishSupervisorState;
+        _lifecycle.Changed += PublishLifecycleState;
     }
 
     private readonly IOcrEngineStatus? _ocrStatus;
@@ -114,10 +138,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
         var availability = _ocrStatus.Availability;
         _logger.LogInformation(
-            "The {Provider} recogniser is {State}. {Reason}",
+            "The {Provider} recogniser is {State}.",
             availability.Provider,
-            availability.IsAvailable ? "available" : "unavailable",
-            availability.Reason ?? "No reason was reported.");
+            availability.IsAvailable ? "available" : "unavailable");
         return availability.IsAvailable
             ? ScanExecutionResult.Ready(
                 "Ready. Take a screenshot with the game's own key and it will be read.",
@@ -131,51 +154,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        if (_options.DemoMode)
-        {
-            await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
-        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
-        _stateStore.Update(current => current with
-        {
-            DatabaseReady = true,
-            Data = Describe(cached),
-            Profile = profile,
-            Scan = DescribeScanner(),
-        });
-
-        if (_options.DemoMode)
-        {
-            var now = _timeProvider.GetUtcNow();
-            await _raidActivityCoordinator.ApplyEvidenceAsync(
-                new(
-                    RaidEvidenceKind.Simulator,
-                    now,
-                    "customs",
-                    RaidLifecycleState.InRaid,
-                    new Confidence(0.95),
-                    "Deterministic demo fixture selected Customs."),
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        await WarmCatalogsAsync(cancellationToken).ConfigureAwait(false);
-
-        // Before observation starts, so it can never race the raid the watcher is about to
-        // recover. It closes only rows no raid could still be; anything recent enough to be
-        // resumed is left for the resume to decide about.
-        await _raidActivityCoordinator.CloseAbandonedAsync(cancellationToken).ConfigureAwait(false);
-
-        // Watching the game's own log and screenshot folders is what lets the map follow the
-        // player. It starts here rather than on demand because the game is usually launched
-        // after the companion, and discovery keeps retrying until it appears.
-        _observationService.Start();
-        // Started unconditionally, and does nothing at all until the player has turned sharing
-        // on. Starting it only when enabled would mean a restart to begin sharing, and the
-        // service's own first act is to check whether it should send anything.
-        _groupSession?.Start();
+        var snapshot = await _lifecycle.StartAsync(cancellationToken).ConfigureAwait(false);
+        _stateStore.Update(current => current with { Lifecycle = snapshot });
     }
 
     public void BeginBackgroundRefresh()
@@ -185,12 +165,43 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             return;
         }
 
-        _backgroundRefresh ??= Task.Run(
-            () => RefreshAsync(force: true, _stopping.Token),
-            CancellationToken.None);
+        lock (_backgroundGate)
+        {
+            if (_backgroundRefresh is { IsCompleted: false })
+            {
+                return;
+            }
+
+            var operationId = OperationId.New();
+            var execution = new OperationExecutionRequest(
+                new("data-refresh"),
+                operationId,
+                CorrelationId.New(),
+                new("json-tarkov-dev"),
+                OperationPolicy.Once(
+                    _options.RefreshTimeout,
+                    WorkloadClass.IO,
+                    OperationRestartMode.Manual,
+                    IdempotencyRequirement.Guaranteed));
+            var admission = _supervisor.Submit(
+                new(execution, new("catalog-refresh"), WorkPriority.Background),
+                async (_, token) => await RefreshSupervisedAsync(force: true, token).ConfigureAwait(false));
+            _backgroundRefresh = admission.Handle.Completion;
+        }
     }
 
-    public async Task RefreshAsync(bool force, CancellationToken cancellationToken)
+    public async Task RefreshAsync(bool force, CancellationToken cancellationToken) =>
+        await RefreshWithFaultAsync(force, cancellationToken).ConfigureAwait(false);
+
+    private async Task RefreshSupervisedAsync(bool force, CancellationToken cancellationToken)
+    {
+        if (await RefreshWithFaultAsync(force, cancellationToken).ConfigureAwait(false) is { } fault)
+        {
+            throw new RuntimeFaultException(fault);
+        }
+    }
+
+    private async Task<RuntimeFault?> RefreshWithFaultAsync(bool force, CancellationToken cancellationToken)
     {
         if (_options.Offline)
         {
@@ -204,10 +215,14 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                         : "Offline, and no local game data",
                 },
             });
-            return;
+            return null;
         }
 
-        await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var deadline = new CancellationTokenSource(_options.RefreshTimeout, _timeProvider);
+        using var operationCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            deadline.Token);
+        await _refreshLock.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
         try
         {
             _stateStore.Update(current => current with
@@ -215,12 +230,14 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 Data = current.Data with { Availability = DataAvailability.Refreshing, Detail = "Refreshing stale game data in the background." },
             });
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(_options.RefreshTimeout);
             var report = await _dataSyncService.SyncAsync(
-                new(_options.GameMode, _options.Language, force),
-                timeout.Token).ConfigureAwait(false);
-            var cached = await _dataStore.LoadSnapshotAsync(timeout.Token).ConfigureAwait(false);
+                    new(_options.GameMode, _options.Language, force),
+                    operationCancellation.Token)
+                .WaitAsync(operationCancellation.Token)
+                .ConfigureAwait(false);
+            var cached = await _dataStore.LoadSnapshotAsync(operationCancellation.Token)
+                .WaitAsync(operationCancellation.Token)
+                .ConfigureAwait(false);
 
             // Fresh rows landed, so anything projected from the old ones is now stale.
             _requirementCatalog.Invalidate();
@@ -233,7 +250,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 projection.Invalidate();
             }
 
-            await WarmCatalogsAsync(timeout.Token).ConfigureAwait(false);
+            await WarmCatalogsAsync(operationCancellation.Token)
+                .WaitAsync(operationCancellation.Token)
+                .ConfigureAwait(false);
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             // The sync has always known when an endpoint answered from a stale cache instead
@@ -261,6 +280,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                             : DataAvailability.Current,
                 },
             });
+            return null;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -268,13 +288,23 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 "The background refresh exceeded its bounded timeout.",
                 cancellationToken).ConfigureAwait(false);
             _logger.LogWarning("The game-data refresh exceeded {RefreshTimeout}.", _options.RefreshTimeout);
+            return new(
+                RuntimeFailureKind.Timeout,
+                new("data-refresh-timeout"),
+                RuntimeRecoveryAction.RetryManually,
+                new("feature:data-refresh"),
+                _timeProvider.GetUtcNow());
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             await SetRefreshErrorAsync(
                 "The refresh failed; any existing local cache remains available.",
                 cancellationToken).ConfigureAwait(false);
-            _logger.LogError(exception, "The game-data refresh failed.");
+            _logger.LogError("The game-data refresh failed; a sanitized runtime state was published.");
+            return RuntimeFault.FromException(
+                exception,
+                _timeProvider,
+                new("feature:data-refresh"));
         }
         finally
         {
@@ -284,21 +314,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _stopping.CancelAsync().ConfigureAwait(false);
-        await _observationService.DisposeAsync().ConfigureAwait(false);
-        if (_backgroundRefresh is not null)
-        {
-            try
-            {
-                await _backgroundRefresh.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-        }
-
+        _supervisor.Changed -= PublishSupervisorState;
+        _lifecycle.Changed -= PublishLifecycleState;
+        await _lifecycle.StopAsync().ConfigureAwait(false);
+        await _supervisor.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        await _supervisor.DisposeAsync().ConfigureAwait(false);
         _refreshLock.Dispose();
-        _stopping.Dispose();
     }
 
     private RuntimeDataState Describe(CachedDataSnapshot cached)
@@ -320,7 +341,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 0,
                 cached.SyncedEndpointCount,
                 cached.LastSuccessUtc,
-                cached.LastError ?? "No local game data");
+                cached.LastError is null
+                    ? "No local game data"
+                    : "The last local game-data operation failed.");
         }
 
         if (_options.Offline)
@@ -352,21 +375,14 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// </remarks>
     private async Task WarmCatalogsAsync(CancellationToken cancellationToken)
     {
-        try
-        {
-            var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
-            var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
-            _needAggregation.Update(quest, hideout);
+        var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        _needAggregation.Update(quest, hideout);
 
-            // The game names the map in its log with an internal token; upstream publishes
-            // that token beside the map id, so the parser learns the pairing instead of
-            // carrying a hand-written table of guesses.
-            _logParser.UpdateAliases(await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false));
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _logger.LogWarning(exception, "The requirement catalog could not be preloaded.");
-        }
+        // The game names the map in its log with an internal token; upstream publishes
+        // that token beside the map id, so the parser learns the pairing instead of
+        // carrying a hand-written table of guesses.
+        _logParser.UpdateAliases(await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false));
     }
 
     private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
@@ -376,8 +392,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             return "The refresh reported success but no game items were stored.";
         }
 
-        var named = errors.Select(endpoint => $"{endpoint.Endpoint} ({endpoint.Error})");
-        return $"No game items are available; {errors.Count} endpoint refresh(es) failed: {string.Join("; ", named)}";
+        return $"No game items are available; {errors.Count} endpoint refresh(es) failed.";
     }
 
     private bool NeedsRefresh(RuntimeDataState data) =>
@@ -401,7 +416,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(exception, "The post-failure data snapshot could not be read.");
+            _logger.LogWarning("The post-failure data snapshot could not be read.");
         }
 
         _stateStore.Update(current => current with
@@ -414,4 +429,139 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             },
         });
     }
+
+    private IReadOnlyList<RuntimeFeatureDefinition> BuildFeatureGraph()
+    {
+        var database = new RuntimeFeatureId("database");
+        var cachedData = new RuntimeFeatureId("cached-data");
+        var profile = new RuntimeFeatureId("profile");
+        var raidHistoryRepair = new RuntimeFeatureId("raid-history-repair");
+        return
+        [
+            new(
+                database,
+                FeatureStartupPriority.WorkspaceCritical,
+                [],
+                InitializeDataStoreAsync),
+            new(
+                cachedData,
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(database, FeatureDependencyKind.Hard)],
+                LoadCachedDataAsync),
+            new(
+                profile,
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(database, FeatureDependencyKind.Hard)],
+                LoadProfileAsync),
+            new(
+                new("scanner"),
+                FeatureStartupPriority.WorkspaceCritical,
+                [],
+                InitializeScannerAsync),
+            new(
+                raidHistoryRepair,
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(database, FeatureDependencyKind.Optional)],
+                _raidActivityCoordinator.CloseAbandonedAsync),
+            new(
+                new("observation"),
+                FeatureStartupPriority.WorkspaceCritical,
+                // Repair improves the record but observation is the irreplaceable input. A
+                // failed or timed-out repair therefore degrades observation; it must never
+                // prevent the watcher from starting.
+                [new(raidHistoryRepair, FeatureDependencyKind.Optional)],
+                StartObservationAsync,
+                _ => _observationService.DisposeAsync().AsTask()),
+            new(
+                new("demo-raid"),
+                FeatureStartupPriority.Normal,
+                [new(cachedData, FeatureDependencyKind.Hard)],
+                InitializeDemoRaidAsync),
+            new(
+                new("catalog-warmup"),
+                FeatureStartupPriority.Normal,
+                [new(cachedData, FeatureDependencyKind.Optional)],
+                WarmCatalogsAsync),
+            new(
+                new("group-session"),
+                FeatureStartupPriority.Normal,
+                [],
+                StartGroupSessionAsync),
+        ];
+    }
+
+    private async Task InitializeDataStoreAsync(CancellationToken cancellationToken)
+    {
+        await _dataStore.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_options.DemoMode)
+        {
+            await _dataStore.SeedDemoAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Loading one projection may still fail independently. The database itself became
+        // ready when initialization (and the optional fixture seed) completed, so preserve
+        // that measured fact instead of letting an unrelated reader report it unavailable.
+        _stateStore.Update(current => current with { DatabaseReady = true });
+    }
+
+    private async Task LoadCachedDataAsync(CancellationToken cancellationToken)
+    {
+        var cached = await _dataStore.LoadSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        _stateStore.Update(current => current with
+        {
+            Data = Describe(cached),
+        });
+    }
+
+    private async Task LoadProfileAsync(CancellationToken cancellationToken)
+    {
+        var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
+        _stateStore.Update(current => current with { Profile = profile });
+    }
+
+    private Task InitializeScannerAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _stateStore.Update(current => current with { Scan = DescribeScanner() });
+        return Task.CompletedTask;
+    }
+
+    private async Task InitializeDemoRaidAsync(CancellationToken cancellationToken)
+    {
+        if (!_options.DemoMode)
+        {
+            return;
+        }
+
+        var now = _timeProvider.GetUtcNow();
+        await _raidActivityCoordinator.ApplyEvidenceAsync(
+            new(
+                RaidEvidenceKind.Simulator,
+                now,
+                "customs",
+                RaidLifecycleState.InRaid,
+                new Confidence(0.95),
+                "Deterministic demo fixture selected Customs."),
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task StartObservationAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _observationService.Start();
+        return Task.CompletedTask;
+    }
+
+    private Task StartGroupSessionAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _groupSession?.Start();
+        return Task.CompletedTask;
+    }
+
+    private void PublishSupervisorState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Supervisor = _supervisor.Snapshot });
+
+    private void PublishLifecycleState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Lifecycle = _lifecycle.Snapshot });
 }
