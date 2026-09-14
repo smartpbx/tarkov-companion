@@ -130,15 +130,16 @@ public sealed class CaptureAndWorkspaceContractTests
     }
 
     [Theory]
-    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 0)]
-    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0)]
-    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 8, 0)]
-    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 6, 0)]
-    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 6, 5)]
-    public void AcknowledgementStatesItsRevisionsAndVersions(
-        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor)
+    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0, false)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 6, 0, false)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 6, 5, false)]
+    public void AcknowledgementStatesItsRevisionsVersionsAndAppliedChangeIdentity(
+        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor, bool sameAppliedChange)
     {
-        var acknowledgement = Acknowledge(disposition, requested, applied, new V2ContractVersion(2, requestedMinor));
+        var acknowledgement = Acknowledge(
+            disposition, requested, applied, new V2ContractVersion(2, requestedMinor), sameAppliedChange);
 
         var roundTrip = JsonSerializer.Deserialize<StateAcknowledgement>(
             JsonSerializer.Serialize(acknowledgement, V2ContractJson.Options), V2ContractJson.Options)!;
@@ -147,20 +148,56 @@ public sealed class CaptureAndWorkspaceContractTests
         Assert.Equal(applied, roundTrip.AppliedRevision.Value);
         Assert.Equal(disposition, roundTrip.Disposition);
         Assert.Equal(V2ContractVersion.Current, roundTrip.ReceiverContractVersion);
+        Assert.Equal(sameAppliedChange ? ChangeId() : OtherChangeId(), roundTrip.AppliedChangeId);
+    }
+
+    [Fact]
+    public void DuplicateDeliveryAndDivergentChangeAtTheSameRevisionAreDistinguishedByAppliedChangeId()
+    {
+        // Simultaneous desktop/tablet control: both computed a change against the same prior
+        // revision, so both target revision 8. Only the one that actually landed matches change ids.
+        var duplicate = Acknowledge(AcknowledgementDisposition.Applied, 8, 8, V2ContractVersion.Current, sameAppliedChange: true);
+        var divergent = Acknowledge(AcknowledgementDisposition.RejectedConflict, 8, 8, V2ContractVersion.Current, sameAppliedChange: false);
+
+        Assert.Equal(duplicate.ChangeId, duplicate.AppliedChangeId);
+        Assert.NotEqual(divergent.ChangeId, divergent.AppliedChangeId);
     }
 
     [Theory]
-    [InlineData(AcknowledgementDisposition.Applied, 8, 7, 0)]
-    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 7, 0)]
-    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0)]
-    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 7, 0)]
-    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 5)]
-    [InlineData(AcknowledgementDisposition.Applied, 0, 0, 0)]
+    [InlineData(AcknowledgementDisposition.Applied, 8, 7, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 8, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 7, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0, true)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 7, 0, false)]
+    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 5, true)]
+    [InlineData(AcknowledgementDisposition.Applied, 0, 0, 0, false)]
     public void AcknowledgementRejectsInconsistentOutcomes(
-        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor)
+        AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor, bool sameAppliedChange)
     {
         Assert.ThrowsAny<ArgumentException>(() =>
-            Acknowledge(disposition, requested, applied, new V2ContractVersion(2, requestedMinor)));
+            Acknowledge(disposition, requested, applied, new V2ContractVersion(2, requestedMinor), sameAppliedChange));
+    }
+
+    [Fact]
+    public void AppliedRevisionZeroAndAppliedChangeIdMustAgree()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Acknowledge(AcknowledgementDisposition.UnsupportedVersion, 8, 0, new V2ContractVersion(2, 5), sameAppliedChange: true));
+        Assert.Throws<ArgumentException>(() => new StateAcknowledgement(
+            new StateStreamId("map.marks"),
+            ChangeId(),
+            new StateRevision(8),
+            new StateRevision(0),
+            OtherChangeId(),
+            AcknowledgementDisposition.RejectedConflict,
+            new V2ContractVersion(2, 0),
+            V2ContractVersion.Current,
+            Origin,
+            V2ContractTestData.ObservedUtc));
+
+        var acknowledgement = Acknowledge(
+            AcknowledgementDisposition.UnsupportedVersion, 8, 0, new V2ContractVersion(2, 5), sameAppliedChange: false);
+        Assert.Null(acknowledgement.AppliedChangeId);
     }
 
     [Fact]
@@ -187,12 +224,20 @@ public sealed class CaptureAndWorkspaceContractTests
 
     private static StateChangeId ChangeId() => new(Guid.Parse("10000000-0000-0000-0000-000000000004"));
 
+    private static StateChangeId OtherChangeId() => new(Guid.Parse("10000000-0000-0000-0000-000000000005"));
+
+    // sameAppliedChange picks whether the change occupying AppliedRevision is this acknowledged
+    // change (a first apply, or a safe duplicate redelivery of it) or a different one (a
+    // same-revision divergent change from simultaneous desktop/tablet control). AppliedRevision
+    // zero always carries no applied change id, per the zero-means-no-applied-state invariant.
     private static StateAcknowledgement Acknowledge(
-        AcknowledgementDisposition disposition, long requested, long applied, V2ContractVersion requestedVersion) => new(
+        AcknowledgementDisposition disposition, long requested, long applied, V2ContractVersion requestedVersion,
+        bool sameAppliedChange) => new(
         new StateStreamId("map.marks"),
         ChangeId(),
         new StateRevision(requested),
         new StateRevision(applied),
+        applied == 0 ? (sameAppliedChange ? ChangeId() : null) : (sameAppliedChange ? ChangeId() : OtherChangeId()),
         disposition,
         requestedVersion,
         V2ContractVersion.Current,

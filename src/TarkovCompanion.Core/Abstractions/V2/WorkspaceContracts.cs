@@ -205,11 +205,20 @@ public enum AcknowledgementDisposition
 
 /// <summary>
 /// The receiver's answer to one change. <see cref="RequestedRevision"/> is the revision the
-/// change carried; <see cref="AppliedRevision"/> is the receiver's stream revision after
-/// handling it. Applied means they are equal; stale means the receiver already holds that
-/// revision or a later one; conflict means the receiver holds an earlier, divergent revision;
-/// an unsupported version means the receiver cannot read the change's contract version and left
-/// its stream untouched.
+/// change carried; <see cref="AppliedRevision"/> is the receiver's stream revision after handling
+/// it; <see cref="AppliedChangeId"/> is the identity of whichever change occupies
+/// <see cref="AppliedRevision"/> in the receiver's stream, or null when nothing has been applied
+/// yet (<see cref="AppliedRevision"/> is zero). Desktop and a paired tablet can compute a change
+/// against the same prior revision at the same time, so two different changes can target the same
+/// requested revision; comparing <see cref="AppliedChangeId"/> to the acknowledged change's own
+/// <see cref="ChangeId"/> is what tells a redelivery of the very change that landed apart from a
+/// divergent change that landed there instead — revision numbers alone cannot. Applied means the
+/// revisions are equal and the applied change is this one (a first apply or a safe, idempotent
+/// duplicate delivery); rejected-conflict at equal revisions means the applied change is a
+/// different one — a same-revision divergent change from simultaneous desktop/tablet control;
+/// rejected-conflict below the requested revision means the receiver holds an earlier, divergent
+/// revision; stale means the receiver already holds a later revision; an unsupported version means
+/// the receiver cannot read the change's contract version and left its stream untouched.
 /// </summary>
 public sealed record StateAcknowledgement
 {
@@ -218,6 +227,7 @@ public sealed record StateAcknowledgement
         StateChangeId changeId,
         StateRevision requestedRevision,
         StateRevision appliedRevision,
+        StateChangeId? appliedChangeId,
         AcknowledgementDisposition disposition,
         V2ContractVersion requestedContractVersion,
         V2ContractVersion receiverContractVersion,
@@ -229,6 +239,9 @@ public sealed record StateAcknowledgement
         ChangeId = V2ContractGuard.Defined(changeId, nameof(changeId));
         RequestedRevision = V2ContractGuard.Positive(requestedRevision, nameof(requestedRevision));
         AppliedRevision = appliedRevision;
+        AppliedChangeId = appliedChangeId is { } appliedChange
+            ? V2ContractGuard.Defined(appliedChange, nameof(appliedChangeId))
+            : null;
         Disposition = V2ContractGuard.Defined(disposition, nameof(disposition));
         RequestedContractVersion = V2ContractGuard.Defined(requestedContractVersion, nameof(requestedContractVersion));
         ReceiverContractVersion = V2ContractGuard.Defined(receiverContractVersion, nameof(receiverContractVersion));
@@ -236,12 +249,26 @@ public sealed record StateAcknowledgement
         AcknowledgedUtc = V2ContractGuard.Utc(acknowledgedUtc, nameof(acknowledgedUtc));
         Detail = V2ContractGuard.Optional(detail);
 
+        // Zero means no applied state (see StateRevision): the two either both hold or both fail,
+        // never one without the other, regardless of how lax the caller's JSON options are.
+        if ((AppliedRevision.Value == 0) != (AppliedChangeId is null))
+        {
+            throw new ArgumentException(
+                "Applied revision zero must carry no applied change id, and a nonzero applied " +
+                "revision must name the change that occupies it.",
+                nameof(appliedChangeId));
+        }
+
         var readable = receiverContractVersion.CanRead(requestedContractVersion);
         var consistent = disposition switch
         {
-            AcknowledgementDisposition.Applied => readable && appliedRevision == requestedRevision,
-            AcknowledgementDisposition.RejectedStale => readable && appliedRevision.Value >= requestedRevision.Value,
-            AcknowledgementDisposition.RejectedConflict => readable && appliedRevision.Value < requestedRevision.Value,
+            AcknowledgementDisposition.Applied =>
+                readable && appliedRevision == requestedRevision && AppliedChangeId == changeId,
+            AcknowledgementDisposition.RejectedStale =>
+                readable && appliedRevision.Value > requestedRevision.Value,
+            AcknowledgementDisposition.RejectedConflict =>
+                readable && appliedRevision.Value < requestedRevision.Value
+                    || (readable && appliedRevision.Value == requestedRevision.Value && AppliedChangeId != changeId),
             AcknowledgementDisposition.UnsupportedVersion => !readable,
             _ => false,
         };
@@ -249,7 +276,8 @@ public sealed record StateAcknowledgement
         if (!consistent)
         {
             throw new ArgumentException(
-                $"{disposition} is inconsistent with revisions {requestedRevision.Value}/{appliedRevision.Value} " +
+                $"{disposition} is inconsistent with revisions {requestedRevision.Value}/{appliedRevision.Value}, " +
+                $"change ids {changeId.Value}/{AppliedChangeId?.Value}, " +
                 $"and versions {requestedContractVersion}/{receiverContractVersion}.",
                 nameof(disposition));
         }
@@ -262,6 +290,8 @@ public sealed record StateAcknowledgement
     public StateRevision RequestedRevision { get; }
 
     public StateRevision AppliedRevision { get; }
+
+    public StateChangeId? AppliedChangeId { get; }
 
     public AcknowledgementDisposition Disposition { get; }
 
