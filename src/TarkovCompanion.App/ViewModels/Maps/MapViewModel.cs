@@ -351,7 +351,32 @@ public sealed record QuestPanelViewModel(
     string Task,
     string Objectives,
     bool IsPinned,
-    bool IsApproximate);
+    bool IsApproximate)
+{
+    /// <summary>
+    /// What to have on you before the raid starts, or empty where nothing is asked.
+    /// </summary>
+    /// <remarks>
+    /// The map arrives about a minute before the raid does, and that minute is the last one in
+    /// which any of this can be acted on. Afterwards it is a list of what could have been
+    /// brought.
+    ///
+    /// Kept apart from the hand-in line because they are different mistakes made at different
+    /// moments: a key you forgot is a raid you cannot finish, and an item you meant to hand in
+    /// is a raid you finish and then repeat.
+    /// </remarks>
+    public string Bring { get; init; } = string.Empty;
+
+    /// <summary>What the quest wants handed over, or empty where nothing is.</summary>
+    public string HandIn { get; init; } = string.Empty;
+
+    public bool HasBring => Bring.Length > 0;
+
+    public bool HasHandIn => HandIn.Length > 0;
+
+    /// <summary>Whether this row has anything to say before the raid rather than during it.</summary>
+    public bool HasBrief => HasBring || HasHandIn;
+}
 
 /// <summary>
 /// One place another player could have started this raid, beside the map.
@@ -1274,6 +1299,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly MapVariantSelectionService _selectionService;
     private readonly IPlayerProfileService? _profileService;
     private readonly IMapFeatureCatalog? _featureCatalog;
+    private readonly IItemRepository? _itemRepository;
+    private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
     private readonly IQuestReadService? _questReadService;
     private readonly QuestMapProjectionService? _questProjectionService;
     private readonly MapPresentationService _presentationService = new();
@@ -1352,7 +1379,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IPlayerProfileService profileService,
         IQuestReadService questReadService,
         QuestMapProjectionService questProjectionService,
-        IMapFeatureCatalog? featureCatalog = null)
+        IMapFeatureCatalog? featureCatalog = null,
+        IItemRepository? itemRepository = null)
         : this(
             null,
             catalogClient,
@@ -1361,7 +1389,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             profileService,
             questReadService,
             questProjectionService,
-            featureCatalog)
+            featureCatalog,
+            itemRepository)
     {
     }
 
@@ -1373,13 +1402,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IPlayerProfileService? profileService,
         IQuestReadService? questReadService,
         QuestMapProjectionService? questProjectionService,
-        IMapFeatureCatalog? featureCatalog = null)
+        IMapFeatureCatalog? featureCatalog = null,
+        IItemRepository? itemRepository = null)
     {
         RemoveMarkCommand = new ParameterCommand<MarkListItemViewModel>(RemoveMark);
         ClearReachedMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: true));
         ClearMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: false));
         _ownedHttpClient = ownedHttpClient;
         _featureCatalog = featureCatalog;
+        _itemRepository = itemRepository;
         _catalogClient = catalogClient;
         _assetCache = assetCache;
         _selectionService = selectionService;
@@ -2796,10 +2827,12 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     /// <summary>The grouping, exposed so it can be checked without standing up a map.</summary>
     public static IReadOnlyList<QuestPanelViewModel> SummarizeQuestsForTest(
-        IReadOnlyList<QuestMapObjectiveProjection> objectives) => SummarizeQuests(objectives);
+        IReadOnlyList<QuestMapObjectiveProjection> objectives,
+        Func<string, string>? name = null) => SummarizeQuests(objectives, name);
 
     private static IReadOnlyList<QuestPanelViewModel> SummarizeQuests(
-        IReadOnlyList<QuestMapObjectiveProjection> objectives) => objectives
+        IReadOnlyList<QuestMapObjectiveProjection> objectives,
+        Func<string, string>? name) => objectives
         .GroupBy(objective => objective.TaskName, StringComparer.Ordinal)
         .Select(group => new QuestPanelViewModel(
             group.Key,
@@ -2809,10 +2842,74 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 .Distinct(StringComparer.CurrentCultureIgnoreCase)
                 .Take(3)),
             group.Any(objective => objective.IsPinned),
-            group.All(objective => !objective.HasExactGeometry)))
+            group.All(objective => !objective.HasExactGeometry))
+        {
+            // Every objective's requirements together, because the question being answered is
+            // about the quest rather than about one of its steps: somebody packing for a raid
+            // wants one list per quest, not one per objective.
+            Bring = QuestItemRequirementFormatter.DescribeBring(
+                [.. group.SelectMany(objective => objective.ItemTargets)],
+                name),
+            HandIn = QuestItemRequirementFormatter.DescribeHandIn(
+                [.. group.SelectMany(objective => objective.ItemTargets)],
+                // Found in raid is stated per objective, and one objective requiring it is
+                // enough to change what somebody packs.
+                group.Any(objective => objective.FoundInRaidRequired == true),
+                name),
+        })
         .OrderByDescending(quest => quest.IsPinned)
         .ThenBy(quest => quest.Task, StringComparer.CurrentCultureIgnoreCase)
         .ToArray();
+
+    /// <summary>What an item is called, or its id where the catalog has not been asked yet.</summary>
+    private string NameOfItem(string itemId) =>
+        _itemNames.TryGetValue(itemId, out var name) ? name : itemId;
+
+    /// <summary>
+    /// Looks up the names of every item this map's quests ask for, once each.
+    /// </summary>
+    /// <remarks>
+    /// Awaited rather than fired and forgotten, because the panel is built immediately
+    /// afterwards and a name arriving later would need a second pass over a list that has
+    /// already been handed to the view.
+    ///
+    /// Cached across refreshes, so changing floor or reopening the map costs nothing. A quest
+    /// whose items are not in the synced catalog keeps showing ids, which is what the objective
+    /// lines beside it already do.
+    /// </remarks>
+    private async Task NameItemsAsync(
+        IReadOnlyList<QuestMapObjectiveProjection> objectives,
+        CancellationToken cancellationToken)
+    {
+        if (_itemRepository is null)
+        {
+            return;
+        }
+
+        var wanted = objectives
+            .SelectMany(objective => objective.ItemTargets)
+            .Select(target => target.ItemId)
+            .Where(itemId => !string.IsNullOrWhiteSpace(itemId) && !_itemNames.ContainsKey(itemId))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        foreach (var itemId in wanted)
+        {
+            try
+            {
+                var item = await _itemRepository.GetAsync(itemId, cancellationToken).ConfigureAwait(true);
+                if (item is not null)
+                {
+                    _itemNames[itemId] = item.Name;
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // One name that could not be read leaves one id on screen, which is the state
+                // this whole lookup is improving on rather than the state it must guarantee.
+            }
+        }
+    }
 
     public Task RefreshQuestLayerAsync() => RefreshQuestLayerAsync(CancellationToken.None);
 
@@ -2873,7 +2970,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 objective.HasExactGeometry,
                 objective.IsUnsupported,
                 objective.IsFloorFiltered)).ToArray();
-            QuestPanel = SummarizeQuests(_questProjection.Objectives);
+            // Names before the panel, because a "Bring" line naming 5c1d0c5f86f7744bb2683cf0
+            // is a line nobody can act on — which is the same defect the Quests page had until
+            // its trader ids were resolved.
+            await NameItemsAsync(_questProjection.Objectives, cancellationToken).ConfigureAwait(true);
+            QuestPanel = SummarizeQuests(_questProjection.Objectives, NameOfItem);
             UpdateQuestGeometry();
             var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
             var associationCount = _questProjection.Objectives.Count - exactCount;
