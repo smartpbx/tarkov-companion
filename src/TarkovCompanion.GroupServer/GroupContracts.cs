@@ -295,3 +295,41 @@ public sealed record GroupRoomState(
     /// <summary>Places somebody is pointing at right now, which fade.</summary>
     public IReadOnlyList<GroupPing> Pings { get; init; } = [];
 }
+
+/// <summary>One room as the admin panel shows it.</summary>
+/// <param name="Room">The hash the relay buckets members by, which is all it holds.</param>
+/// <param name="Label">What the operator called it, or null for one that is not registered.</param>
+/// <param name="Members">How many members published in the last few minutes.</param>
+public sealed record AdminRoom(string Room, string? Label, DateTimeOffset? RegisteredUtc, int Members);
+
+/// <summary>
+/// What the relay is serving and what it was meant to be serving.
+/// </summary>
+/// <param name="Closed">Whether a room has to be registered to be usable.</param>
+/// <param name="Unregistered">
+/// Rooms holding members that are not on the list. Empty is the state an operator wants; a row
+/// here is either a friend whose room predates the list, or somebody who is not a friend.
+/// </param>
+public sealed record AdminRoomsView(
+    bool Closed,
+    string Version,
+    string? Commit,
+    DateTimeOffset StartedUtc,
+    IReadOnlyList<AdminRoom> Registered,
+    IReadOnlyList<AdminRoom> Unregistered);
+
+/// <summary>
+/// Registering a room: by generated key, by an existing key, or by a room already being held.
+/// </summary>
+/// <param name="Key">A key the group already uses, or null to have one generated.</param>
+/// <param name="Room">A room hash to adopt, which takes precedence and needs no key at all.</param>
+public sealed record AdminRoomRequest(string Label, string? Key = null, string? Room = null);
+
+/// <summary>
+/// A registered room, and the key if this call generated one.
+/// </summary>
+/// <remarks>
+/// The only time a generated key exists outside the group. The relay keeps its hash and nothing
+/// else, so there is no second request that can be made to see it again.
+/// </remarks>
+public sealed record AdminRoomCreated(string Room, string Label, string? Key);

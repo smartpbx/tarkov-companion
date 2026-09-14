@@ -17,6 +17,12 @@ builder.Services.AddSingleton<GroupRooms>();
 builder.Services.AddSingleton(provider => new GroupMarks(
     provider.GetRequiredService<TimeProvider>(),
     MarksStorePath()));
+// The rooms an operator meant to exist. Beside the marks and for the same reason: the relay
+// replaces its own tree every half hour, and an allowlist that did not survive that would lock
+// the group out of their own rooms on a schedule.
+builder.Services.AddSingleton(provider => new GroupRoomRegistry(
+    provider.GetRequiredService<TimeProvider>(),
+    StorePath("rooms.json")));
 
 // Where the squad's marks are kept, or null to hold them in memory as before.
 //
@@ -25,15 +31,18 @@ builder.Services.AddSingleton(provider => new GroupMarks(
 // `rm -rf /opt/tarkov-group`, which is the whole point. TARKOV_GROUP_STATE overrides it for a
 // deployment that is not systemd, and absent both this stays memory-only, which is what every
 // test and every local run gets.
-static string? MarksStorePath()
+static string? MarksStorePath() => StorePath("marks.json");
+
+/// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>
+static string? StorePath(string fileName)
 {
     if (Environment.GetEnvironmentVariable("TARKOV_GROUP_STATE") is { Length: > 0 } explicitPath)
     {
-        return Path.Combine(explicitPath, "marks.json");
+        return Path.Combine(explicitPath, fileName);
     }
 
     return Environment.GetEnvironmentVariable("STATE_DIRECTORY") is { Length: > 0 } stateDirectory
-        ? Path.Combine(stateDirectory.Split(':')[0], "marks.json")
+        ? Path.Combine(stateDirectory.Split(':')[0], fileName)
         : null;
 }
 // One copy of the game-data catalog for the whole group, instead of five clients each pulling
@@ -60,6 +69,37 @@ builder.Services.AddSingleton<ProblemReports>();
 var app = builder.Build();
 var rooms = app.Services.GetRequiredService<GroupRooms>();
 var marks = app.Services.GetRequiredService<GroupMarks>();
+var registry = app.Services.GetRequiredService<GroupRoomRegistry>();
+
+// Which rooms may be used at all.
+//
+// A room was whatever anybody's key hashed to, so anybody who could reach this relay could be
+// in one. That is fine for a relay nobody else knows the address of and stops being fine the
+// moment one does. Once an operator has registered a room, the rooms that are registered are
+// the only ones this relay will serve.
+//
+// Before that, and with no operator secret set, nothing changes: an empty list means open. The
+// alternative — closing the instant a secret is configured, before anything has been registered
+// — would lock out every group on the relay at the moment the operator was trying to look at
+// it.
+//
+// A key that is missing or too short is left alone here so the handler can answer it the way it
+// always has. This decides which room may be used, not whether a key is a key.
+app.Use(async (context, next) =>
+{
+    TryReadKey(context.Request, out var key);
+    if (RelayAccess.Refuses(registry, context.Request.Path.Value, key))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            error = "This relay serves the rooms its operator registered, and this is not one of them.",
+        }).ConfigureAwait(false);
+        return;
+    }
+
+    await next(context).ConfigureAwait(false);
+});
 
 // Members expired only when their room was read, so a room nobody reads never forgot
 // anything, and an empty room was never removed at all. Bounded by time now rather than by
@@ -214,13 +254,7 @@ app.MapGet("/reports", Results<Ok<IReadOnlyList<StoredReport>>, UnauthorizedHttp
     HttpRequest request,
     ProblemReports reports) =>
 {
-    var admin = Environment.GetEnvironmentVariable("TARKOV_RELAY_ADMIN_KEY");
-    if (string.IsNullOrWhiteSpace(admin) ||
-        !request.Headers.TryGetValue("X-Admin-Key", out var provided) ||
-        provided.Count != 1 ||
-        !CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(provided[0] ?? string.Empty),
-            System.Text.Encoding.UTF8.GetBytes(admin)))
+    if (!RelayAdmin.IsAuthorised(request))
     {
         return TypedResults.Unauthorized();
     }
@@ -234,13 +268,7 @@ app.MapGet("/reports/{reference}", Results<Ok<string>, NotFound, UnauthorizedHtt
     HttpRequest request,
     ProblemReports reports) =>
 {
-    var admin = Environment.GetEnvironmentVariable("TARKOV_RELAY_ADMIN_KEY");
-    if (string.IsNullOrWhiteSpace(admin) ||
-        !request.Headers.TryGetValue("X-Admin-Key", out var provided) ||
-        provided.Count != 1 ||
-        !CryptographicOperations.FixedTimeEquals(
-            System.Text.Encoding.UTF8.GetBytes(provided[0] ?? string.Empty),
-            System.Text.Encoding.UTF8.GetBytes(admin)))
+    if (!RelayAdmin.IsAuthorised(request))
     {
         return TypedResults.Unauthorized();
     }
@@ -422,6 +450,111 @@ app.MapGet("/catalog/{mode}/{endpoint}", async Task<IResult> (
     }
 
     return TypedResults.Bytes(snapshot.Body, "application/json");
+});
+
+// The operator's page.
+//
+// Behind the same secret as the endpoints it calls rather than behind a login, because this is
+// one page for one person who runs one relay. It holds no secret itself: the key is typed into
+// it and kept for the session in the browser, and every request carries it.
+app.MapGet("/admin", () => Results.Content(AdminPanel.Page, "text/html; charset=utf-8"));
+
+// What the relay is serving and what it was meant to be serving, side by side.
+//
+// The second half is the useful one. The relay is holding rooms right now, and until there was
+// a list to compare them against there was no way to look at one and say whether it belonged.
+app.MapGet("/admin/rooms", Results<Ok<AdminRoomsView>, UnauthorizedHttpResult> (HttpRequest request) =>
+{
+    if (!RelayAdmin.IsAuthorised(request))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    var occupancy = rooms.Occupancy();
+    var registered = registry.List()
+        .Select(room => new AdminRoom(room.Room, room.Label, room.CreatedUtc, occupancy.GetValueOrDefault(room.Room)))
+        .ToArray();
+    var known = registered.Select(room => room.Room).ToHashSet(StringComparer.Ordinal);
+    var unregistered = occupancy
+        .Where(entry => !known.Contains(entry.Key))
+        .OrderByDescending(entry => entry.Value)
+        .Select(entry => new AdminRoom(entry.Key, null, null, entry.Value))
+        .ToArray();
+
+    return TypedResults.Ok(new AdminRoomsView(
+        registry.IsClosed,
+        version,
+        commit,
+        startedUtc,
+        registered,
+        unregistered));
+});
+
+// Registers a room: generating a key, adopting one the group already uses, or adopting a room
+// this relay is already holding by its hash.
+//
+// A generated key is in the response to this request and nowhere else. The relay stores its
+// hash, the same as it does for every other room, so there is no second copy of it anywhere and
+// no way to ask for it again.
+app.MapPost("/admin/rooms", Results<Ok<AdminRoomCreated>, UnauthorizedHttpResult, BadRequest<string>> (
+    AdminRoomRequest body,
+    HttpRequest request) =>
+{
+    if (!RelayAdmin.IsAuthorised(request))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    if (string.IsNullOrWhiteSpace(body.Label))
+    {
+        return TypedResults.BadRequest("A room needs a label, so the list means something later.");
+    }
+
+    if (body.Label.Length > 60)
+    {
+        return TypedResults.BadRequest("A label may be at most 60 characters.");
+    }
+
+    if (!string.IsNullOrWhiteSpace(body.Room))
+    {
+        var adopted = registry.Adopt(body.Room.Trim(), body.Label);
+        return adopted is null
+            ? TypedResults.BadRequest("That room is already registered, or the list is full.")
+            : TypedResults.Ok(new AdminRoomCreated(adopted.Room, adopted.Label, null));
+    }
+
+    if (body.Key is not null && !GroupKey.IsAcceptable(body.Key))
+    {
+        return TypedResults.BadRequest(
+            $"A key is between {GroupKey.MinimumLength} and {GroupKey.MaximumLength} characters.");
+    }
+
+    var created = registry.Add(body.Label, body.Key);
+    return created is null
+        ? TypedResults.BadRequest("That key is already registered, or the list is full.")
+        : TypedResults.Ok(new AdminRoomCreated(created.Value.Room.Room, created.Value.Room.Label, created.Value.Key));
+});
+
+// Removes a room, and forgets whoever was in it.
+//
+// Both halves, because leaving the members behind would mean a room that is no longer allowed
+// still had people visible in it until their entries expired on their own.
+app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResult> (
+    string room,
+    HttpRequest request) =>
+{
+    if (!RelayAdmin.IsAuthorised(request))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    if (!registry.Remove(room))
+    {
+        return TypedResults.NotFound();
+    }
+
+    rooms.Clear(room);
+    return TypedResults.Ok();
 });
 
 app.Run();

@@ -218,6 +218,57 @@ public sealed class GroupRoomBoundsTests
         Assert.Equal(1, rooms.MemberCount);
     }
 
+    /// <summary>
+    /// An operator can see that a room is in use, and nothing else about it.
+    /// </summary>
+    /// <remarks>
+    /// This is what the admin panel lists an unregistered room from, so it has to be enough to
+    /// recognise that somebody is there and not enough to learn anything about them. Counts
+    /// against room hashes: no names, no positions, no kit.
+    /// </remarks>
+    [Fact]
+    public void OccupancyCountsMembersAndNamesNobody()
+    {
+        var rooms = new GroupRooms(TimeProvider.System);
+        rooms.Publish("room-a", "Geo", Member("Geo"));
+        rooms.Publish("room-a", "Clay", Member("Clay"));
+        rooms.Publish("room-b", "Max", Member("Max"));
+
+        var occupancy = rooms.Occupancy();
+
+        Assert.Equal(2, occupancy["room-a"]);
+        Assert.Equal(1, occupancy["room-b"]);
+    }
+
+    [Fact]
+    public void AnEmptiedRoomIsNotCountedAsInUse()
+    {
+        // A room whose members have all stopped publishing would otherwise show as occupied in
+        // the panel until something read it, and an operator would be adopting rooms that
+        // nobody is in.
+        var clock = new Clock();
+        var rooms = new GroupRooms(clock);
+        rooms.Publish("room-a", "Geo", Member("Geo"));
+
+        clock.Advance(TimeSpan.FromMinutes(5));
+
+        Assert.Empty(rooms.Occupancy());
+    }
+
+    [Fact]
+    public void ClearingARoomForgetsEveryoneInIt()
+    {
+        // What removing a room from the list has to do as well. Leaving the members behind
+        // would mean a room that is no longer allowed still had people visible in it.
+        var rooms = new GroupRooms(TimeProvider.System);
+        rooms.Publish("room-a", "Geo", Member("Geo"));
+
+        rooms.Clear("room-a");
+
+        Assert.Empty(rooms.Read("room-a", "Clay").Members);
+        Assert.Empty(rooms.Occupancy());
+    }
+
     private static GroupMemberState Member(string name, IReadOnlyList<GroupObservedMember>? observed = null) => new(
         name, "bigmap", "InRaid", "pmc", 1, 2, 90, 0, [], [])
     {

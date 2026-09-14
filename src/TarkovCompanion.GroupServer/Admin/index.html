@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Tarkov Companion — relay</title>
+<style>
+  :root {
+    --ground: #0b1016;
+    --panel: #131b24;
+    --inset: #0e151d;
+    --line: #22303d;
+    --text: #dce5ee;
+    --quiet: #8f9ba6;
+    --ochre: #c7a66b;
+    --sage: #77b895;
+    --alarm: #c77b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--text);
+    font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: .02em; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--quiet); margin: 0 0 10px; font-weight: 600; }
+  .quiet { color: var(--quiet); font-size: 13px; }
+  .bad { color: var(--alarm); }
+  .good { color: var(--sage); }
+  input, button {
+    font: inherit; color: var(--text); background: var(--inset);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+  }
+  input { min-width: 0; }
+  button { cursor: pointer; }
+  button.primary { background: var(--ochre); color: #1b1710; border-color: var(--ochre); font-weight: 600; }
+  button:active { transform: translateY(1px); }
+  main { padding: 16px; display: grid; gap: 14px; max-width: 880px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .row {
+    border: 1px solid var(--line); background: var(--inset); border-radius: 8px;
+    padding: 9px 11px; margin-bottom: 8px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .row:last-child { margin-bottom: 0; }
+  .grow { flex: 1 1 180px; min-width: 0; }
+  .name { font-weight: 600; }
+  .hash { color: var(--quiet); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+  .empty { color: var(--quiet); font-size: 13px; }
+  .form { display: flex; gap: 8px; flex-wrap: wrap; }
+  .form input { flex: 1 1 160px; }
+  .note { color: var(--quiet); font-size: 13px; margin: 10px 0 0; }
+  .shout {
+    border: 1px solid var(--ochre); border-radius: 8px; padding: 11px;
+    margin-top: 10px; background: var(--inset);
+  }
+  .shout code { font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Relay</h1>
+  <span class="quiet" id="build">—</span>
+  <span class="grow"></span>
+  <input id="key" type="password" placeholder="Admin key" autocomplete="off">
+  <button class="primary" id="load">Load</button>
+</header>
+
+<main>
+  <section>
+    <h2>Access</h2>
+    <div id="access" class="empty">Type the admin key.</div>
+  </section>
+
+  <section>
+    <h2>Registered rooms</h2>
+    <div id="registered"></div>
+    <div class="form" style="margin-top:10px">
+      <input id="label" placeholder="Room name, for you">
+      <input id="existing" placeholder="Existing key, or blank for a new one" autocomplete="off">
+      <button class="primary" id="add">Add</button>
+    </div>
+    <p class="note">A generated key is shown once here and nowhere else. The relay keeps only its hash.</p>
+    <div id="created"></div>
+  </section>
+
+  <section>
+    <h2>In use, not registered</h2>
+    <div id="unregistered"></div>
+    <p class="note">Adopt a room to keep the friends already in it. Registering the first room closes the relay to every other one.</p>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const keyBox = $("key");
+
+// Kept for the tab rather than saved, so a shared machine does not keep it.
+try { keyBox.value = sessionStorage.getItem("relay-admin") || ""; } catch { /* private window */ }
+
+async function call(path, options) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { "X-Admin-Key": keyBox.value, "Content-Type": "application/json", ...(options?.headers || {}) },
+  });
+  if (response.status === 401) { throw new Error("That key was not accepted."); }
+  if (!response.ok) { throw new Error(await response.text() || `The relay answered ${response.status}.`); }
+  return response.status === 200 && response.headers.get("content-type")?.includes("json")
+    ? response.json()
+    : null;
+}
+
+function row(children) {
+  const element = document.createElement("div");
+  element.className = "row";
+  children.forEach((child) => element.appendChild(child));
+  return element;
+}
+
+function text(value, className) {
+  const element = document.createElement("div");
+  if (className) { element.className = className; }
+  element.textContent = value;
+  return element;
+}
+
+function roomRow(room, action) {
+  const left = document.createElement("div");
+  left.className = "grow";
+  left.appendChild(text(room.label || "Not registered", "name"));
+  left.appendChild(text(room.room, "hash"));
+  const members = text(
+    room.members === 1 ? "1 member" : `${room.members} members`,
+    room.members > 0 ? "good" : "quiet");
+  return row(action ? [left, members, action] : [left, members]);
+}
+
+function button(label, onClick, className) {
+  const element = document.createElement("button");
+  element.textContent = label;
+  if (className) { element.className = className; }
+  element.addEventListener("click", onClick);
+  return element;
+}
+
+async function refresh() {
+  try {
+    sessionStorage.setItem("relay-admin", keyBox.value);
+  } catch { /* private window */ }
+
+  let view;
+  try {
+    view = await call("/admin/rooms");
+  } catch (error) {
+    $("access").textContent = error.message;
+    $("access").className = "bad";
+    return;
+  }
+
+  $("build").textContent = view.commit
+    ? `${view.version} · ${view.commit.slice(0, 7)} · up since ${new Date(view.startedUtc).toLocaleString()}`
+    : `${view.version} · up since ${new Date(view.startedUtc).toLocaleString()}`;
+
+  $("access").textContent = view.closed
+    ? `Closed. Only the ${view.registered.length} rooms below may be used.`
+    : "Open. Any key makes a room. Register one to close it.";
+  $("access").className = view.closed ? "good" : "quiet";
+
+  const registered = $("registered");
+  registered.replaceChildren();
+  if (view.registered.length === 0) {
+    registered.appendChild(text("None yet.", "empty"));
+  }
+  view.registered.forEach((room) => {
+    registered.appendChild(roomRow(room, button("Remove", async () => {
+      await call(`/admin/rooms/${encodeURIComponent(room.room)}`, { method: "DELETE" });
+      refresh();
+    })));
+  });
+
+  const unregistered = $("unregistered");
+  unregistered.replaceChildren();
+  if (view.unregistered.length === 0) {
+    unregistered.appendChild(text("None. Every room in use is one you registered.", "empty"));
+  }
+  view.unregistered.forEach((room) => {
+    unregistered.appendChild(roomRow(room, button("Adopt", async () => {
+      const label = prompt("What should this room be called?");
+      if (!label) { return; }
+      await call("/admin/rooms", { method: "POST", body: JSON.stringify({ label, room: room.room }) });
+      refresh();
+    }, "primary")));
+  });
+}
+
+$("load").addEventListener("click", refresh);
+keyBox.addEventListener("keydown", (event) => { if (event.key === "Enter") { refresh(); } });
+
+$("add").addEventListener("click", async () => {
+  const label = $("label").value.trim();
+  const created = $("created");
+  created.replaceChildren();
+  if (!label) {
+    created.appendChild(text("A room needs a name.", "bad"));
+    return;
+  }
+
+  try {
+    const existing = $("existing").value.trim();
+    const result = await call("/admin/rooms", {
+      method: "POST",
+      body: JSON.stringify({ label, key: existing || null }),
+    });
+    $("label").value = "";
+    $("existing").value = "";
+    if (result.key) {
+      const shout = document.createElement("div");
+      shout.className = "shout";
+      shout.appendChild(text(`${result.label} — send this key to the group. It is not shown again.`, "quiet"));
+      const code = document.createElement("code");
+      code.textContent = result.key;
+      shout.appendChild(code);
+      created.appendChild(shout);
+    }
+    refresh();
+  } catch (error) {
+    created.appendChild(text(error.message, "bad"));
+  }
+});
+
+if (keyBox.value) { refresh(); }
+</script>
+</body>
+</html>

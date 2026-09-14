@@ -70,6 +70,21 @@ The admin key is in two places and nowhere else: the repository secret
 CT 115. It is not the group key — any member of any group holds one of those, and this lists
 every group's reports.
 
+## The relay panel
+
+`https://<relay>/admin`, with the same admin key typed into the page. It shows which build is
+running and how long it has been up, which rooms are registered, and — the row that matters —
+which rooms currently have members and are **not** registered.
+
+By default the relay serves any room anybody's key hashes to. Registering the first room closes
+it to every other one, so the order is: open the panel, adopt each room that has your friends in
+it, then check that the unregistered list is empty. See `docs/GROUP_RELAY.md` for what the three
+ways of registering a room mean.
+
+The list is `rooms.json` in the relay's state directory (`/var/lib/tarkov-group`), which is
+outside the tree the updater replaces, so it survives the half-hourly update. Deleting that file
+reopens the relay; it never locks anybody out permanently.
+
 A report carries no game logs, no group key, no screenshots and no coordinates; user folder
 names are replaced. It does carry the *shape* of the player's screenshot names, with every
 digit masked, which is the thing that usually settles why somebody has no position.
