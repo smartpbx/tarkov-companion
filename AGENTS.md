@@ -1,5 +1,8 @@
 # Tarkov Companion Permanent Agent Rules
 
+Read the rules below before touching anything. **Where to read what** at the end of this file is
+the orientation map: what this project is, how it works, and what it is meant to become.
+
 ## Workstation safety — non-negotiable
 
 This repository triggered two workstation hard lockups on 2026-09-10. A local
@@ -70,3 +73,46 @@ These rules override every conflicting instruction elsewhere in this repository:
 - Coordinate contract changes through the integration owner.
 - Do not edit another agent's owned files or cherry-pick/merge into `main`.
 - Commit completed work with a focused message and include test evidence in the handoff.
+
+## Where to read what
+
+Start here, in this order. Everything below is in the repository; nothing important about this
+project lives only in somebody's head or only in an issue.
+
+| Question | File |
+| --- | --- |
+| What is this and what does it do? | `README.md` |
+| What may it never do? | `docs/SAFETY.md`, enforced by `scripts/audit-safety.sh` |
+| How is it put together? | `docs/ARCHITECTURE.md` |
+| Why is it built that way? | `docs/adr/`, one file per decision |
+| What is it for, as a product? | `docs/PRODUCT.md` |
+| What is left to do? | GitHub issues, then `docs/BACKLOG.md` for what has no issue |
+| How do I work on it? | `CONTRIBUTING.md` — branches, worktrees, the verification gate |
+| How do I run the tests? | `docs/TESTING.md`, and never on the workstation |
+
+Then by subject, when the task touches one:
+
+| Subject | File |
+| --- | --- |
+| The map: tiles, layers, projection, markers | `docs/MAPS.md` |
+| Screenshots, OCR, what the game actually writes | `docs/RECOGNITION.md`, `docs/research/EFT_SCREENSHOT_FACTS.md` |
+| The game's logs, line by line | `docs/research/EFT_LOG_FACTS.md` |
+| The database and its migrations | `docs/DATABASE.md` |
+| Where the game data comes from | `docs/DATA_SOURCES.md` |
+| The group relay's protocol | `docs/GROUP_RELAY.md` |
+| Running and deploying the relay | `deploy/group-server/README.md` |
+| Where things run, and what to do when they break | `docs/OPERATIONS.md` |
+| Licences and third-party obligations | `docs/LICENSING.md` |
+| Windows packaging and verification | `docs/WINDOWS.md`, `docs/WINDOWS_VERIFICATION.md` |
+
+Three habits this repository has, which are not obvious from the code:
+
+1. **A remark says why, not what.** The comment on a class is usually the history of a bug that
+   class exists to prevent. Read it before changing the thing it guards, and when you fix
+   something subtle, leave the same kind of note behind.
+2. **A claim is measured, not asserted.** "The catalog publishes interior bounds" became useful
+   only once somebody counted them. Numbers in docs and commit messages are expected to be real
+   and reproducible.
+3. **The sweeps are ratchets.** `scripts/sweep-prose.sh`, `scripts/sweep-unread.sh` and
+   `scripts/audit-safety.sh` fail the build rather than warn. If one blocks you, the answer is
+   almost never to add an allowlist entry.

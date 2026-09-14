@@ -8,9 +8,10 @@ Platform.Windows ───┼──> Application ──> Core
 Infrastructure ─────┘         │
                               └── contracts implemented by outer layers
 EftSimulator ─────────────> App/Application test seams
+GroupServer ──────────────> Core            (a second executable; see "The group relay")
 ```
 
-`Core` contains immutable domain records, deterministic calculations, and boundary interfaces that do not require platform or I/O packages. `Application` coordinates use cases. `Infrastructure` owns HTTP, SQLite, caching, OCR/image recognition, and optional external progress import. `Platform.Windows` owns ordinary Windows window discovery, capture, hotkeys, monitors, path discovery, watchers, and secrets. `App` owns Avalonia views and ViewModels only.
+`Core` contains immutable domain records, deterministic calculations, and boundary interfaces that do not require platform or I/O packages. `Application` coordinates use cases. `Infrastructure` owns HTTP, SQLite, caching, OCR/image recognition, and optional external progress import. `Platform.Windows` owns ordinary Windows window discovery, capture, monitors, path discovery, watchers, and secrets. It owned a global hotkey and no longer does: the window's own key bindings fire only when the companion has focus, which is the correct behaviour beside a fullscreen game. `App` owns Avalonia views and ViewModels only.
 
 ## Runtime flow
 
@@ -26,11 +27,53 @@ The same import planner accepts the optional TarkovTracker snapshot adapter. On 
 
 A user scan captures visible pixels into memory, detects a context, obtains OCR/icon candidates, resolves canonical item or extract IDs, and only then invokes recommendation/economy services. Capture bytes are discarded by default.
 
-The executable currently composes `IScanUseCase` through an `IScanAdapter` seam. Demo mode registers a deterministic adapter that resolves a seeded item through the real item and recommendation services; normal mode registers an honest unavailable adapter until the production recognition work provides an implementation. The authenticated developer diagnostic channel invokes this same use case.
+The executable composes `IScanUseCase` through an `IScanAdapter` seam. Demo mode registers a deterministic adapter that resolves a seeded item through the real item and recommendation services. Windows registers `RecognitionScanAdapter` over the real recogniser — the one built into Windows where it is present, Tesseract otherwise, and Settings says which is actually running. Everything else registers an honest unavailable adapter rather than a silent no-op. The authenticated developer diagnostic channel invokes this same use case.
 
 Game logs and screenshot filenames are independent, evidence-based inputs to the raid state. Screenshot filenames update only the player's last-known position and always carry freshness. The strategy engine consumes public/static map inputs and never consumes enemy observations.
 
 `RaidActivityCoordinator` records raid starts, evidence transitions, positions, extracts, successful scans, and raid completion through `IRaidHistoryService`. History stores structured JSON event payloads and summary rows only; captured pixels are never persisted.
+
+## The group relay
+
+`TarkovCompanion.GroupServer` is a second executable, an ASP.NET minimal-API application that
+depends on `Core` and nothing else in this solution. It is deployed on its own and updates
+itself; the client works completely without it and sends nothing while group sharing is off.
+
+Four things live there, and the reason they live there rather than in the client is the same
+each time: they are the parts that only make sense between people.
+
+**The room.** A group agrees one key. The relay never sees it — it hashes it and buckets
+members by that hash, so a room's name is not discoverable from outside and the relay holds no
+secret to leak. Members publish themselves and are answered with everyone else in one exchange,
+so there is no subscription to hold open and a companion that is not running shows nothing. A
+member is forgotten three minutes after they stop publishing, and observations about anybody
+outside the room are pruned on the way in *and* on the way out, because the game describes
+every member of an in-game party and a five-man filled from matchmaking carries a stranger.
+
+**Marks.** Waypoints are a plan and persist; pings mean "look here" and expire in forty-five
+seconds, so one restored from disk would be a lie. They ride along on the exchange the client
+already makes, rather than a second endpoint to poll.
+
+**The catalog mirror.** One copy of the game data for the whole group instead of five clients
+each pulling the same several megabytes from upstream, content-addressed with an ETag and held
+compressed at rest. The client tries the relay first and falls back to upstream, which is what
+keeps the relay an optimisation rather than a dependency.
+
+**Problem reports.** The client posts what it knows about itself; the relay keeps it and hands
+back a reference; an hourly workflow opens an issue naming that reference. The relay holds no
+GitHub credential — the workflow files the issue with the token Actions already gives it — which
+matters because the relay is the internet-facing box.
+
+Two access models, deliberately separate. A group key is proof of belonging to one room and
+every member of every group holds one. An operator secret (`TARKOV_RELAY_ADMIN_KEY`) is what
+reads every group's reports, registers which rooms may exist, and asks the relay to update; no
+group key can do any of that. Registering the first room closes the relay to unregistered ones,
+and until one is registered it is open, which is what it has always been.
+
+State is two files in a directory outside the tree the updater replaces: the marks, and the
+room list. Positions are never written. The relay cannot start a systemd unit and must not be
+able to — asking it to update writes a file that a `.path` unit watches, and the updater ships
+its own units inside the archive so a fix to them reaches the box.
 
 ## Cross-platform contract
 

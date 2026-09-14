@@ -28,7 +28,17 @@ Specialized advice is explanatory and does not silently defeat a stronger person
 
 ## Event intelligence
 
-Events are configured as generic definitions with applicable canonical item IDs. Applicable items begin `Untested`, then become `Safe` or `Allergic` only after the user records a result. Counts expose each state explicitly; the frozen `EventProgress.Unknown` field represents all not-yet-tested or unclassified applicable items.
+Events are generic definitions with applicable canonical item IDs, kept locally because no feed
+publishes them: `json.tarkov.dev` has no events endpoint, so every definition is one a person
+wrote. They are authored in the application — name an event, search the item catalog, add what
+it applies to — and written as ordinary JSON files that remain editable by hand. Provenance is
+the loader's rather than the author's: whatever a file claims, the source is recorded as a local
+event definition and confidence is capped at 0.60, because a person typed it.
+
+Out of season there are no definitions at all, and that is the normal state rather than a
+failure. A switched-off or expired definition is still listed and labelled, because hiding it
+would make "no event is configured" and "an event is configured but not running" look
+identical. Applicable items begin `Untested`, then become `Safe` or `Allergic` only after the user records a result. Counts expose each state explicitly; the frozen `EventProgress.Unknown` field represents all not-yet-tested or unclassified applicable items.
 
 Consumption result precedence is `Allergic` over `Safe` over `Untested`. Once any observation is allergic, a later safe observation cannot erase that warning. This is local recorded state, never a prediction or live detection.
 
@@ -37,6 +47,21 @@ Consumption result precedence is `Allergic` over `Safe` over `Untested`. Once an
 Ammo packs resolve to their contained canonical round before evaluation. Each caliber is ranked deterministically by penetration, then damage, then canonical item ID. The first round is S tier and the remaining ranks fall into A through D percentile bands. With a profile supplied, caliber lists exclude rounds blocked by player level, game mode, trader level, or task unlock rules; direct lookup still returns the round with `ObtainableForProfile` set appropriately.
 
 Armor-class ratings are deliberately labeled as a heuristic, not a live detection or exact combat simulation. The calculation compares round penetration against `armor class × 10`, with fixed margins for Poor, Limited, Fair, Good, and Excellent. Learn Mode always includes that rule and the underlying penetration/damage values. Confidence is capped at 0.80 because the result is heuristic, even when source data has higher confidence.
+
+## Keep or sell
+
+Separate from key scoring below, and deliberately blunter: one verdict on one item, naming the
+fact that decided it rather than a score. The precedence is the player's own progress first,
+because every other signal is the market's opinion about an item in general and this one is a
+fact about the quest they are on.
+
+1. **Keep** — a quest the player is *tracking* needs it. The strongest thing it can say.
+2. **Keep for later** — a quest ahead of them needs it. A weaker claim, said as one: on a fresh
+   wipe that is most of the game, so it cannot carry the same weight as the branch above it.
+3. **Keep** — a hideout build asks for it.
+4. Otherwise the market, with two different silences said differently: nothing has priced it, or
+   too few comparable items are priced to rank it. Telling somebody the wrong reason is how they
+   stop believing the right ones.
 
 ## Key intelligence
 
@@ -56,6 +81,26 @@ Generated explanations include personal incomplete-task count, lock count, loot,
 Loadout evaluation sums estimated cost and weight for every selected occurrence, including repeated magazines and medical items. It checks slot category, weapon/ammunition caliber, magazine/weapon and magazine/ammunition compatibility, and plate/armor compatibility. Missing catalog data produces a compatibility issue and makes weight unknown instead of presenting a partial number as complete.
 
 Warnings cover profile-unobtainable ammunition, low-tier ammunition paired with a kit worth at least 150,000 roubles, and armor with no selected plate. These are planning heuristics based on cached/public facts, not input automation or live gameplay detection.
+
+## Playing together
+
+Group behaviour is a product decision rather than a transport detail, and these are the parts
+that are decided here rather than in `docs/GROUP_RELAY.md`.
+
+**Tonight** ranks maps by where the group's quests overlap, counted per quest rather than per
+objective so a quest with six objectives on one map does not outvote six quests. It works with
+nobody else sharing anything, which is the point: the map decision is made before anyone joins.
+
+**Marks** have two lifetimes on purpose. A waypoint is a plan, persists across a relay restart,
+and ticks itself off when somebody reaches it. A ping means "look here" and expires in
+forty-five seconds, and is never persisted, because one restored from disk would be claiming
+"now".
+
+**What is shared is what the player turned on**, and nothing while it is off. Observations about
+people outside the room are pruned by the relay on the way in and again on the way out: the game
+describes every member of an in-game party, so a five-man filled from matchmaking carries a
+stranger's nickname and kit, and `docs/SAFETY.md` rule 1 says other players' log data is never
+transmitted. The exception that rule records covers the people in the room and nobody else.
 
 ## Safety and provenance
 
