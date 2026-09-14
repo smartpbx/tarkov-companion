@@ -192,8 +192,8 @@ would mean the tablet could draw nothing until somebody had typed a group key.
                {"k":"l","x":577.7,"z":4.1} ] }
 ```
 
-`k` is `e` extract, `t` transit, `l` lock. A null name or faction is omitted rather than
-written, which is most of the locks.
+`k` is `e` extract, `t` transit, `l` lock, `p` place. A null name or faction is omitted rather
+than written, which is most of the locks.
 
 It is derived from the mirrored map catalog rather than being a second source, and it exists
 because of a measurement: that catalog is 8,542,745 bytes, 780,279 gzipped, and what a schematic
@@ -204,6 +204,16 @@ Only extracts carry a name anybody would recognise. A transit's own `description
 translation token, so it is named for where it leads; a lock is `lockType: "door"` thirty-six
 times over on Customs, so it is drawn and not labelled. Spawns are left out — 278 nameless
 points on one map is a texture, not a landmark.
+
+**Places come from a second file.** Big Red, Dorms, Fortress, Power Station — the names people
+actually say — are in the map artwork's label layer, which lives in the-hideout's `maps.json`
+and not in the game-data catalog this relay mirrors. The desktop has read that file since the
+map was drawn, and it is what `WaypointNaming` names a mark from, so without it a mark made on
+the tablet could never read the same as one made at the desk. 109,867 bytes upstream, 303 labels
+across ten maps. If that host is unreachable the landmarks lose their place names and nothing
+else; the relay asks again an hour later rather than on every request.
+
+The whole answer is 33,015 bytes for all fifteen maps.
 
 ## What the server does not do
 

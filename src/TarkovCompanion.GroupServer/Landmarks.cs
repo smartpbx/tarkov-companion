@@ -6,7 +6,7 @@ namespace TarkovCompanion.GroupServer;
 /// <summary>
 /// The places on a map worth recognising, in world coordinates.
 /// </summary>
-/// <param name="Kind"><c>e</c> extract, <c>t</c> transit, <c>l</c> lock.</param>
+/// <param name="Kind"><c>e</c> extract, <c>t</c> transit, <c>l</c> lock, <c>p</c> place.</param>
 /// <param name="Name">What to write beside it, or null for something with no name worth writing.</param>
 /// <param name="Faction">Who may use it, for an extract. Null where it does not apply.</param>
 /// <remarks>
@@ -47,9 +47,20 @@ public sealed record Landmark(
 /// and not labelled. Spawns are left out entirely: 278 nameless points on Customs alone is not
 /// a landmark, it is a texture.
 /// </para>
+/// <para>
+/// Places come from a second file. The names a player actually says — Power Station, Main
+/// Office, Dorms — are in the map artwork's label layer, which lives in the-hideout's
+/// <c>maps.json</c> and not in the game-data catalog this server mirrors. The desktop has read
+/// that file since the map was drawn, and <c>WaypointNaming</c> names a mark from it, so without
+/// it a mark made on the tablet could never read the same as one made at the desk. It is 109,867
+/// bytes and yields 303 labels across ten maps; losing it costs the place names and nothing else.
+/// </para>
 /// </remarks>
-public sealed class Landmarks(CatalogMirror mirror)
+public sealed class Landmarks(CatalogMirror mirror, IHttpClientFactory? clients = null)
 {
+    /// <summary>The name this class's own HTTP client is registered under.</summary>
+    public const string HttpClientName = "landmark-places";
+
     /// <summary>The mode whose catalog the landmarks come from.</summary>
     /// <remarks>
     /// Geometry does not differ by game mode — an extract is in the same place in PvE — so one
@@ -57,9 +68,27 @@ public sealed class Landmarks(CatalogMirror mirror)
     /// </remarks>
     private const string Mode = "regular";
 
+    /// <summary>Where the map artwork's label layer lives.</summary>
+    /// <remarks>
+    /// The same file, from the same place, that the desktop's map catalog reads. A second copy
+    /// of these names somewhere else would be a second thing to be wrong.
+    /// </remarks>
+    private const string PlacesUrl =
+        "https://raw.githubusercontent.com/the-hideout/tarkov-dev/main/src/data/maps.json";
+
+    /// <summary>How long the label layer is held before asking again.</summary>
+    /// <remarks>
+    /// The same hour the catalog mirror holds its snapshot, so the two halves of an answer are
+    /// never more than an hour apart in age.
+    /// </remarks>
+    private static readonly TimeSpan PlacesFor = TimeSpan.FromHours(1);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyDictionary<string, IReadOnlyList<Landmark>>? _cached;
     private string? _cachedFrom;
+    private IReadOnlyDictionary<string, IReadOnlyList<Landmark>> _places =
+        new Dictionary<string, IReadOnlyList<Landmark>>(StringComparer.Ordinal);
+    private DateTimeOffset _placesUtc = DateTimeOffset.MinValue;
 
     /// <summary>
     /// Every map's landmarks, keyed by the map's normalised name.
@@ -71,15 +100,20 @@ public sealed class Landmarks(CatalogMirror mirror)
     /// that fails to load because the landmark fetch failed would be.
     /// </remarks>
     public async Task<IReadOnlyDictionary<string, IReadOnlyList<Landmark>>> GetAsync(
+        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        var places = await PlacesAsync(timeProvider, cancellationToken).ConfigureAwait(false);
         var snapshot = await mirror.GetAsync(Mode, "maps", cancellationToken).ConfigureAwait(false);
         if (snapshot is null)
         {
-            return _cached ?? new Dictionary<string, IReadOnlyList<Landmark>>(StringComparer.Ordinal);
+            // The label layer alone is still worth drawing: it is the half with the names on it.
+            return _cached ?? places;
         }
 
-        if (_cached is { } held && string.Equals(_cachedFrom, snapshot.ETag, StringComparison.Ordinal))
+        var stamp = $"{snapshot.ETag}/{places.Count}";
+        if (_cached is { } held && string.Equals(_cachedFrom, stamp, StringComparison.Ordinal))
         {
             return held;
         }
@@ -87,22 +121,24 @@ public sealed class Landmarks(CatalogMirror mirror)
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_cached is { } again && string.Equals(_cachedFrom, snapshot.ETag, StringComparison.Ordinal))
+            if (_cached is { } again && string.Equals(_cachedFrom, stamp, StringComparison.Ordinal))
             {
                 return again;
             }
 
             var built = Build(snapshot.Body);
+            Merge(built, places);
             _cached = built;
-            _cachedFrom = snapshot.ETag;
+            _cachedFrom = stamp;
             return built;
         }
         catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException)
         {
             // A shape this does not recognise costs the landmarks, not the page.
             var empty = new Dictionary<string, IReadOnlyList<Landmark>>(StringComparer.Ordinal);
+            Merge(empty, places);
             _cached = empty;
-            _cachedFrom = snapshot.ETag;
+            _cachedFrom = stamp;
             return empty;
         }
         finally
@@ -110,6 +146,142 @@ public sealed class Landmarks(CatalogMirror mirror)
             _gate.Release();
         }
     }
+
+    /// <summary>Adds each map's place names to whatever the catalog gave it.</summary>
+    private static void Merge(
+        Dictionary<string, IReadOnlyList<Landmark>> into,
+        IReadOnlyDictionary<string, IReadOnlyList<Landmark>> places)
+    {
+        foreach (var (map, named) in places)
+        {
+            into[map] = into.TryGetValue(map, out var existing) ? [.. existing, .. named] : named;
+        }
+    }
+
+    /// <summary>
+    /// The map artwork's label layer, held for an hour.
+    /// </summary>
+    /// <remarks>
+    /// Its own fetch rather than the mirror's, because it is a different file from a different
+    /// host and the mirror's allowlist exists to keep it that way. A failure returns whatever
+    /// was last read, or nothing, and costs the place names alone.
+    /// </remarks>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<Landmark>>> PlacesAsync(
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        var now = timeProvider.GetUtcNow();
+        if (now - _placesUtc < PlacesFor || clients is null)
+        {
+            return _places;
+        }
+
+        try
+        {
+            using var client = clients.CreateClient(HttpClientName);
+            var body = await client.GetByteArrayAsync(PlacesUrl, cancellationToken).ConfigureAwait(false);
+            _places = BuildPlaces(body);
+            _placesUtc = now;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Asked again next hour rather than every request, so an upstream that is down does
+            // not turn every page load into a failed fetch.
+            _placesUtc = now;
+        }
+
+        return _places;
+    }
+
+    /// <summary>
+    /// Reads the label layer out of the map artwork file.
+    /// </summary>
+    /// <remarks>
+    /// A label's position is two numbers and the second is world Z, which is how the desktop's
+    /// projection reads it when it draws them. A label is laid out as artwork, so several carry
+    /// line breaks to sit inside a building; those are flattened, because a name goes in a list
+    /// where a newline is a hole.
+    /// </remarks>
+    public static Dictionary<string, IReadOnlyList<Landmark>> BuildPlaces(ReadOnlySpan<byte> body)
+    {
+        using var document = JsonDocument.Parse(body.ToArray());
+        var root = document.RootElement;
+        // The artwork file's root is a bare array. TryGetProperty on an array throws rather
+        // than returning false, so the kind is checked first -- which is how the first version
+        // of this read nothing at all and said nothing about it.
+        if (root.ValueKind == JsonValueKind.Object &&
+            root.TryGetProperty("data", out var data) &&
+            data.ValueKind == JsonValueKind.Object &&
+            data.TryGetProperty("maps", out var inner))
+        {
+            root = inner;
+        }
+
+        var built = new Dictionary<string, IReadOnlyList<Landmark>>(StringComparer.Ordinal);
+        var maps = root.ValueKind switch
+        {
+            JsonValueKind.Array => root.EnumerateArray().ToArray(),
+            JsonValueKind.Object => root.EnumerateObject().Select(entry => entry.Value).ToArray(),
+            _ => [],
+        };
+
+        foreach (var map in maps)
+        {
+            if (map.ValueKind != JsonValueKind.Object ||
+                Text(map, "normalizedName") is not { Length: > 0 } name ||
+                !map.TryGetProperty("maps", out var variants) ||
+                variants.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            var found = new List<Landmark>();
+            foreach (var variant in variants.EnumerateArray())
+            {
+                if (variant.ValueKind != JsonValueKind.Object ||
+                    !variant.TryGetProperty("labels", out var labels) ||
+                    labels.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+
+                foreach (var label in labels.EnumerateArray())
+                {
+                    if (label.ValueKind != JsonValueKind.Object ||
+                        Text(label, "text") is not { Length: > 0 } text ||
+                        !label.TryGetProperty("position", out var position) ||
+                        position.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    var pair = position.EnumerateArray().ToArray();
+                    if (pair.Length < 2 ||
+                        !pair[0].TryGetDouble(out var x) ||
+                        !pair[1].TryGetDouble(out var z) ||
+                        !double.IsFinite(x) ||
+                        !double.IsFinite(z))
+                    {
+                        continue;
+                    }
+
+                    found.Add(new("p", Tidy(text), null, Math.Round(x, 1), Math.Round(z, 1)));
+                }
+            }
+
+            if (found.Count > 0)
+            {
+                built[name] = found;
+            }
+        }
+
+        return built;
+    }
+
+    /// <summary>Flattens a label the map draws across two lines into one a list can print.</summary>
+    private static string Tidy(string text) => string.Join(
+        ' ',
+        text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     /// <summary>Reads the catalog once and keeps what can be drawn.</summary>
     public static Dictionary<string, IReadOnlyList<Landmark>> Build(ReadOnlySpan<byte> body)
