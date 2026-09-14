@@ -113,16 +113,24 @@ public sealed class MapVariantSelectionService(IMapVariantPreferenceStore prefer
     /// </remarks>
     private const string GroupNamesKey = "#group-names";
 
-    /// <summary>Whether squadmates' names are drawn beside their dots. On unless turned off.</summary>
+    /// <summary>Whether squadmates' names are drawn beside their dots. Off unless asked for.</summary>
     /// <remarks>
-    /// Default on because the case it answers is the one that hurts: on a five-man, a dot in
-    /// one of eight hues is not an answer to "which of you is that". Somebody on a two-man can
-    /// turn it off in one press, and it stays off.
+    /// Reported after it shipped on: "the change with the username showing over the icon on the
+    /// map is not great, i could already tell who was who based on the color."
+    ///
+    /// Which was said in advance, when the feature was approved — "we see the person's colour
+    /// in the group pane anyway" — and built on anyway, with an argument about five-mans. The
+    /// argument was not wrong about five-mans; it was wrong about what a default is for. The
+    /// colour already answers "which of you is that" for the group sizes people actually play,
+    /// and a name over every dot is ink on the thing the map is for.
+    ///
+    /// So the feature stays and the default flips. Somebody in a five-man who wants the names
+    /// has one press, and it stays pressed.
     /// </remarks>
     public async Task<bool> GroupNamesAsync(CancellationToken cancellationToken)
     {
         var stored = await preferenceStore.GetAsync(GroupNamesKey, cancellationToken).ConfigureAwait(false);
-        return !string.Equals(stored, "off", StringComparison.Ordinal);
+        return string.Equals(stored, "on", StringComparison.Ordinal);
     }
 
     public Task ChooseGroupNamesAsync(bool shown, CancellationToken cancellationToken) =>
