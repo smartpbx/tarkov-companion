@@ -120,6 +120,49 @@ public sealed class RaidStateService(bool developerMode = false) : IRaidStateSer
     }
 
     /// <summary>
+    /// Takes over a raid a previous run of the companion was already recording.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This service is memory, so a companion restarted mid-raid recovers the raid from the
+    /// log and then gives it a new identity: a new id, a start time of whenever the restart
+    /// happened, and an empty trail drawn over screenshots that are already on disk. The row
+    /// the previous run opened stays open for ever and History shows it as in progress.
+    /// </para>
+    /// <para>
+    /// Whether this raid is that raid is not a question this service can answer — it is a
+    /// question about what was recorded — so the answer is handed in rather than worked out
+    /// here. What this does is make the two the same raid.
+    /// </para>
+    /// <para>
+    /// Refused unless a raid is running. Adopting into the menu would attach a finished raid's
+    /// identity to no raid at all, and the next one to start would inherit it.
+    /// </para>
+    /// </remarks>
+    public RaidSnapshot Adopt(Guid raidId, DateTimeOffset? startedUtc, IReadOnlyList<ScreenshotPosition> trail)
+    {
+        ArgumentNullException.ThrowIfNull(trail);
+        if (Current.State is not (RaidLifecycleState.InRaid or RaidLifecycleState.LoadingRaid))
+        {
+            return Current;
+        }
+
+        Current = Current with
+        {
+            RaidId = raidId,
+            // The recorded start where there is one. A row with no start time is still this
+            // raid; it just cannot say when it began, and inventing a time from the restart
+            // would date the raid to the moment the companion came back.
+            StartedUtc = startedUtc ?? Current.StartedUtc,
+            PositionTrail = trail,
+            // The last place recorded is where the player is until they photograph themselves
+            // again, which is the same claim the trail already makes about every other point.
+            LastKnownPosition = trail.Count > 0 ? trail[^1] : Current.LastKnownPosition,
+        };
+        return Current;
+    }
+
+    /// <summary>
     /// Records where the player was, from a screenshot the player chose to take.
     /// </summary>
     /// <remarks>

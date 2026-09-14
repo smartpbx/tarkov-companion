@@ -194,6 +194,10 @@ public sealed partial class WindowsEftLogWatcher(
         {
             Side = current.Side,
             SideBasis = current.SideBasis,
+            // Says that this raid may already have a row. Every other piece of evidence
+            // arrives from a line written while this process was watching, so this is the only
+            // one where the previous run of the companion could have been recording it.
+            ResumesSession = true,
         };
     }
 

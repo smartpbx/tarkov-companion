@@ -578,6 +578,22 @@ public interface IRaidStateService
         TimeSpan? raidClock = null,
         IReadOnlyList<string>? linesNotMatched = null,
         IReadOnlyList<string>? transits = null);
+
+    /// <summary>
+    /// Takes over a raid a previous run of the companion was already recording.
+    /// </summary>
+    /// <remarks>
+    /// The raid this service holds is memory, so a companion restarted mid-raid mints a new
+    /// identity for a raid that already has one, and the trail it draws starts empty over
+    /// screenshots that are on disk. This replaces the identity and the trail with the ones
+    /// already recorded, which is the only way the two can be the same raid.
+    ///
+    /// Refused unless a raid is running, because there is nothing to take over otherwise.
+    /// </remarks>
+    /// <param name="raidId">The id the recorded raid already has.</param>
+    /// <param name="startedUtc">When it actually started, rather than when this run noticed.</param>
+    /// <param name="trail">Where the player has already been, oldest first.</param>
+    RaidSnapshot Adopt(Guid raidId, DateTimeOffset? startedUtc, IReadOnlyList<ScreenshotPosition> trail);
 }
 
 public interface IStrategyModel

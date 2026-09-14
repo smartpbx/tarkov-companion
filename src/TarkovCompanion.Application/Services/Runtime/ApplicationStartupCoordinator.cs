@@ -163,6 +163,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
         await WarmCatalogsAsync(cancellationToken).ConfigureAwait(false);
 
+        // Before observation starts, so it can never race the raid the watcher is about to
+        // recover. It closes only rows no raid could still be; anything recent enough to be
+        // resumed is left for the resume to decide about.
+        await _raidActivityCoordinator.CloseAbandonedAsync(cancellationToken).ConfigureAwait(false);
+
         // Watching the game's own log and screenshot folders is what lets the map follow the
         // player. It starts here rather than on demand because the game is usually launched
         // after the companion, and discovery keeps retrying until it appears.
