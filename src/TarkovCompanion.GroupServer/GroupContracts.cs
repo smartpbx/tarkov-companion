@@ -100,6 +100,18 @@ public sealed record GroupMemberState(
             }
         }
 
+        // A map has ten or so exits and a handful of transits. Anything past that is a client
+        // sending a list rather than a screen.
+        if (Extracts is { Count: > 16 } || Transits is { Count: > 16 })
+        {
+            return "An extract or transit list may carry at most sixteen entries.";
+        }
+
+        if (Extracts is { } offered && offered.Any(name => name is null || name.Length > 64))
+        {
+            return "An extract name must be 64 characters or fewer.";
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -139,6 +151,38 @@ public sealed record GroupMemberState(
     /// </remarks>
     [JsonPropertyName("observed")]
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
+
+    /// <summary>
+    /// The exits this member's game offered them, as their own scan read them.
+    /// </summary>
+    /// <remarks>
+    /// One player photographs the extract list and gains ActiveExtracts, Transits and the raid
+    /// clock. The other four see ten possible exits and "counted from the raid's start", which
+    /// is the difference between knowing where you are leaving from and guessing.
+    ///
+    /// In a PMC party the offered exits are the same for everybody, which is what makes this
+    /// shareable at all — and it is game knowledge rather than something the research documents
+    /// measured, which is why a receiver checks the map and side before applying any of it.
+    /// </remarks>
+    [JsonPropertyName("extracts")]
+    public IReadOnlyList<string> Extracts { get; init; } = [];
+
+    [JsonPropertyName("transits")]
+    public IReadOnlyList<string> Transits { get; init; } = [];
+
+    /// <summary>
+    /// How long the sender's own scan said was left, and how old that reading is.
+    /// </summary>
+    /// <remarks>
+    /// A reading with its age, exactly as the raid snapshot keeps it. Without the age a clock
+    /// read four minutes ago is a stale claim presented as current, and a receiver would have
+    /// no way to prefer its own fresher one.
+    /// </remarks>
+    [JsonPropertyName("raidClockSeconds")]
+    public double? RaidClockSeconds { get; init; }
+
+    [JsonPropertyName("raidClockAge")]
+    public double? RaidClockAgeSeconds { get; init; }
 
     /// <summary>
     /// Where this member has been this raid, oldest first.

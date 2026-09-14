@@ -3,6 +3,29 @@ using TarkovCompanion.App.Services.Diagnostics;
 namespace TarkovCompanion.UnitTests;
 
 /// <summary>
+/// Runs the crash log's tests alone, because the thing they test is global.
+/// </summary>
+/// <remarks>
+/// CrashLog's destination, its repeat-collapse state and its subscriptions are all static —
+/// correctly so, since anything that fails has to be able to say so without being handed a
+/// logger first. That makes every one of these tests sensitive to any other test in the
+/// assembly logging anything, and three separate flakes have now come out of it: a sharing
+/// violation on the file, a directory that could not be removed, and a repeat count broken by
+/// another class's line landing in the middle of it.
+///
+/// Each was fixed where it appeared and the next one arrived somewhere else, because the cause
+/// was never the assertion — it was that these tests are not alone and the code they test
+/// assumes they are. DisableParallelization is the tool for exactly that: it keeps this
+/// collection from running alongside any other. Eight fast tests is a negligible price for
+/// ending a class of failure rather than its instances.
+/// </remarks>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class CrashLogCollection
+{
+    public const string Name = "crash-log";
+}
+
+/// <summary>
 /// The startup log, which is the only sink a failure before the window has.
 /// </summary>
 /// <remarks>
@@ -13,6 +36,7 @@ namespace TarkovCompanion.UnitTests;
 /// the two calls simply interleave; on Windows the plain File helpers deny each other and the
 /// test fails with a sharing violation that has nothing to do with what it was checking.
 /// </remarks>
+[Collection(CrashLogCollection.Name)]
 public sealed class CrashLogTests : IDisposable
 {
     private readonly string _directory = Path.Combine(

@@ -541,8 +541,33 @@ public sealed class GroupSessionService : IAsyncDisposable
                 })
                 .ToArray(),
             Trail = DescribeTrail(snapshot),
+            // Only a scav's own screen differs. In a PMC party the offered exits are the same
+            // for everybody, which is what makes this shareable; a scav's are not, so a scav
+            // publishes none and nobody is handed a list that was never theirs.
+            Extracts = IsScav(raid) ? [] : [.. raid.ActiveExtracts.Select(extract => extract.Name)],
+            Transits = IsScav(raid) ? [] : raid.Transits,
+            RaidClockSeconds = raid.RaidClock?.TotalSeconds,
+            RaidClockAgeSeconds = raid.RaidClockReadUtc is { } read
+                ? Math.Max(0, (DateTimeOffset.UtcNow - read.ToUniversalTime()).TotalSeconds)
+                : null,
         };
     }
+
+    /// <summary>
+    /// Whether this raid is being run as a scav.
+    /// </summary>
+    /// <remarks>
+    /// The one case where the offered exits are a fact about one player rather than about the
+    /// raid. A scav's exit list differs from a PMC's on the same map, so publishing one would
+    /// hand four other people a list that was never theirs — and they would have no way to
+    /// tell, because it arrives looking exactly like a correct one.
+    ///
+    /// Unknown counts as not a scav. The side is established from the log and is usually
+    /// known; treating an unknown as a scav would silence the common case to guard the rare
+    /// one, and the receiver checks the side again before applying anything.
+    /// </remarks>
+    private static bool IsScav(RaidSnapshot raid) =>
+        string.Equals(raid.Side, "scav", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The last few places this player has been, so the group can see a path rather than a dot.
@@ -626,6 +651,10 @@ public sealed class GroupSessionService : IAsyncDisposable
         member.Quests ?? [])
     {
         HasKnownHeight = member.Y is not null,
+        Extracts = member.Extracts ?? [],
+        Transits = member.Transits ?? [],
+        RaidClock = member.RaidClockSeconds is { } clock ? TimeSpan.FromSeconds(clock) : null,
+        RaidClockAge = member.RaidClockAgeSeconds is { } clockAge ? TimeSpan.FromSeconds(Math.Max(0, clockAge)) : null,
         Trail = (member.Trail ?? [])
             .Select(step => new GroupTrailPointView(
                 step.X,
@@ -902,6 +931,20 @@ public sealed class GroupSessionService : IAsyncDisposable
         /// <summary>Where this member has been this raid, oldest first.</summary>
         [JsonPropertyName("trail")]
         public IReadOnlyList<TrailPointDto>? Trail { get; init; }
+
+        /// <summary>The exits their own scan of the extract screen read.</summary>
+        [JsonPropertyName("extracts")]
+        public IReadOnlyList<string>? Extracts { get; init; }
+
+        [JsonPropertyName("transits")]
+        public IReadOnlyList<string>? Transits { get; init; }
+
+        /// <summary>Their clock reading, with how old it is.</summary>
+        [JsonPropertyName("raidClockSeconds")]
+        public double? RaidClockSeconds { get; init; }
+
+        [JsonPropertyName("raidClockAge")]
+        public double? RaidClockAgeSeconds { get; init; }
     }
 
     private sealed record TrailPointDto(
