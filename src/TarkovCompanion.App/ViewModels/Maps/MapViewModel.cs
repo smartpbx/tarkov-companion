@@ -4690,7 +4690,11 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 : "No position shared",
             string.Join(" · ", member.Loadout.Concat(member.Quests)),
             elsewhere,
-            age is null || age > PlayerMarkerFreshFor);
+            // Either their position is too old to trust, or they have stopped publishing at
+            // all. The second is the one nothing could see before: a crashed companion froze
+            // its last position age, so this read fresh for the three minutes until the room
+            // forgot them.
+            age is null || age > PlayerMarkerFreshFor || member.HasGoneQuiet);
     }
 
     /// <summary>The map they are on and what they are doing, in that order.</summary>
@@ -4841,7 +4845,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 string.Create(
                     CultureInfo.CurrentCulture,
                     $"{member.Name} · from a screenshot {(age < TimeSpan.FromMinutes(1) ? $"{(int)age.TotalSeconds}s" : $"{(int)age.TotalMinutes}m")} ago"),
-                age > PlayerMarkerFreshFor)
+                age > PlayerMarkerFreshFor || member.HasGoneQuiet)
             {
                 Scale = _markerScale,
                 Rgb = ColorFor(member.Name),

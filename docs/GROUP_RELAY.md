@@ -62,6 +62,12 @@ previous entry rather than adding a second one.
 - `heading` — degrees, 0..360, a compass bearing in game axes where +z is 0 and +x is 90.
 - `positionAge` — seconds since that position was recorded, so others can judge how stale the
   marker is rather than guessing.
+- `sinceSeconds` — **server-set, read-only.** Seconds since the relay last heard from that
+  member at all. Do not send it: a member has no idea how long ago its own last message
+  arrived. This is a different question from `positionAge`, and the difference is the point —
+  a companion that crashed mid-raid keeps republishing nothing, so its position age freezes and
+  the marker reads fresh for the full three minutes until the room forgets it. Our client draws
+  a member as a guess after three missed exchanges, which is fifteen seconds.
 - `quests` — what you are working on, for a squadmate to read. At most 24, and ours sends 5,
   which is what fits in a panel.
 - `questIds` — the same quests by catalog id, for a squadmate's client to act on: with an id it
@@ -144,13 +150,29 @@ mouse button loses their stalest plan rather than being refused or filling the s
     DELETE /state/{name}
     X-Group-Key: <the group's key>
 
-Optional. A member who simply stops publishing disappears after three minutes.
+Optional in the sense that nothing breaks without it: a member who simply stops publishing
+disappears after three minutes. Those three minutes are the reason to call it — until then the
+member is drawn on everybody's map, apparently still in the raid.
+
+Our client calls it in three cases, and the third is the one that is easy to miss:
+
+1. **Sharing is turned off.** Otherwise the player vanishes three minutes after they thought
+   they had gone.
+2. **The service is disposed**, which is the application closing.
+3. **The display name changes.** A room is keyed by display name, so a rename is a new member
+   as far as the relay is concerned, and the old one keeps its marker — the group sees the
+   player twice, once where they are and once where they were.
+
+Withdraw the name that was **published**, not the one currently configured. In the rename case
+those differ, and a request built from current settings removes the marker just created and
+leaves the stale one standing.
 
 ## Health
 
-    GET /health   ->   {"status":"ok"}
+    GET /health   ->   {"status":"ok","protocol":1,"version":"1.0.548", ...}
 
-No key required.
+No key required. `protocol` is the number described above; `version` and `commit` say which
+build is answering.
 
 ## Who may have a room
 
@@ -252,13 +274,35 @@ What it does write is two files, both in its state directory and neither about w
 been: `marks.json`, the waypoints a group placed, and `rooms.json`, the rooms an operator
 registered. Both survive a restart on purpose — the relay updates itself every half hour.
 
+## Which version everything speaks
+
+Every room reply and `/health` carry `protocol`, a whole number.
+
+Everything on this wire is additive: a new field is optional and an older reader ignores it. So
+a mismatch is almost never fatal — which is exactly why it is worth stating. A client quietly
+missing a field it was never sent looks identical to a feature that does not work, and there is
+no way to tell those apart from inside the application. The day the group key replaced a room
+name and a server-side secret, a client that had updated could not talk to a server that had
+not, and nothing anywhere said so.
+
+The number goes up only when a change is **not** additive. A new optional field does not raise
+it.
+
+A client that sees a different number says so once, on the same line that describes the group:
+
+> Relay speaks 2, this build speaks 3 · it updates itself within half an hour
+
+Neither direction is an error and neither stops sharing. The relay updates itself every half
+hour, so a relay behind the client fixes itself; a relay ahead of it means the client is the one
+due an update.
+
 ## Responses
 
 | Code | Meaning |
 | --- | --- |
 | 200 | Published; the body is everyone else, plus the group's marks |
 | 400 | The display name is missing or longer than 48 characters |
-| 401 | The `X-Group-Key` header is missing or shorter than eight characters |
+| 401 | The `X-Group-Key` header is missing, or outside 8–128 characters |
 | 403 | The relay is closed and this key's room is not one its operator registered |
 
 A 401 does **not** mean a wrong key. There is no such thing here: a key nobody else uses names
