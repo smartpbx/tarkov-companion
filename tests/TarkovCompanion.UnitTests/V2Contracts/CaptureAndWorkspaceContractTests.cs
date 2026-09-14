@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 
@@ -18,17 +19,7 @@ public sealed class CaptureAndWorkspaceContractTests
     [Fact]
     public void GuidedSessionTracksEachCaptureByArtifactAndOrdinal()
     {
-        var snapshot = Snapshot(
-            Partial,
-            (CaptureSessionStage.Armed, null, null),
-            (CaptureSessionStage.AwaitingCapture, null, null),
-            (CaptureSessionStage.Settling, "shot-0", 0),
-            (CaptureSessionStage.Settling, "shot-1", 1),
-            (CaptureSessionStage.Decoding, "shot-0", 0),
-            (CaptureSessionStage.Settling, "shot-0", 0),
-            (CaptureSessionStage.Decoding, "shot-0", 0),
-            (CaptureSessionStage.Complete, "shot-0", 0),
-            (CaptureSessionStage.Failed, "shot-1", 1));
+        var snapshot = GuidedSnapshot();
 
         var roundTrip = JsonSerializer.Deserialize<CaptureSessionSnapshot>(
             JsonSerializer.Serialize(snapshot, V2ContractJson.Options), V2ContractJson.Options)!;
@@ -57,6 +48,46 @@ public sealed class CaptureAndWorkspaceContractTests
             Partial,
             (CaptureSessionStage.AwaitingCapture, null, null),
             (CaptureSessionStage.Armed, null, null)));
+    }
+
+    [Fact]
+    public void CaptureOrdinalsNumberTheQueueFromZeroWithoutGaps()
+    {
+        Assert.Throws<ArgumentException>(() => Snapshot(Partial, (CaptureSessionStage.Settling, "shot-99", 99)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Settling, "shot-2", 2)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Settling, "shot-1", 1),
+            (CaptureSessionStage.Settling, "shot-0", 0)));
+        Assert.Throws<ArgumentException>(() => Snapshot(
+            Partial,
+            (CaptureSessionStage.Settling, "shot-0", 0),
+            (CaptureSessionStage.Settling, "shot-0", 1)));
+        Assert.Equal(
+            [0, 1, 0, 1],
+            Snapshot(
+                Partial,
+                (CaptureSessionStage.Settling, "shot-0", 0),
+                (CaptureSessionStage.Settling, "shot-1", 1),
+                (CaptureSessionStage.Decoding, "shot-0", 0),
+                (CaptureSessionStage.Decoding, "shot-1", 1)).Progress.Select(item => item.CaptureOrdinal!.Value));
+    }
+
+    [Fact]
+    public void HostileSnapshotJsonCannotHideDroppedQueueEntries()
+    {
+        var json = JsonSerializer.Serialize(GuidedSnapshot(), V2ContractJson.Options);
+
+        // Every shot-1 entry renumbered: a lone high ordinal, a gap, a duplicate of shot-0, and
+        // the two captures entering the queue out of order.
+        Assert.ThrowsAny<ArgumentException>(() => MutateOrdinals(json, (artifact, ordinal) => artifact == "shot-1" ? 99 : ordinal));
+        Assert.ThrowsAny<ArgumentException>(() => MutateOrdinals(json, (artifact, ordinal) => artifact == "shot-1" ? 2 : ordinal));
+        Assert.ThrowsAny<ArgumentException>(() => MutateOrdinals(json, (artifact, ordinal) => artifact == "shot-1" ? 0 : ordinal));
+        Assert.ThrowsAny<ArgumentException>(() => MutateOrdinals(json, (_, ordinal) => 1 - ordinal));
+        Assert.Equal(9, MutateOrdinals(json, (_, ordinal) => ordinal)!.Progress.Count);
     }
 
     [Fact]
@@ -183,6 +214,33 @@ public sealed class CaptureAndWorkspaceContractTests
             Origin, V2ContractTestData.ObservedUtc, new GameInputCommand("F")));
         Assert.Throws<ArgumentOutOfRangeException>(() => new MapMarkState("customs", null, double.NaN, 0, null, null));
         Assert.Throws<ArgumentOutOfRangeException>(() => new MapMarkState("customs", null, 0, 0, new string('x', 81), null));
+    }
+
+    private static CaptureSessionSnapshot GuidedSnapshot() => Snapshot(
+        Partial,
+        (CaptureSessionStage.Armed, null, null),
+        (CaptureSessionStage.AwaitingCapture, null, null),
+        (CaptureSessionStage.Settling, "shot-0", 0),
+        (CaptureSessionStage.Settling, "shot-1", 1),
+        (CaptureSessionStage.Decoding, "shot-0", 0),
+        (CaptureSessionStage.Settling, "shot-0", 0),
+        (CaptureSessionStage.Decoding, "shot-0", 0),
+        (CaptureSessionStage.Complete, "shot-0", 0),
+        (CaptureSessionStage.Failed, "shot-1", 1));
+
+    private static CaptureSessionSnapshot? MutateOrdinals(string json, Func<string, int, int> renumber)
+    {
+        var node = JsonNode.Parse(json)!;
+        foreach (var entry in node["progress"]!.AsArray())
+        {
+            var item = entry!;
+            if (item["artifactId"]?.GetValue<string>() is { } artifact)
+            {
+                item["captureOrdinal"] = renumber(artifact, item["captureOrdinal"]!.GetValue<int>());
+            }
+        }
+
+        return JsonSerializer.Deserialize<CaptureSessionSnapshot>(node.ToJsonString(), V2ContractJson.Options);
     }
 
     private static StateChangeId ChangeId() => new(Guid.Parse("10000000-0000-0000-0000-000000000004"));

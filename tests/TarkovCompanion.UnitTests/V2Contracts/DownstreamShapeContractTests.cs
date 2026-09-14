@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 
@@ -81,6 +82,80 @@ public sealed class DownstreamShapeContractTests
     }
 
     [Fact]
+    public void AnchorsSitInsideAKnownGridEvenWithoutAnItemOrSize()
+    {
+        var unreadItem = new GridCellRecognition(new GridCellAddress(4, 0), V2ContractTestData.Unknown<RecognizedItem>("grid.4.0"));
+        var unreadWidth = WithSpans(V2ContractTestData.Unknown<int?>("item.width"), V2ContractTestData.Complete<int?>("item.height", 1));
+        var tooWideUnreadHeight = WithSpans(V2ContractTestData.Complete<int?>("item.width", 11), V2ContractTestData.Unknown<int?>("item.height"));
+
+        Assert.Throws<ArgumentException>(() => V2ContractTestData.Grid(unreadItem));
+        Assert.Throws<ArgumentException>(() => V2ContractTestData.Grid(V2ContractTestData.Cell(0, 10, unreadWidth)));
+        Assert.Throws<ArgumentException>(() => V2ContractTestData.Grid(V2ContractTestData.Cell(0, 0, tooWideUnreadHeight)));
+        Assert.Single(V2ContractTestData.Grid(V2ContractTestData.Cell(3, 9, unreadWidth)).Cells);
+    }
+
+    [Fact]
+    public void GridCoordinatesSizesAndSpansHaveFiniteUpperBounds()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GridCellAddress(GridGeometry.MaxRows, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GridCellAddress(0, int.MaxValue));
+        Assert.Throws<ArgumentOutOfRangeException>(() => V2ContractTestData.Item(width: GridGeometry.MaxColumns + 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => V2ContractTestData.Item(height: int.MaxValue));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Geometry(V2ContractTestData.Complete<int?>("grid.rows", GridGeometry.MaxRows + 1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Geometry(new EvidencedValue<int?>(
+            "grid.rows",
+            null,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
+            V2ContractTestData.ScreenshotProvenance(),
+            candidates: [new EvidenceCandidate<int?>("rows", "2147483647", int.MaxValue, V2ContractTestData.ScreenshotProvenance())])));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Coverage("stash", 1, GridGeometry.MaxCells + 1));
+    }
+
+    [Fact]
+    public void AnUnreadGridIsBoundedByTheContractCellSpace()
+    {
+        var unread = Geometry(V2ContractTestData.Unknown<int?>("grid.rows"), V2ContractTestData.Unknown<int?>("grid.columns"));
+        var everyCell = V2ContractTestData.Item("everything", GridGeometry.MaxColumns, GridGeometry.MaxRows);
+
+        // The largest footprint expands to exactly the bounded space, and one more anchor overlaps it.
+        Assert.Single(new GridRecognition(unread, [V2ContractTestData.Cell(0, 0, everyCell)]).Cells);
+        Assert.Throws<ArgumentException>(() => new GridRecognition(
+            unread,
+            [V2ContractTestData.Cell(0, 0, everyCell), V2ContractTestData.Cell(GridGeometry.MaxRows - 1, GridGeometry.MaxColumns - 1)]));
+        Assert.Throws<ArgumentException>(() => new GridRecognition(
+            unread,
+            [V2ContractTestData.Cell(GridGeometry.MaxRows - 1, 0, V2ContractTestData.Item(height: 2))]));
+        Assert.Throws<ArgumentException>(() => V2ContractTestData.Grid(
+            Enumerable.Range(0, 41).Select(_ => V2ContractTestData.Cell(0, 0)).ToArray()));
+    }
+
+    [Fact]
+    public void HostileGridJsonCannotOverflowTheFitOrAmplifyTheWalk()
+    {
+        var json = JsonSerializer.Serialize(V2ContractTestData.Grid(V2ContractTestData.Cell(0, 0)), JsonOptions);
+
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid => grid["cells"]![0]!["anchor"]!["row"] = int.MaxValue));
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid => grid["cells"]![0]!["anchor"]!["column"] = 10));
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid => grid["cells"]![0]!["item"]!["value"]!["widthCells"]!["value"] = 100_000));
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid => grid["geometry"]!["rows"]!["value"] = int.MaxValue));
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid =>
+        {
+            grid["geometry"]!["rows"] = JsonNode.Parse(JsonSerializer.Serialize(V2ContractTestData.Unknown<int?>("grid.rows"), JsonOptions));
+            grid["cells"]![0]!["anchor"]!["row"] = GridGeometry.MaxRows - 1;
+            grid["cells"]![0]!["item"]!["value"]!["heightCells"]!["value"] = 2;
+        }));
+    }
+
+    [Fact]
+    public void PlacedRegionStaysInsideTheContainerCellSpace()
+    {
+        Assert.Throws<ArgumentException>(() => Region("region-0", 0, GridGeometry.MaxRows - 2));
+        Assert.Equal(
+            new GridCellAddress(GridGeometry.MaxRows - 4, 0),
+            Region("region-0", 0, GridGeometry.MaxRows - 4).OriginInContainer.Value);
+    }
+
+    [Fact]
     public void StashRegionsKeepIdentityOrderMembershipOriginAndCoverage()
     {
         var stash = new StashRecognition(
@@ -116,6 +191,22 @@ public sealed class DownstreamShapeContractTests
             [Coverage("stash", 70, 680)]));
         Assert.Throws<ArgumentOutOfRangeException>(() => Coverage("stash", 700, 680));
         Assert.Throws<ArgumentException>(() => Coverage("stash//x", 1, 2));
+    }
+
+    [Fact]
+    public void StashRegionOrdinalsAscendAndKeepTheGapOfAFailedCapture()
+    {
+        var stash = Stash([Region("region-0", 0, 0), Region("region-2", 2, 3)], [Coverage("stash", 70, 680)]);
+        var json = JsonSerializer.Serialize(stash, JsonOptions);
+
+        Assert.Equal([0, 2], JsonSerializer.Deserialize<StashRecognition>(json, JsonOptions)!.CapturedRegions.Select(region => region.CaptureOrdinal));
+        Assert.Throws<ArgumentException>(() => Stash([Region("region-2", 2, 3), Region("region-0", 0, 0)], [Coverage("stash", 70, 680)]));
+        Assert.ThrowsAny<ArgumentException>(() => MutateStash(json, regions => regions[1]!["captureOrdinal"] = 0));
+        Assert.ThrowsAny<ArgumentException>(() => MutateStash(json, regions =>
+        {
+            regions[0]!["captureOrdinal"] = 2;
+            regions[1]!["captureOrdinal"] = 0;
+        }));
     }
 
     [Fact]
@@ -188,4 +279,30 @@ public sealed class DownstreamShapeContractTests
         container,
         V2ContractTestData.Complete<int?>("coverage.observed", observed),
         V2ContractTestData.Complete<int?>("coverage.total", total));
+
+    private static GridGeometry Geometry(EvidencedValue<int?> rows, EvidencedValue<int?>? columns = null) => new(
+        rows,
+        columns ?? V2ContractTestData.Complete<int?>("grid.columns", 10),
+        V2ContractTestData.Complete<int?>("grid.cellWidth", 63),
+        V2ContractTestData.Complete<int?>("grid.cellHeight", 63));
+
+    private static RecognizedItem WithSpans(EvidencedValue<int?> width, EvidencedValue<int?> height)
+    {
+        var item = V2ContractTestData.Item();
+        return new RecognizedItem(item.CanonicalId, item.DisplayName, item.Quantity, width, height, item.Rotated, item.FoundInRaid, item.Condition);
+    }
+
+    private static GridRecognition? MutateGrid(string json, Action<JsonNode> mutate)
+    {
+        var node = JsonNode.Parse(json)!;
+        mutate(node);
+        return JsonSerializer.Deserialize<GridRecognition>(node.ToJsonString(), JsonOptions);
+    }
+
+    private static StashRecognition? MutateStash(string json, Action<JsonArray> mutate)
+    {
+        var node = JsonNode.Parse(json)!;
+        mutate(node["capturedRegions"]!.AsArray());
+        return JsonSerializer.Deserialize<StashRecognition>(node.ToJsonString(), JsonOptions);
+    }
 }
