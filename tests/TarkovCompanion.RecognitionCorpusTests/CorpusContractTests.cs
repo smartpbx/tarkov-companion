@@ -555,8 +555,9 @@ public sealed class CorpusContractTests
         CorpusValidation.FrozenMaximumConfidentWrongRate,
         CorpusValidation.FrozenMinimumF1);
 
-    private static SliceMetrics Slice(IReadOnlyList<SliceMetrics> metrics) => Assert.Single(metrics.Where(
-        slice => slice.Intent == BenchmarkIntent.LootDecision && slice.EvidenceClass == CorpusEvidenceClass.SyntheticRaster));
+    private static SliceMetrics Slice(IReadOnlyList<SliceMetrics> metrics) => Assert.Single(
+        metrics,
+        slice => slice.Intent == BenchmarkIntent.LootDecision && slice.EvidenceClass == CorpusEvidenceClass.SyntheticRaster);
 
     private static CorpusSplit Different(CorpusSplit split) => split == CorpusSplit.Train ? CorpusSplit.Test : CorpusSplit.Train;
 
