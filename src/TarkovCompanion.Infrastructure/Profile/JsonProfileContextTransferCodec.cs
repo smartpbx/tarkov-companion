@@ -22,6 +22,9 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
     {
         ArgumentNullException.ThrowIfNull(document);
         if (document.FormatVersion != FormatVersion) throw new ArgumentOutOfRangeException(nameof(document));
+        if (document.Profiles is null || document.Profiles.Count > 64)
+            throw new ArgumentOutOfRangeException(nameof(document), "Profile exports contain between zero and 64 profiles.");
+        _ = new ProfileWorkspaceSnapshot(0, null, document.Profiles);
         var payload = CanonicalPayload(document.ExportedUtc, document.Profiles);
         var envelope = new TransferEnvelope(FormatId, FormatVersion, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant(), JsonSerializer.Deserialize<TransferPayload>(payload, Options)!);
         var result = JsonSerializer.Serialize(envelope, Options);
@@ -58,6 +61,10 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
         catch (NotSupportedException exception)
         {
             throw new InvalidDataException("Profile import contains an unsupported value.", exception);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidDataException("Profile import has an invalid profile context.", exception);
         }
     }
 

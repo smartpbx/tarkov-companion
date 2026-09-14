@@ -52,6 +52,12 @@ public sealed class ProfileTransferService(
         ArgumentException.ThrowIfNullOrWhiteSpace(document);
         cancellationToken.ThrowIfCancellationRequested();
         var incoming = codec.Read(document);
+        if (incoming.FormatVersion != 1 || incoming.Profiles is null || incoming.Profiles.Count > 64)
+        {
+            throw new InvalidDataException("Profile import does not satisfy the bounded profile-context contract.");
+        }
+
+        _ = new ProfileWorkspaceSnapshot(0, null, incoming.Profiles);
         var current = await contexts.GetAsync(cancellationToken).ConfigureAwait(false);
         var existing = current.Profiles.ToDictionary(profile => profile.Context.Identity.ProfileId);
         var entries = incoming.Profiles.Select(profile => Classify(profile, existing)).ToArray();

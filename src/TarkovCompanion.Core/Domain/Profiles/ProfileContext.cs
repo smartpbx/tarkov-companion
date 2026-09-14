@@ -1,4 +1,3 @@
-using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Text.RegularExpressions;
 
@@ -142,8 +141,19 @@ public sealed record ProfileProgress
         return new ReadOnlyDictionary<string, int>(result);
     }
 
-    private static IReadOnlyCollection<string> CopySet(IReadOnlyCollection<string>? values, string parameterName) =>
-        (values ?? EmptySet.Value).Select(value => ProfileText.Required(value, parameterName, 256)).ToFrozenSet(StringComparer.Ordinal);
+    private static IReadOnlyCollection<string> CopySet(IReadOnlyCollection<string>? values, string parameterName)
+    {
+        var result = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var value in values ?? EmptySet.Value)
+        {
+            if (!result.Add(ProfileText.Required(value, parameterName, 256)))
+            {
+                throw new ArgumentException("Profile collections cannot contain duplicate identifiers.", parameterName);
+            }
+        }
+
+        return Array.AsReadOnly(result.ToArray());
+    }
 
     private static IReadOnlyDictionary<string, string> CopyText(IReadOnlyDictionary<string, string>? values, string parameterName)
     {
@@ -164,6 +174,41 @@ public sealed record ProfileProgress
 
     private static class EmptyDictionary<T> { public static readonly IReadOnlyDictionary<string, T> Value = new ReadOnlyDictionary<string, T>(new Dictionary<string, T>()); }
     private static class EmptySet { public static readonly IReadOnlyCollection<string> Value = Array.Empty<string>(); }
+}
+
+/// <summary>
+/// A pure, field-level explanation for outer team, model, history, and transfer adapters. Those
+/// adapters decide whether to reject or quarantine, but they must not quietly treat different
+/// profile contexts as interchangeable.
+/// </summary>
+public enum ProfileContextMismatch
+{
+    ProfileId,
+    Generation,
+    Mode,
+    WipeSeason,
+    Locale,
+    DataSnapshot,
+}
+
+public sealed record ProfileContextCompatibility(IReadOnlyList<ProfileContextMismatch> Mismatches)
+{
+    public bool IsCompatible => Mismatches.Count == 0;
+
+    public static ProfileContextCompatibility Compare(ProfileContext expected, ProfileContext actual)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(actual);
+
+        var mismatches = new List<ProfileContextMismatch>();
+        if (expected.Identity.ProfileId != actual.Identity.ProfileId) mismatches.Add(ProfileContextMismatch.ProfileId);
+        if (!string.Equals(expected.Identity.Generation, actual.Identity.Generation, StringComparison.Ordinal)) mismatches.Add(ProfileContextMismatch.Generation);
+        if (expected.Mode != actual.Mode) mismatches.Add(ProfileContextMismatch.Mode);
+        if (!string.Equals(expected.WipeSeason.Value, actual.WipeSeason.Value, StringComparison.Ordinal)) mismatches.Add(ProfileContextMismatch.WipeSeason);
+        if (!Equals(expected.Locale, actual.Locale)) mismatches.Add(ProfileContextMismatch.Locale);
+        if (!Equals(expected.DataSnapshot, actual.DataSnapshot)) mismatches.Add(ProfileContextMismatch.DataSnapshot);
+        return new(Array.AsReadOnly(mismatches.ToArray()));
+    }
 }
 
 public enum ProfileLifecycle { Active, Archived }
