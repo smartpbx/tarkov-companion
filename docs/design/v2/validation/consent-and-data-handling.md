@@ -11,9 +11,9 @@ separate approval and revocation window.
 
 | Material | Collected? | Where it lives | Retention |
 | --- | --- | --- | --- |
-| Screener answers | Yes | Private study folder | Non-recruits: within 30 days of screening. Participants: with raw material, below |
-| Private recruitment roster | Yes | Private study folder | Eligibility, scheduling and recruitment fields deleted when the session is complete; the minimal contact link moves to the separate index below |
-| ID/contact/request-code index | Yes | Private study folder, separate access-restricted file | Deleted at the fixed withdrawal deadline: session start + 180 days, or within 7 days of an earlier withdrawal |
+| Screener answers | Yes | Private study folder | Non-recruits: fixed screening timestamp + 30 × 24 hours. Participants: with raw material, below |
+| Private recruitment roster | Yes | Private study folder | A non-recruited candidate's entire roster entry is deleted at their fixed screening timestamp + 30 × 24 hour deadline. For a recruited participant, eligibility, scheduling and recruitment fields are deleted when the session is complete; the minimal contact link moves to the separate index below |
+| ID/contact/request-code index | Yes | Private study folder, separate access-restricted file | Non-recruits: fixed screening timestamp + 30 × 24 hours. Participants: fixed withdrawal deadline, session start + 180 × 24 hours; an on-time withdrawal case retains only the minimum locator/evidence references for no more than 7 additional days to complete deletion |
 | Participant-to-evidence index | Yes | Private study folder; IDs mapped to report rows/findings, with no raw answers | Deleted with the ID/contact/request-code index; it exists solely to execute withdrawal and recalculate aggregates |
 | Consent and quote-approval record | Yes | Private study folder ([template](templates/consent-record.md)) | Deleted with the ID/contact/request-code index after a deletion receipt is recorded without identity |
 | Screen recording | Only if agreed | Private study folder | Earlier of 30 days after report sign-off or session start + 180 days |
@@ -24,7 +24,11 @@ separate approval and revocation window.
 | Verbatim quotes | Only if agreed per quote and the embargo below completes | This repository, without a participant ID | Permanent in public history; a current report can be revised but old commits cannot be erased |
 | Assistive technology used | Only if the participant agrees and an aggregate cell will not identify them | Private session log, then only an aggregate category in the report | Permanent only as non-identifying aggregate synthesis |
 
-At consent, calculate the fixed withdrawal deadline as the session start timestamp plus 180 × 24
+Before Q1, calculate each candidate's **screening deletion deadline** as the screening timestamp
+plus 30 × 24 hours, record the exact UTC timestamp beside their private contact, roster and salted
+request-code verifier, and tell them that all three are deleted then if they are not recruited.
+This deadline exists independently of a session and does not move because scheduling is delayed or
+never happens. At consent, calculate the fixed withdrawal deadline as the session start timestamp plus 180 × 24
 hours, record the exact UTC timestamp, and give it to the participant. That deadline does not move
 when sign-off moves. Raw material can disappear earlier, but the minimal ID/contact/request-code and
 participant-to-evidence indexes stay until the deadline so an on-time request can still locate and
@@ -32,7 +36,11 @@ remove that person's contribution. At the deadline, two study-team members verif
 indexes and record only the date, number of records deleted and verifier roles—no ID, contact or
 code.
 
-After that deadline, the study no longer has the identity link needed to locate one person's
+After that deadline, the study no longer accepts a new withdrawal request. If a request arrived on
+time, the study seals a minimum private case record (verified request time, locator and evidence
+references) and may retain it only until deletion completes, no later than seven days after the
+deadline; the normal indexes are otherwise deleted at the deadline. After that bounded completion
+window, the study no longer has the identity link needed to locate one person's
 aggregate contribution, and public git history is immutable. The study therefore cannot promise or
 honour a later participant-specific removal. This limit is stated before consent, not discovered
 when somebody asks. Retention is proposed in M-06; shortening the request window would require new
@@ -47,7 +55,8 @@ access. Public files name only the kind of storage, never its path or share link
 
 Before Q1, give the candidate a random request code and the private study contact. The person keeps
 the code; the study stores only a salted verifier linked to the private ID. For somebody not
-recruited, it works until the screening-deletion deadline (screening + 30 × 24 hours). If recruited,
+recruited, it works until their recorded screening deletion deadline (screening timestamp + 30 × 24
+hours), when the private contact, roster entry and verifier are deleted together. If recruited,
 the same code is recorded as delivered on the consent record and works for withdrawal and quote
 revocation until the fixed session deadline. A lost code can be resolved through the verified
 private contact only while the separate ID/contact map still exists.
@@ -93,8 +102,9 @@ Read this before any recording starts. Adapt the wording, never the substance.
 > we can understand what we see, but you do not have to, and we will not ask why.
 >
 > You can skip any task or question, take a break, or stop at any time. Until [exact UTC deadline],
-> you can send your request code to [private study contact] and ask us to withdraw you. Within seven
-> days we delete your private data, remove any linked material from the current report, recalculate
+> you can send your request code to [private study contact] and ask us to withdraw you. We stop
+> accepting new requests at that time, but finish an on-time request within seven days: we delete
+> your private data, remove any linked material from the current report, recalculate
 > the aggregates, and reassess decisions that used it. After that deadline the identity link is
 > deleted, so we cannot locate or promise to remove one person's aggregate contribution. A revised
 > report also cannot erase an earlier public git version.
@@ -117,7 +127,9 @@ only after a yes to both questions.
 ## Withdrawal
 
 1. By the fixed UTC deadline, the participant sends the code to the private study contact. The
-   recipient logs request time and acknowledges it without copying the code into public systems.
+   recipient logs request time and acknowledges it without copying the code into public systems. An
+   on-time request seals the minimum locator/evidence references needed to finish the case; that
+   private case record expires no later than seven days after the deadline.
 2. The study team verifies the salted code, freezes synthesis from that participant, and within 7
    days deletes recordings, notes, screener, consent/approval records, ID/contact/request-code entry and
    participant-to-evidence index entry. Two roles record completion in the non-identifying deletion
@@ -129,6 +141,20 @@ only after a yes to both questions.
    the gate, #265 reopens or remains open and a replacement uses the vacated assignment slot.
 5. A request after the fixed deadline receives an explanation that the identity link and source
    material were deleted on schedule and participant-specific removal can no longer be executed.
+
+For a person who was not recruited, the same private contact accepts a request-code query only until
+the recorded screening deletion deadline. At that deadline the study deletes their screener answers,
+contact, roster entry and request-code verifier together, records only a non-identifying deletion
+receipt, and cannot perform a later candidate-specific lookup.
+
+## No-session lifecycle
+
+A candidate who declines, is found ineligible, is rejected, or never consents is non-recruited and
+uses the screening deletion deadline. A person who consented but cancels or does not attend before a
+session begins is an **enrolled no-show**: delete their contact, roster, consent and request-code
+verifier at the earlier of the screening deletion deadline or scheduled-session start + 7 × 24
+hours. No participant-to-evidence index exists because no session evidence was collected. A
+replacement uses the vacated private assignment slot only after this deletion state is recorded.
 
 ## Before findings are committed
 

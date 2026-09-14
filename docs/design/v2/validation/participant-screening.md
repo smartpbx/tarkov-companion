@@ -4,6 +4,10 @@
 > per-person eligibility, assignments and recruitment status belong only in the private study
 > folder. Never add them to this public repository, even under a pseudonymous ID.
 
+Before Q1, record a fixed **screening deletion deadline** of screening timestamp + 30 × 24 hours in
+UTC. If the candidate is not recruited, delete their screener, contact, roster entry and
+request-code verifier together at that deadline; it is not tied to a session, because none exists.
+
 ## Who counts
 
 A counted participant is a **real person who plays Escape from Tarkov** and is one of the internal
@@ -49,8 +53,9 @@ Screening happens before the consent script, so read or send this notice first:
 > These questions help us pick a mix of players for a study of early Tarkov Companion storyboards.
 > You can skip any of them. Before the first question we will give you a private request code and a
 > study contact. Your answers are kept in a private study folder that only the study team can open,
-> never in the project's public repository. If you are not recruited, they are deleted within 30
-> days of screening; if you take part, the study retention rules apply. You can use the code to ask
+> never in the project's public repository. If you are not recruited, we delete the answers,
+> contact, recruitment row and request-code verifier at the exact UTC deadline of this screening
+> timestamp plus 30 days; if you take part, the study retention rules apply. You can use the code to ask
 > for deletion sooner.
 
 1. Roughly how long have you played Escape from Tarkov? *(under 3 months · 3 to 12 months · 1 to 3
@@ -90,7 +95,9 @@ Screening happens before the consent script, so read or send this notice first:
 
 - Keep the private recruitment roster, eligibility calculation, contact details, request-code
   verifier and scheduling assignment outside git. Give the candidate the request code and private
-  study contact before asking Q1; store only a salted verifier, never the code itself.
+  study contact before asking Q1; store only a salted verifier, never the code itself. For an
+  unrecruited candidate, delete all four at the recorded screening deletion deadline rather than
+  awaiting a session outcome.
 - Assign primary variant, findability sets and journey rotation from the repeating schedule in
   research-plan.md section 4. Record adjustments only in the private roster.
 - An accessibility-relevant participant chooses their own device, assistive technology and
@@ -113,7 +120,7 @@ verify it privately and the report records only `met` or `not met`.
 | Expert | 1 | — | — |
 | Regular or returning | 1 | — | — |
 | Accessibility-relevant | 1 | — | — |
-| Screen-reader user (if recruitable) | 1 | — | — |
+| Screen-reader user | 1 | — | — |
 | Squad player | 2 | — | — |
 | Second-screen user | 1 | — | — |
 | Not seen v2 concepts | 2 | — | — |

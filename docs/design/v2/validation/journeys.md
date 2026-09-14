@@ -17,6 +17,28 @@ reader if the participant wants it. Do not name a destination or control that is
 
 Fixture IDs refer to [acceptance-fixture-map.md](acceptance-fixture-map.md).
 
+## Completion-gate measurement register
+
+The completion gate counts these **26** and no other journey rows. Each one needs at least two
+counted attempts in Variant A and two in Variant B; an outcome of `Not attempted`, `stopped`, `not
+reached`, or `storyboard defect` contributes zero. The attempt is bounded by the time cap in
+[metrics-and-analysis.md](metrics-and-analysis.md): six minutes per row unless that document changes
+the cap before a session. An injection or probe without **Measure** is observed and recorded but is
+not a gate-controlled attempt.
+
+| Journey | Required measured steps |
+| --- | --- |
+| J1 | J1.1, J1.2, J1.3 |
+| J2 | J2.1, J2.2, J2.3, J2.4, J2.5, J2.6 |
+| J3 | J3.0, J3.1, J3.4, J3.5, J3.6 |
+| J4 | J4.1, J4.2, J4.3, J4.4 |
+| J5 | J5.1, J5.2, J5.3, J5.4 |
+| J6 | J6.1, J6.2, J6.3, J6.4 |
+
+The moderator cannot close #265 from a journey-level label such as “J3 attempted”: each listed
+row must have its own bounded attempt count. A skipped J2.5 remains zero even when F-12 was done;
+F-12 supplies its own findability evidence, not a substitute journey-step attempt.
+
 ---
 
 ## J1 First launch
@@ -101,15 +123,16 @@ decide what you'd take."
 
 ## J3 Guided stash scan
 
-**Start:** A `#/intel/stash` · B `#/prepare/stash`. Two screenshots already analysed. If the
-participant did not do F-06 in this variant, start instead at `#/raid` and **Measure** finding stash
-scan first (A: Intel, Open stash scan · B: Prepare, Open stash scan · either: Capture, Full stash).
+**Start:** `#/raid` in either variant. Two screenshots are already analysed after the participant
+finds Stash scan. This makes the first step a required measured route in every session rather than a
+conditional, uncounted substitute for F-06.
 
 **Task card:** "You're partway through scanning your whole stash. Two screenshots are done. Carry on,
 then find out what needs checking before you sell anything."
 
 | # | Step | Expected (both variants) | Success criterion |
 | --- | --- | --- | --- |
+| 0 | **Measure.** Find Stash scan | A: Intel, Open stash scan · B: Prepare, Open stash scan · either variant: Capture, Full stash | Stash scan is open; record the actual route. |
 | 1 | **Measure.** Say what to do next and how much is covered | Reads Next and Coverage | "Scroll down one screen so row 37 is at the top"; 42 of 68 rows |
 | 2 | Participant arms Full stash if not armed. **Inject** "File still being written" | Progress says the file is still being written and will not be skipped, then completes | Participant does not take the screenshot again or conclude it failed. Record what they say while it waits |
 | 3 | **Inject** "Duplicate of the last file". Ask (probe, now): "Did anything change?" | Announcement: already analysed; recent captures shows "Same file as capture N" | "No" |
@@ -180,7 +203,7 @@ Finally, look at something on the tablet without changing the desktop."
 | # | Step | Expected | Success criterion |
 | --- | --- | --- | --- |
 | 1 | **Measure.** Make the tablet able to change the desktop | Tablet mode: Control desktop | Owner line reads "This tablet leads" |
-| 2 | **Inject** "Desktop user switches view" *before* the participant taps a destination. **Measure** | A: tap Plan · B: tap Prepare. Dialog: "Desktop changed first" | Participant explains the desktop changed first and nothing was applied, then chooses either option deliberately |
+| 2 | **Inject** "Desktop user switches view" *before* the participant taps a destination. **Measure** | A: tap Plan · B: tap Prepare. Dialog: "Desktop changed first" | Participant explains the desktop changed first and nothing was applied, then makes the desktop end on A: Plan or B: Prepare. If they choose Keep desktop view first, record that choice and require one unaided retry to the named destination before scoring success. |
 | 3 | **Measure.** Waypoint at Warehouse 4, own devices only | Waypoint, Place Warehouse 4, Share with: My paired devices, Add | Mark listed with "shared with My paired devices". **Incorrect:** Only me or Team |
 | 4 | **Measure.** Browse on the tablet without changing the desktop, then send it to the desktop | Independent view, tap Team, Show this view on desktop | Desktop panel shows Team with a new revision |
 

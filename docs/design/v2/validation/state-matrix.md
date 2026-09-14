@@ -35,15 +35,24 @@ says "needs contract" rather than inventing it.
    moves focus to that failure's message or recovery control. A refusal with no alternative keeps
    focus on the control, with the reason attached to it; a refusal that offers choices opens a
    dialog with focus on its heading.
-6. **Announcements are proportionate.** Background changes use the polite status region, once per
+6. **The remainder must replace contradicted success content.** A degraded banner alone is not
+   enough when the normal body still says a check is Found/Available/Synced, a correction saved, or
+   nothing needs action. Keep genuinely usable controls and historical facts, but mark unchecked
+   readiness as unconfirmed and a failed correction as a draft until recovery succeeds.
+7. **Recovery is not fabrication.** A recovery labelled as navigation, explanation, chooser or
+   cancellation keeps the current degraded state until its dependency is actually resolved; only a
+   completed retry or refresh may replace it with Success. The storyboard's moderator scenarios
+   transition the whole canonical scenario together (for example, post-raid chrome and Raid state),
+   never a single decorative flag.
+8. **Announcements are proportionate.** Background changes use the polite status region, once per
    transition, never repeatedly while a state persists. Only a failure or refusal of the player's own
    action, or a conflict that discarded their change, uses the assertive region. Loading is announced
    only if it lasts longer than about one second, and completion is announced once.
-7. **Desktop is canonical.** A paired tablet shows the desktop's state with the desktop's provenance.
+9. **Desktop is canonical.** A paired tablet shows the desktop's state with the desktop's provenance.
    A problem on the tablet's own link is labelled as the tablet's ("This tablet can't reach your
    desktop"), never as the desktop's data being offline. Ages are computed from observation time, not
    from when the tablet received the update.
-8. **Success still carries evidence.** The success row is not "no banner, no metadata"; compact
+10. **Success still carries evidence.** The success row is not "no banner, no metadata"; compact
    context remains visible and the complete evidence remains available in adjacent details.
 
 ---

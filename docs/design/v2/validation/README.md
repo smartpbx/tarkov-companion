@@ -35,13 +35,13 @@ and changes none of the #264 contracts.
 
 ## What the storyboards prove, and what they cannot
 
-The storyboards in [prototype/](prototype/) test **vocabulary and flow**. They have real landmarks,
+The storyboards in [prototype/](prototype/) test **vocabulary and flow**. They specify real landmarks,
 headings, accessible names, focus order, native dialogs, live regions, keyboard operation, touch
-sized targets, reflow, forced-colours support, reduced motion, and a list alternative for every map.
+target minima, reflow, forced-colours support, reduced motion, and a list alternative for every map.
 They are built so keyboard, screen-reader, magnifier and touch participants can take part in the
-navigation study rather than being excluded from it. That has been checked by automated browser
-checks only, not yet with assistive-technology users; the pilot and each participant's pre-session
-setup check must confirm it.
+navigation study rather than being excluded from it. They have not yet been re-run through the full
+exact-head browser matrix or used by an assistive-technology participant; the pilot and each
+participant's pre-session setup check must confirm the applicable flow.
 
 They **do not** prove:
 
@@ -52,8 +52,19 @@ They **do not** prove:
 - recognition quality, recommendation correctness, model accuracy, latency, or sync performance.
   Every screenshot outcome is simulated by the moderator, and every number is sample content.
 
-They make no network request, read no file, and never press a game key. Open
+They make no network request, read no user or game file, and never press a game key. They load only
+the bundled storyboard HTML, CSS and sample-content JavaScript. Open
 [prototype/index.html](prototype/index.html) directly from a checkout.
+
+### Participant distribution scope
+
+The distributable unit is the repository's **`docs/` tree**, served from the repository root (or
+copied intact with its relative paths), not `prototype/` by itself. It contains the storyboard files,
+the journey and research links opened from the index, and the Safety/data-methodology links surfaced
+from Setup. A moderator may use a local static server rooted at the checkout and give a participant
+`/docs/design/v2/validation/prototype/index.html`; no server is required when the same `docs/` tree is
+opened locally. Before distribution, run `node docs/design/v2/validation/prototype/link-audit.mjs` at
+the repository root; it fails on a local storyboard/index target that would escape that bundle.
 
 ## Fixed product boundary
 
@@ -70,8 +81,8 @@ live detection.
 #265 is complete only when every item in the completion gate in
 [research-plan.md](research-plan.md) section 8 is met, with the evidence in
 [validation-report.md](validation-report.md). In short: real sessions that meet the coverage in
-[participant-screening.md](participant-screening.md), every journey and findability task meeting its
-per-variant minimum (a recorded non-attempt does not count),
+[participant-screening.md](participant-screening.md), every named gate-controlled journey **step**
+and findability task meeting its per-variant minimum (a recorded non-attempt does not count),
 each variant primary for at least two people, accessibility flows exercised by daily users of the
 technology, findings rated with [severity-rubric.md](severity-rubric.md) and every S0 and S1 owned,
 each hypothesis moved in [../decision-log.md](../decision-log.md) with evidence, and

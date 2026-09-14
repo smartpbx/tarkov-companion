@@ -85,6 +85,7 @@ button:hover, .button:hover { background: var(--surface-2); }
 button.primary:hover, .button.primary:hover { background: var(--accent); filter: brightness(1.1); }
 button[aria-disabled="true"] { border-style: dashed; color: var(--muted); cursor: not-allowed; }
 button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.context-item a { display: inline-flex; align-items: center; min-height: 2.75rem; }
 select, input[type="text"], input[type="search"] {
   background: var(--surface); color: var(--text); border: 2px solid var(--line);
   border-radius: var(--radius); padding: 0.4rem 0.6rem; max-width: 100%;

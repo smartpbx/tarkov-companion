@@ -10,6 +10,7 @@
 | Counted | Yes / No (pilot) |
 | Primary variant | A / B |
 | Findability set 1 on | A / B |
+| Findability first shown | A / B (assigned schedule) |
 | Journey order (J2 to J5) | |
 | Storyboard commit | |
 | Device, browser, assistive technology, zoom, text size, contrast, motion | |
@@ -46,7 +47,7 @@
 | J2.4 | | | | | | |
 | J2.5 | | | | | | |
 | J2.6 | | | | | | |
-| J3.0 (if run) | | | | | | |
+| J3.0 | | | | | | |
 | J3.1 | | | | | | |
 | J3.2 (observe only) | | | | | | |
 | J3.3 (observe only) | | | | | | |

@@ -1,8 +1,8 @@
 # Accessibility flows
 
-> **Status: not yet run.** No participant has used these flows. The only checks so far are automated
-> checks of the storyboard files themselves (listed at the end), which show the storyboards are
-> technically ready for a pilot, and nothing about the native application.
+> **Status: not yet run.** No participant has used these flows. The automated checks below are a
+> required exact-head verification matrix, not completed evidence: run them again after a storyboard
+> change and before the pilot. They say nothing about the native application.
 
 These flows are the #265 "annotated keyboard, screen-reader, touch, narrow-window, high-contrast, and
 high-text-scale flows". Each is written as the expected sequence, so a moderator or participant can
@@ -262,6 +262,6 @@ route of both variants in headless Chromium: each rendered its page heading with
   Retry saves it.
 - No horizontal page scroll outside table regions at 320 CSS px with normal text, and at 768 and
   1280 px with 200% text, on nine routes per variant.
-- Every tablet-preview control is at least 44 by 44 CSS px at 1024 px wide. (At 7cca6e8 the "Leave
-  tablet preview" link and the header setup links were inline text links, so this held for buttons
-  only; the audit revision made "Leave tablet preview" a button, and the header links still are not.)
+- Every tablet-preview control and header Setup/status link is at least 44 by 44 CSS px at 1024 px
+  wide. The header links receive the same minimum target rule as buttons; measure them in the
+  exact-head run rather than inheriting the older 7cca6e8 assertion.

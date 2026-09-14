@@ -37,7 +37,7 @@ Rail:   Raid | Intel | Plan | Team | Debrief
 | **Plan** | Suggested bundles, objectives, extract, requirements with sources, route estimate | |
 | **Team** | Members and roles, paired devices, marks, tablet preview at `#/tablet` | |
 | **Debrief** | Raid list, timeline with how each fact is known, corrections, preserved prediction | |
-| **Setup & Admin** | Get ready checklist, sections for Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance and accessibility, Diagnostics; links to full Safety and data methodology | **Lands here** |
+| **Setup & Admin** | Get ready checklist, ten sections: Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance, Accessibility and Diagnostics; links to full Safety and data methodology | **Lands here** |
 
 Intel from elsewhere: a "Details" link switches to the Intel workspace (the rail highlights Intel)
 and offers "Back to" the page it came from.
@@ -99,7 +99,7 @@ mode. **Show this view on desktop** appears only in **Independent view**.
 | --- | --- | --- |
 | J1 first launch | `variant-a.html#/setup` | `variant-b.html#/home` |
 | J2 loot decision | `variant-a.html#/raid` | `variant-b.html#/raid` |
-| J3 stash scan | `variant-a.html#/intel/stash` | `variant-b.html#/prepare/stash` |
+| J3 stash scan | `variant-a.html#/raid` (then find Stash scan) | `variant-b.html#/raid` (then find Stash scan) |
 | J4 next-raid plan | `variant-a.html#/plan` | `variant-b.html#/prepare` |
 | J5 paired tablet | `variant-a.html#/tablet` | `variant-b.html#/tablet` |
 | J6 debrief | `variant-a.html#/debrief` | `variant-b.html#/history` |

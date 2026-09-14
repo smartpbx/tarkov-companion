@@ -12,7 +12,7 @@
 | Date screened | |
 | Private study contact and request code delivered | Yes / No |
 | Salted request-code verifier reference | |
-| Delete by if not recruited (UTC; screening + 30 × 24 h) | |
+| Fixed screening deletion deadline (UTC; screening timestamp + 30 × 24 h) | |
 | Q1 Time playing EFT | |
 | Q2 Wipes with real progression | |
 | Q3 Current play frequency | |
@@ -39,3 +39,17 @@
 | Second-screen user | | |
 | Has not seen v2 concepts | | |
 | Familiarity flag (helped plan) | | |
+
+## If not recruited
+
+At the fixed screening deletion deadline, delete this screener and the linked private contact,
+recruitment-roster entry and salted request-code verifier together. Record only a non-identifying
+deletion receipt (deadline, actual deletion UTC, count of records, verifier roles); do not retain a
+participant ID, contact, code or filename in the receipt.
+
+## Enrolled no-show or pre-session cancellation
+
+If consent was recorded but no session begins, delete the contact, roster, consent record and
+request-code verifier at the earlier of this screening deadline or scheduled-session start + 7 × 24
+hours. Record only the lifecycle state and non-identifying deletion receipt; there is no
+participant-to-evidence index to keep.

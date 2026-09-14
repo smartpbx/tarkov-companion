@@ -4,7 +4,7 @@
 
 ## Before the session
 
-- [ ] Participant ID, primary variant, findability set per variant, and journey rotation written on the session log
+- [ ] Participant ID, primary variant, findability set per variant, pre-registered first findability variant, and journey rotation written on the session log
 - [ ] Storyboard commit noted; `prototype/index.html` opens on the participant's device and setup
 - [ ] Assistive technology, zoom, text size, contrast and motion settings are the participant's own, checked before the session
 - [ ] For J5 on a real tablet: the storyboard opens at `#/tablet` on the device
@@ -43,3 +43,4 @@
 - [ ] Session log completed within 24 hours
 - [ ] Personal information in recordings noted for removal
 - [ ] Private manifest has the raw-material deletion date and fixed identity/evidence-index deletion deadline
+- [ ] For every screened but unrecruited candidate, the private manifest has the independent fixed screening deletion deadline for their screener, contact, roster entry and request-code verifier

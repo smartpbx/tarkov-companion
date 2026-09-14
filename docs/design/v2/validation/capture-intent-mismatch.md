@@ -3,7 +3,8 @@
 > **Status: not yet run.** This is the flow the storyboards implement and the sessions test. It is
 > a UX specification, not a contract: the capture lifecycle belongs to #264 and #271, and the
 > paired-device protocol to #276. Where this needs something they have not defined, it says
-> **needs contract**. Nothing here sets a threshold, timeout, or queue size.
+> **needs contract**. Nothing here sets a recognition threshold, file-stability rule, or queue size;
+> the clipboard payload cap and lifetime are explicit because a paste has no source to re-read.
 
 ## What capture is, and is not
 
@@ -18,7 +19,9 @@
   is skipped, or pauses for a decision. It **does not delete, move, rename or modify the
   screenshot file** the game wrote; that file stays in the EFT screenshot folder. Keeping a decoded
   image for debugging requires Debug Capture, explicitly enabled, with preview, redaction, expiry and
-  provenance (#256).
+  provenance (#256). The only normal-flow exception is the short-lived clipboard payload below: it
+  exists solely because clipboard pixels have no file to re-read, is never persisted, and is erased
+  as soon as analysis, skip or expiry settles its ordered entry.
 - **Folder cleanup is a separate, opt-in feature.** v1 moves game screenshots older than a day to the
   Recycle Bin by default; #256 §3 makes that opt-in with a preview. Capture copy must never borrow
   cleanup's wording, and cleanup's setting must never be described as "discarding" images.
@@ -33,7 +36,7 @@ because only a game screenshot is in the EFT folder and a pasted image has no fi
 | --- | --- |
 | Game screenshot folder | "The screenshot file stays in your EFT folder. The decoded image was discarded after analysis." |
 | Picked or dropped file | "Your file was not changed. The decoded image was discarded after analysis." |
-| Clipboard paste or external capture | "The pasted image was discarded after analysis." |
+| Clipboard paste or external capture | "The pasted image was held only in memory while this capture waited or was decided, then discarded. It was never saved." |
 
 ## Definitions
 
@@ -45,13 +48,18 @@ because only a game screenshot is in the EFT folder and a pasted image has no fi
 | **Binding** | The armed intent and revision in force **when the file appeared**, recorded with the capture. "Appeared" means the capture's position in the desktop's single serial event order (file observed, paste or drop received), not the file's creation time or the minute in its name. A revision change and a capture are never simultaneous: whichever the desktop processes first comes first. |
 | **Detected context** | What analysis thinks the screenshot shows, with a score. The set of contexts and how each maps to an intent are **needs contract** (#264); today's recognition dispatches only single items, extract lists, mixed containers and flea rows (docs/RECOGNITION.md). The score is a ranking value, not a calibrated probability, so the player never sees it as a bare number. |
 | **Needs a decision** | A capture paused because detection disagreed with the binding or could not tell. It is kept, listed, and announced; it is never dropped or auto-resolved. |
+| **Clipboard payload** | The one process-owned in-memory byte payload copied at clipboard arrival. It is at most 32 MiB and expires 10 minutes after arrival. It is not a file, thumbnail, cache entry, debug artifact or network payload. |
 
 ## The flow
 
 ```mermaid
 flowchart TD
     A[File appears in the screenshot folder, or player pastes, drops or picks a file] --> B[Number it and bind it to the intent and revision in force now]
-    B --> C{Finished writing?}
+    B --> BP{Clipboard source?}
+    BP -- yes --> BP1[Copy one bounded transient payload: 32 MiB, 10 min]
+    BP1 --> C
+    BP -- no --> C
+    C{Finished writing?}
     C -- not yet --> C1[Show: still being written, will not be skipped. Check again, bounded]
     C1 --> C
     C1 -- bound reached --> N1[Needs a decision: file still changing. Retry or Skip]
@@ -71,9 +79,9 @@ flowchart TD
     N1 --> P
     P --> Q{Choice}
     Q -- retry, file still changing --> C
-    Q -- analyse as detected, armed, or chosen --> E2[Re-read the file, decode again]
+    Q -- analyse as detected, armed, or chosen --> E2[Re-read file, or use still-live clipboard payload]
     E2 -- same content --> R
-    E2 -- file missing or content changed --> G1[File no longer available. Skip]
+    E2 -- source unavailable or clipboard payload expired --> G1[Source no longer available. Paste again or Skip]
     Q -- skip --> S[Record: skipped by you. Nothing changed]
     S --> W[Ordered session: waiting files continue in capture order]
     R --> W
@@ -84,12 +92,11 @@ flowchart TD
 
 The checks run in this order for every capture, so the same input always gives the same outcome:
 
-1. **Bind.** Record the capture number, source, observed time, intent, intent revision, and the
-   device that set that intent. Filename position parsing happens here and does not wait for
-   anything below (#271). The position's observed time is the timestamp in the filename (minute
-   precision). A position older than the one already shown never replaces it, so a late or dropped
-   older file cannot move the player backwards; a capture found to be a duplicate in step 3 never
-   updated it in the first place, because an identical file carries an identical, not newer, time.
+1. **Bind.** Record the capture number, source, observed time, intent, intent revision, device that
+   set that intent, and any filename-position candidate. Binding does **not** publish a position:
+   a copied or renamed duplicate can have different filename metadata. The candidate waits for its
+   ordered duplicate/content validation like every other capture; there is no filename-position fast
+   lane.
 2. **Settle.** Wait until the file has stopped changing and opens for shared reading. Checks are
    bounded (**needs contract**: #271 owns the stability rule and bound; the storyboard uses three
    checks). While waiting, the progress line says the file is still being written and will not be
@@ -98,27 +105,37 @@ The checks run in this order for every capture, so the same input always gives t
    record "Same file as capture M. Not analysed again." with **Analyse again**. A copy under a
    different name is still a duplicate. The duplicate rule compares content, not names (**needs
    contract**: #271 chooses the comparison).
-4. **Decode.**
-5. **Detect** the context and its score.
-6. **Position only.** Most game screenshots are ordinary in-raid frames: 249 of 282 sampled carried
+4. **Clipboard admission.** A paste or external capture first copies exactly one process-owned
+   transient byte payload, capped at **32 MiB** and expiring **10 minutes after arrival**. If the
+   copy exceeds the cap or cannot be made, record a visible ordered failure, “Paste was not
+   accepted; paste again with an image at most 32 MiB,” and continue only after that entry is
+   recorded. It never writes the payload to disk, a thumbnail cache, Debug Capture, diagnostics or
+   a paired device. A file source stores its reference, not a duplicate byte payload.
+5. **Decode.**
+6. **Detect** the context and its score.
+7. **Position only.** After duplicate validation, most game screenshots are ordinary in-raid frames:
+   249 of 282 sampled carried
    coordinates, and 13.4% had no HUD at all ([EFT_SCREENSHOT_FACTS.md](../../../research/EFT_SCREENSHOT_FACTS.md)).
    An in-raid view with no grid, list or screen to analyse is recorded as "Position updated; nothing
    else analysed". It is not a mismatch, is not queued, and does not use up the armed intent
    (proposal P-06; **needs contract**: #264 for the context, #271 for intent consumption). Without
-   this, every routine position screenshot would land in Needs a decision.
-7. **Unknown.** If the score is below the threshold, or the top two contexts are closer than the
+   this, every routine position screenshot would land in Needs a decision. Only here may a validated
+   filename-position candidate publish; its observed time is the filename timestamp (minute
+   precision), and an older validated position never replaces a newer one.
+8. **Unknown.** If the score is below the threshold, or the top two contexts are closer than the
    runner-up margin (**needs contract**: #264 and #272; item recognition today uses a 0.08 lead),
    the capture goes to Needs a decision as "Couldn't tell what capture N shows", offering both
    close contexts first. This check comes **before** the comparison, so a low-confidence guess
    never produces a mismatch dialog.
-8. **Compare** with the binding, using the table below.
-9. **Match or narrow:** recognise and publish. **Disagree:** Needs a decision.
-10. **Discard pixels** whenever the capture leaves analysis: finished, skipped, or paused. If the
-    player later chooses to analyse a paused capture, the companion re-reads the file. If the file is
-    no longer in its folder, or its content differs from what was bound, the capture shows "File no
-    longer available" and offers Skip. A **pasted** capture has no file to re-read, and its pixels
-    are never held while it waits (Debug Capture excepted), so its dialog offers **Skip** and "Paste
-    again to analyse" instead of Analyse (**needs contract**: #271).
+9. **Compare** with the binding, using the table below.
+10. **Match or narrow:** recognise and publish. **Disagree:** Needs a decision.
+11. **Discard pixels** whenever the capture finishes or is skipped. A paused file capture is re-read
+    if the player later chooses analysis. A paused clipboard capture retains only its bounded
+    transient payload until the player decides or its ten-minute deadline; it is then erased. If a
+    file is gone/changed or a clipboard payload has expired, the ordered entry visibly says its
+    source is unavailable and offers **Paste again** or **Skip**. Expiry never analyses, guesses or
+    silently drops a capture: it records that failure at its own queue position, then allows the
+    next arrival to start.
 
 ### Comparison table
 
@@ -146,8 +163,13 @@ screenshot counts as belongs to the detected-context contract (**needs contract*
   arrival order, then enters one bounded queue. There is no independent fast lane.
 - Exactly one capture may analyse at a time. If it pauses for an unknown or mismatch decision, it
   remains the head blocker and **all** later captures wait as bound but unread inputs. They are not
-  decoded, duplicate-checked or published until the blocker is resolved, so no pixels are held and
-  no later result can overtake it.
+  decoded, duplicate-checked or published until the blocker is resolved, so no later result can
+  overtake it. A waiting file has no decoded pixels; a waiting clipboard entry alone owns its one
+  capped transient payload, because otherwise it could never be read at its turn.
+- A clipboard payload expires 10 minutes after its arrival even while an earlier capture blocks the
+  queue. When its position reaches the head, the companion records **“Paste expired before analysis;
+  paste again”**, erases the payload, announces the failure politely, and starts the next entry. The
+  expiry is visible and ordered; it does not permit a later result to overtake it.
 - The queue is bounded and overflow is visible, never silent (**needs contract**: #271 owns the bound
   and what happens at it).
 - The duplicate check (step 3) reads content, so it does **not** run on a waiting session file; it
@@ -173,13 +195,17 @@ the screenshot arrives. So:
 | --- | --- | --- | --- |
 | Disagree | "This looks like a stash, not a loot screen" | "Nothing has been changed yet." You armed: Loot decision (rev 19, set on desktop). Detected: Full stash, a strong match (the wording of match strength is #264's). Screenshot 18:43:13; file stays in your EFT folder. | Skip this screenshot · Analyse as Loot decision anyway · **Analyse as Full stash** |
 | Unknown | "Couldn't tell what capture 5 shows" | "Nothing in your raid, stash or plan was changed." A choice of contexts: the two close contexts first when there were two, otherwise the armed intent first. | Skip this screenshot · **Analyse as chosen** |
-| Pasted capture, any case above | As above | As above, plus "A pasted image isn't kept, so paste it again to analyse it." | Skip this screenshot · **Paste again to analyse** |
+| Pasted capture, payload live | As above | As above, plus "This pasted image is held only in memory until [exact expiry]. It is never saved." | Skip this screenshot · Analyse as offered above |
+| Pasted capture, payload expired | "Paste expired before analysis" | "Nothing was analysed. The temporary in-memory pasted image was discarded at its deadline." | **Paste again** · Skip this capture |
 | File still changing | "Couldn't read capture 6 yet" | "The file was still being written when checking stopped." | Skip this screenshot · **Retry** |
 | File gone | "Capture 6 is no longer available" | "The file is no longer in its folder, or it has changed since it was captured." | **Skip this screenshot** |
 
 - **Escape or closing without choosing** keeps the capture under Needs a decision, and focus returns to
   **Decide** (or to the page heading if no decision remains).
-- **No timeout ever chooses.** A decision can wait until the player is out of the raid.
+- **No timeout ever chooses.** A file-backed decision can wait until the player is out of the raid.
+  A clipboard decision never chooses either: after its ten-minute payload deadline it becomes the
+  visible `Paste expired before analysis` failure and needs a fresh paste, which releases later
+  arrivals without retaining pixels indefinitely.
 - **Choosing "Analyse as detected" does not change the armed intent.** The next screenshot is bound
   to whatever is armed when it appears, including after any expiry (#271 requires intent to expire
   visibly; whether it expires after one capture is D-01). The result says which intent it was
@@ -198,7 +224,7 @@ was based on.
 | **A screenshot appears while an intent change is in flight.** File observed at rev 19; desktop's rev 20 change applies a moment later. | The capture stays bound to rev 19. Analysis starting later does not rebind it. | Result: "Analysed as Ammo, armed when the screenshot appeared." Offer **Analyse again as Full stash**, which re-reads the file. |
 | **Both devices resolve the same decision.** | The first choice received for that capture wins. | Second device: "Already decided on tablet: skipped." No second result. |
 | **Both devices correct the same result.** Each edit carries the result revision it was based on. | The first correction applies. The second is rejected. | Second device: dialog showing both values and who made each: **Keep theirs** · **Apply mine** (a new command based on the new revision). Never last-writer-wins silently. |
-| **Tablet in Control desktop taps a destination after someone at the desktop changed view.** | Tablet's command based on the old revision is rejected. | Tablet: "Desktop changed first. Someone at the desktop switched to {destination} · Woods (rev 43). Your change was not applied." Keep desktop view · **Show {tapped destination} on desktop**. Each variant fills in its own labels (A: Plan; B: Prepare). Assertive on the tablet only. |
+| **Tablet in Control desktop taps a destination after someone at the desktop changed view.** | Tablet's command based on the old revision is rejected. | Tablet: "Desktop changed first. Someone at the desktop switched to {destination} · Woods (rev 43). Your change was not applied." Keep desktop view · **Show {tapped destination} on desktop**. Each variant fills in its own labels (A: Plan; B: Prepare). If Keep is chosen in J5, the task remains incomplete and requires a new, measured tap that ends with the named destination confirmed on desktop. Assertive on the tablet only. |
 | **Tablet disconnects while a decision is pending.** | The pending decision lives on the desktop. | On reconnect the tablet shows the current list; a choice made on the tablet while offline is not queued for a capture decision (**needs contract**: #276 on which commands may queue offline). |
 
 ## Focus and announcement summary
@@ -219,7 +245,8 @@ was based on.
 
 These become UXF-CAP fixtures in [acceptance-fixture-map.md](acceptance-fixture-map.md) once the
 sessions confirm or change the flow: disagreement queued without focus theft (CAP-01), still writing
-never skipped (CAP-02), duplicate produces no second result (CAP-03), unknown never changes state
+never skipped (CAP-02), duplicate produces no second result (CAP-03), renamed duplicate cannot publish a
+position and bounded clipboard expiry is visible in queue order (CAP-08), unknown never changes state
 (CAP-04), stash session does not advance on a rejected capture (CAP-05), intent race rejects the stale
 command and binds the capture to the revision in force when the file appeared (CAP-06), and pixels
 discarded while the file remains (CAP-07).

@@ -8,7 +8,8 @@
 | Session date | |
 | Consent script version (commit) | |
 | Read by (role) | |
-| Fixed withdrawal deadline (UTC; session start + 180 × 24 h) | |
+| Fixed withdrawal deadline (UTC; session start + 180 × 24 h; intake closes then) | |
+| On-time request completion limit (UTC; deadline + 7 × 24 h) | |
 | Private study contact given | Yes / No |
 | Participant-held request code delivered | Yes / No (store no raw code here) |
 | Salted request-code verifier reference | |

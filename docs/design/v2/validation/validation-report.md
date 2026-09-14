@@ -5,7 +5,8 @@
 > No participant session has taken place. Every table below is intentionally empty. Do not fill a
 > cell with an estimate, an example, a persona, or a result from another study. Replace this banner
 > only when the first counted session is recorded, and then with "Status: in progress, N counted
-> sessions of at least 5".
+> sessions of at least 5". This is a public, aggregate-only report: do not add participant IDs,
+> pseudonyms, initials, request codes, evidence-index references, or per-person rows anywhere.
 
 | Field | Value |
 | --- | --- |
@@ -58,6 +59,9 @@ than combining attributes.
 | Helped plan v2 (familiarity flag) | — |
 
 Do not cross-tabulate these rows: the combination can identify someone in a small internal pool.
+Prior exposure to v2 or helping plan it is reported only as an aggregate count when the cell is not
+identifying; otherwise write `suppressed; privately assessed` and state the aggregate bias effect
+without linking it to a finding, a task outcome, or an individual.
 
 ## 4. Findability results
 
@@ -105,7 +109,7 @@ the private session logs.
 
 Full records use [templates/finding.md](templates/finding.md); this is the register.
 
-| ID (FND-###) | Title | Codes | Screens | Variant | Participants | Final severity | Owner issue | Status |
+| ID (FND-###) | Title | Codes | Screens | Variant | Count affected (aggregate) | Final severity | Owner issue | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | *(none yet)* | | | | | | | | |
 
@@ -141,7 +145,7 @@ Proposed by the synthesiser, decided by the decision owner in [../decision-log.m
 Each line must point at evidence in this report. See [research-plan.md](research-plan.md) §8.
 
 - [ ] At least five counted participants, coverage met
-- [ ] J1 to J6 each have at least 2 counted attempts in Variant A and 2 in Variant B; `Not attempted` never counts
+- [ ] Every gate-controlled **Measure** step in J1 to J6 has at least 2 counted attempts in Variant A and 2 in Variant B; see the explicit 26-step register in [journeys.md](journeys.md). `Not attempted`, `stopped`, `not reached`, and storyboard-defect rows never count
 - [ ] F-01 to F-12 each have at least 2 counted attempts in Variant A and 2 in Variant B; `Not attempted` never counts
 - [ ] Each variant primary for at least two counted participants
 - [ ] Accessibility flows exercised by at least one daily user of the relevant technology or setting

@@ -55,6 +55,8 @@
     stale: 'Stale', partial: 'Partial', denied: 'Permission denied', failed: 'Failed' };
 
   var S; // session state, reset by resetSession()
+  var CLIPBOARD_PAYLOAD_MAX_BYTES = 32 * 1024 * 1024;
+  var CLIPBOARD_PAYLOAD_LIFETIME_MS = 10 * 60 * 1000;
 
   function resetSession() {
     S = {
@@ -100,14 +102,26 @@
       (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   }
 
-  // One timer per region: an assertive message must not cancel a polite one already queued.
-  var announceTimers = {};
+  // Same-polarity updates must stay observable in arrival order: releasing a capture blocker says
+  // “skipped” before the next capture says “analysing”. An assertive message uses its own region.
+  var announceQueues = { 'status-polite': [], 'status-assertive': [] };
   function announce(text, assertive) {
     var id = assertive ? 'status-assertive' : 'status-polite';
     var region = document.getElementById(id);
-    region.textContent = '';
-    clearTimeout(announceTimers[id]);
-    announceTimers[id] = setTimeout(function () { region.textContent = text; }, 60);
+    var queue = announceQueues[id];
+    queue.push(String(text));
+    if (queue.length !== 1) return;
+    function deliver() {
+      region.textContent = '';
+      setTimeout(function () {
+        region.textContent = queue[0];
+        setTimeout(function () {
+          queue.shift();
+          if (queue.length) deliver();
+        }, 700);
+      }, 60);
+    }
+    deliver();
   }
 
   // ---------------------------------------------------------------- routing
@@ -189,9 +203,13 @@
       // The injected empty Raid state must not sit under a header still claiming a raid in progress.
       : S.stateBy.raid === 'empty' ? '<p class="context-item">No raid active (game log)</p>'
       : '<p class="context-item">' + esc(C.raid.state) + ' · ' + esc(C.raid.map) + ' · ' + esc(C.raid.side) + ' · elapsed <strong>' + esc(C.raid.elapsed) + '</strong></p>');
-    var needs = S.profileChosen ? 0 : 1;
+    var setupState = S.stateBy.setup;
+    // The canonical injected Setup scenario owns the header count; profile selection is only one
+    // success-state prerequisite and must not make a denied/failed dependency look healthy.
+    var needs = setupState === 'success' ? (S.profileChosen ? 0 : 1) : null;
     bits.push('<p class="context-item"><a href="' + href(variantId === 'a' ? 'setup' : 'home') + '">' +
-      (needs ? '1 setup item needs action' : 'Setup: nothing needs action') + '</a></p>');
+      (needs === null ? 'Setup: ' + esc(STATE_NAMES[setupState]) + ' — status needs attention' :
+        needs ? '1 setup item needs action' : 'Setup: nothing needs action') + '</a></p>');
     if (variantId === 'b') bits.push('<p class="context-item"><a href="' + href('setup') + '">Setup</a></p>');
     if (V.search && !tablet) {
       bits.push('<form class="search-form" role="search" id="search-form"><label for="global-search">Search</label>' +
@@ -245,7 +263,7 @@
       '<button type="button" data-action="map-view" data-view="list" aria-pressed="' + (S.mapView === 'list') + '">List</button></div>';
   }
 
-  function svgMap(id, routePoints, altPoints, caption, youAge) {
+  function svgMap(id, routePoints, altPoints, caption, youAge, browseOnly) {
     var z = C.raid.zones.map(function (zone) {
       var cls = zone.level.replace(' ', '-');
       return '<rect class="zone ' + cls + '" x="' + zone.x + '" y="' + zone.y + '" width="' + zone.w + '" height="' + zone.h + '"></rect>' +
@@ -261,10 +279,10 @@
       '<desc id="' + id + '-d">Schematic, not to scale. The List view has the same information as text.</desc>' +
       '<defs><pattern id="hatch-dense" width="5" height="5" patternUnits="userSpaceOnUse"><line x1="0" y1="5" x2="5" y2="0"></line></pattern>' +
       '<pattern id="hatch-sparse" class="sparse" width="10" height="10" patternUnits="userSpaceOnUse"><line x1="0" y1="10" x2="10" y2="0"></line></pattern></defs>' +
-      z + (altPoints ? '<polyline class="route alt" points="' + altPoints + '"></polyline>' : '') +
-      '<polyline class="route" points="' + routePoints + '"></polyline>' + ex +
-      '<circle class="you" cx="' + C.raid.you.x + '" cy="' + C.raid.you.y + '" r="5"></circle>' +
-      '<text x="' + (C.raid.you.x + 8) + '" y="' + (C.raid.you.y + 3) + '">You (' + esc(youAge || '1 min old') + ')</text>' +
+      z + (browseOnly ? '' : (altPoints ? '<polyline class="route alt" points="' + altPoints + '"></polyline>' : '') +
+      '<polyline class="route" points="' + routePoints + '"></polyline>') + ex +
+      (browseOnly ? '' : '<circle class="you" cx="' + C.raid.you.x + '" cy="' + C.raid.you.y + '" r="5"></circle>' +
+      '<text x="' + (C.raid.you.x + 8) + '" y="' + (C.raid.you.y + 3) + '">You (' + esc(youAge || '1 min old') + ')</text>') +
       '<text class="map-model-label" x="4" y="256">Modelled traffic · not live</text>' +
       '</svg><figcaption class="note">Hatched and outlined zones are modelled traffic levels, labelled in text. Diamonds are extracts.</figcaption></figure>';
   }
@@ -308,11 +326,21 @@
   // ---------------------------------------------------------------- views
 
   function readinessList() {
+    var setupState = S.stateBy.setup;
     return '<ul class="checklist">' + C.readiness.map(function (r) {
       var status = r.status, text = r.statusText, action = r.action;
-      if (r.id === 'profile' && S.profileChosen) { status = 'ok'; text = 'Chosen'; action = 'Change profile'; }
+      var detail = r.id === 'profile' && S.profileChosen ? C.profile.chosen : r.detail;
+      if (setupState !== 'success') {
+        // A state banner cannot claim a degraded check while the rows under it still say Found,
+        // Available or Synced. Keep usable controls, but hide normal sample successes until their
+        // own checks have actually run again.
+        status = setupState === 'failed' && r.id === 'ocr' ? 'failed' : 'unknown';
+        text = setupState === 'failed' && r.id === 'ocr' ? 'Unavailable' : 'Not confirmed';
+        detail = setupState === 'failed' && r.id === 'ocr' ? 'The recognition self-test failed; capture will say text recognition is unavailable.' :
+          'Normal sample status is not claimed while Setup is ' + STATE_NAMES[setupState] + '.';
+      } else if (r.id === 'profile' && S.profileChosen) { status = 'ok'; text = 'Chosen'; action = 'Change profile'; }
       return '<li><div><h3>' + esc(r.label) + '</h3></div><span class="status ' + status + '">' + esc(text) + '</span>' +
-        '<p class="detail">' + esc(r.id === 'profile' && S.profileChosen ? C.profile.chosen : r.detail) + '</p>' +
+        '<p class="detail">' + esc(detail) + '</p>' +
         '<div class="actions"><button type="button" data-action="readiness" data-id="' + r.id + '">' + esc(action) +
         '<span class="visually-hidden"> for ' + esc(r.label) + '</span></button></div></li>';
     }).join('') + '</ul>';
@@ -328,7 +356,9 @@
   }
 
   function viewSetup() {
-    var needs = S.profileChosen ? 'Nothing needs action.' : '1 item needs action.';
+    var setupState = S.stateBy.setup;
+    var needs = setupState === 'success' ? (S.profileChosen ? 'Nothing needs action.' : '1 item needs action.') :
+      'Readiness is ' + STATE_NAMES[setupState] + '. Normal sample successes are not being claimed.';
     var body = '<div class="split"><section class="panel" aria-labelledby="ready-h"><h2 id="ready-h">Get ready</h2>' +
       '<p>' + needs + ' Everything else can wait, and sample data works before any of it.</p>' + readinessList() +
       '<div class="actions"><button type="button" class="primary" data-action="sample">Explore with sample data</button></div></section>' +
@@ -339,7 +369,9 @@
   }
 
   function viewHome() {
-    var needs = S.profileChosen ? 'Nothing needs action.' : '1 item needs action.';
+    var setupState = S.stateBy.setup;
+    var needs = setupState === 'success' ? (S.profileChosen ? 'Nothing needs action.' : '1 item needs action.') :
+      'Readiness is ' + STATE_NAMES[setupState] + '. Normal sample successes are not being claimed.';
     var body = '<div class="split"><section class="panel" aria-labelledby="ready-h"><h2 id="ready-h">Get ready</h2>' +
       '<p>' + needs + ' Everything else can wait, and sample data works before any of it.</p>' + readinessList() +
       '<div class="actions"><button type="button" class="primary" data-action="sample">Explore with sample data</button>' +
@@ -366,6 +398,7 @@
     if (st === 'failed' || S.mapView === 'list') mapOrList = list;
     // Loading: the map region says what is loading, and the list is usable underneath straight away.
     else if (st === 'loading') mapOrList = '<p aria-busy="true"><strong>Customs map tiles loading (sample).</strong> Extracts, objectives and routes are listed below now.</p>' + list;
+    else if (empty) mapOrList = svgMap('raidmap', '', null, 'Customs browse-only schematic; no raid is active', null, true);
     else mapOrList = svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route', stale ? '6 min old' : null);
     var lastCapture = S.capture.lootReady
       ? '<p>Loot decision from your screenshot at ' + esc(S.capture.lootTime) + ': TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1.</p><a class="button" href="' + href('raid/loot') + '">Open loot decision</a>'
@@ -396,14 +429,18 @@
   function viewLoot() {
     var L = C.loot, I = C.items;
     var shot = S.capture.lootTime || L.screenshot;
+    var correctedPowerCord = S.correction && S.correction.name === 'Power cord';
     var rows = L.decisions.map(function (d, i) {
       var it = I[d.item];
+      var itemKey = d.item;
       var name = it.name;
       var reasons = d.reasons.slice();
       var decision = d.decision;
       if (d.item === 'military-cable' && S.correction) {
-        name = S.correction; decision = 'LEAVE';
-        reasons = ['Corrected by you to ' + S.correction, 'Below your value band'];
+        itemKey = S.correction.name === 'Power cord' ? 'power-cord' : null;
+        it = itemKey ? I[itemKey] : { name: S.correction.name, size: 'Unknown', squares: 1, net: 0, confidence: 'Manual correction; catalog details unavailable' };
+        name = it.name; decision = itemKey ? 'LEAVE' : 'REVIEW';
+        reasons = ['Corrected by ' + S.correction.author + ' at ' + S.correction.time + '.', itemKey ? 'Below your value band after recalculation.' : 'Size, value and details remain unknown until this identity is resolved.'];
       }
       var extra = d.swapOut ? '<br>Swap out ' + esc(I[d.swapOut].name) + ' (carried, ' + esc(I[d.swapOut].size) + ', ' + rub(I[d.swapOut].net) + ' flea net est.). Gain ' + rub(d.gain) + ' flea net est.' : '';
       var review = decision === 'REVIEW' ? '<button type="button" data-action="correct" data-item="' + d.item + '">Correct match<span class="visually-hidden"> for ' + esc(name) + '</span></button>' : '';
@@ -411,10 +448,10 @@
         '<td><ol>' + reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' + extra +
         '<details><summary>What would change this and match details</summary><p>' + esc(d.change) +
         '</p><p>Match confidence: ' + esc(it.confidence) + '.</p></details></td>' +
-        '<td>' + esc(it.size) + '</td><td class="num">' + rub(it.net) + '</td><td class="num">' + rub(it.net / it.squares) + '</td>' +
-        '<td><div class="actions"><a class="button" href="' + intelHref(d.item) + '" data-origin="loot-' + i + '">Details<span class="visually-hidden"> for ' + esc(name) + '</span></a>' + review + '</div></td></tr>';
+        '<td>' + esc(it.size) + '</td><td class="num">' + (itemKey ? rub(it.net) : 'Unknown') + '</td><td class="num">' + (itemKey ? rub(it.net / it.squares) : 'Unknown') + '</td>' +
+        '<td><div class="actions">' + (itemKey ? '<a class="button" href="' + intelHref(itemKey) + '" data-origin="loot-' + i + '">Details<span class="visually-hidden"> for ' + esc(name) + '</span></a>' : '<span class="muted">Details unavailable until identity is resolved</span>') + review + '</div></td></tr>';
     }).join('');
-    var body = '<section class="panel" aria-labelledby="loot-sum-h"><h2 id="loot-sum-h">6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1</h2>' +
+    var body = '<section class="panel" aria-labelledby="loot-sum-h"><h2 id="loot-sum-h">' + (correctedPowerCord ? '6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 2' : '6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1') + '</h2>' +
       '<dl class="facts"><dt>Detected</dt><dd>' + esc(L.detected) + '</dd>' +
       '<dt>Screenshot</dt><dd>Taken ' + esc(shot) + '. The file stays in your EFT folder; the decoded image was discarded after analysis.</dd>' +
       '<dt>Space</dt><dd>Backpack ' + L.backpack.cols + '×' + L.backpack.rows + ': ' + L.backpack.used + ' used, ' + L.backpack.free + ' free (' + esc(L.backpack.freeShape) + '). After the TAKE and SWAP moves: 16 used, 0 free.</dd>' +
@@ -459,7 +496,8 @@
       var back = S.intelOrigin ? '<p><a href="' + S.intelOrigin.href + '" data-action="close-intel">Back to ' + esc(S.intelOrigin.label) + '</a></p>' : '<p><a href="' + href('intel') + '">Back to Intel search</a></p>';
       return page('Intel', 'What it is, what it is worth, and whether it matters to you.', back + '<section class="panel" aria-labelledby="intel-h">' + itemDetail(p[2], 2) + '</section>', 'intel');
     }
-    return page('Intel', 'Items, ammo, keys, crafts and barters.', searchPanel(href('intel/item/')) +
+    var freshness = S.stateBy.intel === 'stale' ? '<p class="note"><strong>Prices are stale:</strong> shown values are ' + esc(C.items['military-cable'].priceAge) + ' old and are not used for SWAP advice.</p>' : '';
+    return page('Intel', 'Items, ammo, keys, crafts and barters.', freshness + searchPanel(href('intel/item/')) +
       '<section class="panel" aria-labelledby="stash-h"><h2 id="stash-h">Stash scan</h2><p>Scan your whole stash in one guided session.</p>' +
       '<a class="button" href="' + href('intel/stash') + '">Open stash scan</a></section>', 'intel');
   }
@@ -495,6 +533,7 @@
   function viewStash() {
     var snap = C.stash.snapshots[S.stashStep];
     var steps = C.stash.steps.slice(0, snap.captures);
+    var observedLayouts = snap.captures >= 3 ? C.stash.observedLayoutsAfterThird : C.stash.observedLayouts;
     var pct = Math.round(snap.rowsCovered / C.stash.rowsTotal * 100);
     var body = '<div class="split"><section class="panel" aria-labelledby="guide-h"><h2 id="guide-h">Guided capture: Full stash</h2>' +
       '<p><strong>Next:</strong> ' + esc(snap.next) + '</p><p class="note"><strong>Screenshot requested · take it in EFT.</strong></p>' +
@@ -510,6 +549,9 @@
       '<tr><th scope="row">Use soon</th><td class="num">' + snap.useSoon + '</td></tr><tr><th scope="row">Review</th><td class="num">' + snap.review + '</td></tr>' +
       '<tr><th scope="row">Total</th><td class="num">' + snap.total + '</td></tr></tbody></table></div>' +
       '<p>Review: ' + esc(snap.reviewParts) + '.</p><p>Keys: ' + esc(snap.keys) + '.</p><p>Sell group: ' + esc(snap.sellValue) + '.</p></section>' +
+      '<section class="panel" aria-labelledby="observed-h"><h2 id="observed-h">Observed stash positions</h2><p class="note">This is where stacks were seen, not where the plan suggests moving them. Coverage is ' + snap.rowsCovered + ' of ' + C.stash.rowsTotal + ' rows.</p><div class="table-wrap"><table><caption>Observed row ranges and provenance</caption><thead><tr><th scope="col">Rows</th><th scope="col">Position status</th><th scope="col">Source</th></tr></thead><tbody>' +
+      observedLayouts.map(function (o) { return '<tr><th scope="row">' + esc(o.rows) + '</th><td>' + esc(o.cells) + '</td><td>' + esc(o.source) + '</td></tr>'; }).join('') +
+      '</tbody></table></div></section>' +
       '<section class="panel" aria-labelledby="org-h"><h2 id="org-h">Manual organisation plan</h2><p class="note"><strong>Manual plan · original positions preserved.</strong></p><ol>' +
       C.stash.organise.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ol></section></div></div>';
     // Its own key in both variants, so an injected Intel or Plan state never shows different text here.
@@ -603,6 +645,7 @@
       }).join('') + '</fieldset>' +
       '<p class="owner-indicator" id="owner-indicator">' + esc(mode.owner) + '</p>' + tabletNav +
       '<p>Tablet shows: <strong>' + esc(t.mode === 'independent' ? t.tabletView : t.desktopView) + '</strong></p>' +
+      (t.requiredDestination ? '<p class="note"><strong>J5 still needs completion:</strong> show ' + esc(t.requiredDestination) + ' on the desktop. Tap it again, then confirm it.</p>' : '') +
       (t.mode === 'independent' ? '<div class="actions"><button type="button" class="primary" data-action="show-on-desktop">Show this view on desktop</button></div>' : '') +
       '<h3>Marks</h3><div class="actions mark-tools"><button type="button" data-action="add-mark" data-kind="Ping">Ping</button><button type="button" data-action="add-mark" data-kind="Waypoint">Waypoint</button><button type="button" data-action="add-mark" data-kind="Note">Note</button></div>' +
       '<p class="note">Marks are placed by choosing a named place, so they work without dragging on the map.</p>' + marksList() +
@@ -616,19 +659,22 @@
 
   function viewDebrief() {
     var D = C.debrief;
-    var cable = S.correction ? 'Corrected by you to ' + S.correction + ' at 18:55.'
-      : S.draft ? 'Military cable, match confidence 0.58. Your correction to ' + S.draft + ' is a draft: not saved yet.'
+    var failed = S.stateBy.debrief === 'failed';
+    var cable = failed && !S.draft ? 'Correction saving is unavailable in this injected state. No correction is shown as saved.'
+      : S.correction ? 'Corrected by ' + S.correction.author + ' to ' + S.correction.name + ' at ' + S.correction.time + '.'
+      : S.draft ? 'Military cable, match confidence 0.58. Your correction to ' + S.draft.name + ' is a draft: not saved yet.'
       : 'Military cable, match confidence 0.58. Could be Power cord.';
     function raids(openFirst) {
       return '<section class="panel" aria-labelledby="raids-h"><h2 id="raids-h">Raids</h2><ul>' +
-        D.raids.map(function (r, i) { var open = openFirst && i === 0; return '<li>' + (open ? '<strong aria-current="true">' : '') + esc(r.when) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' · ' + esc(r.outcome) + ' (' + esc(r.outcomeSource) + ')' + (open ? '</strong> (open)' : '') + '</li>'; }).join('') +
+        D.raids.map(function (r, i) { var open = openFirst && i === 0; var outcome = S.stateBy.debrief === 'partial' && i === 0 ? 'Not recorded' : r.outcome; var source = S.stateBy.debrief === 'partial' && i === 0 ? 'No entry' : r.outcomeSource; return '<li>' + (open ? '<strong aria-current="true">' : '') + esc(r.when) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' · ' + esc(outcome) + ' (' + esc(source) + ')' + (open ? '</strong> (open)' : '') + '</li>'; }).join('') +
         '</ul></section>';
     }
     var body = '<div class="split">' + raids(true) + '<div class="grid"><section class="panel" aria-labelledby="tl-h"><h2 id="tl-h">Customs, 2026-09-14 18:30</h2><div class="table-wrap"><table><caption>Timeline. Each row says how it is known.</caption><thead><tr><th scope="col">Time</th><th scope="col">What</th><th scope="col">How known</th><th scope="col">Source</th></tr></thead><tbody>' +
-      D.timeline.map(function (e) { return '<tr><td>' + esc(e.time) + '</td><td>' + esc(e.text) + '</td><td>' + esc(e.kind) + '</td><td>' + esc(e.source) + '</td></tr>'; }).join('') +
+      D.timeline.map(function (e) { var partialOutcome = S.stateBy.debrief === 'partial' && e.text.indexOf('Outcome:') === 0; return '<tr><td>' + esc(e.time) + '</td><td>' + esc(partialOutcome ? 'Outcome not recorded' : e.text) + '</td><td>' + esc(partialOutcome ? 'Unknown' : e.kind) + '</td><td>' + esc(partialOutcome ? 'No entry' : e.source) + '</td></tr>'; }).join('') +
       '</tbody></table></div></section>' +
-      '<section class="panel" aria-labelledby="corr-h"><h2 id="corr-h">Needs your review</h2><p id="cable-state">' + esc(cable) + '</p><div class="actions">' +
-      (S.correction ? '<button type="button" data-action="undo-correct">Undo correction</button>' : '<button type="button" data-action="correct" data-item="military-cable" aria-describedby="cable-state">Correct match</button>') + '</div>' +
+      '<section class="panel" aria-labelledby="corr-h"><h2 id="corr-h">' + (failed ? 'Correction not saved' : 'Needs your review') + '</h2><p id="cable-state">' + esc(cable) + '</p><div class="actions">' +
+      (failed ? '<button type="button" data-action="recover" data-key="debrief" aria-describedby="cable-state">Retry save</button>' :
+        S.correction ? '<button type="button" data-action="undo-correct">Undo correction</button>' : '<button type="button" data-action="correct" data-item="military-cable" aria-describedby="cable-state">Correct match</button>') + '</div>' +
       '<p class="note">Corrections improve local evaluation only after you confirm them. Nothing is learned silently.</p></section>' +
       '<section class="panel" aria-labelledby="pred-h"><h2 id="pred-h">Traffic prediction for this raid</h2><p>' + esc(D.prediction) + '</p>' +
       modelFacts({ label: 'Modelled traffic · not live · as shown at raid time', source: C.raid.model.source, dataThrough: C.raid.model.dataThrough,
@@ -636,9 +682,11 @@
       '<fieldset><legend>Compared with what you saw</legend><ul class="radio-list">' + ['Higher traffic than shown', 'About as shown', 'Lower traffic than shown', 'I did not notice'].map(function (o) {
         return '<li><label><input type="radio" name="traffic-feedback" data-action="feedback" value="' + esc(o) + '"> ' + esc(o) + '</label></li>';
       }).join('') + '</ul></fieldset><div class="actions"><button type="button" data-action="stub" data-name="Export this raid">Export this raid</button></div></section></div></div>';
-    // Empty has no raid to show; loading shows the raid list first and the timeline once opened.
-    return page(V.historyLabel, 'What happened, how it is known, and what to correct.', body, 'debrief',
-      { empty: '', loading: '<div class="grid">' + raids(false) + '</div>' });
+    // Empty has no raid to show; keep the explanation and Import recovery rather than a healthy
+    // history/timeline. Loading keeps the raid list first and adds the timeline once opened.
+    return page(V.historyLabel, failed ? 'History is still available; the correction operation did not succeed.' : 'What happened, how it is known, and what to correct.', body, 'debrief',
+      { empty: '<section class="panel" aria-labelledby="no-raids-h"><h2 id="no-raids-h">No raids recorded</h2><p>Raids are recorded from the game log while the companion runs. Nothing is inferred as a raid when no record exists.</p><div class="actions"><button type="button" data-action="stub" data-name="Import a raid">Import a raid</button></div></section>',
+        loading: '<div class="grid">' + raids(false) + '</div>' });
   }
 
   // ---------------------------------------------------------------- render
@@ -751,7 +799,8 @@
       return '<li>Capture ' + p.n + ' at ' + esc(p.time) + ': ' + esc(p.reason) + '</li>';
     }).join('');
     var waiting = c.queue.map(function (q) {
-      return '<li>Capture ' + q.cap.n + ' at ' + esc(q.cap.time) + ': waiting unread behind an earlier capture</li>';
+      var source = q.cap.source === 'clipboard' ? (q.cap.expired ? 'pasted image expired; it will visibly fail at its turn' : 'temporary pasted image held only in memory') : 'file source';
+      return '<li>Capture ' + q.cap.n + ' at ' + esc(q.cap.time) + ': waiting unread behind an earlier capture (' + source + ')</li>';
     }).join('');
     openDialog({
       title: 'Capture',
@@ -787,20 +836,30 @@
   }
 
   // Every arrival, of every kind, joins ONE queue in the order the desktop saw it (capture spec,
-  // "Ordering while a capture waits"). It is bound to the armed intent and revision at arrival,
+  // "One ordered arrival queue"). It is bound to the armed intent and revision at arrival,
   // then waits, unread, while an earlier capture is analysing OR paused on a decision. An earlier
   // version let a later match or duplicate overtake a capture still waiting for Decide, so results
   // published out of capture order, and a second queue (c.queue) was read but never created.
   function simulateScreenshot(kind) {
     var c = S.capture;
     // Refused before it is numbered, so it never takes a place in the order.
-    if (kind === 'mismatch' && !c.armed) {
+    if ((kind === 'mismatch' || kind === 'clipboard-mismatch') && !c.armed) {
       announce('Nothing is armed, so Auto-detect cannot disagree. Arm Loot decision first to rehearse a mismatch.');
       return;
     }
     c.seq += 1;
+    var clipboard = kind === 'clipboard-mismatch';
+    if (clipboard) kind = 'mismatch';
     var cap = { n: c.seq, time: now(), intent: c.armed || 'auto', rev: c.rev, origin: c.origin,
+      source: clipboard ? 'clipboard' : 'file',
       autoIntent: c.armed || (S.stashStep === 0 && location.hash.indexOf('stash') >= 0 ? 'stash' : 'loot') };
+    if (clipboard) {
+      // The storyboard does not hold real image bytes. The product contract it demonstrates holds
+      // one bounded process-owned paste payload, never a file/cache/debug artifact, so a paste can
+      // still be read at its own ordered turn after an earlier mismatch.
+      cap.payload = { maxBytes: CLIPBOARD_PAYLOAD_MAX_BYTES, expiresAt: Date.now() + CLIPBOARD_PAYLOAD_LIFETIME_MS };
+      scheduleClipboardExpiry(cap);
+    }
     c.queue.push({ cap: cap, kind: kind });
     var blocker = c.running || c.pending[0];
     if (blocker || c.queue.length > 1) {
@@ -816,7 +875,41 @@
     var c = S.capture;
     if (c.running || c.pending.length || !c.queue.length) return;
     var next = c.queue.shift();
+    if (clipboardExpired(next.cap)) { failExpiredClipboard(next.cap); return; }
     processCapture(next.cap, next.kind);
+  }
+
+  function clipboardExpired(cap) {
+    return cap.source === 'clipboard' && (!cap.payload || cap.payload.expiresAt <= Date.now() || cap.expired);
+  }
+
+  function discardClipboardPayload(cap) {
+    if (!cap || !cap.payload) return;
+    if (cap.payload.timer) clearTimeout(cap.payload.timer);
+    cap.payload = null;
+  }
+
+  function scheduleClipboardExpiry(cap) {
+    cap.payload.timer = setTimeout(function () {
+      if (!cap.payload) return;
+      cap.expired = true;
+      discardClipboardPayload(cap);
+      // A queued expiry is recorded at its ordered turn. A pending head already owns its turn,
+      // so record the safe failure now and release the unread captures behind it.
+      if (S.capture.pending.some(function (p) { return p.n === cap.n; })) failExpiredClipboard(cap);
+    }, CLIPBOARD_PAYLOAD_LIFETIME_MS);
+  }
+
+  function failExpiredClipboard(cap) {
+    var c = S.capture;
+    c.pending = c.pending.filter(function (p) { return p.n !== cap.n; });
+    cap.expired = true;
+    discardClipboardPayload(cap);
+    c.history.push({ n: cap.n, time: cap.time, intent: cap.intent,
+      outcome: 'Paste expired before analysis. Nothing changed; paste again.' });
+    render(false);
+    announce('Capture ' + cap.n + ' paste expired before analysis. Nothing changed; paste again.');
+    setTimeout(pump, 0);
   }
 
   function processCapture(cap, kind) {
@@ -875,6 +968,7 @@
     }
     function finish() {
       c.running = null;
+      discardClipboardPayload(cap);
       var label = 'Analysed as ' + intentLabel(asIntent);
       if (asIntent === 'stash' && S.stashStep === 0) { S.stashStep = 1; label += '. Rows 37 to 60 added.'; }
       if (asIntent === 'loot') { c.lootReady = true; c.lootTime = cap.time; }
@@ -894,12 +988,13 @@
   function mismatch(cap) {
     var detected = cap.intent === 'stash' ? 'loot' : 'stash';
     var noun = { loot: 'a loot screen', stash: 'a stash', ammo: 'ammo', keys: 'keys', quest: 'quest items', extracts: 'an extract list', health: 'a health screen', flea: 'flea listings' };
+    var source = cap.source === 'clipboard' ? 'Pasted image held only in memory until its 10-minute deadline; it is never saved.' : 'File stays in your EFT folder.';
     openDialog({
       title: 'This looks like ' + noun[detected] + ', not ' + noun[cap.intent],
       describedBy: 'mm-desc',
       body: '<p id="mm-desc">Nothing has been changed yet. Choose how to analyse capture ' + cap.n + '.</p><dl class="facts">' +
         '<dt>You armed</dt><dd>' + esc(intentLabel(cap.intent)) + ' (rev ' + cap.rev + ', set on ' + esc(cap.origin) + ')</dd>' +
-        '<dt>Detected</dt><dd>' + esc(intentLabel(detected)) + ', a strong match</dd><dt>Screenshot</dt><dd>' + esc(cap.time) + '. File stays in your EFT folder.</dd></dl>' +
+        '<dt>Detected</dt><dd>' + esc(intentLabel(detected)) + ', a strong match</dd><dt>Screenshot</dt><dd>' + esc(cap.time) + '. ' + source + '</dd></dl>' +
         '<p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
       actions: [
         { label: 'Skip this screenshot', value: 'skip' },
@@ -911,6 +1006,7 @@
   }
 
   function unknownContext(cap) {
+    var source = cap.source === 'clipboard' ? '<p class="note">Pasted image held only in memory until its 10-minute deadline; it is never saved.</p>' : '';
     openDialog({
       title: 'Couldn’t tell what capture ' + cap.n + ' shows',
       describedBy: 'uk-desc',
@@ -920,7 +1016,7 @@
           .map(function (it, k) {
           // Nothing pre-selected: J3 scores the participant's own choice.
           return '<li><label><input type="radio" name="context" value="' + it.id + '"' + (k === 0 ? ' required' : '') + '> ' + esc(it.label) + '</label></li>';
-        }).join('') + '</ul></fieldset><p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
+        }).join('') + '</ul></fieldset>' + source + '<p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
       actions: [{ label: 'Skip this screenshot', value: 'skip' }, { label: 'Analyse as chosen', value: 'chosen', primary: true }],
       onClose: function (value, data) { settle(cap, value, data.get('context'), 'Context unknown'); return null; }
     });
@@ -930,6 +1026,7 @@
     var c = S.capture;
     c.pending = c.pending.filter(function (p) { return p.n !== cap.n; });
     if (value === 'skip') {
+      discardClipboardPayload(cap);
       c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, outcome: 'Skipped by you. Nothing changed.' });
       render(false); announce('Capture ' + cap.n + ' skipped. Nothing changed.');
       setTimeout(pump, 0);
@@ -945,6 +1042,7 @@
   }
 
   function queueDecision(cap, reason, as) {
+    if (clipboardExpired(cap)) { failExpiredClipboard(cap); return; }
     cap.reason = reason; cap.as = as;
     S.capture.pending.push(cap);
     render(false);
@@ -954,6 +1052,7 @@
   function resolvePending() {
     var cap = S.capture.pending[0];
     if (!cap) return;
+    if (clipboardExpired(cap)) { failExpiredClipboard(cap); return; }
     if (cap.reason === 'Context unknown') unknownContext(cap); else mismatch(cap);
   }
 
@@ -995,7 +1094,7 @@
         actions: [{ label: 'Keep desktop view', value: 'keep' }, { label: 'Show ' + label + ' on desktop', value: 'apply', primary: true }],
         onClose: function (value) {
           if (value === 'apply') applyControl(label);
-          else announce('Kept desktop view: ' + t.desktopView + '.');
+          else { t.requiredDestination = label; render(false); announce('Kept desktop view: ' + t.desktopView + '. Tap ' + label + ' again to complete this task.'); }
           return document.querySelector('[data-action="tablet-nav"][data-label="' + label + '"]');
         }
       });
@@ -1010,6 +1109,7 @@
     t.desktopRev += 1;
     t.desktopView = label + ' · Customs';
     t.tabletView = t.desktopView;
+    if (t.requiredDestination === label) t.requiredDestination = null;
     t.lastAck = 'Rev ' + t.desktopRev + ' shown on desktop';
     render(false);
     announce('Desktop now shows ' + label + '. Confirmed at rev ' + t.desktopRev + '.');
@@ -1066,7 +1166,7 @@
         return '<li><a href="' + href(j[1]()) + '" data-action="journey" data-journey="' + j[0].split(' ')[0] + '">' + esc(j[0]) + '</a></li>';
       }).join('') + '</ul><button type="button" id="mod-reset" data-action="reset">Reset session</button></section>' +
       '<section aria-labelledby="mod-c"><h2 id="mod-c">Simulate a screenshot</h2><p><label for="mod-shot">Outcome</label><br><select id="mod-shot">' +
-      [['match', 'Matches what is armed'], ['mismatch', 'Detected context disagrees'], ['unknown', 'Context unknown'], ['writing', 'File still being written'],
+      [['match', 'Matches what is armed'], ['mismatch', 'Detected context disagrees'], ['clipboard-mismatch', 'Pasted image disagrees (transient payload)'], ['unknown', 'Context unknown'], ['writing', 'File still being written'],
         ['duplicate', 'Duplicate of the last file'], ['race', 'Tablet changes intent at the same time']].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') +
       '</select></p><button type="button" id="mod-shoot" data-action="shoot">Screenshot arrives</button></section>' +
       '<section aria-labelledby="mod-s"><h2 id="mod-s">Workspace state</h2>' + (C.states[key] ? '<p><label for="mod-state">State for ' + esc(key) + '</label><br><select id="mod-state" data-key="' + key + '">' +
@@ -1119,7 +1219,15 @@
         break;
       case 'shoot': simulateScreenshot($('#mod-shot').value); moderatorDone(null, e); break;
       case 'skip': e.preventDefault(); $('#main').focus(); break;
-      case 'journey': S.postRaid = el.getAttribute('data-journey') === 'J6'; break;
+      case 'journey': {
+        var journey = el.getAttribute('data-journey');
+        // J6 starts from the canonical post-raid scenario. Do not merely change chrome while the
+        // Raid workspace remains in its successful in-raid state.
+        S.postRaid = journey === 'J6';
+        S.stateBy.raid = S.postRaid ? 'empty' : 'success';
+        if (S.postRaid) S.stateBy.debrief = 'success';
+        break;
+      }
       case 'apply-state': {
         var sel = $('#mod-state'); S.stateBy[sel.getAttribute('data-key')] = sel.value;
         if (sel.getAttribute('data-key') === 'plan') S.routeSkipped = false;
@@ -1157,7 +1265,7 @@
 
   function recover(key) {
     var was = S.stateBy[key];
-    S.stateBy[key] = 'success';
+    var label = C.states[key][was][1];
     // "Use list view" is a choice about the view, not a retry: it must leave the page in List, with
     // the List toggle pressed, and stay there when the tiles would have finished loading.
     if (key === 'raid' && was === 'loading') {
@@ -1178,9 +1286,23 @@
       S.correction = S.draft; S.draft = null;
       render(false);
       focusAction('undo-correct');
-      announce('Saved: corrected to ' + S.correction + '. Undo is available.');
+      announce('Saved: corrected to ' + S.correction.name + '. Undo is available.');
       return;
     }
+    // Only a real retry/refresh in this simulation may resolve an injected state. Navigation,
+    // explanation and chooser controls retain the state so they cannot invent missing data.
+    var resolves = ['Retry now', 'Retry map', 'Refresh prices', 'Rebuild search', 'Retry route',
+      'Try again', 'Sync now', 'Update progress', 'Retry save'].indexOf(label) >= 0;
+    if (!resolves) {
+      render(false);
+      if (label === 'Search items') go('intel');
+      else if (label === 'Choose folder' || label === 'Choose folder in Setup' || label === 'Open Data settings' || label === 'Go to next action') go('setup');
+      else if (label === 'Create or join a team') go('team');
+      else { var h = $('#main h1'); if (h) h.focus(); }
+      announce(label + '. ' + STATE_NAMES[was] + ' status remains until its dependency is resolved.');
+      return;
+    }
+    S.stateBy[key] = 'success';
     render(false);
     var h1 = $('#main h1'); if (h1) h1.focus();
     announce('Recovered. Showing the normal state.');
@@ -1217,15 +1339,15 @@
         if ((S.failNextSave || S.stateBy.debrief === 'failed') && parse(location.hash).ws === V.historyId) {
           S.failNextSave = false;
           S.stateBy.debrief = 'failed';
-          S.draft = data.get('fix');
+          S.draft = { name: data.get('fix'), author: 'You', time: '18:55:20' };
           render(false);
           announce('Correction not saved. Your choice is kept as a draft. Retry save.', true);
           return document.querySelector('[data-action="recover"]');
         }
-        S.correction = data.get('fix');
+        S.correction = { name: data.get('fix'), author: 'You', time: '18:55:20' };
         S.draft = null;
         render(false);
-        announce('Saved: corrected to ' + S.correction + '. Undo is available.');
+        announce('Saved: corrected to ' + S.correction.name + '. Undo is available.');
         return document.querySelector('[data-action="undo-correct"]') || document.querySelector('a[href*="military-cable"]') || $('#main h1');
       }
     });

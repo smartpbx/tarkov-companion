@@ -103,6 +103,8 @@ From [capture-intent-mismatch.md](capture-intent-mismatch.md).
 | UXF-CAP-05 | An unknown or mismatched capture stays at the head of the single arrival-ordered queue until analysed or skipped; every later capture waits unread, and a rejected capture does not advance a stash session. | #271, #283 | unit | Draft |
 | UXF-CAP-06 | Concurrent intent changes: the stale command is rejected with a visible conflict on its sender, and a screenshot binds to the intent revision in force when the file appeared. | #276, #277, #271 | protocol, unit | Draft |
 | UXF-CAP-07 | After analysis, skip, or pause, decoded pixels are released; the screenshot file is byte-for-byte unchanged and still in place; no image is persisted without Debug Capture. | #271, #281, #279, #264 | unit, e2e | Draft |
+| UXF-CAP-08 | A renamed or copied file with duplicate content reaches duplicate validation before any filename position is published: it produces no result and cannot advance the position, while later arrivals remain ordered. A bounded clipboard payload either reaches that same validation or visibly expires at its own queue turn before later work proceeds. | #271, #283 | unit, e2e, a11y | Draft |
+| UXF-CAP-09 | When a head capture is skipped or expires and releases queued work, the polite region exposes the completion/failure announcement before the next capture's arrival or result announcement; neither same-region message is cancelled. | #271, #279 | unit, e2e, a11y | Draft |
 
 No fixture here covers the "Flea listings you opened" intent: no journey exercises it, so #284 needs its own fixture rather than one inferred from these sessions.
 
@@ -119,7 +121,7 @@ cases (empty, loading, offline, stale, partial, permission denied, failed, succe
 | UXF-ST-TEAM | As above for Team. | #289, #290, #278 | e2e, a11y | Draft |
 | UXF-ST-DEBRIEF | As above for Debrief or History. | #291, #270 | e2e, a11y | Draft |
 | UXF-ST-SETUP | As above for Setup & Admin and Home readiness. | #292, #281 | e2e, a11y | Draft |
-| UXF-ST-RULES | Across all workspaces: background changes preserve rail/header focus and unsubmitted search text; failures of the player's own action move focus to the failure and announce assertively; unknown is never zero; modelled layers are never labelled live. | #266, #267, #264, #279 | unit, e2e, a11y | Draft |
+| UXF-ST-RULES | Across all workspaces: background changes preserve rail/header focus and unsubmitted search text; failures of the player's own action move focus to the failure and announce assertively; unknown is never zero; modelled layers are never labelled live; a navigation/chooser recovery cannot fabricate Success; Setup status/count derives from the full injected scenario; and a post-raid journey transitions the Raid scenario as well as chrome. | #266, #267, #264, #279 | unit, e2e, a11y | Draft |
 
 ## Accessibility flows
 

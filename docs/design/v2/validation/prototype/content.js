@@ -157,6 +157,8 @@ window.STORYBOARD_CONTENT = {
       needs: [], owned: 'Unknown: no stash scan covers it' },
     'military-cable': { name: 'Military cable', type: 'Item', size: '2×1', squares: 2, gross: 25000, fee: 3000, net: 22000, trader: 11000, traderName: 'Sample trader', priceAge: '12 min', confidence: '0.58',
       alternative: 'Power cord', needs: [], owned: 'Unknown: no stash scan covers it' },
+    'power-cord': { name: 'Power cord', type: 'Item', size: '1×2', squares: 2, gross: 18000, fee: 1800, net: 16200, trader: 9000, traderName: 'Sample trader', priceAge: '12 min', confidence: 'Manual correction',
+      needs: [], owned: 'Unknown: no stash scan covers it' },
     crickent: { name: 'Crickent lighter', type: 'Item', size: '1×1', squares: 1, gross: 7000, fee: 1000, net: 6000, trader: 3000, traderName: 'Sample trader', priceAge: '12 min', confidence: '0.96',
       needs: [], owned: 'Unknown: no stash scan covers it' },
     wires: { name: 'Wires', type: 'Item', size: '2×1', squares: 2, gross: 27000, fee: 3000, net: 24000, trader: 12000, traderName: 'Sample trader', priceAge: '12 min', confidence: '0.94',
@@ -180,6 +182,19 @@ window.STORYBOARD_CONTENT = {
       { n: 1, rows: 'Rows 1 to 24', stacks: 46, duplicates: 0, added: 46 },
       { n: 2, rows: 'Rows 19 to 42', stacks: 45, duplicates: 7, added: 38 },
       { n: 3, rows: 'Rows 37 to 60', stacks: 38, duplicates: 5, added: 33 }
+    ],
+    observedLayouts: [
+      { rows: 'Rows 1 to 18', cells: 'Observed in capture 1', source: 'Screenshot 1 at 18:20:02' },
+      { rows: 'Rows 19 to 24', cells: 'Observed in captures 1 and 2; overlap merged', source: 'Screenshots 1 and 2' },
+      { rows: 'Rows 25 to 42', cells: 'Observed in capture 2', source: 'Screenshot 2 at 18:20:31' },
+      { rows: 'Rows 43 to 68', cells: 'Unknown: not covered by the current snapshot', source: 'No screenshot observed' }
+    ],
+    observedLayoutsAfterThird: [
+      { rows: 'Rows 1 to 18', cells: 'Observed in capture 1', source: 'Screenshot 1 at 18:20:02' },
+      { rows: 'Rows 19 to 24', cells: 'Observed in captures 1 and 2; overlap merged', source: 'Screenshots 1 and 2' },
+      { rows: 'Rows 25 to 42', cells: 'Observed in capture 2', source: 'Screenshot 2 at 18:20:31' },
+      { rows: 'Rows 43 to 60', cells: 'Observed in capture 3', source: 'Screenshot 3 at 18:21:04' },
+      { rows: 'Rows 61 to 68', cells: 'Unknown: not covered by the current snapshot', source: 'No screenshot observed' }
     ],
     snapshots: [
       { captures: 2, rowsCovered: 42, total: 84, keep: 20, sell: 31, useSoon: 14, review: 19,
@@ -265,7 +280,7 @@ window.STORYBOARD_CONTENT = {
   },
 
   setupSections: ['Get ready', 'Game and profile', 'Recognition', 'Data', 'Team and devices', 'Updates',
-    'Privacy', 'Appearance and accessibility', 'Diagnostics'],
+    'Privacy', 'Appearance', 'Accessibility', 'Diagnostics'],
 
   /*
    * Abbreviated from ../state-matrix.md, which is authoritative. Each cell: what is still usable,

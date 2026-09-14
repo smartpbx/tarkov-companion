@@ -72,20 +72,22 @@ display settings; the storyboard folder is sent to them as files, because it nee
   participant does set 1 on one variant and set 2 on the other. Which set goes on Variant A follows
   the table below, so primary variant and findability set are crossed rather than tied together.
   This shows each variant every task without asking anyone to find the same thing twice.
-  | Participant | Primary variant | Set on A | Set on B |
-  | --- | --- | --- | --- |
-  | P01 | A | 1 | 2 |
-  | P02 | B | 1 | 2 |
-  | P03 | A | 2 | 1 |
-  | P04 | B | 2 | 1 |
-  | P05 | A | 1 | 2 |
-  | P06 | B | 1 | 2 |
-  | P07 | A | 2 | 1 |
-  | P08 | B | 2 | 1 |
+  | Participant slot | Primary variant | Set on A | Set on B | First findability variant |
+  | --- | --- | --- | --- | --- |
+  | P01 | A | 1 | 2 | A |
+  | P02 | B | 1 | 2 | B |
+  | P03 | A | 2 | 1 | A |
+  | P04 | B | 2 | 1 | B |
+  | P05 | A | 1 | 2 | B |
+  | P06 | B | 1 | 2 | A |
+  | P07 | A | 2 | 1 | B |
+  | P08 | B | 2 | 1 | A |
   | P09 onward | Repeat P01 to P08 in order | | |
 
   The P-number here is a private assignment slot, not a public participant identifier. P09 repeats
-  P01, P10 repeats P02, and so on (`((slot - 1) mod 8) + 1`). If somebody is found ineligible,
+  P01, P10 repeats P02, and so on (`((slot - 1) mod 8) + 1`). The first-findability column fixes
+  which variant is shown first; the other follows after its reset, so the first exposure is balanced
+  four A/four B per eight slots and is never improvised by the moderator. If somebody is found ineligible,
   withdraws, or does not complete enough of the session to count, the replacement recruit takes the
   same vacated slot and therefore the same primary variant and findability sets. If a withdrawal
   happens after synthesis, recruit against that removed slot before taking the next new slot. The
@@ -147,7 +149,10 @@ should not be the only synthesiser.
 ## 7. Known limitations and biases
 
 - **Internal pool.** Participants may know v1, the concept renders, or the people building v2. The
-  screener records prior exposure, and the report states it next to every finding it could affect.
+  private screener records prior exposure. The public report may state only an aggregate familiar/
+  unfamiliar count when that cell cannot identify someone; otherwise it says `suppressed; privately
+  assessed` and gives the decision owner's aggregate bias assessment. It never puts a familiarity
+  flag, participant ID, or a unique combination of attributes next to a finding.
 - **Storyboards are not the product.** They cannot show recognition errors, real latency, or
   native assistive-technology behaviour. A pass here is not accessibility evidence for #266.
 - **Sample content.** Experts may notice that sizes or prices differ from the game. Moderators say
@@ -167,11 +172,12 @@ evidence for each:
 
 1. At least five counted participants took part, meeting every coverage requirement in
    [participant-screening.md](participant-screening.md). The pilot is not one of them.
-2. Every required journey J1 to J6 has at least **two counted attempts in Variant A and two counted
-   attempts in Variant B**. `Not attempted`, `stopped`, `not reached`, a storyboard defect and a
-   documented reason are honest records but contribute zero attempts; recruit a replacement or run
-   an additional counted session until each minimum is met. A missing attempt is never filled in or
-   estimated.
+2. Every one of the 26 gate-controlled **Measure** steps in the explicit register in
+   [journeys.md](journeys.md) has at least **two counted, time-bounded attempts in Variant A and two
+   in Variant B**. `Not attempted`, `stopped`, `not reached`, a storyboard defect and a documented
+   reason are honest records but contribute zero attempts; recruit a replacement or run an
+   additional counted session until each named row reaches its minimum. A journey-level “attempted”
+   label cannot substitute for its steps, and a missing attempt is never filled in or estimated.
 3. Every findability task F-01 to F-12 has at least **two counted attempts in each variant**. The
    same zero-credit rule applies to `Not attempted`, including a journey step skipped as `covered by
    F-12`; the F-12 task itself must still meet this minimum.

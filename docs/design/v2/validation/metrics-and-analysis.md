@@ -9,12 +9,13 @@ of sessions up as a percentage.
 ## Per task
 
 Record these for every findability task and every journey step marked **Measure** in
-[journeys.md](journeys.md), in [templates/session-log.md](templates/session-log.md).
+[journeys.md](journeys.md), in [templates/session-log.md](templates/session-log.md). The completion
+gate uses the explicit 26-step register in that document, not an undefined journey-level attempt.
 
 | Measure | Definition | Values |
 | --- | --- | --- |
 | **Outcome** | Whether the success criterion in the script was met, and how | `Success` unaided · `Success with difficulty` (recovered from at least one wrong path without help) · `Assisted` (moderator gave any hint) · `Fail` (gave up, wrong end state believed correct, or the time cap passed) · `Not attempted` (skipped, stopped, not reached, or `covered by F-12` where journeys.md skips a step for that reason) |
-| **Time on task** | From the moment the participant finishes reading the task card and says "ready" to the moment the success criterion is met, they say they are done, or the cap passes | Seconds, or blank. Cap: 3 minutes for findability, 6 minutes per journey step unless the script says otherwise |
+| **Time on task** | From the moment the participant finishes reading the task card and says "ready" to the moment the success criterion is met, they say they are done, or the cap passes | Seconds, or blank. Cap: 3 minutes for findability, 6 minutes for every gate-controlled journey step unless the script says otherwise before sessions begin |
 | **First click** | The first navigation control activated (link, button, tab, rail item, search, keyboard shortcut) | The control's label, and `correct` or `wrong` against the expected path for that variant |
 | **Wrong paths** | Each time the participant enters a destination not on the expected path and has to come back | Count, and the destinations |
 | **Confusion points** | A moment the participant hesitates for more than about 5 seconds, says they are unsure, misreads a label aloud, or asks a question | Timestamp and a short verbatim or paraphrase, coded as below |

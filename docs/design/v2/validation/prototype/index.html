@@ -25,7 +25,7 @@
       <li>They do <strong>not</strong> prove the final Avalonia application is accessible. Browser semantics are not UI Automation, and Narrator on a web page is not Narrator on a native window.</li>
       <li>They do <strong>not</strong> show visual fidelity. The palette exists only so contrast is realistic.</li>
       <li>They use one shared sample content file, so both variants show identical names and numbers. All of it is illustrative.</li>
-      <li>They make no network request, read no file, and press no game key. The moderator simulates every screenshot.</li>
+      <li>They make no network request, read no user or game file, and press no game key. They load only bundled sample assets; the moderator simulates every screenshot.</li>
     </ul>
   </section>
 
@@ -45,12 +45,12 @@
   <section class="panel" aria-labelledby="run-h">
     <h2 id="run-h">Running a session</h2>
     <ol>
-      <li>Open the file directly from a local checkout. No server is needed.</li>
+      <li>Open from the repository <code>docs/</code> tree, or serve the repository root. Do not copy only this <code>prototype/</code> folder: its journey, Safety and data-methodology links are part of the study material.</li>
       <li>Open <strong>Moderator controls</strong> at the bottom of a storyboard, choose <strong>Reset session</strong>, then a journey start point.</li>
-      <li>For the paired-tablet journey on a real tablet, copy the storyboard folder to the device or serve it on the local network, and open the <code>#/tablet</code> address.</li>
+      <li>For the paired-tablet journey on a real tablet, copy the complete <code>docs/</code> tree to the device or serve the repository root on the local network, and open the <code>#/tablet</code> address.</li>
       <li>Prefer the participant's own operating-system settings for high contrast, text size and reduced motion. The moderator toggles are a fallback.</li>
     </ol>
-    <p>The scripts, tasks and expected answers are in <a href="../journeys.md">journeys.md</a>. The research plan is <a href="../research-plan.md">research-plan.md</a>.</p>
+    <p>The scripts, tasks and expected answers are in <a href="../journeys.md">journeys.md</a>. The research plan is <a href="../research-plan.md">research-plan.md</a>. Before distribution, run <code>node docs/design/v2/validation/prototype/link-audit.mjs</code> from the repository root.</p>
   </section>
 </main>
 </body>
