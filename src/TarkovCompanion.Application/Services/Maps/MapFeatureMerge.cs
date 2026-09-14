@@ -109,15 +109,33 @@ public static class MapFeatureMerge
     }
 
     /// <summary>
-    /// Whether one name is the other with a faction qualifier on it.
+    /// Whether the two name the same exit, once a faction qualifier is off.
     /// </summary>
     /// <remarks>
-    /// Only the exact forms the feed uses. A looser test — one name containing the other —
-    /// would merge "Warehouse 4" into "Warehouse 4 Gate" the moment upstream published one.
+    /// <para>
+    /// Identical names count, and that is the commonest case rather than a corner of it.
+    /// <c>$.data.maps.*.extracts[*].name</c> is one of the paths the feed publishes a
+    /// translation for, and the client applies it, so the scav copy of an exit arrives with
+    /// the same display name as the PMC one: the raw <c>RUAF Roadblock</c> and <c>RUAF
+    /// Roadblock_scav</c> both reach this as "RUAF Roadblock".
+    /// </para>
+    /// <para>
+    /// I wrote this refusing an exact match, on the raw names I had measured from the feed
+    /// rather than the translated ones the application actually reads, and the map came back
+    /// byte-identical — the pair it was written for was the pair it turned away.
+    /// </para>
+    /// <para>
+    /// The qualifier stripping stays for the forms that survive untranslated. Lighthouse's
+    /// <c>Shorl_free</c> is an internal token rather than a name and has nothing to translate
+    /// to, so its scav copy still arrives with the suffix on it.
+    /// </para>
+    /// <para>
+    /// Only the exact qualifiers the feed uses. A looser test — one name containing the other
+    /// — would merge "Warehouse 4" into "Warehouse 4 Gate" the moment upstream published one.
+    /// </para>
     /// </remarks>
     private static bool NamesTheSameExit(string first, string second) =>
-        string.Equals(Unqualified(first), Unqualified(second), StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
+        string.Equals(Unqualified(first), Unqualified(second), StringComparison.OrdinalIgnoreCase);
 
     private static string Unqualified(string name)
     {

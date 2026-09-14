@@ -17,6 +17,28 @@ namespace TarkovCompanion.UnitTests;
 /// </remarks>
 public sealed class MapFeatureMergeTests
 {
+    /// <summary>
+    /// The case the application actually sees, and the one the first attempt refused.
+    /// </summary>
+    /// <remarks>
+    /// The extract name is a translated field, so both copies of a shared exit arrive with the
+    /// same display name: "RUAF Roadblock" twice, at the same spot, one pmc and one scav. A
+    /// rule that required the names to differ turned away the very pair it was written for,
+    /// and the map came back byte-identical to the run before it.
+    /// </remarks>
+    [Fact]
+    public void The_same_name_twice_at_the_same_spot_is_one_exit()
+    {
+        var merged = MapFeatureMerge.Collapse([
+            Exit("RUAF Roadblock", "pmc", -10.25, -138.45),
+            Exit("RUAF Roadblock", "scav", -9.44, -138.74),
+        ]);
+
+        var only = Assert.Single(merged);
+        Assert.Equal("RUAF Roadblock", only.Name);
+        Assert.Equal(MapFeatureFaction.Shared, only.Side);
+    }
+
     [Fact]
     public void A_suffixed_scav_copy_is_the_same_exit()
     {
