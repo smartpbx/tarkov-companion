@@ -199,6 +199,7 @@ public sealed class CaptureAndWorkspaceContractTests
     [InlineData(AcknowledgementDisposition.RejectedStale, 8, 8, 0, true)]
     [InlineData(AcknowledgementDisposition.RejectedStale, 8, 7, 0, true)]
     [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 0, 0, false)]
     [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 7, 0, false)]
     [InlineData(AcknowledgementDisposition.Applied, 8, 8, 5, true)]
     [InlineData(AcknowledgementDisposition.Applied, 0, 0, 0, false)]
@@ -235,6 +236,23 @@ public sealed class CaptureAndWorkspaceContractTests
         var acknowledgement = Acknowledge(
             AcknowledgementDisposition.UnsupportedVersion, 8, 0, new V2ContractVersion(2, 5), sameAppliedChange: false);
         Assert.Null(acknowledgement.AppliedChangeId);
+    }
+
+    [Fact]
+    public void HostileJsonCannotClaimAConflictAtRevisionZero()
+    {
+        var conflict = Acknowledge(
+            AcknowledgementDisposition.RejectedConflict,
+            8,
+            6,
+            V2ContractVersion.Current,
+            sameAppliedChange: false);
+        var node = JsonSerializer.SerializeToNode(conflict, V2ContractJson.Options)!;
+        node["appliedRevision"]!["value"] = 0;
+        node["appliedChangeId"] = null;
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<StateAcknowledgement>(node.ToJsonString(), V2ContractJson.Options));
     }
 
     [Fact]

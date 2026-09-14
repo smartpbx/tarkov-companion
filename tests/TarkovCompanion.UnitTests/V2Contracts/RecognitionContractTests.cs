@@ -78,6 +78,63 @@ public sealed class RecognitionContractTests
     }
 
     [Fact]
+    public void EveryClockCandidateUsesItsOwnSourceAndAsOfTime()
+    {
+        var fromLog = new EvidenceProvenance(
+            EvidenceSourceClass.GameWrittenLog,
+            "fixture://application-log",
+            V2ContractTestData.ObservedUtc,
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("fixture-log", "2"));
+        var badSource = ClockWithCandidate(
+            new RaidClockReading(TimeSpan.FromMinutes(27), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc),
+            fromLog);
+        var badAsOf = ClockWithCandidate(
+            new RaidClockReading(TimeSpan.FromMinutes(27), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.ObservedUtc.AddSeconds(1)),
+            V2ContractTestData.ScreenshotProvenance());
+
+        Assert.Throws<ArgumentException>(() => ExtractPayload("0:28:10", badSource));
+        Assert.Throws<ArgumentException>(() => ExtractPayload("0:28:10", badAsOf));
+    }
+
+    [Fact]
+    public void EveryOuterExtractCandidateUsesCaptureTimeAndCandidateProvenance()
+    {
+        var current = ExtractPayload("0:28:10", ObservedClock(V2ContractTestData.CapturedUtc));
+        var lateCandidate = ExtractPayload("0:27:00", ObservedClock(V2ContractTestData.ObservedUtc));
+        var result = V2ContractTestData.Complete(
+            "result.extractMap",
+            current,
+            candidates:
+            [
+                new EvidenceCandidate<ExtractMapRecognition>(
+                    "late", "Late candidate", lateCandidate, V2ContractTestData.ScreenshotProvenance()),
+            ]);
+
+        Assert.Throws<ArgumentException>(() => new ExtractMapRecognitionResult(
+            new RecognitionResultEnvelope<ExtractMapRecognition>(
+                V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), result)));
+
+        var beforeCapture = new EvidenceProvenance(
+            EvidenceSourceClass.GameWrittenScreenshot,
+            "fixture://before-capture",
+            V2ContractTestData.CapturedUtc.AddSeconds(-1),
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("fixture-ocr", "2"));
+        var badProvenance = V2ContractTestData.Complete(
+            "result.extractMap",
+            current,
+            candidates:
+            [
+                new EvidenceCandidate<ExtractMapRecognition>(
+                    "early", "Early candidate", current, beforeCapture),
+            ]);
+
+        Assert.Throws<ArgumentException>(() => new RecognitionResultEnvelope<ExtractMapRecognition>(
+            V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), badProvenance));
+    }
+
+    [Fact]
     public void ObservedClockStopsShortOfAnHourSoTheUnknownMarkerCannotPass()
     {
         var justUnder = TimeSpan.FromHours(1) - TimeSpan.FromSeconds(1);
@@ -113,6 +170,60 @@ public sealed class RecognitionContractTests
     }
 
     [Fact]
+    public void HostileJsonCannotHideAnInvalidClockInEitherCandidateLayer()
+    {
+        var badInnerSource = ExtractCandidateNode();
+        badInnerSource["recognition"]!["result"]!["value"]!["raidTimeRemaining"]!["candidates"]![0]!["provenance"]!["sourceClass"] =
+            nameof(EvidenceSourceClass.GameWrittenLog);
+        AssertRejected(badInnerSource);
+
+        var badInnerAsOf = ExtractCandidateNode();
+        badInnerAsOf["recognition"]!["result"]!["value"]!["raidTimeRemaining"]!["candidates"]![0]!["value"]!["asOfUtc"] =
+            V2ContractTestData.ObservedUtc.ToString("O");
+        AssertRejected(badInnerAsOf);
+
+        var badInnerBound = ExtractCandidateNode();
+        badInnerBound["recognition"]!["result"]!["value"]!["raidTimeRemaining"]!["candidates"]![0]!["value"]!["remaining"] =
+            "22:22:22";
+        AssertRejected(badInnerBound);
+
+        var badOuterAsOf = ExtractCandidateNode();
+        badOuterAsOf["recognition"]!["result"]!["candidates"]![0]!["value"]!["raidTimeRemaining"]!["value"]!["asOfUtc"] =
+            V2ContractTestData.ObservedUtc.ToString("O");
+        AssertRejected(badOuterAsOf);
+
+        var badOuterProvenance = ExtractCandidateNode();
+        badOuterProvenance["recognition"]!["result"]!["candidates"]![0]!["provenance"]!["observedUtc"] =
+            V2ContractTestData.CapturedUtc.AddSeconds(-1).ToString("O");
+        AssertRejected(badOuterProvenance);
+    }
+
+    [Fact]
+    public void RaidClockCorrectionsRoundTripAndRetainTheOriginalReading()
+    {
+        var original = new RaidClockReading(
+            TimeSpan.FromMinutes(29), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc);
+        var corrected = new RaidClockReading(
+            TimeSpan.FromMinutes(28), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc);
+        var field = V2ContractTestData.Complete(
+            "extract.raidTimeRemaining",
+            corrected,
+            corrections:
+            [
+                new EvidenceCorrection<RaidClockReading>(
+                    1, original, corrected, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]);
+
+        var result = ExtractResult("0:28:00", field);
+        var roundTrip = JsonSerializer.Deserialize<ExtractMapRecognitionResult>(
+            JsonSerializer.Serialize(result, JsonOptions), JsonOptions)!;
+
+        Assert.Equal(original, roundTrip.Recognition.Result.Value!.RaidTimeRemaining.RecognizedValue);
+        Assert.Equal(corrected, roundTrip.Recognition.Result.Value.RaidTimeRemaining.Value);
+    }
+
+    [Fact]
     public void UnreadClockIsAbsentRatherThanABasis()
     {
         var result = ExtractResult("Find an extraction point", V2ContractTestData.Unknown<RaidClockReading>("extract.raidTimeRemaining"));
@@ -137,6 +248,7 @@ public sealed class RecognitionContractTests
         Assert.Equal(ExtractKind.Transit, roundTrip.Kind.Value);
         Assert.Equal(ExtractAvailability.Pending, roundTrip.Availability.Value);
         Assert.Equal("reserve", roundTrip.DestinationMapId.Value);
+        Assert.Null(roundTrip.CanonicalId.Value);
         Assert.Throws<ArgumentException>(() => new ExtractRecognition(
             transit.SlotLabel,
             V2ContractTestData.Complete<ExtractKind?>("extract.kind", ExtractKind.Exfil),
@@ -144,6 +256,19 @@ public sealed class RecognitionContractTests
             transit.DisplayName,
             transit.DestinationMapId,
             transit.Availability));
+        Assert.Throws<ArgumentException>(() => new ExtractRecognition(
+            transit.SlotLabel,
+            transit.Kind,
+            V2ContractTestData.Complete("extract.id", "reserve-transit"),
+            transit.DisplayName,
+            transit.DestinationMapId,
+            transit.Availability));
+
+        var node = JsonSerializer.SerializeToNode(transit, JsonOptions)!;
+        node["canonicalId"] = JsonSerializer.SerializeToNode(
+            V2ContractTestData.Complete("extract.id", "reserve-transit"), JsonOptions);
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<ExtractRecognition>(node.ToJsonString(), JsonOptions));
     }
 
     [Fact]
@@ -236,6 +361,15 @@ public sealed class RecognitionContractTests
         new RaidClockReading(TimeSpan.FromMinutes(28) + TimeSpan.FromSeconds(10), RaidClockBasis.ObservedOnExtractScreen, asOfUtc),
         bounds: new EvidenceRegion(500, 100, 400, 20, EvidenceCoordinateSpace.SourcePixels));
 
+    private static EvidencedValue<RaidClockReading> ClockWithCandidate(
+        RaidClockReading candidate,
+        EvidenceProvenance provenance) => new(
+        "extract.raidTimeRemaining",
+        null,
+        new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
+        V2ContractTestData.ScreenshotProvenance(),
+        candidates: [new EvidenceCandidate<RaidClockReading>("candidate", "Candidate", candidate, provenance)]);
+
     private static ExtractMapRecognition ExtractPayload(string rawLine, EvidencedValue<RaidClockReading> clock) => new(
         V2ContractTestData.Complete("extract.mapId", "customs"),
         [],
@@ -249,6 +383,46 @@ public sealed class RecognitionContractTests
         new RecognitionResultEnvelope<ExtractMapRecognition>(
             V2ContractTestData.Header(RecognizedContext.ExtractsAndMap),
             V2ContractTestData.Complete("result.extractMap", ExtractPayload(rawLine, clock))));
+
+    private static JsonNode ExtractCandidateNode()
+    {
+        var clock = V2ContractTestData.Complete(
+            "extract.raidTimeRemaining",
+            new RaidClockReading(
+                TimeSpan.FromMinutes(28), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc),
+            candidates:
+            [
+                new EvidenceCandidate<RaidClockReading>(
+                    "clock-27", "27 minutes",
+                    new RaidClockReading(
+                        TimeSpan.FromMinutes(27), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc),
+                    V2ContractTestData.ScreenshotProvenance()),
+            ]);
+        var current = ExtractPayload("0:28:00", clock);
+        var outer = V2ContractTestData.Complete(
+            "result.extractMap",
+            current,
+            candidates:
+            [
+                new EvidenceCandidate<ExtractMapRecognition>(
+                    "extract-27", "27 minutes", ExtractPayload("0:27:00", ObservedClock(V2ContractTestData.CapturedUtc)),
+                    V2ContractTestData.ScreenshotProvenance()),
+            ]);
+        var result = new ExtractMapRecognitionResult(
+            new RecognitionResultEnvelope<ExtractMapRecognition>(
+                V2ContractTestData.Header(RecognizedContext.ExtractsAndMap), outer));
+
+        return JsonSerializer.SerializeToNode(result, JsonOptions)!;
+    }
+
+    private static void AssertRejected(JsonNode node)
+    {
+        var failure = Record.Exception(() =>
+            JsonSerializer.Deserialize<ExtractMapRecognitionResult>(node.ToJsonString(), JsonOptions));
+
+        Assert.NotNull(failure);
+        Assert.True(failure is JsonException || failure.GetBaseException() is ArgumentException, failure.ToString());
+    }
 
     private sealed record LiveEnemyPosition(double X, double Y) : IRecognitionPayload;
 }

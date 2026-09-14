@@ -69,9 +69,13 @@ public sealed record RecognitionResultEnvelope<T>
         Result = V2ContractGuard.NotNull(result, nameof(result));
 
         if (result.Provenance.ObservedUtc < header.CapturedUtc ||
-            header.DetectedContext.Provenance.ObservedUtc < header.CapturedUtc)
+            result.Candidates.Any(candidate => candidate.Provenance.ObservedUtc < header.CapturedUtc) ||
+            header.DetectedContext.Provenance.ObservedUtc < header.CapturedUtc ||
+            header.DetectedContext.Candidates.Any(candidate => candidate.Provenance.ObservedUtc < header.CapturedUtc))
         {
-            throw new ArgumentException("Recognition cannot be observed before its capture was taken.", nameof(result));
+            throw new ArgumentException(
+                "Recognition values and candidates cannot be observed before their capture was taken.",
+                nameof(result));
         }
     }
 
@@ -90,6 +94,7 @@ public enum ItemConditionKind
 }
 
 /// <summary>Visible durability, uses, charges, or resource, e.g. 38/50; never a guessed full value.</summary>
+[CorrectableEvidenceValue]
 public sealed record ItemConditionReading
 {
     public ItemConditionReading(ItemConditionKind kind, double? current, double? maximum)
@@ -387,11 +392,42 @@ public sealed record StashCaptureRegion
         OriginInContainer = V2ContractGuard.NotNull(originInContainer, nameof(originInContainer));
         Grid = V2ContractGuard.NotNull(grid, nameof(grid));
 
-        if (originInContainer.Value is { } origin &&
-            (grid.Geometry.Rows.Value > GridGeometry.MaxRows - origin.Row ||
-             grid.Geometry.Columns.Value > GridGeometry.MaxColumns - origin.Column))
+        foreach (var possibleOrigin in V2ContractGuard.Values(originInContainer))
         {
-            throw new ArgumentException("A placed region cannot extend past the container cell space.", nameof(originInContainer));
+            if (possibleOrigin is not { } origin)
+            {
+                continue;
+            }
+
+            var remainingRows = GridGeometry.MaxRows - origin.Row;
+            var remainingColumns = GridGeometry.MaxColumns - origin.Column;
+            if (V2ContractGuard.Values(grid.Geometry.Rows).Any(rows => rows > remainingRows) ||
+                V2ContractGuard.Values(grid.Geometry.Columns).Any(columns => columns > remainingColumns))
+            {
+                throw new ArgumentException("A placed region cannot extend past the container cell space.", nameof(originInContainer));
+            }
+
+            // A region whose dimensions were unread can still contain determined cells. Check an
+            // absolute address as remaining room instead of adding origin + offset: both are
+            // bounded independently, and subtraction cannot wrap at the edge of the cell space.
+            foreach (var cell in grid.Cells)
+            {
+                if (cell.Anchor.Row >= remainingRows || cell.Anchor.Column >= remainingColumns)
+                {
+                    throw new ArgumentException(
+                        "A placed cell must sit inside the container cell space.",
+                        nameof(originInContainer));
+                }
+
+                if (cell.Item.Value is { } item &&
+                    (item.HeightCells.Value > remainingRows - cell.Anchor.Row ||
+                     item.WidthCells.Value > remainingColumns - cell.Anchor.Column))
+                {
+                    throw new ArgumentException(
+                        "A placed footprint cannot extend past the container cell space.",
+                        nameof(originInContainer));
+                }
+            }
         }
     }
 
@@ -618,6 +654,11 @@ public sealed record ExtractRecognition
         {
             throw new ArgumentException("An exfil leaves the raid and has no destination map.", nameof(destinationMapId));
         }
+
+        if (kind.Value == ExtractKind.Transit && canonicalId.Value is not null)
+        {
+            throw new ArgumentException("A transit is absent from extract catalogs and has no canonical extract id.", nameof(canonicalId));
+        }
     }
 
     /// <summary>The slot label as read, e.g. EXFIL01 or TRANSIT02, whose zero often OCRs as O or @.</summary>
@@ -646,6 +687,7 @@ public enum RaidClockBasis
 /// capture time, and an import minutes later must not add those minutes to the raid. An unknown
 /// clock is an absent reading, not a basis.
 /// </summary>
+[CorrectableEvidenceValue]
 public sealed record RaidClockReading
 {
     /// <summary>The exclusive upper bound on a clock read off the extract screen.</summary>
@@ -704,30 +746,58 @@ public sealed record ExtractMapRecognition(
     private static EvidencedValue<RaidClockReading> ValidateClock(EvidencedValue<RaidClockReading> clock)
     {
         V2ContractGuard.NotNull(clock, nameof(RaidTimeRemaining));
-        if (clock.Value is not { } reading)
+        foreach (var (reading, provenance) in ClockClaims(clock))
         {
-            return clock;
-        }
+            var source = provenance.SourceClass;
+            var sourceIsConsistent = reading.Basis switch
+            {
+                RaidClockBasis.ObservedOnExtractScreen =>
+                    source is EvidenceSourceClass.GameWrittenScreenshot or EvidenceSourceClass.ExternalVisiblePixels,
+                RaidClockBasis.CountedFromRaidStart =>
+                    source is EvidenceSourceClass.GameWrittenLog or EvidenceSourceClass.UserEntered or EvidenceSourceClass.DerivedCalculation,
+                _ => false,
+            };
+            var consistent = reading.AsOfUtc <= provenance.ObservedUtc && sourceIsConsistent;
 
-        var source = clock.Provenance.SourceClass;
-        var consistent = reading.Basis switch
-        {
-            RaidClockBasis.ObservedOnExtractScreen =>
-                source is EvidenceSourceClass.GameWrittenScreenshot or EvidenceSourceClass.ExternalVisiblePixels &&
-                reading.AsOfUtc <= clock.Provenance.ObservedUtc,
-            RaidClockBasis.CountedFromRaidStart =>
-                source is EvidenceSourceClass.GameWrittenLog or EvidenceSourceClass.UserEntered or EvidenceSourceClass.DerivedCalculation,
-            _ => false,
-        };
-
-        if (!consistent)
-        {
-            throw new ArgumentException(
-                $"A {reading.Basis} clock cannot come from {source} evidence or postdate its observation.",
-                nameof(RaidTimeRemaining));
+            if (!consistent)
+            {
+                throw new ArgumentException(
+                    $"A {reading.Basis} clock cannot come from {source} evidence or postdate its observation.",
+                    nameof(RaidTimeRemaining));
+            }
         }
 
         return clock;
+    }
+
+    internal void ValidateClockAtCapture(DateTimeOffset capturedUtc)
+    {
+        foreach (var (reading, _) in ClockClaims(RaidTimeRemaining))
+        {
+            if (reading.Basis == RaidClockBasis.ObservedOnExtractScreen && reading.AsOfUtc != capturedUtc)
+            {
+                throw new ArgumentException("An observed raid clock is as of the screenshot's capture time.");
+            }
+        }
+    }
+
+    private static IEnumerable<(RaidClockReading Reading, EvidenceProvenance Provenance)> ClockClaims(
+        EvidencedValue<RaidClockReading> clock)
+    {
+        if (clock.RecognizedValue is { } recognized)
+        {
+            yield return (recognized, clock.Provenance);
+        }
+
+        foreach (var correction in clock.Corrections)
+        {
+            yield return (correction.CorrectedValue, clock.Provenance);
+        }
+
+        foreach (var candidate in clock.Candidates)
+        {
+            yield return (candidate.Value, candidate.Provenance);
+        }
     }
 }
 
@@ -751,6 +821,7 @@ public enum CharacterRegionState
     Destroyed,
 }
 
+[CorrectableEvidenceValue]
 public sealed record CharacterRegionReading(
     CharacterRegion Region,
     CharacterRegionState? State,
@@ -884,12 +955,14 @@ public sealed record ExtractMapRecognitionResult : ContextualRecognitionResult<E
     public ExtractMapRecognitionResult(RecognitionResultEnvelope<ExtractMapRecognition> recognition)
         : base(recognition, RecognizedContext.ExtractsAndMap)
     {
-        if (recognition.Result.Value?.RaidTimeRemaining.Value is { Basis: RaidClockBasis.ObservedOnExtractScreen } clock &&
-            clock.AsOfUtc != recognition.Header.CapturedUtc)
+        if (recognition.Result.Value is { } value)
         {
-            throw new ArgumentException(
-                "An observed raid clock is as of the screenshot's capture time.",
-                nameof(recognition));
+            value.ValidateClockAtCapture(recognition.Header.CapturedUtc);
+        }
+
+        foreach (var candidate in recognition.Result.Candidates)
+        {
+            candidate.Value.ValidateClockAtCapture(recognition.Header.CapturedUtc);
         }
     }
 }

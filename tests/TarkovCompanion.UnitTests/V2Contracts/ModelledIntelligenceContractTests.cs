@@ -40,6 +40,32 @@ public sealed class ModelledIntelligenceContractTests
         Assert.DoesNotContain("LiveDetection", json, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void EveryIntelligenceLeafPayloadPreservesWholeValueCorrections()
+    {
+        AssertModelledCorrectionRoundTrip(
+            new ZoneTrafficIntensity("customs", "dorms", RaidPhase.Early, 0.35),
+            new ZoneTrafficIntensity("customs", "dorms", RaidPhase.Early, 0.45));
+        AssertModelledCorrectionRoundTrip(
+            new RouteCorridorPressure("customs", "river", RaidPhase.Mid, 0.50),
+            new RouteCorridorPressure("customs", "river", RaidPhase.Mid, 0.60));
+        AssertModelledCorrectionRoundTrip(
+            new EncounterLikelihood("customs", "dorms", RaidPhase.Late, 0.55),
+            new EncounterLikelihood("customs", "dorms", RaidPhase.Late, 0.65));
+    }
+
+    [Fact]
+    public void HostileJsonCannotPutAnInvalidValueInAnIntelligenceCorrection()
+    {
+        var estimate = CorrectedEstimate(
+            new ZoneTrafficIntensity("customs", "dorms", RaidPhase.Early, 0.35),
+            new ZoneTrafficIntensity("customs", "dorms", RaidPhase.Early, 0.45));
+        var node = JsonSerializer.SerializeToNode(estimate, JsonOptions)!;
+        node["estimate"]!["corrections"]![0]!["correctedValue"]!["relativeIntensity"] = 2;
+
+        AssertRejected<ModelledIntelligence<ZoneTrafficIntensity>>(node.ToJsonString());
+    }
+
     [Theory]
     [InlineData("LiveDetection")]
     [InlineData(nameof(EvidenceSourceClass.ExternalVisiblePixels))]
@@ -238,6 +264,37 @@ public sealed class ModelledIntelligenceContractTests
         Build(Model(EvidenceSourceClass.ModelledEstimate, inputs.Select(input => input.Provenance).ToArray()), inputs);
 
     private static ModelledIntelligence<EncounterLikelihood> Estimate() => Estimate(Input());
+
+    private static ModelledIntelligence<T> CorrectedEstimate<T>(T original, T corrected)
+        where T : class, IIntelligencePayload
+    {
+        var input = Input();
+        var provenance = Model(EvidenceSourceClass.ModelledEstimate, input.Provenance);
+        var value = V2ContractTestData.Complete(
+            "traffic.corrected",
+            corrected,
+            provenance,
+            corrections:
+            [
+                new EvidenceCorrection<T>(
+                    1, original, corrected, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]);
+        return new ModelledIntelligence<T>("traffic-corrected", value, [input], "Reviewed estimate");
+    }
+
+    private static void AssertModelledCorrectionRoundTrip<T>(T original, T corrected)
+        where T : class, IIntelligencePayload
+    {
+        var estimate = CorrectedEstimate(original, corrected);
+        var roundTrip = JsonSerializer.Deserialize<ModelledIntelligence<T>>(
+            JsonSerializer.Serialize(estimate, JsonOptions), JsonOptions)!;
+
+        Assert.Equal(original, roundTrip.Estimate.RecognizedValue);
+        Assert.Equal(corrected, roundTrip.Estimate.Value);
+        Assert.Equal(estimate.Estimate.Provenance, roundTrip.Estimate.Provenance);
+        Assert.Equal(original, roundTrip.Estimate.Corrections.Single().OriginalValue);
+    }
 
     private static ModelledIntelligence<EncounterLikelihood> Build(
         EvidenceProvenance provenance,

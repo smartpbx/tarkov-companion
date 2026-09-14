@@ -272,7 +272,8 @@ public sealed record StateAcknowledgement
             AcknowledgementDisposition.RejectedStale =>
                 readable && !thisChangeApplied && appliedRevision.Value > requestedRevision.Value,
             AcknowledgementDisposition.RejectedConflict =>
-                readable && !thisChangeApplied && appliedRevision.Value <= requestedRevision.Value,
+                readable && !thisChangeApplied && appliedRevision.Value > 0 &&
+                appliedRevision.Value <= requestedRevision.Value,
             AcknowledgementDisposition.UnsupportedVersion => !readable && !thisChangeApplied,
             _ => false,
         };

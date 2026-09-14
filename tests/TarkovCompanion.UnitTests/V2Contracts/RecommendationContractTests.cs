@@ -44,19 +44,38 @@ public sealed class RecommendationContractTests
     public void UnknownOpportunityCostIsAbsentAndDecisionsNeedReasons()
     {
         var reason = Reason();
+        var unknown = V2ContractTestData.Unknown<long?>("decision.opportunityCost");
 
         var review = new RecommendationDecision(
             RecommendationAction.Review, "Review: price unknown.", [reason],
-            V2ContractTestData.Unknown<long?>("decision.opportunityCost"), null, []);
+            unknown, null, []);
 
         Assert.Null(review.OpportunityCostRoubles.Value);
         Assert.Null(review.OpportunityCostLineage);
+        Assert.Throws<ArgumentException>(() => new RecommendationDecision(
+            RecommendationAction.Review, "Review: price unknown.", [reason], unknown, Lineage, []));
         Assert.Throws<ArgumentException>(() => new RecommendationDecision(
             RecommendationAction.Keep, "No reason", [], V2ContractTestData.Unknown<long?>("decision.opportunityCost"), null, []));
         Assert.Throws<ArgumentOutOfRangeException>(() => new RecommendationReason(
             default, "code", "explanation", 1, V2ContractTestData.PublicDataProvenance()));
         Assert.Throws<ArgumentOutOfRangeException>(() => new RecommendationDecision(
             (RecommendationAction)77, "Bad", [reason], V2ContractTestData.Unknown<long?>("decision.opportunityCost"), null, []));
+    }
+
+    [Fact]
+    public void HostileJsonCannotAttachLineageToAnAbsentOpportunityCost()
+    {
+        var root = JsonSerializer.SerializeToNode(
+            Result(Decision(V2ContractTestData.Unknown<long?>("decision.opportunityCost"), null)),
+            V2ContractJson.Options)!;
+        root["decision"]!["value"]!["opportunityCostLineage"] =
+            JsonSerializer.SerializeToNode(Lineage, V2ContractJson.Options);
+
+        var failure = Record.Exception(() =>
+            JsonSerializer.Deserialize<RecommendationResult>(root.ToJsonString(), V2ContractJson.Options));
+
+        Assert.NotNull(failure);
+        Assert.True(failure is JsonException || failure.GetBaseException() is ArgumentException, failure.ToString());
     }
 
     [Fact]

@@ -148,6 +148,42 @@ public sealed class V2ArchitectureContractTests
     }
 
     [Fact]
+    public void WholeValueCorrectionIsClosedToTheSixCoreLeafRecords()
+    {
+        var assembly = typeof(EvidencedValue<>).Assembly;
+        var marker = assembly.GetType(
+            "TarkovCompanion.Core.Domain.Evidence.CorrectableEvidenceValueAttribute",
+            throwOnError: true)!;
+        var marked = assembly.GetTypes()
+            .Where(type => type.IsDefined(marker, inherit: false))
+            .ToHashSet();
+        var expected = new HashSet<Type>
+        {
+            typeof(ItemConditionReading),
+            typeof(RaidClockReading),
+            typeof(CharacterRegionReading),
+            typeof(ZoneTrafficIntensity),
+            typeof(RouteCorridorPressure),
+            typeof(EncounterLikelihood),
+        };
+
+        Assert.True(marked.SetEquals(expected), "The whole-value correction leaf set changed without a contract review.");
+        Assert.False(marker.IsPublic);
+        Assert.All(marked, type => Assert.True(type.IsSealed, $"{type.Name} must remain sealed."));
+
+        var hostile = new HostilePayload();
+        Assert.Throws<ArgumentException>(() => V2ContractTestData.Complete(
+            "hostile",
+            hostile,
+            corrections:
+            [
+                new EvidenceCorrection<HostilePayload>(
+                    1, hostile, hostile, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]));
+    }
+
+    [Fact]
     public void EvidencedPayloadValuesCanBeAbsentWithoutLookingRead()
     {
         // EvidencedValue<int> or <SomeEnum> cannot be Unknown at all, because presence is the test.

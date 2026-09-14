@@ -149,7 +149,7 @@ public sealed class EvidenceContractTests
     }
 
     [Fact]
-    public void CompositeValuesAreCorrectedThroughTheirFields()
+    public void OnlyClosedLeafCompositeValuesCanBeCorrectedWhole()
     {
         var item = V2ContractTestData.Item();
 
@@ -157,6 +157,33 @@ public sealed class EvidenceContractTests
             "grid.0.0",
             item,
             corrections: [new EvidenceCorrection<RecognizedItem>(1, null, item, V2ContractTestData.ObservedUtc, CorrectionOriginClass.User, "local-user")]));
+
+        var node = JsonSerializer.SerializeToNode(V2ContractTestData.Complete("grid.0.0", item), V2ContractJson.Options)!;
+        node["corrections"] = JsonSerializer.SerializeToNode(
+            new[]
+            {
+                new EvidenceCorrection<RecognizedItem>(
+                    1, item, item, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            },
+            V2ContractJson.Options);
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<EvidencedValue<RecognizedItem>>(node.ToJsonString(), V2ContractJson.Options));
+    }
+
+    [Fact]
+    public void ClosedLeafCompositeCorrectionsRoundTripWithTheirHistory()
+    {
+        AssertLeafCorrectionRoundTrip(
+            ItemConditionReading.NotApplicable,
+            new ItemConditionReading(ItemConditionKind.Durability, 38, 50));
+        AssertLeafCorrectionRoundTrip(
+            new RaidClockReading(TimeSpan.FromMinutes(29), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc),
+            new RaidClockReading(TimeSpan.FromMinutes(28), RaidClockBasis.ObservedOnExtractScreen, V2ContractTestData.CapturedUtc));
+        AssertLeafCorrectionRoundTrip(
+            new CharacterRegionReading(CharacterRegion.LeftArm, CharacterRegionState.Healthy, 1),
+            new CharacterRegionReading(CharacterRegion.LeftArm, CharacterRegionState.Injured, 0.55));
     }
 
     [Fact]
@@ -245,6 +272,27 @@ public sealed class EvidenceContractTests
         V2ContractTestData.ObservedUtc.AddMinutes(minutesAfterObservation),
         CorrectionOriginClass.User,
         "local-user");
+
+    private static void AssertLeafCorrectionRoundTrip<T>(T original, T corrected)
+        where T : class
+    {
+        var field = V2ContractTestData.Complete(
+            "leaf",
+            corrected,
+            corrections:
+            [
+                new EvidenceCorrection<T>(
+                    1, original, corrected, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]);
+
+        var roundTrip = JsonSerializer.Deserialize<EvidencedValue<T>>(
+            JsonSerializer.Serialize(field, V2ContractJson.Options), V2ContractJson.Options)!;
+
+        Assert.Equal(original, roundTrip.RecognizedValue);
+        Assert.Equal(corrected, roundTrip.Value);
+        Assert.Equal(original, roundTrip.Corrections.Single().OriginalValue);
+    }
 
     private static EvidenceProvenance Derived(params EvidenceProvenance[] inputs) => new(
         EvidenceSourceClass.DerivedCalculation,

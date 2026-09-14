@@ -156,6 +156,55 @@ public sealed class DownstreamShapeContractTests
     }
 
     [Fact]
+    public void DeterminedCellsStayInsideTheContainerWhenRegionDimensionsAreUnread()
+    {
+        var rowOutside = UnreadGrid(V2ContractTestData.Cell(GridGeometry.MaxRows - 1, 0));
+        var columnOutside = UnreadGrid(V2ContractTestData.Cell(0, GridGeometry.MaxColumns - 1));
+        var footprintOutside = UnreadGrid(V2ContractTestData.Cell(
+            GridGeometry.MaxRows - 2,
+            0,
+            V2ContractTestData.Item(height: 2)));
+        var boundary = UnreadGrid(V2ContractTestData.Cell(
+            GridGeometry.MaxRows - 2,
+            GridGeometry.MaxColumns - 2));
+
+        Assert.Throws<ArgumentException>(() => RegionAt(new GridCellAddress(1, 0), rowOutside));
+        Assert.Throws<ArgumentException>(() => RegionAt(new GridCellAddress(0, 1), columnOutside));
+        Assert.Throws<ArgumentException>(() => RegionAt(new GridCellAddress(1, 0), footprintOutside));
+        Assert.Equal(
+            new GridCellAddress(1, 1),
+            RegionAt(new GridCellAddress(1, 1), boundary).OriginInContainer.Value);
+
+        var candidateOrigin = new EvidencedValue<GridCellAddress?>(
+            "region.origin",
+            null,
+            new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current),
+            V2ContractTestData.ScreenshotProvenance(),
+            candidates:
+            [
+                new EvidenceCandidate<GridCellAddress?>(
+                    "origin-1", "One row down", new GridCellAddress(1, 0),
+                    V2ContractTestData.ScreenshotProvenance()),
+            ]);
+        Assert.Throws<ArgumentException>(() => new StashCaptureRegion(
+            "region-0", "artifact-0", 0, "stash", candidateOrigin, rowOutside));
+    }
+
+    [Fact]
+    public void HostileRegionJsonCannotMoveAnUnreadGridCellPastTheContainerBoundary()
+    {
+        var region = RegionAt(
+            new GridCellAddress(0, 0),
+            UnreadGrid(V2ContractTestData.Cell(0, 0)));
+        var node = JsonSerializer.SerializeToNode(region, JsonOptions)!;
+        node["originInContainer"]!["value"]!["row"] = 1;
+        node["grid"]!["cells"]![0]!["anchor"]!["row"] = GridGeometry.MaxRows - 1;
+
+        Assert.ThrowsAny<ArgumentException>(() =>
+            JsonSerializer.Deserialize<StashCaptureRegion>(node.ToJsonString(), JsonOptions));
+    }
+
+    [Fact]
     public void StashRegionsKeepIdentityOrderMembershipOriginAndCoverage()
     {
         var stash = new StashRecognition(
@@ -274,6 +323,20 @@ public sealed class DownstreamShapeContractTests
         container,
         V2ContractTestData.Complete<GridCellAddress?>("region.origin", new GridCellAddress(originRow, 0)),
         grid ?? V2ContractTestData.Grid());
+
+    private static StashCaptureRegion RegionAt(GridCellAddress origin, GridRecognition grid) => new(
+        "region-0",
+        "artifact-0",
+        0,
+        "stash",
+        V2ContractTestData.Complete<GridCellAddress?>("region.origin", origin),
+        grid);
+
+    private static GridRecognition UnreadGrid(params GridCellRecognition[] cells) => new(
+        Geometry(
+            V2ContractTestData.Unknown<int?>("grid.rows"),
+            V2ContractTestData.Unknown<int?>("grid.columns")),
+        cells);
 
     private static StashContainerCoverage Coverage(string container, int observed, int total) => new(
         container,

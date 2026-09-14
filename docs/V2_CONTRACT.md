@@ -74,9 +74,13 @@ explicit zero offset.
 
 `Value` is the current value. Corrections are numbered from one, never predate the evidence or
 the correction before them, and each starts from the value the previous one left; the current
-value is the last correction's value and `RecognizedValue` is the original. Only scalar values
-are corrected in place. A composite payload is corrected through its own evidenced fields.
-Candidate and correction lists are copied at construction and exposed read-only.
+value is the last correction's value and `RecognizedValue` is the original. Scalars and the
+closed set of Core-owned immutable leaf claims (`ItemConditionReading`, `RaidClockReading`,
+`CharacterRegionReading`, `ZoneTrafficIntensity`, `RouteCorridorPressure`, and
+`EncounterLikelihood`) are corrected in place with structural equality. Other composites are
+corrected through their own evidenced fields. External or unlisted reference types cannot opt
+into whole-value correction. Candidate and correction lists are copied at construction and
+exposed read-only.
 
 ## Result state
 
@@ -182,7 +186,8 @@ ambiguity. User or paired-device review appends a correction with its origin, ti
 instead of replacing OCR evidence.
 
 Extract rows distinguish `Exfil` from `Transit` (a way to another map, with a destination map ID
-and no catalog match) and read availability as `Active`, `Conditional`, `Pending`, or `Closed`.
+and an absent canonical extract ID because there is no catalog match) and read availability as
+`Active`, `Conditional`, `Pending`, or `Closed`.
 The slot label is kept as read.
 
 The extract/map result permanently carries each raw OCR line before matching or filtering. The raid
@@ -195,8 +200,11 @@ the capture time. An observed clock is under one hour: no raid runs longer, and 
 (and `1:00:00` or longer) rather than relying on the reader to. A counted clock comes from
 game-written log, user-entered, or derived evidence and is arithmetic rather than a pixel reading,
 so it is not capped.
-The raw line `Find an extraction point 0:28:10` and its observed-clock provenance are regression
-fixtures. A counted map duration must never be presented as an observed remaining time.
+The source, basis, bound, and as-of rules apply to the recognized clock, every clock candidate,
+and every correction. Result-level extract/map candidates are checked the same way, and every
+observed reading in any of those paths is as of the result header's capture time. The raw line
+`Find an extraction point 0:28:10` and its observed-clock provenance are regression fixtures. A
+counted map duration must never be presented as an observed remaining time.
 
 Health recognition represents an absent or illegible display as unknown or unavailable; it
 does not turn missing pixels into full health or a destroyed limb.
@@ -273,7 +281,7 @@ acknowledged change as the applied change.
 | --- | --- |
 | `Applied` | Readable version, equal revisions, and the applied change is this change (a first apply or an idempotent duplicate delivery). |
 | `RejectedStale` | Readable version, the receiver holds a strictly later revision, and it is another change. |
-| `RejectedConflict` | Readable version and another change occupies the requested revision or an earlier, divergent one. |
+| `RejectedConflict` | Readable version and another change occupies the requested revision or an earlier positive, divergent revision; revision zero has no change to conflict with. |
 | `UnsupportedVersion` | The receiver cannot read the change's version, left its stream alone, and does not name this change as applied. |
 
 Origin metadata is audit evidence, not authentication. Pairing, credential storage, session
@@ -321,7 +329,10 @@ window, or a window re-owned by the game's window. The last two are matched by s
 than by line: the flag pair across ordinary multi-line formatting, and a `SetWindowLong(Ptr)`
 `HWNDPARENT` call in the same or an adjacent statement as a quoted literal of the game's window or
 process name, however the handle variable is named and whatever nested calls its arguments
-contain. Build output under `bin` and `obj` is not scanned. A scanner error (a crashed or missing
-`rg`, `grep`, `git`, or `perl`) fails the audit instead of reading as no match. The source audit is
-a ratchet, not a proof; semantic architecture tests separately assert that v2 protocols have no
-game-control or live-enemy vocabulary.
+contain. Build output under `bin` and `obj` is not scanned. Hidden and ignore-matched source is
+scanned: it does not become safety-exempt because of a filename or local ignore rule. The line
+scanner intentionally uses `rg` when available and falls back to `grep` when `rg` is absent, so
+missing `rg` alone is not a failure. An error from the selected scanner, no available line
+scanner, or an unavailable or failing required `git` or `perl` tool fails the audit instead of
+reading as no match. The source audit is a ratchet, not a proof; semantic architecture tests
+separately assert that v2 protocols have no game-control or live-enemy vocabulary.
