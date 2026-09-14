@@ -149,6 +149,10 @@ public static class AppComposition
         // ever read, which is why the Quests page printed a trader's id where it meant Prapor.
         services.AddSingleton<SqliteTraderCatalog>();
         services.AddSingleton<ITraderCatalog>(provider => provider.GetRequiredService<SqliteTraderCatalog>());
+        // 789 barters rewritten on every sync, across three tables, with no reader anywhere.
+        // Hidden from the unread-table sweep by its DELETE blind spot until that was fixed.
+        services.AddSingleton<SqliteBarterCatalog>();
+        services.AddSingleton<IBarterCatalog>(provider => provider.GetRequiredService<SqliteBarterCatalog>());
         services.AddSingleton<SqliteQuestProgressStore>();
         services.AddSingleton<IQuestProgressStore>(provider =>
             provider.GetRequiredService<SqliteQuestProgressStore>());

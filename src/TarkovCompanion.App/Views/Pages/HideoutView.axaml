@@ -56,6 +56,7 @@
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:HideoutRequirementViewModel">
                   <Border Classes="inset" Margin="0,0,0,6">
+                    <StackPanel Spacing="4">
                     <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
                       <TextBlock Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
                       <StackPanel Grid.Column="1" Spacing="1" MinWidth="48">
@@ -71,6 +72,17 @@
                         <TextBlock Classes="value ochre" Text="{Binding Remaining}" />
                       </StackPanel>
                     </Grid>
+                    <!-- 789 barters are rewritten on every sync and nothing had ever read one.
+                         Shown only where a barter actually beats buying the item, where every
+                         one of its inputs has a price, and where the player's own loyalty is
+                         enough to take it — anything else is "no answer", and a line saying
+                         "buy it" when the truth is "nothing here could work it out" would be
+                         making something up. -->
+                    <TextBlock Classes="caption sage"
+                               Text="{Binding CheapestRoute}"
+                               IsVisible="{Binding HasCheapestRoute}"
+                               TextWrapping="Wrap" />
+                    </StackPanel>
                   </Border>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
