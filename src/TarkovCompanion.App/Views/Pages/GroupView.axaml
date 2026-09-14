@@ -66,6 +66,43 @@
         <TextBlock Grid.Row="1" Classes="value" Text="{Binding Status}" TextWrapping="Wrap" />
         <ScrollViewer Grid.Row="2">
           <StackPanel Spacing="0">
+            <!-- What the column says when nobody is in it, which is most of the time: sharing
+                 is off by default and off again after an upgrade, so this is the page's
+                 resting state and the state most people see most often.
+
+                 It said "Not sharing" and then seven hundred pixels of nothing, which reads as
+                 something that failed to load. The panel had no reason to be empty — this is
+                 the one page that has to explain itself to somebody's friend on their first
+                 evening, and none of what is below was written anywhere they would look. -->
+            <StackPanel Spacing="10" IsVisible="{Binding HasNoMembers}">
+              <TextBlock Classes="caption"
+                         Text="Everything on this page is optional. The companion reads your own game, draws your own map and tracks your own quests whether or not anybody else is running it."
+                         TextWrapping="Wrap" />
+              <Border Classes="hairline" />
+              <StackPanel Spacing="3">
+                <TextBlock Classes="label" Text="What a group adds" />
+                <TextBlock Classes="caption"
+                           Text="Each other on one map: where you are, which way you are facing, which map you are on and whether you are in a raid. Waypoints that stay until somebody clears them and tick themselves off when you get there, and pings that say &quot;look here&quot; and fade."
+                           TextWrapping="Wrap" />
+                <TextBlock Classes="caption"
+                           Text="And the things your own game will not tell you. Your kit, your level and your scav timer are all written down by every squadmate's game and by nobody else's, including yours."
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <Border Classes="hairline" />
+              <StackPanel Spacing="3">
+                <TextBlock Classes="label" Text="The key is the group" />
+                <TextBlock Classes="caption"
+                           Text="One value, typed the same by everybody who should see each other. It is not a password to a room somebody owns: a different key is a different group, and it answers with nobody in it. The server never sees the key itself, only a hash of it."
+                           TextWrapping="Wrap" />
+              </StackPanel>
+              <Border Classes="hairline" />
+              <StackPanel Spacing="3">
+                <TextBlock Classes="label" Text="While this is off" />
+                <TextBlock Classes="caption"
+                           Text="Nothing is sent. When it is on, what goes is listed beside each switch on the left and nothing else. The relay keeps nothing on disk but the group's own marks, and forgets a member three minutes after they stop publishing."
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </StackPanel>
             <ItemsControl ItemsSource="{Binding Members}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:GroupMemberRowViewModel">
