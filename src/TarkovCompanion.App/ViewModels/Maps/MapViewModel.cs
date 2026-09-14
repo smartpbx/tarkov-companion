@@ -5074,6 +5074,10 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // floor.
         var baseline = FloorStack.OffsetOf(_placements, SelectedFloor);
         var layers = new List<FloorLayerViewModel>(_placements.Count);
+        // Kept so an empty stack can say why it is empty. The asset cache answers with a
+        // reason -- "This variant has no SVG asset", "Floor 'X' has no explicit upstream SVG
+        // layer" -- and every one of them used to be dropped on the floor.
+        string? refusal = null;
         foreach (var placement in _placements)
         {
             try
@@ -5083,6 +5087,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                 if (await LoadBitmapAsync(cached.Asset?.RenderPath, cancellationToken).ConfigureAwait(true)
                     is not { } image)
                 {
+                    refusal ??= cached.Message;
                     continue;
                 }
 
@@ -5092,12 +5097,27 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             {
                 // One floor's artwork is not worth the stack. The rest still says which floors
                 // there are and which one is being read.
+                refusal ??= exception.Message;
             }
         }
 
         ReleaseLater(_floorLayers.Select(layer => layer.Image));
         FloorLayers = layers;
         OnPropertyChanged(nameof(StackTilt));
+        // A stack that produced nothing says so. This drew a flat map under a lit toggle and
+        // said nothing at all, which is how "the 3d view doesnt seem to work at all for me"
+        // survived a fix to the toggle's style and two people looking at the code.
+        //
+        // The reason is worth printing verbatim because it is the diagnosis. The stack asks
+        // the asset cache for each floor's SVG, and a map drawn from tiles answers "this
+        // variant has no SVG asset" or "floor X has no explicit upstream SVG layer" for every
+        // floor in turn -- so on a tile-drawn map the stack has never had anything to draw.
+        if (layers.Count == 0)
+        {
+            Status = refusal is { Length: > 0 }
+                ? $"Stacked view: no floor artwork could be loaded · {refusal}"
+                : "Stacked view: no floor artwork could be loaded.";
+        }
     }
 
     /// <summary>
