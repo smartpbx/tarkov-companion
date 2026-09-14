@@ -115,10 +115,20 @@ public static class MapPlaceNameLayout
     /// Where a name lands on screen: its position scaled, its size not.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The same arithmetic <see cref="MapLabelLayout"/> does for a marker's name, and it has to
     /// be, or the two would disagree about whether a name and a label collide.
+    /// </para>
+    /// <para>
+    /// Public because they did disagree. The marker layout built the same rectangle itself, as
+    /// <c>(TextLeft + TextWidth) * zoom</c>, which scales the size as well as the position: at
+    /// 23% zoom every place name was handed to that layout as a rectangle a quarter of its real
+    /// width. Reported on Customs as "Scav Checkpoint" sitting across the first seven characters
+    /// of "Military Checkpoint" — the layout had been told the place name stopped by its second
+    /// letter. Calling this is what stops the two disagreeing again.
+    /// </para>
     /// </remarks>
-    private static (double Left, double Top, double Right, double Bottom) RectFor(
+    public static (double Left, double Top, double Right, double Bottom) RectFor(
         MapPlaceNameCandidate name,
         double zoom)
     {
