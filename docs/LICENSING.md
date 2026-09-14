@@ -76,4 +76,17 @@ and runtime-cached map artwork cannot survive a package run. Unknown or
 noncommercial asset terms block commercial distribution and must be called out in
 the release report.
 
+## Re-serving artwork, and item images
+
+ADR 0007 reviews two questions this policy previously left open: whether the group relay may
+serve cached map artwork to the tablet, and whether item icons may be downloaded to fingerprint
+locally. In short: re-serving the map artwork **unmodified and attributed** is within CC
+BY-NC-SA 4.0, which grants redistribution — "local use only" in ADR 0002 was this project's own
+posture rather than a limit the licence imposed — on the conditions that attribution is visible
+on the page that draws it, the bytes are not adapted, use stays non-commercial, and the
+upstream anti-cheat prohibition is restated where it can be read. Item images are a weaker case:
+nobody in the chain purports to license Battlestate Games' renders, so they may be cached and
+hashed on the machine that uses them and neither the images nor the fingerprints derived from
+them may be published, bundled, or served through the relay.
+
 Runtime caching is not a transfer of ownership. Every cached map asset keeps the upstream URI, credited author/link, retrieval timestamp, SHA-256 content hash, `CC-BY-NC-SA-4.0` identifier, and Creative Commons license URI. A locally rasterized SVG preview remains cache-only and stays associated with the retained original metadata. The UI keeps attribution and license links visible for the selected map. Any distribution of cached, converted, or modified artwork must be separately reviewed for attribution, NonCommercial, ShareAlike, and upstream anti-cheat compliance.
