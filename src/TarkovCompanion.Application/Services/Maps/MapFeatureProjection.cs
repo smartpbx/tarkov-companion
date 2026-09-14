@@ -37,8 +37,11 @@ public static class MapFeatureProjection
             return [];
         }
 
+        // One exit published once per faction is one exit. Upstream ships it twice, less than a
+        // metre apart, and the map drew both: two labels reading "RUAF Roadblock" above and
+        // below a single disc, because at map zoom the two discs are the same pixel.
         var elements = new List<MapOverlayElement>(features.Count);
-        foreach (var feature in features)
+        foreach (var feature in MapFeatureMerge.Collapse(features))
         {
             // Loot never becomes a marker. Eight hundred of them would bury the exits, and
             // falling through to the extract layer -- which is what the layer mapping below
