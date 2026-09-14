@@ -659,6 +659,24 @@ public interface IRaidHistoryService
     /// Bounded, because the answer grows without limit and the question does not. The newest
     /// raids are the ones worth drawing.
     /// </remarks>
+    /// <summary>
+    /// The payloads of one raid's events of one kind, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// The service recorded events and offered no way to read them back, so the raid summary
+    /// counted scans as they went past in the runtime snapshot instead of asking — which works
+    /// only while the application that saw them is still running. A raid opened from History a
+    /// week later had a record nothing could reach.
+    ///
+    /// Payloads rather than parsed objects, because each kind is a different shape and the
+    /// caller is the one that knows which. Returning a union here would make every caller
+    /// switch on a type it already knew.
+    /// </remarks>
+    Task<IReadOnlyList<string>> ListEventPayloadsAsync(
+        Guid raidId,
+        string type,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
         string mapId,
         int limit,
