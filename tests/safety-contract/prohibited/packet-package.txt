@@ -1,0 +1,2 @@
+<PackageReference Include="SharpPcap" />
+<PackageReference Include="PacketDotNet" />

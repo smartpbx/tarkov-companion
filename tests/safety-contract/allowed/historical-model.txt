@@ -1,0 +1,2 @@
+new HistoricalTrafficModel(publicMapTopology, staticSpawns, boundedPastObservations);
+new VisiblePixelCapture(userInitiated: true);

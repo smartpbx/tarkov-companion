@@ -1,0 +1,2 @@
+var host = FindWindow(null, "EscapeFromTarkov");
+SetWindowLongPtr(new HandleRef(this, overlayWindow), GWLP_HWNDPARENT, host);
