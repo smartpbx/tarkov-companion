@@ -23,9 +23,9 @@ public sealed record RecommendationReason(
     int Priority,
     EvidenceProvenance Provenance)
 {
-    public string Code { get; init; } = Required(Code, nameof(Code));
+    public string Code { get; } = Required(Code, nameof(Code));
 
-    public string Explanation { get; init; } = Required(Explanation, nameof(Explanation));
+    public string Explanation { get; } = Required(Explanation, nameof(Explanation));
 
     private static string Required(string value, string parameterName)
     {
@@ -39,9 +39,9 @@ public sealed record RecommendationDecision(
     string Summary,
     IReadOnlyList<RecommendationReason> Reasons)
 {
-    public string Summary { get; init; } = Required(Summary, nameof(Summary));
+    public string Summary { get; } = Required(Summary, nameof(Summary));
 
-    public IReadOnlyList<RecommendationReason> Reasons { get; init; } =
+    public IReadOnlyList<RecommendationReason> Reasons { get; } =
         Reasons?.OrderByDescending(reason => reason.Priority).ToArray()
         ?? throw new ArgumentNullException(nameof(Reasons));
 

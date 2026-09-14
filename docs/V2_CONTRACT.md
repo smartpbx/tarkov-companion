@@ -14,7 +14,7 @@ documents may narrow these rules but may not weaken them.
 Three anti-cheat fixtures are immutable:
 
 1. Never read or write Escape from Tarkov process memory.
-2. Never generate gameplay mouse or keyboard input.
+2. Never generate game-directed mouse, keyboard, or controller input.
 3. Never draw an in-game overlay.
 
 The current design also excludes injection and game/renderer hooks, inspection or decoding of
@@ -74,8 +74,10 @@ Completeness and freshness are separate axes:
 | `Current` | The result is within the consumer's documented freshness policy. |
 | `Stale` | The result is older than that policy permits. |
 
-A result may be both `Partial` and `Stale`. Unknown, unavailable, and stale must never be
-collapsed to an empty collection, false, zero, or complete result.
+A result may be both `Partial` and `Stale`. Unknown, unavailable, and stale must never be collapsed
+to an empty collection, false, zero, or complete result. An `Unknown` or `Unavailable` value
+therefore carries no value, and numeric and boolean payload fields use nullable types so an
+undetermined quantity serializes as absent rather than as a read zero.
 
 ## Contextual capture
 
@@ -105,11 +107,13 @@ An `Auto` request reports the detected context; it does not coerce an uncertain 
 requested shape. Ambiguity preserves ordered candidates. User or paired-device review appends a
 correction with its origin, time, and sequence instead of replacing OCR evidence.
 
-The extract/map result permanently carries each raw OCR line before matching or filtering. The
-raid clock is a typed field whose basis distinguishes `ObservedOnExtractScreen`,
-`CountedFromRaidStart`, and `Unknown`. The raw line `Find an extraction point 0:28:10` and its
-observed-clock provenance are regression fixtures. A counted map duration must never be
-presented as an observed remaining time.
+The extract/map result permanently carries each raw OCR line before matching or filtering. The raid
+clock is a typed field whose basis distinguishes `ObservedOnExtractScreen`, `CountedFromRaidStart`,
+and `Unknown`, and whose as-of UTC instant is when the clock showed that value. For an observed
+clock that is the screenshot capture time, which may precede the provenance observed time; the
+clock ages from the capture time. An `Unknown` basis carries neither a remaining time nor an as-of
+time. The raw line `Find an extraction point 0:28:10` and its observed-clock provenance are
+regression fixtures. A counted map duration must never be presented as an observed remaining time.
 
 Health recognition represents an absent or illegible display as unknown or unavailable; it
 does not turn missing pixels into full health or a destroyed limb.
@@ -172,6 +176,7 @@ manufacture missing evidence.
 CI runs constructor/serialization tests, public-surface architecture tests, and the safety audit.
 Positive fixtures prove ordinary window discovery, visible user capture, public data access, and
 historical modelling remain expressible. Negative fixtures prove known memory, injection/hook,
-packet-capture, generated-input, and overlay APIs or dependencies fail the audit. The source
-audit is a ratchet, not a proof; semantic architecture tests separately assert that v2 protocols
-have no game-control or live-enemy vocabulary.
+packet-capture, generated keyboard/mouse/controller input, and topmost-window or overlay APIs or
+dependencies fail the audit, one fixture line at a time. V2 adds audit patterns; it does not remove
+v1 ones. The source audit is a ratchet, not a proof; semantic architecture tests separately assert
+that v2 protocols have no game-control or live-enemy vocabulary.

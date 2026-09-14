@@ -23,7 +23,8 @@ V1 contracts remain unchanged. V2 contracts live in
 
 Every v2 recognized or generated claim uses a common evidenced-value shape containing status,
 bounds, candidates, confidence, provenance, producer/model version, and append-only correction
-history. Completeness and freshness are orthogonal. Recognition uses closed typed result
+history. Completeness and freshness are orthogonal, and an unknown or unavailable value carries no
+value rather than a default that reads as zero or false. Recognition uses closed typed result
 envelopes. Capture is user initiated and reports ordered stage progress. Cross-device state uses
 stream-local monotonic revisions and explicit acknowledgements.
 
@@ -32,10 +33,10 @@ modelled constructors require observed, data-through, and generation UTC timesta
 scored confidence, and model version. A modelled result accepts only modelled-estimate
 provenance, so deserialization cannot relabel it as a live observation.
 
-Three anti-cheat fixtures do not change: no game process memory, generated gameplay input, or
-in-game overlay. V2 also retains the current exclusions on injection/hooks, EFT packet
-inspection, automation, and live enemy detection/tracking/ESP/radar. Historical and modelled
-traffic guidance is allowed only under the evidence rules above.
+Three anti-cheat fixtures do not change: no game process memory, generated game-directed mouse,
+keyboard, or controller input, or in-game overlay. V2 also retains the current exclusions on
+injection/hooks, EFT packet inspection, automation, and live enemy detection/tracking/ESP/radar.
+Historical and modelled traffic guidance is allowed only under the evidence rules above.
 
 ## Consequences
 
@@ -44,6 +45,7 @@ versions. Adapters must be explicit because missing v1 metadata cannot be invent
 types add some nesting, but that cost is the mechanism that prevents field and result evidence
 from being discarded.
 
-Safety auditing gains both allowed and prohibited fixtures. Pattern matching remains a narrow
-early warning and architecture tests enforce protocol shape; neither is treated as a substitute
-for review. Transport authentication and feature composition remain outside this ADR.
+Safety auditing gains both allowed and prohibited fixtures and keeps every v1 pattern. Pattern
+matching remains a narrow early warning and architecture tests enforce protocol shape; neither is
+treated as a substitute for review. Transport authentication and feature composition remain outside
+this ADR.

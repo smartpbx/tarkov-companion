@@ -125,6 +125,16 @@ public sealed record EvidencedValue<T>
         Candidates = candidates?.ToArray() ?? [];
         Corrections = corrections?.ToArray() ?? [];
 
+        // An undetermined claim must not look like a read zero, false, or name. Candidates may
+        // still describe the ambiguity; the value itself stays absent until something decides it.
+        if (status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable &&
+            !EqualityComparer<T?>.Default.Equals(value, default))
+        {
+            throw new ArgumentException(
+                $"A {status.Completeness} result cannot carry a value.",
+                nameof(value));
+        }
+
         for (var index = 0; index < Corrections.Count; index++)
         {
             if (Corrections[index].Sequence != index + 1)

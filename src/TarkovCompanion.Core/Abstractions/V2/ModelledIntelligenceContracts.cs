@@ -6,7 +6,10 @@ public sealed record IntelligenceInputReference(
     string EvidenceId,
     EvidenceProvenance Provenance)
 {
-    public string EvidenceId { get; init; } = Required(EvidenceId, nameof(EvidenceId));
+    public EvidenceProvenance Provenance { get; } =
+        Provenance ?? throw new ArgumentNullException(nameof(Provenance));
+
+    public string EvidenceId { get; } = Required(EvidenceId, nameof(EvidenceId));
 
     private static string Required(string value, string parameterName)
     {
@@ -27,16 +30,21 @@ public sealed record HistoricalIntelligence<T>
         ArgumentNullException.ThrowIfNull(value);
         ArgumentNullException.ThrowIfNull(inputs);
 
-        if (value.Provenance.SourceClass != EvidenceSourceClass.HistoricalAggregate)
+        if (!IntelligenceProvenance.UsesOnly(value, EvidenceSourceClass.HistoricalAggregate))
         {
             throw new ArgumentException(
-                "Historical intelligence must use historical-aggregate provenance.",
+                "Historical intelligence and its candidates must use historical-aggregate provenance.",
                 nameof(value));
         }
 
         if (inputs.Count == 0)
         {
             throw new ArgumentException("Historical intelligence must identify its inputs.", nameof(inputs));
+        }
+
+        if (inputs.Any(input => input is null))
+        {
+            throw new ArgumentException("Intelligence inputs cannot be null.", nameof(inputs));
         }
 
         Value = value;
@@ -70,16 +78,21 @@ public sealed record ModelledIntelligence<T>
         ArgumentNullException.ThrowIfNull(estimate);
         ArgumentNullException.ThrowIfNull(inputs);
 
-        if (estimate.Provenance.SourceClass != EvidenceSourceClass.ModelledEstimate)
+        if (!IntelligenceProvenance.UsesOnly(estimate, EvidenceSourceClass.ModelledEstimate))
         {
             throw new ArgumentException(
-                "Modelled intelligence must use modelled-estimate provenance.",
+                "Modelled intelligence and its candidates must use modelled-estimate provenance.",
                 nameof(estimate));
         }
 
         if (inputs.Count == 0)
         {
             throw new ArgumentException("Modelled intelligence must identify its inputs.", nameof(inputs));
+        }
+
+        if (inputs.Any(input => input is null))
+        {
+            throw new ArgumentException("Intelligence inputs cannot be null.", nameof(inputs));
         }
 
         Estimate = estimate;
@@ -99,4 +112,13 @@ public sealed record ModelledIntelligence<T>
         ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
         return value.Trim();
     }
+}
+
+internal static class IntelligenceProvenance
+{
+    // A candidate is serialized with its own provenance, so an estimate could otherwise travel
+    // as a candidate labelled with an observational source class.
+    public static bool UsesOnly<T>(EvidencedValue<T> value, EvidenceSourceClass sourceClass) =>
+        value.Provenance.SourceClass == sourceClass &&
+        value.Candidates.All(candidate => candidate.Provenance.SourceClass == sourceClass);
 }

@@ -88,7 +88,7 @@ public sealed record WorkspaceOrigin(
     WorkspaceOriginKind Kind,
     string InstanceId)
 {
-    public string InstanceId { get; init; } = Required(InstanceId, nameof(InstanceId));
+    public string InstanceId { get; } = Required(InstanceId, nameof(InstanceId));
 
     private static string Required(string value, string parameterName)
     {
@@ -107,7 +107,7 @@ public sealed record RevisionedState<T>(
     DateTimeOffset ChangedUtc,
     T Value)
 {
-    public DateTimeOffset ChangedUtc { get; init; } = RequireUtc(ChangedUtc, nameof(ChangedUtc));
+    public DateTimeOffset ChangedUtc { get; } = RequireUtc(ChangedUtc, nameof(ChangedUtc));
 
     private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
     {
@@ -138,7 +138,7 @@ public sealed record StateAcknowledgement(
     DateTimeOffset AcknowledgedUtc,
     string? Detail = null)
 {
-    public DateTimeOffset AcknowledgedUtc { get; init; } = RequireUtc(AcknowledgedUtc, nameof(AcknowledgedUtc));
+    public DateTimeOffset AcknowledgedUtc { get; } = RequireUtc(AcknowledgedUtc, nameof(AcknowledgedUtc));
 
     private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
     {

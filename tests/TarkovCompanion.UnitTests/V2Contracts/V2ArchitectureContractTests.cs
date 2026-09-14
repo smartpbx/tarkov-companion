@@ -41,6 +41,13 @@ public sealed class V2ArchitectureContractTests
         "EspObservation",
         "EspResult",
         "Radar",
+        "ControllerInput",
+        "InputInjection",
+        "Overlay",
+        "Packet",
+        "Hook",
+        "Inject",
+        "ProcessHandle",
     ];
 
     [Fact]
@@ -84,6 +91,31 @@ public sealed class V2ArchitectureContractTests
         Assert.DoesNotContain(
             Enum.GetNames<EvidenceSourceClass>(),
             name => name.Contains("Live", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void EvidencedPayloadValuesCanBeAbsentWithoutLookingRead()
+    {
+        // EvidencedValue<int>.Value is 0 when unknown, which a consumer can mistake for a read zero.
+        var evidencedTypes = V2Types()
+            .SelectMany(ExposedTypes)
+            .SelectMany(Flatten)
+            .Where(type =>
+                type.IsGenericType &&
+                !type.ContainsGenericParameters &&
+                type.GetGenericTypeDefinition() == typeof(EvidencedValue<>))
+            .Distinct()
+            .ToArray();
+
+        Assert.NotEmpty(evidencedTypes);
+        foreach (var argument in evidencedTypes.Select(type => type.GetGenericArguments()[0]))
+        {
+            var absentable =
+                !argument.IsValueType ||
+                Nullable.GetUnderlyingType(argument) is not null ||
+                (argument.IsEnum && Enum.GetName(argument, 0) == "Unknown");
+            Assert.True(absentable, $"EvidencedValue<{argument.Name}> cannot represent an absent value.");
+        }
     }
 
     [Fact]

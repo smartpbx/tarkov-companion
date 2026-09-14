@@ -89,6 +89,26 @@ public sealed class EvidenceContractTests
         Assert.Equal("2.0", field.Provenance.Producer.Version);
     }
 
+    [Theory]
+    [InlineData(ResultCompleteness.Unknown)]
+    [InlineData(ResultCompleteness.Unavailable)]
+    public void UndeterminedQuantityIsNotCollapsedToZero(ResultCompleteness completeness)
+    {
+        var status = new ResultStatus(completeness, FreshnessState.Unknown);
+        var undetermined = new EvidencedValue<int?>(
+            "item.quantity",
+            null,
+            status,
+            V2ContractTestData.ScreenshotProvenance());
+
+        Assert.Null(undetermined.Value);
+        Assert.Throws<ArgumentException>(() => new EvidencedValue<int?>(
+            "item.quantity",
+            0,
+            status,
+            V2ContractTestData.ScreenshotProvenance()));
+    }
+
     [Fact]
     public void CorrectionHistoryMustBeContiguous()
     {

@@ -64,9 +64,13 @@ public sealed record CaptureSessionRequest(
     string? MapId = null,
     DateTimeOffset? ExpiresUtc = null)
 {
-    public DateTimeOffset RequestedUtc { get; init; } = RequireUtc(RequestedUtc, nameof(RequestedUtc));
+    public DateTimeOffset RequestedUtc { get; } = RequireUtc(RequestedUtc, nameof(RequestedUtc));
 
-    public DateTimeOffset? ExpiresUtc { get; init; } = ExpiresUtc?.ToUniversalTime();
+    public DateTimeOffset? ExpiresUtc { get; } = ExpiresUtc is not { } expires
+        ? null
+        : expires == default || expires < RequestedUtc
+            ? throw new ArgumentOutOfRangeException(nameof(ExpiresUtc), "A capture request cannot expire before it was made.")
+            : expires.ToUniversalTime();
 
     private static DateTimeOffset RequireUtc(DateTimeOffset value, string parameterName)
     {
@@ -87,15 +91,15 @@ public sealed record CaptureStageProgress(
     int? Percent = null,
     string? Detail = null)
 {
-    public long Sequence { get; init; } = Sequence >= 0
+    public long Sequence { get; } = Sequence >= 0
         ? Sequence
         : throw new ArgumentOutOfRangeException(nameof(Sequence));
 
-    public DateTimeOffset ChangedUtc { get; init; } = ChangedUtc == default
+    public DateTimeOffset ChangedUtc { get; } = ChangedUtc == default
         ? throw new ArgumentException("A UTC timestamp is required.", nameof(ChangedUtc))
         : ChangedUtc.ToUniversalTime();
 
-    public int? Percent { get; init; } = Percent is null or >= 0 and <= 100
+    public int? Percent { get; } = Percent is null or >= 0 and <= 100
         ? Percent
         : throw new ArgumentOutOfRangeException(nameof(Percent));
 }
@@ -149,17 +153,17 @@ public sealed record VisibleCaptureArtifact(
     DateTimeOffset CapturedUtc,
     EvidenceProvenance Provenance)
 {
-    public string ArtifactId { get; init; } = Required(ArtifactId, nameof(ArtifactId));
+    public string ArtifactId { get; } = Required(ArtifactId, nameof(ArtifactId));
 
-    public int PixelWidth { get; init; } = PixelWidth > 0
+    public int PixelWidth { get; } = PixelWidth > 0
         ? PixelWidth
         : throw new ArgumentOutOfRangeException(nameof(PixelWidth));
 
-    public int PixelHeight { get; init; } = PixelHeight > 0
+    public int PixelHeight { get; } = PixelHeight > 0
         ? PixelHeight
         : throw new ArgumentOutOfRangeException(nameof(PixelHeight));
 
-    public DateTimeOffset CapturedUtc { get; init; } = CapturedUtc == default
+    public DateTimeOffset CapturedUtc { get; } = CapturedUtc == default
         ? throw new ArgumentException("A UTC timestamp is required.", nameof(CapturedUtc))
         : CapturedUtc.ToUniversalTime();
 

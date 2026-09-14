@@ -76,9 +76,9 @@ public sealed record RecognitionResultEnvelope<T>
 public sealed record RecognizedItem(
     EvidencedValue<string> CanonicalId,
     EvidencedValue<string> DisplayName,
-    EvidencedValue<int> Quantity,
-    EvidencedValue<int> OccupiedSlots,
-    EvidencedValue<bool> FoundInRaid);
+    EvidencedValue<int?> Quantity,
+    EvidencedValue<int?> OccupiedSlots,
+    EvidencedValue<bool?> FoundInRaid);
 
 public readonly record struct GridCellAddress
 {
@@ -104,10 +104,10 @@ public readonly record struct GridCellAddress
 }
 
 public sealed record GridGeometry(
-    EvidencedValue<int> Rows,
-    EvidencedValue<int> Columns,
-    EvidencedValue<int> CellWidthPixels,
-    EvidencedValue<int> CellHeightPixels);
+    EvidencedValue<int?> Rows,
+    EvidencedValue<int?> Columns,
+    EvidencedValue<int?> CellWidthPixels,
+    EvidencedValue<int?> CellHeightPixels);
 
 public sealed record GridCellRecognition(
     GridCellAddress Address,
@@ -124,31 +124,31 @@ public sealed record LootRecognition(
 public sealed record StashRecognition(
     string SnapshotId,
     IReadOnlyList<GridRecognition> CapturedRegions,
-    EvidencedValue<long> TotalKnownValueRoubles,
-    EvidencedValue<int> UnresolvedCells);
+    EvidencedValue<long?> TotalKnownValueRoubles,
+    EvidencedValue<int?> UnresolvedCells);
 
 public sealed record AmmoRecognition(
     EvidencedValue<string> CanonicalRoundId,
     EvidencedValue<string> DisplayName,
     EvidencedValue<string> Caliber,
-    EvidencedValue<int> Quantity);
+    EvidencedValue<int?> Quantity);
 
 public sealed record KeyRecognition(
     RecognizedItem Item,
-    EvidencedValue<int> UsesRemaining,
+    EvidencedValue<int?> UsesRemaining,
     EvidencedValue<string> Opens);
 
 public sealed record QuestItemRecognition(
     RecognizedItem Item,
     EvidencedValue<string> QuestId,
-    EvidencedValue<int> OutstandingQuantity,
-    EvidencedValue<bool> RequiredFoundInRaid);
+    EvidencedValue<int?> OutstandingQuantity,
+    EvidencedValue<bool?> RequiredFoundInRaid);
 
 public sealed record FleaListingRecognition(
     EvidencedValue<RecognizedItem> Item,
-    EvidencedValue<long> PriceRoubles,
-    EvidencedValue<int> Quantity,
-    EvidencedValue<long> PricePerUnitRoubles);
+    EvidencedValue<long?> PriceRoubles,
+    EvidencedValue<int?> Quantity,
+    EvidencedValue<long?> PricePerUnitRoubles);
 
 public enum ExtractAvailability
 {
@@ -170,7 +170,46 @@ public enum RaidClockBasis
     ObservedOnExtractScreen,
 }
 
-public sealed record RaidClockReading(TimeSpan? Remaining, RaidClockBasis Basis);
+/// <summary>
+/// The clock as it read at <see cref="AsOfUtc"/>. For an observed reading that instant is when the
+/// screenshot was taken, not when this application acquired the file: #261 ages the clock from
+/// capture time, and an import minutes later must not add those minutes to the raid.
+/// </summary>
+public sealed record RaidClockReading
+{
+    public RaidClockReading(TimeSpan? remaining, RaidClockBasis basis, DateTimeOffset? asOfUtc)
+    {
+        if (basis == RaidClockBasis.Unknown)
+        {
+            if (remaining is not null || asOfUtc is not null)
+            {
+                throw new ArgumentException("An unknown raid clock carries no reading.", nameof(basis));
+            }
+        }
+        else
+        {
+            if (remaining is not { } value || value < TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(remaining), "A raid clock reading must be zero or more.");
+            }
+
+            if (asOfUtc is not { } asOf || asOf == default)
+            {
+                throw new ArgumentException("A raid clock reading must say when it was true.", nameof(asOfUtc));
+            }
+        }
+
+        Remaining = remaining;
+        Basis = basis;
+        AsOfUtc = asOfUtc?.ToUniversalTime();
+    }
+
+    public TimeSpan? Remaining { get; }
+
+    public RaidClockBasis Basis { get; }
+
+    public DateTimeOffset? AsOfUtc { get; }
+}
 
 /// <summary>One OCR line before headers, clocks, or extract matches are removed.</summary>
 public sealed record RawOcrLine(EvidencedValue<string> Text);
@@ -205,10 +244,15 @@ public enum CharacterRegionState
 public sealed record CharacterRegionReading(
     CharacterRegion Region,
     CharacterRegionState State,
-    double? VisibleFraction);
+    double? VisibleFraction)
+{
+    public double? VisibleFraction { get; } = VisibleFraction is null or (>= 0 and <= 1)
+        ? VisibleFraction
+        : throw new ArgumentOutOfRangeException(nameof(VisibleFraction));
+}
 
 public sealed record HealthCharacterRecognition(
-    EvidencedValue<bool> CharacterDisplayPresent,
+    EvidencedValue<bool?> CharacterDisplayPresent,
     IReadOnlyList<EvidencedValue<CharacterRegionReading>> Regions,
     IReadOnlyList<EvidencedValue<string>> Conditions);
 
