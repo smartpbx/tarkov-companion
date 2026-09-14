@@ -180,6 +180,31 @@ that currently have members and are not registered, and adopting one keeps the f
 in it. Anything still on that list after you have adopted your own is somebody you did not
 invite.
 
+## Landmarks for the second screen
+
+`GET /landmarks` returns every map's recognisable places in world coordinates, keyed by the
+map's normalised name. No key: this is public game data, like `/catalog`, and requiring one
+would mean the tablet could draw nothing until somebody had typed a group key.
+
+```json
+{ "customs": [ {"k":"e","n":"Old Azs Gate","f":"scav","x":300.5,"z":-198.5},
+               {"k":"t","n":"Transit to shoreline","x":650.6,"z":124.9},
+               {"k":"l","x":577.7,"z":4.1} ] }
+```
+
+`k` is `e` extract, `t` transit, `l` lock. A null name or faction is omitted rather than
+written, which is most of the locks.
+
+It is derived from the mirrored map catalog rather than being a second source, and it exists
+because of a measurement: that catalog is 8,542,745 bytes, 780,279 gzipped, and what a schematic
+can actually draw out of it is 19,509 bytes for all fifteen maps at once. The difference is
+whether a phone on a sofa opens the page.
+
+Only extracts carry a name anybody would recognise. A transit's own `description` is a
+translation token, so it is named for where it leads; a lock is `lockType: "door"` thirty-six
+times over on Customs, so it is drawn and not labelled. Spawns are left out — 278 nameless
+points on one map is a texture, not a landmark.
+
 ## What the server does not do
 
 - It keeps no history. Where people have been would be easy to record and is deliberately not.

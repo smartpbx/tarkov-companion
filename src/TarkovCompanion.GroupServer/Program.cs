@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Reflection;
 using Microsoft.AspNetCore.Http.HttpResults;
 using TarkovCompanion.GroupServer;
@@ -75,6 +77,9 @@ builder.Services.AddHttpClient(CatalogMirror.HttpClientName, client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
 });
 builder.Services.AddSingleton<CatalogMirror>();
+// The few hundred points a schematic can draw, derived from the mirror rather than fetched
+// whole by the page. See Landmarks for the measurement that decided that.
+builder.Services.AddSingleton<Landmarks>();
 
 // Reports are taken and kept here; the hourly relay-watch workflow turns them into issues
 // using the token GitHub Actions already gives it for its own repository. So this box holds no
@@ -421,6 +426,30 @@ app.MapDelete("/state/{name}", Results<Ok, UnauthorizedHttpResult> (
 // all. What it is not is an open proxy: the path is checked against a list, and nothing else
 // is ever fetched.
 app.MapGet("/catalog", (CatalogMirror mirror) => TypedResults.Ok(mirror.Index()));
+
+// What the second screen needs to be recognisable, and nothing else.
+//
+// No key: this is public game data, the same as /catalog, and requiring one would mean the
+// tablet could not draw a map until somebody had typed a group key — which is the one screen
+// where showing something before you are joined is worth having.
+//
+// Cached for an hour, which is how long the mirror holds a snapshot. Anything longer would
+// serve landmarks from a catalog this server has already replaced.
+// How landmarks go on the wire: the short names the record declares, and nothing written for
+// a null. A lock has neither a name nor a faction, and there are more locks than anything else.
+var landmarkJson = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+{
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+};
+
+app.MapGet("/landmarks", async (HttpRequest request, Landmarks landmarks, CancellationToken cancellationToken) =>
+{
+    var all = await landmarks.GetAsync(cancellationToken).ConfigureAwait(false);
+    request.HttpContext.Response.Headers.CacheControl = "public, max-age=3600";
+    // Nulls dropped rather than written. A lock has neither a name nor a faction, and there are
+    // more locks than anything else.
+    return TypedResults.Json(all, landmarkJson);
+});
 
 app.MapGet("/catalog/{mode}/{endpoint}", async Task<IResult> (
     string mode,
