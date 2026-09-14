@@ -64,7 +64,7 @@
       capture: { armed: null, rev: 18, origin: 'desktop', seq: 2, history: [
         { n: 1, time: '18:20:02', intent: 'stash', outcome: 'Analysed as Full stash', result: 'stash' },
         { n: 2, time: '18:20:31', intent: 'stash', outcome: 'Analysed as Full stash', result: 'stash' }
-      ], pending: [], queue: [], running: null, lootReady: false, lootTime: null },
+      ], pending: [], queue: [], running: null, lootReady: false, lootTime: null, positionTime: null },
       stashStep: 0,
       stateBy: { raid: 'success', intel: 'success', plan: 'success', team: 'success', debrief: 'success', setup: 'success' },
       mapView: 'map',
@@ -351,8 +351,32 @@
       '<p><span class="tag">Local capture</span> <span class="tag">Debug capture off</span></p>' +
       '<details><summary>What happens to screenshots</summary><ul>' +
       C.privacy.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></details>' +
-      (withReferences ? '<p><a href="../../../../SAFETY.md">Safety</a> · <a href="../../../../DATA_SOURCES.md">Data sources and methodology</a></p>' : '') +
+      (withReferences ? '<p><a href="' + esc(C.distributionLinks.safety) + '">Safety</a> · <a href="' +
+        esc(C.distributionLinks.dataMethodology) + '">Data sources and methodology</a></p>' : '') +
       '</section>';
+  }
+
+  function activeCorrectionChoice() {
+    if (!S.correction) return null;
+    return C.loot.correctionChoices.filter(function (choice) { return choice.id === S.correction.choiceId; })[0] || null;
+  }
+
+  function lootDecisionState() {
+    var choice = activeCorrectionChoice();
+    var decisions = C.loot.decisions.map(function (decision) {
+      if (decision.item !== 'military-cable' || !choice) return { decision: decision.decision, countsAsItem: true };
+      return { decision: choice.decision, countsAsItem: choice.countsAsItem };
+    });
+    var counted = decisions.filter(function (decision) { return decision.countsAsItem; });
+    var counts = { TAKE: 0, SWAP: 0, LEAVE: 0, REVIEW: 0 };
+    counted.forEach(function (decision) { counts[decision.decision] = (counts[decision.decision] || 0) + 1; });
+    var countText = ['TAKE', 'SWAP', 'LEAVE', 'REVIEW'].filter(function (decision) { return counts[decision]; })
+      .map(function (decision) { return decision + ' ' + counts[decision]; }).join(' · ');
+    var excluded = decisions.length - counted.length;
+    return { itemCount: counted.length, excluded: excluded,
+      usedSquares: C.loot.container.used - (excluded ? C.items['military-cable'].squares : 0),
+      summary: counted.length + ' of ' + counted.length + ' container items: ' + countText +
+        (excluded ? ' · ' + excluded + ' region EXCLUDED as not an item' : '') };
   }
 
   function viewSetup() {
@@ -401,7 +425,7 @@
     else if (empty) mapOrList = svgMap('raidmap', '', null, 'Customs browse-only schematic; no raid is active', null, true);
     else mapOrList = svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route', stale ? '6 min old' : null);
     var lastCapture = S.capture.lootReady
-      ? '<p>Loot decision from your screenshot at ' + esc(S.capture.lootTime) + ': TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1.</p><a class="button" href="' + href('raid/loot') + '">Open loot decision</a>'
+      ? '<p>Loot decision from your screenshot at ' + esc(S.capture.lootTime) + ': ' + esc(lootDecisionState().summary) + '.</p><a class="button" href="' + href('raid/loot') + '">Open loot decision</a>'
       : '<p>No capture this raid yet.</p>';
     // Empty means no raid in the game log: the map, model layer, Capture and manual raid state still
     // work, but there is no elapsed time, position or route to extract to claim.
@@ -409,7 +433,8 @@
       ? '<dt>Raid</dt><dd>No raid active (game log)</dd><dt>Map</dt><dd>' + esc(r.map) + ', chosen for browsing</dd>'
       : '<dt>Raid</dt><dd>' + esc(r.state) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' (' + esc(r.stateSource) + ')</dd>' +
         '<dt>Elapsed</dt><dd>' + esc(r.elapsed) + '</dd><dt>Time left</dt><dd>' + esc(r.remaining) + '</dd>' +
-        '<dt>Position</dt><dd>' + esc(stale ? 'From your screenshot at 18:36:40 (6 min old)' : r.position) + '</dd>';
+        '<dt>Position</dt><dd>' + esc(stale ? 'From your screenshot at 18:36:40 (6 min old)' :
+          S.capture.positionTime ? 'From your screenshot at ' + S.capture.positionTime + ' (just updated)' : r.position) + '</dd>';
     var routesPanel = empty
       ? '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Modelled traffic</h2>' + modelFacts(r.model) + '</section>'
       : '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Routes to extract</h2><fieldset><legend>Route</legend><ul class="radio-list">' +
@@ -429,39 +454,53 @@
   function viewLoot() {
     var L = C.loot, I = C.items;
     var shot = S.capture.lootTime || L.screenshot;
-    var correctedPowerCord = S.correction && S.correction.name === 'Power cord';
-    var rows = L.decisions.map(function (d, i) {
+    var correctionChoice = activeCorrectionChoice();
+    var rowModels = L.decisions.map(function (d) {
       var it = I[d.item];
-      var itemKey = d.item;
-      var name = it.name;
-      var reasons = d.reasons.slice();
-      var decision = d.decision;
-      if (d.item === 'military-cable' && S.correction) {
-        itemKey = S.correction.name === 'Power cord' ? 'power-cord' : null;
-        it = itemKey ? I[itemKey] : { name: S.correction.name, size: 'Unknown', squares: 1, net: 0, confidence: 'Manual correction; catalog details unavailable' };
-        name = it.name; decision = itemKey ? 'LEAVE' : 'REVIEW';
-        reasons = ['Corrected by ' + S.correction.author + ' at ' + S.correction.time + '.', itemKey ? 'Below your value band after recalculation.' : 'Size, value and details remain unknown until this identity is resolved.'];
+      if (d.item !== 'military-cable' || !correctionChoice) {
+        return { name: it.name, decision: d.decision, reasons: d.reasons.slice(), change: d.change,
+          size: it.size, net: it.net, perSquare: it.net / it.squares, confidence: it.confidence,
+          detailsTarget: d.item, detailsText: null, countsAsItem: true, swapOut: d.swapOut, gain: d.gain };
       }
-      var extra = d.swapOut ? '<br>Swap out ' + esc(I[d.swapOut].name) + ' (carried, ' + esc(I[d.swapOut].size) + ', ' + rub(I[d.swapOut].net) + ' flea net est.). Gain ' + rub(d.gain) + ' flea net est.' : '';
-      var review = decision === 'REVIEW' ? '<button type="button" data-action="correct" data-item="' + d.item + '">Correct match<span class="visually-hidden"> for ' + esc(name) + '</span></button>' : '';
-      return '<tr><th scope="row">' + esc(name) + '</th><td><span class="decision ' + decision + '">' + decision + '</span></td>' +
-        '<td><ol>' + reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' + extra +
-        '<details><summary>What would change this and match details</summary><p>' + esc(d.change) +
-        '</p><p>Match confidence: ' + esc(it.confidence) + '.</p></details></td>' +
-        '<td>' + esc(it.size) + '</td><td class="num">' + (itemKey ? rub(it.net) : 'Unknown') + '</td><td class="num">' + (itemKey ? rub(it.net / it.squares) : 'Unknown') + '</td>' +
-        '<td><div class="actions">' + (itemKey ? '<a class="button" href="' + intelHref(itemKey) + '" data-origin="loot-' + i + '">Details<span class="visually-hidden"> for ' + esc(name) + '</span></a>' : '<span class="muted">Details unavailable until identity is resolved</span>') + review + '</div></td></tr>';
+      it = correctionChoice.item ? I[correctionChoice.item] : null;
+      return { name: correctionChoice.label, decision: correctionChoice.decision,
+        reasons: ['Corrected by ' + S.correction.author + ' at ' + S.correction.time + '.'].concat(correctionChoice.reasons),
+        change: correctionChoice.change, size: it ? it.size : correctionChoice.size,
+        net: it ? it.net : null, perSquare: it ? it.net / it.squares : null,
+        confidence: it ? (correctionChoice.id === 'military-cable' ? 'Manually confirmed' : 'Manual correction') : 'Not applicable',
+        detailsTarget: correctionChoice.item, detailsText: correctionChoice.details || null,
+        countsAsItem: correctionChoice.countsAsItem, swapOut: null, gain: null };
+    });
+    var rows = rowModels.map(function (row, i) {
+      var extra = row.swapOut ? '<br>Swap out ' + esc(I[row.swapOut].name) + ' (carried, ' + esc(I[row.swapOut].size) + ', ' + rub(I[row.swapOut].net) + ' flea net est.). Gain ' + rub(row.gain) + ' flea net est.' : '';
+      var review = row.decision === 'REVIEW' ? '<button type="button" data-action="correct" data-item="military-cable">Correct match<span class="visually-hidden"> for ' + esc(row.name) + '</span></button>' : '';
+      var value = row.net === null ? 'Not applicable' : rub(row.net);
+      var perSquare = row.perSquare === null ? 'Not applicable' : rub(row.perSquare);
+      var details = row.detailsTarget ? '<a class="button" href="' + intelHref(row.detailsTarget) + '" data-origin="loot-' + i + '">Details<span class="visually-hidden"> for ' + esc(row.name) + '</span></a>' : '<span class="muted">' + esc(row.detailsText) + '</span>';
+      return '<tr data-loot-identity="' + esc(row.name) + '" data-counts-as-item="' + row.countsAsItem + '"><th scope="row">' + esc(row.name) + '</th><td><span class="decision ' + row.decision + '">' + row.decision + '</span></td>' +
+        '<td><ol>' + row.reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' + extra +
+        '<details><summary>What would change this and match details</summary><p>' + esc(row.change) +
+        '</p><p>Match status: ' + esc(row.confidence) + '.</p></details></td>' +
+        '<td>' + esc(row.size) + '</td><td class="num">' + value + '</td><td class="num">' + perSquare + '</td>' +
+        '<td><div class="actions">' + details + review + '</div></td></tr>';
     }).join('');
-    var body = '<section class="panel" aria-labelledby="loot-sum-h"><h2 id="loot-sum-h">' + (correctedPowerCord ? '6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 2' : '6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1') + '</h2>' +
+    var decisionState = lootDecisionState();
+    var countedRows = rowModels.filter(function (row) { return row.countsAsItem; });
+    if (countedRows.length !== decisionState.itemCount) throw new Error('Loot row count and summary diverged.');
+    var correctionPanel = S.correction ? '<section class="panel" aria-labelledby="loot-correction-h"><h2 id="loot-correction-h">Correction saved</h2><p>' +
+      esc('Corrected by ' + S.correction.author + ' to ' + S.correction.name + ' at ' + S.correction.time + '. The decision, totals, dimensions, values and details were recomputed.') +
+      '</p><div class="actions"><button type="button" data-action="undo-correct">Undo correction</button></div></section>' : '';
+    var body = '<section class="panel" aria-labelledby="loot-sum-h"><h2 id="loot-sum-h">' + esc(decisionState.summary) + '</h2>' +
       '<dl class="facts"><dt>Detected</dt><dd>' + esc(L.detected) + '</dd>' +
       '<dt>Screenshot</dt><dd>Taken ' + esc(shot) + '. The file stays in your EFT folder; the decoded image was discarded after analysis.</dd>' +
       '<dt>Space</dt><dd>Backpack ' + L.backpack.cols + '×' + L.backpack.rows + ': ' + L.backpack.used + ' used, ' + L.backpack.free + ' free (' + esc(L.backpack.freeShape) + '). After the TAKE and SWAP moves: 16 used, 0 free.</dd>' +
-      '<dt>Container</dt><dd>' + L.container.cols + '×' + L.container.rows + ': 6 items using ' + L.container.used + ' squares.</dd>' +
+      '<dt>Container</dt><dd>' + L.container.cols + '×' + L.container.rows + ': ' + decisionState.itemCount + ' items using ' + decisionState.usedSquares + ' squares' + (decisionState.excluded ? '; one analysed region is excluded as not an item' : '') + '.</dd>' +
       '<dt>Values</dt><dd>Flea net estimate = sample flea price minus estimated fee, 12 min old. Not guaranteed proceeds. Gross is on each item’s details.</dd>' +
       '<dt>Your band</dt><dd>' + esc(L.valueBand) + '</dd></dl>' +
       '<details><summary>Capture details</summary><p>Detection confidence ' + esc(L.detectConfidence) +
       '; analysis time ' + esc(L.analysedIn) + '.</p></details>' +
       '<p class="note"><strong>Advice only · manual in EFT.</strong></p></section>' +
-      '<div class="table-wrap"><table><caption>Decisions, strongest reason first</caption><thead><tr><th scope="col">Item</th><th scope="col">Decision</th><th scope="col">Why</th>' +
+      correctionPanel + '<div class="table-wrap"><table><caption>Decisions, strongest reason first</caption><thead><tr><th scope="col">Item or corrected region</th><th scope="col">Decision</th><th scope="col">Why</th>' +
       '<th scope="col">Size</th><th scope="col" class="num">Flea net est.</th><th scope="col" class="num">Per square</th><th scope="col">Actions</th></tr></thead><tbody>' +
       rows + '</tbody></table></div>' +
       '<section class="panel" aria-labelledby="carried-h"><h2 id="carried-h">Carried items considered for swaps</h2><ul>' +
@@ -473,10 +512,15 @@
     var it = C.items[id];
     if (!it) return '<p>Not in this storyboard.</p>';
     var h = headingLevel || 2;
+    var activeChoice = activeCorrectionChoice();
+    var correctedChoice = activeChoice && activeChoice.item === id ? activeChoice : null;
+    var alternative = correctedChoice ? null : it.alternative;
+    var confidence = correctedChoice ? (correctedChoice.id === 'military-cable' ? 'Manually confirmed' : 'Manual correction') +
+      ' by ' + S.correction.author + ' at ' + S.correction.time : it.confidence;
     return '<h' + h + ' id="intel-h" tabindex="-1">' + esc(it.name) + '</h' + h + '>' +
-      '<p class="muted">' + esc(it.type) + ' · ' + esc(it.size) + (it.alternative ? ' · could be ' + esc(it.alternative) : '') + '</p>' +
-      '<details><summary>Match details</summary><p>Confidence when scanned: ' + esc(it.confidence) +
-      (it.alternative ? '; alternative: ' + esc(it.alternative) : '') + '.</p></details>' +
+      '<p class="muted">' + esc(it.type) + ' · ' + esc(it.size) + (alternative ? ' · could be ' + esc(alternative) : '') + '</p>' +
+      '<details><summary>Match details</summary><p>Match status: ' + esc(confidence) +
+      (alternative ? '; alternative: ' + esc(alternative) : '') + '.</p></details>' +
       (it.advice ? '<p><strong>' + esc(it.advice) + '</strong></p>' : '') +
       '<h' + (h + 1) + '>Price</h' + (h + 1) + '><dl class="facts">' +
       '<dt>Flea gross</dt><dd>' + rub(it.gross) + ' (sample, ' + esc(it.priceAge) + ' old' + (S.stateBy.intel === 'stale' ? '; stale, not used for SWAP advice' : '') + ')</dd>' +
@@ -670,7 +714,11 @@
         '</ul></section>';
     }
     var body = '<div class="split">' + raids(true) + '<div class="grid"><section class="panel" aria-labelledby="tl-h"><h2 id="tl-h">Customs, 2026-09-14 18:30</h2><div class="table-wrap"><table><caption>Timeline. Each row says how it is known.</caption><thead><tr><th scope="col">Time</th><th scope="col">What</th><th scope="col">How known</th><th scope="col">Source</th></tr></thead><tbody>' +
-      D.timeline.map(function (e) { var partialOutcome = S.stateBy.debrief === 'partial' && e.text.indexOf('Outcome:') === 0; return '<tr><td>' + esc(e.time) + '</td><td>' + esc(partialOutcome ? 'Outcome not recorded' : e.text) + '</td><td>' + esc(partialOutcome ? 'Unknown' : e.kind) + '</td><td>' + esc(partialOutcome ? 'No entry' : e.source) + '</td></tr>'; }).join('') +
+      D.timeline.map(function (e) {
+        var partialOutcome = S.stateBy.debrief === 'partial' && e.text.indexOf('Outcome:') === 0;
+        var correctedLoot = S.correction && e.text.indexOf('Loot decision:') === 0 ? 'Loot decision after correction: ' + lootDecisionState().summary : e.text;
+        return '<tr><td>' + esc(e.time) + '</td><td>' + esc(partialOutcome ? 'Outcome not recorded' : correctedLoot) + '</td><td>' + esc(partialOutcome ? 'Unknown' : e.kind) + '</td><td>' + esc(partialOutcome ? 'No entry' : e.source) + '</td></tr>';
+      }).join('') +
       '</tbody></table></div></section>' +
       '<section class="panel" aria-labelledby="corr-h"><h2 id="corr-h">' + (failed ? 'Correction not saved' : 'Needs your review') + '</h2><p id="cable-state">' + esc(cable) + '</p><div class="actions">' +
       (failed ? '<button type="button" data-action="recover" data-key="debrief" aria-describedby="cable-state">Retry save</button>' :
@@ -835,6 +883,20 @@
     return '18:41:' + (s < 10 ? '0' : '') + s;
   }
 
+  function correctionTime() {
+    var ws = parse(location.hash).ws;
+    return S.postRaid || ws === V.historyId ? '18:55:20' : '18:41:20';
+  }
+
+  function admitClipboardAtArrival(cap) {
+    // A paste has no file to re-read. Admission therefore copies and bounds its transient bytes
+    // synchronously at arrival, before the entry can wait and before duplicate/content hashing.
+    // The storyboard holds metadata only; the product contract owns the real process memory.
+    cap.payload = { admitted: true, byteLength: 1024 * 1024, maxBytes: CLIPBOARD_PAYLOAD_MAX_BYTES,
+      expiresAt: Date.now() + CLIPBOARD_PAYLOAD_LIFETIME_MS, contentHashed: false };
+    scheduleClipboardExpiry(cap);
+  }
+
   // Every arrival, of every kind, joins ONE queue in the order the desktop saw it (capture spec,
   // "One ordered arrival queue"). It is bound to the armed intent and revision at arrival,
   // then waits, unread, while an earlier capture is analysing OR paused on a decision. An earlier
@@ -857,9 +919,9 @@
       // The storyboard does not hold real image bytes. The product contract it demonstrates holds
       // one bounded process-owned paste payload, never a file/cache/debug artifact, so a paste can
       // still be read at its own ordered turn after an earlier mismatch.
-      cap.payload = { maxBytes: CLIPBOARD_PAYLOAD_MAX_BYTES, expiresAt: Date.now() + CLIPBOARD_PAYLOAD_LIFETIME_MS };
-      scheduleClipboardExpiry(cap);
+      admitClipboardAtArrival(cap);
     }
+    // Admission above must finish before this line: once queued, the entry may wait unread.
     c.queue.push({ cap: cap, kind: kind });
     var blocker = c.running || c.pending[0];
     if (blocker || c.queue.length > 1) {
@@ -876,6 +938,7 @@
     if (c.running || c.pending.length || !c.queue.length) return;
     var next = c.queue.shift();
     if (clipboardExpired(next.cap)) { failExpiredClipboard(next.cap); return; }
+    next.cap.atQueueHead = true;
     processCapture(next.cap, next.kind);
   }
 
@@ -912,13 +975,33 @@
     setTimeout(pump, 0);
   }
 
+  function settleAndHashAtQueueHead(cap) {
+    if (!cap.atQueueHead) throw new Error('Capture source settlement and hashing require the ordered queue head.');
+    cap.sourceSettled = true;
+    cap.contentHashed = true;
+    if (cap.payload) cap.payload.contentHashed = true;
+  }
+
   function processCapture(cap, kind) {
     var c = S.capture;
+    // Settlement and content-based duplicate validation are queue-head work. Clipboard bytes were
+    // already admitted at arrival, but they are not hashed until this ordered turn.
+    if (kind !== 'writing') settleAndHashAtQueueHead(cap);
     if (kind === 'duplicate') {
       var prev = c.history[c.history.length - 1];
       c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, duplicate: true, outcome: prev ? 'Same file as capture ' + prev.n + '. Not analysed again.' : 'Same file as an earlier capture. Not analysed again.' });
       render(false);
       announce('Screenshot already analysed' + (prev ? ' as capture ' + prev.n : '') + '. No new result.');
+      pump();
+      return;
+    }
+    if (kind === 'position') {
+      discardClipboardPayload(cap);
+      c.positionTime = cap.time;
+      c.history.push({ n: cap.n, time: cap.time, intent: cap.intent,
+        outcome: 'Position updated; nothing else analysed. Armed intent unchanged.' });
+      render(false);
+      // Position-only is ordinary ordered completion, never a Needs a decision entry.
       pump();
       return;
     }
@@ -962,6 +1045,7 @@
         if (checks === 0) announce('Screenshot still being written. Waiting; it will not be skipped.');
         checks += 1; setTimeout(step, 600); return;
       }
+      if (i === 1 && !cap.contentHashed) settleAndHashAtQueueHead(cap);
       if (i >= C.captureStages.length - 1) { finish(); return; }
       i += 1;
       setTimeout(step, 350);
@@ -1167,7 +1251,7 @@
       }).join('') + '</ul><button type="button" id="mod-reset" data-action="reset">Reset session</button></section>' +
       '<section aria-labelledby="mod-c"><h2 id="mod-c">Simulate a screenshot</h2><p><label for="mod-shot">Outcome</label><br><select id="mod-shot">' +
       [['match', 'Matches what is armed'], ['mismatch', 'Detected context disagrees'], ['clipboard-mismatch', 'Pasted image disagrees (transient payload)'], ['unknown', 'Context unknown'], ['writing', 'File still being written'],
-        ['duplicate', 'Duplicate of the last file'], ['race', 'Tablet changes intent at the same time']].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') +
+        ['duplicate', 'Duplicate of the last file'], ['position', 'Position only; nothing else to analyse'], ['race', 'Tablet changes intent at the same time']].map(function (o) { return '<option value="' + o[0] + '">' + esc(o[1]) + '</option>'; }).join('') +
       '</select></p><button type="button" id="mod-shoot" data-action="shoot">Screenshot arrives</button></section>' +
       '<section aria-labelledby="mod-s"><h2 id="mod-s">Workspace state</h2>' + (C.states[key] ? '<p><label for="mod-state">State for ' + esc(key) + '</label><br><select id="mod-state" data-key="' + key + '">' +
       Object.keys(STATE_NAMES).map(function (s) { return '<option value="' + s + '"' + (S.stateBy[key] === s ? ' selected' : '') + '>' + esc(STATE_NAMES[s]) + '</option>'; }).join('') +
@@ -1276,6 +1360,7 @@
       return;
     }
     if (key === 'plan' && was === 'loading') {
+      S.stateBy.plan = 'success';
       S.routeSkipped = true;
       render(false);
       var ph = $('#proute-h'); if (ph) { ph.setAttribute('tabindex', '-1'); ph.focus(); }
@@ -1284,6 +1369,7 @@
     }
     if (key === 'debrief' && S.draft) {
       S.correction = S.draft; S.draft = null;
+      S.stateBy.debrief = 'success';
       render(false);
       focusAction('undo-correct');
       announce('Saved: corrected to ' + S.correction.name + '. Undo is available.');
@@ -1329,22 +1415,25 @@
       title: 'Correct this match',
       returnFocus: opener,
       body: '<p>The screenshot region was read as Military cable with confidence 0.58.</p><fieldset><legend>It is</legend><ul class="radio-list">' +
-        ['Military cable', 'Power cord', 'Something else', 'Not an item'].map(function (o, k) {
+        C.loot.correctionChoices.map(function (choice, k) {
           // The current reading is selected, never the answer J2 and J6 score.
-          return '<li><label><input type="radio" name="fix" value="' + o + '"' + (k === 0 ? ' checked' : '') + '> ' + o + '</label></li>';
+          return '<li><label><input type="radio" name="fix" value="' + choice.id + '"' + (k === 0 ? ' checked' : '') + '> ' + esc(choice.label) + '</label></li>';
         }).join('') + '</ul></fieldset><p class="note">Saved as your correction, with the time. You can undo it.</p>',
       actions: [{ label: 'Cancel', value: 'cancel' }, { label: 'Save correction', value: 'save', primary: true }],
       onClose: function (value, data) {
         if (value !== 'save') return null;
+        var choice = C.loot.correctionChoices.filter(function (candidate) { return candidate.id === data.get('fix'); })[0];
+        if (!choice) throw new Error('Correction choice must have a complete registered outcome.');
+        var saved = { choiceId: choice.id, name: choice.label, author: 'You', time: correctionTime() };
         if ((S.failNextSave || S.stateBy.debrief === 'failed') && parse(location.hash).ws === V.historyId) {
           S.failNextSave = false;
           S.stateBy.debrief = 'failed';
-          S.draft = { name: data.get('fix'), author: 'You', time: '18:55:20' };
+          S.draft = saved;
           render(false);
           announce('Correction not saved. Your choice is kept as a draft. Retry save.', true);
           return document.querySelector('[data-action="recover"]');
         }
-        S.correction = { name: data.get('fix'), author: 'You', time: '18:55:20' };
+        S.correction = saved;
         S.draft = null;
         render(false);
         announce('Saved: corrected to ' + S.correction.name + '. Undo is available.');

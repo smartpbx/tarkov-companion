@@ -15,7 +15,8 @@
 ## Opening
 
 - [ ] Consent script read; consent record completed
-- [ ] Exact UTC withdrawal deadline and private request route repeated; request code confirmed held by participant
+- [ ] Scheduled start and exact consented no-show withdrawal deadline were recorded before consent; applicable UTC deadline and private request route repeated; request code confirmed held by participant
+- [ ] If a study task begins, its start and exact participant withdrawal deadline are recorded and repeated before collecting the first task response
 - [ ] Recording started only after both yes answers
 - [ ] "Every name and number is sample data" said
 - [ ] Think-aloud explained with a neutral warm-up (not on the storyboard)
@@ -43,4 +44,5 @@
 - [ ] Session log completed within 24 hours
 - [ ] Personal information in recordings noted for removal
 - [ ] Private manifest has the raw-material deletion date and fixed identity/evidence-index deletion deadline
+- [ ] A consented no-show retains the contact route and request-code verifier through the exact disclosed no-show deadline, then deletes both with the consent/lifecycle records
 - [ ] For every screened but unrecruited candidate, the private manifest has the independent fixed screening deletion deadline for their screener, contact, roster entry and request-code verifier

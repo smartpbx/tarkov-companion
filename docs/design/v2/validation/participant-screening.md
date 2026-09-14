@@ -98,6 +98,12 @@ Screening happens before the consent script, so read or send this notice first:
   study contact before asking Q1; store only a salted verifier, never the code itself. For an
   unrecruited candidate, delete all four at the recorded screening deletion deadline rather than
   awaiting a session outcome.
+- Before asking a scheduled recruit for consent, record the scheduled-session start and the exact
+  consented no-show withdrawal deadline (scheduled start + 7 × 24 hours) on the private screener and
+  consent records. Once consent is recorded, retain the contact route and request-code verifier
+  through that exact deadline even if the earlier screening deadline passes. If a study task begins,
+  replace that no-show lifecycle with the session-start + 180 × 24 hour participant lifecycle in
+  [consent-and-data-handling.md](consent-and-data-handling.md).
 - Assign primary variant, findability sets and journey rotation from the repeating schedule in
   research-plan.md section 4. Record adjustments only in the private roster.
 - An accessibility-relevant participant chooses their own device, assistive technology and

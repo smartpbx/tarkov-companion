@@ -41,7 +41,7 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 | UXF-J2-04 | A fit statement gives free squares and their shape before and after the recommended moves; no recommended move exceeds the visible free or replaceable space, accounting for size and rotation. | #282, #273, #274 | unit, e2e | Draft |
 | UXF-J2-05 | A SWAP names the carried item to drop and states the gain as the difference of the named value basis (for example flea net estimates); the dropped item is the lowest-priority unprotected carried item. | #282, #274 | unit | Draft |
 | UXF-J2-06 | Every value shows its basis (gross, estimated fee, net, trader) and age; per-square values use the same basis; no value is worded as guaranteed proceeds. | #282, #274, #287 | unit, e2e | Draft |
-| UXF-J2-07 | A low-confidence match produces REVIEW with alternatives and a correction path; after correction the decision is recomputed and the correction recorded with time and author. | #282, #273, #291 | unit, e2e | Draft |
+| UXF-J2-07 | A low-confidence match produces REVIEW with alternatives and a correction path. Every offered correction is a complete outcome: identity, item count, decision, reasons, change copy, dimensions, values, details target and summary are recomputed together; Not an item is excluded rather than becoming Unknown or REVIEW. The correction uses the route's simulation time, records its author, removes the stale Correct action and offers Undo. | #282, #273, #291 | unit, e2e | Draft |
 | UXF-J2-08 | Opening item details from a decision and returning restores focus to the originating control, **after H-05**: A workspace switch with "Back to"; B side panel with its own address. | #287, #267, #266 | e2e, a11y | Draft |
 
 ## J3 Guided stash scan
@@ -65,7 +65,7 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 | UXF-J4-03 | A route estimate is labelled modelled, shows full model provenance, and explains each trade-off with the data behind it. | #288, #275, #286 | unit, e2e | Draft |
 | UXF-J4-04 | Every map has an equivalent text list with the same route order, zones and extracts, reachable by keyboard and screen reader. | #286, #288, #266 | a11y, e2e | Draft |
 | UXF-J4-05 | Sharing requires an explicit scope: only me, my paired devices, or team; a role that cannot share to team is refused with the reason and the private plan is unaffected. | #288, #289, #276 | unit, e2e | Draft |
-| UXF-J4-06 | When the route model fails, objectives, requirements and waypoints remain usable and a retry is offered. | #288, #275, #268 | e2e | Draft |
+| UXF-J4-06 | When the route model fails, objectives, requirements and waypoints remain usable and a retry is offered. When the player skips a loading estimate, Loading and `aria-busy` end before render; the panel says skipped and labels its order as objectives, not as a modelled route. | #288, #275, #268 | e2e | Draft |
 
 ## J5 Paired tablet
 
@@ -86,7 +86,7 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 | UXF-J6-01 | Every timeline fact is labelled Observed, Inferred, Estimated or Manual with its source. | #291, #270 | unit, e2e | Draft |
 | UXF-J6-02 | Carried value from a capture is labelled an estimate at capture time and never as extracted value. | #291, #282 | unit | Draft |
 | UXF-J6-03 | A correction saves with time and author and offers Undo; focus moves to Undo. | #291, #266 | e2e, a11y | Draft |
-| UXF-J6-04 | A failed save keeps the correction as a visible draft, moves focus to Retry, and Retry saves it without re-entry. | #291, #270, #268 | e2e, a11y | Draft |
+| UXF-J6-04 | A failed save keeps the correction as a visible draft and moves focus to Retry. Retry sets the Debrief scenario to Success before rendering, saves without re-entry and focuses Undo, in either navigation variant. | #291, #270, #268 | e2e, a11y | Draft |
 | UXF-J6-05 | The traffic prediction shown at raid time is preserved with its model version and is not re-scored by a newer model. | #291, #275 | unit | Draft |
 | UXF-J6-06 | Debrief or History label is **after H-07**. | #291, #267 | e2e | Draft |
 
@@ -103,7 +103,7 @@ From [capture-intent-mismatch.md](capture-intent-mismatch.md).
 | UXF-CAP-05 | An unknown or mismatched capture stays at the head of the single arrival-ordered queue until analysed or skipped; every later capture waits unread, and a rejected capture does not advance a stash session. | #271, #283 | unit | Draft |
 | UXF-CAP-06 | Concurrent intent changes: the stale command is rejected with a visible conflict on its sender, and a screenshot binds to the intent revision in force when the file appeared. | #276, #277, #271 | protocol, unit | Draft |
 | UXF-CAP-07 | After analysis, skip, or pause, decoded pixels are released; the screenshot file is byte-for-byte unchanged and still in place; no image is persisted without Debug Capture. | #271, #281, #279, #264 | unit, e2e | Draft |
-| UXF-CAP-08 | A renamed or copied file with duplicate content reaches duplicate validation before any filename position is published: it produces no result and cannot advance the position, while later arrivals remain ordered. A bounded clipboard payload either reaches that same validation or visibly expires at its own queue turn before later work proceeds. | #271, #283 | unit, e2e, a11y | Draft |
+| UXF-CAP-08 | A clipboard arrival admits one capped transient byte payload before waiting and before content hashing. For every source, settlement and content-hash/duplicate validation run only at its ordered queue-head turn. A renamed or copied duplicate publishes no filename position; a position-only capture completes at its ordered turn without entering Needs a decision or consuming the armed intent; and an expired clipboard entry fails visibly at its turn before later work proceeds. | #271, #283 | unit, e2e, a11y | Draft |
 | UXF-CAP-09 | When a head capture is skipped or expires and releases queued work, the polite region exposes the completion/failure announcement before the next capture's arrival or result announcement; neither same-region message is cancelled. | #271, #279 | unit, e2e, a11y | Draft |
 
 No fixture here covers the "Flea listings you opened" intent: no journey exercises it, so #284 needs its own fixture rather than one inferred from these sessions.

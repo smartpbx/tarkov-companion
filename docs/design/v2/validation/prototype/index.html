@@ -50,7 +50,7 @@
       <li>For the paired-tablet journey on a real tablet, copy the complete <code>docs/</code> tree to the device or serve the repository root on the local network, and open the <code>#/tablet</code> address.</li>
       <li>Prefer the participant's own operating-system settings for high contrast, text size and reduced motion. The moderator toggles are a fallback.</li>
     </ol>
-    <p>The scripts, tasks and expected answers are in <a href="../journeys.md">journeys.md</a>. The research plan is <a href="../research-plan.md">research-plan.md</a>. Before distribution, run <code>node docs/design/v2/validation/prototype/link-audit.mjs</code> from the repository root.</p>
+    <p>The scripts, tasks and expected answers are in <a href="../journeys.md">journeys.md</a>. The research plan is <a href="../research-plan.md">research-plan.md</a>. Before distribution, run <code>node docs/design/v2/validation/prototype/link-audit.mjs</code> and <code>node docs/design/v2/validation/prototype/storyboard-audit.mjs</code> from the repository root. The first audits the canonical <code>docs/</code> bundle; the second uses local Chromium to crawl both rendered variants.</p>
   </section>
 </main>
 </body>

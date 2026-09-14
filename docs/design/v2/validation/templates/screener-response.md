@@ -13,6 +13,8 @@
 | Private study contact and request code delivered | Yes / No |
 | Salted request-code verifier reference | |
 | Fixed screening deletion deadline (UTC; screening timestamp + 30 × 24 h) | |
+| If scheduled: scheduled session start (UTC; available before consent) | |
+| If consent will be sought: fixed no-show withdrawal deadline (UTC; scheduled start + 7 × 24 h) | |
 | Q1 Time playing EFT | |
 | Q2 Wipes with real progression | |
 | Q3 Current play frequency | |
@@ -49,7 +51,9 @@ participant ID, contact, code or filename in the receipt.
 
 ## Enrolled no-show or pre-session cancellation
 
-If consent was recorded but no session begins, delete the contact, roster, consent record and
-request-code verifier at the earlier of this screening deadline or scheduled-session start + 7 × 24
-hours. Record only the lifecycle state and non-identifying deletion receipt; there is no
+Before asking for consent, fill the scheduled-session start and exact no-show withdrawal deadline
+above and disclose both with the private request route. If consent was recorded but no study task
+begins, the screening deadline no longer applies: retain the contact route and request-code verifier
+through the exact no-show deadline, then delete them with this screener, the roster lifecycle fields
+and consent record. Record only the lifecycle state and non-identifying deletion receipt; there is no
 participant-to-evidence index to keep.

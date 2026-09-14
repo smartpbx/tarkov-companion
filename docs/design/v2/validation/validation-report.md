@@ -101,9 +101,15 @@ the private session logs.
 
 ## 6. Comprehension and trust probes
 
-| Probe | Journey | Correct | Partly | Incorrect | Not asked | Calibrated | Over-trusts | Under-trusts | Aggregate paraphrase or approved quote after embargo (no ID) |
+Individual answers and participant-level paraphrases remain in private session logs. This public
+section may contain only counts and a de-identified **aggregate** paraphrase across responses. The
+only exception is an exact quote that separately completed the approval, seven-day embargo and
+final revocation check in [consent-and-data-handling.md](consent-and-data-handling.md); it carries no
+participant ID or identifying combination of attributes.
+
+| Probe | Journey | Correct | Partly | Incorrect | Not asked | Calibrated | Over-trusts | Under-trusts | De-identified aggregate paraphrase or separately approved exact quote after embargo (no ID) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| *(each probe in [journeys.md](journeys.md))* | | | | | | | | | Aggregate paraphrase or approved quote after embargo; no participant ID |
+| *(each probe in [journeys.md](journeys.md))* | | | | | | | | | Aggregate paraphrase or separately approved exact quote after embargo; never an individual paraphrase |
 
 ## 7. Findings
 
@@ -116,9 +122,11 @@ Full records use [templates/finding.md](templates/finding.md); this is the regis
 ## 8. Variant comparison
 
 Apply the pre-registered rules in [metrics-and-analysis.md](metrics-and-analysis.md). State "no
-evidence of a difference" when the thresholds are not met.
+evidence of a difference" when the thresholds are not met. Preference reasons follow the same
+privacy rule as probes: only a de-identified aggregate paraphrase, unless an exact quote separately
+completed approval, embargo and the final revocation check.
 
-| Question | Evidence (counts, findings) | Rule outcome | Participant preferences (counts, reasons) |
+| Question | Evidence (counts, findings) | Rule outcome | Participant preferences (counts, aggregate reasons) |
 | --- | --- | --- | --- |
 | Where first launch lands (H-03) | — | — | — |
 | Intel as a workspace or a panel (H-05) | — | — | — |

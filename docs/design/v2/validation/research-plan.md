@@ -153,6 +153,10 @@ should not be the only synthesiser.
   unfamiliar count when that cell cannot identify someone; otherwise it says `suppressed; privately
   assessed` and gives the decision owner's aggregate bias assessment. It never puts a familiarity
   flag, participant ID, or a unique combination of attributes next to a finding.
+- **Private individual answers.** Individual probe answers and participant-level paraphrases remain
+  in private session logs. Public qualitative synthesis is de-identified and aggregate; only a
+  separately approved exact quote may appear after its seven-day embargo and final revocation
+  check.
 - **Storyboards are not the product.** They cannot show recognition errors, real latency, or
   native assistive-technology behaviour. A pass here is not accessibility evidence for #266.
 - **Sample content.** Experts may notice that sizes or prices differ from the game. Moderators say

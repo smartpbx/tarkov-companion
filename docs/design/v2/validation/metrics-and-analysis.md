@@ -75,8 +75,11 @@ points need one; record the addition in the report.
    counts that bear on it, then propose accepted, rejected or deferred. The decision owner decides.
 
 Participant-level coding and the participant-to-evidence index stay in the private study folder.
-The public report receives task/variant counts and de-identified synthesis only: never screener
-answers, IDs, eligibility flags, assignments, schedules or cross-tabs that identify a person.
+The public report receives task/variant counts and de-identified aggregate synthesis only: never screener
+answers, individual probe answers, participant-level paraphrases, IDs, eligibility flags,
+assignments, schedules or cross-tabs that identify a person. Qualitative probe results are a
+de-identified aggregate paraphrase across responses. An individual participant's exact words may
+appear only as a separately approved quote after its seven-day embargo and final revocation check.
 
 ## Comparing the two variants honestly
 
@@ -119,6 +122,6 @@ Wording patterns only; the angle-bracket values are placeholders, not results.
 | --- | --- |
 | "<n> of <N> participants opened Intel first when asked to find stash scan in Variant A" | "<x>% of users look in Intel" |
 | "Median time for the <n> unaided successes was <t> s" (only with every one of those times listed) | An average that leaves out a recorded unaided success, or includes an assisted one |
-| "<n> of <N> participants read the traffic label as live" (with each probe answer quoted or summarised) | "Users understand the traffic is modelled" |
+| "<n> of <N> participants read the traffic label as live" (with a de-identified aggregate paraphrase; any exact quote separately approved and embargoed) | Each participant's answer quoted or paraphrased in turn, or "Users understand the traffic is modelled" |
 | "Variant B had <k> fewer wrong paths in J2; below the pre-registered threshold" | "Variant B is better" |
 | "Not tested with a screen-reader user; recruitment gap recorded" | "Accessible" |

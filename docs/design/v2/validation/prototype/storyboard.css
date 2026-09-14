@@ -169,6 +169,7 @@ td.num, th.num { text-align: right; }
 .decision.SWAP { color: var(--accent); }
 .decision.LEAVE { color: var(--muted); border-style: dotted; }
 .decision.REVIEW { color: var(--amber); border-style: dashed; }
+.decision.EXCLUDED { color: var(--muted); border-style: double; }
 
 .map-toggle { display: inline-flex; gap: 0.25rem; }
 .map-figure { margin: 0; }

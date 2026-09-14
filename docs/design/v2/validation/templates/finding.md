@@ -17,8 +17,10 @@
 
 ## Evidence
 
-Timestamps and what was observed. Public synthesis uses an aggregate paraphrase unless an exact
-quote completed its approval and seven-day embargo; it never includes a participant ID.
+Timestamps, individual answers and what was observed stay in the private working copy. Public
+synthesis uses only a de-identified aggregate paraphrase across evidence unless an exact quote
+separately completed its approval, seven-day embargo and final revocation check; it never includes a
+participant ID or participant-level paraphrase.
 
 ## Why it matters
 

@@ -56,19 +56,22 @@ because only a game screenshot is in the EFT folder and a pasted image has no fi
 flowchart TD
     A[File appears in the screenshot folder, or player pastes, drops or picks a file] --> B[Number it and bind it to the intent and revision in force now]
     B --> BP{Clipboard source?}
-    BP -- yes --> BP1[Copy one bounded transient payload: 32 MiB, 10 min]
-    BP1 --> C
-    BP -- no --> C
-    C{Finished writing?}
+    BP -- yes --> BP1[At arrival: admit and copy one bounded transient payload: 32 MiB, 10 min. Do not hash]
+    BP1 --> Q0[Enter the one ordered queue]
+    BP -- no --> Q0
+    Q0 --> QH{At queue head?}
+    QH -- no --> QW[Wait bound but unread]
+    QW --> QH
+    QH -- yes --> C{Source settled and readable?}
     C -- not yet --> C1[Show: still being written, will not be skipped. Check again, bounded]
     C1 --> C
     C1 -- bound reached --> N1[Needs a decision: file still changing. Retry or Skip]
-    C -- yes --> D{Same file as an earlier capture?}
+    C -- yes --> D{At queue head: content hash matches an earlier capture?}
     D -- yes --> D1[Record: duplicate of capture M. No new result. Offer Analyse again]
     D -- no --> E[Decode to pixels in memory]
     E --> F[Detect context and confidence]
     F --> O{In-raid view with nothing to analyse?}
-    O -- yes --> O1[Position only: recorded, not queued. Discard pixels]
+    O -- yes --> O1[Position only: complete at this ordered turn. Never Needs a decision. Discard pixels]
     O -- no --> G{Confident, with a clear lead?}
     G -- no --> U[Needs a decision: couldn't tell. Discard pixels]
     G -- yes --> H{Agrees with binding?}
@@ -92,44 +95,54 @@ flowchart TD
 
 The checks run in this order for every capture, so the same input always gives the same outcome:
 
-1. **Bind.** Record the capture number, source, observed time, intent, intent revision, device that
+1. **Bind.** In the desktop's serial arrival handler, record the capture number, source, observed
+   time, intent, intent revision, device that
    set that intent, and any filename-position candidate. Binding does **not** publish a position:
    a copied or renamed duplicate can have different filename metadata. The candidate waits for its
    ordered duplicate/content validation like every other capture; there is no filename-position fast
    lane.
-2. **Settle.** Wait until the file has stopped changing and opens for shared reading. Checks are
+2. **Admit clipboard bytes at arrival.** Before the entry can wait and before any content hashing, a
+   paste or reviewed external capture copies exactly one process-owned transient byte payload,
+   capped at **32 MiB** and expiring **10 minutes after arrival**. If the copy exceeds the cap or
+   cannot be made, enqueue a visible ordered failure, “Paste was not accepted; paste again with an
+   image at most 32 MiB,” and continue only after that entry reaches the head and is recorded. The
+   payload never goes to disk, a thumbnail cache, Debug Capture, diagnostics or a paired device. A
+   file source stores its reference, not duplicate bytes. Admission validates type/size and obtains
+   the bytes; it does **not** decode or content-hash them.
+3. **Wait for the ordered turn.** The bound file reference or admitted clipboard payload enters the
+   single queue. Nothing below runs until it is the head and no earlier decision blocks it.
+4. **Settle at queue head.** For a file, wait until it has stopped changing and opens for shared
+   reading. A clipboard payload was made stable by admission, but its expiry/source availability is
+   checked again at this turn. File checks are
    bounded (**needs contract**: #271 owns the stability rule and bound; the storyboard uses three
    checks). While waiting, the progress line says the file is still being written and will not be
    skipped. If the bound is reached, the capture goes to Needs a decision with **Retry** and **Skip**.
-3. **Duplicate.** If the file's content matches a capture already analysed in this companion session,
+5. **Content-hash and duplicate-check at queue head.** Only after settlement, compare the source
+   content with captures already analysed in this companion session. If it matches,
    record "Same file as capture M. Not analysed again." with **Analyse again**. A copy under a
    different name is still a duplicate. The duplicate rule compares content, not names (**needs
-   contract**: #271 chooses the comparison).
-4. **Clipboard admission.** A paste or external capture first copies exactly one process-owned
-   transient byte payload, capped at **32 MiB** and expiring **10 minutes after arrival**. If the
-   copy exceeds the cap or cannot be made, record a visible ordered failure, “Paste was not
-   accepted; paste again with an image at most 32 MiB,” and continue only after that entry is
-   recorded. It never writes the payload to disk, a thumbnail cache, Debug Capture, diagnostics or
-   a paired device. A file source stores its reference, not a duplicate byte payload.
-5. **Decode.**
-6. **Detect** the context and its score.
-7. **Position only.** After duplicate validation, most game screenshots are ordinary in-raid frames:
+   contract**: #271 chooses the comparison). Neither settlement nor hashing may run while the entry
+   is waiting behind an earlier capture.
+6. **Decode.**
+7. **Detect** the context and its score.
+8. **Position only.** After duplicate validation, most game screenshots are ordinary in-raid frames:
    249 of 282 sampled carried
    coordinates, and 13.4% had no HUD at all ([EFT_SCREENSHOT_FACTS.md](../../../research/EFT_SCREENSHOT_FACTS.md)).
    An in-raid view with no grid, list or screen to analyse is recorded as "Position updated; nothing
-   else analysed". It is not a mismatch, is not queued, and does not use up the armed intent
+   else analysed". It completes at its ordered queue turn, is not a mismatch, never enters Needs a
+   decision, and does not use up the armed intent
    (proposal P-06; **needs contract**: #264 for the context, #271 for intent consumption). Without
    this, every routine position screenshot would land in Needs a decision. Only here may a validated
    filename-position candidate publish; its observed time is the filename timestamp (minute
    precision), and an older validated position never replaces a newer one.
-8. **Unknown.** If the score is below the threshold, or the top two contexts are closer than the
+9. **Unknown.** If the score is below the threshold, or the top two contexts are closer than the
    runner-up margin (**needs contract**: #264 and #272; item recognition today uses a 0.08 lead),
    the capture goes to Needs a decision as "Couldn't tell what capture N shows", offering both
    close contexts first. This check comes **before** the comparison, so a low-confidence guess
    never produces a mismatch dialog.
-9. **Compare** with the binding, using the table below.
-10. **Match or narrow:** recognise and publish. **Disagree:** Needs a decision.
-11. **Discard pixels** whenever the capture finishes or is skipped. A paused file capture is re-read
+10. **Compare** with the binding, using the table below.
+11. **Match or narrow:** recognise and publish. **Disagree:** Needs a decision.
+12. **Discard pixels** whenever the capture finishes or is skipped. A paused file capture is re-read
     if the player later chooses analysis. A paused clipboard capture retains only its bounded
     transient payload until the player decides or its ten-minute deadline; it is then erased. If a
     file is gone/changed or a clipboard payload has expired, the ordered entry visibly says its
@@ -160,7 +173,8 @@ screenshot counts as belongs to the detected-context contract (**needs contract*
 
 - Every arrival—watched file, picked/dropped file, paste or reviewed external capture—gets its
   number, source, observed time, intent revision and setting device from the desktop's one serial
-  arrival order, then enters one bounded queue. There is no independent fast lane.
+  arrival order. A clipboard arrival also completes bounded transient-byte admission before it can
+  wait; only then does the bound entry enter one queue. There is no independent fast lane.
 - Exactly one capture may analyse at a time. If it pauses for an unknown or mismatch decision, it
   remains the head blocker and **all** later captures wait as bound but unread inputs. They are not
   decoded, duplicate-checked or published until the blocker is resolved, so no later result can
@@ -172,8 +186,10 @@ screenshot counts as belongs to the detected-context contract (**needs contract*
   expiry is visible and ordered; it does not permit a later result to overtake it.
 - The queue is bounded and overflow is visible, never silent (**needs contract**: #271 owns the bound
   and what happens at it).
-- The duplicate check (step 3) reads content, so it does **not** run on a waiting session file; it
-  runs when that file's turn comes (#271, #283).
+- Source settlement and the content hash/duplicate check (steps 4 and 5) do **not** run on a waiting
+  file or clipboard payload; they run only when that entry reaches the head (#271, #283). Clipboard
+  admission is the deliberate exception: its bounded bytes must be owned at arrival because there
+  is no later source to read.
 - After the paused capture is analysed or skipped, the next waiting arrival starts. Closing the
   dialog without choosing leaves the same blocker in place.
 

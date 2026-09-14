@@ -64,7 +64,13 @@ the journey and research links opened from the index, and the Safety/data-method
 from Setup. A moderator may use a local static server rooted at the checkout and give a participant
 `/docs/design/v2/validation/prototype/index.html`; no server is required when the same `docs/` tree is
 opened locally. Before distribution, run `node docs/design/v2/validation/prototype/link-audit.mjs` at
-the repository root; it fails on a local storyboard/index target that would escape that bundle.
+the repository root. It audits every static participant asset/document edge and the dynamically
+generated Safety/data-methodology edges in both variants, resolves real paths, and fails if any
+target is missing or escapes the canonical `docs/` bundle. Run
+`node docs/design/v2/validation/prototype/storyboard-audit.mjs` as the targeted headless guard; set
+`CHROMIUM_PATH` only when Chromium is not on `PATH` or in the local Playwright browser cache. It
+crawls the routes and generated links in both variants and exercises the correction, retry, skip and
+ordered-position regressions. Neither check is participant evidence.
 
 ## Fixed product boundary
 

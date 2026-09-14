@@ -3,9 +3,11 @@
 > **Status: not yet run.** These are blank. Copy a template into the **private study folder** and
 > fill the copy there. Do not commit any filled template, its filename, screener answers,
 > participant IDs, recruitment/assignment rows, raw notes, names or recordings to this public
-> repository; only aggregate coverage and de-identified synthesis go into
+> repository; individual probe answers and participant-level paraphrases stay private. Only
+> aggregate coverage and de-identified aggregate paraphrase go into
 > [../validation-report.md](../validation-report.md). See
-> [../consent-and-data-handling.md](../consent-and-data-handling.md).
+> [../consent-and-data-handling.md](../consent-and-data-handling.md) for the separate exact-quote
+> approval and embargo exception.
 
 | Template | Used for |
 | --- | --- |

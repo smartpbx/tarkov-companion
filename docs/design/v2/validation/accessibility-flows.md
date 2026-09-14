@@ -245,6 +245,12 @@ focus restoration, degraded states, dialog defaults). It was re-checked only by 
 route of both variants in headless Chromium: each rendered its page heading with no script error.
 **The checks below were not re-run against the audit revision** and must be re-run before the pilot.
 
+The repository now includes the narrower, reproducible
+[`prototype/storyboard-audit.mjs`](prototype/storyboard-audit.mjs). It crawls every generated route
+and participant-facing link/asset edge in both variants, then guards the corrected-loot choices,
+J6 failed-save retry, Plan loading skip and ordered Position-only flow. It does not replace the full
+matrix below or turn an automated result into participant evidence.
+
 - Both variants load from `file://` and make **no request other than `file://`**, before and after
   every flow below.
 - No console error on load, across all 48 workspace-state renders per variant, or after the flows.
