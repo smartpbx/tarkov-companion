@@ -1,4 +1,5 @@
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Raids;
@@ -26,16 +27,33 @@ public interface IEftLogObserver
 }
 
 /// <summary>Routes each kind of observation to the service that keeps it.</summary>
+/// <remarks>
+/// Also the one place that knows a quest hand-in and a flea sale happened at all, which is why
+/// the raid record is written from here. RaidActivityCoordinator wrote position, scan, state and
+/// extracts and nothing else, so a raid's own record was thinner than what the game had said
+/// during it — the quests were applied to progress and the sales were kept for the session, and
+/// neither was ever tied to the raid they happened in.
+/// </remarks>
 public sealed class EftLogObservers(
     SquadStateService squad,
     FleaSaleStateService flea,
     // Optional so a composition without quest storage is still a valid composition, which is
     // what the tests that build this by hand rely on.
-    QuestLogProgressService? quests = null) : IEftLogObserver
+    QuestLogProgressService? quests = null,
+    // Optional for the same reason. Without it the observations still reach the services that
+    // keep them; what is lost is the raid they belonged to.
+    IRaidActivityRecorder? raid = null) : IEftLogObserver
 {
     public void Observe(GroupObservation observation) => squad.Apply(observation);
 
-    public void Observe(FleaSaleObservation sale) => flea.Apply(sale);
+    public void Observe(FleaSaleObservation sale)
+    {
+        flea.Apply(sale);
+        // Only while a raid is open, which the recorder decides. A sale made in the menu
+        // belongs to no raid, and attaching it to the last one would put it in a record of
+        // something that had already finished.
+        _ = raid?.RecordSaleAsync(sale, CancellationToken.None);
+    }
 
     /// <summary>
     /// Recorded without waiting, because the watcher is reading a file and must not stop.
@@ -44,9 +62,13 @@ public sealed class EftLogObservers(
     /// The service takes a gate of its own, so two lines arriving together are applied one
     /// after the other rather than racing each other into the database.
     /// </remarks>
-    public void Observe(QuestStatusObservation quest) =>
+    public void Observe(QuestStatusObservation quest)
+    {
         _ = quests?.ApplyAsync(quest, CancellationToken.None);
+        _ = raid?.RecordQuestAsync(quest, CancellationToken.None);
+    }
 }
+
 
 /// <summary>
 /// Keeps the player's current party, collapsed from the stream of restatements.
