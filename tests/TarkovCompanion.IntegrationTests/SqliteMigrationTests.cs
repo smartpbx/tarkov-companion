@@ -39,8 +39,8 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(9, first.Count);
-            Assert.Empty(second);
+            Assert.Equal(9, first.Applied.Count);
+            Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
             await using var command = connection.CreateCommand();
@@ -136,7 +136,7 @@ public sealed class SqliteMigrationTests
                     "0008_loot_containers",
                     "0009_drop_unread_map_tables",
                 ],
-                applied);
+                applied.Applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
             await using var verifyCommand = verification.CreateCommand();
             verifyCommand.CommandText = "SELECT name, normalized_short_name FROM items WHERE id = 'existing';";
