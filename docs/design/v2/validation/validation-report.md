@@ -65,9 +65,11 @@ without linking it to a finding, a task outcome, or an individual.
 
 ## 4. Findability results
 
-One row per task and variant. Counts only. Times listed individually for unaided successes.
+One row per task and variant. Publish counts and genuinely aggregate statistics only. Raw task
+times remain in the private study folder; show an unaided-time median only when at least three
+qualifying unaided successes support it, otherwise write `suppressed; privately retained`.
 
-| Task | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong first clicks (labels) | Unaided times (s) |
+| Task | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong first-click count | Unaided-time median (s; qualifying n) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | F-01 | A | — | — | — | — | — | — | — | — |
 | F-01 | B | — | — | — | — | — | — | — | — |
@@ -75,15 +77,16 @@ One row per task and variant. Counts only. Times listed individually for unaided
 
 ## 5. Journey results
 
-| Journey step | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong paths | Unaided times (s) |
+| Journey step | Variant | Attempts | Success | With difficulty | Assisted | Fail | Not attempted | Wrong-path count | Unaided-time median (s; qualifying n) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | J1.1 | A | — | — | — | — | — | — | — | — |
 | J1.1 | B | — | — | — | — | — | — | — | — |
 | *(every Measure step in [journeys.md](journeys.md), both variants)* | | | | | | | | | |
 
-Ease is asked once per journey, so it has its own table.
+Ease is asked once per journey, so it has its own table. Raw ease scores remain private; publish a
+median only with at least three responses, otherwise write `suppressed; privately retained`.
 
-| Journey | Variant | Ease responses (each, 1 to 7) | Skipped |
+| Journey | Variant | Ease median (1 to 7; response n) | Skipped |
 | --- | --- | --- | --- |
 | J1 | A | — | — |
 | *(J1 to J6, both variants)* | | | |
@@ -91,9 +94,10 @@ Ease is asked once per journey, so it has its own table.
 ### Assistive-technology sessions
 
 Report aggregate attempts and barriers separately and never average times with other sessions. Name
-a technology or setting only with consent and only when the cell is large enough not to identify a
-person; otherwise use a broader category. Participant IDs and per-person technology rows remain in
-the private session logs.
+a technology or setting only with consent and only when the cell does not identify one person; if a
+separate slice has one counted session, suppress every count, outcome and statistic in that slice
+(`suppressed; privately verified`) or use a broader category. Participant IDs, raw task times, raw
+ease scores and per-person technology rows remain in the private session logs.
 
 | Technology or setting category | Counted sessions | Journey attempts | Aggregate outcomes | Barrier findings |
 | --- | --- | --- | --- | --- |

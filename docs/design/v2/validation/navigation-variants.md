@@ -37,7 +37,7 @@ Rail:   Raid | Intel | Plan | Team | Debrief
 | **Plan** | Suggested bundles, objectives, extract, requirements with sources, route estimate | |
 | **Team** | Members and roles, paired devices, marks, tablet preview at `#/tablet` | |
 | **Debrief** | Raid list, timeline with how each fact is known, corrections, preserved prediction | |
-| **Setup & Admin** | Get ready checklist, ten sections: Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance, Accessibility and Diagnostics; links to full Safety and data methodology | **Lands here** |
+| **Setup & Admin** | Get ready checklist, ten sections: Get ready, Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance, Accessibility and Diagnostics; links to full Safety and data methodology | **Lands here** |
 
 Intel from elsewhere: a "Details" link switches to the Intel workspace (the rail highlights Intel)
 and offers "Back to" the page it came from.

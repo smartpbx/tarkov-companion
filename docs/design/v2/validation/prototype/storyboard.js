@@ -582,7 +582,7 @@
     var body = '<div class="split"><section class="panel" aria-labelledby="guide-h"><h2 id="guide-h">Guided capture: Full stash</h2>' +
       '<p><strong>Next:</strong> ' + esc(snap.next) + '</p><p class="note"><strong>Screenshot requested · take it in EFT.</strong></p>' +
       '<h3>Screenshots in this session</h3><ol>' + steps.map(function (s) {
-        return '<li>' + esc(s.rows) + ': ' + s.stacks + ' stacks' + (s.duplicates ? ', ' + s.duplicates + ' overlapping duplicates merged' : '') + ', ' + s.added + ' added.</li>';
+        return '<li>' + esc(s.rows) + ' at ' + esc(s.time) + ': ' + s.stacks + ' stacks' + (s.duplicates ? ', ' + s.duplicates + ' overlapping duplicates merged' : '') + ', ' + s.added + ' added.</li>';
       }).join('') + '<li>Waiting for your next screenshot.</li></ol>' +
       '<p>Coverage: <strong>' + snap.rowsCovered + ' of ' + C.stash.rowsTotal + ' rows (' + pct + '%)</strong>. Not complete.</p>' +
       '<p class="note">Each screenshot file stays in your EFT folder. Decoded images are discarded after analysis.</p>' +
@@ -877,7 +877,7 @@
     });
   }
 
-  // Simulated captures follow the 18:41:07 loot screenshot and stay before the 18:42 header clock.
+  // Simulated captures begin with capture 3 at 18:41:11 and stay before the 18:42 header clock.
   function now() {
     var s = Math.min(59, 8 + (S.capture.seq - 2) * 3);
     return '18:41:' + (s < 10 ? '0' : '') + s;

@@ -196,15 +196,16 @@ window.STORYBOARD_CONTENT = {
    * Stash session arithmetic, all sample values:
    *   Capture 1 rows 1-24: 46 stacks. Capture 2 rows 19-42: 45 stacks, 7 duplicates merged -> +38.
    *   Total 84 = Keep 20 + Sell 31 + Use soon 14 + Review 19.  Review 19 = 2 keys + 6 counts + 11 identities.
-   *   Coverage 42 of 68 rows.  Capture 3 (rows 37-60) adds 38 stacks with 5 duplicates -> +33 = 117.
+   *   Coverage 42 of 68 rows. Capture 3 (rows 37-60, at 18:41:11) overlaps capture 2 on rows
+   *   37-42; its 5 duplicates are merged, so it adds 33 stacks -> 117.
    *   After capture 3: Keep 27 + Sell 45 + Use soon 19 + Review 26 = 117; Review 26 = 3 keys + 8 counts + 15 identities.
    */
   stash: {
     rowsTotal: 68,
     steps: [
-      { n: 1, rows: 'Rows 1 to 24', stacks: 46, duplicates: 0, added: 46 },
-      { n: 2, rows: 'Rows 19 to 42', stacks: 45, duplicates: 7, added: 38 },
-      { n: 3, rows: 'Rows 37 to 60', stacks: 38, duplicates: 5, added: 33 }
+      { n: 1, rows: 'Rows 1 to 24', time: '18:20:02', stacks: 46, duplicates: 0, added: 46 },
+      { n: 2, rows: 'Rows 19 to 42', time: '18:20:31', stacks: 45, duplicates: 7, added: 38 },
+      { n: 3, rows: 'Rows 37 to 60', time: '18:41:11', stacks: 38, duplicates: 5, added: 33 }
     ],
     observedLayouts: [
       { rows: 'Rows 1 to 18', cells: 'Observed in capture 1', source: 'Screenshot 1 at 18:20:02' },
@@ -215,8 +216,9 @@ window.STORYBOARD_CONTENT = {
     observedLayoutsAfterThird: [
       { rows: 'Rows 1 to 18', cells: 'Observed in capture 1', source: 'Screenshot 1 at 18:20:02' },
       { rows: 'Rows 19 to 24', cells: 'Observed in captures 1 and 2; overlap merged', source: 'Screenshots 1 and 2' },
-      { rows: 'Rows 25 to 42', cells: 'Observed in capture 2', source: 'Screenshot 2 at 18:20:31' },
-      { rows: 'Rows 43 to 60', cells: 'Observed in capture 3', source: 'Screenshot 3 at 18:21:04' },
+      { rows: 'Rows 25 to 36', cells: 'Observed in capture 2', source: 'Screenshot 2 at 18:20:31' },
+      { rows: 'Rows 37 to 42', cells: 'Observed in captures 2 and 3; overlap merged', source: 'Screenshots 2 and 3; capture 3 at 18:41:11' },
+      { rows: 'Rows 43 to 60', cells: 'Observed in capture 3', source: 'Screenshot 3 at 18:41:11' },
       { rows: 'Rows 61 to 68', cells: 'Unknown: not covered by the current snapshot', source: 'No screenshot observed' }
     ],
     snapshots: [

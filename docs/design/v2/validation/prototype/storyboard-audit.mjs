@@ -13,8 +13,9 @@ const repositoryRoot = fs.realpathSync(process.cwd());
 const docsRoot = fs.realpathSync(path.join(repositoryRoot, 'docs'));
 const prototypeRoot = fs.realpathSync(path.join(docsRoot, 'design/v2/validation/prototype'));
 const storyboardSource = fs.readFileSync(path.join(prototypeRoot, 'storyboard.js'), 'utf8');
-const userData = fs.mkdtempSync(path.join(prototypeRoot, '.storyboard-audit-'));
+const contentSource = fs.readFileSync(path.join(prototypeRoot, 'content.js'), 'utf8');
 let browser;
+let userData;
 let checks = 0;
 let navigationId = 0;
 
@@ -111,6 +112,7 @@ class Cdp {
 }
 
 async function createPage(initialUrl) {
+  if (!userData) throw new Error('Audit profile was not created inside the cleanup boundary.');
   const endpointFile = path.join(userData, 'DevToolsActivePort');
   browser = spawn(findChromium(), [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--disable-background-networking',
@@ -310,20 +312,38 @@ async function auditPositionOrder(page, variant) {
   assert(state.main.includes('just updated'), `${variant.file}: position did not publish at its ordered turn`);
 }
 
-// Static ordering guards complement the browser-observable queue result.
-const admission = storyboardSource.indexOf('admitClipboardAtArrival(cap);');
-const enqueue = storyboardSource.indexOf('c.queue.push({ cap: cap, kind: kind });');
-assert(admission >= 0 && admission < enqueue, 'Clipboard payload is not admitted before waiting in the queue');
-assert(storyboardSource.includes('contentHashed: false'), 'Clipboard admission no longer records un-hashed transient bytes');
-assert(storyboardSource.includes("if (!cap.atQueueHead) throw new Error('Capture source settlement and hashing require the ordered queue head.')"), 'Settlement/hash queue-head guard is missing');
+async function auditStashOverlap(page, variant) {
+  await page.navigate(pageUrl(variant.file, variant.stash));
+  await select(page, '#mod-shot', 'match');
+  await click(page, '#mod-shoot');
+  await delay(3400);
+  const observed = await page.evaluate(`({
+    captureList: document.querySelector('#guide-h')?.parentElement.textContent || '',
+    table: document.querySelector('#observed-h')?.parentElement.textContent || ''
+  })`);
+  assert(observed.captureList.includes('Rows 37 to 60 at 18:41:11'), `${variant.file}: capture 3 runtime timestamp diverged from the stash summary`);
+  assert(observed.table.includes('Rows 37 to 42') && observed.table.includes('Observed in captures 2 and 3; overlap merged'), `${variant.file}: capture 2/3 overlap rows 37-42 were omitted or not deduplicated`);
+  assert(observed.table.includes('Screenshot 3 at 18:41:11') && !observed.table.includes('18:21:04'), `${variant.file}: capture 3 provenance used a conflicting timestamp`);
+}
 
 const variants = [
-  { file: 'variant-a.html', first: 'setup', seeds: ['setup', 'raid/loot'], plan: 'plan', history: 'debrief' },
-  { file: 'variant-b.html', first: 'home', seeds: ['home', 'raid/loot', 'search'], plan: 'prepare', history: 'history' }
+  { file: 'variant-a.html', first: 'setup', seeds: ['setup', 'raid/loot'], plan: 'plan', history: 'debrief', stash: 'intel/stash' },
+  { file: 'variant-b.html', first: 'home', seeds: ['home', 'raid/loot', 'search'], plan: 'prepare', history: 'history', stash: 'prepare/stash' }
 ];
 
 let page;
 try {
+  // Static guards and all runtime work are inside one cleanup boundary. The guards run before the
+  // repository-local Chromium profile exists; every path after its creation proves its removal.
+  const admission = storyboardSource.indexOf('admitClipboardAtArrival(cap);');
+  const enqueue = storyboardSource.indexOf('c.queue.push({ cap: cap, kind: kind });');
+  assert(admission >= 0 && admission < enqueue, 'Clipboard payload is not admitted before waiting in the queue');
+  assert(storyboardSource.includes('contentHashed: false'), 'Clipboard admission no longer records un-hashed transient bytes');
+  assert(storyboardSource.includes("if (!cap.atQueueHead) throw new Error('Capture source settlement and hashing require the ordered queue head.')"), 'Settlement/hash queue-head guard is missing');
+  assert(contentSource.includes("{ rows: 'Rows 37 to 42', cells: 'Observed in captures 2 and 3; overlap merged'"), 'Stash data no longer preserves the capture 2/3 overlap rows');
+  assert(contentSource.includes("Screenshot 3 at 18:41:11") && !contentSource.includes('18:21:04'), 'Stash data no longer uses the capture 3 runtime timestamp consistently');
+  userData = fs.mkdtempSync(path.join(prototypeRoot, '.storyboard-audit-'));
+  assert(fs.realpathSync(path.dirname(userData)) === prototypeRoot, 'Audit profile escaped the prototype directory');
   page = await createPage(pageUrl(variants[0].file, variants[0].first));
   let routes = 0;
   let edges = 0;
@@ -335,14 +355,25 @@ try {
     await auditRetrySave(page, variant);
     await auditCorrections(page, variant);
     await auditPositionOrder(page, variant);
+    await auditStashOverlap(page, variant);
   }
   console.log(`Storyboard audit passed: ${checks} assertions, ${routes} rendered routes and ${edges} participant-facing link/asset edges across both variants.`);
 } finally {
-  if (page) page.close();
-  if (browser && browser.exitCode === null) {
-    const exited = once(browser, 'exit');
-    browser.kill('SIGTERM');
-    await Promise.race([exited, delay(2000)]);
+  try {
+    if (page) page.close();
+  } finally {
+    try {
+      if (browser && browser.exitCode === null) {
+        const exited = once(browser, 'exit');
+        browser.kill('SIGTERM');
+        await Promise.race([exited, delay(2000)]);
+      }
+    } finally {
+      if (userData) {
+        const profile = userData;
+        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+        if (fs.existsSync(profile)) throw new Error(`Storyboard audit profile was not cleaned up: ${profile}`);
+      }
+    }
   }
-  fs.rmSync(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 }

@@ -25,7 +25,7 @@ and changes none of the #264 contracts.
 | [accessibility-flows.md](accessibility-flows.md) | Annotated keyboard, screen-reader, touch, reflow, contrast, text-size, motion, map/list and focus flows |
 | [state-matrix.md](state-matrix.md) | Eight states for each of the six destinations (five workspaces plus Setup & Admin): trigger, remainder, provenance, recovery, focus, sync |
 | [capture-intent-mismatch.md](capture-intent-mismatch.md) | Deterministic flow when armed intent and detected context disagree, plus still-writing, duplicate, unknown, and device-race cases |
-| [render-audit.md](render-audit.md) | Audit of the eight concept renders in `docs/design/v2/` |
+| [render-audit.md](render-audit.md) | Measured audit of the nine concept PNGs in `docs/design/v2/` (exact inventory recorded there) |
 | [revision-brief.md](revision-brief.md) | What the next concept pass must change or add |
 | [validation-report.md](validation-report.md) | Blank report to fill after sessions |
 | [acceptance-fixture-map.md](acceptance-fixture-map.md) | Draft journey fixtures and the implementation issues that consume them |
@@ -87,8 +87,9 @@ live detection.
 #265 is complete only when every item in the completion gate in
 [research-plan.md](research-plan.md) section 8 is met, with the evidence in
 [validation-report.md](validation-report.md). In short: real sessions that meet the coverage in
-[participant-screening.md](participant-screening.md), every named gate-controlled journey **step**
-and findability task meeting its per-variant minimum (a recorded non-attempt does not count),
+[participant-screening.md](participant-screening.md), all **26** named gate-controlled **Measure**
+steps across J1–J6, each with at least two counted attempts in each variant (a recorded non-attempt
+does not count), and every findability task meeting its per-variant minimum,
 each variant primary for at least two people, accessibility flows exercised by daily users of the
 technology, findings rated with [severity-rubric.md](severity-rubric.md) and every S0 and S1 owned,
 each hypothesis moved in [../decision-log.md](../decision-log.md) with evidence, and

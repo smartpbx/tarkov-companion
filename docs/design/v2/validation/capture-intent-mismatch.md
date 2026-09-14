@@ -227,7 +227,9 @@ the screenshot arrives. So:
   visibly; whether it expires after one capture is D-01). The result says which intent it was
   analysed as.
 - After a choice, the result or skip is announced politely and listed under recent captures with what
-  was decided and on which device.
+  was decided and on which device. When a skipped or expired head capture releases queued work, that
+  completion or failure announcement remains in the polite region before the next capture's arrival
+  or result announcement; neither same-region message is cancelled (UXF-CAP-09).
 
 ## Device races and revision conflicts
 
@@ -254,6 +256,7 @@ was based on.
 | Decide | To the dialog heading | Dialog title and description read by the dialog role |
 | Close without choosing | Back to Decide | None |
 | Result ready | No change | Polite: "Capture 4 result ready: Full stash." |
+| Head capture skipped or clipboard payload expired | No change | Polite completion/failure announcement is exposed before the released next capture announces arrival or result; neither message is cancelled. |
 | Player's own intent change refused | Dialog heading (a refusal that offers choices opens a dialog; one with no alternative keeps focus on the control, see state-matrix.md rule 5) | Assertive: "Capture change conflict. Your change was not applied." |
 | Position-only screenshot | No change | None; the position updates visibly |
 
@@ -265,4 +268,5 @@ never skipped (CAP-02), duplicate produces no second result (CAP-03), renamed du
 position and bounded clipboard expiry is visible in queue order (CAP-08), unknown never changes state
 (CAP-04), stash session does not advance on a rejected capture (CAP-05), intent race rejects the stale
 command and binds the capture to the revision in force when the file appeared (CAP-06), and pixels
-discarded while the file remains (CAP-07).
+discarded while the file remains (CAP-07). CAP-09 preserves the polite completion/failure announcement
+from a skipped or expired queue head before the released capture announces, without cancelling either.
