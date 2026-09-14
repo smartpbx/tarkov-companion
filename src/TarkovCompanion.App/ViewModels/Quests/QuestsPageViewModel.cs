@@ -953,6 +953,15 @@ public sealed class QuestsPageViewModel : PageViewModel
         ?? mapId;
 
     /// <summary>What an item is called, or its id until the lookup comes back.</summary>
+    /// <summary>What a task is called, or its id where the board has not loaded it.</summary>
+    /// <remarks>
+    /// Off the board this page already holds, rather than a second read of the catalog. The
+    /// board is loaded on startup and refreshed on every change, so by the time a raid ends it
+    /// is there.
+    /// </remarks>
+    internal string NameOfTask(string taskId) => _allTasks
+        .FirstOrDefault(task => string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Name ?? taskId;
+
     internal string NameOfItem(string itemId) =>
         _itemNames.TryGetValue(itemId, out var name) ? name : itemId;
 

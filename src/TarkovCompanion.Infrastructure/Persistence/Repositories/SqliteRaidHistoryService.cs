@@ -111,6 +111,47 @@ public sealed class SqliteRaidHistoryService(
     ///
     /// The limit counts raids, not points, because that is what the caller is choosing between.
     /// </remarks>
+    /// <summary>
+    /// One raid's events of one kind, oldest first, as they were stored.
+    /// </summary>
+    /// <remarks>
+    /// The same rows every other read here uses, asked for by kind. Nothing could read these
+    /// back at all, so a raid's own record was reachable only by the application that happened
+    /// to be running when it was written.
+    ///
+    /// A null payload is skipped rather than returned. Every caller parses what comes out of
+    /// here, and handing them a null to check is handing every one of them the same check.
+    /// </remarks>
+    public async Task<IReadOnlyList<string>> ListEventPayloadsAsync(
+        Guid raidId,
+        string type,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT payload_json
+            FROM raid_events
+            WHERE raid_id = $raidId AND type = $type
+            ORDER BY timestamp_utc, id;
+            """;
+        command.Parameters.AddWithValue("$raidId", raidId.ToString("D"));
+        command.Parameters.AddWithValue("$type", type);
+
+        var payloads = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                payloads.Add(reader.GetString(0));
+            }
+        }
+
+        return payloads;
+    }
+
     public async Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
         string mapId,
         int limit,
