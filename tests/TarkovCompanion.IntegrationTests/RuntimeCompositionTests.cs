@@ -373,6 +373,15 @@ public sealed class RuntimeCompositionTests
                 CancellationToken.None);
 
             var history = services.GetRequiredService<IRaidHistoryService>();
+            // Writes are queued now, so a read taken immediately after one is racing it. That
+            // is the point of the queue rather than a defect in it: observation returns before
+            // the database has been touched. Flushing is how a caller that genuinely needs the
+            // row — a test, or a shutdown — says so.
+            if (history is RaidHistoryOutbox outbox)
+            {
+                await outbox.FlushAsync(CancellationToken.None);
+            }
+
             var raid = Assert.Single(await history.ListAsync(CancellationToken.None));
             Assert.Equal("customs", raid.MapId);
             Assert.Equal(clock.GetUtcNow(), raid.EndedUtc);
