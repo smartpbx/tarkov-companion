@@ -3866,11 +3866,25 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public static bool CanBeTakenForTest(MapOverlayElement element, MapFeatureFaction side) =>
         CanBeTaken(element, side);
 
-    private static bool CanBeTaken(MapOverlayElement element, MapFeatureFaction side) =>
-        side == MapFeatureFaction.Unknown ||
-        element.Layer is not (MapOverlayKind.Extracts or MapOverlayKind.Spawns) ||
-        element.Faction is MapFeatureFaction.Unknown or MapFeatureFaction.Shared ||
-        element.Faction == side;
+    private static bool CanBeTaken(MapOverlayElement element, MapFeatureFaction side)
+    {
+        // A scav is shown no spawns at all, not merely the scav ones.
+        //
+        // Filtering out the PMC spawns was the first half of this and was not enough: a scav
+        // run on Customs still drew 151 scav spawn markers. A scav joins twenty minutes in and
+        // arrives wherever the game puts them, so neither where the PMCs started nor where the
+        // other scavs may arrive is a question they are asking, and both bury the exits, which
+        // is the one thing the map is read for once the raid is running.
+        if (side == MapFeatureFaction.Scav && element.Layer == MapOverlayKind.Spawns)
+        {
+            return false;
+        }
+
+        return side == MapFeatureFaction.Unknown ||
+            element.Layer is not (MapOverlayKind.Extracts or MapOverlayKind.Spawns) ||
+            element.Faction is MapFeatureFaction.Unknown or MapFeatureFaction.Shared ||
+            element.Faction == side;
+    }
 
     public void ShowActiveExtracts(IReadOnlyList<ActiveExtract> extracts)
     {

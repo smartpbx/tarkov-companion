@@ -38,24 +38,30 @@ public sealed class MapSideFilterTests
         Assert.True(MapViewModel.CanBeTakenForTest(Extract(exit), MapFeatureFaction.Unknown));
 
     /// <summary>
-    /// A scav does not see PMC spawn points, because they are not news by the time they arrive.
+    /// A scav is shown no spawn at all, whatever side it belongs to.
     /// </summary>
     /// <remarks>
-    /// This used to assert the opposite, on the argument that "a scav wants to know where the
-    /// PMCs started". Reported as wrong and it is: a scav joins twenty minutes in, so a PMC
-    /// spawn point describes where somebody was at a time the scav was not in the raid. It was
-    /// also inconsistent — SpawnProximity has always filtered the panel by side, so the list
-    /// beside the map and the markers on it disagreed.
+    /// This is the second reversal on the same question, and the second time the answer came
+    /// from Clayton rather than from reasoning here.
+    ///
+    /// It first asserted that a scav should see PMC spawns, on the argument that "a scav wants
+    /// to know where the PMCs started". Reported as wrong: a scav joins twenty minutes in, so a
+    /// PMC spawn describes where somebody was at a time the scav was not in the raid. Filtering
+    /// those out left the scav ones, and #257 reports that as wrong too — "still showing when in
+    /// scav runs, which is pointless". A scav arrives wherever the game puts them; where the
+    /// other scavs may arrive is not a question they are asking either, and on Customs it was
+    /// 151 markers on top of the exits.
+    ///
+    /// So the layer is empty for a scav. The exits are untouched, because they are what the map
+    /// is read for once the raid is running.
     /// </remarks>
-    [Fact]
-    public void AScavIsNotShownPmcSpawns() =>
-        Assert.False(MapViewModel.CanBeTakenForTest(
-            Spawn(MapFeatureFaction.Pmc),
-            MapFeatureFaction.Scav));
-
-    [Fact]
-    public void AScavIsShownScavSpawns() =>
-        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(MapFeatureFaction.Scav), MapFeatureFaction.Scav));
+    [Theory]
+    [InlineData(MapFeatureFaction.Pmc)]
+    [InlineData(MapFeatureFaction.Scav)]
+    [InlineData(MapFeatureFaction.Shared)]
+    [InlineData(MapFeatureFaction.Unknown)]
+    public void AScavIsShownNoSpawns(MapFeatureFaction faction) =>
+        Assert.False(MapViewModel.CanBeTakenForTest(Spawn(faction), MapFeatureFaction.Scav));
 
     /// <summary>At the start of a PMC raid, where the other PMCs began is the whole point.</summary>
     [Fact]
@@ -63,18 +69,17 @@ public sealed class MapSideFilterTests
         Assert.True(MapViewModel.CanBeTakenForTest(Spawn(MapFeatureFaction.Pmc), MapFeatureFaction.Pmc));
 
     /// <summary>
-    /// A spawn the feed says nothing about stays, and so does every spawn on a raid whose side
-    /// was never established.
+    /// A PMC still sees a spawn the feed says nothing about, and so does a raid with no side.
     /// </summary>
     /// <remarks>
-    /// Same rule the exits follow and the same reason: an empty layer reads as a broken
-    /// feature, and guessing a side away is worse than leaving it drawn.
+    /// Same rule the exits follow and the same reason: guessing a side away is worse than
+    /// leaving it drawn. Only a scav, where the whole layer is the wrong question, is emptied.
     /// </remarks>
     [Theory]
     [InlineData(MapFeatureFaction.Unknown)]
     [InlineData(MapFeatureFaction.Shared)]
-    public void ASpawnWithNoStatedSideStays(MapFeatureFaction faction) =>
-        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(faction), MapFeatureFaction.Scav));
+    public void ASpawnWithNoStatedSideStaysForAPmc(MapFeatureFaction faction) =>
+        Assert.True(MapViewModel.CanBeTakenForTest(Spawn(faction), MapFeatureFaction.Pmc));
 
     [Fact]
     public void EverySpawnStaysWhenTheSideIsNotKnown() =>
