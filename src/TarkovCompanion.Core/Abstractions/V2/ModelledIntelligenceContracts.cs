@@ -95,6 +95,13 @@ public sealed record IntelligenceInputReference
         {
             throw new ArgumentException($"{kind} input cannot be backed by {provenance.SourceClass} evidence.", nameof(provenance));
         }
+
+        // An aggregate names its own inputs, so the class above only vouches for the top of the
+        // tree: a screenshot beneath an allowed aggregate would otherwise enter the model.
+        if (provenance.DescendantInputs().FirstOrDefault(input => !IntelligenceProvenance.Allowed(input.SourceClass)) is { } hidden)
+        {
+            throw new ArgumentException($"{kind} input cannot rest on {hidden.SourceClass} evidence.", nameof(provenance));
+        }
     }
 
     public string EvidenceId { get; }
@@ -162,6 +169,14 @@ internal static class IntelligenceRange
 
 internal static class IntelligenceProvenance
 {
+    /// <summary>The source classes an input kind can name, at any depth of an input's tree.</summary>
+    public static bool Allowed(EvidenceSourceClass sourceClass) => sourceClass is
+        EvidenceSourceClass.PublicStructuredData or
+        EvidenceSourceClass.CuratedData or
+        EvidenceSourceClass.HistoricalAggregate or
+        EvidenceSourceClass.UserEntered or
+        EvidenceSourceClass.GameWrittenLog;
+
     public static IReadOnlyList<IntelligenceInputReference> Validate<T>(
         EvidencedValue<T> value,
         EvidenceSourceClass sourceClass,
@@ -179,6 +194,29 @@ internal static class IntelligenceProvenance
         if (copy.Count == 0)
         {
             throw new ArgumentException("Intelligence must identify its inputs.", nameof(inputs));
+        }
+
+        if (copy.Count > EvidenceProvenance.MaxInputCount)
+        {
+            throw new ArgumentException("Intelligence inputs exceed the contract bounds.", nameof(inputs));
+        }
+
+        if (copy.Select(input => input.EvidenceId).Distinct(StringComparer.Ordinal).Count() != copy.Count ||
+            copy.Select(input => input.Provenance).Distinct().Count() != copy.Count)
+        {
+            throw new ArgumentException("Each intelligence input must be named once.", nameof(inputs));
+        }
+
+        // The typed list is checked, but the value serializes its own provenance inputs too. Were
+        // the two allowed to differ, a screenshot could sit in the value's lineage while an
+        // allowlisted list was advertised beside it, so both must name the same inputs in order.
+        var named = copy.Select(input => input.Provenance).ToArray();
+        if (!value.Provenance.Inputs.SequenceEqual(named) ||
+            value.Candidates.Any(candidate => !candidate.Provenance.Inputs.SequenceEqual(named)))
+        {
+            throw new ArgumentException(
+                "The value and its candidates must name exactly the listed inputs, in order.",
+                nameof(value));
         }
 
         // Data-through is the newest input the output represents, so no input may be newer.

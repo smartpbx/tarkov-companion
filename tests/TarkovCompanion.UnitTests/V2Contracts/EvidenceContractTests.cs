@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 
@@ -185,6 +186,38 @@ public sealed class EvidenceContractTests
             new ProducerIdentity("fixture-economics", "2"),
             generatedUtc: V2ContractTestData.ObservedUtc.AddHours(-1),
             inputs: [footprint]));
+    }
+
+    [Fact]
+    public void ProvenanceEqualityComparesItsInputTree()
+    {
+        var price = V2ContractTestData.PublicDataProvenance();
+        var footprint = V2ContractTestData.ScreenshotProvenance();
+        var perSquare = Derived(price, footprint);
+
+        var roundTrip = JsonSerializer.Deserialize<EvidenceProvenance>(
+            JsonSerializer.Serialize(perSquare, V2ContractJson.Options), V2ContractJson.Options);
+
+        Assert.Equal(perSquare, Derived(V2ContractTestData.PublicDataProvenance(), V2ContractTestData.ScreenshotProvenance()));
+        Assert.Equal(perSquare.GetHashCode(), Derived(price, footprint).GetHashCode());
+        Assert.Equal(perSquare, roundTrip);
+        Assert.NotEqual(perSquare, Derived(footprint, price));
+        Assert.NotEqual(perSquare, Derived(price));
+        Assert.NotEqual(perSquare, Derived(price, V2ContractTestData.PublicDataProvenance(V2ContractTestData.ObservedUtc.AddDays(-3))));
+    }
+
+    [Fact]
+    public void ProvenanceInputsCannotBeChangedAfterValidation()
+    {
+        var inputs = new[] { V2ContractTestData.PublicDataProvenance(), V2ContractTestData.ScreenshotProvenance() };
+        var perSquare = Derived(inputs);
+
+        inputs[1] = V2ContractTestData.ModelProvenance(EvidenceSourceClass.ModelledEstimate);
+
+        Assert.Equal(EvidenceSourceClass.GameWrittenScreenshot, perSquare.Inputs[1].SourceClass);
+        Assert.False(perSquare.Inputs is EvidenceProvenance[]);
+        Assert.Throws<NotSupportedException>(() => ((IList<EvidenceProvenance>)perSquare.Inputs)[1] = inputs[1]);
+        Assert.Throws<NotSupportedException>(() => ((ICollection<EvidenceProvenance>)perSquare.Inputs).Clear());
     }
 
     [Fact]
