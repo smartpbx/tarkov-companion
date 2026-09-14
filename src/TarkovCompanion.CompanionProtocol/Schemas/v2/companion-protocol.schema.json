@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkov-companion.local/schemas/paired-device/2.0/companion-protocol.schema.json",
+  "title": "Tarkov Companion paired-device protocol 2.0",
+  "$comment": "String limits are UTF-8 byte limits enforced by CompanionProtocolJson; JSON Schema maxLength is an additional character bound.",
+  "oneOf": [
+    { "$ref": "#/$defs/clientCommandEnvelope" },
+    { "$ref": "#/$defs/serverEnvelope" },
+    { "$ref": "#/$defs/opaqueRelayFrame" },
+    { "$ref": "#/$defs/clientHello" },
+    { "$ref": "#/$defs/serverHello" },
+    { "$ref": "#/$defs/pairingRequest" },
+    { "$ref": "#/$defs/pairingChallenge" },
+    { "$ref": "#/$defs/pairingProof" },
+    { "$ref": "#/$defs/reconnectRequest" },
+    { "$ref": "#/$defs/reconnectPlan" }
+  ],
+  "$defs": {
+    "version": {
+      "type": "object",
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "type": "integer", "minimum": 1, "maximum": 99 },
+        "minor": { "type": "integer", "minimum": 0, "maximum": 999 }
+      }
+    },
+    "guidId": {
+      "type": "object",
+      "required": ["value"],
+      "properties": { "value": { "type": "string", "format": "uuid" } }
+    },
+    "utc": { "type": "string", "format": "date-time", "pattern": "(?:Z|\\+00:00)$" },
+    "clientHello": {
+      "type": "object",
+      "required": ["supportedVersions", "clientInstanceId", "optionalFeatures"],
+      "properties": {
+        "supportedVersions": { "type": "object" },
+        "clientInstanceId": { "type": "string", "maxLength": 128 },
+        "optionalFeatures": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } }
+      }
+    },
+    "serverHello": {
+      "type": "object",
+      "required": ["disposition", "desktopVersions"],
+      "properties": {
+        "disposition": { "enum": ["Compatible", "UpgradeClient", "UpgradeDesktop", "NoSharedMajor"] },
+        "negotiatedVersion": { "$ref": "#/$defs/version" },
+        "desktopVersions": { "type": "object" }
+      }
+    },
+    "pairingRequest": {
+      "type": "object",
+      "required": ["attemptId", "requestedDeviceName", "deviceKey", "ephemeralKey", "clientNonceBase64Url"],
+      "properties": {
+        "attemptId": { "$ref": "#/$defs/guidId" },
+        "requestedDeviceName": { "type": "string", "maxLength": 128 },
+        "deviceKey": {
+          "type": "object",
+          "required": ["keyId", "algorithm", "credentialIdBase64Url", "cosePublicKeyBase64Url"],
+          "properties": {
+            "algorithm": { "const": "WebAuthnEs256" },
+            "credentialIdBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+            "cosePublicKeyBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+          }
+        },
+        "ephemeralKey": { "type": "object" },
+        "clientNonceBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+      }
+    },
+    "pairingChallenge": {
+      "type": "object",
+      "required": ["challengeId", "attemptId", "deviceKeyId", "challengeBase64Url", "desktopEphemeralKey", "approvedUtc", "expiresUtc"],
+      "properties": {
+        "challengeId": { "type": "string", "maxLength": 128 },
+        "attemptId": { "$ref": "#/$defs/guidId" },
+        "deviceKeyId": { "type": "object", "required": ["value"], "properties": { "value": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } } },
+        "challengeBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "desktopEphemeralKey": { "type": "object" },
+        "approvedUtc": { "$ref": "#/$defs/utc" },
+        "expiresUtc": { "$ref": "#/$defs/utc" }
+      }
+    },
+    "pairingProof": {
+      "type": "object",
+      "required": ["challengeId", "signatureBase64Url"],
+      "properties": {
+        "challengeId": { "type": "string", "maxLength": 128 },
+        "signatureBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+      }
+    },
+    "command": {
+      "oneOf": [
+        { "$ref": "#/$defs/setInteractionMode" },
+        { "$ref": "#/$defs/requestControl" },
+        { "$ref": "#/$defs/resolveControl" },
+        { "$ref": "#/$defs/preemptControl" },
+        { "$ref": "#/$defs/controlWorkspace" },
+        { "$ref": "#/$defs/showOnDesktop" },
+        { "$ref": "#/$defs/upsertMark" },
+        { "$ref": "#/$defs/deleteMark" },
+        { "$ref": "#/$defs/requestCaptureIntent" },
+        { "$ref": "#/$defs/reportCaptureProgress" },
+        { "$ref": "#/$defs/publishCaptureResult" },
+        { "$ref": "#/$defs/reviewCaptureResult" },
+        { "$ref": "#/$defs/correctCaptureResult" }
+      ]
+    },
+    "commandBase": {
+      "type": "object",
+      "required": ["type", "commandId", "requestedRevision", "issuedUtc", "expiresUtc", "offlineQueuePreview"],
+      "properties": {
+        "type": { "type": "string" },
+        "commandId": { "$ref": "#/$defs/guidId" },
+        "requestedRevision": { "type": "object" },
+        "issuedUtc": { "$ref": "#/$defs/utc" },
+        "expiresUtc": { "$ref": "#/$defs/utc" },
+        "offlineQueuePreview": { "type": ["object", "null"] }
+      }
+    },
+    "setInteractionMode": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "setInteractionMode" }, "mode": { "enum": ["Follow", "Independent"] } }, "required": ["mode"] }] },
+    "requestControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "requestControl" } }, "required": ["requestedLease"] }] },
+    "resolveControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "resolveControl" } }, "required": ["requestCommandId", "approved", "leaseId"] }] },
+    "preemptControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "preemptControl" } }, "required": ["reason"] }] },
+    "controlWorkspace": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "controlWorkspace" } }, "required": ["action"] }] },
+    "showOnDesktop": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "showOnDesktop" } }, "required": ["projection"] }] },
+    "upsertMark": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "upsertMark" } }, "required": ["markId", "expectedMarkRevision", "mark"] }] },
+    "deleteMark": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "deleteMark" } }, "required": ["markId", "expectedMarkRevision"] }] },
+    "requestCaptureIntent": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "requestCaptureIntent" }, "purpose": { "enum": ["LootDecision", "FullStash", "Ammo", "Keys", "QuestAndFutureQuestItems", "MapAndExtracts", "HealthAndCharacter", "AutoDetect"] } }, "required": ["intentId", "correlationId", "captureSessionId", "purpose", "context"] }] },
+    "reportCaptureProgress": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "reportCaptureProgress" } }, "required": ["intentId", "phase", "percent", "artifactId", "captureOrdinal", "detail"] }] },
+    "publishCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "publishCaptureResult" } }, "required": ["intentId", "result", "guidance"] }] },
+    "reviewCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "reviewCaptureResult" } }, "required": ["intentId", "disposition", "note"] }] },
+    "correctCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "correctCaptureResult" } }, "required": ["intentId", "kind", "fieldId", "correctedValue", "reason"] }] },
+    "clientCommandEnvelope": {
+      "type": "object",
+      "required": ["protocolVersion", "sessionId", "clientSentUtc", "command"],
+      "properties": {
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "sessionId": { "$ref": "#/$defs/guidId" },
+        "clientSentUtc": { "$ref": "#/$defs/utc" },
+        "command": { "$ref": "#/$defs/command" }
+      }
+    },
+    "serverEnvelope": {
+      "type": "object",
+      "required": ["protocolVersion", "sessionId", "authenticatedOriginDeviceId", "serverUtc", "deliverySequence", "message"],
+      "properties": {
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "sessionId": { "$ref": "#/$defs/guidId" },
+        "authenticatedOriginDeviceId": { "$ref": "#/$defs/guidId" },
+        "serverUtc": { "$ref": "#/$defs/utc" },
+        "deliverySequence": { "type": "object" },
+        "message": { "$ref": "#/$defs/serverMessage" }
+      }
+    },
+    "serverMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/commandAcknowledgementMessage" },
+        { "$ref": "#/$defs/canonicalSnapshotMessage" },
+        { "$ref": "#/$defs/canonicalUpdateMessage" },
+        { "$ref": "#/$defs/deprecationMessage" }
+      ]
+    },
+    "commandAcknowledgementMessage": {
+      "type": "object",
+      "required": ["type", "acknowledgement"],
+      "properties": {
+        "type": { "const": "commandAcknowledgement" },
+        "acknowledgement": { "type": "object" }
+      }
+    },
+    "canonicalSnapshotMessage": {
+      "type": "object",
+      "required": ["type", "state"],
+      "properties": {
+        "type": { "const": "canonicalSnapshot" },
+        "state": { "type": "object" }
+      }
+    },
+    "canonicalUpdateMessage": {
+      "type": "object",
+      "required": ["type", "update"],
+      "properties": {
+        "type": { "const": "canonicalUpdate" },
+        "update": {
+          "type": "object",
+          "required": ["type", "authorityEpoch", "globalRevision", "changeId", "changedUtc", "state"],
+          "properties": {
+            "type": { "enum": ["deviceMode", "workspace", "marks", "captureIntent"] },
+            "authorityEpoch": { "$ref": "#/$defs/guidId" },
+            "globalRevision": { "type": "object" },
+            "changeId": { "$ref": "#/$defs/guidId" },
+            "changedUtc": { "$ref": "#/$defs/utc" },
+            "state": { "type": "object" }
+          }
+        }
+      }
+    },
+    "deprecationMessage": {
+      "type": "object",
+      "required": ["type", "notice"],
+      "properties": {
+        "type": { "const": "deprecation" },
+        "notice": { "type": "object" }
+      }
+    },
+    "opaqueRelayFrame": {
+      "type": "object",
+      "required": ["protocolVersion", "channelId", "sessionId", "keyEpoch", "senderSequence", "cipherSuite", "nonceBase64Url", "ciphertextChunksBase64Url", "authenticationTagBase64Url", "issuedUtc", "expiresUtc"],
+      "properties": {
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "channelId": { "$ref": "#/$defs/guidId" },
+        "sessionId": { "$ref": "#/$defs/guidId" },
+        "keyEpoch": { "type": "integer", "minimum": 1 },
+        "senderSequence": { "type": "integer", "minimum": 1 },
+        "cipherSuite": { "const": "P256HkdfSha256Aes256Gcm" },
+        "nonceBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "ciphertextChunksBase64Url": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "type": "string", "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$" }
+        },
+        "authenticationTagBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "issuedUtc": { "$ref": "#/$defs/utc" },
+        "expiresUtc": { "$ref": "#/$defs/utc" }
+      }
+    },
+    "reconnectRequest": {
+      "type": "object",
+      "required": ["protocolVersion", "sessionId", "authorityEpoch", "lastGlobalRevision", "lastDeliverySequence", "aggregateAcknowledgements"],
+      "properties": {
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "sessionId": { "$ref": "#/$defs/guidId" },
+        "authorityEpoch": { "$ref": "#/$defs/guidId" },
+        "lastGlobalRevision": { "type": "object" },
+        "lastDeliverySequence": { "type": "object" },
+        "aggregateAcknowledgements": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["aggregate", "revision", "acknowledgedUtc"],
+            "properties": {
+              "aggregate": { "enum": ["DeviceModes", "Workspace", "Marks", "CaptureIntent"] },
+              "revision": { "type": "object" },
+              "appliedChangeId": { "type": ["object", "null"] },
+              "acknowledgedUtc": { "$ref": "#/$defs/utc" }
+            }
+          }
+        }
+      }
+    },
+    "reconnectPlan": {
+      "type": "object",
+      "required": ["protocolVersion", "disposition", "replay", "reason"],
+      "properties": {
+        "protocolVersion": { "$ref": "#/$defs/version" },
+        "disposition": { "enum": ["UpToDate", "Replay", "FullSnapshot", "UnsupportedVersion"] },
+        "replay": { "type": "array", "maxItems": 256, "items": { "type": "object" } },
+        "snapshot": { "type": ["object", "null"] },
+        "reason": { "type": "string", "maxLength": 128 }
+      }
+    }
+  }
+}
