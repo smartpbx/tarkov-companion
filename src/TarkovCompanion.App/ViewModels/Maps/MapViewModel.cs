@@ -2299,6 +2299,33 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         FollowsPlayer = false;
     }
 
+    /// <summary>
+    /// Whether there is anywhere to drag the map to.
+    /// </summary>
+    /// <remarks>
+    /// Panning moves the scroll offset, and a scroll offset has no range when the content is
+    /// no larger than the panel it sits in. The map opens fitted — the whole of it on screen
+    /// by definition — so the first thing a player does with it, dragging, does nothing at
+    /// all, and does nothing silently.
+    ///
+    /// Reported as "i cant move the map around or anything". Nothing is broken: there is
+    /// nowhere to go. What was missing is anything saying so, which is the difference between
+    /// a map that is fitted and a map that is dead.
+    ///
+    /// A seam, so the rule can be checked without a window: the arithmetic is the whole claim.
+    /// </remarks>
+    public static bool CanPan(Size extent, Size viewport) =>
+        extent.Width > viewport.Width + 0.5 || extent.Height > viewport.Height + 0.5;
+
+    /// <summary>Answers a drag that had nowhere to go.</summary>
+    /// <remarks>
+    /// Said on the drag rather than on the fit, because that is the moment somebody is asking
+    /// the question. Saying it beside the zoom controls when the map settles would be a notice
+    /// nobody was looking for, every time the map is fitted.
+    /// </remarks>
+    public void ReportNothingToPan() =>
+        Status = "The whole map is in view. Zoom in, and then it can be dragged.";
+
     /// <summary>Whether this map publishes both a tile set and a drawing.</summary>
     public bool HasArtworkChoice
     {
