@@ -87,16 +87,18 @@ passing CI run is separate automated evidence and proves only what its named pat
 - **Reviewed:** strategy/domain contracts, `GroupSessionService.cs`, `GroupContracts.cs`,
   `GroupRooms.cs`, `docs/SAFETY.md`.
 - **Verdict:** **Held for the no-live-enemy boundary in current source; the generic V2 evidence
-  contract rejects live-player inputs, while feature-specific #305/#311 assertions remain. A
-  separate safety-policy/source mismatch remains open.**
+  contract rejects screenshot provenance, live/player vocabulary, and non-allowlisted payload
+  shapes. It cannot decide whether semantically live observations were hidden inside an allowed
+  log or curated input, so feature-specific #305/#311 assertions remain. A separate safety-policy/
+  source mismatch remains open.**
 
 ## 7. No in-game overlay
 
 - **Pattern control:** `audit-safety.sh` rejects `GameOverlay` and click-through windows, detects a
   topmost+layered Win32 flag combination across formatting, and detects game-window reparenting
   within one or adjacent statements. It fails closed on scanner errors and scan-root symlinks and
-  self-tests those cases. A pure Avalonia `Topmost` window is intentionally not forbidden because
-  ordinary companion placement is allowed; a different or dynamically expressed overlay
+  self-tests symlink rejection. A pure Avalonia `Topmost` window is intentionally not forbidden
+  because ordinary companion placement is allowed; a different or dynamically expressed overlay
   mechanism can still evade a lexical ratchet.
 - **Current architecture/source:** current App views contain one normal main window and page/user
   controls. A source search found no `Topmost`, transparency/layered, click-through, reparenting,
@@ -117,8 +119,10 @@ passing CI run is separate automated evidence and proves only what its named pat
   location claim. Precision must not imply a live observation.
 - **Current structural status:** merged #264 supplies closed typed evidence/intelligence envelopes,
   source-class allowlists, bounded lineage, construction/JSON validation, and deterministic tests
-  that reject live/screenshot/player-observation inputs. That generic contract does not prove the
-  future #305/#311 feature presenters or dataset lifecycle are correct before they exist.
+  that reject screenshot provenance, live/player vocabulary, and non-allowlisted payload shapes.
+  Allowed log or curated inputs can still conceal semantically live observations; the generic
+  contract does not prove the future #305/#311 input validation, presenters, or dataset lifecycle
+  are correct before they exist.
 - **Reviewed:** `docs/SAFETY.md`, `docs/V2_CONTRACT.md`, ADR 0008, the merged Core V2 evidence and
   modelled-intelligence types, their wire allowlists/guards, and V2 contract tests.
 - **Verdict:** **Held for the generic V2 evidence/wire contract; feature-specific review remains.**
