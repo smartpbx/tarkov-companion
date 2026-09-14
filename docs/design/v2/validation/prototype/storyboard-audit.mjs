@@ -46,6 +46,25 @@ function findChromium() {
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
+function browserHasExited() {
+  return !browser || browser.exitCode !== null || browser.signalCode !== null;
+}
+
+async function stopBrowser() {
+  if (browserHasExited()) return;
+
+  const exited = once(browser, 'exit').then(() => true);
+  browser.kill('SIGTERM');
+  const terminated = await Promise.race([exited, delay(2000).then(() => false)]);
+  if (terminated || browserHasExited()) return;
+
+  browser.kill('SIGKILL');
+  const killed = await Promise.race([exited, delay(2000).then(() => false)]);
+  if (!killed && !browserHasExited()) {
+    throw new Error('Chromium did not exit after SIGTERM and SIGKILL; profile cleanup was stopped.');
+  }
+}
+
 async function waitForFile(file) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (fs.existsSync(file)) return;
@@ -362,18 +381,13 @@ try {
   try {
     if (page) page.close();
   } finally {
-    try {
-      if (browser && browser.exitCode === null) {
-        const exited = once(browser, 'exit');
-        browser.kill('SIGTERM');
-        await Promise.race([exited, delay(2000)]);
-      }
-    } finally {
-      if (userData) {
-        const profile = userData;
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-        if (fs.existsSync(profile)) throw new Error(`Storyboard audit profile was not cleaned up: ${profile}`);
-      }
+    // Never remove a profile while Chromium may still be using it. SIGTERM gets a bounded grace
+    // period; SIGKILL is then bounded and its exit is observed before deletion can begin.
+    await stopBrowser();
+    if (userData) {
+      const profile = userData;
+      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      if (fs.existsSync(profile)) throw new Error(`Storyboard audit profile was not cleaned up: ${profile}`);
     }
   }
 }
