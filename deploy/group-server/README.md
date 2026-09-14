@@ -22,6 +22,13 @@ unprivileged and cannot start a unit; it writes `UPDATE_NOW` in its state direct
 watches for that file and runs the same update the timer runs. Without it the button writes a
 file nothing reads, and the update still happens — at the next tick, up to half an hour later.
 
+**This is the last hand install.** The updater now ships these three units and itself inside the
+archive, and installs them after a new build has answered `/health`. Before that it replaced the
+server tree and nothing else, so every fix to this directory sat in the repo doing nothing: the
+relay was running the 13 September updater a day after its stamp bug was fixed here, with the
+bug live. `tarkov-group.service` is still yours — it is hand-maintained, carries the admin key
+drop-in, and is the one unit this repository does not know the contents of.
+
 The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.GroupServer` with
 `ASPNETCORE_URLS=http://0.0.0.0:8090`. It takes no configuration: since the group key became
 the room, the server holds no secrets and there is nothing to set.
