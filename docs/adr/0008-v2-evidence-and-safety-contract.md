@@ -68,11 +68,15 @@ Raid-clock source, basis, bound, provenance, and capture-time rules apply to eve
 candidate, correction, and result-level extract/map candidate at the public envelope and
 serialization boundary. A shared linear footprint enumeration covers the current item, item
 candidates, and every determined width/height value, candidate, and correction; both grid-relative
-and absolute stash-container checks use it. A placed stash cell is checked in absolute container
-space even when its region dimensions were not read, using remaining room so origin-plus-offset
-arithmetic cannot overflow. A conflict acknowledgement must name another change at a positive
-applied revision because revision zero represents no applied change, and a transit carries no
-canonical extract-ID value, candidate, or correction because it has no extract-catalog match.
+and absolute stash-container checks use it. The absolute check derives the furthest claimed origin
+and the maximum geometry, cell, and span extents in linear work rather than multiplying origin and
+grid claims. A placed stash cell is checked in absolute container space even when its region
+dimensions were not read, using remaining room so origin-plus-offset arithmetic cannot overflow.
+The public recognition envelope also binds every exact allowlisted payload type to its one complete
+detected context, while the unresolved payload requires an absent current context even without a
+named result wrapper. A conflict acknowledgement must name another change at a positive applied
+revision because revision zero represents no applied change, and a transit carries no canonical
+extract-ID value, candidate, or correction because it has no extract-catalog match.
 
 Three anti-cheat fixtures do not change: no game process memory, generated game-directed mouse,
 keyboard, or controller input, or in-game overlay. V2 also retains the current exclusions on
@@ -91,9 +95,12 @@ Safety auditing gains both allowed and prohibited fixtures and targets prohibite
 rather than adjacent API names. Hidden and ignore-matched source belongs to the scan universe;
 generated `bin` and `obj` output does not. The line scan prefers no-follow `rg` and intentionally
 falls back to no-follow `grep -r` when `rg` is absent; a missing `rg` alone is therefore not an
-error. A directory-symlink self-test keeps either scanner from expanding an owned root outside the
-repository. The selected scanner and the required `git` and `perl` tools fail closed on absence or
-execution errors, and the overlay capabilities that span statements are matched by statement
-rather than by line or identifier naming. Pattern matching remains a narrow early warning and
-architecture tests enforce protocol shape; neither is treated as a substitute for review.
-Transport authentication and feature composition remain outside this ADR.
+error. A shared `lstat` traversal makes either line scanner fail on every file or directory symlink
+under an owned root, and the Perl overlay traversal applies the same rule before its file tests.
+File-link and directory-link self-tests exercise every available line scanner and Perl, so a
+tracked source link cannot vanish from one scanner's universe. The selected scanner and the
+required `git` and `perl` tools fail closed on absence or execution errors, and the overlay
+capabilities that span statements are matched by statement rather than by line or identifier
+naming. Pattern matching remains a narrow early warning and architecture tests enforce protocol
+shape; neither is treated as a substitute for review. Transport authentication and feature
+composition remain outside this ADR.

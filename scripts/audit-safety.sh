@@ -66,6 +66,43 @@ readonly TASK_OVERLAY_CAPABILITIES=(
     're-parented onto the game window'
 )
 
+# The line scanners deliberately do not follow links, but silently skipping a link is still a
+# fail-open universe: a tracked .cs symlink could hide source from both of them. Walk each owned
+# root first and reject every file or directory symlink. lstat must precede -d/-f because those
+# tests dereference a link and would otherwise misclassify it as ordinary source.
+read -r -d '' TASK_SYMLINK_SCANNER <<'PERL' || true
+use strict;
+use warnings;
+use File::Find;
+
+sub fail_scan {
+    print STDERR "safety scan error: $_[0]\n";
+    exit 2;
+}
+
+sub inspect_path {
+    my ($path) = @_;
+    lstat($path) or fail_scan("cannot lstat $path: $!");
+    fail_scan("symbolic link is not allowed under a scan root: $path") if -l _;
+}
+
+for my $root (@ARGV) {
+    inspect_path($root);
+    if (-d _) {
+        find({
+            wanted => sub {
+                my $path = $File::Find::name;
+                inspect_path($path);
+            },
+            no_chdir => 1,
+        }, $root);
+    } elsif (!-f _) {
+        fail_scan("scan root is not a regular file or directory: $root");
+    }
+}
+PERL
+readonly TASK_SYMLINK_SCANNER
+
 # A companion Perl scanner for the two overlay capabilities that cannot be caught reliably by a
 # single-line substring pattern (see the comment above TASK_FORBIDDEN_PATTERNS). Perl is used
 # instead of rg/grep here because both capabilities need a small amount of structural context -
@@ -87,22 +124,38 @@ local $SIG{__WARN__} = sub {
 
 my @files;
 for my $root (@ARGV) {
-    if (-d $root) {
+    lstat($root) or do {
+        print STDERR "overlay scan error: cannot lstat $root: $!\n";
+        exit 2;
+    };
+    if (-l _) {
+        print STDERR "overlay scan error: symbolic link is not allowed under a scan root: $root\n";
+        exit 2;
+    } elsif (-d _) {
         find({
             # With no_chdir, $_ is the whole path, so the build directories are matched by their
             # last component. Comparing $_ to 'bin' never matched, so after a build the scan read
             # Avalonia.Win32.dll under src/TarkovCompanion.App/bin and reported a topmost layered
             # window, and CI runs this audit after its Release build.
             wanted => sub {
-                if (-d $_ && m{(?:^|/)(?:bin|obj)\z}) {
+                my $path = $File::Find::name;
+                lstat($path) or do {
+                    print STDERR "overlay scan error: cannot lstat $path: $!\n";
+                    exit 2;
+                };
+                if (-l _) {
+                    print STDERR "overlay scan error: symbolic link is not allowed under a scan root: $path\n";
+                    exit 2;
+                }
+                if (-d _ && $path =~ m{(?:^|/)(?:bin|obj)\z}) {
                     $File::Find::prune = 1;
                     return;
                 }
-                push @files, $File::Find::name if -f $_;
+                push @files, $path if -f _;
             },
             no_chdir => 1,
         }, $root);
-    } elsif (-f $root) {
+    } elsif (-f _) {
         push @files, $root;
     } else {
         print STDERR "overlay scan error: no such file or directory: $root\n";
@@ -180,7 +233,21 @@ if ! command -v perl >/dev/null 2>&1; then
     exit 1
 fi
 
-scan_safety_patterns() {
+assert_scan_roots_are_symlink_free() {
+    local status=0
+    perl - "$@" <<<"${TASK_SYMLINK_SCANNER}" >/dev/null || status=$?
+    if (( status != 0 )); then
+        printf '%s\n' "Safety audit failed: symlink scan error (exit ${status}) while scanning: $*" >&2
+        exit 1
+    fi
+}
+
+scan_safety_patterns_with() {
+    local scanner="$1"
+    shift
+
+    assert_scan_roots_are_symlink_free "$@"
+
     # Distinguishes "no match" (rg/grep exit 1) from a real scanner error (any other nonzero
     # exit - a bad pattern, a permissions problem, a crashed process). A scanner error used to
     # be swallowed by `|| true` and silently read as "nothing found," which would have let a
@@ -190,12 +257,11 @@ scan_safety_patterns() {
     # `!` collapses $? to a plain 0/1, so the real exit code is captured through `||` instead -
     # that preserves rg/grep's actual status (1 = no match, >1 = a real scanner error) while
     # staying exempt from `set -e`.
-    if command -v rg >/dev/null 2>&1; then
+    if [[ "${scanner}" == rg ]]; then
         # The grep fallback naturally walks dotfiles and does not consult ignore files. Keep rg's
         # source universe identical: hidden and ignored source remains safety-relevant, generated
-        # build output is explicitly pruned, and neither scanner follows directory symlinks. rg
-        # does not follow them by default; lowercase grep -r preserves that boundary, whereas -R
-        # would dereference a link and could expand an owned scan root outside the repository.
+        # build output is explicitly pruned, and the shared lstat walk has already proved there
+        # are no file or directory links for either scanner to skip or dereference.
         output="$(rg -n -i --hidden --no-ignore \
             --glob '!bin/**' --glob '!obj/**' \
             --glob '!**/bin/**' --glob '!**/obj/**' \
@@ -206,13 +272,26 @@ scan_safety_patterns() {
             "${TASK_FORBIDDEN_PATTERN}" "$@")" || status=$?
     fi
     if (( status > 1 )); then
-        printf '%s\n' "Safety audit failed: scanner error (exit ${status}) while scanning: $*" >&2
+        printf '%s\n' "Safety audit failed: ${scanner} error (exit ${status}) while scanning: $*" >&2
         exit 1
     fi
     printf '%s' "${output}"
 }
 
+scan_safety_patterns() {
+    if command -v rg >/dev/null 2>&1; then
+        scan_safety_patterns_with rg "$@"
+    elif command -v grep >/dev/null 2>&1; then
+        scan_safety_patterns_with grep "$@"
+    else
+        printf '%s\n' "Safety audit failed: no line scanner is available (rg or grep)." >&2
+        exit 1
+    fi
+}
+
 scan_overlay_capabilities() {
+    assert_scan_roots_are_symlink_free "$@"
+
     local status=0
     local output=""
     output="$(perl - "$@" <<<"${TASK_OVERLAY_SCANNER}")" || status=$?
@@ -223,33 +302,57 @@ scan_overlay_capabilities() {
     printf '%s' "${output}"
 }
 
-# Keep the no-follow rule executable rather than relying on the option spelling above. The
-# prohibited target sits beyond the scan root behind a directory symlink, the same traversal an
-# in-repository link to an outside path would require. Both the selected line scanner and the
-# Perl overlay scanner must leave it outside their universe. The temporary fixture and every
-# cleanup target are bounded inside tests/safety-contract; no recursive removal is used.
-TASK_NO_FOLLOW_ROOT="$(mktemp -d "${TASK_FIXTURE_ROOT}/.no-follow.XXXXXX")"
-cleanup_no_follow_fixture() {
+# Prove all three scanner paths fail closed on both link shapes. A file symlink models a tracked
+# compiled C# path whose target carries prohibited source; a directory symlink models a whole
+# hidden subtree. The temporary fixture and every cleanup target are bounded inside
+# tests/safety-contract; no recursive removal is used.
+TASK_SYMLINK_TEST_ROOT="$(mktemp -d "${TASK_FIXTURE_ROOT}/.symlink-rejection.XXXXXX")"
+cleanup_symlink_fixture() {
     rm -f -- \
-        "${TASK_NO_FOLLOW_ROOT}/scan/outside" \
-        "${TASK_NO_FOLLOW_ROOT}/outside/prohibited.txt"
+        "${TASK_SYMLINK_TEST_ROOT}/scan/compiled-source.cs" \
+        "${TASK_SYMLINK_TEST_ROOT}/scan/linked-source" \
+        "${TASK_SYMLINK_TEST_ROOT}/outside/prohibited.cs" \
+        "${TASK_SYMLINK_TEST_ROOT}/outside-file.cs"
     rmdir -- \
-        "${TASK_NO_FOLLOW_ROOT}/scan" \
-        "${TASK_NO_FOLLOW_ROOT}/outside" \
-        "${TASK_NO_FOLLOW_ROOT}" 2>/dev/null || true
+        "${TASK_SYMLINK_TEST_ROOT}/scan" \
+        "${TASK_SYMLINK_TEST_ROOT}/outside" \
+        "${TASK_SYMLINK_TEST_ROOT}" 2>/dev/null || true
 }
-trap cleanup_no_follow_fixture EXIT
-mkdir "${TASK_NO_FOLLOW_ROOT}/scan" "${TASK_NO_FOLLOW_ROOT}/outside"
+trap cleanup_symlink_fixture EXIT
+mkdir "${TASK_SYMLINK_TEST_ROOT}/scan" "${TASK_SYMLINK_TEST_ROOT}/outside"
 printf '%s\n' 'ReadProcessMemory' 'WS_EX_LAYERED | WS_EX_TOPMOST' \
-    > "${TASK_NO_FOLLOW_ROOT}/outside/prohibited.txt"
-ln -s ../outside "${TASK_NO_FOLLOW_ROOT}/scan/outside"
-TASK_NO_FOLLOW_PATTERN_MATCHES="$(scan_safety_patterns "${TASK_NO_FOLLOW_ROOT}/scan")"
-TASK_NO_FOLLOW_OVERLAY_MATCHES="$(scan_overlay_capabilities "${TASK_NO_FOLLOW_ROOT}/scan")"
-if [[ -n "${TASK_NO_FOLLOW_PATTERN_MATCHES}" || -n "${TASK_NO_FOLLOW_OVERLAY_MATCHES}" ]]; then
-    printf '%s\n' "Safety audit self-test failed: a scanner followed a directory symlink outside its scan root." >&2
-    exit 1
-fi
-cleanup_no_follow_fixture
+    > "${TASK_SYMLINK_TEST_ROOT}/outside-file.cs"
+printf '%s\n' 'ReadProcessMemory' 'WS_EX_LAYERED | WS_EX_TOPMOST' \
+    > "${TASK_SYMLINK_TEST_ROOT}/outside/prohibited.cs"
+
+assert_symlink_shape_is_rejected() {
+    local shape="$1"
+    local scanner
+    local scanners=(grep)
+    command -v rg >/dev/null 2>&1 && scanners+=(rg)
+
+    for scanner in "${scanners[@]}"; do
+        if (scan_safety_patterns_with "${scanner}" "${TASK_SYMLINK_TEST_ROOT}/scan" >/dev/null 2>&1); then
+            printf '%s\n' "Safety audit self-test failed: ${scanner} accepted a ${shape} symlink in its scan universe." >&2
+            exit 1
+        fi
+    done
+
+    if (scan_overlay_capabilities "${TASK_SYMLINK_TEST_ROOT}/scan" >/dev/null 2>&1); then
+        printf '%s\n' "Safety audit self-test failed: Perl accepted a ${shape} symlink in its scan universe." >&2
+        exit 1
+    fi
+}
+
+ln -s ../outside-file.cs "${TASK_SYMLINK_TEST_ROOT}/scan/compiled-source.cs"
+assert_symlink_shape_is_rejected file
+rm -f -- "${TASK_SYMLINK_TEST_ROOT}/scan/compiled-source.cs"
+
+ln -s ../outside "${TASK_SYMLINK_TEST_ROOT}/scan/linked-source"
+assert_symlink_shape_is_rejected directory
+rm -f -- "${TASK_SYMLINK_TEST_ROOT}/scan/linked-source"
+
+cleanup_symlink_fixture
 trap - EXIT
 
 TASK_SAFETY_MATCHES="$(scan_safety_patterns \
