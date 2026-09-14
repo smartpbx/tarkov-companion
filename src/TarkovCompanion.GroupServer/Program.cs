@@ -170,6 +170,9 @@ var startedUtc = DateTimeOffset.UtcNow;
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
+    // What this server speaks. A client holding a different number can say so instead of
+    // quietly missing a field and looking like a feature that does not work.
+    protocol = GroupProtocol.Version,
     version,
     commit,
     startedUtc,

@@ -180,6 +180,22 @@ public sealed record GroupMemberState(
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
 
     /// <summary>
+    /// How long ago this member last published anything, in seconds.
+    /// </summary>
+    /// <remarks>
+    /// Different from <see cref="PositionAgeSeconds"/>, and the difference is the point. That
+    /// one ages the screenshot a member's position came from; this ages the member. A companion
+    /// that crashed mid-raid keeps its last exchange's position age for ever, so the panel read
+    /// "12s ago" for the three minutes until the room forgot them — the marker looked live right
+    /// up to the moment it vanished.
+    ///
+    /// Filled in by the server on the way out, because only the server knows when it last heard
+    /// from somebody. A publisher has no idea how long ago its own last message arrived.
+    /// </remarks>
+    [JsonPropertyName("sinceSeconds")]
+    public double? SinceSeconds { get; init; }
+
+    /// <summary>
     /// The exits this member's game offered them, as their own scan read them.
     /// </summary>
     /// <remarks>
@@ -294,6 +310,27 @@ public sealed record GroupRoomState(
 
     /// <summary>Places somebody is pointing at right now, which fade.</summary>
     public IReadOnlyList<GroupPing> Pings { get; init; } = [];
+
+    /// <summary>What this server speaks, so a client can tell skew from breakage.</summary>
+    [JsonPropertyName("protocol")]
+    public int Protocol { get; init; } = GroupProtocol.Version;
+}
+
+/// <summary>
+/// The number that says whether two builds understand each other.
+/// </summary>
+/// <remarks>
+/// Everything on this wire is additive — new fields are optional and an older reader ignores
+/// them — so a mismatch is almost never fatal. That is exactly why it needs saying out loud:
+/// a client quietly missing a field it was never sent looks identical to a feature that does
+/// not work, and the day the group key replaced a room name and a server secret, a client that
+/// had updated could not talk to a server that had not, and nothing anywhere said so.
+///
+/// Raise this when a change is not additive. Do not raise it for a new optional field.
+/// </remarks>
+public static class GroupProtocol
+{
+    public const int Version = 1;
 }
 
 /// <summary>One room as the admin panel shows it.</summary>

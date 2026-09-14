@@ -252,6 +252,28 @@ What it does write is two files, both in its state directory and neither about w
 been: `marks.json`, the waypoints a group placed, and `rooms.json`, the rooms an operator
 registered. Both survive a restart on purpose — the relay updates itself every half hour.
 
+## Which version everything speaks
+
+Every room reply and `/health` carry `protocol`, a whole number.
+
+Everything on this wire is additive: a new field is optional and an older reader ignores it. So
+a mismatch is almost never fatal — which is exactly why it is worth stating. A client quietly
+missing a field it was never sent looks identical to a feature that does not work, and there is
+no way to tell those apart from inside the application. The day the group key replaced a room
+name and a server-side secret, a client that had updated could not talk to a server that had
+not, and nothing anywhere said so.
+
+The number goes up only when a change is **not** additive. A new optional field does not raise
+it.
+
+A client that sees a different number says so once, on the same line that describes the group:
+
+> Relay speaks 2, this build speaks 3 · it updates itself within half an hour
+
+Neither direction is an error and neither stops sharing. The relay updates itself every half
+hour, so a relay behind the client fixes itself; a relay ahead of it means the client is the one
+due an update.
+
 ## Responses
 
 | Code | Meaning |

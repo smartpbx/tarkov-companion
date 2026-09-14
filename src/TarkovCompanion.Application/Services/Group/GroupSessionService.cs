@@ -416,10 +416,14 @@ public sealed class GroupSessionService : IAsyncDisposable
                 members.Length);
         }
 
+        // Version skew is said on the same line the group is described on, because it is about
+        // this exchange rather than about the application, and because a second place to look
+        // is a place nobody looks.
+        var describe = DescribeSharing(settings.DisplayName, members.Length, snapshot);
         var published = new GroupSnapshot(
             true,
             members,
-            DescribeSharing(settings.DisplayName, members.Length, snapshot),
+            Skew(room?.Protocol) is { } skew ? $"{describe} · {skew}" : describe,
             DateTimeOffset.UtcNow)
         {
             // The things this companion cannot read about its own player, handed back by the
@@ -986,6 +990,24 @@ public sealed class GroupSessionService : IAsyncDisposable
         public long? ScavLockedUntilUnix { get; init; }
     }
 
+    /// <summary>
+    /// What this build speaks, against what the relay does.
+    /// </summary>
+    /// <remarks>
+    /// Everything on this wire is additive, so a mismatch is almost never fatal — which is why
+    /// it is worth saying. A client quietly missing a field it was never sent looks exactly like
+    /// a feature that does not work, and there is no way to tell them apart from inside the app.
+    ///
+    /// Said once and without alarm: the relay updates itself every half hour, so a relay behind
+    /// this build fixes itself, and a relay ahead of it means this build is the one due an
+    /// update. Neither is an error and neither stops sharing.
+    /// </remarks>
+    public const int Protocol = 1;
+
+    private static string? Skew(int? relay) => relay is { } spoken && spoken != Protocol
+        ? $"Relay speaks {spoken}, this build speaks {Protocol} · it updates itself within half an hour"
+        : null;
+
     private sealed record RoomStateDto(
         [property: JsonPropertyName("room")] string Room,
         [property: JsonPropertyName("members")] IReadOnlyList<MemberStateDto> Members)
@@ -995,6 +1017,10 @@ public sealed class GroupSessionService : IAsyncDisposable
 
         [JsonPropertyName("pings")]
         public IReadOnlyList<PingDto> Pings { get; init; } = [];
+
+        /// <summary>What the relay says it speaks, or null from one too old to say.</summary>
+        [JsonPropertyName("protocol")]
+        public int? Protocol { get; init; }
     }
 
     private sealed record ReachedDto([property: JsonPropertyName("by")] string By);

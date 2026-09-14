@@ -12,9 +12,11 @@ namespace TarkovCompanion.GroupServer;
 /// the server forgets everyone. Keeping a record would be easy and is the thing worth not
 /// doing.
 ///
-/// A room is identified by a name and a secret the group agrees between themselves. That is
-/// the whole access model: it suits a group of friends and it is not an account system, which
-/// is stated plainly rather than implied so nobody mistakes it for one.
+/// A room is identified by one key the group agrees between themselves, and the room is the
+/// hash of it — there is no separate room name and no server-side secret, which is what there
+/// used to be. That is the whole access model: it suits a group of friends and it is not an
+/// account system, which is stated plainly rather than implied so nobody mistakes it for one.
+/// An operator may additionally register which rooms are allowed to exist; see GroupRoomRegistry.
 /// </remarks>
 public sealed class GroupRooms(TimeProvider timeProvider)
 {
@@ -132,7 +134,11 @@ public sealed class GroupRooms(TimeProvider timeProvider)
 
             if (!string.Equals(key, exceptMemberKey, StringComparison.Ordinal))
             {
-                live.Add(entry.State);
+                // Aged here, because only this server knows when it last heard from them.
+                live.Add(entry.State with
+                {
+                    SinceSeconds = Math.Round((now - entry.PublishedUtc).TotalSeconds, 1),
+                });
             }
         }
 
