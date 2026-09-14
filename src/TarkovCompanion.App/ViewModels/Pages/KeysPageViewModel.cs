@@ -76,8 +76,8 @@ public sealed class KeysPageViewModel : PageViewModel
     private readonly IItemFactCatalog _catalog;
     private readonly IItemRepository _itemRepository;
     private readonly IQuestProgressService? _questProgress;
-    private readonly Func<string, string>? _nameOfMap;
-    private int? _namedMapCount;
+    private readonly IMapDataService? _maps;
+    private readonly Dictionary<string, string> _mapNames = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<KeyRowViewModel> _allKeys = [];
     private IReadOnlyList<KeyRowViewModel> _keys = [];
     private IReadOnlyList<KeyLockViewModel> _selectedLocks = [];
@@ -92,43 +92,57 @@ public sealed class KeysPageViewModel : PageViewModel
         IQuestProgressService? questProgress = null,
         // Names the map a key belongs to. Without it the rows print the raw identifier, which
         // is what they did: every key on the page read "Map id 56f40101d2720b2a4d8b45d6".
-        Func<string, string>? nameOfMap = null)
+        //
+        // The maps table rather than the map catalog, and that distinction is the whole of why
+        // the first attempt at this changed nothing. A key's map id is the game's own —
+        // 56f40101d2720b2a4d8b45d6 — and the map catalog is the-hideout's maps.json, whose
+        // locations are keyed by normalised name and carry no such id at all: MapLocation's
+        // SourceId reads an "id" property that file does not have, so it is null for every
+        // location and no lookup through it can ever match. The maps table is synced from
+        // tarkov.dev and is keyed by exactly that id.
+        IMapDataService? maps = null)
         : base("Keys", "Keep or sell, what each key opens, its uses and its price", "Not loaded")
     {
         _catalog = catalog;
         _itemRepository = itemRepository;
         _questProgress = questProgress;
-        _nameOfMap = nameOfMap;
+        _maps = maps;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
     /// <summary>
-    /// Renames the rows once the map catalog has arrived.
+    /// What a map is called, asked once per map rather than once per key.
     /// </summary>
     /// <remarks>
-    /// The same shape as History's, and for the same reason: the map catalog loads after this
-    /// page does, so a Keys page opened before it holds identifiers. The rows are rewritten in
-    /// place from the id they already carry rather than reloading the key table, and the
-    /// catalog's size is the only change signal there is.
+    /// Two hundred and fifty-seven keys across a dozen maps, so the cache is the difference
+    /// between a dozen reads and two hundred and fifty-seven. The id is kept as the answer when
+    /// the table has nothing, which is the rule the rest of the application follows: a name
+    /// nobody has yet is better shown as the id than as "Unknown".
     /// </remarks>
-    public void RenameMaps(int knownMapCount)
+    private async Task<string> NameOfMapAsync(string mapId, CancellationToken cancellationToken)
     {
-        if (_nameOfMap is null || _namedMapCount == knownMapCount || _allKeys.Count == 0)
+        if (_maps is null)
         {
-            return;
+            return mapId;
         }
 
-        _namedMapCount = knownMapCount;
-        _allKeys = [.. _allKeys.Select(Rename)];
-        Keys = [.. Keys.Select(Rename)];
-        if (_selected is { } selected)
+        if (_mapNames.TryGetValue(mapId, out var cached))
         {
-            _selected = Rename(selected);
+            return cached;
+        }
+
+        try
+        {
+            var name = (await _maps.GetAsync(mapId, cancellationToken).ConfigureAwait(true))?.Name ?? mapId;
+            _mapNames[mapId] = name;
+            return name;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _mapNames[mapId] = mapId;
+            return mapId;
         }
     }
-
-    private KeyRowViewModel Rename(KeyRowViewModel row) =>
-        row.HasMap ? row with { Map = _nameOfMap!(row.MapId) } : row;
 
     public AsyncDelegateCommand RefreshCommand { get; }
 
@@ -295,9 +309,11 @@ public sealed class KeysPageViewModel : PageViewModel
             facts.ItemId,
             item?.Name ?? facts.ItemId,
             facts.MapId ?? string.Empty,
-            // Named where the map catalog has loaded, and the identifier until it has. A key
+            // Named where the maps table has it, and the identifier until it does. A key
             // belongs to a place, and "56f40101d2720b2a4d8b45d6" is not one.
-            facts.MapId is { } mapId ? _nameOfMap?.Invoke(mapId) ?? mapId : UnknownMap,
+            facts.MapId is { } mapId
+                ? await NameOfMapAsync(mapId, cancellationToken).ConfigureAwait(true)
+                : UnknownMap,
             facts.MapId is not null,
             facts.Locks.Count switch
             {
