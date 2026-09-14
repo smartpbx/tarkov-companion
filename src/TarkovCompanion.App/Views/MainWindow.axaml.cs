@@ -106,9 +106,34 @@ public sealed partial class MainWindow : Window
 
         // Ctrl and a digit are safe while typing, because they are not a character. Everything
         // below this is a character somebody may be in the middle of typing into a search box.
-        if (eventArgs.KeyModifiers == KeyModifiers.Control && PageIndex(eventArgs.Key) is { } page)
+        if (eventArgs.KeyModifiers == KeyModifiers.Control)
         {
-            eventArgs.Handled = viewModel.NavigateTo(page);
+            if (PageIndex(eventArgs.Key) is { } page)
+            {
+                eventArgs.Handled = viewModel.NavigateTo(page);
+                return;
+            }
+
+            // How large everything is drawn. Ctrl and a sign is what every application with a
+            // zoom uses, and Ctrl+0 undoes it, so nobody has to be told. Held with Control so
+            // they keep working while somebody is typing, where the bare + and − beside them
+            // deliberately do not.
+            switch (eventArgs.Key)
+            {
+                case Key.OemPlus or Key.Add:
+                    viewModel.StepInterfaceScale(1);
+                    break;
+                case Key.OemMinus or Key.Subtract:
+                    viewModel.StepInterfaceScale(-1);
+                    break;
+                case Key.D0 or Key.NumPad0:
+                    viewModel.ResetInterfaceScale();
+                    break;
+                default:
+                    return;
+            }
+
+            eventArgs.Handled = true;
             return;
         }
 
@@ -162,15 +187,18 @@ public sealed partial class MainWindow : Window
     /// The page a digit stands for, counting from zero, or null if the key is not a digit.
     /// </summary>
     /// <remarks>
-    /// 1 to 9 are the first nine pages and 0 is the tenth, which is how every application with
-    /// numbered tabs has done it for twenty years. Both rows of digits, because a keyboard has
-    /// two and somebody whose right hand is on the mouse is using the number pad.
+    /// 1 to 9 are the first nine pages. Zero is deliberately not the tenth: Ctrl+0 is what
+    /// every application with a zoom uses to undo it, browsers included, and none of them give
+    /// it to a tab. Fourteen pages were never all going to have a shortcut, and the tenth was
+    /// the most arbitrary of them; the size control is used by everybody.
+    ///
+    /// Both rows of digits, because a keyboard has two and somebody whose right hand is on the
+    /// mouse is using the number pad.
     /// </remarks>
     private static int? PageIndex(Key key) => key switch
     {
         >= Key.D1 and <= Key.D9 => key - Key.D1,
         >= Key.NumPad1 and <= Key.NumPad9 => key - Key.NumPad1,
-        Key.D0 or Key.NumPad0 => 9,
         _ => null,
     };
 

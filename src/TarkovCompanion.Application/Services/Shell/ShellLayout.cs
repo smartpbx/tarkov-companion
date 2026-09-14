@@ -15,16 +15,52 @@ namespace TarkovCompanion.Application.Services.Shell;
 /// <param name="Top">Its top edge.</param>
 /// <param name="IsMaximized">Whether it was left maximized, which outranks the bounds.</param>
 /// <param name="IsRailCollapsed">Whether the navigation rail was left as a glyph column.</param>
+/// <param name="Scale">How large everything is drawn, as a multiple of the designed size.</param>
 public sealed record ShellLayout(
     double Width,
     double Height,
     double? Left,
     double? Top,
     bool IsMaximized,
-    bool IsRailCollapsed)
+    bool IsRailCollapsed,
+    double Scale = 1)
 {
+    /// <summary>
+    /// The sizes on offer, smallest first.
+    /// </summary>
+    /// <remarks>
+    /// Four, not a slider. The type scale, the row heights and the fixed columns were all
+    /// designed against one of these, and a continuum of arbitrary multipliers is a continuum
+    /// of layouts nobody has ever looked at. Somebody who wants more room has one press to find
+    /// it and one press to undo it.
+    /// </remarks>
+    public static IReadOnlyList<double> Scales { get; } = [0.9, 1.0, 1.15, 1.3];
+
     /// <summary>The size the window has always opened at, for anybody who has not moved it.</summary>
     public static ShellLayout Default { get; } = new(1500, 900, null, null, false, false);
+
+    /// <summary>
+    /// The nearest offered size, for a value that has been stored or stepped past the end.
+    /// </summary>
+    /// <remarks>
+    /// The settings file is one somebody can open, and a hand-typed 4 would draw the rail
+    /// alone wider than a monitor with no way to press anything that would undo it.
+    /// </remarks>
+    public static double NearestScale(double scale) => double.IsFinite(scale)
+        ? Scales.MinBy(offered => Math.Abs(offered - scale))
+        : 1;
+
+    /// <summary>The size one step larger or smaller, stopping at the ends.</summary>
+    /// <remarks>
+    /// Stopping rather than wrapping, for the same reason the floors do: a key held down should
+    /// not come back round to where it started without saying so, and there is no size beyond
+    /// the largest.
+    /// </remarks>
+    public static double StepScale(double from, int direction)
+    {
+        var index = Scales.ToList().IndexOf(NearestScale(from));
+        return Scales[Math.Clamp(index + Math.Sign(direction), 0, Scales.Count - 1)];
+    }
 
     /// <summary>
     /// Whether these bounds are worth restoring at all.

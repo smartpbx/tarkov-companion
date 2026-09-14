@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using TarkovCompanion.App.ViewModels;
 
@@ -29,6 +30,22 @@ public sealed partial class SettingsView : UserControl
         DataContextChanged += (_, _) => Wire();
         AttachedToVisualTree += (_, _) => Wire();
     }
+
+    /// <summary>
+    /// The three size controls, which act on the shell rather than on this page.
+    /// </summary>
+    /// <remarks>
+    /// Found through the window, because how large everything is drawn is a property of the
+    /// shell — giving this page's view model a reference to the shell to reach it would be a
+    /// cycle for one number.
+    /// </remarks>
+    private MainWindowViewModel? Shell => (TopLevel.GetTopLevel(this) as Window)?.DataContext as MainWindowViewModel;
+
+    private void LargerClick(object? sender, RoutedEventArgs eventArgs) => Shell?.StepInterfaceScale(1);
+
+    private void SmallerClick(object? sender, RoutedEventArgs eventArgs) => Shell?.StepInterfaceScale(-1);
+
+    private void ResetScaleClick(object? sender, RoutedEventArgs eventArgs) => Shell?.ResetInterfaceScale();
 
     private void Wire()
     {
