@@ -105,3 +105,18 @@ transmitted. The exception that rule records covers the people in the room and n
 ## Safety and provenance
 
 All behavior is external to Escape from Tarkov. It uses local user state and public or curated data, with no memory access, injection, network interception, input generation, gameplay automation, enemy detection, or in-game overlay. Runtime structured data remains sourced from `json.tarkov.dev`; uncertain claims preserve source, timestamp, reference, and confidence.
+
+## V2 target contract
+
+V2 work targets the contract in `docs/V2_CONTRACT.md` and ADR 0008; this section does not claim
+those features are shipped. The target adds contextual capture intents for loot, stash, ammo,
+keys, quest items, extracts/map, health/character, and flea screens; typed evidence-preserving
+recognition results; reviewable per-square loot advice; whole-stash organization inputs; and
+revisioned paired-device changes with acknowledgements.
+
+Historical and modelled map intelligence is permitted only as a sourced estimate with observed,
+data-through, and generated UTC times, coverage, confidence, and model version. It is never
+presented as live detection. The immutable anti-cheat boundary remains no game process memory, no
+generated game-directed mouse, keyboard, or controller input, and no in-game overlay; v2 also keeps
+the current design exclusions on injection/hooks, EFT packet inspection, automation, and live enemy
+tracking/ESP/radar.
