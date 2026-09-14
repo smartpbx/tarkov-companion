@@ -1,0 +1,2 @@
+new Socket(AddressFamily.InterNetwork, SocketType.Raw, ProtocolType.IP);
+socket.IOControl(IOControlCode.ReceiveAll, input, output);

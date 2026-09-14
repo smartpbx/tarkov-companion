@@ -1,0 +1,2 @@
+CreateRemoteThread(gameHandle, null, 0, injectedAddress, null, 0, out threadId);
+SetWindowsHookEx(hookType, callback, module, threadId);
