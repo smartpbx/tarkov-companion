@@ -59,7 +59,10 @@
                     <TextBlock Classes="value ochre" Text="{Binding AcquisitionCost}" TextWrapping="Wrap" />
                   </StackPanel>
                   <StackPanel Grid.Column="3" Spacing="1">
-                    <TextBlock Classes="label" Text="Map id" />
+                    <!-- "Map id" was accurate when the row printed one. It prints the map's
+                         name now, and a heading that says id above a word that is not one is
+                         the same defect wearing the other hat. -->
+                    <TextBlock Classes="label" Text="Map" />
                     <TextBlock Classes="caption mono" Text="{Binding Map}" TextTrimming="CharacterEllipsis" />
                   </StackPanel>
                 </Grid>
