@@ -617,6 +617,12 @@ public interface IIntegrationSecretStore
         CancellationToken cancellationToken);
 }
 
+/// <summary>One raid's path across a map, as the screenshots recorded it.</summary>
+/// <param name="RaidId">Which raid, so a trail can be opened as a replay from where it is drawn.</param>
+/// <param name="StartedUtc">When it began, which is what decides how faintly it is drawn.</param>
+/// <param name="Positions">Where the player was, oldest first.</param>
+public sealed record RaidTrail(Guid RaidId, DateTimeOffset? StartedUtc, IReadOnlyList<ScreenshotPosition> Positions);
+
 public interface IRaidHistoryService
 {
     Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken);
@@ -637,6 +643,26 @@ public interface IRaidHistoryService
     /// player's own screenshots rather than any kind of tracking.
     /// </remarks>
     Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(Guid raidId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every screenshot position recorded on one map, newest raid first.
+    /// </summary>
+    /// <remarks>
+    /// The same rows one raid's replay reads, asked for by map instead of by raid. A player who
+    /// has run Customs two hundred times has two hundred trails in this table and could only
+    /// ever see one of them at a time, from the History page, one raid at a time.
+    ///
+    /// Grouped by raid rather than flattened, because the points of one raid are a path and the
+    /// points of two are not: joining the last position of Tuesday to the first of Wednesday
+    /// would draw a line across the map that nobody walked.
+    ///
+    /// Bounded, because the answer grows without limit and the question does not. The newest
+    /// raids are the ones worth drawing.
+    /// </remarks>
+    Task<IReadOnlyList<RaidTrail>> ListTrailsForMapAsync(
+        string mapId,
+        int limit,
+        CancellationToken cancellationToken);
 
     Task ExportCsvAsync(Stream destination, CancellationToken cancellationToken);
 

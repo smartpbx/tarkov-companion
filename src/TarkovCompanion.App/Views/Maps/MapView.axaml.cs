@@ -537,6 +537,14 @@ public sealed partial class MapView : UserControl
     private void FitClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MapViewModel)?.RequestFit();
 
+    private async void VisitedClick(object? sender, RoutedEventArgs eventArgs)
+    {
+        if (DataContext is MapViewModel viewModel)
+        {
+            await RunGuardedAsync(viewModel, viewModel.ToggleVisitedAsync);
+        }
+    }
+
     private async void GroupNamesClick(object? sender, RoutedEventArgs eventArgs)
     {
         if (DataContext is MapViewModel viewModel)
