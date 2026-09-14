@@ -3,28 +3,71 @@
   "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/provenance.v1.schema.json",
   "title": "Recognition corpus provenance and immutable context",
   "type": "object",
-  "required": ["schemaVersion", "captureIntentId", "sessionId", "correlationId", "captureOrdinal", "deviceClass", "surface", "resolution", "uiScale", "locale", "gameVersion", "companionUiVersion"],
+  "required": [
+    "schemaVersion",
+    "captureIntentId",
+    "sessionId",
+    "correlationId",
+    "captureOrdinal",
+    "workspaceId",
+    "profileId",
+    "mapId",
+    "floorId",
+    "planId",
+    "objectiveIds",
+    "selectedReference",
+    "priorScanReference",
+    "deviceClass",
+    "surface",
+    "resolution",
+    "uiScale",
+    "locale",
+    "gameVersion",
+    "companionUiVersion"
+  ],
   "properties": {
     "schemaVersion": { "const": "provenance.v1" },
-    "captureIntentId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-    "sessionId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-    "correlationId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "captureIntentId": { "$ref": "#/$defs/opaqueId" },
+    "sessionId": { "$ref": "#/$defs/opaqueId" },
+    "correlationId": { "$ref": "#/$defs/opaqueId" },
     "captureOrdinal": { "type": "integer", "minimum": 0 },
-    "workspaceId": { "type": "string" },
-    "profileId": { "type": "string" },
-    "mapId": { "type": "string" },
-    "floorId": { "type": "string" },
-    "planId": { "type": "string" },
-    "objectiveIds": { "type": "array", "items": { "type": "string" } },
-    "selectedReference": { "type": "string" },
-    "priorScanReference": { "type": "string" },
+    "workspaceId": { "$ref": "#/$defs/nullableOpaqueId" },
+    "profileId": { "$ref": "#/$defs/nullableOpaqueId" },
+    "mapId": { "$ref": "#/$defs/nullableOpaqueId" },
+    "floorId": { "$ref": "#/$defs/nullableOpaqueId" },
+    "planId": { "$ref": "#/$defs/nullableOpaqueId" },
+    "objectiveIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/opaqueId" }
+    },
+    "selectedReference": { "$ref": "#/$defs/nullableOpaqueId" },
+    "priorScanReference": { "$ref": "#/$defs/nullableOpaqueId" },
     "deviceClass": { "enum": ["desktop", "tablet", "phone", "unknown"] },
     "surface": { "enum": ["companion-window", "paired-device", "user-screenshot", "unknown"] },
-    "resolution": { "type": "object", "required": ["width", "height"], "properties": { "width": { "type": "integer", "minimum": 1 }, "height": { "type": "integer", "minimum": 1 } }, "additionalProperties": true },
-    "uiScale": { "type": "number", "exclusiveMinimum": 0 },
-    "locale": { "type": "string", "minLength": 2 },
-    "gameVersion": { "type": "string", "minLength": 1 },
-    "companionUiVersion": { "type": "string", "minLength": 1 }
+    "resolution": {
+      "type": "object",
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1, "maximum": 32768 },
+        "height": { "type": "integer", "minimum": 1, "maximum": 32768 }
+      },
+      "additionalProperties": true
+    },
+    "uiScale": { "type": "number", "minimum": 0.25, "maximum": 8 },
+    "locale": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "gameVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "companionUiVersion": { "type": "string", "minLength": 1, "maxLength": 128 }
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "nullableOpaqueId": {
+      "oneOf": [
+        { "$ref": "#/$defs/opaqueId" },
+        { "type": "null" }
+      ]
+    }
   },
   "additionalProperties": true
 }

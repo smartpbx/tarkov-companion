@@ -3,13 +3,58 @@
   "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/run-plan.v1.schema.json",
   "title": "Truth-free recognition producer run plan",
   "type": "object",
-  "required": ["schemaVersion", "runId", "producer", "policyVersion", "samples"],
+  "required": [
+    "schemaVersion",
+    "runId",
+    "producer",
+    "policyVersion",
+    "corpusId",
+    "nearDuplicateGraphVersion",
+    "planLock",
+    "samples"
+  ],
   "properties": {
     "schemaVersion": { "const": "run-plan.v1" },
-    "runId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-    "producer": { "type": "object", "required": ["id", "version"], "properties": { "id": { "type": "string" }, "version": { "type": "string" } }, "additionalProperties": true },
+    "runId": { "$ref": "#/$defs/opaqueId" },
+    "producer": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": true
+    },
     "policyVersion": { "const": "recognition-scorer-policy.v1" },
-    "samples": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["sampleId", "split", "intent", "provenance", "lineage"], "properties": { "sampleId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }, "split": { "enum": ["train", "tune", "test"] }, "intent": { "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"] }, "provenance": { "$ref": "provenance.v1.schema.json" }, "lineage": { "type": "object" } }, "additionalProperties": true } }
+    "corpusId": { "$ref": "#/$defs/opaqueId" },
+    "nearDuplicateGraphVersion": { "const": "phash-graph.v1" },
+    "planLock": { "$ref": "#/$defs/sha256" },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["sampleId", "split", "intent", "evidenceClass", "provenance", "lineage"],
+        "properties": {
+          "sampleId": { "$ref": "#/$defs/opaqueId" },
+          "split": { "enum": ["train", "tune", "test"] },
+          "intent": { "$ref": "#/$defs/intent" },
+          "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+          "provenance": { "$ref": "provenance.v1.schema.json" },
+          "lineage": { "$ref": "manifest.v1.schema.json#/$defs/lineage" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "intent": {
+      "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"]
+    },
+    "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] }
   },
   "additionalProperties": true
 }

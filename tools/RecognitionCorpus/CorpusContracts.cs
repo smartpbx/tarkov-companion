@@ -39,18 +39,40 @@ public enum PredictionStatus
     Unavailable,
 }
 
+public enum PredictionType
+{
+    Context,
+    Region,
+    GridCell,
+    Item,
+    Attribute,
+    Extract,
+    Timer,
+    Health,
+    Recommendation,
+}
+
+public sealed record PixelRegion(int X, int Y, int Width, int Height);
+
 public sealed record ConsentEvidence(
+    string ConsentId,
     string ConsentHash,
     IReadOnlyList<string> AllowedUses,
+    DateTimeOffset ConsentedUtc,
     DateTimeOffset RetentionExpiresUtc,
     string RevocationState);
 
-public sealed record PrivacyReviewEvidence(string State, string RedactionState, DateTimeOffset ReviewedUtc);
+public sealed record PrivacyReviewEvidence(
+    string ReviewId,
+    string ReviewHash,
+    string State,
+    string RedactionState,
+    DateTimeOffset ReviewedUtc);
 
 /// <summary>
 /// Context is deliberately bounded and opaque. It helps slice a benchmark without becoming
 /// implicit truth; user names, paths, filenames, pixels, OCR strings, and consent records do
-/// not belong in this interchange.
+/// not belong in the producer interchange.
 /// </summary>
 public sealed record CaptureContext(
     string CaptureIntentId,
@@ -82,7 +104,12 @@ public sealed record SequenceLineage(
     decimal OverlapWithPrevious,
     string? ParentContainerIdentity);
 
-public sealed record TruthClaim(string TruthId, TruthState State, string Kind, string? Value);
+public sealed record TruthClaim(
+    string TruthId,
+    TruthState State,
+    string Kind,
+    string? Value,
+    PixelRegion? Region = null);
 
 public sealed record CorpusSample(
     string SampleId,
@@ -93,34 +120,65 @@ public sealed record CorpusSample(
     CaptureContext Context,
     SequenceLineage Lineage,
     IReadOnlyList<TruthClaim> Truth,
+    string? ConsentHash,
+    string? PrivacyReviewHash);
+
+/// <summary>
+/// These records are private importer authority. A sample's hash-shaped summaries never become
+/// eligibility evidence unless the corresponding full records and observed decoded-pixel hash
+/// are present here and agree at validation time.
+/// </summary>
+public sealed record PrivateSampleEvidence(
+    string SampleId,
+    string? ObservedDecodedPixelSha256,
     ConsentEvidence? Consent,
     PrivacyReviewEvidence? PrivacyReview);
 
 public sealed record CorpusManifest(
     string CorpusId,
     string NearDuplicateGraphVersion,
-    IReadOnlyList<CorpusSample> Samples);
+    IReadOnlyList<CorpusSample> Samples,
+    IReadOnlyList<PrivateSampleEvidence> PrivateEvidence);
 
 public sealed record RunPlanSample(
     string SampleId,
     CorpusSplit Split,
     BenchmarkIntent Intent,
+    CorpusEvidenceClass EvidenceClass,
     CaptureContext Context,
     SequenceLineage Lineage);
 
-public sealed record RunPlan(string RunId, string ProducerId, string ProducerVersion, string PolicyVersion, IReadOnlyList<RunPlanSample> Samples);
+public sealed record RunPlan(
+    string RunId,
+    string ProducerId,
+    string ProducerVersion,
+    string PolicyVersion,
+    string CorpusId,
+    string NearDuplicateGraphVersion,
+    string PlanLock,
+    IReadOnlyList<RunPlanSample> Samples);
 
-public sealed record PredictionClaim(string ClaimId, string Kind, string? Value);
+public sealed record PredictionClaim(
+    string ClaimId,
+    string Kind,
+    string? Value,
+    PixelRegion? Region = null);
 
 public sealed record ProducerPrediction(
     string SampleId,
     BenchmarkIntent Intent,
     CorpusEvidenceClass EvidenceClass,
-    string Type,
+    PredictionType Type,
     PredictionStatus Status,
     decimal Confidence,
     IReadOnlyList<PredictionClaim> Claims,
-    decimal? ElapsedMilliseconds = null);
+    decimal ElapsedMilliseconds);
+
+public sealed record PredictionDocument(
+    string RunId,
+    string ProducerId,
+    string ProducerVersion,
+    IReadOnlyList<ProducerPrediction> Predictions);
 
 public sealed record FrozenThresholds(
     string PolicyVersion,
@@ -139,6 +197,7 @@ public sealed record SliceMetrics(
     int Denominator,
     int ExcludedUnknowns,
     int IndependentSplitUnits,
+    int AttemptedKnownClaims,
     int TruePositives,
     int FalsePositives,
     int FalseNegatives,
@@ -147,9 +206,21 @@ public sealed record SliceMetrics(
     int MissingFrames,
     int ReorderedFrames,
     int OverlapDeduplicationErrors,
+    int AccuracyNumerator,
+    int AccuracyDenominator,
+    int RecallNumerator,
+    int RecallDenominator,
+    int FalsePositiveNumerator,
+    int FalsePositiveDenominator,
     decimal Coverage,
+    decimal Accuracy,
+    decimal Recall,
+    decimal FalsePositiveRate,
+    decimal F1,
     decimal AbstentionRate,
     decimal ConfidentWrongRate,
     decimal ConfidenceIntervalLower,
     decimal ConfidenceIntervalUpper,
-    decimal? MeanElapsedMilliseconds);
+    int PerformanceSampleCount,
+    decimal? MeanElapsedMilliseconds,
+    decimal? MaximumElapsedMilliseconds);

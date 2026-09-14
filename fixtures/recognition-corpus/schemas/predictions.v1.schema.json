@@ -6,9 +6,108 @@
   "required": ["schemaVersion", "runId", "producer", "predictions"],
   "properties": {
     "schemaVersion": { "const": "predictions.v1" },
-    "runId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-    "producer": { "type": "object", "required": ["id", "version"], "properties": { "id": { "type": "string" }, "version": { "type": "string" } }, "additionalProperties": true },
-    "predictions": { "type": "array", "items": { "type": "object", "required": ["sampleId", "intent", "type", "status", "confidence"], "properties": { "sampleId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }, "intent": { "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"] }, "type": { "enum": ["context", "region", "grid-cell", "item", "attribute", "extract", "timer", "health", "recommendation"] }, "status": { "enum": ["detected", "abstained", "unavailable"] }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }, "claims": { "type": "array", "items": { "type": "object", "required": ["claimId", "kind"], "properties": { "claimId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" }, "kind": { "type": "string", "minLength": 1 }, "value": {} }, "additionalProperties": true } }, "performance": { "type": "object", "properties": { "elapsedMilliseconds": { "type": "number", "minimum": 0 } }, "additionalProperties": true } }, "additionalProperties": true } }
+    "runId": { "$ref": "#/$defs/opaqueId" },
+    "producer": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": true
+    },
+    "predictions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/prediction" }
+    }
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "intent": {
+      "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"]
+    },
+    "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] },
+    "predictionType": { "enum": ["context", "region", "grid-cell", "item", "attribute", "extract", "timer", "health", "recommendation"] },
+    "region": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "claim": {
+      "type": "object",
+      "required": ["claimId", "kind", "value", "region"],
+      "properties": {
+        "claimId": { "$ref": "#/$defs/opaqueId" },
+        "kind": { "$ref": "#/$defs/predictionType" },
+        "value": { "type": ["string", "null"], "maxLength": 4096 },
+        "region": {
+          "oneOf": [
+            { "$ref": "#/$defs/region" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "prediction": {
+      "type": "object",
+      "required": ["sampleId", "intent", "evidenceClass", "type", "status", "confidence", "claims", "performance"],
+      "properties": {
+        "sampleId": { "$ref": "#/$defs/opaqueId" },
+        "intent": { "$ref": "#/$defs/intent" },
+        "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "type": { "$ref": "#/$defs/predictionType" },
+        "status": { "enum": ["detected", "abstained", "unavailable"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "claims": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/claim" }
+        },
+        "performance": {
+          "type": "object",
+          "required": ["elapsedMilliseconds"],
+          "properties": {
+            "elapsedMilliseconds": { "type": "number", "minimum": 0, "maximum": 120000 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "detected" } }, "required": ["status"] },
+          "then": { "properties": { "claims": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "status": { "enum": ["abstained", "unavailable"] } }, "required": ["status"] },
+          "then": { "properties": { "claims": { "maxItems": 0 }, "confidence": { "const": 0 } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "region" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "claims": {
+                "items": {
+                  "allOf": [
+                    { "$ref": "#/$defs/claim" },
+                    { "properties": { "kind": { "const": "region" }, "value": { "type": "null" }, "region": { "$ref": "#/$defs/region" } } }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }

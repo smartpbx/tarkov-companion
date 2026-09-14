@@ -1,15 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/privacy-review.v1.schema.json",
-  "title": "Recognition corpus privacy and redaction review",
+  "title": "Private recognition corpus privacy and redaction review",
   "type": "object",
-  "required": ["schemaVersion", "reviewId", "state", "reviewedUtc", "redaction"],
+  "required": ["schemaVersion", "reviewId", "reviewHash", "state", "reviewedUtc", "redaction"],
   "properties": {
     "schemaVersion": { "const": "privacy-review.v1" },
     "reviewId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "reviewHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "state": { "enum": ["approved", "rejected", "pending"] },
-    "reviewedUtc": { "type": "string", "format": "date-time" },
+    "reviewedUtc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
     "redaction": { "enum": ["not-required", "applied", "rejected"] }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "approved" } }, "required": ["state"] },
+      "then": { "properties": { "redaction": { "enum": ["not-required", "applied"] } } }
+    }
+  ],
   "additionalProperties": true
 }

@@ -1,32 +1,229 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/manifest.v1.schema.json",
-  "title": "Private recognition corpus manifest",
+  "title": "Private recognition corpus manifest and importer authority",
   "type": "object",
-  "required": ["schemaVersion", "corpusId", "nearDuplicateGraphVersion", "samples"],
+  "required": ["schemaVersion", "corpusId", "nearDuplicateGraphVersion", "samples", "privateEvidence"],
   "properties": {
     "schemaVersion": { "const": "manifest.v1" },
-    "corpusId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-    "nearDuplicateGraphVersion": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "corpusId": { "$ref": "#/$defs/opaqueId" },
+    "nearDuplicateGraphVersion": { "const": "phash-graph.v1" },
     "samples": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["sampleId", "evidenceClass", "splitUnitId", "content", "provenance", "lineage", "truth"],
-        "properties": {
-          "sampleId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
-          "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] },
-          "splitUnitId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "content": { "type": "object", "required": ["decodedPixelSha256"], "properties": { "decodedPixelSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }, "nearDuplicateIds": { "type": "array", "items": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } }, "additionalProperties": true },
-          "consent": { "$ref": "consent.v1.schema.json" },
-          "privacyReview": { "$ref": "privacy-review.v1.schema.json" },
-          "provenance": { "$ref": "provenance.v1.schema.json" },
-          "lineage": { "type": "object", "required": ["sequenceId", "frameOrdinal", "viewportId", "containerIdentity", "overlapWithPrevious"], "properties": { "sequenceId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" }, "frameOrdinal": { "type": "integer", "minimum": 0 }, "viewportId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" }, "containerIdentity": { "type": "string", "pattern": "^[A-Za-z0-9_./-]{1,256}$" }, "overlapWithPrevious": { "type": "number", "minimum": 0, "maximum": 1 }, "parentContainerIdentity": { "type": "string" } }, "additionalProperties": true },
-          "truth": { "type": "object", "required": ["claims"], "properties": { "claims": { "type": "array", "items": { "type": "object", "required": ["truthId", "state"], "properties": { "truthId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,128}$" }, "state": { "enum": ["known", "unknown"] }, "kind": { "type": "string" }, "value": {} }, "additionalProperties": true } } }, "additionalProperties": true }
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "privateEvidence": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/privateEvidence" }
+    }
+  },
+  "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nullableSha256": {
+      "oneOf": [
+        { "$ref": "#/$defs/sha256" },
+        { "type": "null" }
+      ]
+    },
+    "nullableOpaqueId": {
+      "oneOf": [
+        { "$ref": "#/$defs/opaqueId" },
+        { "type": "null" }
+      ]
+    },
+    "region": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer", "minimum": 0 },
+        "y": { "type": "integer", "minimum": 0 },
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "lineage": {
+      "type": "object",
+      "required": ["sequenceId", "frameOrdinal", "viewportId", "containerIdentity", "overlapWithPrevious", "parentContainerIdentity"],
+      "properties": {
+        "sequenceId": { "$ref": "#/$defs/opaqueId" },
+        "frameOrdinal": { "type": "integer", "minimum": 0 },
+        "viewportId": { "$ref": "#/$defs/opaqueId" },
+        "containerIdentity": { "$ref": "#/$defs/opaqueId" },
+        "overlapWithPrevious": { "type": "number", "minimum": 0, "maximum": 1 },
+        "parentContainerIdentity": { "$ref": "#/$defs/nullableOpaqueId" }
+      },
+      "additionalProperties": true
+    },
+    "truthClaim": {
+      "type": "object",
+      "required": ["truthId", "state", "kind", "value", "region"],
+      "properties": {
+        "truthId": { "$ref": "#/$defs/opaqueId" },
+        "state": { "enum": ["known", "unknown"] },
+        "kind": { "enum": ["context", "region", "grid-cell", "item", "attribute", "extract", "timer", "health", "recommendation"] },
+        "value": { "type": ["string", "null"], "maxLength": 4096 },
+        "region": {
+          "oneOf": [
+            { "$ref": "#/$defs/region" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "unknown" } }, "required": ["state"] },
+          "then": { "properties": { "value": { "type": "null" }, "region": { "type": "null" } } }
         },
-        "additionalProperties": true
-      }
+        {
+          "if": { "properties": { "state": { "const": "known" }, "kind": { "const": "region" } }, "required": ["state", "kind"] },
+          "then": { "properties": { "value": { "type": "null" }, "region": { "$ref": "#/$defs/region" } } }
+        },
+        {
+          "if": {
+            "allOf": [
+              { "properties": { "state": { "const": "known" } }, "required": ["state"] },
+              { "not": { "properties": { "kind": { "const": "region" } }, "required": ["kind"] } }
+            ]
+          },
+          "then": { "properties": { "value": { "type": "string", "minLength": 1 } } }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "sample": {
+      "type": "object",
+      "required": [
+        "sampleId",
+        "evidenceClass",
+        "splitUnitId",
+        "content",
+        "consentHash",
+        "privacyReviewHash",
+        "provenance",
+        "lineage",
+        "truth"
+      ],
+      "properties": {
+        "sampleId": { "$ref": "#/$defs/opaqueId" },
+        "evidenceClass": { "enum": ["real-raster", "synthetic-raster", "post-ocr-evidence"] },
+        "splitUnitId": { "$ref": "#/$defs/sha256" },
+        "content": {
+          "type": "object",
+          "required": ["decodedPixelSha256", "nearDuplicateIds"],
+          "properties": {
+            "decodedPixelSha256": { "$ref": "#/$defs/nullableSha256" },
+            "nearDuplicateIds": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/sha256" }
+            }
+          },
+          "additionalProperties": true
+        },
+        "consentHash": { "$ref": "#/$defs/nullableSha256" },
+        "privacyReviewHash": { "$ref": "#/$defs/nullableSha256" },
+        "provenance": { "$ref": "provenance.v1.schema.json" },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "truth": {
+          "type": "object",
+          "required": ["claims"],
+          "properties": {
+            "claims": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/truthClaim" }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "evidenceClass": { "const": "real-raster" } }, "required": ["evidenceClass"] },
+          "then": {
+            "properties": {
+              "content": { "properties": { "decodedPixelSha256": { "$ref": "#/$defs/sha256" } } },
+              "consentHash": { "$ref": "#/$defs/sha256" },
+              "privacyReviewHash": { "$ref": "#/$defs/sha256" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "evidenceClass": { "const": "synthetic-raster" } }, "required": ["evidenceClass"] },
+          "then": {
+            "properties": {
+              "content": { "properties": { "decodedPixelSha256": { "$ref": "#/$defs/sha256" } } },
+              "consentHash": { "type": "null" },
+              "privacyReviewHash": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "evidenceClass": { "const": "post-ocr-evidence" } }, "required": ["evidenceClass"] },
+          "then": {
+            "properties": {
+              "content": {
+                "properties": {
+                  "decodedPixelSha256": { "type": "null" },
+                  "nearDuplicateIds": { "maxItems": 0 }
+                }
+              },
+              "consentHash": { "type": "null" },
+              "privacyReviewHash": { "type": "null" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "privateEvidence": {
+      "type": "object",
+      "required": ["sampleId", "observedDecodedPixelSha256", "consent", "privacyReview"],
+      "properties": {
+        "sampleId": { "$ref": "#/$defs/opaqueId" },
+        "observedDecodedPixelSha256": { "$ref": "#/$defs/sha256" },
+        "consent": {
+          "oneOf": [
+            {
+              "allOf": [
+                { "$ref": "consent.v1.schema.json" },
+                {
+                  "properties": {
+                    "revocation": {
+                      "properties": { "state": { "const": "active" } },
+                      "required": ["state"]
+                    }
+                  }
+                }
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "privacyReview": {
+          "oneOf": [
+            {
+              "allOf": [
+                { "$ref": "privacy-review.v1.schema.json" },
+                {
+                  "properties": {
+                    "state": { "const": "approved" },
+                    "redaction": { "enum": ["not-required", "applied"] }
+                  }
+                }
+              ]
+            },
+            { "type": "null" }
+          ]
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -8,15 +10,12 @@ public static class SplitPlanner
     /// <summary>
     /// A connected component is a split unit: exact decoded pixels, perceptual-near links, and
     /// capture sequences cannot cross a split even when a crop, redaction, or scroll has a new
-    /// byte-level hash. The component key is a sorted content-derived hash, never a filename.
+    /// byte-level hash. The component key commits to every sorted content root in the component.
     /// </summary>
     public static IReadOnlyDictionary<string, CorpusSplit> Assign(IReadOnlyList<CorpusSample> samples)
     {
         var units = BuildUnits(samples);
-        return units.ToDictionary(
-            unit => unit.Key,
-            unit => StableAssignment(unit.Key),
-            StringComparer.Ordinal);
+        return units.ToDictionary(unit => unit.Key, unit => StableAssignment(unit.Key), StringComparer.Ordinal);
     }
 
     public static IReadOnlyList<string> ValidateUnits(IReadOnlyList<CorpusSample> samples)
@@ -38,6 +37,7 @@ public static class SplitPlanner
 
     public static IReadOnlyDictionary<string, IReadOnlyList<CorpusSample>> BuildUnits(IReadOnlyList<CorpusSample> samples)
     {
+        ArgumentNullException.ThrowIfNull(samples);
         var indexed = samples.Select((sample, index) => (sample, index)).ToArray();
         var union = new UnionFind(indexed.Length);
         var byHash = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -86,7 +86,7 @@ public static class SplitPlanner
         }
 
         return components.Values.ToDictionary(
-            component => ComponentId(component),
+            ComponentId,
             component => (IReadOnlyList<CorpusSample>)component.AsReadOnly(),
             StringComparer.Ordinal);
     }
@@ -94,17 +94,19 @@ public static class SplitPlanner
     public static CorpusSplit StableAssignment(string splitUnitId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(splitUnitId);
-        var bucket = SHA256.HashData(Encoding.UTF8.GetBytes(splitUnitId))[0] % 100;
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(splitUnitId));
+        var bucket = BinaryPrimitives.ReadUInt32BigEndian(digest) % 100;
         return bucket < 80 ? CorpusSplit.Train : bucket < 90 ? CorpusSplit.Tune : CorpusSplit.Test;
     }
 
     private static string ComponentId(IEnumerable<CorpusSample> component)
     {
-        var basis = component
+        var roots = component
             .Select(sample => sample.DecodedPixelSha256 ?? $"evidence:{sample.SampleId}")
-            .OrderBy(value => value, StringComparer.Ordinal)
-            .First();
-        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"recognition-corpus-split-unit.v1:{basis}")));
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal);
+        var basis = string.Join('\n', roots);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"recognition-corpus-split-unit.v1\n{basis}")));
     }
 
     private sealed class UnionFind(int count)
@@ -134,6 +136,176 @@ public static class SplitPlanner
     }
 }
 
+internal sealed record PrivatePlannedSample(
+    string SampleId,
+    CorpusSplit Split,
+    BenchmarkIntent Intent,
+    CorpusEvidenceClass EvidenceClass,
+    CaptureContext Context,
+    SequenceLineage Lineage,
+    string SplitUnitId);
+
+public static class PrivateRunPlanner
+{
+    public static RunPlan Create(
+        CorpusManifest privateManifest,
+        string runId,
+        string producerId,
+        string producerVersion,
+        DateTimeOffset nowUtc)
+    {
+        var errors = CorpusValidation.ValidateManifest(privateManifest, nowUtc);
+        if (errors.Count != 0)
+        {
+            throw new ArgumentException($"Private manifest is ineligible: {string.Join("; ", errors)}", nameof(privateManifest));
+        }
+
+        var expected = ExpectedSamples(privateManifest);
+        var planSamples = expected.Select(sample => new RunPlanSample(
+            sample.SampleId,
+            sample.Split,
+            sample.Intent,
+            sample.EvidenceClass,
+            sample.Context,
+            sample.Lineage)).ToArray();
+        var planLock = ComputeLock(runId, producerId, producerVersion, privateManifest, expected);
+        return new RunPlan(
+            runId,
+            producerId,
+            producerVersion,
+            CorpusValidation.FrozenPolicyVersion,
+            privateManifest.CorpusId,
+            privateManifest.NearDuplicateGraphVersion,
+            planLock,
+            planSamples);
+    }
+
+    internal static IReadOnlyList<PrivatePlannedSample> ExpectedSamples(CorpusManifest privateManifest)
+    {
+        var units = SplitPlanner.BuildUnits(privateManifest.Samples);
+        var unitBySample = units.SelectMany(unit => unit.Value.Select(sample => (sample.SampleId, Unit: unit.Key)))
+            .ToDictionary(pair => pair.SampleId, pair => pair.Unit, StringComparer.Ordinal);
+        return privateManifest.Samples
+            .OrderBy(sample => sample.SampleId, StringComparer.Ordinal)
+            .Select(sample => new PrivatePlannedSample(
+                sample.SampleId,
+                SplitPlanner.StableAssignment(unitBySample[sample.SampleId]),
+                IndependentScorer.IntentFor(sample.Context.CaptureIntentId),
+                sample.EvidenceClass,
+                sample.Context,
+                sample.Lineage,
+                unitBySample[sample.SampleId]))
+            .ToArray();
+    }
+
+    internal static string ComputeLock(
+        string runId,
+        string producerId,
+        string producerVersion,
+        CorpusManifest privateManifest,
+        IReadOnlyList<PrivatePlannedSample> samples)
+    {
+        var builder = new StringBuilder();
+        Append(builder, "private-run-plan-lock.v1");
+        Append(builder, runId);
+        Append(builder, producerId);
+        Append(builder, producerVersion);
+        Append(builder, CorpusValidation.FrozenPolicyVersion);
+        Append(builder, privateManifest.CorpusId);
+        Append(builder, privateManifest.NearDuplicateGraphVersion);
+        var evidenceBySample = privateManifest.PrivateEvidence.ToDictionary(item => item.SampleId, StringComparer.Ordinal);
+        foreach (var sample in samples)
+        {
+            var source = privateManifest.Samples.Single(item => item.SampleId == sample.SampleId);
+            Append(builder, sample.SampleId);
+            Append(builder, sample.Split.ToString());
+            Append(builder, sample.Intent.ToString());
+            Append(builder, sample.EvidenceClass.ToString());
+            Append(builder, sample.SplitUnitId);
+            Append(builder, source.DecodedPixelSha256);
+            foreach (var nearHash in source.NearDuplicateHashes.OrderBy(value => value, StringComparer.Ordinal))
+            {
+                Append(builder, nearHash);
+            }
+
+            AppendContext(builder, sample.Context);
+            AppendLineage(builder, sample.Lineage);
+            if (evidenceBySample.TryGetValue(sample.SampleId, out var evidence))
+            {
+                Append(builder, evidence.ObservedDecodedPixelSha256);
+                if (evidence.Consent is { } consent)
+                {
+                    Append(builder, consent.ConsentId);
+                    Append(builder, consent.ConsentHash);
+                    foreach (var allowedUse in consent.AllowedUses.OrderBy(value => value, StringComparer.Ordinal))
+                    {
+                        Append(builder, allowedUse);
+                    }
+
+                    Append(builder, consent.ConsentedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+                    Append(builder, consent.RetentionExpiresUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+                    Append(builder, consent.RevocationState);
+                }
+
+                if (evidence.PrivacyReview is { } review)
+                {
+                    Append(builder, review.ReviewId);
+                    Append(builder, review.ReviewHash);
+                    Append(builder, review.State);
+                    Append(builder, review.RedactionState);
+                    Append(builder, review.ReviewedUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
+    private static void AppendContext(StringBuilder builder, CaptureContext context)
+    {
+        Append(builder, context.CaptureIntentId);
+        Append(builder, context.SessionId);
+        Append(builder, context.CorrelationId);
+        Append(builder, context.CaptureOrdinal.ToString(CultureInfo.InvariantCulture));
+        Append(builder, context.WorkspaceId);
+        Append(builder, context.ProfileId);
+        Append(builder, context.MapId);
+        Append(builder, context.FloorId);
+        Append(builder, context.PlanId);
+        foreach (var objectiveId in context.ObjectiveIds)
+        {
+            Append(builder, objectiveId);
+        }
+
+        Append(builder, context.SelectedReference);
+        Append(builder, context.PriorScanReference);
+        Append(builder, context.DeviceClass);
+        Append(builder, context.Surface);
+        Append(builder, context.Width.ToString(CultureInfo.InvariantCulture));
+        Append(builder, context.Height.ToString(CultureInfo.InvariantCulture));
+        Append(builder, context.UiScale.ToString(CultureInfo.InvariantCulture));
+        Append(builder, context.Locale);
+        Append(builder, context.GameVersion);
+        Append(builder, context.CompanionUiVersion);
+    }
+
+    private static void AppendLineage(StringBuilder builder, SequenceLineage lineage)
+    {
+        Append(builder, lineage.SequenceId);
+        Append(builder, lineage.FrameOrdinal.ToString(CultureInfo.InvariantCulture));
+        Append(builder, lineage.ViewportId);
+        Append(builder, lineage.ContainerIdentity);
+        Append(builder, lineage.OverlapWithPrevious.ToString(CultureInfo.InvariantCulture));
+        Append(builder, lineage.ParentContainerIdentity);
+    }
+
+    private static void Append(StringBuilder builder, string? value)
+    {
+        value ??= "<null>";
+        builder.Append(value.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(value).Append('\n');
+    }
+}
+
 public static class IndependentScorer
 {
     public static IReadOnlyList<SliceMetrics> Score(
@@ -145,18 +317,32 @@ public static class IndependentScorer
         ArgumentNullException.ThrowIfNull(predictions);
         ArgumentNullException.ThrowIfNull(thresholds);
 
+        var thresholdErrors = CorpusValidation.ValidateThresholds(thresholds);
+        if (thresholdErrors.Count > 0)
+        {
+            throw new ArgumentException(string.Join("; ", thresholdErrors), nameof(thresholds));
+        }
+
         var manifestErrors = SplitPlanner.ValidateUnits(samples);
         if (manifestErrors.Count > 0)
         {
             throw new ArgumentException("Private manifest split units must validate before scoring.", nameof(samples));
         }
 
-        var sampleById = samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
-        if (predictions.Any(prediction => !sampleById.TryGetValue(prediction.SampleId, out var sample) || sample.EvidenceClass != prediction.EvidenceClass))
+        if (samples.Select(sample => sample.SampleId).Distinct(StringComparer.Ordinal).Count() != samples.Count)
         {
-            throw new ArgumentException("Predictions must name a known sample with its exact evidence class.", nameof(predictions));
+            throw new ArgumentException("Private scoring samples require unique ids.", nameof(samples));
         }
 
+        var sampleById = samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
+        if (predictions.Any(prediction => !sampleById.TryGetValue(prediction.SampleId, out var sample) ||
+                                          sample.EvidenceClass != prediction.EvidenceClass ||
+                                          IntentFor(sample.Context.CaptureIntentId) != prediction.Intent))
+        {
+            throw new ArgumentException("Predictions must name a known sample with its exact evidence class and intent.", nameof(predictions));
+        }
+
+        ValidateScoringPredictions(samples, predictions);
         var units = SplitPlanner.BuildUnits(samples);
         var unitBySample = units.SelectMany(unit => unit.Value.Select(sample => (sample.SampleId, unit.Key)))
             .ToDictionary(pair => pair.SampleId, pair => pair.Key, StringComparer.Ordinal);
@@ -164,17 +350,16 @@ public static class IndependentScorer
         // silently pool a missing health or scrolling-stash slice into a better-supported one.
         return Enum.GetValues<BenchmarkIntent>()
             .SelectMany(intent => Enum.GetValues<CorpusEvidenceClass>().Select(evidenceClass =>
-                ScoreSlice(intent, evidenceClass,
+                ScoreSlice(
+                    intent,
+                    evidenceClass,
                     samples.Where(sample => IntentFor(sample.Context.CaptureIntentId) == intent && sample.EvidenceClass == evidenceClass).ToArray(),
-                    predictions, unitBySample, thresholds)))
+                    predictions,
+                    unitBySample,
+                    thresholds)))
             .ToArray();
     }
 
-    /// <summary>
-    /// The intent is carried as an opaque immutable capture-intent ID in evidence. The scorer
-    /// receives its audited mapping, encoded with this stable v1 prefix, rather than inferring a
-    /// label from OCR output or a displayed panel.
-    /// </summary>
     public static BenchmarkIntent IntentFor(string captureIntentId)
     {
         foreach (var value in Enum.GetValues<BenchmarkIntent>())
@@ -188,7 +373,18 @@ public static class IndependentScorer
         throw new ArgumentException("Capture intent id is not a frozen v1 benchmark intent.", nameof(captureIntentId));
     }
 
-    public static string IntentId(BenchmarkIntent intent) => $"intent-v1-{intent.ToString().ToLowerInvariant()}";
+    public static string IntentId(BenchmarkIntent intent) => intent switch
+    {
+        BenchmarkIntent.LootDecision => "intent-v1-loot-decision",
+        BenchmarkIntent.FullStash => "intent-v1-full-stash",
+        BenchmarkIntent.Ammo => "intent-v1-ammo-items",
+        BenchmarkIntent.Keys => "intent-v1-key-items",
+        BenchmarkIntent.QuestItems => "intent-v1-quest-items",
+        BenchmarkIntent.MapExtractsTimers => "intent-v1-map-extracts-timers",
+        BenchmarkIntent.HealthCharacter => "intent-v1-health-character",
+        BenchmarkIntent.AutoDetect => "intent-v1-auto-detect",
+        _ => throw new ArgumentOutOfRangeException(nameof(intent)),
+    };
 
     private static SliceMetrics ScoreSlice(
         BenchmarkIntent intent,
@@ -199,68 +395,155 @@ public static class IndependentScorer
         FrozenThresholds thresholds)
     {
         var sampleIds = samples.Select(sample => sample.SampleId).ToHashSet(StringComparer.Ordinal);
-        var predictions = allPredictions.Where(prediction => prediction.Intent == intent && sampleIds.Contains(prediction.SampleId)).ToArray();
-        // Truth ids survive a scroll or nested-container sequence. Grouping before metrics is
-        // the no-double-count boundary: repeated visibility is evidence coverage, not a second
-        // item to score.
+        var predictions = allPredictions.Where(prediction => sampleIds.Contains(prediction.SampleId)).ToArray();
         var allTruth = samples.SelectMany(sample => sample.Truth.Select(truth => (sample, truth))).ToArray();
-        var known = allTruth.Where(pair => pair.truth.State == TruthState.Known)
+        var knownGroups = allTruth.Where(pair => pair.truth.State == TruthState.Known)
             .GroupBy(pair => pair.truth.TruthId, StringComparer.Ordinal)
-            .Select(group => group.OrderBy(pair => pair.sample.Lineage.FrameOrdinal).First())
             .ToArray();
         var excluded = allTruth.Where(pair => pair.truth.State == TruthState.Unknown)
             .Select(pair => pair.truth.TruthId)
             .Distinct(StringComparer.Ordinal)
             .Count();
-        var consumed = new HashSet<(string SampleId, string ClaimId)>();
+        var consumedClaims = new HashSet<string>(StringComparer.Ordinal);
         var truePositives = 0;
         var falseNegatives = 0;
+        var attempted = 0;
         var abstentions = 0;
         var confidentWrong = 0;
 
-        foreach (var (sample, truth) in known)
+        foreach (var truthGroup in knownGroups)
         {
-            var candidates = predictions.Where(prediction => prediction.SampleId == sample.SampleId)
-                .SelectMany(prediction => prediction.Claims.Select(claim => (prediction, claim)))
-                .Where(pair => string.Equals(pair.claim.Kind, truth.Kind, StringComparison.Ordinal))
-                .ToArray();
-            var match = candidates.FirstOrDefault(pair => string.Equals(pair.claim.Value, truth.Value, StringComparison.Ordinal));
-            if (match.claim is not null)
+            var visibleSampleIds = truthGroup.Select(pair => pair.sample.SampleId).ToHashSet(StringComparer.Ordinal);
+            var truth = truthGroup.First().truth;
+            var relevantPredictions = predictions.Where(prediction =>
+                visibleSampleIds.Contains(prediction.SampleId) &&
+                string.Equals(PredictionTypeNames.Format(prediction.Type), truth.Kind, StringComparison.Ordinal)).ToArray();
+            if (relevantPredictions.Any(prediction => prediction.Status != PredictionStatus.Unavailable))
             {
-                consumed.Add((sample.SampleId, match.claim.ClaimId));
-                truePositives++;
-                continue;
+                attempted++;
             }
 
-            falseNegatives++;
-            if (predictions.Any(prediction => prediction.SampleId == sample.SampleId && prediction.Status == PredictionStatus.Abstained))
+            if (relevantPredictions.Any(prediction => prediction.Status == PredictionStatus.Abstained) &&
+                relevantPredictions.All(prediction => prediction.Status != PredictionStatus.Detected))
             {
                 abstentions++;
             }
 
-            if (candidates.Any(pair => pair.prediction.Confidence >= 0.9m))
+            var candidates = relevantPredictions
+                .SelectMany(prediction => prediction.Claims.Select(claim => (prediction, claim)))
+                .Where(pair => string.Equals(pair.claim.Kind, truth.Kind, StringComparison.Ordinal) &&
+                               !consumedClaims.Contains(pair.claim.ClaimId))
+                .ToArray();
+            var match = candidates.FirstOrDefault(pair => ClaimMatches(pair.claim, truth));
+            if (match.claim is not null)
+            {
+                consumedClaims.Add(match.claim.ClaimId);
+                truePositives++;
+            }
+            else
+            {
+                falseNegatives++;
+            }
+
+            if (candidates.Any(pair => pair.prediction.Confidence >= 0.9m && !ClaimMatches(pair.claim, truth)))
             {
                 confidentWrong++;
             }
         }
 
-        var falsePositives = predictions.SelectMany(prediction => prediction.Claims.Select(claim => (prediction.SampleId, claim.ClaimId)))
-            .Count(claim => !consumed.Contains(claim));
+        var allClaims = predictions.SelectMany(prediction => prediction.Claims).ToArray();
+        var falsePositives = allClaims.Count(claim => !consumedClaims.Contains(claim.ClaimId));
         var sequence = SequenceErrors(samples, predictions);
-        var denominator = known.Length;
-        var units = samples.Select(sample => unitBySample[sample.SampleId]).Distinct(StringComparer.Ordinal).Count();
-        var coverage = denominator == 0 ? 0m : (decimal)truePositives / denominator;
-        var abstentionRate = denominator == 0 ? 0m : (decimal)abstentions / denominator;
-        var confidentWrongRate = denominator == 0 ? 0m : (decimal)confidentWrong / denominator;
-        var status = units < thresholds.MinimumIndependentSplitUnits || denominator < thresholds.MinimumKnownClaims
-            ? "insufficient-data"
-            : "reported";
+        var denominator = knownGroups.Length;
+        var independentUnits = samples.Select(sample => unitBySample[sample.SampleId]).Distinct(StringComparer.Ordinal).Count();
+        var coverage = Rate(attempted, denominator);
+        var accuracyDenominator = truePositives + falsePositives + falseNegatives;
+        var accuracy = Rate(truePositives, accuracyDenominator);
+        var recall = Rate(truePositives, denominator);
+        var falsePositiveDenominator = truePositives + falsePositives;
+        var falsePositiveRate = Rate(falsePositives, falsePositiveDenominator);
+        var f1Denominator = (2 * truePositives) + falsePositives + falseNegatives;
+        var f1 = f1Denominator == 0 ? 0 : (decimal)(2 * truePositives) / f1Denominator;
+        var abstentionRate = Rate(abstentions, denominator);
+        var confidentWrongRate = Rate(confidentWrong, denominator);
+        var underpowered = independentUnits < thresholds.MinimumIndependentSplitUnits || denominator < thresholds.MinimumKnownClaims;
+        var passes = coverage >= thresholds.MinimumCoverage && abstentionRate <= thresholds.MaximumAbstentionRate &&
+                     confidentWrongRate <= thresholds.MaximumConfidentWrongRate && f1 >= thresholds.MinimumF1;
+        var status = underpowered ? "insufficient-data" : passes ? "pass" : "fail";
         var interval = Wilson(truePositives, denominator);
-        var elapsed = predictions.Where(prediction => prediction.ElapsedMilliseconds is not null).Select(prediction => prediction.ElapsedMilliseconds!.Value).ToArray();
-        return new SliceMetrics(intent, evidenceClass, status, truePositives, denominator, excluded, units, truePositives, falsePositives,
-            falseNegatives, abstentions, confidentWrong, sequence.Missing, sequence.Reordered, sequence.OverlapErrors, coverage,
-            abstentionRate, confidentWrongRate, interval.Lower, interval.Upper, elapsed.Length == 0 ? null : elapsed.Average());
+        var elapsed = predictions.Select(prediction => prediction.ElapsedMilliseconds).ToArray();
+        return new SliceMetrics(
+            intent,
+            evidenceClass,
+            status,
+            truePositives,
+            denominator,
+            excluded,
+            independentUnits,
+            attempted,
+            truePositives,
+            falsePositives,
+            falseNegatives,
+            abstentions,
+            confidentWrong,
+            sequence.Missing,
+            sequence.Reordered,
+            sequence.OverlapErrors,
+            truePositives,
+            accuracyDenominator,
+            truePositives,
+            denominator,
+            falsePositives,
+            falsePositiveDenominator,
+            coverage,
+            accuracy,
+            recall,
+            falsePositiveRate,
+            f1,
+            abstentionRate,
+            confidentWrongRate,
+            interval.Lower,
+            interval.Upper,
+            elapsed.Length,
+            elapsed.Length == 0 ? null : elapsed.Average(),
+            elapsed.Length == 0 ? null : elapsed.Max());
     }
+
+    private static void ValidateScoringPredictions(IReadOnlyList<CorpusSample> samples, IReadOnlyList<ProducerPrediction> predictions)
+    {
+        if (predictions.Count == 0)
+        {
+            return;
+        }
+
+        var planSamples = samples.Select(sample => new RunPlanSample(
+            sample.SampleId,
+            CorpusSplit.Test,
+            IntentFor(sample.Context.CaptureIntentId),
+            sample.EvidenceClass,
+            sample.Context,
+            sample.Lineage)).ToArray();
+        var plan = new RunPlan(
+            "private-score-run-0001",
+            "private-score-producer-0001",
+            "private-score-v1",
+            CorpusValidation.FrozenPolicyVersion,
+            "private-score-corpus-0001",
+            CorpusValidation.NearDuplicateGraphVersion,
+            new string('0', 64),
+            planSamples);
+        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, predictions);
+        var errors = CorpusValidation.ValidatePredictions(document, plan);
+        if (errors.Count != 0)
+        {
+            throw new ArgumentException(string.Join("; ", errors), nameof(predictions));
+        }
+    }
+
+    private static bool ClaimMatches(PredictionClaim claim, TruthClaim truth) =>
+        string.Equals(claim.Kind, truth.Kind, StringComparison.Ordinal) &&
+        string.Equals(claim.Value, truth.Value, StringComparison.Ordinal) &&
+        claim.Region == truth.Region;
 
     private static (int Missing, int Reordered, int OverlapErrors) SequenceErrors(
         IReadOnlyList<CorpusSample> samples,
@@ -272,23 +555,36 @@ public static class IndependentScorer
         foreach (var sequence in samples.GroupBy(sample => sample.Lineage.SequenceId, StringComparer.Ordinal))
         {
             var expected = sequence.OrderBy(sample => sample.Lineage.FrameOrdinal).ToArray();
-            var observed = predictions.Select(prediction => prediction.SampleId).Where(id => expected.Any(sample => sample.SampleId == id)).Distinct(StringComparer.Ordinal).ToArray();
+            var expectedIds = expected.Select(sample => sample.SampleId).ToHashSet(StringComparer.Ordinal);
+            var observed = predictions.Where(prediction => expectedIds.Contains(prediction.SampleId))
+                .Select(prediction => prediction.SampleId)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
             missing += expected.Count(sample => !observed.Contains(sample.SampleId, StringComparer.Ordinal));
             var expectedOrder = expected.Select(sample => sample.SampleId).Where(observed.Contains).ToArray();
-            if (!expectedOrder.SequenceEqual(observed))
+            if (!expectedOrder.SequenceEqual(observed, StringComparer.Ordinal))
             {
                 reordered++;
             }
 
-            if (expected.Skip(1).Any(sample => sample.Lineage.OverlapWithPrevious > 0) &&
-                predictions.GroupBy(prediction => prediction.SampleId, StringComparer.Ordinal).Any(group => group.Count() > 1))
+            foreach (var truthGroup in expected.SelectMany(sample => sample.Truth.Select(truth => (sample, truth)))
+                         .Where(pair => pair.truth.State == TruthState.Known)
+                         .GroupBy(pair => pair.truth.TruthId, StringComparer.Ordinal)
+                         .Where(group => group.Count() > 1 && group.Skip(1).All(pair => pair.sample.Lineage.OverlapWithPrevious > 0)))
             {
-                overlapErrors++;
+                var truth = truthGroup.First().truth;
+                var visible = truthGroup.Select(pair => pair.sample.SampleId).ToHashSet(StringComparer.Ordinal);
+                var duplicateMatches = predictions.Where(prediction => visible.Contains(prediction.SampleId))
+                    .SelectMany(prediction => prediction.Claims)
+                    .Count(claim => ClaimMatches(claim, truth));
+                overlapErrors += Math.Max(0, duplicateMatches - 1);
             }
         }
 
         return (missing, reordered, overlapErrors);
     }
+
+    private static decimal Rate(int numerator, int denominator) => denominator == 0 ? 0 : (decimal)numerator / denominator;
 
     private static (decimal Lower, decimal Upper) Wilson(int successes, int trials)
     {

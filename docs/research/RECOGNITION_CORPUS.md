@@ -20,9 +20,10 @@ The checked-in schemas under `fixtures/recognition-corpus/schemas/` are the v1 c
 - `provenance.v1` records immutable capture intent, session and correlation identities, ordered
   ordinal, workspace/profile/map/floor, plan/objectives, selection/prior scan reference,
   initiating device and surface, resolution, UI scale, locale, and game/UI version.
-- `manifest.v1` is private truth. It records canonical decoded-pixel SHA-256, the versioned
-  perceptual-near-duplicate graph, consent/privacy eligibility, lineage, and truth states
-  `known` or `unknown`.
+- `manifest.v1` is private truth. It records canonical and independently observed decoded-pixel
+  SHA-256, the versioned perceptual-near-duplicate graph, full private consent/privacy authority,
+  lineage, bounded truth regions, and truth states `known` or `unknown`. The checked-in schema is
+  public; populated manifests and their private-evidence section are not.
 - `run-plan.v1` and `predictions.v1` are the truth-free producer handoff for #299 and #273.
   They contain no labels, truth, filenames, paths, pixels, consent records, OCR strings, or
   per-sample outputs eligible for GitHub publication.
@@ -31,22 +32,26 @@ The checked-in schemas under `fixtures/recognition-corpus/schemas/` are the v1 c
 - `aggregate-results.v1` is the only format which may leave the private scorer, and only after
   its privacy aggregation rule is satisfied.
 
-Readers ignore unknown JSON properties for compatible evolution. They still reject missing
-required fields, malformed hashes, undefined evidence state, filesystem names/paths, labels in a
-truth-free interchange, and every real-raster eligibility failure.
+Readers ignore unknown JSON properties for compatible evolution. They still reject malformed or
+empty documents, missing required fields, malformed hashes, undefined enums, non-opaque IDs,
+filesystem names/paths, labels in a truth-free interchange, and every real-raster eligibility
+failure.
 
 ## Consent, privacy, retention, and revocation
 
 A real raster is eligible only when all of the following are true at score time:
 
-1. An explicit private consent record has a matching SHA-256 hash and permits `benchmark`.
-2. Its retention expiry has not passed and its revocation state is `active`.
-3. A human privacy review is `approved`, with redaction either `not-required` or `applied`.
-4. The exact decoded pixels hash matches the imported content and the source is outside every
-   repository/worktree.
+1. An explicit full private consent record has a matching SHA-256 evidence hash, a valid UTC
+   consent time, and permits `benchmark`.
+2. Its UTC retention expiry has not passed and its revocation state is `active`.
+3. A matching full human privacy record has an approved UTC review, with redaction either
+   `not-required` or `applied`.
+4. The canonical decoded-pixel hash matches the independently observed imported-content hash and
+   the source is outside every repository/worktree.
 
-Revocation, expiry, rejected review, a changed pixel hash, or a missing record removes the sample
-from eligibility and invalidates the affected split lock/baseline. Ingest never accepts an
+Revocation, expiry, rejected review, a changed pixel hash, a hash-shaped summary without its full
+private record, or a missing record removes the sample from eligibility and invalidates the
+affected split lock/baseline. Ingest never accepts an
 original filename or an absolute/local filesystem path; the CLI rejects a manifest path nested
 under `.git` or a worktree. A consent hash is a correlation check, not a replacement for the
 private consent record and human review.
@@ -56,17 +61,26 @@ private consent record and human review.
 Canonical decoded-pixel SHA-256 is computed on decoded pixel bytes, not a container filename or
 encoded file bytes. `phash-graph.v1` additionally connects perceptual near duplicates. The split
 planner takes connected components across exact hashes, near-duplicate links, and a capture
-sequence; it derives a component ID from the sorted content root and assigns train/tune/test from
-a SHA-256 bucket (80/10/10). Thus originals, bursts, crops, redactions, and all scroll frames
+sequence; it derives a component ID from every sorted content root and assigns train/tune/test
+from a SHA-256 bucket (80/10/10). Thus originals, bursts, crops, redactions, and all scroll frames
 stay in one unit. The manifest's declared split unit is independently recomputed and a mismatch
 or cross-split graph edge fails validation.
+
+A truth-free plan cannot prove that private graph on its own. `PrivateRunPlanner` therefore takes
+the validated private manifest, orders every authorized sample canonically, recomputes each split,
+copies the exact bounded context and lineage, and emits a content-derived plan lock. Run-plan
+validation requires the private manifest again and recomputes the entire plan and lock; it rejects
+missing, duplicate, extra, or reordered samples and any context, lineage, intent, evidence-class,
+split, graph-version, policy-version, or lock change. A lock-shaped string without that private
+context proves nothing.
 
 Lineage keeps `sequenceId`, frame ordinal, viewport identity, container identity, optional parent
 container identity, and overlap with the preceding frame. Frames are contiguous and ordered;
 failed or missing frame evidence is reported, not renumbered. A repeated `truthId` across
 overlapping frames means one real claim: the scorer verifies repeated truth is consistent,
 deduplicates it before denominator calculation, and reports duplicate producer claims as false
-positives rather than counting it twice.
+positives rather than counting it twice. Truth and prediction rectangles use explicit integer
+`x`, `y`, `width`, and `height` and must fit the capture dimensions without overflow.
 
 ## Producer and scorer boundary
 
@@ -80,10 +94,19 @@ positives rather than counting it twice.
 The scorer never pools `real-raster`, `synthetic-raster`, and `post-ocr-evidence`. For every
 intent — Loot decision, Full stash, Ammo, Keys, Quest/future-quest items, Map/extracts/timers,
 Health/character, and Auto-detect — it emits a separate evidence-class slice. Each slice includes
-numerator/denominator, excluded unknowns, independent split units, 95% Wilson interval, coverage,
-abstention, confident-wrong, false-positive, sequence missing/reordered frames, overlap/dedup
-errors, and available performance. Every unsupported or underpowered slice is
-`insufficient-data`; it is never silently pooled, zero, or passing.
+the original numerator/denominator, excluded unknowns, independent split units, attempted eligible
+truth coverage, accuracy, recall, false-positive rate, F1, each applicable metric numerator and
+denominator, a 95% Wilson recall interval, abstention, confident-wrong, sequence
+missing/reordered-frame and overlap/dedup errors, and available performance. A repeated truth may
+match once from any frame where it remains visible. Every unsupported or underpowered slice is
+`insufficient-data`; powered slices are explicitly `pass` or `fail` against the frozen candidate
+coverage, abstention, confident-wrong, and F1 thresholds.
+
+For this claim-set benchmark, coverage is attempted eligible truth divided by eligible known truth;
+an explicit detected or abstained result of the matching type is an attempt, while missing or
+unavailable output is not. Accuracy is `TP / (TP + FP + FN)`, recall is `TP / (TP + FN)`, the
+false-positive rate is `FP / (TP + FP)` because the corpus has no meaningful true-negative claim
+universe, and F1 is `2TP / (2TP + FP + FN)`. Each denominator is emitted beside its numerator.
 
 The candidate values in `thresholds/recognition-release.v1.json` are frozen before tuning. They
 are deliberately candidate policy, not an accuracy claim. An aggregate may be committed only when
@@ -105,11 +128,15 @@ prediction file only when the file is outside a repository/worktree:
 
 ```text
 dotnet run --project tools/RecognitionCorpus -- validate-manifest /private/corpus/manifest.json
-dotnet run --project tools/RecognitionCorpus -- validate-run-plan /private/corpus/run-plan.json
-dotnet run --project tools/RecognitionCorpus -- validate-predictions /private/corpus/predictions.json
+dotnet run --project tools/RecognitionCorpus -- validate-run-plan /private/corpus/run-plan.json /private/corpus/manifest.json
+dotnet run --project tools/RecognitionCorpus -- validate-predictions /private/corpus/predictions.json /private/corpus/run-plan.json
 ```
 
-The test project covers positive, hostile, privacy, split-stability, leakage/no-double-count,
-schema-compatible unknown-property, metric, and status cases. The integration owner adds both
-projects to the solution and CI after the #272/#276 worktrees are combined; GitHub Actions stays
-the required substantive-change gate.
+The second argument to run-plan validation is the authorized private planner context. The second
+argument to prediction validation is the exact truth-free plan whose run, producer, membership,
+intent, evidence class, dimensions, and timing contract the output must match.
+
+The test project covers positive, negative, hostile, privacy, split/leakage, region-bound,
+prediction-mismatch, schema-compatible unknown-property, metric, threshold, and sequence cases.
+Both projects are registered in the solution so the normal Linux and Windows jobs execute them;
+GitHub Actions stays the required substantive-change gate.
