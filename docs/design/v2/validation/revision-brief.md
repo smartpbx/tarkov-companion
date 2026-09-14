@@ -4,9 +4,10 @@
 > not from participant sessions. Items marked **after validation** must wait for the decision log.
 > No new image has been produced for this brief.
 
-For whoever runs the next concept pass, by any method. The measured nine current concept PNGs
-(the exact inventory is in [render-audit.md](render-audit.md)) stay where they are, unchanged, as
-the record of the first pass. Revised or additional images go to new files, named so
+For whoever runs the next concept pass, by any method. The eight original #265 concept PNGs
+(the exact scope is in [render-audit.md](render-audit.md)) stay where they are, unchanged, as
+the record of the first pass. The later #318 high-value-loot-layer concept is outside that measured
+scope. Revised or additional images go to new files, named so
 they cannot be mistaken for the originals, in a location chosen by the design owner. They are outside
 this issue's owned paths, so this pull request adds none.
 

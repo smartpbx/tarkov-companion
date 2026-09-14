@@ -1,7 +1,8 @@
 # Concept render audit
 
-> **Status: not yet run with participants.** This is a heuristic self-review of the measured nine-image
-> in `docs/design/v2/` by the author of this package (not independent), on 2026-09-14. It records what is visible in each
+> **Status: not yet run with participants.** This is a heuristic self-review of the eight original
+> #265 concept inputs in `docs/design/v2/` by the author of this package (not independent), on
+> 2026-09-14. It records what is visible in each
 > image and why it matters for v2. It is not usability evidence and no participant has seen these
 > findings. The images are unchanged; nothing here edits or replaces them.
 
@@ -11,12 +12,15 @@ not that sample numbers are "wrong". It is that a render teaches implementers a 
 patterns here would ship a contradiction, an unlabelled claim, or a boundary misunderstanding if
 copied. Each item names the render, what is visible, and the risk.
 
-The inventory is nine PNGs, measured with `find docs/design/v2 -maxdepth 1 -type f -name '*.png'`:
-`v2-high-value-loot-layer-concept.png`, `v2-home-setup-concept.png`,
-`v2-intel-workspace-concept.png`, `v2-loot-scan-concept.png`,
+The measured #265 inventory is these eight PNGs:
+`v2-home-setup-concept.png`, `v2-intel-workspace-concept.png`, `v2-loot-scan-concept.png`,
 `v2-plan-workspace-concept.png`, `v2-raid-intelligence-concept.png`,
 `v2-stash-scan-concept.png`, `v2-tablet-desktop-control-concept.png`, and
 `v2-team-tablet-concept.png`.
+
+The directory now contains a ninth PNG, `v2-high-value-loot-layer-concept.png`, added later for
+#318. It was not an input to #265 and is explicitly outside this audit rather than being counted as
+reviewed without its own per-render findings.
 
 **Risk tags:** `truth` (implies more certainty than the data has) · `boundary` (could read as
 something outside the fixed boundary) · `contradiction` (two parts of the product disagree) ·

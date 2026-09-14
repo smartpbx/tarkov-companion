@@ -25,7 +25,7 @@ and changes none of the #264 contracts.
 | [accessibility-flows.md](accessibility-flows.md) | Annotated keyboard, screen-reader, touch, reflow, contrast, text-size, motion, map/list and focus flows |
 | [state-matrix.md](state-matrix.md) | Eight states for each of the six destinations (five workspaces plus Setup & Admin): trigger, remainder, provenance, recovery, focus, sync |
 | [capture-intent-mismatch.md](capture-intent-mismatch.md) | Deterministic flow when armed intent and detected context disagree, plus still-writing, duplicate, unknown, and device-race cases |
-| [render-audit.md](render-audit.md) | Measured audit of the nine concept PNGs in `docs/design/v2/` (exact inventory recorded there) |
+| [render-audit.md](render-audit.md) | Measured audit of the eight original #265 concept inputs; the later #318 render is outside this package's scope (exact inventory recorded there) |
 | [revision-brief.md](revision-brief.md) | What the next concept pass must change or add |
 | [validation-report.md](validation-report.md) | Blank report to fill after sessions |
 | [acceptance-fixture-map.md](acceptance-fixture-map.md) | Draft journey fixtures and the implementation issues that consume them |
