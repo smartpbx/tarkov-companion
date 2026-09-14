@@ -40,13 +40,21 @@ public sealed class JsonFileShellLayoutStore(string settingsPath) : IShellLayout
                 document.Left,
                 document.Top,
                 document.Maximized,
-                document.RailCollapsed);
+                document.RailCollapsed,
+                // Snapped on the way in, because this file is one somebody can open and a
+                // hand-typed 4 would draw the rail alone wider than a monitor, with no way to
+                // press anything that would undo it.
+                ShellLayout.NearestScale(document.Scale ?? 1));
 
             // A size the shell cannot use is discarded, but the rail's own state is kept: those
             // are two different preferences and one being unusable says nothing about the other.
             return layout.IsUsable
                 ? layout
-                : ShellLayout.Default with { IsRailCollapsed = document.RailCollapsed };
+                : ShellLayout.Default with
+                {
+                    IsRailCollapsed = layout.IsRailCollapsed,
+                    Scale = layout.Scale,
+                };
         }
         finally
         {
@@ -66,7 +74,8 @@ public sealed class JsonFileShellLayoutStore(string settingsPath) : IShellLayout
                 layout.Left,
                 layout.Top,
                 layout.IsMaximized,
-                layout.IsRailCollapsed);
+                layout.IsRailCollapsed,
+                layout.Scale);
             await AtomicJsonFile.WriteAsync(
                 settingsPath,
                 JsonSerializer.Serialize(document, JsonOptions),
@@ -109,5 +118,8 @@ public sealed class JsonFileShellLayoutStore(string settingsPath) : IShellLayout
         double? Left,
         double? Top,
         bool Maximized,
-        bool RailCollapsed);
+        bool RailCollapsed,
+        // Nullable so a file written before this existed reads as "the designed size" rather
+        // than as zero, which would draw nothing at all.
+        double? Scale = null);
 }

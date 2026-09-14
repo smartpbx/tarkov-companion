@@ -14,6 +14,40 @@
         <!-- Updating from inside the application. Only builds that passed Windows verification
              are offered, and a download whose checksum does not match what was published is
              thrown away rather than installed. -->
+        <!-- How large everything is drawn. Seven fixed pixel sizes in the type scale, every
+             column fixed, and no LayoutTransform anywhere — so the only lever anybody had was
+             Windows scaling, which scales the game on the same machine.
+
+             Through the window rather than this page's own view model: it is a property of the
+             shell, and giving the Settings view model a reference to the shell to reach it
+             would be a cycle for one number. -->
+        <Border Classes="panel">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="sectionTitle" Text="Interface size" />
+            <TextBlock Classes="prose"
+                       Text="Everything in this window, drawn larger or smaller. It does not touch the game."
+                       TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+              <Button Click="SmallerClick" Content="&#x2212;" MinWidth="44" />
+              <Button Grid.Column="1" Click="LargerClick" Content="+" MinWidth="44" />
+              <TextBlock Grid.Column="2"
+                         Classes="value"
+                         VerticalAlignment="Center"
+                         Text="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).InterfaceScaleLabel}" />
+              <Button Grid.Column="3" Classes="quiet" Click="ResetScaleClick" Content="Reset" />
+            </Grid>
+            <TextBlock Classes="caption"
+                       Text="Ctrl and + or &#x2212; does the same, and Ctrl+0 puts it back."
+                       TextWrapping="Wrap" />
+            <!-- Said rather than discovered. These are separate top-level windows and the
+                 transform on the shell cannot reach them; somebody noticing that on their own
+                 would reasonably conclude the setting was half broken. -->
+            <TextBlock Classes="caption"
+                       Text="Dropdown lists and tooltips stay at their normal size."
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
         <Border Classes="panel cyan" IsVisible="{Binding SupportsUpdates}">
           <StackPanel Spacing="8">
             <TextBlock Classes="sectionTitle" Text="Application updates" />
