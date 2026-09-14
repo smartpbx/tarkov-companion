@@ -108,6 +108,15 @@ public sealed class MapMarkerNameEdgeTests
         Assert.NotEqual(0, aware[1]);
     }
 
+    /// <summary>
+    /// The whole canvas as the edges, which is what this rule used to take.
+    /// </summary>
+    /// <remarks>
+    /// It now takes a left and a right, because the edge that matters is the drawn content
+    /// rather than the canvas: upstream bounds reach past the picture, so a name inside the
+    /// canvas can still be off the panel. These cases are unchanged by that — a canvas with
+    /// nothing measured on it still passes 0 and the canvas width.
+    /// </remarks>
     private static double Shift(double nameWidth, double centerX, double canvasWidth, double zoom) =>
-        MapViewModel.HorizontalShift(nameWidth, centerX, canvasWidth, zoom);
+        MapViewModel.HorizontalShift(nameWidth, centerX, 0, canvasWidth, zoom);
 }

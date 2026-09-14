@@ -951,6 +951,24 @@ public sealed record MapPlaceNameViewModel(
     public double CanvasWidth { get; init; }
 
     /// <summary>
+    /// The part of the canvas that has a picture on it, when that is narrower than the canvas.
+    /// </summary>
+    /// <remarks>
+    /// The canvas is the upstream bounds and those routinely reach past the drawn map, so
+    /// keeping a name inside the canvas does not keep it on screen. Fit solves for the drawn
+    /// content, which means a fitted map shows exactly this rectangle and nothing else — so
+    /// this is the edge a name has to stay inside to stay readable.
+    ///
+    /// Reported from the gallery's first photograph of Streets: "Transit to Interchang", cut
+    /// mid-word by the panel while sitting comfortably inside the canvas.
+    ///
+    /// Zero width means nothing was measured, and then the canvas is all there is to go on.
+    /// </remarks>
+    public double DrawnLeft { get; init; }
+
+    public double DrawnWidth { get; init; }
+
+    /// <summary>
     /// The map's zoom when this name was built.
     /// </summary>
     /// <remarks>
@@ -1007,13 +1025,15 @@ public sealed record MapPlaceNameViewModel(
         get
         {
             var half = TextWidthOnCanvas / 2;
-            if (CenterX - half < 0)
+            var left = DrawnWidth > 0 ? DrawnLeft : 0;
+            var right = DrawnWidth > 0 ? DrawnLeft + DrawnWidth : CanvasWidth;
+            if (CenterX - half < left)
             {
-                return half - CenterX;
+                return left - (CenterX - half);
             }
 
-            var overhang = CenterX + half - CanvasWidth;
-            return CanvasWidth > 0 && overhang > 0 ? -overhang : 0;
+            var overhang = CenterX + half - right;
+            return right > left && overhang > 0 ? -overhang : 0;
         }
     }
 }
@@ -3391,10 +3411,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
                     isDimmed)
                 {
                     Scale = _markerScale,
-                    // So a name at the edge of the map can be kept on it. The canvas clips its
-                    // children, and a label the catalog put near the edge otherwise loses
-                    // whatever falls outside.
+                    // So a name at the edge of the map can be kept on it. Both edges are
+                    // handed over: the canvas, and the part of it that actually has a picture,
+                    // which is what a fitted map shows and therefore what a name has to stay
+                    // inside to stay readable.
                     CanvasWidth = CanvasWidth,
+                    DrawnLeft = ContentBounds.Width > 0 ? ContentBounds.Left : 0,
+                    DrawnWidth = ContentBounds.Width,
                 });
                 continue;
             }
@@ -3699,26 +3722,52 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// A name too wide for the whole map is left centred, because there is nowhere for it to go
     /// and shifting it would only choose which end to lose.
     /// </remarks>
+    /// <remarks>
+    /// Against the drawn content rather than the whole canvas. The canvas is the upstream
+    /// bounds and those reach past the drawn map, so a name inside the canvas can still be off
+    /// the panel: Fit solves for the drawn content, which means a fitted map shows exactly that
+    /// rectangle. Seen on Streets as "Transit to Interchang", cut mid-word while sitting well
+    /// inside the canvas. With nothing measured the canvas is all there is to go on.
+    /// </remarks>
     private double HorizontalShiftFor(MapOverlayElementViewModel marker) =>
-        HorizontalShift(marker.EstimatedNameWidth, marker.CenterX, CanvasWidth, ZoomScale);
+        ContentBounds.Width > 0
+            ? HorizontalShift(
+                marker.EstimatedNameWidth,
+                marker.CenterX,
+                ContentBounds.Left,
+                ContentBounds.Right,
+                ZoomScale)
+            : HorizontalShift(marker.EstimatedNameWidth, marker.CenterX, 0, CanvasWidth, ZoomScale);
 
     /// <summary>The rule on its own, so it can be checked without standing up a map.</summary>
-    public static double HorizontalShift(double nameWidth, double centerX, double canvasWidth, double zoom)
+    /// <param name="nameWidth">How wide the name reads, in screen pixels.</param>
+    /// <param name="centerX">The marker's position, in canvas units.</param>
+    /// <param name="leftEdge">The left edge it must stay inside, in canvas units.</param>
+    /// <param name="rightEdge">The right edge it must stay inside, in canvas units.</param>
+    /// <param name="zoom">What converts one to the other.</param>
+    public static double HorizontalShift(
+        double nameWidth,
+        double centerX,
+        double leftEdge,
+        double rightEdge,
+        double zoom)
     {
         var half = nameWidth / 2;
         var centre = centerX * zoom;
-        var width = canvasWidth * zoom;
+        var left = leftEdge * zoom;
+        var right = rightEdge * zoom;
+        var width = right - left;
         if (!double.IsFinite(width) || width <= 0 || nameWidth >= width)
         {
             return 0;
         }
 
-        if (centre - half < 0)
+        if (centre - half < left)
         {
-            return half - centre;
+            return left - (centre - half);
         }
 
-        return centre + half > width ? width - centre - half : 0;
+        return centre + half > right ? right - centre - half : 0;
     }
 
     /// <summary>
