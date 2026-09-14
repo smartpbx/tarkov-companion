@@ -4928,8 +4928,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private async Task OpenStackedAsync(CancellationToken cancellationToken)
     {
-        if (!_openStacked || !CanStack)
+        if (!_openStacked)
         {
+            return;
+        }
+
+        // The last branch that could decline in silence. Saying it closes the set: after this,
+        // a launch that asked to open stacked and produced no stack line at all can only have
+        // unwound before reaching here, which is a different question and a narrower one.
+        if (!CanStack)
+        {
+            Status = $"{Status} · Stacked view: this map has only one floor";
             return;
         }
 
@@ -5088,6 +5097,23 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             ReleaseLater(_floorLayers.Select(layer => layer.Image));
             _placements = [];
             FloorLayers = [];
+            // The one path that used to say nothing, and the one the map turned out to be
+            // taking. A lit toggle over a flat map was reached through here, and because this
+            // returns before every other message in the method, the picture carried the tile
+            // count and not one word about the stack — which read as the stack having run and
+            // produced nothing, and sent me looking in the wrong place twice.
+            //
+            // Only when the stack was actually asked for. A map load with the toggle off comes
+            // through here on every single variant load and has nothing to report.
+            if (_openStacked || _isStacked)
+            {
+                Status = _renderModel is null
+                    ? $"{Status} · Stacked view: the map has not finished loading"
+                    : Floors.Count == 0
+                        ? $"{Status} · Stacked view: this map has no floors"
+                        : $"{Status} · Stacked view: the stack is off";
+            }
+
             return;
         }
 
@@ -5141,8 +5167,26 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         if (layers.Count == 0)
         {
             Status = refusal is { Length: > 0 }
-                ? $"Stacked view: no floor artwork could be loaded · {refusal}"
-                : "Stacked view: no floor artwork could be loaded.";
+                ? $"{Status} · Stacked view: no floor artwork could be loaded · {refusal}"
+                : $"{Status} · Stacked view: no floor artwork could be loaded";
+        }
+        else if (layers.Count == _placements.Count)
+        {
+            // Said on success too, because "it worked" is the answer a picture could not give
+            // otherwise: a stack drawn at the same scale as the flat map, seen small, looks
+            // like a flat map. How many plates there are is the difference.
+            Status = $"{Status} · Stacked view: {layers.Count} floors";
+        }
+        else if (layers.Count < _placements.Count)
+        {
+            // A gap in the stack is honest, which is this method's own long-standing rule and
+            // the right one. It is only honest if somebody is told there is a gap: Customs'
+            // 4th floor has no upstream SVG layer while its other three do, so the stack is
+            // three plates where the chooser offers four and nothing said which one was
+            // missing or why.
+            Status = refusal is { Length: > 0 }
+                ? $"{Status} · Stacked view: {layers.Count} of {_placements.Count} floors · {refusal}"
+                : $"{Status} · Stacked view: {layers.Count} of {_placements.Count} floors";
         }
     }
 
