@@ -1,1 +1,6 @@
 ReadProcessMemory(gameHandle, address, buffer, size, out read);
+WriteProcessMemory(gameHandle, address, patch, size, out written);
+NtReadVirtualMemory(gameHandle, address, buffer, size, out read);
+NtWriteVirtualMemory(gameHandle, address, patch, size, out written);
+NtQueryVirtualMemory(gameHandle, address, MemoryBasicInformation, info, size, out length);
+var memory = new MemorySharp(gameProcess);

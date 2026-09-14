@@ -2,12 +2,56 @@
 set -euo pipefail
 
 readonly TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Ordinary process/window discovery, physical hotkey observation, and companion-window placement
-# are allowed. Match the APIs that perform the prohibited capability (memory read/write, injection
-# or hooks, generated keyboard/mouse/controller input, packet capture, overlay libraries), not
-# adjacent API names such as OpenProcess, GetAsyncKeyState, or SetWindowPos.
-readonly TASK_FORBIDDEN_PATTERN='ReadProcessMemory|WriteProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtReadVirtualMemory|NtWriteVirtualMemory|NtQueryVirtualMemory|SetWindowsHookEx|SendInput|mouse_event|keybd_event|InputSimulator|WindowsInput|ViGEm|vJoy|WinDivert|SharpPcap|PacketDotNet|SocketType\.Raw|IOControlCode\.ReceiveAll|SIO_RCVALL|pcap_open_live|EasyHook|Reloaded\.Hooks|MemorySharp|GameOverlay|Vortice\.Direct3D.*Hook|Direct3D.*PresentHook'
 readonly TASK_FIXTURE_ROOT="${TASK_PROJECT_ROOT}/tests/safety-contract"
+
+# Each entry names an API or package that performs a prohibited capability. Ordinary process
+# lookup (OpenProcess for query access), physical hotkey observation (GetAsyncKeyState), and
+# companion-window placement (SetWindowPos, an always-on-top companion) are allowed, so they are
+# deliberately absent. The overlay tripwire is the capability itself: a click-through window, a
+# topmost layered window, or a window owned by another window. Every entry must be caught by its
+# own line under tests/safety-contract/prohibited, so an entry nobody can trip fails the audit.
+readonly TASK_FORBIDDEN_PATTERNS=(
+    # Game process memory and injection.
+    'ReadProcessMemory'
+    'WriteProcessMemory'
+    'VirtualAllocEx'
+    'VirtualProtectEx'
+    'CreateRemoteThread'
+    'NtReadVirtualMemory'
+    'NtWriteVirtualMemory'
+    'NtQueryVirtualMemory'
+    'MemorySharp'
+    # Hooks.
+    'SetWindowsHookEx'
+    'EasyHook'
+    'Reloaded\.Hooks'
+    'Vortice\.Direct3D.*Hook'
+    'Direct3D.*PresentHook'
+    # Generated keyboard, mouse, or controller input.
+    'SendInput'
+    'mouse_event'
+    'keybd_event'
+    'InputSimulator'
+    'WindowsInput'
+    'ViGEm'
+    'vJoy'
+    # Packet capture and inspection.
+    'WinDivert'
+    'SharpPcap'
+    'PacketDotNet'
+    'SocketType\.Raw'
+    'IOControlCode\.ReceiveAll'
+    'SIO_RCVALL'
+    'pcap_open_live'
+    # In-game overlay.
+    'GameOverlay'
+    'WS_EX_TRANSPARENT'
+    'WS_EX_TOPMOST.*WS_EX_LAYERED'
+    'WS_EX_LAYERED.*WS_EX_TOPMOST'
+    'GWLP?_HWNDPARENT'
+)
+TASK_FORBIDDEN_PATTERN="$(IFS='|'; printf '%s' "${TASK_FORBIDDEN_PATTERNS[*]}")"
+readonly TASK_FORBIDDEN_PATTERN
 
 scan_safety_patterns() {
     if command -v rg >/dev/null 2>&1; then
@@ -53,17 +97,23 @@ if [[ -n "${TASK_ALLOWED_MATCHES}" ]]; then
     exit 1
 fi
 
+TASK_PROHIBITED_LINES="$(find "${TASK_FIXTURE_ROOT}/prohibited" -type f -print0 | sort -z | xargs -0 cat)"
+
 # Every line must be caught on its own, so one detected line cannot hide an undetected one.
-while IFS= read -r TASK_FORBIDDEN_FIXTURE; do
-    TASK_FORBIDDEN_LINE_NUMBER=0
-    while IFS= read -r TASK_FORBIDDEN_LINE || [[ -n "${TASK_FORBIDDEN_LINE}" ]]; do
-        TASK_FORBIDDEN_LINE_NUMBER=$((TASK_FORBIDDEN_LINE_NUMBER + 1))
-        [[ -z "${TASK_FORBIDDEN_LINE//[[:space:]]/}" ]] && continue
-        if ! grep -q -i -E "${TASK_FORBIDDEN_PATTERN}" <<<"${TASK_FORBIDDEN_LINE}"; then
-            printf '%s\n' "Safety audit self-test failed: prohibited fixture was not detected: ${TASK_FORBIDDEN_FIXTURE}:${TASK_FORBIDDEN_LINE_NUMBER}" >&2
-            exit 1
-        fi
-    done < "${TASK_FORBIDDEN_FIXTURE}"
-done < <(find "${TASK_FIXTURE_ROOT}/prohibited" -type f -print | sort)
+while IFS= read -r TASK_FORBIDDEN_LINE; do
+    [[ -z "${TASK_FORBIDDEN_LINE//[[:space:]]/}" ]] && continue
+    if ! grep -q -i -E "${TASK_FORBIDDEN_PATTERN}" <<<"${TASK_FORBIDDEN_LINE}"; then
+        printf '%s\n' "Safety audit self-test failed: prohibited fixture line was not detected: ${TASK_FORBIDDEN_LINE}" >&2
+        exit 1
+    fi
+done <<<"${TASK_PROHIBITED_LINES}"
+
+# And every pattern must catch a fixture of its own.
+for TASK_FORBIDDEN_ENTRY in "${TASK_FORBIDDEN_PATTERNS[@]}"; do
+    if ! grep -q -i -E "${TASK_FORBIDDEN_ENTRY}" <<<"${TASK_PROHIBITED_LINES}"; then
+        printf '%s\n' "Safety audit self-test failed: no prohibited fixture exercises pattern: ${TASK_FORBIDDEN_ENTRY}" >&2
+        exit 1
+    fi
+done
 
 printf '%s\n' "Safety audit passed: no prohibited integration pattern found in source or project files."
