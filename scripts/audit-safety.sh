@@ -89,8 +89,12 @@ my @files;
 for my $root (@ARGV) {
     if (-d $root) {
         find({
+            # With no_chdir, $_ is the whole path, so the build directories are matched by their
+            # last component. Comparing $_ to 'bin' never matched, so after a build the scan read
+            # Avalonia.Win32.dll under src/TarkovCompanion.App/bin and reported a topmost layered
+            # window, and CI runs this audit after its Release build.
             wanted => sub {
-                if (-d $_ && ($_ eq 'bin' || $_ eq 'obj')) {
+                if (-d $_ && m{(?:^|/)(?:bin|obj)\z}) {
                     $File::Find::prune = 1;
                     return;
                 }
@@ -116,8 +120,8 @@ my @capabilities = (
       qr/\bWS_EX_LAYERED\b(?s:.*)\bWS_EX_TOPMOST\b/i,
       qr/\bWS_EX_TOPMOST\b(?s:.*)\bWS_EX_LAYERED\b/i ],
     [ 'a companion window re-parented onto the game window',
-      qr/\bSetWindowLong(?:Ptr)?\s*\([^)]*\bGWLP?_HWNDPARENT\b(?s:.*)"(?:EscapeFromTarkov(?:\.exe)?|Escape From Tarkov|EFT(?:\.exe)?)"/i,
-      qr/"(?:EscapeFromTarkov(?:\.exe)?|Escape From Tarkov|EFT(?:\.exe)?)"(?s:.*)\bSetWindowLong(?:Ptr)?\s*\([^)]*\bGWLP?_HWNDPARENT\b/i ],
+      qr/\bSetWindowLong(?:Ptr)?\s*\([^;]*\bGWLP?_HWNDPARENT\b(?s:.*)"(?:EscapeFromTarkov(?:\.exe)?|Escape From Tarkov|EFT(?:\.exe)?)"/i,
+      qr/"(?:EscapeFromTarkov(?:\.exe)?|Escape From Tarkov|EFT(?:\.exe)?)"(?s:.*)\bSetWindowLong(?:Ptr)?\s*\([^;]*\bGWLP?_HWNDPARENT\b/i ],
 );
 
 for my $file (sort @files) {

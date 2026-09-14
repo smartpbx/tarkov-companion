@@ -162,7 +162,7 @@ public sealed class CaptureAndWorkspaceContractTests
 
     [Theory]
     [InlineData(AcknowledgementDisposition.Applied, 8, 8, 0, true)]
-    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0, false)]
     [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 8, 0, false)]
     [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 6, 0, false)]
     [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 6, 5, false)]
@@ -202,6 +202,12 @@ public sealed class CaptureAndWorkspaceContractTests
     [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 7, 0, false)]
     [InlineData(AcknowledgementDisposition.Applied, 8, 8, 5, true)]
     [InlineData(AcknowledgementDisposition.Applied, 0, 0, 0, false)]
+    [InlineData(AcknowledgementDisposition.Applied, 8, 8, 0, false)]
+    // This change names itself as the change at a revision it never targeted.
+    [InlineData(AcknowledgementDisposition.RejectedStale, 8, 9, 0, true)]
+    [InlineData(AcknowledgementDisposition.RejectedConflict, 8, 6, 0, true)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 6, 5, true)]
+    [InlineData(AcknowledgementDisposition.UnsupportedVersion, 8, 8, 5, true)]
     public void AcknowledgementRejectsInconsistentOutcomes(
         AcknowledgementDisposition disposition, long requested, long applied, int requestedMinor, bool sameAppliedChange)
     {

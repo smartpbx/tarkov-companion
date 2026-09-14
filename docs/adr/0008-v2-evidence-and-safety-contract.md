@@ -42,6 +42,16 @@ Enums reserve zero for undefined or `Unknown`, positional properties cannot be r
 one canonical serializer configuration rejects integer enums, missing constructor arguments, and
 nulls, because the default configuration turns each of those into a plausible value.
 
+Every bound that protects a consumer is part of the frozen shape rather than a reader's habit.
+Intelligence lineage is reconciled: the value, its candidates, and the typed input list must name
+the same inputs, and no disallowed source may sit anywhere in an input's tree. An opportunity cost
+names its price and footprint inputs in an explicit lineage and must be computed from them. Grids
+live in a finite cell space checked before any expansion, an observed raid clock is under one
+hour, capture ordinals are contiguous from zero in a session and ascending with gaps in a stash
+result, and an acknowledgement names the change occupying the applied revision so a duplicate
+delivery is distinguishable from a same-revision conflict. They are settled before 2.0 ships,
+so they are part of 2.0 rather than a later major version.
+
 Three anti-cheat fixtures do not change: no game process memory, generated game-directed mouse,
 keyboard, or controller input, or in-game overlay. V2 also retains the current exclusions on
 injection/hooks, EFT packet inspection, automation, and live enemy detection/tracking/ESP/radar.
@@ -56,6 +66,8 @@ types add some nesting, but that cost is the mechanism that prevents field and r
 from being discarded.
 
 Safety auditing gains both allowed and prohibited fixtures and targets prohibited capabilities
-rather than adjacent API names. Pattern matching remains a narrow early warning and architecture
-tests enforce protocol shape; neither is treated as a substitute for review. Transport
-authentication and feature composition remain outside this ADR.
+rather than adjacent API names. The scanner fails closed when a tool errors, and the overlay
+capabilities that span statements are matched by statement rather than by line or identifier
+naming. Pattern matching remains a narrow early warning and architecture tests enforce protocol
+shape; neither is treated as a substitute for review. Transport authentication and feature
+composition remain outside this ADR.

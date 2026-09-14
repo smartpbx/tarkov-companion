@@ -259,17 +259,21 @@ public sealed record StateAcknowledgement
                 nameof(appliedChangeId));
         }
 
+        // A change creates exactly one revision, its requested one. So this change can occupy the
+        // applied revision only when the two are equal and it was applied; a stale, conflicting,
+        // or unreadable change that names itself as the applied change is claiming a revision it
+        // never targeted, and was accepted for rejected-stale until the #264 integration review.
         var readable = receiverContractVersion.CanRead(requestedContractVersion);
+        var thisChangeApplied = AppliedChangeId == changeId;
         var consistent = disposition switch
         {
             AcknowledgementDisposition.Applied =>
-                readable && appliedRevision == requestedRevision && AppliedChangeId == changeId,
+                readable && appliedRevision == requestedRevision && thisChangeApplied,
             AcknowledgementDisposition.RejectedStale =>
-                readable && appliedRevision.Value > requestedRevision.Value,
+                readable && !thisChangeApplied && appliedRevision.Value > requestedRevision.Value,
             AcknowledgementDisposition.RejectedConflict =>
-                readable && appliedRevision.Value < requestedRevision.Value
-                    || (readable && appliedRevision.Value == requestedRevision.Value && AppliedChangeId != changeId),
-            AcknowledgementDisposition.UnsupportedVersion => !readable,
+                readable && !thisChangeApplied && appliedRevision.Value <= requestedRevision.Value,
+            AcknowledgementDisposition.UnsupportedVersion => !readable && !thisChangeApplied,
             _ => false,
         };
 

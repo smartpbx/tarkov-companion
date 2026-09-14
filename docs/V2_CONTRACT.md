@@ -61,7 +61,9 @@ and model version. Their constructors reject an incomplete envelope.
 input's provenance and a generation time, and no input may be newer than that time. Direct source
 classes cannot name inputs. A claim computed from a `ModelledEstimate` anywhere in its input tree
 must itself be a `ModelledEstimate`, so arithmetic cannot turn a prediction into an ordinary
-number. Input trees are bounded to depth 8 and 256 entries.
+number. Input trees are bounded to depth 8 and 256 entries. Provenance equality is structural
+over the whole input tree, in order, so the same lineage read back from JSON or named twice in one
+message compares equal and can be reconciled against another copy of itself.
 
 Observed time is when this application acquired the evidence. Data-through time is the newest
 input represented by an aggregate or model. Generated time is when that aggregate or estimate
@@ -117,10 +119,13 @@ ends that capture; without one it ends the session.
 
 A capture's stages only move forward, except that a decode retry may return from `Decoding` to
 `Settling`. Nothing follows a capture's terminal stage, and nothing at all follows the session's.
-An ordinal names exactly one artifact. Progress cannot predate the request or move backwards in
-time. A session cannot complete while a capture is unfinished. The session status cannot claim
-more than its history: a failed session is `Unavailable`, a cancelled one is not `Complete`, a
-complete one is `Partial` or `Complete`, and an unfinished one is `Unknown` or `Partial`.
+An ordinal names exactly one artifact. Capture ordinals number the session's queue from zero with
+no gaps, and each capture first appears in queue order, so a lone ordinal 99 cannot read as a
+normal history while the captures before it vanished. Progress cannot predate the request or move
+backwards in time. A session cannot complete while a capture is unfinished. The session status
+cannot claim more than its history: a failed session is `Unavailable`, a cancelled one is not
+`Complete`, a complete one is `Partial` or `Complete`, and an unfinished one is `Unknown` or
+`Partial`.
 
 The source boundary returns a reference to a user-initiated visible capture; it exposes no
 process handle, hook, packet source, overlay surface, or input/control operation.
@@ -145,15 +150,26 @@ An item carries its displayed footprint (width and height in cells after rotatio
 flag, stack quantity, found-in-raid state, and visible condition (durability, uses, charges, or
 resource, or explicitly not applicable), so fit, swap, and value-per-square calculations need no
 local DTO. A grid cell is anchored at the top-left cell of that footprint and spans its width and
-height; known footprints stay inside a known grid and do not overlap. A container item that was
-opened names its nested container path.
+height; footprints stay inside the grid and do not overlap. A container item that was opened
+names its nested container path.
+
+Grids live in one finite cell space of 256 rows by 64 columns, whether or not a grid's own size
+was read, and cells are at most 1024 pixels on a side. Rows, columns, spans, anchors, and cell
+pixels are bounded in the value, every candidate, and every correction. Every anchor is placed
+inside the grid (or that bounded space when the size was unread) before any footprint is expanded,
+even when the item or its size is absent, and a known width or height must fit on its own. Fit is
+compared as remaining room, so no sum can overflow, and a grid naming more footprints than it has
+cells is refused before any walk. Expansion is therefore bounded by the cell space, not by the
+payload.
 
 A stash result is a set of capture regions, each with its own identity, capture ordinal, artifact,
-container path, and evidenced origin in container coordinates. Overlap is the intersection of
+container path, and evidenced origin in container coordinates. Regions keep their session capture
+ordinals, strictly ascending, and a failed or omitted capture leaves a gap rather than renumbering
+the evidence. A placed region stays inside the container cell space. Overlap is the intersection of
 placed footprints, and a region with an undetermined origin is not stitched. Each captured
-container has one coverage entry of observed and total cells, so closed or unscrolled space is
-reported rather than invented. A nested container path extends its parent's path, its parent is
-covered, and a cell in a region of that parent opened it.
+container has one coverage entry of observed and total cells, at most 16,384 each, so closed or
+unscrolled space is reported rather than invented. A nested container path extends its parent's
+path, its parent is covered, and a cell in a region of that parent opened it.
 
 A flea page keeps each row's own bounds separately from the item icon, the item's condition, and
 every raw OCR line.
@@ -174,7 +190,11 @@ clock is an evidenced reading whose basis is `ObservedOnExtractScreen` or `Count
 and whose as-of UTC instant is when the clock showed that value. An unread clock is an absent
 reading, not a basis. An observed clock comes from screenshot or visible-pixel evidence and is as
 of the header's capture time, which may precede its provenance observed time; the clock ages from
-the capture time. A counted clock comes from game-written log, user-entered, or derived evidence.
+the capture time. An observed clock is under one hour: no raid runs longer, and the game's
+`??:??:??` marker for an undecided time OCRs as `22:22:22`, so the contract rejects that reading
+(and `1:00:00` or longer) rather than relying on the reader to. A counted clock comes from
+game-written log, user-entered, or derived evidence and is arithmetic rather than a pixel reading,
+so it is not capped.
 The raw line `Find an extraction point 0:28:10` and its observed-clock provenance are regression
 fixtures. A counted map duration must never be presented as an observed remaining time.
 
@@ -197,6 +217,15 @@ value per occupied square with `DerivedCalculation` provenance, but unknown quan
 price, or profile context produces partial or unknown advice and an absent opportunity cost
 rather than an invented number.
 
+An opportunity cost is a computation, never a reading. A decision carries a required, nullable
+`opportunityCostLineage` naming the two inputs the figure is computed from, `price` and
+`footprint`, each a full provenance. It is null only when the cost carries no figure anywhere:
+any value, candidate, or correction requires it. The value and every candidate then carry
+`DerivedCalculation` or `ModelledEstimate` provenance whose input tree, depth first, holds the
+price exactly once and then the footprint exactly once; other inputs such as quantity may sit
+beside them. A bare catalog price or screenshot reading cannot carry a cost, and swapped, missing,
+duplicated, identical, `Unknown`, null, or additional JSON roles are rejected.
+
 ## Historical and modelled intelligence
 
 Historical aggregates and modelled estimates carry only allowlisted payloads: zone traffic
@@ -211,7 +240,13 @@ Inputs are typed. Static map data is public or curated data; public structured d
 data; historical aggregates are historical aggregates; curated knowledge is curated data; and
 private local feedback is user-entered or game-written log evidence. No other source class can
 back an input, so a screenshot, a paired-device action, or another model's estimate cannot enter a
-model. No input may be newer than the output's data-through time.
+model. The rule holds at every depth: an input whose own tree contains any source class other
+than public, curated, historical-aggregate, user-entered, or game-written-log evidence is refused,
+so a screenshot cannot hide beneath an allowed aggregate. The value serializes its own provenance
+inputs beside the typed input list, and the value and every candidate must name exactly the listed
+inputs, in order, so an allowlisted list cannot be advertised beside a different lineage. Each
+input's evidence ID and provenance appear once, and the list holds at most 256 inputs. No input
+may be newer than the output's data-through time.
 
 Presentation must say “historical,” “modelled,” or “predicted,” show freshness and confidence,
 and never use language implying a detected person or current location. Model inputs may include
@@ -226,14 +261,20 @@ an armed capture intent or the user's own map mark. Revisions are monotonic per 
 single global counter; zero means nothing applied and a change starts at revision one.
 
 Receivers acknowledge the exact change with its requested revision, the receiver's resulting
-revision, the change's contract version, and the receiver's contract version:
+revision, the ID of the change occupying that revision (`appliedChangeId`), the change's contract
+version, and the receiver's contract version. `appliedChangeId` is required but nullable: it is
+null exactly when the applied revision is zero. Desktop and a paired tablet can both compute a
+change against the same prior revision, so two different changes can request the same revision;
+only the applied change ID tells a redelivery of the change that landed from a divergent change
+that lost. A change creates exactly one revision, its requested one, so only `Applied` may name the
+acknowledged change as the applied change.
 
 | Disposition | Rule |
 | --- | --- |
-| `Applied` | The receiver can read the version and the revisions are equal. |
-| `RejectedStale` | The receiver can read the version and already holds that revision or later. |
-| `RejectedConflict` | The receiver can read the version and holds an earlier, divergent revision. |
-| `UnsupportedVersion` | The receiver cannot read the change's version and left its stream alone. |
+| `Applied` | Readable version, equal revisions, and the applied change is this change (a first apply or an idempotent duplicate delivery). |
+| `RejectedStale` | Readable version, the receiver holds a strictly later revision, and it is another change. |
+| `RejectedConflict` | Readable version and another change occupies the requested revision or an earlier, divergent one. |
+| `UnsupportedVersion` | The receiver cannot read the change's version, left its stream alone, and does not name this change as applied. |
 
 Origin metadata is audit evidence, not authentication. Pairing, credential storage, session
 expiry, and transport authorization must be supplied by the tablet security workstream before
@@ -276,6 +317,11 @@ line must be caught and each audit pattern must catch a fixture line of its own.
 Patterns target the prohibited capability rather than adjacent API names. Ordinary process lookup,
 physical hotkey observation, companion-window placement, an always-on-top companion, and an owned
 companion dialog stay allowed. The overlay tripwire is a click-through window, a topmost layered
-window, or a window re-owned by the game's window. The source audit is a ratchet, not a proof;
-semantic architecture tests separately assert that v2 protocols have no game-control or live-enemy
-vocabulary.
+window, or a window re-owned by the game's window. The last two are matched by statement rather
+than by line: the flag pair across ordinary multi-line formatting, and a `SetWindowLong(Ptr)`
+`HWNDPARENT` call in the same or an adjacent statement as a quoted literal of the game's window or
+process name, however the handle variable is named and whatever nested calls its arguments
+contain. Build output under `bin` and `obj` is not scanned. A scanner error (a crashed or missing
+`rg`, `grep`, `git`, or `perl`) fails the audit instead of reading as no match. The source audit is
+a ratchet, not a proof; semantic architecture tests separately assert that v2 protocols have no
+game-control or live-enemy vocabulary.
