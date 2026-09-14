@@ -9,4 +9,8 @@ SetWindowPos(companionWindow, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE)
 companionWindow.Topmost = settings.KeepCompanionOnTop;
 SetWindowLong(companionWindow, GWL_EXSTYLE, style | WS_EX_LAYERED);
 SetWindowLongPtr(settingsDialog, GWLP_HWNDPARENT, companionWindow);
+SetWindowLongPtr(
+    settingsDialog,
+    GWLP_HWNDPARENT,
+    companionWindow);
 HttpClient.GetAsync("https://api.tarkov.dev/graphql");
