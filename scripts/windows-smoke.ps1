@@ -14,7 +14,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$Scenarios = @(
+[string[]] $Scenarios = @(
     "RaidStart_Customs",
     "Inspect_GraphicsCard",
     "Inspect_AmmoPack",
@@ -82,12 +82,25 @@ function Wait-DatabaseReady {
     )
 
     $DatabasePath = Join-Path $Root "Database\tarkov-companion.db"
-    Wait-Path -Path $DatabasePath -TimeoutSeconds $TimeoutSeconds
-    if ((Get-Item -LiteralPath $DatabasePath).Length -le 0) {
-        throw "The application created an empty database at $DatabasePath."
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $LastObservedBytes = 0L
+    while ([DateTime]::UtcNow -lt $Deadline) {
+        if (Test-Path -LiteralPath $DatabasePath) {
+            # SQLite creates its file before migrations and demo seeding have written their
+            # first page. A zero-byte file is therefore an intermediate state, not evidence
+            # that persistence is ready. Keep the readiness bound, but wait for the durable
+            # file the composition root has actually initialized.
+            $DatabaseFile = Get-Item -LiteralPath $DatabasePath -ErrorAction Stop
+            $LastObservedBytes = [int64]$DatabaseFile.Length
+            if ($LastObservedBytes -gt 0) {
+                return [string]$DatabasePath
+            }
+        }
+
+        Start-Sleep -Milliseconds 100
     }
 
-    return $DatabasePath
+    throw "Timed out waiting for initialized SQLite database at $DatabasePath (last observed size: $LastObservedBytes byte(s))."
 }
 
 # A completed diagnostic scan is awaited through RaidActivityCoordinator before its response is
@@ -298,8 +311,10 @@ finally {
             beforeScans = if ($null -eq $PersistenceBeforeScans) { $null } else { $PersistenceBeforeScans }
             afterScans = if ($null -eq $PersistenceAfterScans) { $null } else { $PersistenceAfterScans }
         }
-        assertions = $Assertions
-        errors = $Errors
+        # Keep the artifact schema stable for zero/one/many results. Windows PowerShell
+        # otherwise unwraps a single pipeline object, which makes consumers infer shape.
+        assertions = $Assertions.ToArray()
+        errors = $Errors.ToArray()
         # The artifact must be portable: a hosted-runner temp path is neither evidence nor
         # safe to publish. The caller already knows its selected report location.
         workRoot = "redacted"

@@ -67,7 +67,7 @@ function Measure-Directory {
     }
 
     $Files = @(Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue)
-    $TotalBytes = 0
+    $TotalBytes = 0L
     foreach ($File in $Files) {
         $TotalBytes += $File.Length
     }
@@ -77,6 +77,26 @@ function Measure-Directory {
         fileCount = $Files.Count
         totalBytes = $TotalBytes
     }
+}
+
+function Read-ReportText {
+    <#
+    .SYNOPSIS
+        Reads a redirected process stream as a string, including an empty stream.
+    .DESCRIPTION
+        Get-Content -Raw returns no pipeline object for an empty file in Windows
+        PowerShell. Assigning that result replaces the empty-string default with
+        $null; StrictMode then makes .Length fail while the probe is writing its
+        own failure report. File.ReadAllText has a scalar string contract, so the
+        report remains available even when the application wrote no console text.
+    #>
+    param([string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [string]::Empty
+    }
+
+    return [System.IO.File]::ReadAllText($Path)
 }
 
 function Expand-DesktopResolution {
@@ -236,8 +256,9 @@ try {
         packageDirectory = $PackageDirectory
     }
     $PackageIdentity = Get-PackageIdentity -PackageDirectory $PackageDirectory
-    Add-Observation -Name "package-identity" -Passed ($ExpectedVersion.Length -eq 0 -or $PackageIdentity.version -ceq $ExpectedVersion) -Detail "Package version is '$($PackageIdentity.version)'."
-    if ($ExpectedVersion.Length -gt 0 -and $PackageIdentity.version -cne $ExpectedVersion) {
+    $HasExpectedVersion = -not [string]::IsNullOrEmpty($ExpectedVersion)
+    Add-Observation -Name "package-identity" -Passed (-not $HasExpectedVersion -or $PackageIdentity.version -ceq $ExpectedVersion) -Detail "Package version is '$($PackageIdentity.version)'."
+    if ($HasExpectedVersion -and $PackageIdentity.version -cne $ExpectedVersion) {
         throw "Expected package version '$ExpectedVersion', but BUILD_INFO.txt says '$($PackageIdentity.version)'."
     }
 
@@ -352,7 +373,7 @@ try {
         Add-Observation -Name "clean-shutdown" -Passed ($ExitCode -eq 0) -Detail "Closing the window exited with code $ExitCode after $ShutdownSeconds second(s) (graceful request accepted: $GracefulClose)."
     }
 
-    $Success = -not ($Observations | Where-Object { $_.required -and -not $_.passed })
+    $Success = @($Observations | Where-Object { $_.required -and -not $_.passed }).Count -eq 0
 }
 catch {
     $Errors.Add($_.Exception.Message)
@@ -376,15 +397,8 @@ finally {
         -Required:$true
     Add-Observation -Name "database-created" -Passed ($DatabaseBytes -gt 0) -Detail "SQLite database is $DatabaseBytes byte(s)." -Required:$true
 
-    $StandardOutput = ""
-    if (Test-Path -LiteralPath $StandardOutputPath) {
-        $StandardOutput = (Get-Content -LiteralPath $StandardOutputPath -Raw -ErrorAction SilentlyContinue)
-    }
-
-    $StandardError = ""
-    if (Test-Path -LiteralPath $StandardErrorPath) {
-        $StandardError = (Get-Content -LiteralPath $StandardErrorPath -Raw -ErrorAction SilentlyContinue)
-    }
+    $StandardOutput = Read-ReportText -Path $StandardOutputPath
+    $StandardError = Read-ReportText -Path $StandardErrorPath
 
     $Report = [ordered]@{
         schemaVersion = 1
@@ -415,8 +429,10 @@ finally {
         # the workflow separately, so do not embed unredacted process streams in JSON.
         standardOutputLength = $StandardOutput.Length
         standardErrorLength = $StandardError.Length
-        observations = $Observations
-        errors = $Errors
+        # Collections are explicitly materialised so a one-observation failure and an empty
+        # error list keep their JSON array shape under Windows PowerShell.
+        observations = $Observations.ToArray()
+        errors = $Errors.ToArray()
         workRoot = "redacted"
     }
 
