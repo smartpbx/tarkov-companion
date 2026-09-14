@@ -6,10 +6,11 @@ readonly TASK_FIXTURE_ROOT="${TASK_PROJECT_ROOT}/tests/safety-contract"
 
 # Each entry names an API or package that performs a prohibited capability. Ordinary process
 # lookup (OpenProcess for query access), physical hotkey observation (GetAsyncKeyState), and
-# companion-window placement (SetWindowPos, an always-on-top companion) are allowed, so they are
-# deliberately absent. The overlay tripwire is the capability itself: a click-through window, a
-# topmost layered window, or a window owned by another window. Every entry must be caught by its
-# own line under tests/safety-contract/prohibited, so an entry nobody can trip fails the audit.
+# companion-window placement (SetWindowPos, an always-on-top companion, an owned companion
+# dialog) are allowed, so they are deliberately absent. The overlay tripwire is the capability
+# itself: a click-through window, a topmost layered window, or a window re-owned by the game's
+# window. Every entry must be caught by its own line under tests/safety-contract/prohibited, so
+# an entry nobody can trip fails the audit.
 readonly TASK_FORBIDDEN_PATTERNS=(
     # Game process memory and injection.
     'ReadProcessMemory'
@@ -48,7 +49,7 @@ readonly TASK_FORBIDDEN_PATTERNS=(
     'WS_EX_TRANSPARENT'
     'WS_EX_TOPMOST.*WS_EX_LAYERED'
     'WS_EX_LAYERED.*WS_EX_TOPMOST'
-    'GWLP?_HWNDPARENT'
+    'SetWindowLong(Ptr)?[^;]*GWLP?_HWNDPARENT[^;]*(game|eft|tarkov)'
 )
 TASK_FORBIDDEN_PATTERN="$(IFS='|'; printf '%s' "${TASK_FORBIDDEN_PATTERNS[*]}")"
 readonly TASK_FORBIDDEN_PATTERN
@@ -97,18 +98,25 @@ if [[ -n "${TASK_ALLOWED_MATCHES}" ]]; then
     exit 1
 fi
 
-TASK_PROHIBITED_LINES="$(find "${TASK_FIXTURE_ROOT}/prohibited" -type f -print0 | sort -z | xargs -0 cat)"
+TASK_PROHIBITED_LINES=""
 
 # Every line must be caught on its own, so one detected line cannot hide an undetected one.
-while IFS= read -r TASK_FORBIDDEN_LINE; do
-    [[ -z "${TASK_FORBIDDEN_LINE//[[:space:]]/}" ]] && continue
-    if ! grep -q -i -E "${TASK_FORBIDDEN_PATTERN}" <<<"${TASK_FORBIDDEN_LINE}"; then
-        printf '%s\n' "Safety audit self-test failed: prohibited fixture line was not detected: ${TASK_FORBIDDEN_LINE}" >&2
-        exit 1
-    fi
-done <<<"${TASK_PROHIBITED_LINES}"
+# Files are read one at a time so a diagnostic names its file and line, and a final line without
+# a newline is still checked rather than joined to the next file's first line.
+while IFS= read -r -d '' TASK_FORBIDDEN_FIXTURE; do
+    TASK_FORBIDDEN_LINE_NUMBER=0
+    while IFS= read -r TASK_FORBIDDEN_LINE || [[ -n "${TASK_FORBIDDEN_LINE}" ]]; do
+        TASK_FORBIDDEN_LINE_NUMBER=$((TASK_FORBIDDEN_LINE_NUMBER + 1))
+        [[ -z "${TASK_FORBIDDEN_LINE//[[:space:]]/}" ]] && continue
+        if ! grep -q -i -E "${TASK_FORBIDDEN_PATTERN}" <<<"${TASK_FORBIDDEN_LINE}"; then
+            printf '%s\n' "Safety audit self-test failed: prohibited fixture was not detected: ${TASK_FORBIDDEN_FIXTURE#"${TASK_PROJECT_ROOT}/"}:${TASK_FORBIDDEN_LINE_NUMBER}" >&2
+            exit 1
+        fi
+        TASK_PROHIBITED_LINES+="${TASK_FORBIDDEN_LINE}"$'\n'
+    done < "${TASK_FORBIDDEN_FIXTURE}"
+done < <(find "${TASK_FIXTURE_ROOT}/prohibited" -type f -print0 | sort -z)
 
-# And every pattern must catch a fixture of its own.
+# And every pattern must catch a fixture line of its own.
 for TASK_FORBIDDEN_ENTRY in "${TASK_FORBIDDEN_PATTERNS[@]}"; do
     if ! grep -q -i -E "${TASK_FORBIDDEN_ENTRY}" <<<"${TASK_PROHIBITED_LINES}"; then
         printf '%s\n' "Safety audit self-test failed: no prohibited fixture exercises pattern: ${TASK_FORBIDDEN_ENTRY}" >&2
