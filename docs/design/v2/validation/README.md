@@ -16,7 +16,7 @@ and changes none of the #264 contracts.
 | File | Purpose |
 | --- | --- |
 | [research-plan.md](research-plan.md) | Questions, hypotheses, method, session structure, roles, and the completion gate |
-| [participant-screening.md](participant-screening.md) | Who counts as representative, required coverage, the screener, recruitment log |
+| [participant-screening.md](participant-screening.md) | Who counts, required coverage, the screener, private-roster rules and public aggregate coverage |
 | [consent-and-data-handling.md](consent-and-data-handling.md) | Consent script, what is recorded, where it lives, retention and withdrawal |
 | [metrics-and-analysis.md](metrics-and-analysis.md) | What is measured, how it is coded, how two variants are compared honestly at n = 5 |
 | [severity-rubric.md](severity-rubric.md) | S0 to S4 finding severity, with truthfulness and accessibility floors |
@@ -70,7 +70,8 @@ live detection.
 #265 is complete only when every item in the completion gate in
 [research-plan.md](research-plan.md) section 8 is met, with the evidence in
 [validation-report.md](validation-report.md). In short: real sessions that meet the coverage in
-[participant-screening.md](participant-screening.md), every journey attempted or its gap recorded,
+[participant-screening.md](participant-screening.md), every journey and findability task meeting its
+per-variant minimum (a recorded non-attempt does not count),
 each variant primary for at least two people, accessibility flows exercised by daily users of the
 technology, findings rated with [severity-rubric.md](severity-rubric.md) and every S0 and S1 owned,
 each hypothesis moved in [../decision-log.md](../decision-log.md) with evidence, and

@@ -62,10 +62,11 @@
       capture: { armed: null, rev: 18, origin: 'desktop', seq: 2, history: [
         { n: 1, time: '18:20:02', intent: 'stash', outcome: 'Analysed as Full stash', result: 'stash' },
         { n: 2, time: '18:20:31', intent: 'stash', outcome: 'Analysed as Full stash', result: 'stash' }
-      ], pending: [], running: null, lootReady: false, lootTime: null },
+      ], pending: [], queue: [], running: null, lootReady: false, lootTime: null },
       stashStep: 0,
       stateBy: { raid: 'success', intel: 'success', plan: 'success', team: 'success', debrief: 'success', setup: 'success' },
       mapView: 'map',
+      routeSkipped: false,
       route: 'lower',
       correction: null,
       draft: null,
@@ -74,8 +75,7 @@
       marks: C.team.marks.slice(),
       intelOrigin: null,
       query: '',
-      postRaid: false,
-      queue: []
+      postRaid: false
     };
   }
 
@@ -186,6 +186,8 @@
     bits.push('<p class="context-item"><strong>' + esc(S.profileChosen ? C.profile.chosen : C.profile.none) + '</strong></p>');
     bits.push('<p class="context-item">Local time <strong>' + esc(S.postRaid ? C.postRaid.localTime : C.localTime) + '</strong></p>');
     bits.push(S.postRaid ? '<p class="context-item">' + esc(C.postRaid.state) + '</p>'
+      // The injected empty Raid state must not sit under a header still claiming a raid in progress.
+      : S.stateBy.raid === 'empty' ? '<p class="context-item">No raid active (game log)</p>'
       : '<p class="context-item">' + esc(C.raid.state) + ' · ' + esc(C.raid.map) + ' · ' + esc(C.raid.side) + ' · elapsed <strong>' + esc(C.raid.elapsed) + '</strong></p>');
     var needs = S.profileChosen ? 0 : 1;
     bits.push('<p class="context-item"><a href="' + href(variantId === 'a' ? 'setup' : 'home') + '">' +
@@ -199,6 +201,9 @@
     if (!tablet) bits.push(captureTray('desktop'));
     $('#context-bar').innerHTML = bits.join('');
     $('#rail').hidden = tablet;
+    // Hiding the rail alone leaves main in the rail's 13rem grid column, squeezing the tablet
+    // preview into a strip at every width above the narrow breakpoint.
+    $('.layout').classList.toggle('no-rail', tablet);
 
     var cur = route.ws;
     if (cur === 'search') cur = null;
@@ -217,7 +222,8 @@
     var armed = c.armed ? 'Armed: <strong>' + esc(intentLabel(c.armed)) + '</strong> (rev ' + c.rev + ', set on ' + esc(c.origin) + ')'
       : 'Not armed: screenshots use Auto-detect';
     var pending = c.pending.length ? ' · <strong>' + c.pending.length + (c.pending.length === 1 ? ' capture needs' : ' captures need') + ' a decision</strong>' : '';
-    return '<div class="capture-tray" data-device="' + device + '"><p class="context-item" id="capture-state-' + device + '">' + armed + pending + '</p>' +
+    var waiting = c.queue.length ? ' · <strong>' + c.queue.length + (c.queue.length === 1 ? ' capture waits' : ' captures wait') + ' unread</strong>' : '';
+    return '<div class="capture-tray" data-device="' + device + '"><p class="context-item" id="capture-state-' + device + '">' + armed + pending + waiting + '</p>' +
       (c.pending.length ? '<button type="button" id="decide-' + device + '" data-action="decide" aria-describedby="capture-state-' + device + '">Decide</button>' : '') +
       '<button type="button" class="primary" data-action="open-capture" aria-describedby="capture-state-' + device + '">Capture</button></div>';
   }
@@ -264,30 +270,39 @@
   }
 
   // The List view carries everything the map shows, as text, for both Raid and Plan.
-  function mapList(routeHeading, steps) {
+  // Raid passes the plan's objectives, because its loading and failed states promise "extracts,
+  // objectives and routes" in the list; Plan already shows its objectives beside the list.
+  function mapList(routeHeading, steps, objectives) {
     var r = C.raid;
     return '<h3>Modelled traffic by zone</h3><ul>' + r.zones.map(function (z) { return '<li>' + esc(z.name) + ': ' + esc(z.level) + '</li>'; }).join('') +
-      '</ul><h3>Extracts</h3><ul>' + r.extracts.map(function (e) { return '<li>' + esc(e.name) + ': ' + esc(e.status) + '</li>'; }).join('') +
-      '</ul><h3>' + esc(routeHeading) + '</h3><ol>' + steps.map(function (v) { return '<li>' + esc(v) + '</li>'; }).join('') + '</ol>';
+      '</ul><h3>Extracts</h3><ul>' + r.extracts.map(function (e) { return '<li>' + esc(e.name) + ': ' + esc(e.status) + '</li>'; }).join('') + '</ul>' +
+      (objectives ? '<h3>Objectives from your plan</h3><ol>' + objectives.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ol>' : '') +
+      '<h3>' + esc(routeHeading) + '</h3><ol>' + steps.map(function (v) { return '<li>' + esc(v) + '</li>'; }).join('') + '</ol>';
   }
 
   function modelFacts(m) {
-    return '<p><span class="model-label">' + esc(m.label) + '</span></p><dl class="facts">' +
+    // The compact label carries the material context. Full evidence remains adjacent and complete,
+    // but opens on demand instead of turning every ordinary map into a methodology page (C-07).
+    return '<p><span class="model-label">' + esc(m.label) + '</span></p><details><summary>Why and data details</summary><dl class="facts">' +
       '<dt>Source</dt><dd>' + esc(m.source) + '</dd>' +
       '<dt>Data through</dt><dd>' + esc(m.dataThrough) + '</dd>' +
       '<dt>Generated</dt><dd>' + esc(m.generated) + '</dd>' +
       '<dt>Coverage</dt><dd>' + esc(m.coverage) + '</dd>' +
       '<dt>Confidence</dt><dd>' + esc(m.confidence) + '</dd>' +
       '<dt>Model version</dt><dd>' + esc(m.version) + '</dd>' +
-      '<dt>Why shown</dt><dd>' + esc(m.why) + '</dd></dl>';
+      '<dt>Why shown</dt><dd>' + esc(m.why) + '</dd></dl></details>';
   }
 
-  function page(title, lede, body, key) {
+  // A degraded state keeps the usable remainder its banner claims (state-matrix.md). The page body
+  // is kept by default; `remainder` replaces it only for a state whose normal body would claim
+  // something that state does not have (an empty raid has no elapsed time or position). An earlier
+  // version swapped every empty or loading page for a sentence saying what "still works", with
+  // none of it on screen, so a participant could not use what the banner promised.
+  function page(title, lede, body, key, remainder) {
+    var st = S.stateBy[key];
+    var shown = remainder && st && remainder[st] !== undefined ? remainder[st] : body;
     return '<div class="page-head"><h1 tabindex="-1">' + esc(title) + '</h1>' + (lede ? '<p>' + lede + '</p>' : '') + '</div>' +
-      stateBanner(key) + (S.stateBy[key] === 'empty' || S.stateBy[key] === 'loading'
-        ? '<section class="panel" aria-labelledby="remainder-h" ' + (S.stateBy[key] === 'loading' ? 'aria-busy="true"' : '') +
-          '><h2 id="remainder-h">Still available</h2><p>' + esc(C.states[key][S.stateBy[key]][0]) + '</p></section>'
-        : body);
+      stateBanner(key) + shown;
   }
 
   // ---------------------------------------------------------------- views
@@ -303,9 +318,13 @@
     }).join('') + '</ul>';
   }
 
-  function privacyPanel() {
-    return '<section class="panel" aria-labelledby="privacy-h"><h2 id="privacy-h">Privacy at a glance</h2><ul>' +
-      C.privacy.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></section>';
+  function privacyPanel(withReferences) {
+    return '<section class="panel" aria-labelledby="privacy-h"><h2 id="privacy-h">Privacy at a glance</h2>' +
+      '<p><span class="tag">Local capture</span> <span class="tag">Debug capture off</span></p>' +
+      '<details><summary>What happens to screenshots</summary><ul>' +
+      C.privacy.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul></details>' +
+      (withReferences ? '<p><a href="../../../../SAFETY.md">Safety</a> · <a href="../../../../DATA_SOURCES.md">Data sources and methodology</a></p>' : '') +
+      '</section>';
   }
 
   function viewSetup() {
@@ -315,7 +334,7 @@
       '<div class="actions"><button type="button" class="primary" data-action="sample">Explore with sample data</button></div></section>' +
       '<div class="grid"><nav class="panel" aria-labelledby="sections-h"><h2 id="sections-h">Setup and Admin sections</h2><ul>' +
       C.setupSections.map(function (s) { return '<li><a href="#/setup" data-action="stub" data-name="' + esc(s) + '">' + esc(s) + '</a></li>'; }).join('') +
-      '</ul></nav>' + privacyPanel() + '</div></div>';
+      '</ul></nav>' + privacyPanel(true) + '</div></div>';
     return page(variantId === 'a' ? 'Setup & Admin' : 'Setup', 'Readiness, privacy, recovery and diagnostics.', body, 'setup');
   }
 
@@ -329,7 +348,7 @@
       '<li><a href="' + href('prepare') + '">Plan: Customs progression</a> <span class="muted">(' + esc(C.plan.requirementSummary) + ')</span></li>' +
       (S.capture.lootReady ? '<li><a href="' + href('raid/loot') + '">Last capture: Loot decision at ' + esc(S.capture.lootTime) + '</a></li>' : '<li>No capture this raid yet</li>') +
       '<li><a href="' + href('history') + '">Last raid: Customs, PMC, 18:30</a></li></ul></section>' +
-      privacyPanel() + '</div></div>';
+      privacyPanel(false) + '</div></div>';
     return page('Home', 'What needs you now, and where you left off.', body, 'setup');
   }
 
@@ -340,25 +359,36 @@
     var alt = sel === routes[0] ? routes[1] : routes[0];
     var st = S.stateBy.raid;
     var stale = st === 'stale';
+    var empty = st === 'empty';
+    var list = mapList('Selected route', sel.via, C.plan.objectives);
+    var mapOrList;
     // A failed map draw leaves the list, so the page must not keep drawing the map it says failed.
-    var mapOrList = S.mapView === 'map' && st !== 'failed'
-      ? svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route', stale ? '6 min old' : null)
-      : mapList('Selected route', sel.via);
+    if (st === 'failed' || S.mapView === 'list') mapOrList = list;
+    // Loading: the map region says what is loading, and the list is usable underneath straight away.
+    else if (st === 'loading') mapOrList = '<p aria-busy="true"><strong>Customs map tiles loading (sample).</strong> Extracts, objectives and routes are listed below now.</p>' + list;
+    else mapOrList = svgMap('raidmap', sel.points, alt.points, 'Customs schematic with ' + sel.name + ' route', stale ? '6 min old' : null);
     var lastCapture = S.capture.lootReady
       ? '<p>Loot decision from your screenshot at ' + esc(S.capture.lootTime) + ': TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1.</p><a class="button" href="' + href('raid/loot') + '">Open loot decision</a>'
       : '<p>No capture this raid yet.</p>';
+    // Empty means no raid in the game log: the map, model layer, Capture and manual raid state still
+    // work, but there is no elapsed time, position or route to extract to claim.
+    var now = empty
+      ? '<dt>Raid</dt><dd>No raid active (game log)</dd><dt>Map</dt><dd>' + esc(r.map) + ', chosen for browsing</dd>'
+      : '<dt>Raid</dt><dd>' + esc(r.state) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' (' + esc(r.stateSource) + ')</dd>' +
+        '<dt>Elapsed</dt><dd>' + esc(r.elapsed) + '</dd><dt>Time left</dt><dd>' + esc(r.remaining) + '</dd>' +
+        '<dt>Position</dt><dd>' + esc(stale ? 'From your screenshot at 18:36:40 (6 min old)' : r.position) + '</dd>';
+    var routesPanel = empty
+      ? '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Modelled traffic</h2>' + modelFacts(r.model) + '</section>'
+      : '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Routes to extract</h2><fieldset><legend>Route</legend><ul class="radio-list">' +
+        routes.map(function (rt) {
+          return '<li><label><input type="radio" name="route" data-action="route" value="' + rt.id + '"' + (rt.id === S.route ? ' checked' : '') + '>' +
+            '<span><strong>' + esc(rt.name) + '</strong> to ' + esc(rt.extract) + ', ' + esc(rt.estimate) + '. ' + esc(rt.tradeoff) + '</span></label></li>';
+        }).join('') + '</ul></fieldset>' + modelFacts(r.model) + '</section>';
     var body = '<div class="split"><section class="panel" aria-labelledby="map-h"><div class="page-head"><h2 id="map-h">Customs</h2>' + mapToggle('Customs') + '</div>' +
       mapOrList + '</section><div class="grid">' +
-      '<section class="panel" aria-labelledby="now-h"><h2 id="now-h">Now</h2><dl class="facts">' +
-      '<dt>Raid</dt><dd>' + esc(r.state) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' (' + esc(r.stateSource) + ')</dd>' +
-      '<dt>Elapsed</dt><dd>' + esc(r.elapsed) + '</dd><dt>Time left</dt><dd>' + esc(r.remaining) + '</dd>' +
-      '<dt>Position</dt><dd>' + esc(stale ? 'From your screenshot at 18:36:40 (6 min old)' : r.position) + '</dd></dl>' +
+      '<section class="panel" aria-labelledby="now-h"><h2 id="now-h">Now</h2><dl class="facts">' + now + '</dl>' +
       '<div class="actions"><button type="button" data-action="stub" data-name="Correct raid state">Correct raid state</button></div></section>' +
-      '<section class="panel" aria-labelledby="routes-h"><h2 id="routes-h">Routes to extract</h2><fieldset><legend>Route</legend><ul class="radio-list">' +
-      routes.map(function (rt) {
-        return '<li><label><input type="radio" name="route" data-action="route" value="' + rt.id + '"' + (rt.id === S.route ? ' checked' : '') + '>' +
-          '<span><strong>' + esc(rt.name) + '</strong> to ' + esc(rt.extract) + ', ' + esc(rt.estimate) + '. ' + esc(rt.tradeoff) + '</span></label></li>';
-      }).join('') + '</ul></fieldset>' + modelFacts(r.model) + '</section>' +
+      routesPanel +
       '<section class="panel" aria-labelledby="cap-h"><h2 id="cap-h">Latest capture</h2>' + lastCapture + '</section></div></div>';
     return page('Raid', 'What you know now, what is uncertain, and what to do next.', body, 'raid');
   }
@@ -379,20 +409,23 @@
       var review = decision === 'REVIEW' ? '<button type="button" data-action="correct" data-item="' + d.item + '">Correct match<span class="visually-hidden"> for ' + esc(name) + '</span></button>' : '';
       return '<tr><th scope="row">' + esc(name) + '</th><td><span class="decision ' + decision + '">' + decision + '</span></td>' +
         '<td><ol>' + reasons.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ol>' + extra +
-        '<details><summary>What would change this</summary><p>' + esc(d.change) + '</p></details></td>' +
-        '<td>' + esc(it.size) + '</td><td class="num">' + rub(it.net) + '</td><td class="num">' + rub(it.net / it.squares) + '</td><td>' + esc(it.confidence) + '</td>' +
+        '<details><summary>What would change this and match details</summary><p>' + esc(d.change) +
+        '</p><p>Match confidence: ' + esc(it.confidence) + '.</p></details></td>' +
+        '<td>' + esc(it.size) + '</td><td class="num">' + rub(it.net) + '</td><td class="num">' + rub(it.net / it.squares) + '</td>' +
         '<td><div class="actions"><a class="button" href="' + intelHref(d.item) + '" data-origin="loot-' + i + '">Details<span class="visually-hidden"> for ' + esc(name) + '</span></a>' + review + '</div></td></tr>';
     }).join('');
     var body = '<section class="panel" aria-labelledby="loot-sum-h"><h2 id="loot-sum-h">6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1</h2>' +
-      '<dl class="facts"><dt>Detected</dt><dd>' + esc(L.detected) + ' (confidence ' + esc(L.detectConfidence) + ')</dd>' +
+      '<dl class="facts"><dt>Detected</dt><dd>' + esc(L.detected) + '</dd>' +
       '<dt>Screenshot</dt><dd>Taken ' + esc(shot) + '. The file stays in your EFT folder; the decoded image was discarded after analysis.</dd>' +
       '<dt>Space</dt><dd>Backpack ' + L.backpack.cols + '×' + L.backpack.rows + ': ' + L.backpack.used + ' used, ' + L.backpack.free + ' free (' + esc(L.backpack.freeShape) + '). After the TAKE and SWAP moves: 16 used, 0 free.</dd>' +
       '<dt>Container</dt><dd>' + L.container.cols + '×' + L.container.rows + ': 6 items using ' + L.container.used + ' squares.</dd>' +
       '<dt>Values</dt><dd>Flea net estimate = sample flea price minus estimated fee, 12 min old. Not guaranteed proceeds. Gross is on each item’s details.</dd>' +
       '<dt>Your band</dt><dd>' + esc(L.valueBand) + '</dd></dl>' +
-      '<p class="note">Advice only. You move items in the game yourself; the companion sends no input to it.</p></section>' +
+      '<details><summary>Capture details</summary><p>Detection confidence ' + esc(L.detectConfidence) +
+      '; analysis time ' + esc(L.analysedIn) + '.</p></details>' +
+      '<p class="note"><strong>Advice only · manual in EFT.</strong></p></section>' +
       '<div class="table-wrap"><table><caption>Decisions, strongest reason first</caption><thead><tr><th scope="col">Item</th><th scope="col">Decision</th><th scope="col">Why</th>' +
-      '<th scope="col">Size</th><th scope="col" class="num">Flea net est.</th><th scope="col" class="num">Per square</th><th scope="col">Match confidence</th><th scope="col">Actions</th></tr></thead><tbody>' +
+      '<th scope="col">Size</th><th scope="col" class="num">Flea net est.</th><th scope="col" class="num">Per square</th><th scope="col">Actions</th></tr></thead><tbody>' +
       rows + '</tbody></table></div>' +
       '<section class="panel" aria-labelledby="carried-h"><h2 id="carried-h">Carried items considered for swaps</h2><ul>' +
       L.carried.map(function (c) { return '<li>' + esc(c.name) + ' (' + esc(c.size) + '): ' + esc(c.note) + '</li>'; }).join('') + '</ul></section>';
@@ -404,12 +437,15 @@
     if (!it) return '<p>Not in this storyboard.</p>';
     var h = headingLevel || 2;
     return '<h' + h + ' id="intel-h" tabindex="-1">' + esc(it.name) + '</h' + h + '>' +
-      '<p class="muted">' + esc(it.type) + ' · ' + esc(it.size) + ' · match confidence when scanned ' + esc(it.confidence) + (it.alternative ? ' (could be ' + esc(it.alternative) + ')' : '') + '</p>' +
+      '<p class="muted">' + esc(it.type) + ' · ' + esc(it.size) + (it.alternative ? ' · could be ' + esc(it.alternative) : '') + '</p>' +
+      '<details><summary>Match details</summary><p>Confidence when scanned: ' + esc(it.confidence) +
+      (it.alternative ? '; alternative: ' + esc(it.alternative) : '') + '.</p></details>' +
       (it.advice ? '<p><strong>' + esc(it.advice) + '</strong></p>' : '') +
       '<h' + (h + 1) + '>Price</h' + (h + 1) + '><dl class="facts">' +
-      '<dt>Flea gross</dt><dd>' + rub(it.gross) + ' (sample, ' + esc(it.priceAge) + ' old)</dd>' +
+      '<dt>Flea gross</dt><dd>' + rub(it.gross) + ' (sample, ' + esc(it.priceAge) + ' old' + (S.stateBy.intel === 'stale' ? '; stale, not used for SWAP advice' : '') + ')</dd>' +
       '<dt>Estimated fee</dt><dd>' + rub(it.fee) + '</dd><dt>Flea net est.</dt><dd>' + rub(it.net) + '</dd>' +
-      '<dt>Best trader</dt><dd>' + rub(it.trader) + ' from ' + esc(it.traderName) + '</dd></dl>' +
+      '<dt>Best trader</dt><dd>' + rub(it.trader) + ' from ' + esc(it.traderName) + '</dd>' +
+      (S.stateBy.intel === 'partial' ? '<dt>Barter source</dt><dd>Unknown: not in the cached catalog. Not counted as zero.</dd>' : '') + '</dl>' +
       '<h' + (h + 1) + '>Needed for</h' + (h + 1) + '>' + (it.needs.length ? '<ul>' + it.needs.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>' : '<p>No quest, hideout or pin needs it.</p>') +
       '<h' + (h + 1) + '>Owned</h' + (h + 1) + '><p>' + esc(it.owned) + '</p>' +
       '<div class="actions"><button type="button" data-action="stub" data-name="Add to plan">Add to plan</button>' +
@@ -429,6 +465,18 @@
   }
 
   function searchPanel(base) {
+    // A failed search index still leaves browsing by category, which the failed banner promises.
+    if (S.stateBy.intel === 'failed') {
+      var types = {};
+      Object.keys(C.items).forEach(function (id) { (types[C.items[id].type] = types[C.items[id].type] || []).push(id); });
+      return '<section class="panel" aria-labelledby="results-h"><h2 id="results-h">Browse by category</h2>' +
+        Object.keys(types).map(function (t) {
+          return '<h3>' + esc(t) + '</h3><ul>' + types[t].map(function (id) {
+            var link = variantId === 'a' ? base + id : intelHref(id);
+            return '<li><a href="' + link + '" data-origin="result-' + id + '">' + esc(C.items[id].name) + '</a></li>';
+          }).join('') + '</ul>';
+        }).join('') + '</section>';
+    }
     var q = S.query.toLowerCase();
     var ids = Object.keys(C.items).filter(function (id) { return !q || C.items[id].name.toLowerCase().indexOf(q) >= 0; });
     var form = variantId === 'a' ? '<form class="search-form" role="search" id="intel-search"><label for="intel-q">Search Intel</label>' +
@@ -449,7 +497,7 @@
     var steps = C.stash.steps.slice(0, snap.captures);
     var pct = Math.round(snap.rowsCovered / C.stash.rowsTotal * 100);
     var body = '<div class="split"><section class="panel" aria-labelledby="guide-h"><h2 id="guide-h">Guided capture: Full stash</h2>' +
-      '<p><strong>Next:</strong> ' + esc(snap.next) + '</p><p class="note">Use the game’s own screenshot key. The companion never presses it for you.</p>' +
+      '<p><strong>Next:</strong> ' + esc(snap.next) + '</p><p class="note"><strong>Screenshot requested · take it in EFT.</strong></p>' +
       '<h3>Screenshots in this session</h3><ol>' + steps.map(function (s) {
         return '<li>' + esc(s.rows) + ': ' + s.stacks + ' stacks' + (s.duplicates ? ', ' + s.duplicates + ' overlapping duplicates merged' : '') + ', ' + s.added + ' added.</li>';
       }).join('') + '<li>Waiting for your next screenshot.</li></ol>' +
@@ -462,7 +510,7 @@
       '<tr><th scope="row">Use soon</th><td class="num">' + snap.useSoon + '</td></tr><tr><th scope="row">Review</th><td class="num">' + snap.review + '</td></tr>' +
       '<tr><th scope="row">Total</th><td class="num">' + snap.total + '</td></tr></tbody></table></div>' +
       '<p>Review: ' + esc(snap.reviewParts) + '.</p><p>Keys: ' + esc(snap.keys) + '.</p><p>Sell group: ' + esc(snap.sellValue) + '.</p></section>' +
-      '<section class="panel" aria-labelledby="org-h"><h2 id="org-h">Manual organisation plan</h2><p class="note">You move the items. The companion does not sort, click or drag anything in the game. Items are listed where they were seen, not rearranged.</p><ol>' +
+      '<section class="panel" aria-labelledby="org-h"><h2 id="org-h">Manual organisation plan</h2><p class="note"><strong>Manual plan · original positions preserved.</strong></p><ol>' +
       C.stash.organise.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ol></section></div></div>';
     // Its own key in both variants, so an injected Intel or Plan state never shows different text here.
     return page('Stash scan', 'Observed from your screenshots; unknown stays unknown.', body, 'stash');
@@ -471,11 +519,22 @@
   function viewPlan(route) {
     if (route.parts[1] === 'stash') return viewStash();
     var P = C.plan;
-    var failed = S.stateBy.plan === 'failed';
-    var mapOrList = S.mapView === 'map' && !failed ? svgMap('planmap', P.route.points, null, 'Customs schematic with plan route') :
+    var st = S.stateBy.plan;
+    var failed = st === 'failed';
+    var loading = st === 'loading';
+    var mapOrList = S.mapView === 'map' && !failed && !loading && !S.routeSkipped ? svgMap('planmap', P.route.points, null, 'Customs schematic with plan route') :
       mapList('Route order', P.route.steps);
-    var body = '<div class="split"><div class="grid"><section class="panel" aria-labelledby="bundles-h"><h2 id="bundles-h">Suggested bundles</h2><ul>' +
-      P.bundles.map(function (b, i) { return '<li>' + (i === 0 ? '<strong aria-current="true">' : '') + esc(b.name) + (i === 0 ? '</strong> (open)' : '') + ' <span class="muted">' + esc(b.summary) + '</span></li>'; }).join('') + '</ul></section>' +
+    function bundles(openFirst) {
+      return '<section class="panel" aria-labelledby="bundles-h"><h2 id="bundles-h">Suggested bundles</h2><ul>' +
+        P.bundles.map(function (b, i) { var open = openFirst && i === 0; return '<li>' + (open ? '<strong aria-current="true">' : '') + esc(b.name) + (open ? '</strong> (open)' : '') + ' <span class="muted">' + esc(b.summary) + '</span></li>'; }).join('') + '</ul></section>';
+    }
+    // Loading keeps objectives and requirements and says the route is still calculating; a skipped
+    // estimate shows waypoints in objective order, never a modelled figure nobody calculated.
+    var estimate = failed ? '<p><strong>Route estimate unavailable:</strong> the route model failed. The route order above is from your objectives, not the model.</p>'
+      : loading ? '<p aria-busy="true"><strong>Calculating route estimate</strong> with traffic-sample-v0 (sample). Objectives and requirements are ready now.</p>'
+      : S.routeSkipped ? '<p><strong>Route estimate skipped.</strong> The route order above is your objectives in order, not a modelled route.</p>'
+      : '<p><strong>' + esc(P.route.estimate) + '</strong>, confidence ' + esc(P.route.confidence) + '. ' + esc(P.route.tradeoff) + '</p>' + modelFacts(C.raid.model);
+    var body = '<div class="split"><div class="grid">' + bundles(true) +
       '<section class="panel" aria-labelledby="obj-h"><h2 id="obj-h">Customs progression</h2><h3>Objectives</h3><ol>' +
       P.objectives.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') + '</ol><p><strong>Extract:</strong> ' + esc(P.extract) + '</p>' +
       '<h3>Requirements: ' + esc(P.requirementSummary) + '</h3><ul>' + P.requirements.map(function (r) {
@@ -485,27 +544,42 @@
       // Stash scan lives on Prepare in B. In A it lives under Intel only, so F-06 has one A answer.
       (variantId === 'b' ? '<a class="button" href="' + href(V.stashBase + '/stash') + '">Open stash scan</a>' : '') + '</div></section></div>' +
       '<section class="panel" aria-labelledby="proute-h"><div class="page-head"><h2 id="proute-h">Route estimate</h2>' + mapToggle('route') + '</div>' + mapOrList +
-      (failed ? '<p><strong>Route estimate unavailable:</strong> the route model failed. The route order above is from your objectives, not the model.</p>'
-        : '<p><strong>' + esc(P.route.estimate) + '</strong>, confidence ' + esc(P.route.confidence) + '. ' + esc(P.route.tradeoff) + '</p>' + modelFacts(C.raid.model)) +
+      estimate +
       '<div class="actions"><a class="button primary" href="' + href('raid') + '">Open in Raid</a><button type="button" data-action="share-plan">Share…</button></div></section></div>';
-    return page(V.planLabel, 'Bundle quests, check requirements and choose a route for the next raid.', body, 'plan');
+    // Empty: no bundle is open, so only the suggestions the banner offers are shown, none marked open.
+    return page(V.planLabel, 'Bundle quests, check requirements and choose a route for the next raid.', body, 'plan',
+      { empty: '<div class="grid">' + bundles(false) + '</div>' });
   }
 
   function viewTeam() {
     var T = C.team;
-    var body = '<div class="grid"><section class="panel" aria-labelledby="members-h"><h2 id="members-h">Members</h2><div class="table-wrap"><table><thead><tr><th scope="col">Member</th><th scope="col">Role</th><th scope="col">Device</th><th scope="col">Freshness</th></tr></thead><tbody>' +
+    var st = S.stateBy.team;
+    var devices = '<section class="panel" aria-labelledby="devices-h"><h2 id="devices-h">Your paired devices</h2><dl class="facts"><dt>Device</dt><dd>' + esc(T.device.name) + '</dd><dt>Relationship</dt><dd>' + esc(T.device.relation) + '</dd>' +
+      '<dt>Can do</dt><dd>' + esc(T.device.scope) + '</dd><dt>Session</dt><dd>' + esc(T.device.expires) + '</dd></dl>' +
+      '<div class="actions"><a class="button primary" href="' + href('tablet') + '">Open tablet preview</a><button type="button" data-action="pair">Pair another device</button><button type="button" data-action="stub" data-name="Revoke tablet">Revoke<span class="visually-hidden"> ' + esc(T.device.name) + '</span></button></div></section>';
+    var note = st === 'partial' ? '<p class="note">Birch (sample) shares position only; loadout and quests are not shared by Birch.</p>'
+      : st === 'offline' ? '<p class="note">Relay offline: new marks stay on this PC and are sent in order when it reconnects.</p>' : '';
+    var body = '<div class="grid"><section class="panel" aria-labelledby="members-h"><h2 id="members-h">Members</h2>' + note + '<div class="table-wrap"><table><thead><tr><th scope="col">Member</th><th scope="col">Role</th><th scope="col">Device</th><th scope="col">Freshness</th></tr></thead><tbody>' +
       T.members.map(function (m) { return '<tr><th scope="row">' + esc(m.name) + '</th><td>' + esc(m.role) + '</td><td>' + esc(m.device) + '</td><td>' + (m.stale ? '<span class="status stale">' + esc(m.freshness) + '</span>' : esc(m.freshness)) + '</td></tr>'; }).join('') +
       '</tbody></table></div><h3>What each role can do</h3><dl class="facts">' + T.roles.map(function (r) { return '<dt>' + esc(r.role) + '</dt><dd>' + esc(r.can) + '</dd>'; }).join('') + '</dl></section>' +
-      '<section class="panel" aria-labelledby="devices-h"><h2 id="devices-h">Your paired devices</h2><dl class="facts"><dt>Device</dt><dd>' + esc(T.device.name) + '</dd><dt>Relationship</dt><dd>' + esc(T.device.relation) + '</dd>' +
-      '<dt>Can do</dt><dd>' + esc(T.device.scope) + '</dd><dt>Session</dt><dd>' + esc(T.device.expires) + '</dd></dl>' +
-      '<div class="actions"><a class="button primary" href="' + href('tablet') + '">Open tablet preview</a><button type="button" data-action="pair">Pair another device</button><button type="button" data-action="stub" data-name="Revoke tablet">Revoke<span class="visually-hidden"> ' + esc(T.device.name) + '</span></button></div></section>' +
+      devices +
       '<section class="panel" aria-labelledby="marks-h"><h2 id="marks-h">Marks</h2>' + marksList() + '</section></div>';
-    return page('Team', 'Who is with you, what you are doing, and what you have shared.', body, 'team');
+    // Empty (no team): marks on your own devices and pairing still work. There are no members and no
+    // team-shared marks to show.
+    return page('Team', 'Who is with you, what you are doing, and what you have shared.', body, 'team',
+      { empty: '<div class="grid">' + devices + '<section class="panel" aria-labelledby="marks-h"><h2 id="marks-h">Marks on your own devices</h2>' +
+        marksList(function (m) { return m.scope !== 'Team'; }) + '</section></div>' });
   }
 
-  function marksList() {
-    return '<ul>' + S.marks.map(function (m) {
-      return '<li><strong>' + esc(m.kind) + ':</strong> ' + esc(m.label) + ' <span class="muted">· ' + esc(m.author) + ' · shared with ' + esc(m.scope) + ' · ' + esc(m.age) + ' · ' + esc(m.ttl) + '</span></li>';
+  function marksList(filter) {
+    var marks = filter ? S.marks.filter(filter) : S.marks;
+    if (!marks.length) return '<p>No marks.</p>';
+    return '<ul>' + marks.map(function (m) {
+      // A mark made on the tablet shows the desktop revision it was committed at and whether the
+      // desktop acknowledged it, so "Shown on desktop" is a recorded fact, not a hope.
+      var sync = m.desktopRev ? ' · desktop rev ' + m.desktopRev +
+        (m.ackId ? ', confirmed (' + esc(m.ackId) + ')' : ', not yet confirmed') : '';
+      return '<li><strong>' + esc(m.kind) + ':</strong> ' + esc(m.label) + ' <span class="muted">· ' + esc(m.author) + ' · shared with ' + esc(m.scope) + ' · ' + esc(m.age) + ' · ' + esc(m.ttl) + sync + '</span></li>';
     }).join('') + '</ul>';
   }
 
@@ -521,7 +595,7 @@
       var blocked = t.mode === 'follow';
       return '<li><button type="button" data-action="tablet-nav" data-label="' + esc(n.label) + '"' + (blocked ? ' aria-disabled="true" aria-describedby="follow-note"' : '') + '>' + esc(n.label) + '</button></li>';
     }).join('') + '</ul>' + (t.mode === 'follow' ? '<p id="follow-note" class="note">In Follow desktop, change mode to navigate from the tablet.</p>' : '') + '</nav>';
-    var body = '<p><a class="button" href="' + href('team') + '">Leave tablet preview</a></p><div class="split">' +
+    var body = '<p><a class="button" href="' + href('team') + '">Leave tablet preview</a></p><div class="split tablet-split">' +
       '<section class="tablet-frame" aria-labelledby="tablet-h"><h2 id="tablet-h">Paired tablet (simulated)</h2>' +
       '<p class="muted">' + esc(C.team.device.relation) + ' ' + esc(C.team.device.scope) + '</p>' +
       '<fieldset class="segmented"><legend>Tablet mode</legend>' + modes.map(function (m) {
@@ -536,7 +610,7 @@
       '<section class="panel" aria-labelledby="desk-h"><h2 id="desk-h">Desktop companion (simulated)</h2><dl class="facts"><dt>Showing</dt><dd>' + esc(t.desktopView) + '</dd>' +
       '<dt>Revision</dt><dd>' + t.desktopRev + '</dd><dt>Last confirmation</dt><dd>' + esc(t.lastAck) + '</dd>' +
       '<dt>Navigation owner</dt><dd>' + (t.mode === 'control' ? 'Your tablet' : 'Desktop') + '</dd></dl>' +
-      '<p class="note">Pairing controls companion state only. It never sends input to the game.</p></section></div>';
+      '<p class="note"><strong>Companion control only.</strong></p></section></div>';
     return page('Tablet preview', 'For the paired-tablet journey. Open this address on a real tablet for touch sessions.', body, 'team');
   }
 
@@ -545,9 +619,12 @@
     var cable = S.correction ? 'Corrected by you to ' + S.correction + ' at 18:55.'
       : S.draft ? 'Military cable, match confidence 0.58. Your correction to ' + S.draft + ' is a draft: not saved yet.'
       : 'Military cable, match confidence 0.58. Could be Power cord.';
-    var body = '<div class="split"><section class="panel" aria-labelledby="raids-h"><h2 id="raids-h">Raids</h2><ul>' +
-      D.raids.map(function (r, i) { return '<li>' + (i === 0 ? '<strong aria-current="true">' : '') + esc(r.when) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' · ' + esc(r.outcome) + ' (' + esc(r.outcomeSource) + ')' + (i === 0 ? '</strong> (open)' : '') + '</li>'; }).join('') +
-      '</ul></section><div class="grid"><section class="panel" aria-labelledby="tl-h"><h2 id="tl-h">Customs, 2026-09-14 18:30</h2><div class="table-wrap"><table><caption>Timeline. Each row says how it is known.</caption><thead><tr><th scope="col">Time</th><th scope="col">What</th><th scope="col">How known</th><th scope="col">Source</th></tr></thead><tbody>' +
+    function raids(openFirst) {
+      return '<section class="panel" aria-labelledby="raids-h"><h2 id="raids-h">Raids</h2><ul>' +
+        D.raids.map(function (r, i) { var open = openFirst && i === 0; return '<li>' + (open ? '<strong aria-current="true">' : '') + esc(r.when) + ' · ' + esc(r.map) + ' · ' + esc(r.side) + ' · ' + esc(r.outcome) + ' (' + esc(r.outcomeSource) + ')' + (open ? '</strong> (open)' : '') + '</li>'; }).join('') +
+        '</ul></section>';
+    }
+    var body = '<div class="split">' + raids(true) + '<div class="grid"><section class="panel" aria-labelledby="tl-h"><h2 id="tl-h">Customs, 2026-09-14 18:30</h2><div class="table-wrap"><table><caption>Timeline. Each row says how it is known.</caption><thead><tr><th scope="col">Time</th><th scope="col">What</th><th scope="col">How known</th><th scope="col">Source</th></tr></thead><tbody>' +
       D.timeline.map(function (e) { return '<tr><td>' + esc(e.time) + '</td><td>' + esc(e.text) + '</td><td>' + esc(e.kind) + '</td><td>' + esc(e.source) + '</td></tr>'; }).join('') +
       '</tbody></table></div></section>' +
       '<section class="panel" aria-labelledby="corr-h"><h2 id="corr-h">Needs your review</h2><p id="cable-state">' + esc(cable) + '</p><div class="actions">' +
@@ -559,7 +636,9 @@
       '<fieldset><legend>Compared with what you saw</legend><ul class="radio-list">' + ['Higher traffic than shown', 'About as shown', 'Lower traffic than shown', 'I did not notice'].map(function (o) {
         return '<li><label><input type="radio" name="traffic-feedback" data-action="feedback" value="' + esc(o) + '"> ' + esc(o) + '</label></li>';
       }).join('') + '</ul></fieldset><div class="actions"><button type="button" data-action="stub" data-name="Export this raid">Export this raid</button></div></section></div></div>';
-    return page(V.historyLabel, 'What happened, how it is known, and what to correct.', body, 'debrief');
+    // Empty has no raid to show; loading shows the raid list first and the timeline once opened.
+    return page(V.historyLabel, 'What happened, how it is known, and what to correct.', body, 'debrief',
+      { empty: '', loading: '<div class="grid">' + raids(false) + '</div>' });
   }
 
   // ---------------------------------------------------------------- render
@@ -569,6 +648,19 @@
     var route = parse(location.hash);
     if (variantId === 'a' && ['home', 'prepare', 'history', 'search'].indexOf(route.ws) >= 0) route = parse('#/' + V.first);
     if (variantId === 'b' && ['plan', 'debrief', 'intel'].indexOf(route.ws) >= 0) route = parse('#/' + V.first);
+    // Capture what the participant is in the middle of BEFORE anything is replaced. renderChrome
+    // rewrites the header and rail, so reading focus or typed text after it finds <body> and the
+    // freshly rendered S.query instead: a rail link lost focus and unsubmitted header search text
+    // was wiped whenever a capture finished in the background.
+    var keep = fromUser ? null : focusSignature(document.activeElement);
+    var stage = !fromUser && $('#stage-box') ? $('#stage-box').outerHTML : null;
+    var typed = {};
+    if (!fromUser) {
+      ['global-search', 'intel-q'].forEach(function (id) {
+        var input = document.getElementById(id);
+        if (input) typed[id] = { value: input.value, start: input.selectionStart, end: input.selectionEnd };
+      });
+    }
     renderChrome(route);
     var ws = route.ws, html;
     if (ws === 'setup') html = viewSetup();
@@ -588,17 +680,19 @@
         '<div class="actions"><a class="button" href="' + href(route.parts.join('/')) + '" data-action="close-intel">Close Intel</a></div></section></div>';
     }
     var main = $('#main');
-    var keep = fromUser ? null : focusSignature(document.activeElement);
-    // A background re-render keeps what the participant was in the middle of: the capture progress
-    // or result box, and search text typed but not yet submitted.
-    var stage = !fromUser && $('#stage-box') ? $('#stage-box').outerHTML : null;
-    var typed = {};
-    if (!fromUser) ['global-search', 'intel-q'].forEach(function (id) { var input = document.getElementById(id); if (input) typed[id] = input.value; });
+    // A background re-render keeps the capture progress or result box, and search text typed but
+    // not yet submitted, both captured above.
     main.innerHTML = html;
     if (stage) placeStage(stage);
-    Object.keys(typed).forEach(function (id) { var input = document.getElementById(id); if (input) input.value = typed[id]; });
+    Object.keys(typed).forEach(function (id) { var input = document.getElementById(id); if (input) input.value = typed[id].value; });
     renderModerator(route);
     if (keep) restoreFocus(keep);
+    Object.keys(typed).forEach(function (id) {
+      var input = document.getElementById(id);
+      if (input && document.activeElement === input && typed[id].start !== null) {
+        try { input.setSelectionRange(typed[id].start, typed[id].end); } catch (err) { /* type=search may refuse */ }
+      }
+    });
     document.title = ($('#main h1') ? $('#main h1').textContent : 'Storyboard') + ' · ' + V.name;
 
     if (!fromUser) return;
@@ -656,14 +750,18 @@
     var pending = c.pending.map(function (p) {
       return '<li>Capture ' + p.n + ' at ' + esc(p.time) + ': ' + esc(p.reason) + '</li>';
     }).join('');
+    var waiting = c.queue.map(function (q) {
+      return '<li>Capture ' + q.cap.n + ' at ' + esc(q.cap.time) + ': waiting unread behind an earlier capture</li>';
+    }).join('');
     openDialog({
       title: 'Capture',
-      body: '<p>Arm what your next screenshot is for, then take it with the game’s own screenshot key. The companion never presses keys in the game.</p>' +
+      body: '<p><strong>Arm the next screenshot · take it in EFT.</strong></p>' +
         '<fieldset><legend>Next screenshot is for</legend><ul class="radio-list">' + C.intents.map(function (it) {
           var checked = (c.armed || 'auto') === it.id;
           return '<li><label><input type="radio" name="intent" value="' + it.id + '"' + (checked ? ' checked' : '') + '><span><strong>' + esc(it.label) + '</strong><br><span class="muted">' + esc(it.hint) + '</span></span></label></li>';
         }).join('') + '</ul></fieldset>' +
         (pending ? '<h3>Needs a decision</h3><ul>' + pending + '</ul><p class="note">Choose “Decide now” to go through them.</p>' : '') +
+        (waiting ? '<h3>Waiting unread</h3><ul>' + waiting + '</ul>' : '') +
         '<h3>Recent captures</h3><ul>' + list + '</ul>',
       actions: (pending ? [{ label: 'Decide now', value: 'decide' }] : [])
         .concat(lastDup ? [{ label: 'Analyse capture ' + lastDup.n + ' again', value: 'again' }] : [])
@@ -688,42 +786,66 @@
     return '18:41:' + (s < 10 ? '0' : '') + s;
   }
 
+  // Every arrival, of every kind, joins ONE queue in the order the desktop saw it (capture spec,
+  // "Ordering while a capture waits"). It is bound to the armed intent and revision at arrival,
+  // then waits, unread, while an earlier capture is analysing OR paused on a decision. An earlier
+  // version let a later match or duplicate overtake a capture still waiting for Decide, so results
+  // published out of capture order, and a second queue (c.queue) was read but never created.
   function simulateScreenshot(kind) {
     var c = S.capture;
+    // Refused before it is numbered, so it never takes a place in the order.
+    if (kind === 'mismatch' && !c.armed) {
+      announce('Nothing is armed, so Auto-detect cannot disagree. Arm Loot decision first to rehearse a mismatch.');
+      return;
+    }
     c.seq += 1;
-    var cap = { n: c.seq, time: now(), intent: c.armed || 'auto', rev: c.rev };
-    processCapture(cap, kind);
+    var cap = { n: c.seq, time: now(), intent: c.armed || 'auto', rev: c.rev, origin: c.origin,
+      autoIntent: c.armed || (S.stashStep === 0 && location.hash.indexOf('stash') >= 0 ? 'stash' : 'loot') };
+    c.queue.push({ cap: cap, kind: kind });
+    var blocker = c.running || c.pending[0];
+    if (blocker || c.queue.length > 1) {
+      announce('Capture ' + cap.n + ' waits, unread, until capture ' + (blocker ? blocker.n : c.queue[0].cap.n) +
+        (c.pending.length && !c.running ? ' has a decision.' : ' finishes.'));
+      render(false);
+    }
+    pump();
+  }
+
+  // Starts the next queued capture only when nothing earlier is analysing or waiting for a decision.
+  function pump() {
+    var c = S.capture;
+    if (c.running || c.pending.length || !c.queue.length) return;
+    var next = c.queue.shift();
+    processCapture(next.cap, next.kind);
   }
 
   function processCapture(cap, kind) {
     var c = S.capture;
-    if (c.running && (kind === 'match' || kind === 'writing')) {
-      c.queue.push({ cap: cap, kind: kind });
-      announce('Capture ' + cap.n + ' waits until capture ' + c.running.n + ' finishes.');
-      return;
-    }
     if (kind === 'duplicate') {
       var prev = c.history[c.history.length - 1];
-      c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, duplicate: true, outcome: 'Same file as capture ' + prev.n + '. Not analysed again.' });
+      c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, duplicate: true, outcome: prev ? 'Same file as capture ' + prev.n + '. Not analysed again.' : 'Same file as an earlier capture. Not analysed again.' });
       render(false);
-      announce('Screenshot already analysed as capture ' + prev.n + '. No new result.');
+      announce('Screenshot already analysed' + (prev ? ' as capture ' + prev.n : '') + '. No new result.');
+      pump();
       return;
     }
-    if (kind === 'race') { raceIntent(cap); return; }
+    if (kind === 'reanalyse') { cap.duplicate = false; runStages(cap, cap.intent === 'auto' ? 'loot' : cap.intent, false); return; }
+    if (kind === 'race') { raceIntent(cap); pump(); return; }
     // A screenshot arrives while the player is in the game, so a disagreement is queued and
     // announced politely. A modal here would steal focus, and on Windows could pull the companion
-    // in front of the game. The dialog opens only when the player chooses Decide.
+    // in front of the game. The dialog opens only when the player chooses Decide. Until then it
+    // blocks every later capture, which waits unread in c.queue.
     if (kind === 'unknown') { queueDecision(cap, 'Context unknown', null); return; }
     if (kind === 'mismatch') {
-      if (cap.intent === 'auto') { announce('Nothing is armed, so Auto-detect cannot disagree. Arm Loot decision first to rehearse a mismatch.'); if (c.seq === cap.n) c.seq -= 1; return; }
       queueDecision(cap, 'Detected ' + intentLabel(cap.intent === 'stash' ? 'loot' : 'stash') + ' but ' + intentLabel(cap.intent) + ' was armed', cap.intent === 'stash' ? 'loot' : 'stash');
       return;
     }
-    runStages(cap, cap.intent === 'auto' ? (S.stashStep === 0 && location.hash.indexOf('stash') >= 0 ? 'stash' : 'loot') : cap.intent, kind === 'writing');
+    runStages(cap, cap.autoIntent, kind === 'writing');
   }
 
   function runStages(cap, asIntent, stillWriting) {
     var c = S.capture;
+    var session = S;
     c.running = cap;
     var i = 0, checks = 0;
     placeStage('<section class="panel" id="stage-box" aria-labelledby="stage-h"></section>');
@@ -739,6 +861,8 @@
         }).join('') + '</ol>';
     }
     function step() {
+      // Reset starts a new moderator session; timers from the old one must not mutate it.
+      if (S !== session) return;
       draw();
       // Waiting is timing, not motion: reduced motion must not make the "still being written" step vanish.
       if (stillWriting && i === 1 && checks < 3) {
@@ -762,7 +886,7 @@
       // keeps the result box.
       render(false);
       announce('Capture ' + cap.n + ' result ready: ' + intentLabel(asIntent) + '.');
-      if (c.queue.length) { var next = c.queue.shift(); setTimeout(function () { processCapture(next.cap, next.kind); }, 0); }
+      if (c.queue.length) setTimeout(pump, 0);
     }
     step();
   }
@@ -774,7 +898,7 @@
       title: 'This looks like ' + noun[detected] + ', not ' + noun[cap.intent],
       describedBy: 'mm-desc',
       body: '<p id="mm-desc">Nothing has been changed yet. Choose how to analyse capture ' + cap.n + '.</p><dl class="facts">' +
-        '<dt>You armed</dt><dd>' + esc(intentLabel(cap.intent)) + ' (rev ' + cap.rev + ', set on ' + esc(S.capture.origin) + ')</dd>' +
+        '<dt>You armed</dt><dd>' + esc(intentLabel(cap.intent)) + ' (rev ' + cap.rev + ', set on ' + esc(cap.origin) + ')</dd>' +
         '<dt>Detected</dt><dd>' + esc(intentLabel(detected)) + ', a strong match</dd><dt>Screenshot</dt><dd>' + esc(cap.time) + '. File stays in your EFT folder.</dd></dl>' +
         '<p class="note">Closing this without choosing keeps the capture under “Needs a decision”.</p>',
       actions: [
@@ -808,6 +932,7 @@
     if (value === 'skip') {
       c.history.push({ n: cap.n, time: cap.time, intent: cap.intent, outcome: 'Skipped by you. Nothing changed.' });
       render(false); announce('Capture ' + cap.n + ' skipped. Nothing changed.');
+      setTimeout(pump, 0);
     } else if (value === 'armed') {
       render(false); runStages(cap, cap.intent, false);
     } else if (value === 'detected' || value === 'chosen') {
@@ -905,9 +1030,17 @@
       onClose: function (value, data) {
         if (value !== 'add') return null;
         var label = kind === 'Note' ? (data.get('text') || 'Note') + ' at ' + data.get('place') : kind === 'Ping' ? 'Look here: ' + data.get('place') : data.get('place');
-        S.marks.push({ kind: kind, label: label, author: 'You · tablet', scope: data.get('scope'), age: 'just now', ttl: kind === 'Ping' ? 'Expires in 45 s' : 'Until cleared' });
+        // The desktop is canonical. A tablet command commits one new desktop revision and stores the
+        // exact acknowledgement identity that proves this mark—not merely "something"—was applied.
+        S.tablet.desktopRev += 1;
+        var desktopRev = S.tablet.desktopRev;
+        var ackId = 'desktop-mark-ack-' + desktopRev;
+        S.tablet.lastAck = 'Rev ' + desktopRev + ' confirmed by desktop (' + ackId + ')';
+        S.marks.push({ kind: kind, label: label, author: 'You · tablet', scope: data.get('scope'), age: 'just now',
+          ttl: kind === 'Ping' ? 'Expires in 45 s' : 'Until cleared', desktopRev: desktopRev, ackId: ackId });
         render(false);
-        announce(kind + ' added at ' + data.get('place') + ', shared with ' + data.get('scope') + '. Shown on desktop.');
+        announce(kind + ' added at ' + data.get('place') + ', shared with ' + data.get('scope') +
+          '. Confirmed by desktop at rev ' + desktopRev + ', ' + ackId + '.');
         return document.querySelector('[data-action="add-mark"][data-kind="' + kind + '"]');
       }
     });
@@ -988,7 +1121,9 @@
       case 'skip': e.preventDefault(); $('#main').focus(); break;
       case 'journey': S.postRaid = el.getAttribute('data-journey') === 'J6'; break;
       case 'apply-state': {
-        var sel = $('#mod-state'); S.stateBy[sel.getAttribute('data-key')] = sel.value; render(false);
+        var sel = $('#mod-state'); S.stateBy[sel.getAttribute('data-key')] = sel.value;
+        if (sel.getAttribute('data-key') === 'plan') S.routeSkipped = false;
+        render(false);
         moderatorDone($('#mod-apply-state'), e);
         var cell = C.states[sel.getAttribute('data-key')][sel.value];
         announce(cell ? cell[2] : 'Back to normal.');
@@ -1021,7 +1156,24 @@
   }
 
   function recover(key) {
+    var was = S.stateBy[key];
     S.stateBy[key] = 'success';
+    // "Use list view" is a choice about the view, not a retry: it must leave the page in List, with
+    // the List toggle pressed, and stay there when the tiles would have finished loading.
+    if (key === 'raid' && was === 'loading') {
+      S.mapView = 'list';
+      render(false);
+      focusAction('map-view', '[data-view="list"]');
+      announce('List view. Extracts, objectives and routes are listed as text.');
+      return;
+    }
+    if (key === 'plan' && was === 'loading') {
+      S.routeSkipped = true;
+      render(false);
+      var ph = $('#proute-h'); if (ph) { ph.setAttribute('tabindex', '-1'); ph.focus(); }
+      announce('Route estimate skipped. Waypoints are in objective order.');
+      return;
+    }
     if (key === 'debrief' && S.draft) {
       S.correction = S.draft; S.draft = null;
       render(false);

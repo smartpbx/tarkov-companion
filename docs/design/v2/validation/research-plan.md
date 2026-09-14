@@ -64,8 +64,8 @@ display settings; the storyboard folder is sent to them as files, because it nee
 
 ### Design
 
-- **Primary variant, alternating.** Counted participants alternate primary variant by recruitment
-  order (P01 A, P02 B, P03 A, P04 B, P05 A, and so on). Each participant runs all six journeys in
+- **Primary variant, alternating.** Counted assignment slots alternate primary variant (P01 A, P02
+  B, P03 A, P04 B, then repeat that four-slot cycle). Each participant runs all six journeys in
   their primary variant.
 - **Findability tasks on both variants.** The twelve findability tasks in
   [navigation-variants.md](navigation-variants.md) are split into two matched sets. Each
@@ -79,13 +79,21 @@ display settings; the storyboard folder is sent to them as files, because it nee
   | P03 | A | 2 | 1 |
   | P04 | B | 2 | 1 |
   | P05 | A | 1 | 2 |
-  | P06 onward | Repeat from P02 | | |
+  | P06 | B | 1 | 2 |
+  | P07 | A | 2 | 1 |
+  | P08 | B | 2 | 1 |
+  | P09 onward | Repeat P01 to P08 in order | | |
 
-  A participant who withdraws or does not count keeps their row; the next counted recruit takes the
-  next row, and any scheduling adjustment is recorded (participant-screening.md).
+  The P-number here is a private assignment slot, not a public participant identifier. P09 repeats
+  P01, P10 repeats P02, and so on (`((slot - 1) mod 8) + 1`). If somebody is found ineligible,
+  withdraws, or does not complete enough of the session to count, the replacement recruit takes the
+  same vacated slot and therefore the same primary variant and findability sets. If a withdrawal
+  happens after synthesis, recruit against that removed slot before taking the next new slot. The
+  private roster records the replacement; public files contain aggregate attempts only.
 - **Journey order.** J1 first launch always comes first and J6 Debrief always last, because the
   story needs them there. J2 to J5 rotate by participant (P01 2-3-4-5, P02 3-4-5-2, P03 4-5-2-3,
-  P04 5-2-3-4, P05 2-3-4-5).
+  P04 5-2-3-4), then repeat every four assignment slots (P05 as P01, P06 as P02, and so on).
+  A replacement uses the vacated slot's rotation rather than the next rotation.
 - **Injected edge cases.** Each journey has fixed moderator injections (a mismatch in J2; still
   writing, duplicate and unknown in J3; a desktop-first conflict in J5; a failed save in J6), so
   every participant meets the same recovery situations.
@@ -159,17 +167,23 @@ evidence for each:
 
 1. At least five counted participants took part, meeting every coverage requirement in
    [participant-screening.md](participant-screening.md). The pilot is not one of them.
-2. Each counted participant attempted J1 to J6, or the report records which journey was not
-   attempted and why. A missing attempt is never filled in or estimated.
-3. Each variant was the primary variant for at least two counted participants.
-4. Accessibility flows were exercised by at least one counted participant who uses, in daily life,
+2. Every required journey J1 to J6 has at least **two counted attempts in Variant A and two counted
+   attempts in Variant B**. `Not attempted`, `stopped`, `not reached`, a storyboard defect and a
+   documented reason are honest records but contribute zero attempts; recruit a replacement or run
+   an additional counted session until each minimum is met. A missing attempt is never filled in or
+   estimated.
+3. Every findability task F-01 to F-12 has at least **two counted attempts in each variant**. The
+   same zero-credit rule applies to `Not attempted`, including a journey step skipped as `covered by
+   F-12`; the F-12 task itself must still meet this minimum.
+4. Each variant was the primary variant for at least two counted participants.
+5. Accessibility flows were exercised by at least one counted participant who uses, in daily life,
    at least one of the technologies or settings in [accessibility-flows.md](accessibility-flows.md),
    not by a sighted mouse user simulating it. Flows with no such participant are listed in the
    report as not exercised.
-5. Findings are coded and rated, and every S0 and S1 finding has an owner issue.
-6. Every hypothesis in section 3 is accepted, rejected or deferred in
+6. Findings are coded and rated, and every S0 and S1 finding has an owner issue.
+7. Every hypothesis in section 3 is accepted, rejected or deferred in
    [../decision-log.md](../decision-log.md) with the evidence that moved it.
-7. [acceptance-fixture-map.md](acceptance-fixture-map.md) is revised from those decisions and
+8. [acceptance-fixture-map.md](acceptance-fixture-map.md) is revised from those decisions and
    linked from the implementation issues.
 
 If internal recruitment cannot meet a coverage requirement, the gate stays open. The decision

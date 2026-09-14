@@ -31,7 +31,7 @@ the screenshots you take."
 | --- | --- | --- | --- | --- |
 | 1 | **Measure.** Find what still needs doing | Lands on Setup & Admin; reads Get ready: "1 item needs action"; Profile and wipe "Not chosen" | Lands on Home; same Get ready content | Participant names Profile and wipe as the only thing needing action |
 | 2 | **Measure.** Choose a profile | Choose profile, then Sample profile PvP, then Use this profile | Same | Status reads "Chosen"; header reads "Setup: nothing needs action" |
-| 3 | **Measure.** Find what happens to screenshots | Privacy at a glance panel | Same | Participant reads or paraphrases the capture-analysis line |
+| 3 | **Measure.** Find what happens to screenshots | Privacy at a glance, What happens to screenshots | Same | Participant opens the detail and reads or paraphrases the capture-analysis line |
 
 **Probes and expected answers**
 

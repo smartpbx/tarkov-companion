@@ -18,8 +18,11 @@ this issue's owned paths, so this pull request adds none.
    free the space they claim, the same plan has the same requirements everywhere, and a percentage
    says what it is a percentage of. Use the reconciled sample set in
    [prototype/content.js](prototype/content.js) unless there is a reason not to.
-3. **Every modelled layer carries its full provenance** where it is drawn: "Modelled traffic · not
-   live", source, data through, generated, coverage, confidence with what it means, model version.
+3. **Every modelled layer carries its complete evidence without policy clutter**: keep a compact
+   "Modelled traffic · not live" context label inline; show freshness/confidence inline only when
+   material; put source, data through, generated, coverage, confidence meaning, model version and
+   Why in adjacent on-demand details. Link the full Safety and data methodology from Setup & Admin,
+   About, or Data and Privacy (C-07).
    One wording everywhere.
 4. **No single "Ready".** Status is counted and specific ("1 setup item needs action"), with each
    dependency's own time.
@@ -52,7 +55,7 @@ this issue's owned paths, so this pull request adds none.
 | RB-05 | All desktop, Home, Stash | Remove the global "Ready" pill. Replace with a counted status (wording provisional until H-15) that links to its detail; during a scan show the scan's state, not "Ready" | RA-X5, RA-H1 |
 | RB-06 | All with a clock or "Data updated" | Separate local time from raid elapsed or remaining time with their source; name the data behind every "updated" line; show raid state (not in raid, loading, in raid) on Raid; show map and side context only where relevant | RA-X6, RA-X7, RA-R6, RA-I9 |
 | RB-09 | All | Apply ground rule 1: sample marker, neutral names, sourced claims, visibly decorative QR, remove rendering artefacts ("Why these results") | RA-X10, RA-H6, RA-I7, RA-T7, RA-C7, RA-L9 |
-| RB-10 | Home, Raid, Plan, Intel, tablet control | Apply ground rule 3 everywhere a model is drawn or referred to; give each confidence a label saying what it measures (model calibration, detection, identification rate, rule outcome); draw a checked Traffic layer with its label, or uncheck it | RA-X11, RA-X12, RA-I6, RA-P4, RA-P5, RA-C2 |
+| RB-10 | Home, Raid, Plan, Intel, tablet control | Apply ground rule 3 everywhere a model is drawn or referred to; give each material confidence a label saying what it measures (model calibration, detection, identification rate, rule outcome); keep complete evidence in adjacent Why/details; draw a checked Traffic layer with its compact context label, or uncheck it | RA-X11, RA-X12, RA-I6, RA-P4, RA-P5, RA-C2 |
 | RB-11 | Home | Make "Current plan" depend visibly on the chosen profile (or show it as sample); distinguish statuses from buttons | RA-H2, RA-H3 |
 | RB-12 | Home, Stash, all capture surfaces | Replace "No personal data is collected" with an inventory link; use ground rule 7 wording; show cleanup and analysis retention as separate lines | RA-H4, RA-H5, RA-S4 |
 | RB-13 | Raid, Plan | Make the primary route end at the primary extract, with one estimate; make route reasons match the drawn heat and name the data behind each; add Plan's trade-off explanation; list only extracts available to the current side, marked observed, catalog-possible or conditional | RA-R1, RA-R2, RA-R3, RA-R5, RA-P3 |
@@ -66,8 +69,8 @@ this issue's owned paths, so this pull request adds none.
 ## What to keep
 
 The audit's `keep` rows are deliberate: the readiness checklist and privacy panel (RA-H7), the
-"not live" banner, sample size and phase scrubber (RA-R7), named missing sources and "Used in"
+"not live" context label, sample size and phase scrubber (RA-R7), named missing sources and "Used in"
 (RA-I10), numbered objectives on the map (RA-P8), expiring invites and session expiry (RA-T8), the
 persistent "Desktop now showing" line, mode control, armed-capture line and "companion state only"
-note (RA-C8), guided next capture and "no game input" note (RA-S9), and detected context with
-confidence and analysis time (RA-L10).
+note (RA-C8), guided next capture with compact manual-action context (RA-S9), and detected context
+with confidence and analysis time available in details (RA-L10).

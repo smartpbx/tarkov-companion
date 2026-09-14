@@ -1,7 +1,8 @@
 # Participant screening
 
-> **Status: not yet run.** Nobody has been screened or recruited. The recruitment log at the end is
-> empty on purpose. Never add a row for a person who has not agreed to take part.
+> **Status: not yet run.** Nobody has been screened or recruited. Screener answers, contact details,
+> per-person eligibility, assignments and recruitment status belong only in the private study
+> folder. Never add them to this public repository, even under a pseudonymous ID.
 
 ## Who counts
 
@@ -26,7 +27,7 @@ more than one row (an expert who uses a tablet counts for both).
 
 | Coverage | Minimum | How it is confirmed |
 | --- | --- | --- |
-| Counted participants | 5 | Recruitment log |
+| Counted participants | 5 | Aggregate count calculated from the private recruitment roster |
 | **Expert** workflow: several wipes, plays for progression or profit, has opinions about loot value per square and quest routing | 1 | Screener Q1 to Q4 |
 | **Regular or returning** player: plays most weeks, or is coming back after a wipe or break | 1 | Screener Q1 to Q3 |
 | **Accessibility-relevant**: uses a screen reader, screen magnification, 200% or larger text, keyboard-only or switch access, voice control, Windows high contrast or a contrast theme, reduced motion by need, or uses a colour filter, a pointer or touch accommodation, or another setting they choose to describe | 1 | Screener Q9, self-described and optional |
@@ -39,14 +40,18 @@ more than one row (an expert who uses a tablet counts for both).
 ## Screener
 
 Keep it short, and ask the accessibility question neutrally. Every question may be skipped. Record
-answers in [templates/screener-response.md](templates/screener-response.md), never in this file.
+answers only in a private copy of [templates/screener-response.md](templates/screener-response.md).
+A filled screener, its filename and any row derived from one are private per-person recruitment
+data and must never be committed to git.
 
 Screening happens before the consent script, so read or send this notice first:
 
 > These questions help us pick a mix of players for a study of early Tarkov Companion storyboards.
-> You can skip any of them. Your answers are kept in a private study folder that only the study
-> team can open, never in the project's public repository, and are deleted when the study report
-> is signed off, or sooner if you ask.
+> You can skip any of them. Before the first question we will give you a private request code and a
+> study contact. Your answers are kept in a private study folder that only the study team can open,
+> never in the project's public repository. If you are not recruited, they are deleted within 30
+> days of screening; if you take part, the study retention rules apply. You can use the code to ask
+> for deletion sooner.
 
 1. Roughly how long have you played Escape from Tarkov? *(under 3 months · 3 to 12 months · 1 to 3
    years · more than 3 years)*
@@ -83,31 +88,28 @@ Screening happens before the consent script, so read or send this notice first:
 
 ## Scheduling rules
 
-- Assign primary variant by recruitment order after screening (research-plan.md section 4), then
-  adjust only to satisfy "each variant as primary: 2 each". Record any adjustment.
+- Keep the private recruitment roster, eligibility calculation, contact details, request-code
+  verifier and scheduling assignment outside git. Give the candidate the request code and private
+  study contact before asking Q1; store only a salted verifier, never the code itself.
+- Assign primary variant, findability sets and journey rotation from the repeating schedule in
+  research-plan.md section 4. Record adjustments only in the private roster.
 - An accessibility-relevant participant chooses their own device, assistive technology and
   settings. The moderator checks the storyboard opens with that setup before the session, not
   during it.
 - Send the storyboard folder before a remote session and ask the participant to open
   `prototype/index.html` once, so a blocked local file is found before the session.
 
-## Recruitment log
+## Public aggregate coverage
 
-Pseudonymous IDs only. No names, gamer tags, email addresses or contact details here: this
-repository is public. The mapping from ID to person lives only in the private study folder
-described in [consent-and-data-handling.md](consent-and-data-handling.md).
+The private roster has one row per candidate. This public file has none: not dates, IDs,
+eligibility flags, assignments, status or a link/path to the roster. After recruitment, publish only
+the aggregate counts below. Suppress or combine a count if, in this small internal pool, it would
+identify someone; a suppressed count does not meet the completion gate until the decision owner can
+verify it privately and the report records only `met` or `not met`.
 
-| ID | Screened (date) | Counted? | Expert | Regular/returning | Accessibility-relevant | Squad | Second screen | Seen v2 concepts | Primary variant | Session date | Status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| *(no participants yet)* | | | | | | | | | | | |
-
-### Coverage check
-
-Fill in only from the log above.
-
-| Coverage | Minimum | Recruited | Met? |
+| Coverage | Minimum | Counted completed sessions | Met? |
 | --- | --- | --- | --- |
-| Counted participants | 5 | — | — |
+| Counted participants | 5 | 0 | No |
 | Expert | 1 | — | — |
 | Regular or returning | 1 | — | — |
 | Accessibility-relevant | 1 | — | — |
@@ -117,3 +119,6 @@ Fill in only from the log above.
 | Not seen v2 concepts | 2 | — | — |
 | Variant A primary | 2 | — | — |
 | Variant B primary | 2 | — | — |
+
+These aggregates are recalculated after a withdrawal. Screening and scheduling totals are never
+published as a per-person table and never substitute for completed counted sessions.

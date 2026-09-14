@@ -25,7 +25,7 @@ the native app will behave this way.
 | Names | Every control's name is its visible text. Repeated controls add hidden context: "Details for Electric drill", "Correct match for Military cable". |
 | Current location | Rail or hub link for the current destination has `aria-current="page"` and a visible non-colour marker (arrow and border). |
 | Status | One polite status region for background changes and confirmations; one assertive region only for refusals, failures of the player's own action, and conflicts. |
-| Focus | Page change: focus to the h1. Dialog open: focus to the dialog heading. Dialog close: focus back to the control that opened it, or to the h1 if that control no longer exists. Re-render: focus kept on the same control. Background events: focus never moves. |
+| Focus | Page change: focus to the h1. Dialog open: focus to the dialog heading. Dialog close: focus back to the control that opened it, or to the h1 if that control no longer exists. Before a re-render replaces the rail or header, capture the active control and any unsubmitted search value and selection; restore both after rendering. Background events: focus never moves. |
 | Shortcuts | Alt+Shift+C opens Capture inside the companion window; it is not a system-wide hotkey. It can be switched off, and the native build should let it be remapped because Alt+Shift switches input language on Windows. There are no single-character shortcuts, so WCAG 2.1.4 is met. |
 | Colour | No state is conveyed by colour alone: decisions are words (TAKE, SWAP, LEAVE, REVIEW) with distinct border styles; statuses have a symbol and a word; traffic zones have a hatch density and a text level. |
 | Targets | Desktop controls at least 24 by 24 CSS px (WCAG 2.5.8, AA); tablet controls at least 44 by 44 CSS px (2.5.5), 48 px high for tablet mode and mark buttons. |
@@ -118,7 +118,7 @@ is an `A11Y-NAME` finding for the native design, where symbols must be decorativ
 
 | # | Action | Expected speech |
 | --- | --- | --- |
-| 1 | Table navigation to the Electric drill row | Row header "Electric drill"; column headers read with cells: Decision SWAP; Why, an ordered list of three reasons, then "Swap out Wires … Gain ₽34,000 flea net est."; Size 2×1; Flea net est. ₽58,000; Per square ₽29,000; Match confidence 0.93 |
+| 1 | Table navigation to the Electric drill row | Row header "Electric drill"; column headers read with cells: Decision SWAP; Why, an ordered list of three reasons, then "Swap out Wires … Gain ₽34,000 flea net est." and on-demand match details; Size 2×1; Flea net est. ₽58,000; Per square ₽29,000 |
 | 2 | Summary heading | "6 of 6 container items: TAKE 3 · SWAP 1 · LEAVE 1 · REVIEW 1" |
 
 **Watch:** whether "est." and "×" are read intelligibly; whether ₽ is read as "rouble" or skipped.

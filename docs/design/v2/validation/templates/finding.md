@@ -10,14 +10,15 @@
 | Codes | |
 | Variant(s) | A / B / both |
 | Screen or step | |
-| Participants (IDs) | |
+| Private evidence-index references (private working copy only; remove from any public copy) | |
 | Counted participants affected | n of N |
 | Participant familiarity flags that could affect this | |
 | Storyboard medium only? | Yes (rate S4 `storyboard`) / No |
 
 ## Evidence
 
-Timestamps and what was observed. Paraphrase unless a quote is consented.
+Timestamps and what was observed. Public synthesis uses an aggregate paraphrase unless an exact
+quote completed its approval and seven-day embargo; it never includes a participant ID.
 
 ## Why it matters
 

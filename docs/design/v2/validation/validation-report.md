@@ -34,20 +34,17 @@ Record any departure from [research-plan.md](research-plan.md), with the reason.
 
 ### Storyboard revisions
 
-| Revision (commit) | Change | Reason | First participant to see it |
+| Revision (commit) | Change | Reason | Counted sessions using it |
 | --- | --- | --- | --- |
 | — | — | — | — |
 
-## 3. Participants
+## 3. Aggregate participant coverage
 
-Pseudonymous IDs only. See [consent-and-data-handling.md](consent-and-data-handling.md). In a small
-internal group, a row combining expertise, squad, devices and assistive technology can identify a
-person, so per-participant rows carry only what the analysis needs and coverage is reported as
-counts.
-
-| ID | Counted | Primary variant | Findability set on A |
-| --- | --- | --- | --- |
-| *(none yet)* | | | |
+See [consent-and-data-handling.md](consent-and-data-handling.md). Screener answers and per-person
+recruitment, eligibility, scheduling and assignment rows never enter public git, even with
+pseudonymous IDs. Calculate this section from the private roster and publish aggregates only. If a
+small-cell count would identify someone, write `suppressed; privately verified met/not met` rather
+than combining attributes.
 
 | Coverage (from participant-screening.md) | Counted participants meeting it |
 | --- | --- |
@@ -60,8 +57,7 @@ counts.
 | Not seen v2 concepts | — |
 | Helped plan v2 (familiarity flag) | — |
 
-Assistive technology is named only in the assistive-technology table in section 5, and only where
-the consent record allows it.
+Do not cross-tabulate these rows: the combination can identify someone in a small internal pool.
 
 ## 4. Findability results
 
@@ -90,17 +86,20 @@ Ease is asked once per journey, so it has its own table.
 
 ### Assistive-technology sessions
 
-Reported separately and never averaged with the tables above.
+Report aggregate attempts and barriers separately and never average times with other sessions. Name
+a technology or setting only with consent and only when the cell is large enough not to identify a
+person; otherwise use a broader category. Participant IDs and per-person technology rows remain in
+the private session logs.
 
-| ID | Technology or setting | Journey step | Outcome | Barrier observed | Finding |
-| --- | --- | --- | --- | --- | --- |
-| *(none yet)* | | | | | |
+| Technology or setting category | Counted sessions | Journey attempts | Aggregate outcomes | Barrier findings |
+| --- | --- | --- | --- | --- |
+| *(none yet)* | | | | |
 
 ## 6. Comprehension and trust probes
 
-| Probe | Journey | Correct | Partly | Incorrect | Not asked | Calibrated | Over-trusts | Under-trusts | Notable answers (ID, consented quotes only) |
+| Probe | Journey | Correct | Partly | Incorrect | Not asked | Calibrated | Over-trusts | Under-trusts | Aggregate paraphrase or approved quote after embargo (no ID) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| *(each probe in [journeys.md](journeys.md))* | | | | | | | | | |
+| *(each probe in [journeys.md](journeys.md))* | | | | | | | | | Aggregate paraphrase or approved quote after embargo; no participant ID |
 
 ## 7. Findings
 
@@ -142,7 +141,8 @@ Proposed by the synthesiser, decided by the decision owner in [../decision-log.m
 Each line must point at evidence in this report. See [research-plan.md](research-plan.md) §8.
 
 - [ ] At least five counted participants, coverage met
-- [ ] Every counted participant attempted J1 to J6, or the gap is recorded
+- [ ] J1 to J6 each have at least 2 counted attempts in Variant A and 2 in Variant B; `Not attempted` never counts
+- [ ] F-01 to F-12 each have at least 2 counted attempts in Variant A and 2 in Variant B; `Not attempted` never counts
 - [ ] Each variant primary for at least two counted participants
 - [ ] Accessibility flows exercised by at least one daily user of the relevant technology or setting
 - [ ] Findings coded and rated; every S0 and S1 has an owner issue

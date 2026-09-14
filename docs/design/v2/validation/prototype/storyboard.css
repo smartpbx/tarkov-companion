@@ -108,6 +108,8 @@ label { display: inline-block; }
 .capture-tray { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-left: auto; }
 
 .layout { display: grid; grid-template-columns: minmax(10rem, 13rem) minmax(0, 1fr); min-height: calc(100vh - 6rem); }
+/* The tablet route hides the rail; main must then own the whole row, not the rail's column. */
+.layout.no-rail { grid-template-columns: minmax(0, 1fr); }
 .rail { background: var(--surface); border-right: 1px solid var(--line); padding: var(--gap) 0.5rem; }
 .rail h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 1rem 0.5rem 0.25rem; }
 .rail ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
@@ -191,6 +193,11 @@ td.num, th.num { text-align: right; }
 
 .intel-panel { border: 2px solid var(--accent); }
 
+/* A portrait tablet (about 768 to 1024 px) gives the simulated tablet the full width and puts the
+   desktop panel beneath it, rather than two cramped columns. */
+@media (max-width: 64rem) {
+  .tablet-split { grid-template-columns: minmax(0, 1fr); }
+}
 .tablet-frame { border: 0.75rem solid #3a4450; border-radius: 1.5rem; padding: var(--gap); background: var(--canvas); }
 .segmented { border: 0; padding: 0; margin: 0 0 0.75rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .segmented legend { width: 100%; margin-bottom: 0.25rem; font-weight: 600; }

@@ -24,10 +24,12 @@ says "needs contract" rather than inventing it.
    read differently. None is shown as another.
 3. **Unknown is not zero.** Missing price, weight, count, coverage or outcome is shown as unknown and
    excluded from totals, with the count of what is known ("29 of 31 priced").
-4. **Provenance travels with the fact.** Source, observed or generated time, age, coverage and
-   confidence are shown next to what they qualify, not only in Setup. Modelled layers always show
-   source, data-through time, generated time, coverage, confidence and model version, and are never
-   labelled live.
+4. **Evidence travels with the fact, with progressive disclosure.** A compact source/context label
+   stays next to what it qualifies. Freshness or confidence is inline when it can change the user's
+   choice. Adjacent **Why** or details exposes source, observed/data-through/generated times,
+   coverage, confidence meaning and model version without navigating away. Modelled layers are
+   labelled modelled, never live. The disclosure changes density, not the evidence contract (C-02,
+   C-07); full Safety and data methodology are linked from Setup & Admin/Data and Privacy.
 5. **Focus moves only for the player's own action.** A background change (a sync arriving, data
    going stale, the relay dropping) never moves focus. A failure of an action the player just took
    moves focus to that failure's message or recovery control. A refusal with no alternative keeps
@@ -41,8 +43,8 @@ says "needs contract" rather than inventing it.
    A problem on the tablet's own link is labelled as the tablet's ("This tablet can't reach your
    desktop"), never as the desktop's data being offline. Ages are computed from observation time, not
    from when the tablet received the update.
-8. **Success still carries provenance.** The success row is not "no banner, no metadata"; it is the
-   normal state with its sources visible.
+8. **Success still carries evidence.** The success row is not "no banner, no metadata"; compact
+   context remains visible and the complete evidence remains available in adjacent details.
 
 ---
 
@@ -57,7 +59,7 @@ says "needs contract" rather than inventing it.
 | **Partial** | Some layers or facts missing: extract list not photographed, floors unknown, model covers only some zones, some tiles blank; older screenshots are online-only in OneDrive and are not downloaded automatically | Available layers; missing ones named with the reason; routes degrade to waypoints where geometry is unknown | "Traffic covers 9 of 12 zones"; "Extracts: catalog possible, not confirmed this raid" | Photograph extract list · Choose extract manually · Show uncovered zones | No focus move; no announcement beyond visible labels | Same coverage on both; tablet never fills gaps the desktop does not have |
 | **Permission denied** | Operating system refuses the log or screenshot folder (access control); **or** a paired device without control permission tries to change the desktop | Manual map, extract and raid-state entry; plan; model layers; the tablet can still browse Independently | Which folder, since when; which role or mode refused | Choose folder (Setup) · Ask the desktop to allow control (desktop approves) | For the player's own blocked action: focus stays on the control, message tied to it, assertive announcement. For a background denial: polite once | Denial recorded on the desktop; the tablet shows why its action was refused; a control request appears on the desktop for approval |
 | **Failed** | Map rendering or model loading errors; log parse error | List view with extracts, objectives and routes; manual raid-state correction | Time, component, a correlation reference in an expandable diagnostic | Retry map · Use last-known-good model · Report a problem (with preview) | If the player's map change caused it: focus to the failure heading, assertive. Otherwise polite | Tablet shows the desktop's failure with the same reference; a tablet-only render failure is labelled as the tablet's |
-| **Success** | Raid observed in the log, layers loaded | All | Raid state from the log line time; position from screenshot time; each modelled layer with full provenance | Correct raid state is always available | Polite "Raid started: Customs, PMC (game log)" when a raid starts; no focus move | Every change carries a revision (**needs contract**: #276); the tablet shows "Desktop showing Raid · Customs, rev N" |
+| **Success** | Raid observed in the log, layers loaded | All | Compact source labels; material age or confidence inline; complete model evidence in adjacent Why/details | Correct raid state is always available | Polite "Raid started: Customs, PMC (game log)" when a raid starts; no focus move | Every change carries a revision (**needs contract**: #276); the tablet shows "Desktop showing Raid · Customs, rev N" |
 
 ## Intel
 

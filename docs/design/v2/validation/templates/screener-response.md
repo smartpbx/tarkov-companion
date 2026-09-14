@@ -1,12 +1,18 @@
 # Screener response
 
 > Blank template. Fill a copy in the private study folder only. Give the participant the screener
-> notice in [../participant-screening.md](../participant-screening.md) before the first question.
+> notice, private study contact and participant-held request code in
+> [../participant-screening.md](../participant-screening.md) before the first question. Store only a
+> salted verifier, never the raw request code. Never commit a filled copy, its filename or a
+> per-person summary to public git.
 
 | Field | Answer |
 | --- | --- |
 | Pseudonymous ID | |
 | Date screened | |
+| Private study contact and request code delivered | Yes / No |
+| Salted request-code verifier reference | |
+| Delete by if not recruited (UTC; screening + 30 × 24 h) | |
 | Q1 Time playing EFT | |
 | Q2 Wipes with real progression | |
 | Q3 Current play frequency | |

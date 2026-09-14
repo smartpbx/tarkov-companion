@@ -76,7 +76,7 @@ assertion), `a11y` (manual assistive-technology check recorded under #266 or #27
 | UXF-J5-03 | In Control desktop, a tablet change is applied on the desktop and confirmed with the applied revision; "Show this view on desktop" is absent. | #290, #277, #276 | protocol, e2e | Draft |
 | UXF-J5-04 | A tablet command based on a stale revision is rejected, nothing is applied, and the tablet shows what changed first with a choice to reapply. | #276, #277, #290 | protocol, e2e | Draft |
 | UXF-J5-05 | In Independent view, browsing never changes the desktop until "Show this view on desktop". | #290, #276 | protocol, e2e | Draft |
-| UXF-J5-06 | A mark can be placed without drag by choosing a named place; it records author, device, scope, time, lifetime and revision; the default scope is not team. | #290, #276, #289 | protocol, e2e, a11y | Draft |
+| UXF-J5-06 | A mark can be placed without drag by choosing a named place; it advances and records the canonical desktop revision and acknowledgement ID alongside author, device, scope, time and lifetime; the default scope is not team. | #290, #276, #289 | protocol, e2e, a11y | Draft |
 | UXF-J5-07 | A paired device is shown everywhere as the player's own device, never as a squad member, and its visible actions match its role. | #290, #278, #289 | protocol, e2e | Draft |
 
 ## J6 Debrief and correction
@@ -100,7 +100,7 @@ From [capture-intent-mismatch.md](capture-intent-mismatch.md).
 | UXF-CAP-02 | A file still being written is waited for within a bound and is never analysed truncated; reaching the bound yields a decision item, not a silent drop. | #271 | unit, e2e | Draft |
 | UXF-CAP-03 | A duplicate file (same content, any name) produces no second result and can be analysed again deliberately. | #271 | unit | Draft |
 | UXF-CAP-04 | An unknown context changes no raid, stash or plan state; low confidence yields "couldn't tell", never a mismatch. | #271, #264, #299 | unit, e2e | Draft |
-| UXF-CAP-05 | A rejected capture does not advance a stash session; later captures in the same session wait as unread files. | #271, #283 | unit | Draft |
+| UXF-CAP-05 | An unknown or mismatched capture stays at the head of the single arrival-ordered queue until analysed or skipped; every later capture waits unread, and a rejected capture does not advance a stash session. | #271, #283 | unit | Draft |
 | UXF-CAP-06 | Concurrent intent changes: the stale command is rejected with a visible conflict on its sender, and a screenshot binds to the intent revision in force when the file appeared. | #276, #277, #271 | protocol, unit | Draft |
 | UXF-CAP-07 | After analysis, skip, or pause, decoded pixels are released; the screenshot file is byte-for-byte unchanged and still in place; no image is persisted without Debug Capture. | #271, #281, #279, #264 | unit, e2e | Draft |
 
@@ -119,7 +119,7 @@ cases (empty, loading, offline, stale, partial, permission denied, failed, succe
 | UXF-ST-TEAM | As above for Team. | #289, #290, #278 | e2e, a11y | Draft |
 | UXF-ST-DEBRIEF | As above for Debrief or History. | #291, #270 | e2e, a11y | Draft |
 | UXF-ST-SETUP | As above for Setup & Admin and Home readiness. | #292, #281 | e2e, a11y | Draft |
-| UXF-ST-RULES | Across all workspaces: background changes never move focus; failures of the player's own action move focus to the failure and announce assertively; unknown is never zero; modelled layers are never labelled live. | #266, #267, #264, #279 | unit, e2e, a11y | Draft |
+| UXF-ST-RULES | Across all workspaces: background changes preserve rail/header focus and unsubmitted search text; failures of the player's own action move focus to the failure and announce assertively; unknown is never zero; modelled layers are never labelled live. | #266, #267, #264, #279 | unit, e2e, a11y | Draft |
 
 ## Accessibility flows
 

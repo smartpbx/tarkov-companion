@@ -37,7 +37,7 @@ Rail:   Raid | Intel | Plan | Team | Debrief
 | **Plan** | Suggested bundles, objectives, extract, requirements with sources, route estimate | |
 | **Team** | Members and roles, paired devices, marks, tablet preview at `#/tablet` | |
 | **Debrief** | Raid list, timeline with how each fact is known, corrections, preserved prediction | |
-| **Setup & Admin** | Get ready checklist, sections for Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance and accessibility, Diagnostics | **Lands here** |
+| **Setup & Admin** | Get ready checklist, sections for Game and profile, Recognition, Data, Team and devices, Updates, Privacy, Appearance and accessibility, Diagnostics; links to full Safety and data methodology | **Lands here** |
 
 Intel from elsewhere: a "Details" link switches to the Intel workspace (the rail highlights Intel)
 and offers "Back to" the page it came from.
@@ -63,7 +63,7 @@ Intel:  opens beside the current page at  #/<current page>/intel/<item>
 | **Prepare** | Same content as A's Plan, plus **Stash scan** at `#/prepare/stash` | |
 | **Team** | Same as A | |
 | **History** | Same content as A's Debrief | |
-| **Setup** (header link) | Same as A's Setup & Admin | |
+| **Setup** (header link) | Same as A's Setup & Admin, including full Safety and data-methodology links | |
 | **Search** (header) | Results at `#/search`, each opening Intel beside the results | |
 
 Intel from elsewhere: "Details" opens the Intel panel beside the page, moves focus to the panel's

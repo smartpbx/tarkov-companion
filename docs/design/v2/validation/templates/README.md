@@ -1,8 +1,9 @@
 # Evidence templates
 
 > **Status: not yet run.** These are blank. Copy a template into the **private study folder** and
-> fill the copy there. Do not commit a filled template containing raw notes, names, or
-> recordings to this public repository; only de-identified synthesis goes into
+> fill the copy there. Do not commit any filled template, its filename, screener answers,
+> participant IDs, recruitment/assignment rows, raw notes, names or recordings to this public
+> repository; only aggregate coverage and de-identified synthesis go into
 > [../validation-report.md](../validation-report.md). See
 > [../consent-and-data-handling.md](../consent-and-data-handling.md).
 

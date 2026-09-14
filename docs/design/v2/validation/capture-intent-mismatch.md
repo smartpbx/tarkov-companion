@@ -139,18 +139,21 @@ screenshot counts as belongs to the detected-context contract (**needs contract*
 | Flea listings you opened | Anything but flea rows | **Disagree** |
 | Any intent | Recognised context that is not in the list | **Disagree**, naming what was detected |
 
-### Ordering while a capture waits for a decision
+### One ordered arrival queue
 
-- Captures that belong to an **ordered session** (a Full stash session) wait behind the paused capture
-  as unread files: they are settled and bound, but not decoded, so stitching order cannot change and
-  no pixels are held.
-- Captures that are **independent** (a Loot decision, an item, an extract list) keep analysing and
-  publishing in capture order.
+- Every arrival—watched file, picked/dropped file, paste or reviewed external capture—gets its
+  number, source, observed time, intent revision and setting device from the desktop's one serial
+  arrival order, then enters one bounded queue. There is no independent fast lane.
+- Exactly one capture may analyse at a time. If it pauses for an unknown or mismatch decision, it
+  remains the head blocker and **all** later captures wait as bound but unread inputs. They are not
+  decoded, duplicate-checked or published until the blocker is resolved, so no pixels are held and
+  no later result can overtake it.
 - The queue is bounded and overflow is visible, never silent (**needs contract**: #271 owns the bound
   and what happens at it).
 - The duplicate check (step 3) reads content, so it does **not** run on a waiting session file; it
   runs when that file's turn comes (#271, #283).
-- After the paused capture is decided, the waiting files continue in capture order.
+- After the paused capture is analysed or skipped, the next waiting arrival starts. Closing the
+  dialog without choosing leaves the same blocker in place.
 
 ## The decision dialog
 

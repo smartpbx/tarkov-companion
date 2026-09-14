@@ -73,6 +73,10 @@ points need one; record the addition in the report.
 4. **Hypotheses.** For each hypothesis in [research-plan.md](research-plan.md), list the findings and
    counts that bear on it, then propose accepted, rejected or deferred. The decision owner decides.
 
+Participant-level coding and the participant-to-evidence index stay in the private study folder.
+The public report receives task/variant counts and de-identified synthesis only: never screener
+answers, IDs, eligibility flags, assignments, schedules or cross-tabs that identify a person.
+
 ## Comparing the two variants honestly
 
 With two or three primary participants per variant, a difference of one person is noise. The
