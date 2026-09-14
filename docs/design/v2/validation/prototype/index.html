@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Navigation storyboards · Tarkov Companion v2 validation</title>
+<link rel="stylesheet" href="storyboard.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="banner">
+  <p class="product"><span class="product-name">Tarkov Companion</span> <span class="variant-tag">v2 validation storyboards</span></p>
+</header>
+<main id="main" tabindex="-1">
+  <h1>Navigation storyboards for issue #265</h1>
+  <section class="panel" aria-labelledby="status-h">
+    <h2 id="status-h">Status: not yet run</h2>
+    <p>No participant session has used these storyboards. Nothing here is a finding.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="what-h">
+    <h2 id="what-h">What these test, and what they cannot</h2>
+    <ul>
+      <li>They test <strong>vocabulary and flow</strong>: whether people find things, read the labels as meant, and recover from capture and sync edge cases.</li>
+      <li>They do <strong>not</strong> prove the final Avalonia application is accessible. Browser semantics are not UI Automation, and Narrator on a web page is not Narrator on a native window.</li>
+      <li>They do <strong>not</strong> show visual fidelity. The palette exists only so contrast is realistic.</li>
+      <li>They use one shared sample content file, so both variants show identical names and numbers. All of it is illustrative.</li>
+      <li>They make no network request, read no file, and press no game key. The moderator simulates every screenshot.</li>
+    </ul>
+  </section>
+
+  <div class="grid">
+    <section class="panel" aria-labelledby="a-h">
+      <h2 id="a-h">Storyboard A: workspace rail</h2>
+      <p>Persistent Raid, Intel, Plan, Team and Debrief, a labelled Setup &amp; Admin destination, and Capture in the header on every page.</p>
+      <p><a class="button primary" href="variant-a.html">Open storyboard A</a></p>
+    </section>
+    <section class="panel" aria-labelledby="b-h">
+      <h2 id="b-h">Storyboard B: workflow hub</h2>
+      <p>Home, Raid, Prepare, Team and History, with Search and Capture in the header on every page, and Intel opened beside whatever you were doing, at its own address.</p>
+      <p><a class="button primary" href="variant-b.html">Open storyboard B</a></p>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="run-h">
+    <h2 id="run-h">Running a session</h2>
+    <ol>
+      <li>Open the file directly from a local checkout. No server is needed.</li>
+      <li>Open <strong>Moderator controls</strong> at the bottom of a storyboard, choose <strong>Reset session</strong>, then a journey start point.</li>
+      <li>For the paired-tablet journey on a real tablet, copy the storyboard folder to the device or serve it on the local network, and open the <code>#/tablet</code> address.</li>
+      <li>Prefer the participant's own operating-system settings for high contrast, text size and reduced motion. The moderator toggles are a fallback.</li>
+    </ol>
+    <p>The scripts, tasks and expected answers are in <a href="../journeys.md">journeys.md</a>. The research plan is <a href="../research-plan.md">research-plan.md</a>.</p>
+  </section>
+</main>
+</body>
+</html>
