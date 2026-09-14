@@ -3558,12 +3558,33 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // what angle — so they are handed in as ground that is already taken. Without this a
         // marker's name is placed into a slot a place name is already sitting in, which is half
         // of what was reported.
+        //
+        // Through the place-name layout's own arithmetic rather than repeated here, because the
+        // repetition was wrong and wrong in the way this file's own remark warns about. It read
+        // (TextLeft + TextWidth) * zoom, which scales the size as well as the position: a place
+        // name is counter-scaled, so its text is the same size on screen at every zoom while the
+        // point it is centred on is in canvas units. At 23% zoom every place name was handed in
+        // as a rectangle a quarter of its real width.
+        //
+        // That is what was reported on Customs as two labels on top of each other. Magnified,
+        // "Scav Checkpoint" — a marker's name, on its dark tag — sits across the first seven
+        // characters of the place name "Military Checkpoint", whose tail reads "y Checkpoint"
+        // out the other side. The layout had been told the place name stopped by its second
+        // letter, so it put a label there that had somewhere else to go.
         var occupied = PlaceNames
-            .Select(name => new MapLabelLayout.MapLabelObstacle(
-                name.TextLeft * ZoomScale,
-                name.TextTop * ZoomScale,
-                (name.TextLeft + name.TextWidth) * ZoomScale,
-                (name.TextTop + name.TextHeight) * ZoomScale))
+            .Select(name =>
+            {
+                var rect = MapPlaceNameLayout.RectFor(
+                    new MapPlaceNameCandidate(
+                        name.CenterX,
+                        name.CenterY,
+                        name.TextWidth,
+                        name.TextHeight,
+                        name.FontSize,
+                        name.Text),
+                    ZoomScale);
+                return new MapLabelLayout.MapLabelObstacle(rect.Left, rect.Top, rect.Right, rect.Bottom);
+            })
             .ToArray();
         var slots = MapLabelLayout.Arrange(candidates, ZoomScale, occupied);
         for (var index = 0; index < named.Length; index++)

@@ -124,6 +124,25 @@
                quest had been chosen and threw: nineteen caught exceptions per launch, on a
                pane nobody had opened yet. A content control with nothing in it evaluates
                nothing at all. -->
+          <!-- What the column is for, said while it is empty. It was blank: no heading, no
+               sentence, two thirds of the widest page in the application with nothing on it,
+               and that is the page's resting state on a profile with no active quests. -->
+          <ScrollViewer IsVisible="{Binding !HasSelectedTask}" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+              <TextBlock Classes="sectionTitle" Text="Pick a quest" />
+              <TextBlock Classes="caption"
+                         Text="Its objectives, in the order the game lists them, with what each one asks for and whether it has to be found in raid. The keys you need to bring and the items you need to hand in are separated, because forgetting a key is a raid you cannot finish and forgetting an item is a raid you have to repeat."
+                         TextWrapping="Wrap" />
+              <Border Classes="hairline" />
+              <TextBlock Classes="caption"
+                         Text="Which maps it wants, and what unlocks it. Pin one and its objectives are marked on the map, and the group can see what you are working on if you have turned that on."
+                         TextWrapping="Wrap" />
+              <Border Classes="hairline" />
+              <TextBlock Classes="caption"
+                         Text="Progress is recorded from the game's own notifications as you start and hand in quests, so a fresh profile starts empty and fills as you play. The filter above starts on &quot;Active / pinned&quot;; Show all quests is how you find one you have not started."
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </ScrollViewer>
           <ScrollViewer IsVisible="{Binding HasSelectedTask}" VerticalScrollBarVisibility="Auto">
             <ContentControl Content="{Binding SelectedTask}">
               <ContentControl.ContentTemplate>
