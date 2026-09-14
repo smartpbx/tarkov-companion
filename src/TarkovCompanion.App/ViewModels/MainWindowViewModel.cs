@@ -1629,15 +1629,21 @@ public sealed class HistoryPageViewModel : PageViewModel
             // for ever — a column whose only possible value is the absence of a value. The
             // field stays on RaidHistoryEntry in case the game ever starts saying.
             Status = Entries.Count == 0
-                ? "No local raid history has been recorded."
-                : $"{Entries.Count} local raid entr{(Entries.Count == 1 ? "y" : "ies")}. The game never records whether you survived, so no outcome is shown.";
-            Evidence = $"SQLite · {Status}";
+                ? "No raids recorded yet."
+                : $"{Entries.Count} raid{(Entries.Count == 1 ? "" : "s")}. The game never records whether you survived, so no outcome is shown.";
+            // Where the rows came from and how many, and nothing that belongs in a sentence.
+            //
+            // This was $"SQLite · {Status}", so the chip was the body text with a prefix on it
+            // — then trimmed with an ellipsis because it did not fit, leaving the page carrying
+            // one sentence and one truncated copy of the same sentence. Reported with a
+            // screenshot of exactly that.
+            Evidence = $"SQLite · {Entries.Count} entries";
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             Entries = [];
             Status = $"Raid history unavailable: {exception.Message}";
-            Evidence = Status;
+            Evidence = "SQLite · unavailable";
         }
     }
 
@@ -2432,6 +2438,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IBarterCatalog barters,
         ITraderCatalog traderCatalog,
         IEventCatalog eventCatalog,
+        IEventAuthoring eventAuthoring,
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
@@ -2498,7 +2505,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Ammo = new(itemFactCatalog, itemRepository);
         Keys = new(itemFactCatalog, itemRepository, questProgress, maps);
         Loadout = new(itemFactCatalog, itemSearchService, itemRepository);
-        Events = new(eventCatalog, eventTracker, itemRepository);
+        Events = new(eventCatalog, eventTracker, itemRepository, eventAuthoring);
         Squad = new(itemRepository);
         Group = new(groupSettings);
 

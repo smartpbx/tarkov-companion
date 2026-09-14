@@ -48,6 +48,14 @@ jobs:
             cat /tmp/sweep.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+      # This one fails, unlike the sweep above it, and the difference is deliberate. A newly
+      # unread table is legitimate on the commit that creates it; a label that has grown into a
+      # paragraph is not legitimate on any commit. Reported with a screenshot of the History
+      # page carrying one sentence and a truncated copy of the same sentence, after the same
+      # class of defect had been noted twice in one week and shipped anyway.
+      - name: Over-written interface sweep
+        run: ./scripts/sweep-prose.sh
+
       # The same bug from the other end: a value that is computed correctly and never announced,
       # so the interface keeps showing what was true when it bound. Reports, never fails.
       - name: Bound-and-never-announced sweep

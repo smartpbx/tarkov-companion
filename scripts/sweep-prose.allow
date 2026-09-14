@@ -1,0 +1,7 @@
+# Labels the sweep would flag and that are staying, each with the reason.
+#
+# Format: <the label's first sixty characters> <reason>
+#
+# Empty on purpose. Every label in the application is inside the budget, and the point of this
+# file is that adding to it costs a sentence explaining why — which is the same cost as making
+# the label shorter, so the cheaper of the two is usually to fix it.

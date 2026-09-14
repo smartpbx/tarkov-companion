@@ -16,19 +16,12 @@
            sentence and seven hundred pixels of nothing, and the sentence was already printed
            in the header chip above it, so the body said nothing the header had not. -->
       <Border Classes="panel" IsVisible="{Binding HasNoEntries}">
-        <StackPanel Spacing="10">
+        <StackPanel Spacing="6">
           <TextBlock Classes="sectionTitle" Text="What goes in here" />
-          <TextBlock Classes="caption"
-                     Text="One row per raid, written as it happens. The map, when it started and ended, and how far you walked — measured between the screenshots you took, so a raid you photographed twice reports a shorter walk than you made."
-                     TextWrapping="Wrap" />
-          <Border Classes="hairline" />
-          <TextBlock Classes="caption"
-                     Text="A raid with screenshots in it can be watched back across the map afterwards. Everything is read out of the game's own log and the filenames of your own screenshots; nothing is asked of anybody and nothing leaves this machine."
-                     TextWrapping="Wrap" />
-          <Border Classes="hairline" />
-          <TextBlock Classes="caption"
-                     Text="The game never records whether you survived, so no outcome is shown for any of them."
-                     TextWrapping="Wrap" />
+          <TextBlock Classes="caption" TextWrapping="Wrap"
+                     Text="One row per raid: the map, when it started and ended, and how far you walked." />
+          <TextBlock Classes="caption" TextWrapping="Wrap"
+                     Text="A raid with screenshots in it can be watched back across the map." />
         </StackPanel>
       </Border>
       <ItemsControl ItemsSource="{Binding Entries}">

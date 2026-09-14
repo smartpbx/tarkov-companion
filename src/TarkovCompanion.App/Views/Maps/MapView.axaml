@@ -880,7 +880,7 @@
               Classes.on="{Binding IsRotated}"
               Click="RotateClick"
               Content="{Binding RotationLabel}"
-              ToolTip.Tip="Turn the map a quarter turn. A tall map on a wide screen is drawn small and wastes half the panel. Remembered for this map." />
+              ToolTip.Tip="Turn the map a quarter turn, remembered per map. A tall map on a wide screen is drawn small." />
           <Button Classes="viewControl" Click="ZoomOutClick" Content="&#x2212;" ToolTip.Tip="Zoom out" />
           <TextBlock Classes="zoomReadout" Text="{Binding ZoomScale, StringFormat={}{0:P0}}" />
           <Button Classes="viewControl" Click="ZoomInClick" Content="+" ToolTip.Tip="Zoom in" />

@@ -82,6 +82,34 @@ public interface IEventCatalog
 }
 
 /// <summary>
+/// Writes an event definition, so one can be made without leaving the application.
+/// </summary>
+/// <remarks>
+/// <para>
+/// The page told the player to write a JSON file into %LOCALAPPDATA% by hand and restart. That
+/// is the whole of what is wrong with the Events page — the feature underneath it is one
+/// Clayton wants, and it was nearly deleted on the strength of an onboarding nobody would ever
+/// complete.
+/// </para>
+/// <para>
+/// Separate from <see cref="IEventCatalog"/> on purpose. Reading definitions is something every
+/// composition does and writing them is something only the page does, and a reader that can
+/// also write is a reader every test has to be trusted not to.
+/// </para>
+/// </remarks>
+public interface IEventAuthoring
+{
+    /// <summary>Writes one definition, replacing any file already holding that id.</summary>
+    Task SaveAsync(EventDefinition definition, CancellationToken cancellationToken);
+
+    /// <summary>Removes a definition, if the id names one.</summary>
+    Task DeleteAsync(string eventId, CancellationToken cancellationToken);
+
+    /// <summary>Where the files live, so the page can say it rather than hard-code it.</summary>
+    string DefinitionsDirectory { get; }
+}
+
+/// <summary>
 /// A projection built once from the item catalog that has to be dropped when it is refreshed.
 /// </summary>
 /// <remarks>

@@ -1,3 +1,4 @@
+using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Profile;
@@ -19,19 +20,35 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
 {
     private readonly IPlayerProfileService _profileService;
     private readonly IReadOnlyDictionary<string, EventDefinition> _definitions;
+    private readonly IEventCatalog? _catalog;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
 
+    /// <param name="definitions">
+    /// Events this tracker knows without asking anything. Tests pass their own; the application
+    /// passes none and gives a catalog instead.
+    /// </param>
+    /// <param name="catalog">
+    /// Where events are read from when one is asked for.
+    /// </param>
+    /// <remarks>
+    /// The catalog rather than a list, because the list was read once at startup and frozen. An
+    /// event written after that — which is now something the Events page can do — was unknown to
+    /// the tracker until the application was restarted, so the page listed it and then refused
+    /// every result recorded against it.
+    /// </remarks>
     public ProfileEventTrackerService(
         IPlayerProfileService profileService,
         IEnumerable<EventDefinition> definitions,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IEventCatalog? catalog = null)
     {
         ArgumentNullException.ThrowIfNull(profileService);
         ArgumentNullException.ThrowIfNull(definitions);
 
         _profileService = profileService;
         _definitions = definitions.ToDictionary(x => x.Id, StringComparer.Ordinal);
+        _catalog = catalog;
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -40,7 +57,7 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
         string itemId,
         CancellationToken cancellationToken)
     {
-        var definition = GetDefinition(eventId);
+        var definition = await GetDefinitionAsync(eventId, cancellationToken).ConfigureAwait(false);
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
 
         if (!definition.ApplicableItemIds.Contains(itemId))
@@ -58,7 +75,7 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
         EventItemState state,
         CancellationToken cancellationToken)
     {
-        var definition = GetDefinition(eventId);
+        var definition = await GetDefinitionAsync(eventId, cancellationToken).ConfigureAwait(false);
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
         if (!definition.ApplicableItemIds.Contains(itemId))
         {
@@ -85,7 +102,7 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
 
     public async Task<EventStateCounts> GetStateCountsAsync(string eventId, CancellationToken cancellationToken)
     {
-        var definition = GetDefinition(eventId);
+        var definition = await GetDefinitionAsync(eventId, cancellationToken).ConfigureAwait(false);
         var profile = await _profileService.GetActiveAsync(cancellationToken).ConfigureAwait(false);
         var states = definition.ApplicableItemIds
             .Select(itemId => profile.EventItemStates.GetValueOrDefault(StateKey(eventId, itemId), EventItemState.Untested))
@@ -111,7 +128,7 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
                 "A consumption result must be Safe or Allergic.");
         }
 
-        var definition = GetDefinition(eventId);
+        var definition = await GetDefinitionAsync(eventId, cancellationToken).ConfigureAwait(false);
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
         if (!definition.ApplicableItemIds.Contains(itemId))
         {
@@ -152,9 +169,36 @@ public sealed class ProfileEventTrackerService : IEventTrackerService, IDisposab
 
     public void Dispose() => _updateLock.Dispose();
 
-    private EventDefinition GetDefinition(string eventId)
+    /// <summary>The event by that id, from the catalog when there is one.</summary>
+    /// <remarks>
+    /// The catalog is asked first, so an edited definition's item list is the one a result is
+    /// checked against. It caches, so this is a dictionary lookup after the first call rather
+    /// than a directory read per item.
+    ///
+    /// A catalog that cannot be read falls through to what was passed in, because refusing to
+    /// record a result for an event already on screen is the worse of the two failures.
+    /// </remarks>
+    private async Task<EventDefinition> GetDefinitionAsync(string eventId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(eventId);
+        if (_catalog is not null)
+        {
+            try
+            {
+                var definitions = await _catalog.GetAsync(cancellationToken).ConfigureAwait(false);
+                foreach (var definition in definitions)
+                {
+                    if (string.Equals(definition.Id, eventId, StringComparison.Ordinal))
+                    {
+                        return definition;
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+            }
+        }
+
         return _definitions.GetValueOrDefault(eventId)
             ?? throw new KeyNotFoundException($"Event '{eventId}' is not configured.");
     }
