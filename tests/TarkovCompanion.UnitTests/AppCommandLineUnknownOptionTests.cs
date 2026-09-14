@@ -73,4 +73,48 @@ public sealed class AppCommandLineUnknownOptionTests
     {
         Assert.Empty(AppCommandLine.Parse(["shot.png", "somethingelse"]).UnknownOptions);
     }
+
+    /// <summary>
+    /// Opening on a named map, floor and view, so the gallery can photograph more than one.
+    /// </summary>
+    /// <remarks>
+    /// The map is the left column of the Raid page, so its picture was always taken — in
+    /// exactly one state: cold launch, default map, base floor, flat. Every map defect
+    /// reported so far was found by looking at a picture.
+    /// </remarks>
+    [Fact]
+    public void Opens_on_the_map_floor_and_view_it_was_given()
+    {
+        var options = AppCommandLine.Parse([
+            "--page", "Raid",
+            "--map", "streets-of-tarkov",
+            "--floor", "3rd Floor",
+            "--stack",
+        ]);
+
+        Assert.Empty(options.UnknownOptions);
+        Assert.Equal("streets-of-tarkov", options.MapId);
+        Assert.Equal("3rd Floor", options.MapFloor);
+        Assert.True(options.StacksFloors);
+    }
+
+    [Fact]
+    public void Says_nothing_about_a_map_when_none_was_named()
+    {
+        var options = AppCommandLine.Parse(["--page", "Raid"]);
+
+        Assert.Null(options.MapId);
+        Assert.Null(options.MapFloor);
+        Assert.False(options.StacksFloors);
+    }
+
+    [Fact]
+    public void A_floor_name_with_a_space_in_it_is_a_value_rather_than_two_options()
+    {
+        // "3rd Floor" is how the catalog names it, and the value is taken whole.
+        var options = AppCommandLine.Parse(["--floor", "3rd Floor", "--stack"]);
+
+        Assert.Equal("3rd Floor", options.MapFloor);
+        Assert.Empty(options.UnknownOptions);
+    }
 }

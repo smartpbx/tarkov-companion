@@ -11,6 +11,13 @@
     Each page is opened in its own launch, through the application's own --page
     option, and photographed.
 
+    The map gets shots of its own on top of that. It is the left column of the Raid
+    page, so raid.png was always a picture of it — in exactly one state: cold launch,
+    default map, base floor, flat. The stacked view, any other floor and any other map
+    had never been photographed, so the gallery proved the map draws something rather
+    than that the stack works. Every map defect reported so far was found by looking at
+    a picture, and those were the pictures nobody was taking.
+
     Presenting a window was the only thing ever checked, which is why a ragged
     sidebar and several dead bindings shipped: CI took the picture and nobody
     looked. Two things are now asserted as well.
@@ -46,6 +53,21 @@ param(
     [string[]] $Pages = @(
         "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings"),
+
+    # The map is the left column of the Raid page, so raid.png is already a picture of
+    # it — in exactly one state: cold launch, default map, base floor, flat. The stacked
+    # view, any other floor and any other map have never been photographed, so the
+    # gallery proved the map draws something rather than that the stack works.
+    #
+    # Every map defect reported so far was found by looking at a picture. These are the
+    # pictures nobody was taking. Each entry is a name for the file and the arguments to
+    # launch with; the application ignores a map or floor it does not have, so a catalog
+    # change makes one of these a duller picture rather than a red build.
+    [object[]] $MapViews = @(
+        @{ name = "map-stacked"; args = @("--page", "Raid", "--map", "customs", "--stack") },
+        @{ name = "map-floor";   args = @("--page", "Raid", "--map", "customs", "--floor", "3rd Floor") },
+        @{ name = "map-streets"; args = @("--page", "Raid", "--map", "streets-of-tarkov") }
+    ),
 
     [int] $WindowTimeoutSeconds = 90,
 
@@ -207,7 +229,18 @@ $Results = [System.Collections.Generic.List[object]]::new()
 $WarningDirectory = Join-Path $ScreenshotDirectory "warnings"
 New-Item -ItemType Directory -Path $WarningDirectory -Force | Out-Null
 
-foreach ($Page in $Pages) {
+# One list of shots, so a page and a map view go through exactly the same launch,
+# measurement and warning capture. A map view is a page opened with more said about it.
+$Shots = [System.Collections.Generic.List[object]]::new()
+foreach ($Name in $Pages) {
+    $Shots.Add([pscustomobject]@{ name = $Name; args = @("--page", $Name) })
+}
+foreach ($View in $MapViews) {
+    $Shots.Add([pscustomobject]@{ name = $View.name; args = $View.args })
+}
+
+foreach ($Shot in $Shots) {
+    $Page = $Shot.name
     $Screenshot = Join-Path $ScreenshotDirectory ("{0}.png" -f $Page.ToLowerInvariant())
     $WarningLog = Join-Path $WarningDirectory ("{0}.log" -f $Page.ToLowerInvariant())
     if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
@@ -216,7 +249,7 @@ foreach ($Page in $Pages) {
         # Read back after the window closes. The application only writes here when
         # this is set, so a player's run costs nothing.
         $env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog
-        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList @("--page", $Page) -PassThru
+        $Process = Start-Process -FilePath $ResolvedAppPath -ArgumentList $Shot.args -PassThru
         # Reading Handle here is what makes ExitCode and WaitForExit reliable later.
         $null = $Process.Handle
 
