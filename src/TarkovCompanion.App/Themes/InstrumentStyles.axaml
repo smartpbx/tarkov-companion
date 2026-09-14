@@ -287,6 +287,22 @@
     <Setter Property="FontSize" Value="14" />
     <Setter Property="FontWeight" Value="Normal" />
   </Style>
+  <!-- The one control that changes the shape of the window rather than what is in it, so it
+       sits at the bottom of the rail out of the way of the pages above it. -->
+  <Style Selector="Button.railToggle">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource InkMutedBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+    <Setter Property="Padding" Value="0,6" />
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Button.railToggle:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{StaticResource ControlBrush}" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+  </Style>
+
   <Style Selector="Button.nav:pointerover /template/ ContentPresenter">
     <Setter Property="Background" Value="{StaticResource ControlBrush}" />
     <Setter Property="BorderBrush" Value="Transparent" />

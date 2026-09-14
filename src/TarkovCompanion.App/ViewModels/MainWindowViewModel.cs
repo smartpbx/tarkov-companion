@@ -12,6 +12,7 @@ using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
@@ -117,6 +118,20 @@ public sealed class NavigationItem : BindableViewModel
     }
 
     public string Name { get; }
+
+    /// <summary>
+    /// Whether a hairline is drawn above this row.
+    /// </summary>
+    /// <remarks>
+    /// Fourteen rows in one ungrouped run, nine of them between-raid reference pages, is a list
+    /// somebody reads from the top every time because nothing in it says where to start looking.
+    /// Three rules and the rest follows: during a raid, between raids, and the record.
+    ///
+    /// A hairline rather than a heading, because a heading is a row that cannot be clicked and
+    /// the rail is short of height, not of labels. It also survives the rail collapsing to
+    /// glyphs, where a heading could not.
+    /// </remarks>
+    public bool StartsGroup { get; init; }
 
     /// <summary>
     /// The icon, as path geometry rather than a character.
@@ -1947,6 +1962,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private readonly CancellationTokenSource _lifetime = new();
 
     private readonly GroupSessionService _group;
+    private readonly IShellLayoutStore? _layoutStore;
     private readonly IRuntimeStateStore _stateStore;
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly RuntimeOptions _options;
@@ -1975,6 +1991,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private string _lastScanEvidence = "No scan evidence";
     private bool _initialized;
     private bool _disposed;
+    private bool _isRailCollapsed;
+    private ShellLayout _layout = ShellLayout.Default;
 
     /// <summary>The one-second tick, where there is a dispatcher to run it on.</summary>
     private DispatcherTimer? _clock;
@@ -1992,6 +2010,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
         IRaidHistoryService raidHistoryService,
+        IShellLayoutStore layoutStore,
         IMapDataService maps,
         IRuntimeScanUseCase scanUseCase,
         IScanHistoryService scanHistory,
@@ -2012,6 +2031,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         ILogger<MainWindowViewModel> logger)
     {
         _group = group;
+        _layoutStore = layoutStore;
         _stateStore = stateStore;
         _startupCoordinator = startupCoordinator;
         _options = options;
@@ -2063,7 +2083,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             CreateNavigation("Squad", "M5.5,7 A2,2 0 1 1 5.49,7 Z M10.5,7 A2,2 0 1 1 10.49,7 Z M2,13.5 C2,11 3.6,10 5.5,10 C7.4,10 9,11 9,13.5 M9.6,10.1 C12,10.1 14,11.1 14,13.5", Squad),
             CreateNavigation("Group", "M2.5,6 H11 M9,3.5 L11.5,6 L9,8.5 M13.5,10.5 H5 M7,8 L4.5,10.5 L7,13", Group),
             CreateNavigation("Scanner", "M2,5 V2.5 H4.5 M11.5,2.5 H14 V5 M14,11.5 V14 H11.5 M4.5,14 H2 V11.5 M2.5,8 H13.5", Scanner),
-            CreateNavigation("Items", "M8,2 L14,5.2 V10.8 L8,14 L2,10.8 V5.2 Z M2,5.2 L8,8.4 L14,5.2 M8,8.4 V14", Items),
+            CreateNavigation("Items", "M8,2 L14,5.2 V10.8 L8,14 L2,10.8 V5.2 Z M2,5.2 L8,8.4 L14,5.2 M8,8.4 V14", Items, startsGroup: true),
             CreateNavigation("Ammo", "M8,1.5 C10,4 10.5,6 10.5,8.5 H5.5 C5.5,6 6,4 8,1.5 Z M5.5,8.5 H10.5 V12 H5.5 Z M5.5,12 H10.5 V14.5 H5.5 Z", Ammo),
             CreateNavigation("Keys", "M6,10 A3,3 0 1 1 5.99,10 Z M8.1,8.2 L13.5,2.8 M11.5,4.8 L13,6.3 M12.6,3.7 L14,5.1", Keys),
             CreateNavigation("Flea", "M2.5,8.5 L8.5,2.5 H13.5 V7.5 L7.5,13.5 Z M11,5 A0.9,0.9 0 1 1 10.99,5 Z", Flea),
@@ -2071,8 +2091,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             CreateNavigation("Hideout", "M2,7.5 L8,2 L14,7.5 M3.6,6.4 V14 H12.4 V6.4 M6.6,14 V9.5 H9.4 V14", Hideout),
             CreateNavigation("Events", "M4,14 V2 M4,2.6 H12.5 L10.4,5.8 L12.5,9 H4", Events),
             CreateNavigation("Loadout", "M2.5,2.5 H13.5 V13.5 H2.5 Z M2.5,8 H13.5 M8,2.5 V13.5", Loadout),
-            CreateNavigation("History", "M8,1.5 A6.5,6.5 0 1 1 2.4,4.8 M2.4,4.8 V1.8 M2.4,4.8 H5.4 M8,4.5 V8.5 L11,10.2", History),
-            CreateNavigation("Settings", "M2.5,4.5 H13.5 M2.5,8 H13.5 M2.5,11.5 H13.5 M6,2.9 V6.1 M10.5,6.4 V9.6 M5,9.9 V13.1", Settings),
+            CreateNavigation("History", "M8,1.5 A6.5,6.5 0 1 1 2.4,4.8 M2.4,4.8 V1.8 M2.4,4.8 H5.4 M8,4.5 V8.5 L11,10.2", History, startsGroup: true),
+            CreateNavigation("Settings", "M2.5,4.5 H13.5 M2.5,8 H13.5 M2.5,11.5 H13.5 M6,2.9 V6.1 M10.5,6.4 V9.6 M5,9.9 V13.1", Settings, startsGroup: true),
         ];
 
         _currentPage = Navigation[0].Page;
@@ -2414,6 +2434,107 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Whether the rail is a glyph column rather than a list of names.
+    /// </summary>
+    /// <remarks>
+    /// 188 pixels of rail on a companion that shares a 3840×1080 screen with the game is 188
+    /// pixels the map does not have, and at the window's minimum width the map is 584. Collapsed
+    /// it is 48: the glyphs stay, the notice dots stay, and the names move to the tooltips.
+    ///
+    /// Not automatic. A rail that collapsed itself at some width would be a rail that changed
+    /// shape while somebody was aiming at it.
+    /// </remarks>
+    public bool IsRailCollapsed
+    {
+        get => _isRailCollapsed;
+        private set
+        {
+            if (SetProperty(ref _isRailCollapsed, value))
+            {
+                OnPropertyChanged(nameof(RailWidth));
+                OnPropertyChanged(nameof(RailToggleLabel));
+            }
+        }
+    }
+
+    /// <summary>How wide the rail is drawn, which is the only thing the layout reads.</summary>
+    public double RailWidth => IsRailCollapsed ? 48 : 188;
+
+    /// <summary>A chevron pointing the way the next press moves it.</summary>
+    public string RailToggleLabel => IsRailCollapsed ? "\u203a" : "\u2039";
+
+    /// <summary>Collapses or expands the rail, and remembers which.</summary>
+    public void ToggleRail()
+    {
+        IsRailCollapsed = !IsRailCollapsed;
+        _ = SaveLayoutAsync();
+    }
+
+    /// <summary>
+    /// Records where the window is, so the next launch opens there.
+    /// </summary>
+    /// <remarks>
+    /// Called by the window when it is moved, resized or closed. Bounds are only stored while
+    /// the window is in its normal state: a maximized window's bounds are the screen, and
+    /// saving those would leave somebody who un-maximized once with a window the size of their
+    /// monitor for ever.
+    /// </remarks>
+    public void RecordBounds(double width, double height, double left, double top, bool isMaximized)
+    {
+        _layout = isMaximized
+            ? _layout with { IsMaximized = true }
+            : new(width, height, left, top, false, IsRailCollapsed);
+        _ = SaveLayoutAsync();
+    }
+
+    /// <summary>
+    /// The layout to open at, already moved back onto a screen that exists.
+    /// </summary>
+    /// <remarks>
+    /// Somebody who left the companion on a second monitor and then unplugged it would
+    /// otherwise get a window in empty space with no title bar to drag it back by, which is the
+    /// one failure that cannot be recovered from inside the application.
+    /// </remarks>
+    public async Task<ShellLayout> LoadLayoutAsync(IReadOnlyList<ScreenBounds> screens)
+    {
+        if (_layoutStore is null)
+        {
+            return ShellLayout.Default;
+        }
+
+        try
+        {
+            _layout = (await _layoutStore.GetAsync(_lifetime.Token).ConfigureAwait(true)).ClampTo(screens);
+            IsRailCollapsed = _layout.IsRailCollapsed;
+            return _layout;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The window opens where it always used to, which is a recoverable answer.
+            return ShellLayout.Default;
+        }
+    }
+
+    private async Task SaveLayoutAsync()
+    {
+        if (_layoutStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _layoutStore
+                .SaveAsync(_layout with { IsRailCollapsed = IsRailCollapsed }, _lifetime.Token)
+                .ConfigureAwait(true);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // A window position that could not be written is not worth telling anybody about.
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -2467,8 +2588,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         }
     }
 
-    private NavigationItem CreateNavigation(string name, string glyph, PageViewModel page) =>
-        new(name, glyph, page, Select);
+    private NavigationItem CreateNavigation(string name, string glyph, PageViewModel page, bool startsGroup = false) =>
+        new(name, glyph, page, Select) { StartsGroup = startsGroup };
 
     private void Select(NavigationItem selected)
     {
