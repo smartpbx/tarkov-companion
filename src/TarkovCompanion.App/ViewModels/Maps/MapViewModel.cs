@@ -1544,6 +1544,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             Set(ref _tiles, value);
             UpdateContentBounds();
             OnPropertyChanged(nameof(HasTiles));
+            OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(ShowsPlaceholder));
             ReleaseLater(replaced.Select(tile => tile.Image));
         }
@@ -4904,6 +4905,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _isStacked = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(StackTilt));
             OnPropertyChanged(nameof(ShowsFlatBackground));
             _ = LoadFloorStackAsync(CancellationToken.None);
@@ -4936,6 +4938,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             _isStacked = true;
             OnPropertyChanged(nameof(IsStacked));
             OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(StackTilt));
             OnPropertyChanged(nameof(ShowsFlatBackground));
         }
@@ -5014,6 +5017,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>The flat picture gives way to the stack, so the two are never drawn together.</summary>
     public bool ShowsFlatBackground => HasBackgroundImage && !HasFloorStack;
 
+    /// <summary>
+    /// Whether the flat tile grid is drawn, which it is not while the floors are stacked.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The other half of <see cref="ShowsFlatBackground"/>, and the half that was missing. A
+    /// map is drawn either from one rasterised background image or from a grid of tiles, and
+    /// only the first was ever hidden when the stack came on. The tile grid is declared after
+    /// the stack in the same panel, so on a tile-drawn map it was painted straight over it:
+    /// the stack loaded its floors, drew them, and was then covered up.
+    /// </para>
+    /// <para>
+    /// Reported as "the 3d view doesnt seem to work at all for me... there is nothing 3d on
+    /// it". Measured, once the gallery could photograph it: the stacked view of Customs was
+    /// pixel-identical to the flat one across 51,496 sampled points, with the toggle lit.
+    /// Customs is drawn from tiles — its own status line says 160 of 170 — and three of its
+    /// four floors carry an upstream SVG layer, so there was never anything wrong with the
+    /// artwork. It was underneath.
+    /// </para>
+    /// </remarks>
+    public bool ShowsTiles => MapStackVisibility.ShowsTiles(HasTiles, HasFloorStack);
+
     /// <summary>The floors, lowest first, each with where it sits and how solid it is.</summary>
     public IReadOnlyList<FloorLayerViewModel> FloorLayers
     {
@@ -5022,6 +5047,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         {
             Set(ref _floorLayers, value);
             OnPropertyChanged(nameof(HasFloorStack));
+            OnPropertyChanged(nameof(ShowsTiles));
             OnPropertyChanged(nameof(ShowsFlatBackground));
         }
     }

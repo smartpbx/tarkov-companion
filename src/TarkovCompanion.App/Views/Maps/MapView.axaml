@@ -103,7 +103,7 @@
 
           <ItemsControl
               ItemsSource="{Binding Tiles}"
-              IsVisible="{Binding HasTiles}"
+              IsVisible="{Binding ShowsTiles}"
               Width="{Binding CanvasWidth}"
               Height="{Binding CanvasHeight}">
             <ItemsControl.ItemsPanel>
