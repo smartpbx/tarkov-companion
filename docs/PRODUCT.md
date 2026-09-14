@@ -116,6 +116,7 @@ revisioned paired-device changes with acknowledgements.
 
 Historical and modelled map intelligence is permitted only as a sourced estimate with observed,
 data-through, and generated UTC times, coverage, confidence, and model version. It is never
-presented as live detection. The immutable anti-cheat boundary remains no game process memory,
-no generated gameplay input, and no in-game overlay; v2 also keeps the current design exclusions
-on injection/hooks, EFT packet inspection, automation, and live enemy tracking/ESP/radar.
+presented as live detection. The immutable anti-cheat boundary remains no game process memory, no
+generated game-directed mouse, keyboard, or controller input, and no in-game overlay; v2 also keeps
+the current design exclusions on injection/hooks, EFT packet inspection, automation, and live enemy
+tracking/ESP/radar.

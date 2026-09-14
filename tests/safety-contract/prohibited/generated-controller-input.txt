@@ -1,0 +1,1 @@
+<PackageReference Include="Nefarius.ViGEm.Client" />

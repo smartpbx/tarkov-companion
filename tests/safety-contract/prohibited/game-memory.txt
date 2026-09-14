@@ -1,1 +1,2 @@
 ReadProcessMemory(gameHandle, address, buffer, size, out read);
+OpenProcess(PROCESS_VM_READ, false, gameProcessId);

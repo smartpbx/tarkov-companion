@@ -1,1 +1,2 @@
 SendInput(1, inputs, inputSize);
+GetAsyncKeyState(VK_LBUTTON);

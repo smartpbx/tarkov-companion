@@ -1,0 +1,2 @@
+SetWindowPos(overlayWindow, HWND_TOPMOST, 0, 0, gameWidth, gameHeight, flags);
+SetWindowLong(overlayWindow, GWL_EXSTYLE, WS_EX_TOPMOST | WS_EX_TRANSPARENT);

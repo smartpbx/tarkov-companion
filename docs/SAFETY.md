@@ -43,8 +43,8 @@ Three rules apply whenever this data is read:
 ## Prohibited implementation
 
 Three anti-cheat fixtures are immutable: the project never reads or writes Escape from Tarkov
-process memory, never generates gameplay mouse or keyboard input, and never renders an in-game
-overlay.
+process memory, never generates game-directed mouse, keyboard, or controller input, and never
+renders an in-game overlay.
 
 The current design additionally excludes injection and game/renderer hooks, driver/kernel
 inspection, inspection or decoding of EFT network packets, flea/inventory automation, live

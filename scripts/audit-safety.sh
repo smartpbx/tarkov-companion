@@ -2,9 +2,11 @@
 set -euo pipefail
 
 readonly TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Ordinary process/window discovery, Print Screen observation, and companion-window placement
-# are allowed. Match the APIs that perform the prohibited capability, not adjacent API names.
-readonly TASK_FORBIDDEN_PATTERN='ReadProcessMemory|WriteProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtReadVirtualMemory|NtWriteVirtualMemory|NtQueryVirtualMemory|SetWindowsHookEx|SendInput|mouse_event|keybd_event|InputSimulator|WindowsInput|WinDivert|SharpPcap|PacketDotNet|SocketType\.Raw|IOControlCode\.ReceiveAll|SIO_RCVALL|pcap_open_live|EasyHook|Reloaded\.Hooks|MemorySharp|GameOverlay|Vortice\.Direct3D.*Hook|Direct3D.*PresentHook'
+# The v2 contract adds capability patterns; it does not relax v1 ones. OpenProcess is the gateway
+# to process memory, GetAsyncKeyState polls game input, and SetWindowPos/WS_EX_TOPMOST is how a
+# window is pinned over the game. Ordinary discovery (Process.GetProcessesByName, EnumWindows)
+# and visible capture do not need any of them. ViGEm/vJoy synthesize controller input.
+readonly TASK_FORBIDDEN_PATTERN='OpenProcess|ReadProcessMemory|WriteProcessMemory|VirtualAllocEx|VirtualProtectEx|CreateRemoteThread|NtReadVirtualMemory|NtWriteVirtualMemory|NtQueryVirtualMemory|SetWindowsHookEx|SendInput|mouse_event|keybd_event|GetAsyncKeyState|InputSimulator|WindowsInput|ViGEm|vJoy|WinDivert|SharpPcap|PacketDotNet|SocketType\.Raw|IOControlCode\.ReceiveAll|SIO_RCVALL|pcap_open_live|EasyHook|Reloaded\.Hooks|MemorySharp|GameOverlay|Vortice\.Direct3D.*Hook|Direct3D.*PresentHook|SetWindowPos|WS_EX_TOPMOST'
 readonly TASK_FIXTURE_ROOT="${TASK_PROJECT_ROOT}/tests/safety-contract"
 
 scan_safety_patterns() {
@@ -36,6 +38,14 @@ if git -C "${TASK_PROJECT_ROOT}" grep -n -I -i -E \
     exit 1
 fi
 
+# A missing fixture directory would otherwise pass both self-tests vacuously.
+for TASK_FIXTURE_KIND in allowed prohibited; do
+    if [[ -z "$(find "${TASK_FIXTURE_ROOT}/${TASK_FIXTURE_KIND}" -type f -print -quit 2>/dev/null)" ]]; then
+        printf '%s\n' "Safety audit self-test failed: no ${TASK_FIXTURE_KIND} fixtures in ${TASK_FIXTURE_ROOT}." >&2
+        exit 1
+    fi
+done
+
 TASK_ALLOWED_MATCHES="$(scan_safety_patterns "${TASK_FIXTURE_ROOT}/allowed")"
 if [[ -n "${TASK_ALLOWED_MATCHES}" ]]; then
     printf '%s\n' "${TASK_ALLOWED_MATCHES}"
@@ -43,11 +53,17 @@ if [[ -n "${TASK_ALLOWED_MATCHES}" ]]; then
     exit 1
 fi
 
+# Every line must be caught on its own, so one detected line cannot hide an undetected one.
 while IFS= read -r TASK_FORBIDDEN_FIXTURE; do
-    if [[ -z "$(scan_safety_patterns "${TASK_FORBIDDEN_FIXTURE}")" ]]; then
-        printf '%s\n' "Safety audit self-test failed: prohibited fixture was not detected: ${TASK_FORBIDDEN_FIXTURE}" >&2
-        exit 1
-    fi
+    TASK_FORBIDDEN_LINE_NUMBER=0
+    while IFS= read -r TASK_FORBIDDEN_LINE || [[ -n "${TASK_FORBIDDEN_LINE}" ]]; do
+        TASK_FORBIDDEN_LINE_NUMBER=$((TASK_FORBIDDEN_LINE_NUMBER + 1))
+        [[ -z "${TASK_FORBIDDEN_LINE//[[:space:]]/}" ]] && continue
+        if ! grep -q -i -E "${TASK_FORBIDDEN_PATTERN}" <<<"${TASK_FORBIDDEN_LINE}"; then
+            printf '%s\n' "Safety audit self-test failed: prohibited fixture was not detected: ${TASK_FORBIDDEN_FIXTURE}:${TASK_FORBIDDEN_LINE_NUMBER}" >&2
+            exit 1
+        fi
+    done < "${TASK_FORBIDDEN_FIXTURE}"
 done < <(find "${TASK_FIXTURE_ROOT}/prohibited" -type f -print | sort)
 
 printf '%s\n' "Safety audit passed: no prohibited integration pattern found in source or project files."
