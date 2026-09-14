@@ -42,13 +42,25 @@ Three rules apply whenever this data is read:
 
 ## Prohibited implementation
 
-The project must never include game memory access, injection, renderer hooks, driver/kernel inspection, traffic interception or protocol decoding, gameplay input synthesis, flea/inventory automation, enemy detection or tracking, ESP/radar, aiming/combat assistance, or an in-game overlay.
+Three anti-cheat fixtures are immutable: the project never reads or writes Escape from Tarkov
+process memory, never generates gameplay mouse or keyboard input, and never renders an in-game
+overlay.
 
-Predicted traffic is computed only from static spawns, points of interest, chokepoints, public map topology, extracts, and elapsed raid phase. Every presentation must label it as predicted educational guidance, not live player data.
+The current design additionally excludes injection and game/renderer hooks, driver/kernel
+inspection, inspection or decoding of EFT network packets, flea/inventory automation, live
+enemy detection or tracking, ESP/radar, and aiming/combat assistance. These are explicit design
+exclusions even where they overlap the three immutable fixtures.
+
+Historical or predicted traffic is computed only from static spawns, points of interest,
+chokepoints, public map topology, extracts, elapsed raid phase, and bounded historical evidence.
+Every presentation must label it as historical or modelled guidance, with source, UTC times,
+coverage, confidence, and model version. It is never live player data or a current-location
+claim.
 
 ## Enforcement
 
 - Permanent rules live in root `AGENTS.md`.
+- The normative v2 evidence and protocol rules live in `docs/V2_CONTRACT.md` and ADR 0008.
 - Platform interfaces expose capture and observation, never process handles for memory operations or input sending.
 - Dependency/source audits search for known injection, hooking, packet-capture, automation, and memory-access packages/APIs.
 - Deterministic tests assert that strategy inputs have no live-enemy concept.
