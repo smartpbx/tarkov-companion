@@ -4718,6 +4718,17 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             return;
         }
 
+        // Nothing here depends on anything but these two, and both are records the runtime
+        // store hands out by reference: an unchanged snapshot carries the same instances. So
+        // the common case — a snapshot that changed something else entirely — costs a pair of
+        // reference comparisons rather than LootProximity.Near over every loot position on the
+        // map, of which Woods has 815. ShowSide and ShowActiveExtracts have had this since
+        // they were written; this is the one that did not.
+        if (ReferenceEquals(_playerPosition, position) && ReferenceEquals(_playerTrailPositions, trail))
+        {
+            return;
+        }
+
         _playerPosition = position;
         _playerTrailPositions = trail;
         UpdatePlayerMarker();
