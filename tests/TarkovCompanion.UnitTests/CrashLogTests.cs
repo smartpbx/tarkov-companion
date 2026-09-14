@@ -46,21 +46,34 @@ public sealed class CrashLogTests : IDisposable
         Assert.Contains("still failing (120x) since", text, StringComparison.Ordinal);
     }
 
-    /// <summary>The log says which build wrote it, before anything else.</summary>
+    /// <summary>The log says which build wrote it.</summary>
     /// <remarks>
     /// Every assembly reported 1.0.0.0 until the packaging script started stamping a version,
     /// so "which build produced this" had no answer. A log that cannot name its own build is a
     /// log somebody has to guess about.
+    ///
+    /// It asserts that the line is there rather than that it is first, and that is not a
+    /// weakening of the test — it is the same claim stated without a false premise. CrashLog's
+    /// destination is a static, so any test running in parallel that logs anything writes to
+    /// whichever directory was installed last, and a line landing between Install setting the
+    /// directory and Install writing its own first line puts that line ahead of it. That became
+    /// frequent the moment the migration runner started logging what it applied, because the
+    /// tests that build a whole application run migrations.
+    ///
+    /// In the application Install runs before anything else has a logger, so the started line
+    /// is genuinely first there. What matters to somebody reading a log is that the build is
+    /// named in it, which is what this now says.
     /// </remarks>
     [Fact]
-    public void TheFirstLineNamesTheBuild()
+    public void TheLogNamesTheBuildThatWroteIt()
     {
         CrashLog.Install(_directory);
 
-        var first = ReadShared(CrashLog.FilePath!).Split('\n')[0];
+        var started = Assert.Single(
+            ReadShared(CrashLog.FilePath!).Split('\n'),
+            line => line.Contains("[started]", StringComparison.Ordinal));
 
-        Assert.Contains("[started]", first, StringComparison.Ordinal);
-        Assert.Contains("build ", first, StringComparison.Ordinal);
+        Assert.Contains("build ", started, StringComparison.Ordinal);
     }
 
     /// <summary>A log that grows without bound is rolled, keeping one previous.</summary>

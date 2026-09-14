@@ -31,6 +31,70 @@ public static class QuestItemRequirementFormatter
         bool? foundInRaidRequired,
         Func<string, string>? name = null) => Describe(targets, foundInRaidRequired, "Items", name);
 
+    /// <summary>
+    /// The fields that name something you must already be carrying or wearing.
+    /// </summary>
+    /// <remarks>
+    /// The split is the whole point of having two lines. A key you forgot is a raid you cannot
+    /// finish; an item you meant to hand in is a raid you finish and then repeat. Those are
+    /// different mistakes and they are made at different moments, so they are not one list.
+    ///
+    /// A marker is carried in and left behind rather than handed over, so it belongs here.
+    /// "Not wearing" belongs here too: it is a decision made at the same screen, in the same
+    /// minute, about the same rig.
+    /// </remarks>
+    private static readonly string[] CarriedIn =
+    [
+        "requiredKeys",
+        "usingWeapon",
+        "usingWeaponMods",
+        "wearing",
+        "notWearing",
+        "markerItem",
+    ];
+
+    /// <summary>
+    /// What to have on you before the raid starts, or empty where nothing is asked.
+    /// </summary>
+    /// <remarks>
+    /// The map arrives on profileStatus about a minute before the raid does, and that minute is
+    /// the last one in which any of this can be acted on. Afterwards it is a list of what could
+    /// have been brought.
+    /// </remarks>
+    public static string DescribeBring(
+        IReadOnlyList<QuestObjectiveItemTarget> targets,
+        Func<string, string>? name = null) => Partition(targets, carriedIn: true, foundInRaidRequired: null, name);
+
+    /// <summary>What the objective wants handed over, or empty where nothing is.</summary>
+    public static string DescribeHandIn(
+        IReadOnlyList<QuestObjectiveItemTarget> targets,
+        bool? foundInRaidRequired,
+        Func<string, string>? name = null) => Partition(targets, carriedIn: false, foundInRaidRequired, name);
+
+    /// <summary>
+    /// One half of the requirements, said the same way the whole of them is said.
+    /// </summary>
+    /// <remarks>
+    /// Through <see cref="Describe"/> rather than beside it, so the two lines and the existing
+    /// one-line form cannot drift apart in how they group alternatives or name a field. Empty
+    /// rather than "No item requirement": these are two optional lines on a card, and a card
+    /// saying "No item requirement" twice says nothing twice.
+    /// </remarks>
+    private static string Partition(
+        IReadOnlyList<QuestObjectiveItemTarget> targets,
+        bool carriedIn,
+        bool? foundInRaidRequired,
+        Func<string, string>? name)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        var wanted = targets
+            .Where(target => CarriedIn.Contains(target.SourceField, StringComparer.Ordinal) == carriedIn)
+            .ToArray();
+        return wanted.Length == 0
+            ? string.Empty
+            : Describe(wanted, foundInRaidRequired, carriedIn ? "Bring" : "Hand in", name);
+    }
+
     private static string Describe(
         IReadOnlyList<QuestObjectiveItemTarget> targets,
         bool? foundInRaidRequired,

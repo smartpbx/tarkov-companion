@@ -1963,6 +1963,9 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
 
     private readonly GroupSessionService _group;
     private readonly IShellLayoutStore? _layoutStore;
+
+    /// <summary>One apply per burst, on the UI thread, reading whatever is current when it runs.</summary>
+    private readonly CoalescingDispatch _apply;
     private readonly IRuntimeStateStore _stateStore;
     private readonly ApplicationStartupCoordinator _startupCoordinator;
     private readonly RuntimeOptions _options;
@@ -1993,6 +1996,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private bool _disposed;
     private bool _isRailCollapsed;
     private ShellLayout _layout = ShellLayout.Default;
+
 
     /// <summary>The one-second tick, where there is a dispatcher to run it on.</summary>
     private DispatcherTimer? _clock;
@@ -2117,6 +2121,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
             }
         };
 
+        _apply = new(_synchronizationContext, () => ApplySnapshot(_stateStore.Current));
         _stateStore.Changed += RuntimeStateChanged;
         ApplySnapshot(_stateStore.Current);
         StartClock();
@@ -2601,17 +2606,15 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         CurrentPage = selected.Page;
     }
 
-    private void RuntimeStateChanged(object? sender, EventArgs eventArgs)
-    {
-        var snapshot = _stateStore.Current;
-        if (_synchronizationContext is null || ReferenceEquals(SynchronizationContext.Current, _synchronizationContext))
-        {
-            ApplySnapshot(snapshot);
-            return;
-        }
-
-        _synchronizationContext.Post(_ => ApplySnapshot(snapshot), null);
-    }
+    /// <summary>
+    /// Applies the newest snapshot once, however many changes arrived while it was waiting.
+    /// </summary>
+    /// <remarks>
+    /// Through <see cref="CoalescingDispatch"/>, which reads Current when it runs rather than
+    /// closing over the snapshot the event carried — so what lands on screen is what is true
+    /// when it lands rather than what was true when the event fired.
+    /// </remarks>
+    private void RuntimeStateChanged(object? sender, EventArgs eventArgs) => _apply.Request();
 
     /// <summary>
     /// The name the map chooser shows for a stored token, or the token if nothing knows.
