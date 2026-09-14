@@ -394,12 +394,33 @@ app.MapGet("/catalog/{mode}/{endpoint}", async Task<IResult> (
 
     // The whole point of a content-addressed snapshot: a client holding this tag is holding
     // these bytes, and gets no body at all.
-    if (request.Headers.IfNoneMatch.Any(value => string.Equals(value, snapshot.ETag, StringComparison.Ordinal)))
+    //
+    // The comparison tolerates a weak prefix. Cloudflare re-tags a response it compressed,
+    // turning "abc" into W/"abc", and the client sends back what it was given — so a strict
+    // comparison would miss every match the moment the cache in front of this started doing
+    // its job, and every client would re-download 16 MB an hour for ever.
+    if (request.Headers.IfNoneMatch.Any(value => Matches(value, snapshot.ETag)))
     {
         return TypedResults.StatusCode(StatusCodes.Status304NotModified);
     }
 
-    request.HttpContext.Response.Headers.ETag = snapshot.ETag;
+    var response = request.HttpContext.Response;
+    response.Headers.ETag = snapshot.ETag;
+    // An hour, which is how long the mirror holds a snapshot before asking upstream again.
+    // Anything longer would serve a catalog this server has already replaced.
+    response.Headers.CacheControl = "public, max-age=3600";
+    // The tag names the catalog rather than the encoding, so a cache in front of this has to be
+    // told that the two encodings are different responses.
+    response.Headers.Vary = "Accept-Encoding";
+
+    // Compressed at rest, so this is a header and a write rather than a compression per
+    // request. 16,716,287 bytes becomes 1,344,177 — through a tunnel, per client, per hour.
+    if (Accepts(request, "gzip"))
+    {
+        response.Headers.ContentEncoding = "gzip";
+        return TypedResults.Bytes(snapshot.Gzip, "application/json");
+    }
+
     return TypedResults.Bytes(snapshot.Body, "application/json");
 });
 
@@ -409,6 +430,44 @@ app.Run();
 // it against, because the server holds no secrets: a key that nobody else uses simply names a
 // room that nobody else is in. Refusing a short one is not access control, it is stopping
 // somebody from believing "a" protects their group.
+/// <summary>
+/// Whether an If-None-Match value names this snapshot, weak prefix and all.
+/// </summary>
+/// <remarks>
+/// Cloudflare re-tags a response it compressed itself, turning "abc" into W/"abc", and a client
+/// sends back whatever it was given. A strict comparison therefore stops matching the moment a
+/// cache in front of this starts working, and every client re-downloads the whole catalog every
+/// hour for ever.
+///
+/// The tag is the SHA-256 of the identity bytes either way, so dropping the prefix compares the
+/// thing that actually identifies the payload.
+/// </remarks>
+static bool Matches(string? candidate, string tag)
+{
+    if (string.IsNullOrWhiteSpace(candidate))
+    {
+        return false;
+    }
+
+    var trimmed = candidate.Trim();
+    if (trimmed.StartsWith("W/", StringComparison.Ordinal))
+    {
+        trimmed = trimmed[2..];
+    }
+
+    return string.Equals(trimmed, tag, StringComparison.Ordinal);
+}
+
+/// <summary>Whether the client said it would take this encoding.</summary>
+/// <remarks>
+/// Read rather than assumed. The desktop client sets it, but the tablet's fetch and anything
+/// somebody points at this by hand may not, and sending gzip to something that did not ask for
+/// it is sending it something it cannot read.
+/// </remarks>
+static bool Accepts(HttpRequest request, string encoding) => request.Headers.AcceptEncoding
+    .Any(value => value is not null &&
+        value.Split(',').Any(part => part.Trim().StartsWith(encoding, StringComparison.OrdinalIgnoreCase)));
+
 static bool TryReadKey(HttpRequest request, out string key)
 {
     key = string.Empty;
