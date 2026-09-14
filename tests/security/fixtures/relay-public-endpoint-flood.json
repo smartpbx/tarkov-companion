@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-PUBLIC-ENDPOINT-DOS",
+    "boundary": "TB-7",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "/catalog, /landmarks, and /search require no key (RelayAccess.IsGroupPath excludes them by design) and carry no request-rate limit anywhere in Program.cs, unlike /report which has ProblemReports.IsRateLimited."
+  },
+  "scenario": {
+    "targets": [
+      { "method": "GET", "path": "/search?q=a" },
+      { "method": "GET", "path": "/landmarks" },
+      { "method": "GET", "path": "/catalog/pve/items" }
+    ],
+    "actor": "anonymous, no X-Group-Key header sent or required",
+    "amplificationNote": "/catalog/{mode}/{endpoint} proxies to json.tarkov.dev on a cache miss (CatalogMirror.cs), so a sustained flood against a cold cache pressures the upstream source as well as the relay process itself.",
+    "contrastEndpoint": {
+      "path": "/report",
+      "control": "ProblemReports.IsRateLimited caps this specific endpoint at 3 requests per room per hour"
+    }
+  }
+}

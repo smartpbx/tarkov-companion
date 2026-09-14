@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-WAYPOINT-FLOOD",
+    "boundary": "TB-4 / TB-6",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "docs/GROUP_RELAY.md 'Limits' section: sixty waypoints and thirty pings per group; past that the oldest goes. A burst of 61 posts evicts the squad's oldest real waypoint rather than being refused."
+  },
+  "scenario": {
+    "request": {
+      "method": "POST",
+      "path": "/waypoints",
+      "headers": { "X-Group-Key": "<a valid group key>" },
+      "bodyTemplate": {
+        "by": "flooder",
+        "mapId": "customs",
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "label": "spam"
+      }
+    },
+    "repeatCount": 61,
+    "existingRoomWaypointsBeforeFlood": 5,
+    "observedEffect": "After 61 rapid posts, the cap of 60 evicts the 5 pre-existing legitimate waypoints (oldest-first) along with 55 of the spam ones, leaving only the 6 most recent spam entries — the squad's actual plan is gone."
+  }
+}

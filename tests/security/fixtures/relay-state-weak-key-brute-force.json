@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "abuseCase": "ABUSE-RELAY-WEAK-KEY-GUESS",
+    "boundary": "TB-4",
+    "documented": "docs/security/ABUSE_CASES.md",
+    "note": "GroupKey.MinimumLength = 8 is a typo-guard, not access control, by its own source comment (src/TarkovCompanion.GroupServer/GroupKey.cs). No attempt counter or lockout exists anywhere in Program.cs."
+  },
+  "scenario": {
+    "target": "an open (unregistered) relay",
+    "attempts": [
+      { "key": "password", "path": "/state", "method": "GET" },
+      { "key": "12345678", "path": "/state", "method": "GET" },
+      { "key": "tarkovpm", "path": "/state", "method": "GET" },
+      { "key": "customs01", "path": "/state", "method": "GET" }
+    ],
+    "costPerAttempt": "one unauthenticated HTTP request, no backoff, no CAPTCHA, no per-IP counter",
+    "successCondition": "any key that happens to match a live group's key returns 200 with that group's member list, indistinguishable from a legitimate lookup (docs/GROUP_RELAY.md: 'A 401 does not mean a wrong key')."
+  }
+}
