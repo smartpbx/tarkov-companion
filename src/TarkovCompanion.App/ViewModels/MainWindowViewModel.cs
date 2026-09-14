@@ -2092,6 +2092,8 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         IRequirementCatalog requirementCatalog,
         IItemFactCatalog itemFactCatalog,
         IQuestProgressService questProgress,
+        IBarterCatalog barters,
+        ITraderCatalog traderCatalog,
         IEventCatalog eventCatalog,
         IEventTrackerService eventTracker,
         IPlayerProfileService profileService,
@@ -2136,7 +2138,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         Quests = quests;
         History = new(raidHistoryService, ResolveMapName);
         Flea = new(itemSearchService, itemRepository, priceHistoryService);
-        Hideout = new(requirementCatalog, profileService, itemRepository);
+        Hideout = new(requirementCatalog, profileService, itemRepository, barters, traderCatalog);
         Settings = new(
             startupCoordinator,
             options,

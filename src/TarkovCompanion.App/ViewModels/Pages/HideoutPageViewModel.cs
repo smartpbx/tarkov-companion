@@ -34,7 +34,19 @@ public sealed record HideoutRequirementViewModel(
     string Required,
     string Owned,
     string Remaining,
-    bool IsSatisfied);
+    bool IsSatisfied)
+{
+    /// <summary>The cheapest way to get one, where there is a cheaper one than the flea.</summary>
+    /// <remarks>
+    /// An init property rather than a seventh positional parameter. Empty where nothing beats
+    /// buying it, where nothing has priced the inputs, or where the only cheaper barter needs
+    /// loyalty this player does not have — all three of which are "no answer" rather than
+    /// "buy it", and a row that said "buy it" in the second case would be making that up.
+    /// </remarks>
+    public string CheapestRoute { get; init; } = string.Empty;
+
+    public bool HasCheapestRoute => CheapestRoute.Length > 0;
+}
 
 /// <summary>
 /// Shows what each hideout station still needs, and how much of it the player has.
@@ -56,6 +68,8 @@ public sealed class HideoutPageViewModel : PageViewModel
     private readonly IRequirementCatalog _requirements;
     private readonly IPlayerProfileService _profileService;
     private readonly IItemRepository _itemRepository;
+    private readonly IBarterCatalog? _barters;
+    private readonly ITraderCatalog? _traders;
     private IReadOnlyList<HideoutStationViewModel> _stations = [];
     private IReadOnlyDictionary<string, int> _stationLevels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<HideoutRequirementViewModel> _items = [];
@@ -66,12 +80,18 @@ public sealed class HideoutPageViewModel : PageViewModel
     public HideoutPageViewModel(
         IRequirementCatalog requirements,
         IPlayerProfileService profileService,
-        IItemRepository itemRepository)
+        IItemRepository itemRepository,
+        // Optional so every composition that builds this by hand keeps working. Without it the
+        // rows lose their route line, which is what they had before it existed.
+        IBarterCatalog? barters = null,
+        ITraderCatalog? traders = null)
         : base("Hideout", "What each station still needs", "Runtime state not loaded")
     {
         _requirements = requirements;
         _profileService = profileService;
         _itemRepository = itemRepository;
+        _barters = barters;
+        _traders = traders;
         RefreshCommand = new AsyncDelegateCommand(LoadAsync);
     }
 
@@ -205,6 +225,7 @@ public sealed class HideoutPageViewModel : PageViewModel
                     requirement.TargetLevel == station.NextLevel)
                 .ToArray();
 
+            var routes = await RoutesAsync(wanted, profile.TraderLevels, cancellationToken).ConfigureAwait(true);
             var rows = new List<HideoutRequirementViewModel>(wanted.Length);
             foreach (var requirement in wanted)
             {
@@ -217,7 +238,10 @@ public sealed class HideoutPageViewModel : PageViewModel
                     Count(requirement.Required),
                     Count(owned),
                     remaining == 0 ? "Complete" : Count(remaining),
-                    remaining == 0));
+                    remaining == 0)
+                {
+                    CheapestRoute = routes.GetValueOrDefault(requirement.ItemId, string.Empty),
+                });
             }
 
             Items = rows
@@ -289,6 +313,107 @@ public sealed class HideoutPageViewModel : PageViewModel
         {
             Status = $"Station level not saved · {exception.Message}";
         }
+    }
+
+    /// <summary>
+    /// The cheapest barter for each wanted item, where one beats buying it.
+    /// </summary>
+    /// <remarks>
+    /// 789 barters are rewritten on every sync and no query had ever read one. This is the half
+    /// of that the trader-level stepper unblocked: every barter's loyalty requirement was
+    /// unanswerable while TraderLevels was written by nothing, so a route line would have had
+    /// to either ignore the requirement — offering routes the player cannot take — or assume
+    /// level 1 and hide most of them.
+    ///
+    /// Silent on every failure. No barter catalog, no prices, an unpriced input, a route that
+    /// is not actually cheaper, or loyalty the player does not have: all of those are "no
+    /// answer", and the row simply does not carry a route line. A line saying "buy it" when the
+    /// truth is "nothing here could work it out" would be making something up.
+    /// </remarks>
+    private async Task<Dictionary<string, string>> RoutesAsync(
+        IReadOnlyList<HideoutItemRequirement> wanted,
+        IReadOnlyDictionary<string, int> traderLevels,
+        CancellationToken cancellationToken)
+    {
+        var routes = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (_barters is null)
+        {
+            return routes;
+        }
+
+        try
+        {
+            var barters = await _barters.GetAsync(cancellationToken).ConfigureAwait(true);
+            if (barters.Count == 0)
+            {
+                return routes;
+            }
+
+            var traderNames = _traders is null
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : await _traders.GetNamesAsync(cancellationToken).ConfigureAwait(true);
+
+            // Prices are read once per item and remembered, because a barter's inputs are
+            // frequently the inputs of other barters and the wanted list repeats items across
+            // levels.
+            var prices = new Dictionary<string, long?>(StringComparer.Ordinal);
+            async Task<long?> PriceAsync(string itemId)
+            {
+                if (!prices.TryGetValue(itemId, out var known))
+                {
+                    var snapshot = await _itemRepository.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(true);
+                    prices[itemId] = known = snapshot?.FleaPriceRoubles;
+                }
+
+                return known;
+            }
+
+            // Warmed before routing, because the routing itself is synchronous: it has to
+            // compare every barter against every other and cannot await inside that.
+            foreach (var itemId in barters
+                .SelectMany(barter => barter.Wants.Select(want => want.ItemId))
+                .Concat(wanted.Select(requirement => requirement.ItemId))
+                .Distinct(StringComparer.Ordinal))
+            {
+                await PriceAsync(itemId).ConfigureAwait(true);
+            }
+
+            foreach (var requirement in wanted.DistinctBy(item => item.ItemId, StringComparer.Ordinal))
+            {
+                var route = BarterRouting.Cheapest(
+                    requirement.ItemId,
+                    barters,
+                    traderLevels,
+                    itemId => prices.GetValueOrDefault(itemId));
+                if (route is null)
+                {
+                    continue;
+                }
+
+                // Only where it actually beats buying one. A barter that costs more than the
+                // flea price is a route, not a cheaper route, and putting it on the row would
+                // be advice to spend more.
+                var flea = prices.GetValueOrDefault(requirement.ItemId);
+                if (flea is not { } buying || route.PerItem >= buying)
+                {
+                    continue;
+                }
+
+                var trader = route.TraderId is { Length: > 0 } id
+                    ? traderNames.GetValueOrDefault(id, id)
+                    : "a trader";
+                routes[requirement.ItemId] = string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Barter from {trader} costs about {route.PerItem:N0} ₽ each · flea {buying:N0} ₽");
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The rest of the page is unaffected; the rows simply lose their route line.
+            routes.Clear();
+        }
+
+        return routes;
     }
 
     private static HideoutStationViewModel Describe(
