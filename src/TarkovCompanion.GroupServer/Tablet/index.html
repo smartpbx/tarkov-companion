@@ -131,6 +131,10 @@
   // Null means "follow the group", which re-picks whenever the room changes. Choosing one
   // pins it, so a map does not move out from under somebody about to tap it.
   let chosenMap = null;
+  // Every map's landmarks, keyed by map. Fetched once: it is 4.6 KB gzipped for all of them,
+  // against 780 KB for the map catalog it is derived from, which is the difference between a
+  // page a phone opens on a sofa and one it does not.
+  let landmarks = {};
   let timer = null;
 
   $("key").value = key;
@@ -163,6 +167,25 @@
     // failure and leave the button disabled over it.
     const body = await response.text();
     return body ? JSON.parse(body) : null;
+  }
+
+  // No key needed, and fetched at startup so it is already here when the first position
+  // arrives. Which map to draw is not knowable until somebody is on one, so this does not put
+  // anything on screen by itself -- it means the map appears complete the first time it appears
+  // at all, rather than filling in a second later.
+  //
+  // A failure here costs the landmarks and nothing else. The plot drew none of this until now
+  // and is no worse without them; a page that would not load because this fetch failed would be.
+  async function loadLandmarks() {
+    try {
+      const response = await fetch("/landmarks");
+      if (response.ok) {
+        landmarks = await response.json();
+        draw();
+      }
+    } catch {
+      // Left empty, and the plot carries on.
+    }
   }
 
   async function refresh() {
@@ -397,13 +420,29 @@
   //
   // This took everything with an x and a z regardless of map, so the schematic was two raids
   // drawn on top of each other and the framing had to zoom out far enough to hold both.
+  // The landmarks of the map on screen, drawn quiet and behind the people.
+  //
+  // A lock has no name worth writing -- the catalog calls all thirty-six of Customs' "door" --
+  // so it is a dot and nothing else. Only extracts carry a name the group would recognise, and
+  // a transit is named for where it goes, which is the one thing the catalog does say about it.
+  function landmarkPoints(mapId) {
+    return (landmarks[mapId] ?? []).map((mark) => ({
+      x: mark.x,
+      z: mark.z,
+      colour: mark.k === "l" ? "#3c4c5a" : "#55707f",
+      label: mark.n ?? "",
+      r: mark.k === "l" ? 2 : 3,
+      quiet: true,
+    }));
+  }
+
   function points() {
     const mapId = activeMap();
     if (!mapId) {
       return [];
     }
 
-    const found = [];
+    const found = landmarkPoints(mapId);
     for (const member of room?.members ?? []) {
       if (member.mapId === mapId && member.x != null && member.z != null) {
         found.push({ x: member.x, z: member.z, colour: colourFor(member.name), label: member.name, r: 7 });
@@ -435,8 +474,14 @@
       return;
     }
 
-    // Fit to what there is, with a floor on the span so two people standing together do not
-    // get magnified into opposite corners of the screen.
+    // Framed over everything, landmarks included, which is what steadies it.
+    //
+    // Fitting to the people alone made this restless: the frame moved every time anybody took
+    // a screenshot, so the whole schematic slid under a finger about to tap it. Landmarks do
+    // not move and they span the map, so they dominate the extent and it holds still while
+    // people move across it -- the way round a map is supposed to work. Including the people
+    // in the same union is what keeps somebody outside the landmarks from being framed off the
+    // edge, which is the failure the previous behaviour could never have.
     const xs = all.map((p) => p.x);
     const zs = all.map((p) => p.z);
     const span = Math.max(120, Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs)) * 1.25;
@@ -458,17 +503,27 @@
     context.textAlign = "center";
     context.fillText("N", size / 2, 18);
 
-    for (const point of all) {
+    // Landmarks first so people are drawn on top of them, and quieter in every way that is
+    // available: smaller, dimmer, no outline, smaller type. A landmark that competes with a
+    // squadmate for attention has made the screen worse, not better.
+    for (const point of [...all].sort((a, b) => (a.quiet ? 0 : 1) - (b.quiet ? 0 : 1))) {
       const [px, py] = project(point.x, point.z);
       context.beginPath();
       context.arc(px, py, point.r, 0, Math.PI * 2);
       context.fillStyle = point.colour;
       context.fill();
-      context.lineWidth = 2;
-      context.strokeStyle = "#0b1016";
-      context.stroke();
-      context.fillStyle = "#dce5ee";
-      context.font = "13px system-ui, sans-serif";
+      if (!point.quiet) {
+        context.lineWidth = 2;
+        context.strokeStyle = "#0b1016";
+        context.stroke();
+      }
+
+      if (!point.label) {
+        continue;
+      }
+
+      context.fillStyle = point.quiet ? "#6d7e8b" : "#dce5ee";
+      context.font = point.quiet ? "11px system-ui, sans-serif" : "13px system-ui, sans-serif";
       context.textAlign = "left";
       context.fillText(point.label, px + point.r + 5, py + 4);
     }
@@ -540,6 +595,7 @@
   });
 
   function start() {
+    loadLandmarks();
     if (timer) clearInterval(timer);
     refresh();
     // Five seconds, the same rate the desktop client exchanges at. Faster would tell a tablet
