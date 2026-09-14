@@ -3,7 +3,7 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels">
-  <Grid RowDefinitions="Auto,*" RowSpacing="12">
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
       <Border Classes="inset">
         <TextBlock Text="{Binding Status}" TextWrapping="Wrap" VerticalAlignment="Center" />
@@ -15,9 +15,19 @@
               VerticalAlignment="Stretch" />
     </Grid>
 
+    <!-- Creating one has to be reachable with nothing configured, which is the state the page
+         is in most of the year, so it sits above both panels rather than inside either. -->
+    <Grid Grid.Row="1"
+          ColumnDefinitions="*,Auto"
+          ColumnSpacing="10"
+          IsVisible="{Binding CanEdit}">
+      <TextBox Text="{Binding NewEventName, Mode=TwoWay}" PlaceholderText="New event name" />
+      <Button Grid.Column="1" MinWidth="120" Command="{Binding CreateCommand}" Content="Create" />
+    </Grid>
+
     <!-- An empty catalog is the ordinary out of season state, so it gets an explanation
          rather than an error panel. -->
-    <Border Grid.Row="1"
+    <Border Grid.Row="2"
             Classes="panel"
             IsVisible="{Binding HasNoEvents}"
             Padding="22,18"
@@ -25,10 +35,11 @@
       <StackPanel Spacing="8">
         <TextBlock Classes="sectionTitle" Text="No event is configured" />
         <TextBlock Classes="prose" Text="{Binding EmptyGuidance}" />
+        <TextBlock Classes="caption" Text="{Binding DefinitionsDirectory}" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="*,2*" ColumnSpacing="12" IsVisible="{Binding HasEvents}">
+    <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="12" IsVisible="{Binding HasEvents}">
       <ListBox ItemsSource="{Binding Events}" SelectedItem="{Binding Selected, Mode=TwoWay}">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="vm:EventSummaryViewModel">
@@ -46,14 +57,43 @@
       </ListBox>
 
       <Border Grid.Column="1" Classes="panel">
-        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="9">
-          <TextBlock Classes="sectionTitle" Text="Applicable items" />
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="9">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <TextBlock Classes="sectionTitle" Text="Applicable items" VerticalAlignment="Center" />
+            <Button Grid.Column="1"
+                    Command="{Binding DeleteCommand}"
+                    Content="{Binding DeleteLabel}"
+                    IsVisible="{Binding CanEdit}" />
+          </Grid>
           <TextBlock Grid.Row="1" Classes="prose" Text="{Binding Detail}" />
           <Border Grid.Row="2" Classes="inset">
             <TextBlock Classes="lede" Text="{Binding Progress}" TextWrapping="Wrap" />
           </Border>
           <TextBlock Grid.Row="3" Classes="note" Text="{Binding StateGuidance}" />
-          <ScrollViewer Grid.Row="4" VerticalScrollBarVisibility="Auto">
+
+          <!-- Choosing items against the real catalog is the half a text editor was bad at:
+               a definition names items by id, and nobody knows them by id. -->
+          <StackPanel Grid.Row="4" Spacing="6" IsVisible="{Binding CanEdit}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <TextBox Text="{Binding ItemQuery, Mode=TwoWay}" PlaceholderText="Find an item to add" />
+              <Button Grid.Column="1" MinWidth="100" Command="{Binding SearchCommand}" Content="Search" />
+            </Grid>
+            <TextBlock Classes="caption" Text="{Binding SearchStatus}" TextWrapping="Wrap" />
+            <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding Matches}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:EventItemMatchViewModel">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,4">
+                      <TextBlock Classes="value" Text="{Binding ItemName}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                      <Button Grid.Column="1" Command="{Binding AddCommand}" Content="Add" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="5" VerticalScrollBarVisibility="Auto">
             <ItemsControl ItemsSource="{Binding Items}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate x:DataType="vm:EventItemViewModel">
@@ -79,7 +119,11 @@
                                 Margin="0,0,5,0" />
                         <Button Command="{Binding MarkUnknownCommand}"
                                 Content="Unknown"
-                                IsEnabled="{Binding CanRecord}" />
+                                IsEnabled="{Binding CanRecord}"
+                                Margin="0,0,5,0" />
+                        <Button Command="{Binding RemoveCommand}"
+                                Content="Remove"
+                                IsVisible="{Binding CanEdit}" />
                       </WrapPanel>
                     </Grid>
                   </Border>

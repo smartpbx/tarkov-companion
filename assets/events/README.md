@@ -16,7 +16,22 @@ The app loads every `*.json` file directly inside its events directory (sub-fold
 - portable install (`portable.flag` next to the executable): `Data\Config\Events`
 
 Files in this repository directory are not loaded by themselves; copy the ones you want into the
-folder above. The folder is read once per run, so restart the app after adding or editing a file.
+folder above. A file edited by hand while the app is running is picked up the next time the app
+writes one, or when the Events page is reloaded.
+
+## Writing one without a text editor
+
+The Events page creates and edits definitions itself, which is the shorter path for the common
+case. Name an event and press Create; it is written to the folder above under a file named after
+the name. With it selected, search the item catalog and press Add for each item it applies to, or
+Remove to take one back out. Delete removes the file.
+
+The page writes the same shape described below, so a definition it created can be edited by hand
+afterwards, and one written by hand can be edited on the page. Only the fields the page offers
+are reachable from it: dates and rules are still a text editor's job.
+
+Recorded results are keyed by event id and item id together, so removing an item and adding it
+back keeps what was recorded against it. Changing an event's `id` does orphan them.
 
 ## File shape
 

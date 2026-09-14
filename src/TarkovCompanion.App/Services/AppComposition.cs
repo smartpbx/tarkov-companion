@@ -279,8 +279,11 @@ public static class AppComposition
         services.AddSingleton<IMapAliasCatalog>(provider => provider.GetRequiredService<SqliteMapAliasCatalog>());
         services.AddSingleton<SqliteItemFactCatalog>();
         services.AddSingleton<IItemFactCatalog>(provider => provider.GetRequiredService<SqliteItemFactCatalog>());
-        services.AddSingleton<IEventCatalog>(_ =>
-            new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
+        // One instance behind both interfaces, so a definition written through the authoring
+        // side drops the cache the reading side is serving from.
+        services.AddSingleton(_ => new JsonFileEventCatalog(Path.Combine(paths.Config, "Events")));
+        services.AddSingleton<IEventCatalog>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
+        services.AddSingleton<IEventAuthoring>(provider => provider.GetRequiredService<JsonFileEventCatalog>());
 
         // The aggregation service takes its requirements as constructor collections, and
         // nothing ever registered one, so it always answered "0 needed". That silently
@@ -302,13 +305,15 @@ public static class AppComposition
             timeProvider));
         services.AddSingleton<IHideoutProgressService, ProfileHideoutProgressService>();
         services.AddSingleton<RecommendationContextService>();
-        // Built from the event catalog rather than by type. Registered by type it received an
-        // empty definition list, and it throws KeyNotFoundException for an unknown event id
-        // rather than degrading, so every call failed no matter what the caller passed.
+        // Given the catalog rather than a list read from it. Registered by type it received an
+        // empty definition list and threw KeyNotFoundException for every id; read once here it
+        // knew only the events that existed at startup, which stopped being good enough when the
+        // Events page learned to write one.
         services.AddSingleton<IEventTrackerService>(provider => new ProfileEventTrackerService(
             provider.GetRequiredService<IPlayerProfileService>(),
-            provider.GetRequiredService<IEventCatalog>().GetAsync(CancellationToken.None).GetAwaiter().GetResult(),
-            timeProvider));
+            [],
+            timeProvider,
+            provider.GetRequiredService<IEventCatalog>()));
         services.AddSingleton<IRecommendationEngine, RecommendationEngine>();
 
         services.AddSingleton<SqliteMapFeatureCatalog>();
