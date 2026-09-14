@@ -72,7 +72,7 @@ internal static class V2ContractGuard
         return field;
     }
 
-    private static IEnumerable<T?> Values<T>(EvidencedValue<T?> field)
+    internal static IEnumerable<T?> Values<T>(EvidencedValue<T?> field)
         where T : struct =>
         new[] { field.Value }
             .Concat(field.Candidates.Select(candidate => candidate.Value))

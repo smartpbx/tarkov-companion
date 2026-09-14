@@ -52,6 +52,18 @@ result, and an acknowledgement names the change occupying the applied revision s
 delivery is distinguishable from a same-revision conflict. They are settled before 2.0 ships,
 so they are part of 2.0 rather than a later major version.
 
+Corrections remain append-only for scalar claims and for a closed set of Core-owned immutable
+leaf records whose structural equality survives serialization: item condition, raid clock,
+character region, and the three allowlisted intelligence payloads. Other composites are corrected
+through their evidenced fields. An internal eligibility marker plus a sealed-type and assembly
+check prevents an external or arbitrary reference type from opting into whole-value replacement.
+Raid-clock source, basis, bound, provenance, and capture-time rules apply to every value,
+candidate, correction, and result-level extract/map candidate. A placed stash cell is checked in
+absolute container space even when its region dimensions were not read, using remaining room so
+origin-plus-offset arithmetic cannot overflow. A conflict acknowledgement must name another
+change at a positive applied revision because revision zero represents no applied change, and a
+transit carries no canonical extract ID because it has no extract-catalog match.
+
 Three anti-cheat fixtures do not change: no game process memory, generated game-directed mouse,
 keyboard, or controller input, or in-game overlay. V2 also retains the current exclusions on
 injection/hooks, EFT packet inspection, automation, and live enemy detection/tracking/ESP/radar.
@@ -66,7 +78,10 @@ types add some nesting, but that cost is the mechanism that prevents field and r
 from being discarded.
 
 Safety auditing gains both allowed and prohibited fixtures and targets prohibited capabilities
-rather than adjacent API names. The scanner fails closed when a tool errors, and the overlay
+rather than adjacent API names. Hidden and ignore-matched source belongs to the scan universe;
+generated `bin` and `obj` output does not. The line scan prefers `rg` and intentionally falls back
+to `grep` when `rg` is absent; a missing `rg` alone is therefore not an error. The selected scanner
+and the required `git` and `perl` tools fail closed on absence or execution errors, and the overlay
 capabilities that span statements are matched by statement rather than by line or identifier
 naming. Pattern matching remains a narrow early warning and architecture tests enforce protocol
 shape; neither is treated as a substitute for review. Transport authentication and feature

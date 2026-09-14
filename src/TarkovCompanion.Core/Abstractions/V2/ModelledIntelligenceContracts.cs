@@ -10,6 +10,7 @@ public enum RaidPhase
 }
 
 /// <summary>How often a map zone saw traffic in a phase, relative to the map's busiest zone.</summary>
+[CorrectableEvidenceValue]
 public sealed record ZoneTrafficIntensity(
     string MapId,
     string ZoneId,
@@ -26,6 +27,7 @@ public sealed record ZoneTrafficIntensity(
 }
 
 /// <summary>Relative route pressure along a named corridor in a phase.</summary>
+[CorrectableEvidenceValue]
 public sealed record RouteCorridorPressure(
     string MapId,
     string CorridorId,
@@ -42,6 +44,7 @@ public sealed record RouteCorridorPressure(
 }
 
 /// <summary>The modelled chance of meeting another player in a zone during a phase; not a sighting.</summary>
+[CorrectableEvidenceValue]
 public sealed record EncounterLikelihood(
     string MapId,
     string ZoneId,

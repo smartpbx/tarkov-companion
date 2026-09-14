@@ -157,6 +157,13 @@ public sealed record RecommendationDecision
         var cost = OpportunityCostRoubles;
         if (cost.Value is null && cost.Candidates.Count == 0 && cost.Corrections.Count == 0)
         {
+            if (OpportunityCostLineage is not null)
+            {
+                throw new ArgumentException(
+                    "An absent opportunity cost cannot carry price and footprint lineage.",
+                    "opportunityCostLineage");
+            }
+
             return;
         }
 

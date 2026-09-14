@@ -18,6 +18,19 @@ public enum FreshnessState
     Stale,
 }
 
+/// <summary>
+/// Marks a Core-owned immutable leaf whose whole value may appear in a correction chain.
+/// </summary>
+/// <remarks>
+/// This attribute is internal so an external reference type cannot opt itself into whole-value
+/// replacement. Evidenced composites that contain their own evidenced fields remain corrected at
+/// those fields instead; the closed leaf set is held by architecture tests.
+/// </remarks>
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+internal sealed class CorrectableEvidenceValueAttribute : Attribute
+{
+}
+
 public sealed record ResultStatus
 {
     public ResultStatus(
@@ -126,13 +139,19 @@ public sealed record EvidenceCorrection<T>
 /// <see cref="Value"/> is the current value: the last correction's value when corrections exist,
 /// otherwise what was recognized. <see cref="RecognizedValue"/> is always the original. Each
 /// correction starts from the value the previous one left, so a history cannot be spliced.
-/// Only scalar values (strings and value types) are corrected in place; a composite payload is
-/// corrected through its own evidenced fields, which keeps the chain comparison exact after a
-/// serialization round trip.
+/// Scalars and an explicitly marked, Core-owned set of immutable sealed leaf records are corrected
+/// in place. Other composite payloads are corrected through their own evidenced fields. This keeps
+/// the chain comparison exact after a serialization round trip without letting arbitrary reference
+/// types replace a validated result wholesale.
 /// </remarks>
 public sealed record EvidencedValue<T>
 {
-    private static readonly bool IsScalar = typeof(T) == typeof(string) || typeof(T).IsValueType;
+    private static readonly bool CanCorrectWholeValue =
+        typeof(T) == typeof(string) ||
+        typeof(T).IsValueType ||
+        (typeof(T).Assembly == typeof(EvidencedValue<>).Assembly &&
+         typeof(T).IsSealed &&
+         typeof(T).IsDefined(typeof(CorrectableEvidenceValueAttribute), inherit: false));
 
     public EvidencedValue(
         string fieldId,
@@ -196,10 +215,11 @@ public sealed record EvidencedValue<T>
             return;
         }
 
-        if (!IsScalar)
+        if (!CanCorrectWholeValue)
         {
             throw new ArgumentException(
-                "Composite values are corrected through their evidenced fields, not replaced whole.",
+                "Only scalars and allowlisted immutable leaf values may be corrected as a whole; " +
+                "other composites are corrected through their evidenced fields.",
                 "corrections");
         }
 

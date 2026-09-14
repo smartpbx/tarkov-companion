@@ -191,7 +191,13 @@ scan_safety_patterns() {
     # that preserves rg/grep's actual status (1 = no match, >1 = a real scanner error) while
     # staying exempt from `set -e`.
     if command -v rg >/dev/null 2>&1; then
-        output="$(rg -n -i "${TASK_FORBIDDEN_PATTERN}" "$@")" || status=$?
+        # The grep fallback naturally walks dotfiles and does not consult ignore files. Keep rg's
+        # source universe identical: hidden and ignored source remains safety-relevant, while
+        # generated build output is explicitly pruned on both paths.
+        output="$(rg -n -i --hidden --no-ignore \
+            --glob '!bin/**' --glob '!obj/**' \
+            --glob '!**/bin/**' --glob '!**/obj/**' \
+            "${TASK_FORBIDDEN_PATTERN}" "$@")" || status=$?
     else
         output="$(grep -R -n -i -E \
             --exclude-dir=bin --exclude-dir=obj \
@@ -263,6 +269,20 @@ if [[ -n "${TASK_ALLOWED_MATCHES}" || -n "${TASK_ALLOWED_OVERLAY_MATCHES}" ]]; t
     printf '%s\n' "Safety audit self-test failed: an allowed fixture was rejected." >&2
     exit 1
 fi
+
+# These two files are deliberately invisible to rg's defaults: one is a dotfile and the other is
+# named by tests/safety-contract/.ignore. Both must still belong to the same scan universe as the
+# grep fallback. Checking the reported path (not just another matching line) makes each flag a
+# ratchet rather than an unexercised option.
+TASK_PROHIBITED_PATTERN_MATCHES="$(scan_safety_patterns "${TASK_FIXTURE_ROOT}/prohibited")"
+for TASK_UNIVERSE_FIXTURE in \
+    "${TASK_FIXTURE_ROOT}/prohibited/.hidden-game-memory.cs" \
+    "${TASK_FIXTURE_ROOT}/prohibited/ignored-game-input.cs"; do
+    if ! grep -q -F "${TASK_UNIVERSE_FIXTURE}:" <<<"${TASK_PROHIBITED_PATTERN_MATCHES}"; then
+        printf '%s\n' "Safety audit self-test failed: scanner skipped source fixture: ${TASK_UNIVERSE_FIXTURE#"${TASK_PROJECT_ROOT}/"}" >&2
+        exit 1
+    fi
+done
 
 # Every overlay-capability match against the prohibited fixtures, computed once and reused below
 # both to confirm every fixture line is covered and to confirm every capability is exercised.
