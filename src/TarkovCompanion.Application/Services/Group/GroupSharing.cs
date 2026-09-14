@@ -190,6 +190,23 @@ public sealed record GroupMemberView(
     public bool HasKnownHeight { get; init; }
 
     /// <summary>
+    /// The exits this member's own scan of the extract screen read, and when.
+    /// </summary>
+    /// <remarks>
+    /// One player photographs the extract list and gains all of this; the other four see ten
+    /// possible exits and a clock counted from the raid's start. In a PMC party the offered
+    /// exits are the same for everybody, which is what makes it shareable at all.
+    /// </remarks>
+    public IReadOnlyList<string> Extracts { get; init; } = [];
+
+    public IReadOnlyList<string> Transits { get; init; } = [];
+
+    /// <summary>Their clock reading, and how old it was when they published it.</summary>
+    public TimeSpan? RaidClock { get; init; }
+
+    public TimeSpan? RaidClockAge { get; init; }
+
+    /// <summary>
     /// Where they have been this raid, oldest first, without their current position.
     /// </summary>
     /// <remarks>
