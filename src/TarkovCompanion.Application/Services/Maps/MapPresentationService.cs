@@ -294,9 +294,25 @@ public sealed class MapPresentationService
         return null;
     }
 
+    /// <summary>
+    /// Which layers a map opens with.
+    /// </summary>
+    /// <remarks>
+    /// Quest objectives was off, and it is the one layer the whole quest pipeline exists to
+    /// draw. The projection places every objective the catalog gives coordinates for, the map
+    /// draws them, and the panel beside it lists them — and none of that reached anybody,
+    /// because the layer arrived hidden and the Layers expander that reveals it is collapsed by
+    /// default too. Reported as the map not marking quest objectives at all.
+    ///
+    /// Spawns and locked doors stay off, and that is a different judgement rather than an
+    /// inconsistency. Those are every spawn and every door on the map whether or not they have
+    /// anything to do with the player; quest objectives are only ever the quests this player is
+    /// actually on, because the projection filters to active and pinned. A layer that draws
+    /// what you asked for can be on; a layer that draws everything cannot.
+    /// </remarks>
     private static IReadOnlyList<MapOverlayLayer> CreateDefaultOverlays() =>
     [
-        new(MapOverlayKind.QuestObjectives, "Quest objectives", false, false),
+        new(MapOverlayKind.QuestObjectives, "Quest objectives", true, false),
         new(MapOverlayKind.CompanionMarkers, "Companion markers", true, false),
         new(MapOverlayKind.Extracts, "Extracts", true, false),
         new(MapOverlayKind.Labels, "Labels", true, false),

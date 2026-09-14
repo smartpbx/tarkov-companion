@@ -199,6 +199,34 @@ public sealed class TarkovDevMapTests
         Assert.Equal(chosen, reloaded);
     }
 
+    /// <summary>
+    /// Which layers a map opens with, and why those.
+    /// </summary>
+    /// <remarks>
+    /// Reported as the map not marking quest objectives at all. It always could: the projection
+    /// places every objective the catalog gives coordinates for, the map draws them, and the
+    /// panel beside it lists them. The layer simply arrived hidden, behind a Layers expander
+    /// that is collapsed by default, so none of it reached anybody.
+    ///
+    /// Spawns and locked doors stay off, and that is a judgement rather than an inconsistency:
+    /// those draw every spawn and every door on the map whether or not they concern the player,
+    /// while quest objectives are only ever the quests this player is actually on, because the
+    /// projection filters to active and pinned.
+    /// </remarks>
+    [Fact]
+    public void AMapOpensShowingWhatConcernsThisPlayerAndNotEverythingElse()
+    {
+        var location = ParseFixture().Locations[0];
+        var overlays = new MapPresentationService()
+            .Create(location, location.Variants[0], "/cache/map.svg")
+            .Overlays;
+
+        Assert.True(overlays.Single(layer => layer.Kind == MapOverlayKind.QuestObjectives).IsVisible);
+        Assert.True(overlays.Single(layer => layer.Kind == MapOverlayKind.Extracts).IsVisible);
+        Assert.False(overlays.Single(layer => layer.Kind == MapOverlayKind.Spawns).IsVisible);
+        Assert.False(overlays.Single(layer => layer.Kind == MapOverlayKind.Keys).IsVisible);
+    }
+
     [Fact]
     public void PresentationKeepsOverlayLayersIndependentAndShowsAttribution()
     {
@@ -214,7 +242,10 @@ public sealed class TarkovDevMapTests
         Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.RiskAndTraffic).IsVisible);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Extracts).IsHighlighted);
         Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.Labels).IsVisible);
-        Assert.False(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.QuestObjectives).IsVisible);
+        // On by default now. The whole quest pipeline exists to draw this layer, and it used to
+        // arrive hidden behind a Layers expander that is itself collapsed — which is how a
+        // feature that was built, bound and working was reported as not existing.
+        Assert.True(changed.Overlays.Single(layer => layer.Kind == MapOverlayKind.QuestObjectives).IsVisible);
         Assert.Equal("Fixture Warehouse", Assert.Single(changed.VisibleOverlayElements).Label);
         Assert.Empty(changed.SetLayerVisibility(MapOverlayKind.Labels, false).VisibleOverlayElements);
         Assert.Empty(changed.SelectFloor("layer-1-underground").VisibleOverlayElements);

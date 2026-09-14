@@ -1334,7 +1334,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private QuestMapProjectionReadModel? _questProjection;
     private Bitmap? _backgroundImage;
     private string _status = "Loading the tarkov.dev map catalog…";
-    private string _questLayerStatus = "Quest layer is off";
+    private string _questLayerStatus = "Looking for quests on this map…";
     private long _questRefreshGeneration;
     private double _canvasWidth = 900;
     private double _canvasHeight = 620;
@@ -2821,7 +2821,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         var refreshGeneration = Interlocked.Increment(ref _questRefreshGeneration);
         if (_renderModel?.Overlays.SingleOrDefault(layer => layer.Kind == MapOverlayKind.QuestObjectives)?.IsVisible != true)
         {
-            ClearQuestLayer("Quest layer is off. Enable it to show static active or pinned objectives.");
+            ClearQuestLayer("Quest objectives are hidden. Turn the layer back on under Layers to mark them.");
             return;
         }
 
@@ -2877,9 +2877,14 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             UpdateQuestGeometry();
             var exactCount = _questProjection.Objectives.Count(objective => objective.HasExactGeometry);
             var associationCount = _questProjection.Objectives.Count - exactCount;
-            QuestLayerStatus = _questProjection.UnavailableReason ?? (_renderModel?.CanRender == true
-                ? $"Quests · {exactCount} placed · {associationCount} roughly"
-                : $"No artwork · {exactCount} placed quests hidden · {associationCount} roughly");
+            // Nought and nought is not a count, it is an absence, and printing it as a count
+            // reads as the layer having failed. Now that the layer is on by default this is the
+            // line most players see most of the time, so it says which of the two it is.
+            QuestLayerStatus = _questProjection.UnavailableReason ?? (exactCount + associationCount == 0
+                ? "No active or pinned quest has anything to do on this map"
+                : _renderModel?.CanRender == true
+                    ? $"Quests · {exactCount} placed · {associationCount} roughly"
+                    : $"No artwork · {exactCount} placed quests hidden · {associationCount} roughly");
             if (_questProjection.OrphanedProgress.Count > 0)
             {
                 QuestLayerStatus += $" · {_questProjection.OrphanedProgress.Count} orphaned";
