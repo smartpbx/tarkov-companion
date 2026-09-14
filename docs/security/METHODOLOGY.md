@@ -96,13 +96,16 @@ independent things, and says which of the three actually holds for that boundary
 
 1. **The pattern-level static control** — `scripts/audit-safety.sh`, which greps `src/` and the
    `.props` files for named forbidden APIs and packages (`OpenProcess`, `SendInput`,
-   `SharpPcap`, …) and runs in `ci.yml` and `windows-verify.yml` on every push. This catches a
+   `SharpPcap`, …) and runs in `ci.yml` and `windows-verify.yml` for configured pushes to `main`,
+   tags (Windows verification), pull requests targeting `main`, and manual dispatch where
+   configured. This catches a
    literal reintroduction of a forbidden call; it does not catch a boundary violated through a
    pattern the list doesn't name.
 2. **The architectural boundary** — whether the layering in `docs/ARCHITECTURE.md` (Core has no
    platform dependency; Windows P/Invoke lives only in `Platform.Windows`; the strategy engine
-   consumes only static/public inputs) makes the violation structurally awkward to write, not
-   just currently absent.
+   consumes static/public zones, elapsed time, raid duration, and the player's own
+   screenshot-derived last-known position, never enemy-observation input) makes the violation
+   structurally awkward to write, not just currently absent.
 3. **What was actually read** — for each boundary, which files this pass read to confirm the
    absence, so a future reviewer can tell a verified absence from an unchecked one.
 

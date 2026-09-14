@@ -70,10 +70,12 @@ passing CI run is separate automated evidence and proves only what its named pat
 ## 6. No live enemy tracking, ESP, or radar
 
 - **Pattern control:** none; this is an evidence/data-model/UI boundary.
-- **Current architecture/source:** the strategy engine consumes static/public inputs and has no
-  live-enemy observation contract. Group state describes members of the voluntarily shared room,
-  not detected enemies. Historical/modelled traffic remains allowed only when it is sourced,
-  timestamped, covered, confidence-bearing, versioned, and presented as non-live.
+- **Current architecture/source:** the strategy engine consumes static/public zones, elapsed raid
+  time, raid duration, and the player's own last-known screenshot-derived position to classify
+  current-area risk; it has no live-enemy observation contract. Group state describes members of
+  the voluntarily shared room, not detected enemies. Historical/modelled traffic remains allowed
+  only when it is sourced, timestamped, covered, confidence-bearing, versioned, and presented as
+  non-live.
 - **Separate current conflict:** `GroupSessionService` transmits a pruned subset of party-member
   log data. That is not live enemy tracking, but it conflicts with the current `docs/SAFETY.md`
   prohibition on transmitting other players' log-derived data and is OPEN as

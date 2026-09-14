@@ -12,20 +12,21 @@ conflicts; it does not make those findings safe by documenting them.
   fallback, and the distinct relay/Desktop update implementations.
 - `ASSETS_AND_ACTORS.md` — 14 assets and 12 actors, including a malicious/compromised relay
   operator and the actual local/in-process/network locations of the reusable group/admin keys.
-- `ABUSE_CASES.md` — 23 concrete cases covering all eleven named boundaries; seven have illustrative
+- `ABUSE_CASES.md` — 24 concrete cases covering all eleven named boundaries; seven have illustrative
   JSON fixtures under `tests/security/fixtures/`.
-- `CONTROLS_AND_RESIDUAL_RISK.md` — 15 open and three closed findings. Every open finding has an
-  explicit Accept/Mitigate/Defer disposition. Five High findings remain open with required
+- `CONTROLS_AND_RESIDUAL_RISK.md` — 16 open and three closed findings. Every open finding has an
+  explicit Accept/Mitigate/Defer disposition. Six High findings remain open with required
   mitigation: room-key guessing, undetectable display-name impersonation, cleartext/receiver key
-  disclosure, release-channel trust, and the current relay transmission of log-derived party data
-  contrary to `docs/SAFETY.md`.
+  disclosure, release-channel trust, current relay transmission of log-derived party data contrary
+  to `docs/SAFETY.md`, and incomplete report redaction that can transmit paths/coordinates.
 - `ANTI_CHEAT_REVIEW.md` — all eight immutable boundaries reviewed against current source, with
   lexical checks described as partial tripwires rather than certification.
 - `TBD_COMPONENTS.md` — eleven future components or material rebuilds, each saying whether source is
   absent or a current implementation is expected to change.
-- `README.md` — the progressive-disclosure product contract: full version-matched material is
-  reachable from Setup/Admin, while routine UI stays concise without hiding consent, outbound
-  data, auth state, active risk, failure, or evidence provenance.
+- `README.md` — the progressive-disclosure product contract: the full version-matched register is
+  reachable from Setup/Admin Data & Privacy, while routine UI stays concise without hiding active
+  consent, outbound data, auth/transport state, active security/failure state, destructive impact,
+  or decision-changing uncertainty/provenance.
 - `tests/security/` — seven valid illustrative JSON files. They are not wired to a test runner and
   are not represented as executed behavior.
 
@@ -38,7 +39,9 @@ conflicts; it does not make those findings safe by documenting them.
 2. **Mitigate and verify the open High findings.** Documentation is not mitigation. In
    particular, RISK-RELAY-OBSERVED-DATA-POLICY is a current source/current policy conflict and is
    release-blocking until product source stops the transmission or a separately authorized
-   policy decision changes the contract outside this worktree.
+   policy decision changes the contract outside this worktree. RISK-REPORT-REDACTION is likewise
+   release-blocking until #281/#310 verify a complete assembled/persisted report excludes default
+   paths, coordinate-bearing data, screenshot names, game logs, and credentials.
 3. **Implement and review v2-only boundaries.** Pairing/local gateway, rebuilt operator/report
    lifecycle, evidence envelopes, historical model snapshots, new recognition, and Setup/Admin
    disclosure cannot be threat-modeled as completed systems before their designs exist. Each row

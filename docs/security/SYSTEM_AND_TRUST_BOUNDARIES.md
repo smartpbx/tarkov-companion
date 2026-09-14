@@ -43,7 +43,7 @@ flowchart TB
     subgraph RelayHost["Group relay trust boundary — separately operated, internet-facing"]
         Relay["TarkovCompanion.GroupServer\nHTTP origin on 0.0.0.0:8090\noptionally reached through HTTPS tunnel"]
         RelayUpdater["systemd shell updater\ndeploy/group-server/tarkov-group-update.sh"]
-        RelayState[("rooms.json + marks.json + reports/*.md\nroom hashes; unbounded mark/report namespaces")]
+        RelayState[("rooms.json + marks.json + reports/*.md\nroom hashes; unbounded mark/report namespaces;\nuntrusted report bodies retained verbatim")]
         AdminKey[["TARKOV_RELAY_ADMIN_KEY\nenvironment + systemd override"]]
     end
 
@@ -99,9 +99,9 @@ flowchart TB
     Relay -- "catalog mirror; may serve held stale bytes on fetch failure" --> TDev
 
     Build --> GHRelease
-    Core -- "POST /report; effective 32 KiB Kestrel cap;\n3/derived-room/hour counter" --> Relay
+    Core -- "POST /report; user-submitted SupportBundle body;\ncurrent client redaction incomplete; effective 32 KiB cap;\n3/derived-room/hour counter" --> Relay
     Relay --> RelayState
-    RelayWatch -- "X-Admin-Key reads references;\nrepo token opens issues" --> Relay
+    RelayWatch -- "X-Admin-Key reads report metadata/references only;\nrepo token opens issues" --> Relay
     AdminBrowser -- "same-origin X-Admin-Key;\nmay be direct HTTP" --> Relay
 ```
 
@@ -136,8 +136,10 @@ lexical audit do—and do not—prove about this boundary.
 
 ### TB-2: Local filesystem/browser storage ↔ Desktop process
 
-Logs and screenshots are read as untrusted local inputs. The desktop writes SQLite raid/quest
-state, JSON profile/config, cache, and secret files under `%LOCALAPPDATA%\TarkovCompanion`.
+Logs and screenshots are read as untrusted local inputs. By default, the desktop writes SQLite
+raid/quest state, JSON profile/config, cache, and secret files under
+`%LOCALAPPDATA%\TarkovCompanion`; `portable.flag` selects install-adjacent `Data`, and application
+composition can provide an explicit data-root override.
 Screenshot cleanup defaults to enabled with 24-hour retention; it moves only matching game files
 to the recycle bin and retains the newest, but an unreadable/missing settings file also selects
 that enabled default. The reusable group key is deliberately stored
@@ -219,21 +221,29 @@ revocation; rotation changes the credential for all members.
 ### TB-8: Relay operator ↔ Relay
 
 `TARKOV_RELAY_ADMIN_KEY` is separate from group keys and is compared with
-`CryptographicOperations.FixedTimeEquals` (`RelayAdmin.cs`). It gates `/admin`, `/admin/rooms`,
-`/admin/update`, `/reports`, and `/reports/{reference}`. Missing configuration refuses access.
-The admin page keeps the value in tab-scoped `sessionStorage` and sends it to the same origin; a
-direct HTTP origin exposes it to an on-path LAN actor just like a group key.
+`CryptographicOperations.FixedTimeEquals` (`RelayAdmin.cs`). `GET /admin` is intentionally an
+unauthenticated, secret-free HTML shell: it contains no configured key or protected relay data,
+and it cannot perform an administrative action without a key supplied by the browser. The keyed
+operator APIs — `/admin/rooms`, `/admin/update`, `/reports`, and `/reports/{reference}` — enforce
+authorization; missing configuration refuses access to those APIs. The shell keeps a supplied key
+in tab-scoped `sessionStorage` and sends it to the same origin; a direct HTTP origin exposes it to
+an on-path LAN actor just like a group key.
 The expected operator is trusted for administration; ACT-11 separately models a malicious,
 compelled, or compromised operator/process with host/request-processing access.
 
 ### TB-9: Relay ↔ GitHub Actions problem-report flow
 
-The relay stores redacted report bodies locally and returns an opaque reference. `relay-watch.yml`
-uses the relay admin key to list those references and the GitHub-provisioned repository token to
-open issues. The relay itself holds no GitHub credential. The current three-per-derived-room/hour
-counter does not bound relay-wide abuse on an open relay: an anonymous caller can choose a new
-acceptable key, and therefore a fresh room bucket, repeatedly. Stored report files have no global
-count, TTL, or disk quota; RISK-REPORT-RATE-LIMIT is therefore open.
+The relay accepts and persists an untrusted client-supplied body verbatim, then returns an opaque
+reference. The client-side bundle is not reliably redacted today: `Observation.Detail` can carry
+raw roots, and the app-log tail can retain roots, screenshot filenames, and coordinates. This
+contradicts `docs/SAFETY.md`'s restriction on exporting diagnostic path segments and is open as
+RISK-REPORT-REDACTION; report-body access belongs to the keyed operator boundary TB-8, not Actions.
+`relay-watch.yml` uses the relay admin key only to list report reference, size, and received time,
+then uses the GitHub-provisioned repository token to open an issue containing that metadata. It
+never fetches a report body, and the relay itself holds no GitHub credential. The current
+three-per-derived-room/hour counter does not bound relay-wide abuse on an open relay: an anonymous
+caller can choose a new acceptable key, and therefore a fresh room bucket, repeatedly. Stored
+report files have no global count, TTL, or disk quota; RISK-REPORT-RATE-LIMIT is therefore open.
 
 ### TB-10: Build/release ↔ published and installed artifact
 
@@ -278,6 +288,7 @@ edits move them.
 | Desktop plaintext group-key persistence | `src/TarkovCompanion.Infrastructure/Settings/JsonFileGroupSettingsStore.cs:7-17,62-83` |
 | Accepted group transports / deployed HTTP origin | `src/TarkovCompanion.Application/Services/Group/GroupSharing.cs:55-109`; `deploy/group-server/tarkov-group.service:19-21` |
 | Desktop/tablet plaintext group-key requests | `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:213-221`; `src/TarkovCompanion.GroupServer/Tablet/index.html:125-173,690-719` |
+| Public admin shell / protected keyed operator APIs | `src/TarkovCompanion.GroupServer/Program.cs:536-541,547-557,580-588,623-631,647-656,667-674`; `src/TarkovCompanion.GroupServer/RelayAdmin.cs:24-40` |
 | Admin same-origin credential request | `src/TarkovCompanion.GroupServer/Admin/index.html:115-121,163-166` |
 | Relay plaintext parse then room hash | `src/TarkovCompanion.GroupServer/Program.cs:725-740`; `src/TarkovCompanion.GroupServer/GroupKey.cs:57-61` |
 | Full outgoing group-state shape | `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:553-598`; `src/TarkovCompanion.GroupServer/GroupContracts.cs:27-37,145-180` |
@@ -285,7 +296,9 @@ edits move them.
 | Silent stale catalog fallback | `src/TarkovCompanion.GroupServer/CatalogMirror.cs:151-157,184-206`; `src/TarkovCompanion.GroupServer/Program.cs:484-513` |
 | Desktop update adapter | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs:32-75,95-150` |
 | Relay update status versus deployed updater | `src/TarkovCompanion.GroupServer/RelayUpdate.cs:68-103`; `deploy/group-server/tarkov-group-update.sh:101-179` |
-| Report body/rate/storage bounds | `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193` |
+| Data-root selection | `src/TarkovCompanion.App/Services/AppDataPaths.cs:12-27`; `src/TarkovCompanion.App/Services/AppComposition.cs:50-72` |
+| Report bundle, redaction gap, rate/storage bounds | `src/TarkovCompanion.App/Services/Diagnostics/SupportBundle.cs:48-110`; `src/TarkovCompanion.Application/Services/Raids/RaidObservationService.cs`; `src/TarkovCompanion.App/Services/FileLoggerProvider.cs`; `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193`; `.github/workflows/relay-watch.yml` |
+| Relay member expiry | `src/TarkovCompanion.GroupServer/GroupRooms.cs:29,130-205`; `src/TarkovCompanion.GroupServer/Program.cs:132-148` |
 | Cross-room mark persistence | `src/TarkovCompanion.GroupServer/GroupMarks.cs:67-77,102-140,243-315` |
 | Profile/import/export surfaces | `src/TarkovCompanion.App/Services/AppComposition.cs:84-85,244-249`; `src/TarkovCompanion.Infrastructure/Profile/JsonFilePlayerProfileService.cs:89-119`; `src/TarkovCompanion.Infrastructure/Profile/ProjectQuestProgressJson.cs:16-180`; `src/TarkovCompanion.Infrastructure/Persistence/Repositories/SqliteRaidHistoryService.cs:333-364`; `src/TarkovCompanion.Application/Services/Runtime/RaidHistoryOutbox.cs:119-123` |
 | Lexical anti-cheat audit | `scripts/audit-safety.sh:5-33` |
@@ -304,6 +317,6 @@ See `ASSETS_AND_ACTORS.md` for the full asset taxonomy.
 | TB-6 Player ↔ Squadmate | Medium | Medium | Low |
 | TB-7 Player ↔ Tablet | High — reusable group key in browser storage | Medium | Low |
 | TB-8 Operator ↔ Relay | High — admin key and all retained reports | High | Medium |
-| TB-9 Relay ↔ Actions | Medium — report metadata/content boundary | Medium | Medium — unbounded retained queue today |
+| TB-9 Relay ↔ Actions | Low — report reference, size, and received time only | Medium | Medium — unbounded retained queue today |
 | TB-10 Build/release ↔ artifact | Low | Critical — supply chain | Medium |
 | TB-11 Import/export files ↔ Desktop | Personal profile/quest/raid content | Medium — stale or attacker-authored state | Low |

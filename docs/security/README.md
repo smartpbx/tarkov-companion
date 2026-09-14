@@ -32,12 +32,14 @@ reading the repository.
 
 Routine desktop and tablet workflows should use progressive disclosure: a concise statement of
 what is happening, with "why", source, and technical detail available on demand. Concision must
-never hide a consent choice, data leaving a device, pairing/authentication state, an active or
-deferred risk, the effective transport security, a degraded/failure state, or evidence provenance.
-Historical/modelled guidance
-must still show its source, data-through/generated timestamps, coverage, confidence, and model
-version and must never be styled as live. This PR records that product requirement; implementing
-the Setup/Admin surface remains future work listed in [TBD_COMPONENTS.md](TBD_COMPONENTS.md).
+never hide active consent, outbound-data scope, pairing/authentication plus effective transport,
+an active security/failure state, a destructive consequence, or decision-changing uncertainty and
+provenance. The complete accepted/deferred risk register must be clearly reachable, version-matched
+under Setup/Admin Data & Privacy; it need not be repeated in every routine workflow. Historical/
+modelled guidance must still show its source, data-through/generated timestamps, coverage,
+confidence, and model version and must never be styled as live. This PR records that product
+requirement; implementing the Setup/Admin surface remains future work listed in
+[TBD_COMPONENTS.md](TBD_COMPONENTS.md).
 
 ## Non-negotiable boundaries this document set assumes
 
