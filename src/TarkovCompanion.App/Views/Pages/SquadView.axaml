@@ -17,9 +17,17 @@
           <TextBlock Classes="sectionTitle" Text="Party" />
           <ScrollViewer Grid.Row="1">
             <StackPanel>
-              <TextBlock Classes="note"
-                         IsVisible="{Binding HasNoMembers}"
-                         Text="Nobody in your party yet." />
+              <StackPanel Spacing="8" IsVisible="{Binding HasNoMembers}">
+                <TextBlock Classes="note" Text="Nobody in your party yet." />
+                <!-- What fills it, and the one case where it will not. The game announces each
+                     member as they join and that announcement is the only source, so a party
+                     formed before the companion started is invisible until the next change:
+                     the startup replay recovers the raid and deliberately does not replay
+                     anybody's notifications through the observer. -->
+                <TextBlock Classes="caption"
+                           Text="It fills in when you queue with somebody. The game announces each member as they join, and that announcement is the only source — so a party that was already formed before this started appears at the next change to it rather than straight away."
+                           TextWrapping="Wrap" />
+              </StackPanel>
               <ItemsControl ItemsSource="{Binding Members}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:SquadMemberViewModel">
@@ -53,7 +61,28 @@
 
       <!-- What the page does not do is stated once, quietly, beside the party. It is the
            safety boundary in the player's terms, and it is worth a column rather than a
-           footnote because "where is the kill list" is the first question anyone asks. -->
+           footnote because "where is the kill list" is the first question anyone asks.
+
+           The comment said this and the column was empty, so the right third of the page was
+           blank at rest and the boundary was written down nowhere a player would read it. -->
+      <Border Grid.Column="1" Classes="panel">
+        <ScrollViewer>
+          <StackPanel Spacing="10">
+            <TextBlock Classes="sectionTitle" Text="What this cannot show" />
+            <TextBlock Classes="caption"
+                       Text="Your own party, and only what the game announces to you about it: who is in it, the kit a squadmate's game described, their level and their scav timer."
+                       TextWrapping="Wrap" />
+            <Border Classes="hairline" />
+            <TextBlock Classes="caption"
+                       Text="Nothing about anybody else. No other players, no scavs, no bosses — not where they are, not how many there are, not when one of them died. That is not a feature waiting to be written: reading live players out of the game is the line this application does not cross, and SAFETY.md is where it is written down."
+                       TextWrapping="Wrap" />
+            <Border Classes="hairline" />
+            <TextBlock Classes="caption"
+                       Text="The companion never reads the game's memory and never sends it input. Everything on this page comes out of files the game writes for its own reasons, read after it has written them."
+                       TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
     </Grid>
   </Grid>
 </UserControl>

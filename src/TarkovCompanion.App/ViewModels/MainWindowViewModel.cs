@@ -1536,8 +1536,17 @@ public sealed class HistoryPageViewModel : PageViewModel
     public IReadOnlyList<RaidHistoryEntryViewModel> Entries
     {
         get => _entries;
-        private set => SetProperty(ref _entries, value);
+        private set
+        {
+            if (SetProperty(ref _entries, value))
+            {
+                OnPropertyChanged(nameof(HasNoEntries));
+            }
+        }
     }
+
+    /// <summary>Whether there is nothing here yet, which is every fresh install.</summary>
+    public bool HasNoEntries => Entries.Count == 0;
 
     public string Status
     {
