@@ -436,11 +436,10 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     }
                 }
 
-                await RefreshQuestOrphansAsync(
-                    connection,
-                    transaction,
-                    provenance,
-                    cancellationToken).ConfigureAwait(false);
+                // Nothing is recorded here about progress the catalog no longer carries. It
+                // used to be, into quest_catalog_orphans, which nothing ever read: the Quests
+                // page answers the same question live, off the profile and the catalog that is
+                // actually loaded, and covers item holdings and pins as well. 0010 drops it.
             },
             cancellationToken).ConfigureAwait(false);
     }
@@ -642,69 +641,6 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 ("$rawJson", zone.RawSourceJson)).ConfigureAwait(false);
         }
     }
-
-    private static Task<int> RefreshQuestOrphansAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        QuestCatalogProvenance provenance,
-        CancellationToken cancellationToken) =>
-        ExecuteAsync(
-            connection,
-            transaction,
-            """
-            DELETE FROM quest_catalog_orphans WHERE source_mode = $sourceMode;
-
-            INSERT INTO quest_catalog_orphans(
-                source_mode, profile_id, entity_kind, external_id, recorded_value, detected_utc)
-            SELECT $sourceMode, progress.profile_id, 'task', progress.task_id, progress.status, $detectedUtc
-            FROM profile_task_progress AS progress
-            JOIN player_profiles AS profile ON profile.id = progress.profile_id
-            WHERE CASE lower(profile.game_mode)
-                    WHEN 'regular' THEN 'regular'
-                    WHEN 'pvp' THEN 'regular'
-                    WHEN 'pve' THEN 'pve'
-                    WHEN 'pvpseason' THEN 'pvp-season'
-                    WHEN 'pvp-season' THEN 'pvp-season'
-                    ELSE ''
-                  END = $sourceMode
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM quest_catalog_tasks AS task
-                  WHERE task.source_key = $sourceKey
-                    AND task.source_mode = $sourceMode
-                    AND task.language = $language
-                    AND task.id = progress.task_id
-              );
-
-            INSERT INTO quest_catalog_orphans(
-                source_mode, profile_id, entity_kind, external_id, recorded_value, detected_utc)
-            SELECT $sourceMode, progress.profile_id, 'objective', progress.objective_id,
-                   CAST(progress.count AS TEXT), $detectedUtc
-            FROM profile_objective_progress AS progress
-            JOIN player_profiles AS profile ON profile.id = progress.profile_id
-            WHERE CASE lower(profile.game_mode)
-                    WHEN 'regular' THEN 'regular'
-                    WHEN 'pvp' THEN 'regular'
-                    WHEN 'pve' THEN 'pve'
-                    WHEN 'pvpseason' THEN 'pvp-season'
-                    WHEN 'pvp-season' THEN 'pvp-season'
-                    ELSE ''
-                  END = $sourceMode
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM quest_catalog_objectives AS objective
-                  WHERE objective.source_key = $sourceKey
-                    AND objective.source_mode = $sourceMode
-                    AND objective.language = $language
-                    AND objective.id = progress.objective_id
-                    AND objective.is_failure_condition = 0
-              );
-            """,
-            cancellationToken,
-            ("$sourceKey", provenance.Source),
-            ("$sourceMode", provenance.SourceMode),
-            ("$language", provenance.Language),
-            ("$detectedUtc", FormatTimestamp(provenance.ValidatedUtc)));
 
     public async Task RefreshHideoutAsync(
         IReadOnlyDictionary<string, TarkovDevHideoutStation> data,

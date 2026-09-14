@@ -138,8 +138,21 @@ public sealed class QuestCatalogPersistenceTests
         Assert.Equal("Quest catalog contract", Assert.Single(loaded.Tasks).Name);
     }
 
+    /// <summary>
+    /// A catalog refresh never touches what the player has recorded.
+    /// </summary>
+    /// <remarks>
+    /// The half of this that mattered. It also counted rows in quest_catalog_orphans, a table
+    /// the refresh wrote and nothing read; 0010 drops it, because the Quests page answers the
+    /// same question live off the profile and the loaded catalog and covers item holdings and
+    /// pins besides. That the answer appears when the catalog loses a task and goes away when
+    /// it comes back is pinned end to end in QuestProgressPersistenceTests.
+    ///
+    /// What is left is the claim the orphan counting was only ever evidence for: progress
+    /// survives a refresh that does not know about it, and survives the refresh that does.
+    /// </remarks>
     [Fact]
-    public async Task CatalogRefreshTracksOrphansWithoutChangingProgressAndResolvesThemLater()
+    public async Task CatalogRefreshLeavesRecordedProgressAlone()
     {
         await using var database = await TestDatabase.CreateAsync();
         var json = await FixtureJson.ReadAsync("tasks-contract.json");
@@ -149,7 +162,6 @@ public sealed class QuestCatalogPersistenceTests
             ParseAndNormalize(json, GameMode.Regular),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, await CountAsync(database.Factory, "quest_catalog_orphans"));
         Assert.Equal(2, await CountAsync(database.Factory, "profile_task_progress"));
         Assert.Equal(2, await CountAsync(database.Factory, "profile_objective_progress"));
 
@@ -158,7 +170,6 @@ public sealed class QuestCatalogPersistenceTests
             ParseAndNormalize(expanded, GameMode.Regular),
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, await CountAsync(database.Factory, "quest_catalog_orphans"));
         Assert.Equal(2, await CountAsync(database.Factory, "profile_task_progress"));
         Assert.Equal(2, await CountAsync(database.Factory, "profile_objective_progress"));
     }
@@ -301,7 +312,6 @@ public sealed class QuestCatalogPersistenceTests
             "quest_catalog_snapshots",
             "quest_catalog_tasks",
             "quest_catalog_objectives",
-            "quest_catalog_orphans",
             "profile_task_progress",
             "profile_objective_progress",
         };

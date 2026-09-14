@@ -25,6 +25,10 @@ public sealed class SqliteMigrationTests
         "key_intelligence_overrides",
         "raid_positions",
         "raid_extracts",
+        // 0010. The Quests page answers "what progress does the catalog no longer carry" live,
+        // off the profile and the loaded catalog, and covers item holdings and pins as well;
+        // this table was a staler, narrower copy written on every sync and read by nothing.
+        "quest_catalog_orphans",
     ];
 
     [Fact]
@@ -39,7 +43,7 @@ public sealed class SqliteMigrationTests
             var first = await runner.ApplyAsync(CancellationToken.None);
             var second = await runner.ApplyAsync(CancellationToken.None);
 
-            Assert.Equal(9, first.Applied.Count);
+            Assert.Equal(10, first.Applied.Count);
             Assert.Empty(second.Applied);
             await using var connection = new SqliteConnection($"Data Source={databasePath}");
             await connection.OpenAsync();
@@ -135,6 +139,7 @@ public sealed class SqliteMigrationTests
                     "0007_drop_superseded_tables",
                     "0008_loot_containers",
                     "0009_drop_unread_map_tables",
+                    "0010_drop_quest_catalog_orphans",
                 ],
                 applied.Applied);
             await using var verification = await factory.OpenAsync(CancellationToken.None);
@@ -149,8 +154,6 @@ public sealed class SqliteMigrationTests
             verifyCommand.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scan_history') WHERE name = 'diagnostic_code';";
             Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
 
-            verifyCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'quest_catalog_orphans';";
-            Assert.Equal(1L, await verifyCommand.ExecuteScalarAsync());
 
             // An upgraded database loses them too, and the profile rows above survived it,
             // which is the half that would matter if any of them had ever held anything.

@@ -34,9 +34,19 @@ trader_offers        #139-Next-1   reader approved, not yet built
 # This is the sweep reporting exactly what it was built to report and the answer being "keep".
 tasks                #174          parent of task_objectives, which is read; FK, cannot drop
 item_categories      #174          parent of item_category_membership, which is read; FK, cannot drop
+# Surfaced by 0010 dropping quest_catalog_orphans, whose refresh carried the only live
+# JOIN player_profiles in the codebase. The same case again, and the clearest example of it:
+# the active profile is read from a JSON file, not from here, so nothing selects this table at
+# all. It exists because profile_task_progress, profile_objective_progress and raids all
+# reference it, and SqliteRaidHistoryService inserts a row before every raid for exactly that
+# reason -- an INSERT ... ON CONFLICT DO NOTHING whose only job is to make the foreign key hold.
+player_profiles      #174          parent of profile progress and raids, which are read; FK, cannot drop
 # task_objectives and task_objective_items are NOT here: the sweep says they are read, and
 # listing them failed the stale check, which is the ratchet working in the other direction.
 #
-# This one is genuinely unreferenced, and the answer is to read it rather than drop it: an
-# import that silently discards entries is worth a line somebody can see.
-quest_catalog_orphans #174         the import records what it refused and nothing shows it
+# quest_catalog_orphans is NOT here any more: 0010 drops it. #174 proposed reading it, on the
+# grounds that an import which silently discards entries is worth a line somebody can see. That
+# line already existed -- the Quests page's "Orphaned progress", computed live by
+# QuestTrackingServices.BuildOrphans from the profile and the loaded catalog, covering item
+# holdings and pins as well as tasks and objectives. The table was a staler, narrower copy of
+# an answer already on screen.
