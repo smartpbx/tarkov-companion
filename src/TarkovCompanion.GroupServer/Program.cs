@@ -23,6 +23,17 @@ builder.Services.AddSingleton(provider => new GroupMarks(
 builder.Services.AddSingleton(provider => new GroupRoomRegistry(
     provider.GetRequiredService<TimeProvider>(),
     StorePath("rooms.json")));
+// Which build is on the box against which build is published, and the file that asks for the
+// difference. Its own client: GitHub being slow must not hold up the panel, let alone the group
+// exchange this server mainly exists for.
+builder.Services.AddHttpClient(RelayUpdate.HttpClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
+});
+builder.Services.AddSingleton(provider => new RelayUpdate(
+    StateDirectory(),
+    provider.GetRequiredService<IHttpClientFactory>().CreateClient(RelayUpdate.HttpClientName)));
 
 // Where the squad's marks are kept, or null to hold them in memory as before.
 //
@@ -33,18 +44,22 @@ builder.Services.AddSingleton(provider => new GroupRoomRegistry(
 // test and every local run gets.
 static string? MarksStorePath() => StorePath("marks.json");
 
-/// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>
-static string? StorePath(string fileName)
+/// <summary>Where this deployment keeps state, or null when it keeps none.</summary>
+static string? StateDirectory()
 {
     if (Environment.GetEnvironmentVariable("TARKOV_GROUP_STATE") is { Length: > 0 } explicitPath)
     {
-        return Path.Combine(explicitPath, fileName);
+        return explicitPath;
     }
 
     return Environment.GetEnvironmentVariable("STATE_DIRECTORY") is { Length: > 0 } stateDirectory
-        ? Path.Combine(stateDirectory.Split(':')[0], fileName)
+        ? stateDirectory.Split(':')[0]
         : null;
 }
+
+/// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>
+static string? StorePath(string fileName) =>
+    StateDirectory() is { } directory ? Path.Combine(directory, fileName) : null;
 // One copy of the game-data catalog for the whole group, instead of five clients each pulling
 // several megabytes of the same answer. Its own client, with its own timeout, because a slow
 // upstream must not hold up the group exchange this server mainly exists for.
@@ -555,6 +570,46 @@ app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResul
 
     rooms.Clear(room);
     return TypedResults.Ok();
+});
+
+// Which build this relay is on against the one that is published.
+//
+// The relay has updated itself every half hour for a while and could say nothing about it. A
+// relay running an old build looked exactly like one running the newest, and one that installed
+// a build, failed its health check and rolled back looked like both — the updater records the
+// refusal so it does not loop, and nothing surfaced it.
+app.MapGet("/admin/update", async Task<Results<Ok<RelayUpdateState>, UnauthorizedHttpResult>> (
+    HttpRequest request,
+    RelayUpdate update,
+    TimeProvider timeProvider,
+    CancellationToken cancellationToken) =>
+{
+    if (!RelayAdmin.IsAuthorised(request))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    return TypedResults.Ok(await update.ReadAsync(timeProvider, cancellationToken).ConfigureAwait(false));
+});
+
+// Asks for one now rather than at the next tick.
+//
+// A file, not a command. This process runs unprivileged and must not be able to run one: it
+// writes a marker in the state directory it already owns, and tarkov-group-update.path turns
+// that into the same update the timer runs. The button is the timer's own path, half an hour
+// early, with no new privilege anywhere.
+app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, UnauthorizedHttpResult> (
+    HttpRequest request,
+    RelayUpdate update) =>
+{
+    if (!RelayAdmin.IsAuthorised(request))
+    {
+        return TypedResults.Unauthorized();
+    }
+
+    return update.Request()
+        ? TypedResults.Ok(new RelayUpdateState(null, null, null, true, true, "Asked for. The relay restarts if there is a newer build."))
+        : TypedResults.BadRequest("This relay cannot be asked to update: it has no writable state directory.");
 });
 
 app.Run();

@@ -1,0 +1,15 @@
+[Unit]
+Description=Update the group relay when its panel asks for one
+# The relay runs unprivileged and cannot start a unit. It can write one file, in the state
+# directory it already owns, and this is what turns that file into an update -- so the panel's
+# button is worth pressing rather than being a thirty-minute wait with extra steps.
+#
+# The update script removes the marker before it does anything, which is what stops this
+# retriggering the moment the service finishes.
+
+[Path]
+PathExists=/var/lib/tarkov-group/UPDATE_NOW
+Unit=tarkov-group-update.service
+
+[Install]
+WantedBy=multi-user.target

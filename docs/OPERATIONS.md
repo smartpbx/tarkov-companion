@@ -85,6 +85,16 @@ The list is `rooms.json` in the relay's state directory (`/var/lib/tarkov-group`
 outside the tree the updater replaces, so it survives the half-hourly update. Deleting that file
 reopens the relay; it never locks anybody out permanently.
 
+The page also says which build is running against which is published, including the case worth
+catching: a build that installed, failed its health check and was rolled back is recorded in
+`REFUSED_SHA256` and not retried until a newer one is published, so a relay stuck behind for
+that reason used to look exactly like one that was up to date.
+
+**Update now** writes `UPDATE_NOW` in the state directory. `tarkov-group-update.path` watches
+for it and runs the same update the timer runs — the relay runs unprivileged and cannot start a
+unit itself. If that path unit is not installed the button still works, in the sense that the
+next timer tick picks the file up; it is just no longer immediate.
+
 A report carries no game logs, no group key, no screenshots and no coordinates; user folder
 names are replaced. It does carry the *shape* of the player's screenshot names, with every
 digit masked, which is the thing that usually settles why somebody has no position.

@@ -10,10 +10,17 @@ few seconds and a restart costs everybody one blink.
 install -m 0755 tarkov-group-update.sh /opt/tarkov-group-update.sh
 install -m 0644 tarkov-group-update.service /etc/systemd/system/
 install -m 0644 tarkov-group-update.timer   /etc/systemd/system/
+install -m 0644 tarkov-group-update.path    /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now tarkov-group-update.timer
+systemctl enable --now tarkov-group-update.path
 systemctl start tarkov-group-update.service   # fetch the current build now
 ```
+
+The `.path` unit is what makes the panel's **Update now** button do anything. The relay runs
+unprivileged and cannot start a unit; it writes `UPDATE_NOW` in its state directory, and this
+watches for that file and runs the same update the timer runs. Without it the button writes a
+file nothing reads, and the update still happens — at the next tick, up to half an hour later.
 
 The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.GroupServer` with
 `ASPNETCORE_URLS=http://0.0.0.0:8090`. It takes no configuration: since the group key became
@@ -21,9 +28,8 @@ the room, the server holds no secrets and there is nothing to set.
 
 ## Updating
 
-It updates itself, every half hour, and that is the point. There is no interface to log into
-and no button to press, so a relay that could not fetch its own builds would simply fall behind
-the desktop client. That matters because the two speak a protocol: when the group key replaced
+It updates itself, every half hour, and that is the point: a relay that could not fetch its own
+builds would simply fall behind the desktop client. That matters because the two speak a protocol: when the group key replaced
 a room and a server-side secret, a client that had updated could not talk to a server that had
 not.
 
@@ -38,6 +44,11 @@ The update is arranged so a failure leaves the service on the build it was alrea
 A stamp file records the checksum in place, so a timer that fires every half hour does nothing
 at all unless the published build actually changed. Without it every member would disappear and
 reappear twice an hour for no reason.
+
+A build that installed, failed its health check and was rolled back is written to
+`REFUSED_SHA256` and not retried until a newer one is published. That is the right behaviour and
+it used to be invisible: a relay stuck behind for that reason looked exactly like one that was
+up to date. The panel reads both files and says which it is.
 
 ## Why wget and not curl
 
