@@ -30,7 +30,11 @@ param(
 
     [int] $ShutdownTimeoutSeconds = 45,
 
-    [string] $LocalDataRoot = (Join-Path $env:LOCALAPPDATA "TarkovCompanion")
+    [string] $LocalDataRoot = (Join-Path $env:LOCALAPPDATA "TarkovCompanion"),
+
+    # The workflow owns the build number.  Check the unpacked package metadata before launch so
+    # the executable, zip and installer cannot silently describe different builds.
+    [string] $ExpectedVersion = ""
 )
 
 Set-StrictMode -Version Latest
@@ -116,15 +120,38 @@ function Expand-DesktopResolution {
     }
 }
 
-function Save-PrimaryScreenImage {
-    param([string] $Path)
+function Save-WindowImage {
+    param([string] $Path, [IntPtr] $WindowHandle)
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 
-    $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    if (-not ("TarkovCompanionWindowBounds" -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class TarkovCompanionWindowBounds {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+}
+"@
+    }
+
+    $Rect = New-Object TarkovCompanionWindowBounds+RECT
+    if (-not [TarkovCompanionWindowBounds]::GetWindowRect($WindowHandle, [ref] $Rect)) {
+        throw "Could not read the companion window bounds."
+    }
+
+    $VirtualScreen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    $Left = [Math]::Max($Rect.Left, $VirtualScreen.Left)
+    $Top = [Math]::Max($Rect.Top, $VirtualScreen.Top)
+    $Right = [Math]::Min($Rect.Right, $VirtualScreen.Right)
+    $Bottom = [Math]::Min($Rect.Bottom, $VirtualScreen.Bottom)
+    $Bounds = New-Object System.Drawing.Rectangle $Left, $Top, ($Right - $Left), ($Bottom - $Top)
     if ($Bounds.Width -le 0 -or $Bounds.Height -le 0) {
-        throw "The session reports an empty virtual screen ($($Bounds.Width)x$($Bounds.Height))."
+        throw "The companion window is outside the visible desktop."
     }
 
     $Bitmap = New-Object System.Drawing.Bitmap $Bounds.Width, $Bounds.Height
@@ -145,7 +172,35 @@ function Save-PrimaryScreenImage {
         $Bitmap.Dispose()
     }
 
-    return "$($Bounds.Width)x$($Bounds.Height)"
+    return "$($Bounds.Width)x$($Bounds.Height) cropped companion window"
+}
+
+function Get-PackageIdentity {
+    param([string] $PackageDirectory)
+
+    $BuildInfoPath = Join-Path $PackageDirectory "BUILD_INFO.txt"
+    if (-not (Test-Path -LiteralPath $BuildInfoPath)) {
+        throw "The extracted package does not contain BUILD_INFO.txt."
+    }
+
+    $Values = @{}
+    foreach ($Line in Get-Content -LiteralPath $BuildInfoPath -ErrorAction Stop) {
+        if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') {
+            $Values[$Matches.key] = $Matches.value
+        }
+    }
+
+    foreach ($Key in @("version", "commit", "built_utc")) {
+        if ([string]::IsNullOrWhiteSpace($Values[$Key])) {
+            throw "BUILD_INFO.txt has no '$Key' value."
+        }
+    }
+
+    return [ordered]@{
+        version = $Values.version
+        commit = $Values.commit
+        builtUtc = $Values.built_utc
+    }
 }
 
 # Done before the application starts so it lays out for the larger desktop rather
@@ -168,6 +223,7 @@ $ExitCode = $null
 $GracefulClose = $false
 $ScreenGeometry = $null
 $Session = [ordered]@{}
+$PackageIdentity = $null
 $Success = $false
 
 try {
@@ -178,6 +234,11 @@ try {
         userInteractive = [System.Environment]::UserInteractive
         userName = [System.Environment]::UserName
         packageDirectory = $PackageDirectory
+    }
+    $PackageIdentity = Get-PackageIdentity -PackageDirectory $PackageDirectory
+    Add-Observation -Name "package-identity" -Passed ($ExpectedVersion.Length -eq 0 -or $PackageIdentity.version -ceq $ExpectedVersion) -Detail "Package version is '$($PackageIdentity.version)'."
+    if ($ExpectedVersion.Length -gt 0 -and $PackageIdentity.version -cne $ExpectedVersion) {
+        throw "Expected package version '$ExpectedVersion', but BUILD_INFO.txt says '$($PackageIdentity.version)'."
     }
 
     $Process = Start-Process -FilePath $ResolvedAppPath `
@@ -249,7 +310,7 @@ try {
     Add-Observation -Name "window-responding" -Passed ($Unresponsive -eq 0) -Detail "Unresponsive samples: $Unresponsive." -Required:$false
 
     try {
-        $ScreenGeometry = Save-PrimaryScreenImage -Path $ScreenshotPath
+        $ScreenGeometry = Save-WindowImage -Path $ScreenshotPath -WindowHandle $Process.MainWindowHandle
         Add-Observation -Name "screenshot" -Passed $true -Detail "Captured $ScreenGeometry desktop to $ScreenshotPath. Display: $DesktopGeometry." -Required:$false
     }
     catch {
@@ -312,8 +373,8 @@ finally {
     Add-Observation -Name "local-data-written" `
         -Passed ($DataAfter.fileCount -gt $DataBefore.fileCount -or $DataAfter.totalBytes -gt $DataBefore.totalBytes) `
         -Detail "Local data grew from $($DataBefore.fileCount) file(s)/$($DataBefore.totalBytes) byte(s) to $($DataAfter.fileCount) file(s)/$($DataAfter.totalBytes) byte(s)." `
-        -Required:$false
-    Add-Observation -Name "database-created" -Passed ($DatabaseBytes -gt 0) -Detail "SQLite database is $DatabaseBytes byte(s)." -Required:$false
+        -Required:$true
+    Add-Observation -Name "database-created" -Passed ($DatabaseBytes -gt 0) -Detail "SQLite database is $DatabaseBytes byte(s)." -Required:$true
 
     $StandardOutput = ""
     if (Test-Path -LiteralPath $StandardOutputPath) {
@@ -329,14 +390,15 @@ finally {
         schemaVersion = 1
         generatedUtc = [DateTimeOffset]::UtcNow.ToString("O")
         success = $Success
-        appPath = $ResolvedAppPath
+        appPath = "package/TarkovCompanion.exe"
+        packageIdentity = $PackageIdentity
         session = $Session
         window = [ordered]@{
             appearedAfterSeconds = $WindowSeconds
             title = $WindowTitle
             observedSeconds = $ObserveSeconds
             screenGeometry = $ScreenGeometry
-            screenshotPath = $ScreenshotPath
+            screenshotPath = (Split-Path -Leaf $ScreenshotPath)
         }
         shutdown = [ordered]@{
             gracefulRequestAccepted = $GracefulClose
@@ -344,16 +406,18 @@ finally {
             exitCode = $ExitCode
         }
         localData = [ordered]@{
-            root = $LocalDataRoot
+            root = "redacted"
             before = $DataBefore
             after = $DataAfter
             databaseBytes = $DatabaseBytes
         }
-        standardOutput = $StandardOutput
-        standardError = $StandardError
+        # Console output may contain a runner path. The lifecycle/error evidence is copied by
+        # the workflow separately, so do not embed unredacted process streams in JSON.
+        standardOutputLength = $StandardOutput.Length
+        standardErrorLength = $StandardError.Length
         observations = $Observations
         errors = $Errors
-        workRoot = $WorkRoot
+        workRoot = "redacted"
     }
 
     $ResolvedOutputPath = [System.IO.Path]::GetFullPath($OutputPath)

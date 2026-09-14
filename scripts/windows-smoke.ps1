@@ -32,6 +32,9 @@ $Errors = [System.Collections.Generic.List[string]]::new()
 $StartedProcesses = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $PreviousDiagnosticToken = $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN
 $PreviousOffline = $env:TARKOV_COMPANION_OFFLINE
+$DemoDataRoot = Join-Path (Join-Path $env:LOCALAPPDATA "TarkovCompanion") "Demo"
+$PersistenceBeforeScans = $null
+$PersistenceAfterScans = $null
 
 function Add-Assertion {
     param(
@@ -66,6 +69,52 @@ function Wait-Path {
         }
 
         Start-Sleep -Milliseconds 100
+    }
+}
+
+# The command directory exists before the application's asynchronous initialization has
+# completed.  Waiting for a real SQLite file is the readiness boundary: it proves the
+# composition root has initialized persistence, rather than relying on an arbitrary delay.
+function Wait-DatabaseReady {
+    param(
+        [string] $Root,
+        [int] $TimeoutSeconds = 90
+    )
+
+    $DatabasePath = Join-Path $Root "Database\tarkov-companion.db"
+    Wait-Path -Path $DatabasePath -TimeoutSeconds $TimeoutSeconds
+    if ((Get-Item -LiteralPath $DatabasePath).Length -le 0) {
+        throw "The application created an empty database at $DatabasePath."
+    }
+
+    return $DatabasePath
+}
+
+# A completed diagnostic scan is awaited through RaidActivityCoordinator before its response is
+# written.  Record a bounded, path-free fingerprint of its data directory on both sides so the
+# smoke report proves that the scan changed persistent state without uploading runner paths.
+function Get-DirectoryFingerprint {
+    param([string] $Root)
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        return [ordered]@{ exists = $false; fileCount = 0; bytes = 0; newestUtc = $null }
+    }
+
+    $Files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction Stop)
+    $Bytes = 0L
+    $Newest = $null
+    foreach ($File in $Files) {
+        $Bytes += $File.Length
+        if ($null -eq $Newest -or $File.LastWriteTimeUtc -gt $Newest) {
+            $Newest = $File.LastWriteTimeUtc
+        }
+    }
+
+    return [ordered]@{
+        exists = $true
+        fileCount = $Files.Count
+        bytes = $Bytes
+        newestUtc = if ($null -eq $Newest) { $null } else { $Newest.ToString("O") }
     }
 }
 
@@ -147,7 +196,13 @@ try {
     $DiagnosticToken = [Guid]::NewGuid().ToString("N") + [Guid]::NewGuid().ToString("N")
     $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN = $DiagnosticToken
 
+    # Demo mode composes the production UI and persistence path with its deterministic fixture
+    # adapter.  A normal developer launch legitimately has no visible EFT window to capture and
+    # therefore reports scan-unavailable; a recognition-required fixture must not quietly pass
+    # in that state.
     $AppProcess = Start-Process -FilePath $ResolvedAppPath -ArgumentList @(
+        "--demo",
+        "--page", "Scanner",
         "--developer-mode",
         "--diagnostic-channel", ('"{0}"' -f $ChannelRoot)
     ) -PassThru
@@ -155,6 +210,9 @@ try {
     $StartedProcesses.Add($AppProcess)
     Wait-Path -Path (Join-Path $ChannelRoot "commands")
     Add-Assertion -Name "developer-app-process" -Passed (-not $AppProcess.HasExited) -Detail "PID $($AppProcess.Id) is running."
+    $DemoDatabase = Wait-DatabaseReady -Root $DemoDataRoot
+    Add-Assertion -Name "demo-persistence-ready" -Passed (Test-Path -LiteralPath $DemoDatabase) -Detail "The demo composition initialized its SQLite database."
+    $PersistenceBeforeScans = Get-DirectoryFingerprint -Root $DemoDataRoot
 
     for ($Index = 0; $Index -lt $Scenarios.Count; $Index++) {
         $Scenario = $Scenarios[$Index]
@@ -180,10 +238,20 @@ try {
         $ScenarioResponse = Send-DiagnosticCommand -ChannelRoot $ChannelRoot -Id ("scenario-" + $Index) -Command "scenario" -Token $DiagnosticToken -Scenario $Scenario
         Add-Assertion -Name ("diagnostic-scenario-" + $Scenario) -Passed ([bool]$ScenarioResponse.accepted) -Detail $ScenarioResponse.event
         $ScanResponse = Send-DiagnosticCommand -ChannelRoot $ChannelRoot -Id ("scan-" + $Index) -Command "scan" -Token $DiagnosticToken -Scenario $null
-        Add-Assertion -Name ("diagnostic-scan-" + $Scenario) -Passed ([bool]$ScanResponse.accepted) -Detail $ScanResponse.event
+        Add-Assertion -Name ("diagnostic-scan-accepted-" + $Scenario) -Passed ([bool]$ScanResponse.accepted) -Detail $ScanResponse.event
+        Add-Assertion -Name ("diagnostic-scan-available-" + $Scenario) -Passed ([bool]$ScanResponse.scan.isAvailable) -Detail "A required recognition fixture may not pass as unavailable."
+        Add-Assertion -Name ("diagnostic-scan-completed-" + $Scenario) -Passed ($ScanResponse.event -ceq "scan-completed" -and [bool]$ScanResponse.scan.succeeded) -Detail "Expected a completed deterministic scan, got '$($ScanResponse.event)'."
+        Add-Assertion -Name ("diagnostic-scan-item-" + $Scenario) -Passed (-not [string]::IsNullOrWhiteSpace([string]$ScanResponse.scan.itemName)) -Detail "The scan response contains a rendered-result item identity."
+        Add-Assertion -Name ("diagnostic-scan-source-" + $Scenario) -Passed ($ScanResponse.scan.source -ceq "demo-fixture") -Detail "Expected the deterministic demo fixture source."
 
         Stop-StartedProcess -Process $SimulatorProcess
     }
+
+    $PersistenceAfterScans = Get-DirectoryFingerprint -Root $DemoDataRoot
+    $PersistenceChanged = $PersistenceAfterScans.fileCount -gt $PersistenceBeforeScans.fileCount -or
+        $PersistenceAfterScans.bytes -gt $PersistenceBeforeScans.bytes -or
+        $PersistenceAfterScans.newestUtc -ne $PersistenceBeforeScans.newestUtc
+    Add-Assertion -Name "scan-persisted" -Passed $PersistenceChanged -Detail "Completed fixture scans changed the demo persistence fingerprint."
 
     Stop-StartedProcess -Process $AppProcess
 
@@ -226,9 +294,15 @@ finally {
             "no Escape from Tarkov installation required"
         )
         scenarios = $Scenarios
+        persistence = [ordered]@{
+            beforeScans = if ($null -eq $PersistenceBeforeScans) { $null } else { $PersistenceBeforeScans }
+            afterScans = if ($null -eq $PersistenceAfterScans) { $null } else { $PersistenceAfterScans }
+        }
         assertions = $Assertions
         errors = $Errors
-        workRoot = $WorkRoot
+        # The artifact must be portable: a hosted-runner temp path is neither evidence nor
+        # safe to publish. The caller already knows its selected report location.
+        workRoot = "redacted"
     }
 
     $ResolvedOutputPath = [System.IO.Path]::GetFullPath($OutputPath)

@@ -303,6 +303,7 @@ jobs:
         run: |
           ./scripts/windows-launch-probe.ps1 `
             -AppPath $env:TC_APP `
+            -ExpectedVersion "1.0.${{ github.run_number }}" `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
@@ -462,7 +463,8 @@ jobs:
           path: verification/**
           if-no-files-found: warn
 
-      # The gate, and deliberately ahead of every publish step.
+      # The gate is deliberately after evidence upload. This workflow contains no release
+      # publication: release ownership lives in its dedicated child workflow.
       #
       # Each verification above is continue-on-error, so it records its result and lets the
       # job carry on. That meant the job's own success() was still true when the release was
@@ -487,6 +489,18 @@ jobs:
           $Lines = @("| Verification | Outcome |", "| --- | --- |")
           foreach ($Name in $Steps.Keys) {
             $Lines += "| $Name | $($Steps[$Name]) |"
+          }
+          $Lines += ""
+          $Lines += "Evidence: [windows-verification artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) · page gallery, cropped launch probe, smoke assertions, timings, and failure diagnostics."
+          $LaunchReport = Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json"
+          if (Test-Path -LiteralPath $LaunchReport) {
+            $Launch = Get-Content -LiteralPath $LaunchReport -Raw | ConvertFrom-Json
+            $Lines += "Time to interactive: $($Launch.window.appearedAfterSeconds)s · shutdown: $($Launch.shutdown.windowClosedAfterSeconds)s."
+          }
+          $SmokeReport = Join-Path $env:GITHUB_WORKSPACE "verification/windows-smoke.json"
+          if (Test-Path -LiteralPath $SmokeReport) {
+            $Smoke = Get-Content -LiteralPath $SmokeReport -Raw | ConvertFrom-Json
+            $Lines += "Simulator state assertions: $(@($Smoke.assertions | Where-Object { $_.passed }).Count)/$(@($Smoke.assertions).Count) passed."
           }
           ($Lines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
@@ -527,7 +541,8 @@ jobs:
           if-no-files-found: error
 
 
-  # Publishing, and nothing else. It needs the write token, so it is the only job that has one
+  # Kept disabled temporarily so the release child can take over without a gap in reviewable
+  # history. It has no write token and cannot run; #279 never publishes a package or a feed.
   # and it does not run for a pull request — a PR run therefore has no step that could publish
   # and no token that could, which is what "structurally cannot" means here.
   #
@@ -537,13 +552,13 @@ jobs:
   # A failure here leaves the previous dev release whole. Nothing is deleted before the new
   # assets are uploaded and the two feed files are written last, so the worst case is that dev
   # does not advance — visible, and fixed by re-running.
-  publish:
+  release-handoff-disabled:
     needs: windows-verify
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
     steps:
       # Velopack turns the verified publish directory into an installer plus a delta feed.
       #

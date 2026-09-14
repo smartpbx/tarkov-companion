@@ -75,7 +75,7 @@ param(
 
     [int] $WindowTimeoutSeconds = 90,
 
-    [int] $SettleSeconds = 4,
+    [int] $ReadinessTimeoutSeconds = 30,
 
     # A warning matching this is a failure. A property that does not exist, a value
     # that will not convert, a resource that cannot be found: each is a page asking
@@ -103,14 +103,41 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 function Save-ScreenImage {
-    param([string] $Path)
+    param([string] $Path, [IntPtr] $WindowHandle)
 
     $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
-    $Bitmap = New-Object System.Drawing.Bitmap $Bounds.Width, $Bounds.Height
+    if (-not ("TarkovCompanionGalleryBounds" -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class TarkovCompanionGalleryBounds {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+}
+"@
+    }
+
+    $Rect = New-Object TarkovCompanionGalleryBounds+RECT
+    if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $Rect)) {
+        throw "Could not read the companion window bounds."
+    }
+
+    $Left = [Math]::Max($Rect.Left, $Bounds.Left)
+    $Top = [Math]::Max($Rect.Top, $Bounds.Top)
+    $Right = [Math]::Min($Rect.Right, $Bounds.Right)
+    $Bottom = [Math]::Min($Rect.Bottom, $Bounds.Bottom)
+    $WindowBounds = New-Object System.Drawing.Rectangle $Left, $Top, ($Right - $Left), ($Bottom - $Top)
+    if ($WindowBounds.Width -le 0 -or $WindowBounds.Height -le 0) {
+        throw "The companion window is outside the visible desktop."
+    }
+
+    $Bitmap = New-Object System.Drawing.Bitmap $WindowBounds.Width, $WindowBounds.Height
     try {
         $Graphics = [System.Drawing.Graphics]::FromImage($Bitmap)
         try {
-            $Graphics.CopyFromScreen($Bounds.X, $Bounds.Y, 0, 0, $Bitmap.Size)
+            $Graphics.CopyFromScreen($WindowBounds.X, $WindowBounds.Y, 0, 0, $Bitmap.Size)
         }
         finally {
             $Graphics.Dispose()
@@ -128,7 +155,11 @@ function Save-ScreenImage {
 if (Get-Command Set-DisplayResolution -ErrorAction SilentlyContinue) {
     try {
         Set-DisplayResolution -Width 1920 -Height 1080 -Force
-        Start-Sleep -Seconds 2
+        $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+        do {
+            Start-Sleep -Milliseconds 250
+            $Current = [System.Windows.Forms.SystemInformation]::VirtualScreen
+        } while (($Current.Width -lt 1920 -or $Current.Height -lt 1080) -and [DateTime]::UtcNow -lt $Deadline)
     }
     catch {
         Write-Host "Display resolution unchanged: $($_.Exception.Message)"
@@ -216,8 +247,11 @@ function Read-InterfaceWarnings {
         return [pscustomobject]@{ all = @(); failing = @() }
     }
 
+    # Avalonia diagnostics are evidence, but may repeat absolute package or temporary paths.
+    # Keep the fault text while removing runner-specific locations from the uploaded artifact.
     $Lines = @(Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object { $_ -replace '(?i)[A-Z]:\\[^\r\n"'']+', '[path]' })
     $Tolerated = @($Lines | Where-Object { $Tolerate -and $_ -match $Tolerate })
     return [pscustomobject]@{
         all = $Lines
@@ -299,9 +333,18 @@ foreach ($Shot in $Shots) {
             continue
         }
 
-        # Asynchronous page loads finish after the window appears, so an immediate
-        # photograph would show a page that has not filled in yet.
-        Start-Sleep -Seconds $SettleSeconds
+        # Window creation is not page readiness. Two consecutive responsive samples avoid an
+        # arbitrary sleep while still giving the dispatcher and bound ViewModel a semantic
+        # chance to finish their first layout; blank, warning, or wrong-page evidence remains
+        # a hard failure below.
+        $ReadinessDeadline = [DateTime]::UtcNow.AddSeconds($ReadinessTimeoutSeconds)
+        $ResponsiveSamples = 0
+        while ([DateTime]::UtcNow -lt $ReadinessDeadline -and $ResponsiveSamples -lt 2) {
+            $Process.Refresh()
+            if ($Process.HasExited) { break }
+            if ($Process.Responding) { $ResponsiveSamples++ } else { $ResponsiveSamples = 0 }
+            if ($ResponsiveSamples -lt 2) { Start-Sleep -Milliseconds 250 }
+        }
         $Process.Refresh()
         if ($Process.HasExited) {
             $Results.Add([pscustomobject]@{
@@ -319,7 +362,11 @@ foreach ($Shot in $Shots) {
             continue
         }
 
-        Save-ScreenImage -Path $Screenshot
+        if ($ResponsiveSamples -lt 2) {
+            throw "The $Page page did not become responsive within $ReadinessTimeoutSeconds second(s)."
+        }
+
+        Save-ScreenImage -Path $Screenshot -WindowHandle $Process.MainWindowHandle
 
         # Closed here rather than in the finally block, so the warnings written on
         # the way out are in the file before it is read.
@@ -372,11 +419,11 @@ foreach ($Shot in $Shots) {
 $NoWindow = @($Results | Where-Object { -not $_.presented })
 $Blank = @($Results | Where-Object { $_.presented -and -not $_.drew })
 $Bound = @($Results | Where-Object { $_.failingWarnings.Count -gt 0 })
-$Failed = @($Results | Where-Object { -not $_.presented -or $_.failingWarnings.Count -gt 0 })
+$Failed = @($Results | Where-Object { -not $_.presented -or -not $_.drew -or $_.failingWarnings.Count -gt 0 })
 
 $Report = [pscustomobject]@{
     generatedUtc = [DateTime]::UtcNow.ToString("o")
-    appPath = $ResolvedAppPath
+    appPath = "package/TarkovCompanion.exe"
     pages = $Results
     failedCount = $Failed.Count
     noWindowCount = $NoWindow.Count
@@ -402,14 +449,8 @@ foreach ($Result in $Results) {
 # binding warning is a property the page asks for and no longer gets.
 $Problems = @()
 if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Object { $_.page }) -join ', ')" }
+if ($Blank.Count -gt 0) { $Problems += "blank or loading page: $(($Blank | ForEach-Object { $_.page }) -join ', ')" }
 if ($Bound.Count -gt 0) { $Problems += "interface faults: $(($Bound | ForEach-Object { $_.page }) -join ', ')" }
-
-# Reported rather than thrown, for now. The photograph is of the whole screen, so a
-# window that drew nothing still sits on a desktop with a taskbar on it, and the
-# measurement has not been watched across enough builds to be trusted as a gate.
-if ($Blank.Count -gt 0) {
-    Write-Host "NOTE drew almost nothing: $(($Blank | ForEach-Object { $_.page }) -join ', ')"
-}
 
 if ($Problems.Count -gt 0) {
     throw ($Problems -join " · ")
