@@ -19,14 +19,15 @@ conflicts; it does not make those findings safe by documenting them.
   mitigation: room-key guessing, undetectable display-name impersonation, cleartext/receiver key
   disclosure, release-channel trust, current relay transmission of log-derived party data contrary
   to `docs/SAFETY.md`, and incomplete report redaction that can transmit paths/coordinates.
-- `ANTI_CHEAT_REVIEW.md` — all eight immutable boundaries reviewed against current source, with
-  lexical checks described as partial tripwires rather than certification.
-- `TBD_COMPONENTS.md` — eleven future components or material rebuilds, each saying whether source is
+- `ANTI_CHEAT_REVIEW.md` — three immutable fixtures, four additional design exclusions, and the
+  honest-intelligence evidence contract reviewed against current source, with lexical checks
+  described as partial tripwires rather than certification.
+- `TBD_COMPONENTS.md` — ten future components or material rebuilds, each saying whether source is
   absent or a current implementation is expected to change.
 - `README.md` — the progressive-disclosure product contract: the full version-matched register is
   reachable from Setup/Admin Data & Privacy, while routine UI stays concise without hiding active
   consent, outbound data, auth/transport state, active security/failure state, destructive impact,
-  or decision-changing uncertainty/provenance.
+  or decision-changing uncertainty; full provenance remains available on demand.
 - `tests/security/` — seven valid illustrative JSON files. They are not wired to a test runner and
   are not represented as executed behavior.
 
@@ -43,13 +44,13 @@ conflicts; it does not make those findings safe by documenting them.
    release-blocking until #281/#310 verify a complete assembled/persisted report excludes default
    paths, coordinate-bearing data, screenshot names, game logs, and credentials.
 3. **Implement and review v2-only boundaries.** Pairing/local gateway, rebuilt operator/report
-   lifecycle, evidence envelopes, historical model snapshots, new recognition, and Setup/Admin
-   disclosure cannot be threat-modeled as completed systems before their designs exist. Each row
-   in `TBD_COMPONENTS.md` names the review debt it creates.
+   lifecycle, historical model snapshots, new recognition, and Setup/Admin disclosure cannot be
+   threat-modeled as completed systems before their designs exist. The generic #264 evidence
+   envelopes have landed; each remaining row in `TBD_COMPONENTS.md` names feature review debt.
 4. **Executable security verification.** This worktree owns documentation and illustrative
    fixtures only. It does not add a security test project, workflow, or stronger static analyzer.
-   Fixtures still need behavior assertions in the appropriate test suites, and anti-cheat data-
-   contract assertions must land with #264/#305/#311.
+   Fixtures still need behavior assertions in the appropriate test suites. Generic #264 data-
+   contract assertions have landed; #305/#311 still owe feature-specific assertions.
 5. **Release evidence.** GitHub Actions remains the integration gate. A configured workflow is not
    a passing run; #317 closeout must link exact-head runs and any required manual `dev` evidence.
 

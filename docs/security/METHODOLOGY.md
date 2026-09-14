@@ -48,10 +48,10 @@ mechanisms the pattern does not name.
 
 Aligned to #317's acceptance criteria (critical/high/medium/low), applied per finding:
 
-- **Critical** — breaks an immutable boundary in `docs/SAFETY.md` (memory access, injection,
-  traffic decoding, input synthesis, live tracking, overlay), or gives an ordinary remote actor
-  broad arbitrary-code/cross-user secret compromise with no meaningful prerequisite or
-  containment.
+- **Critical** — breaks one of the three immutable fixtures in `docs/SAFETY.md` (memory access,
+  generated game input, or an in-game overlay); deliberately introduces injection/hooks, EFT
+  traffic decoding, or live tracking/ESP; or gives an ordinary remote actor broad arbitrary-code/
+  cross-user secret compromise with no meaningful prerequisite or containment.
 - **High** — a realistic failure gives unauthorized access to another player's or group's
   sensitive data, violates a current normative safety rule, impersonates a party member without
   detection, or compromises an update channel with code-execution impact. A privileged attacker
@@ -91,16 +91,18 @@ would need to change to wire them into `TarkovCompanion.IntegrationTests`.
 
 ## Anti-cheat review method
 
-[ANTI_CHEAT_REVIEW.md](ANTI_CHEAT_REVIEW.md) checks each immutable boundary against three
-independent things, and says which of the three actually holds for that boundary today:
+[ANTI_CHEAT_REVIEW.md](ANTI_CHEAT_REVIEW.md) checks eight safety/evidence categories — the three
+immutable fixtures, four additional current design exclusions, and honest modelled intelligence —
+against three independent things, and says which of the three actually holds for that category
+today:
 
-1. **The pattern-level static control** — `scripts/audit-safety.sh`, which greps `src/` and the
-   `.props` files for named forbidden APIs and packages (`OpenProcess`, `SendInput`,
-   `SharpPcap`, …) and runs in `ci.yml` and `windows-verify.yml` for configured pushes to `main`,
-   tags (Windows verification), pull requests targeting `main`, and manual dispatch where
-   configured. This catches a
-   literal reintroduction of a forbidden call; it does not catch a boundary violated through a
-   pattern the list doesn't name.
+1. **The pattern-level static control** — `scripts/audit-safety.sh`, which scans `src/` and the
+   `.props` files for named forbidden APIs and packages (`ReadProcessMemory`, `SendInput`,
+   `SharpPcap`, …), plus statement-shaped overlay capabilities, and runs in `ci.yml` and
+   `windows-verify.yml` for configured pushes to `main`, tags (Windows verification), pull
+   requests targeting `main`, and manual dispatch where configured. This catches a literal or
+   structurally matched reintroduction of a named mechanism; it does not catch a boundary violated
+   through a mechanism the scanner does not recognize.
 2. **The architectural boundary** — whether the layering in `docs/ARCHITECTURE.md` (Core has no
    platform dependency; Windows P/Invoke lives only in `Platform.Windows`; the strategy engine
    consumes static/public zones, elapsed time, raid duration, and the player's own

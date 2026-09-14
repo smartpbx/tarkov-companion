@@ -304,7 +304,7 @@ edits move them.
 | Relay member expiry | `src/TarkovCompanion.GroupServer/GroupRooms.cs:29,130-205`; `src/TarkovCompanion.GroupServer/Program.cs:132-148` |
 | Cross-room mark persistence | `src/TarkovCompanion.GroupServer/GroupMarks.cs:67-77,102-140,243-315` |
 | Profile/import/export surfaces | `src/TarkovCompanion.App/Services/AppComposition.cs:84-85,244-249`; `src/TarkovCompanion.Infrastructure/Profile/JsonFilePlayerProfileService.cs:89-119`; `src/TarkovCompanion.Infrastructure/Profile/ProjectQuestProgressJson.cs:16-180`; `src/TarkovCompanion.Infrastructure/Persistence/Repositories/SqliteRaidHistoryService.cs:333-364`; `src/TarkovCompanion.Application/Services/Runtime/RaidHistoryOutbox.cs:119-123` |
-| Lexical anti-cheat audit | `scripts/audit-safety.sh:5-33` |
+| Lexical anti-cheat audit and self-test | `scripts/audit-safety.sh` |
 
 ## Data classification quick reference
 

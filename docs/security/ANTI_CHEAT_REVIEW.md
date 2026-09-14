@@ -1,6 +1,8 @@
 # Anti-cheat misuse-case review
 
-This reviews current source against the immutable boundaries in `docs/SAFETY.md` and `AGENTS.md`.
+This reviews current source against the three immutable fixtures, the additional current design
+exclusions, and the evidence/presentation contract in `docs/SAFETY.md`, `AGENTS.md`, and
+`docs/V2_CONTRACT.md`.
 A **Held (current source)** verdict means the reviewed implementation contains no observed
 violation. It does not mean a directory layout or lexical grep makes a future violation
 impossible. `scripts/audit-safety.sh` is recorded as **Reviewed** and configured in CI; a specific
@@ -8,10 +10,11 @@ passing CI run is separate automated evidence and proves only what its named pat
 
 ## 1. No EFT process memory access
 
-- **Pattern control:** `audit-safety.sh` names `OpenProcess`, `ReadProcessMemory`,
-  `WriteProcessMemory`, `VirtualAllocEx`, `CreateRemoteThread`, and `NtQueryVirtualMemory`.
-  This catches literal uses of those names, not dynamically resolved APIs, differently named
-  libraries, or an unlisted mechanism.
+- **Pattern control:** `audit-safety.sh` names `ReadProcessMemory`, `WriteProcessMemory`,
+  `VirtualAllocEx`, `VirtualProtectEx`, `CreateRemoteThread`, and the relevant `Nt*Memory` APIs.
+  Query-only `OpenProcess` is intentionally allowed for ordinary window discovery. The denylist
+  catches literal names, not dynamically resolved APIs, differently named libraries, or an
+  unlisted mechanism.
 - **Current architecture/source:** `WindowsGameWindowLocator` enumerates processes and reads the
   visible main-window handle. `GdiScreenCaptureService` uses that handle with display/device-
   context APIs to copy visible pixels; it does not open the EFT process or read its memory.
@@ -45,9 +48,10 @@ passing CI run is separate automated evidence and proves only what its named pat
 
 ## 4. No game-directed input synthesis
 
-- **Pattern control:** the audit names `SendInput`, `mouse_event`, and `keybd_event`. It also bans
-  `GetAsyncKeyState`, which observes key state rather than synthesizing it; that extra ban is
-  defense-in-depth but is not evidence for the synthesis claim.
+- **Pattern control:** the audit names `SendInput`, `mouse_event`, `keybd_event`, InputSimulator,
+  WindowsInput, ViGEm, and vJoy. Physical-state observation such as `GetAsyncKeyState` is
+  intentionally allowed; it is not input synthesis. The denylist cannot identify every renamed
+  or dynamically resolved mechanism.
 - **Current architecture/source:** companion commands are ordinary focused Avalonia bindings. No
   current platform interface or implementation sends keyboard, mouse, or controller input to EFT.
 - **Reviewed:** App views/bindings, Platform.Windows source, `scripts/audit-safety.sh`.
@@ -82,15 +86,18 @@ passing CI run is separate automated evidence and proves only what its named pat
   RISK-RELAY-OBSERVED-DATA-POLICY. This review does not reinterpret that rule away.
 - **Reviewed:** strategy/domain contracts, `GroupSessionService.cs`, `GroupContracts.cs`,
   `GroupRooms.cs`, `docs/SAFETY.md`.
-- **Verdict:** **Held for the no-live-enemy boundary in current source; no automated semantic
-  backstop. A separate safety-policy/source mismatch remains open.**
+- **Verdict:** **Held for the no-live-enemy boundary in current source; the generic V2 evidence
+  contract rejects live-player inputs, while feature-specific #305/#311 assertions remain. A
+  separate safety-policy/source mismatch remains open.**
 
 ## 7. No in-game overlay
 
-- **Pattern control:** `audit-safety.sh` names only `SetWindowPos` and `WS_EX_TOPMOST`. An Avalonia
-  `Topmost` property, layered/click-through window, owner reparenting, or another mechanism need
-  not contain either token. Conversely, ordinary topmost desktop UI would not alone prove an
-  in-game overlay. The pattern is a warning tripwire, not structural enforcement.
+- **Pattern control:** `audit-safety.sh` rejects `GameOverlay` and click-through windows, detects a
+  topmost+layered Win32 flag combination across formatting, and detects game-window reparenting
+  within one or adjacent statements. It fails closed on scanner errors and scan-root symlinks and
+  self-tests those cases. A pure Avalonia `Topmost` window is intentionally not forbidden because
+  ordinary companion placement is allowed; a different or dynamically expressed overlay
+  mechanism can still evade a lexical ratchet.
 - **Current architecture/source:** current App views contain one normal main window and page/user
   controls. A source search found no `Topmost`, transparency/layered, click-through, reparenting,
   or overlay-specific window code. The product is used beside the game as a separate desktop
@@ -104,15 +111,18 @@ passing CI run is separate automated evidence and proves only what its named pat
 ## 8. Historical/modelled intelligence retains evidence and is never presented as live
 
 - **Pattern control:** none; this requires a data contract plus presentation tests.
-- **Current policy:** `docs/SAFETY.md` and `AGENTS.md` require source, observed/data-through/
-  generated UTC, coverage/sample size, confidence, model version, and unambiguous non-live
-  presentation. Precision must not imply a live observation.
-- **Current structural status:** the proposed common evidence/provenance envelope belongs to #264
-  and was not present at baseline commit `76b506f`. Existing feature-specific provenance does not
-  prove every future #305/#311 result is incapable of serializing or rendering as live.
-- **Reviewed:** current domain/evidence types, `docs/SAFETY.md`, `AGENTS.md`, #264 acceptance text.
-- **Verdict:** **Held as normative policy, not yet as a complete enforced contract.** #264/#305/
-  #311 must add deterministic serialization and UI assertions before this can be upgraded.
+- **Current policy:** `docs/SAFETY.md` and `docs/V2_CONTRACT.md` require compact Historical,
+  Modelled, or Predicted identity; decision-material freshness/confidence inline; complete source,
+  time, coverage, calibration, and version evidence on demand; and no live-detection/current-
+  location claim. Precision must not imply a live observation.
+- **Current structural status:** merged #264 supplies closed typed evidence/intelligence envelopes,
+  source-class allowlists, bounded lineage, construction/JSON validation, and deterministic tests
+  that reject live/screenshot/player-observation inputs. That generic contract does not prove the
+  future #305/#311 feature presenters or dataset lifecycle are correct before they exist.
+- **Reviewed:** `docs/SAFETY.md`, `docs/V2_CONTRACT.md`, ADR 0008, the merged Core V2 evidence and
+  modelled-intelligence types, their wire allowlists/guards, and V2 contract tests.
+- **Verdict:** **Held for the generic V2 evidence/wire contract; feature-specific review remains.**
+  #305/#311 must add their own dataset, serialization, and presentation assertions.
 
 ## Enforcement summary
 
@@ -123,9 +133,9 @@ passing CI run is separate automated evidence and proves only what its named pat
 | 3. EFT traffic inspection | Partial denylist | Held | Not identified in this phase |
 | 4. Input synthesis | Partial denylist | Held | Not identified in this phase |
 | 5. Gameplay automation | Mechanism-only | Held, advisory-only | Needed for each new action surface |
-| 6. Live enemy tracking/ESP | None | Held; separate transmission conflict open | Needed for #305/#311 |
-| 7. In-game overlay | Partial two-token tripwire | Held today, not structurally impossible | Needed for new window/placement paths |
-| 8. Honest modelled intelligence | None | Policy only | Pending #264/#305/#311 |
+| 6. Live enemy tracking/ESP | No semantic grep | Held; separate transmission conflict open | Generic V2 input contract landed; #305/#311 feature assertions pending |
+| 7. In-game overlay | Statement-aware named-mechanism tripwires | Held today, not structurally impossible | Needed for new window/placement paths |
+| 8. Honest modelled intelligence | None | Typed generic V2 contract landed | Generic contract tests landed; #305/#311 feature assertions pending |
 
 The absence of a complete automated backstop is tracked as
 RISK-ANTICHEAT-REVIEW-DISCIPLINE. Static patterns are useful ratchets, but no passing grep may be

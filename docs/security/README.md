@@ -33,26 +33,30 @@ reading the repository.
 Routine desktop and tablet workflows should use progressive disclosure: a concise statement of
 what is happening, with "why", source, and technical detail available on demand. Concision must
 never hide active consent, outbound-data scope, pairing/authentication plus effective transport,
-an active security/failure state, a destructive consequence, or decision-changing uncertainty and
-provenance. The complete accepted/deferred risk register must be clearly reachable, version-matched
-under Setup/Admin Data & Privacy; it need not be repeated in every routine workflow. Historical/
-modelled guidance must still show its source, data-through/generated timestamps, coverage,
-confidence, and model version and must never be styled as live. This PR records that product
-requirement; implementing the Setup/Admin surface remains future work listed in
+an active security/failure state, a destructive consequence, or decision-changing uncertainty.
+The complete accepted/deferred risk register must be clearly reachable, version-matched under
+Setup/Admin Data & Privacy; it need not be repeated in every routine workflow. Historical/modelled
+guidance keeps its category identity inline, plus freshness and confidence when either could change
+a decision. Full source, observed/data-through/generated timestamps, coverage, calibration, and
+model version remain available on demand in Why/details and Setup/Admin. This PR records that
+product requirement; implementing the Setup/Admin surface remains future work listed in
 [TBD_COMPONENTS.md](TBD_COMPONENTS.md).
 
-## Non-negotiable boundaries this document set assumes
+## Safety and evidence categories this document set reviews
 
-These are inherited from `AGENTS.md` and `docs/SAFETY.md`, not decided here, and no finding in
-this document set may propose relaxing them:
+These are inherited from `AGENTS.md`, `docs/SAFETY.md`, and `docs/V2_CONTRACT.md`, not decided
+here. Memory access, generated game input, and an in-game overlay are the three immutable fixtures.
+The other implementation restrictions are current enforced design exclusions, and the evidence
+rule is the normative V2 contract. This review may identify a gap but may not silently relax any
+category:
 
-1. Never read or write Escape from Tarkov process memory.
+1. Never read or write Escape from Tarkov process memory. **Immutable.**
 2. Never inject code or DLLs, and never hook the game renderer.
 3. Never inspect, intercept, or decode Escape from Tarkov network traffic.
-4. Never generate game-directed mouse, keyboard, or controller input.
+4. Never generate game-directed mouse, keyboard, or controller input. **Immutable.**
 5. Never automate flea purchases, sales, inventory actions, aiming, or combat.
 6. Never implement enemy detection, ESP, radar, or live player tracking.
-7. Never render an in-game overlay.
+7. Never render an in-game overlay. **Immutable.**
 8. Historical or modelled intelligence must carry source, observed/data-through/generated UTC
    timestamps, coverage/sample size, confidence, and model version, and must never be presented
    as live.
@@ -74,7 +78,7 @@ rather than resolved by rewriting the policy in this worktree.
 
 Components described in open v2 issues (#304, #305, #306, #310, #311, and others) that are absent
 or scheduled for a material rebuild are listed in [TBD_COMPONENTS.md](TBD_COMPONENTS.md) rather
-than modeled as if their future design existed. `docs/V2_CONTRACT.md`, owned by #264, had not
-landed on baseline `main`; this document set treats the evidence/provenance rules in
-`docs/SAFETY.md` as the current normative source and will need reconciling against the v2 contract
-once it merges.
+than modeled as if their future design existed. The source-grounded V1 baseline was commit
+`76b506f`; this revision is reconciled with the now-merged #264 `docs/V2_CONTRACT.md`, Core
+evidence/wire types, validation guards, and deterministic contract tests. Future #305/#311 feature
+implementations still require their own threat review and presentation assertions.
