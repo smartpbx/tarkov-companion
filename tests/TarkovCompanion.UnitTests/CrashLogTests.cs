@@ -136,6 +136,56 @@ public sealed class CrashLogTests : IDisposable
         Assert.Contains("[started]", ReadShared(Path.Combine(second, "startup.log")), StringComparison.Ordinal);
     }
 
+    /// <summary>Once detached, nothing is written anywhere.</summary>
+    /// <remarks>
+    /// Which is what makes this class able to clean up after itself while other tests are
+    /// running, and what a shutdown wants: the point at which the application stops being able
+    /// to say anything should be a decision rather than an accident.
+    /// </remarks>
+    [Fact]
+    public void DetachingStopsTheLogWithoutLosingWhatWasAlreadyWritten()
+    {
+        CrashLog.Install(_directory);
+        var path = CrashLog.FilePath!;
+
+        CrashLog.Detach();
+        CrashLog.Write("sync", "written after detaching");
+
+        Assert.Null(CrashLog.FilePath);
+        Assert.DoesNotContain("written after detaching", ReadShared(path), StringComparison.Ordinal);
+        Assert.Contains("[started]", ReadShared(path), StringComparison.Ordinal);
+    }
+
+    /// <summary>Detaching while another thread is writing does not throw into that thread.</summary>
+    /// <remarks>
+    /// The bug this closes was mine, added with Detach. Write checked FilePath outside the lock
+    /// and then used the field inside it, so a Detach landing between the two left
+    /// Directory.CreateDirectory holding null — an ArgumentNullException, which the catch did
+    /// not cover, raised inside whatever was trying to log. A diagnostic that takes down its
+    /// caller is the one thing this class must never do.
+    /// </remarks>
+    [Fact]
+    public async Task WritingWhileTheLogIsDetachedIsNotAnError()
+    {
+        CrashLog.Install(_directory);
+        var writers = Enumerable.Range(0, 4).Select(index => Task.Run(() =>
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                CrashLog.Write("race", $"line {index}-{attempt}");
+            }
+        })).ToArray();
+
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            CrashLog.Detach();
+            CrashLog.Install(_directory);
+        }
+
+        // The assertion is that none of them threw.
+        await Task.WhenAll(writers);
+    }
+
     /// <summary>Diagnostics never become the reason the application fails.</summary>
     [Fact]
     public void WritingWithNowhereToWriteIsNotAnError()
@@ -151,11 +201,38 @@ public sealed class CrashLogTests : IDisposable
         return reader.ReadToEnd();
     }
 
+    /// <summary>
+    /// Stops the whole process writing here, then removes the directory.
+    /// </summary>
+    /// <remarks>
+    /// Detaching first is the fix rather than the tolerance below. CrashLog's destination is a
+    /// static, so while this test's directory is installed, any other test running in parallel
+    /// that logs anything writes into it — and on Windows a directory with an open handle in it
+    /// cannot be removed, which failed this class's teardown rather than its assertions.
+    ///
+    /// The retry is for the write that was already in flight when Detach ran. A few attempts
+    /// over a few milliseconds covers it, and a directory that still will not go is left in the
+    /// temporary folder rather than failing a test that has already proved what it came to
+    /// prove. Losing a scratch directory is not a result worth reporting; losing the run is.
+    /// </remarks>
     public void Dispose()
     {
-        if (Directory.Exists(_directory))
+        CrashLog.Detach();
+        for (var attempt = 0; attempt < 5; attempt++)
         {
-            Directory.Delete(_directory, recursive: true);
+            try
+            {
+                if (Directory.Exists(_directory))
+                {
+                    Directory.Delete(_directory, recursive: true);
+                }
+
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(20);
+            }
         }
     }
 }

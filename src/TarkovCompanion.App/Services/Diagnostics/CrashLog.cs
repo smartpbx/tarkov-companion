@@ -80,17 +80,37 @@ public static class CrashLog
         };
     }
 
+    /// <summary>
+    /// Stops writing, until something installs a destination again.
+    /// </summary>
+    /// <remarks>
+    /// The destination is a static, which is right for a crash log — anything that fails has to
+    /// be able to say so without being handed a logger first — and it means that while one is
+    /// installed, every part of the process writes to it.
+    ///
+    /// That is what makes the log's own tests unable to clean up after themselves: another
+    /// thread logging anything holds a handle on a directory the test is about to delete, and
+    /// on Windows a directory with an open handle in it cannot be removed. Detaching first
+    /// closes the window rather than widening the catch around it.
+    ///
+    /// The repeat state goes with it, for the same reason <see cref="Install"/> clears it: what
+    /// was written last belongs to a file this class is no longer appending to.
+    /// </remarks>
+    public static void Detach()
+    {
+        lock (Gate)
+        {
+            _directory = null;
+            _lastEntry = string.Empty;
+            _repeats = 0;
+        }
+    }
+
     public static void Write(string category, Exception? exception) =>
         Write(category, exception?.ToString() ?? "No exception detail was available.");
 
     public static void Write(string category, string detail)
     {
-        var path = FilePath;
-        if (path is null)
-        {
-            return;
-        }
-
         var entry = string.Create(
             CultureInfo.InvariantCulture,
             $"{DateTimeOffset.UtcNow:O} [{category}] {detail}{Environment.NewLine}");
@@ -99,7 +119,20 @@ public static class CrashLog
         {
             lock (Gate)
             {
-                Directory.CreateDirectory(_directory!);
+                // Read inside the lock and used from the local, not re-read from the field.
+                // Checking FilePath outside and then using _directory! inside was a window a
+                // Detach on another thread fitted through: the check passed, the field went
+                // null, and Directory.CreateDirectory(null) threw ArgumentNullException —
+                // which this catch does not cover and which surfaced inside whatever was
+                // trying to log. A diagnostic that takes down its caller is the one thing this
+                // class must never do.
+                if (_directory is not { } directory)
+                {
+                    return;
+                }
+
+                var path = Path.Combine(directory, "startup.log");
+                Directory.CreateDirectory(directory);
 
                 // The same line over and over is one fact, not two hundred. While the relay is
                 // unreachable this file gained a full stack trace every five seconds, which
@@ -127,9 +160,14 @@ public static class CrashLog
         }
         catch (Exception failure) when (failure is IOException
                                         or UnauthorizedAccessException
-                                        or NotSupportedException)
+                                        or NotSupportedException
+                                        or ArgumentException)
         {
-            // Diagnostics must never become the reason the application fails.
+            // Diagnostics must never become the reason the application fails. ArgumentException
+            // is here because it is the shape a bad path arrives as, and the alternative to
+            // catching it is a logging call throwing into a caller that was only trying to say
+            // something had gone wrong. The window that produced one is closed above; this is
+            // the belt to that brace.
         }
     }
 
