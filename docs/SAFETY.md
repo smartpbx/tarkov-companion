@@ -53,9 +53,14 @@ exclusions even where they overlap the three immutable fixtures.
 
 Historical or predicted traffic is computed only from static spawns, points of interest,
 chokepoints, public map topology, extracts, elapsed raid phase, and bounded historical evidence.
-Every presentation must label it as historical or modelled guidance, with source, UTC times,
-coverage, confidence, and model version. It is never live player data or a current-location
-claim.
+Routine presentation carries the compact category identity `Historical`, `Modelled`, or
+`Predicted`, never a live-detection or current-location claim. Freshness and confidence are inline
+when either could materially change a decision. Full source, observed/data-through/generated UTC
+times, coverage, confidence and calibration, and model version remain available on demand in
+`Why` or details and in the version-matched Setup/Admin `Data & Privacy` explanation; the stored
+evidence and its validation are unchanged by progressive disclosure. Active consent and sharing
+state, security state, destructive effects, failures, and decision-changing uncertainty remain
+visible rather than being deferred to details.
 
 ## Enforcement
 

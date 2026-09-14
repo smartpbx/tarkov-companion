@@ -192,14 +192,16 @@ scan_safety_patterns() {
     # staying exempt from `set -e`.
     if command -v rg >/dev/null 2>&1; then
         # The grep fallback naturally walks dotfiles and does not consult ignore files. Keep rg's
-        # source universe identical: hidden and ignored source remains safety-relevant, while
-        # generated build output is explicitly pruned on both paths.
+        # source universe identical: hidden and ignored source remains safety-relevant, generated
+        # build output is explicitly pruned, and neither scanner follows directory symlinks. rg
+        # does not follow them by default; lowercase grep -r preserves that boundary, whereas -R
+        # would dereference a link and could expand an owned scan root outside the repository.
         output="$(rg -n -i --hidden --no-ignore \
             --glob '!bin/**' --glob '!obj/**' \
             --glob '!**/bin/**' --glob '!**/obj/**' \
             "${TASK_FORBIDDEN_PATTERN}" "$@")" || status=$?
     else
-        output="$(grep -R -n -i -E \
+        output="$(grep -r -n -i -E \
             --exclude-dir=bin --exclude-dir=obj \
             "${TASK_FORBIDDEN_PATTERN}" "$@")" || status=$?
     fi
@@ -220,6 +222,35 @@ scan_overlay_capabilities() {
     fi
     printf '%s' "${output}"
 }
+
+# Keep the no-follow rule executable rather than relying on the option spelling above. The
+# prohibited target sits beyond the scan root behind a directory symlink, the same traversal an
+# in-repository link to an outside path would require. Both the selected line scanner and the
+# Perl overlay scanner must leave it outside their universe. The temporary fixture and every
+# cleanup target are bounded inside tests/safety-contract; no recursive removal is used.
+TASK_NO_FOLLOW_ROOT="$(mktemp -d "${TASK_FIXTURE_ROOT}/.no-follow.XXXXXX")"
+cleanup_no_follow_fixture() {
+    rm -f -- \
+        "${TASK_NO_FOLLOW_ROOT}/scan/outside" \
+        "${TASK_NO_FOLLOW_ROOT}/outside/prohibited.txt"
+    rmdir -- \
+        "${TASK_NO_FOLLOW_ROOT}/scan" \
+        "${TASK_NO_FOLLOW_ROOT}/outside" \
+        "${TASK_NO_FOLLOW_ROOT}" 2>/dev/null || true
+}
+trap cleanup_no_follow_fixture EXIT
+mkdir "${TASK_NO_FOLLOW_ROOT}/scan" "${TASK_NO_FOLLOW_ROOT}/outside"
+printf '%s\n' 'ReadProcessMemory' 'WS_EX_LAYERED | WS_EX_TOPMOST' \
+    > "${TASK_NO_FOLLOW_ROOT}/outside/prohibited.txt"
+ln -s ../outside "${TASK_NO_FOLLOW_ROOT}/scan/outside"
+TASK_NO_FOLLOW_PATTERN_MATCHES="$(scan_safety_patterns "${TASK_NO_FOLLOW_ROOT}/scan")"
+TASK_NO_FOLLOW_OVERLAY_MATCHES="$(scan_overlay_capabilities "${TASK_NO_FOLLOW_ROOT}/scan")"
+if [[ -n "${TASK_NO_FOLLOW_PATTERN_MATCHES}" || -n "${TASK_NO_FOLLOW_OVERLAY_MATCHES}" ]]; then
+    printf '%s\n' "Safety audit self-test failed: a scanner followed a directory symlink outside its scan root." >&2
+    exit 1
+fi
+cleanup_no_follow_fixture
+trap - EXIT
 
 TASK_SAFETY_MATCHES="$(scan_safety_patterns \
     "${TASK_PROJECT_ROOT}/src" \

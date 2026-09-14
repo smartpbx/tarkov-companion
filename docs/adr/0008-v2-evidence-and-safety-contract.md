@@ -35,6 +35,13 @@ provenance, so deserialization cannot relabel it as a live observation. A figure
 several inputs names each input's provenance, and one computed from a model estimate stays a
 model estimate.
 
+Presentation uses progressive disclosure without discarding evidence. Routine views retain the
+compact `Historical`, `Modelled`, or `Predicted` identity and put freshness or confidence inline
+when decision-material. Full source and time lineage, coverage, confidence/calibration, and model
+version remain available in on-demand `Why`/details and version-matched Setup/Admin `Data &
+Privacy`; active consent/sharing/security state, destructive effects, failures, and
+decision-changing uncertainty stay visible.
+
 Generic envelopes are closed rather than documented: each accepts only exact payload types from
 a frozen allowlist, so an enemy position or a control command cannot ride a recognition,
 intelligence, or workspace-state envelope even if some type implements its marker interface.
@@ -58,11 +65,14 @@ character region, and the three allowlisted intelligence payloads. Other composi
 through their evidenced fields. An internal eligibility marker plus a sealed-type and assembly
 check prevents an external or arbitrary reference type from opting into whole-value replacement.
 Raid-clock source, basis, bound, provenance, and capture-time rules apply to every value,
-candidate, correction, and result-level extract/map candidate. A placed stash cell is checked in
-absolute container space even when its region dimensions were not read, using remaining room so
-origin-plus-offset arithmetic cannot overflow. A conflict acknowledgement must name another
-change at a positive applied revision because revision zero represents no applied change, and a
-transit carries no canonical extract ID because it has no extract-catalog match.
+candidate, correction, and result-level extract/map candidate at the public envelope and
+serialization boundary. A shared linear footprint enumeration covers the current item, item
+candidates, and every determined width/height value, candidate, and correction; both grid-relative
+and absolute stash-container checks use it. A placed stash cell is checked in absolute container
+space even when its region dimensions were not read, using remaining room so origin-plus-offset
+arithmetic cannot overflow. A conflict acknowledgement must name another change at a positive
+applied revision because revision zero represents no applied change, and a transit carries no
+canonical extract-ID value, candidate, or correction because it has no extract-catalog match.
 
 Three anti-cheat fixtures do not change: no game process memory, generated game-directed mouse,
 keyboard, or controller input, or in-game overlay. V2 also retains the current exclusions on
@@ -79,10 +89,11 @@ from being discarded.
 
 Safety auditing gains both allowed and prohibited fixtures and targets prohibited capabilities
 rather than adjacent API names. Hidden and ignore-matched source belongs to the scan universe;
-generated `bin` and `obj` output does not. The line scan prefers `rg` and intentionally falls back
-to `grep` when `rg` is absent; a missing `rg` alone is therefore not an error. The selected scanner
-and the required `git` and `perl` tools fail closed on absence or execution errors, and the overlay
-capabilities that span statements are matched by statement rather than by line or identifier
-naming. Pattern matching remains a narrow early warning and architecture tests enforce protocol
-shape; neither is treated as a substitute for review. Transport authentication and feature
-composition remain outside this ADR.
+generated `bin` and `obj` output does not. The line scan prefers no-follow `rg` and intentionally
+falls back to no-follow `grep -r` when `rg` is absent; a missing `rg` alone is therefore not an
+error. A directory-symlink self-test keeps either scanner from expanding an owned root outside the
+repository. The selected scanner and the required `git` and `perl` tools fail closed on absence or
+execution errors, and the overlay capabilities that span statements are matched by statement
+rather than by line or identifier naming. Pattern matching remains a narrow early warning and
+architecture tests enforce protocol shape; neither is treated as a substitute for review.
+Transport authentication and feature composition remain outside this ADR.

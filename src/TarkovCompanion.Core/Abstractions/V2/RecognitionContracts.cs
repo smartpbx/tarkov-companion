@@ -77,6 +77,23 @@ public sealed record RecognitionResultEnvelope<T>
                 "Recognition values and candidates cannot be observed before their capture was taken.",
                 nameof(result));
         }
+
+        // The generic envelope is itself public and serializable; callers are not required to
+        // add the convenience result wrapper below. Keep payload/header invariants at this wire
+        // boundary so a bare extract/map envelope cannot reset an observed clock after a delayed
+        // import by naming OCR time instead of screenshot time.
+        if (result.Value is ExtractMapRecognition currentExtractMap)
+        {
+            currentExtractMap.ValidateClockAtCapture(header.CapturedUtc);
+        }
+
+        foreach (var candidate in result.Candidates)
+        {
+            if (candidate.Value is ExtractMapRecognition candidateExtractMap)
+            {
+                candidateExtractMap.ValidateClockAtCapture(header.CapturedUtc);
+            }
+        }
     }
 
     public RecognitionResultHeader Header { get; }
@@ -260,6 +277,59 @@ public sealed record GridCellRecognition(
         : ContainerPaths.Validate(NestedContainerPath, nameof(NestedContainerPath));
 }
 
+/// <summary>
+/// Enumerates every determined footprint span asserted by the current item and its item-level
+/// candidates. Each item's width and height enumeration includes the current value, candidates,
+/// and correction history; keeping this linear also avoids multiplying two hostile candidate
+/// lists merely to prove that each axis fits.
+/// </summary>
+internal static class GridFootprintClaims
+{
+    internal readonly record struct Claim(int? WidthCells, int? HeightCells);
+
+    internal static IEnumerable<Claim> Enumerate(EvidencedValue<RecognizedItem> itemField)
+    {
+        if (itemField.Value is { } current)
+        {
+            foreach (var claim in Enumerate(current))
+            {
+                yield return claim;
+            }
+        }
+
+        foreach (var candidate in itemField.Candidates)
+        {
+            foreach (var claim in Enumerate(candidate.Value))
+            {
+                yield return claim;
+            }
+        }
+    }
+
+    internal static bool Exceeds(EvidencedValue<RecognizedItem> itemField, int remainingRows, int remainingColumns) =>
+        Enumerate(itemField).Any(claim =>
+            claim.HeightCells > remainingRows || claim.WidthCells > remainingColumns);
+
+    private static IEnumerable<Claim> Enumerate(RecognizedItem item)
+    {
+        foreach (var width in V2ContractGuard.Values(item.WidthCells))
+        {
+            if (width is { } determined)
+            {
+                yield return new Claim(determined, null);
+            }
+        }
+
+        foreach (var height in V2ContractGuard.Values(item.HeightCells))
+        {
+            if (height is { } determined)
+            {
+                yield return new Claim(null, determined);
+            }
+        }
+    }
+}
+
 public sealed record GridRecognition : IRecognitionPayload
 {
     public GridRecognition(GridGeometry geometry, IReadOnlyList<GridCellRecognition> cells)
@@ -289,8 +359,10 @@ public sealed record GridRecognition : IRecognitionPayload
                 throw new ArgumentException("An anchor must sit inside the recognized grid.", nameof(cells));
             }
 
-            if (cell.Item.Value is { } item &&
-                (item.HeightCells.Value > rows - cell.Anchor.Row || item.WidthCells.Value > columns - cell.Anchor.Column))
+            if (GridFootprintClaims.Exceeds(
+                cell.Item,
+                rows - cell.Anchor.Row,
+                columns - cell.Anchor.Column))
             {
                 throw new ArgumentException("A footprint cannot extend past the recognized grid.", nameof(cells));
             }
@@ -419,9 +491,10 @@ public sealed record StashCaptureRegion
                         nameof(originInContainer));
                 }
 
-                if (cell.Item.Value is { } item &&
-                    (item.HeightCells.Value > remainingRows - cell.Anchor.Row ||
-                     item.WidthCells.Value > remainingColumns - cell.Anchor.Column))
+                if (GridFootprintClaims.Exceeds(
+                    cell.Item,
+                    remainingRows - cell.Anchor.Row,
+                    remainingColumns - cell.Anchor.Column))
                 {
                     throw new ArgumentException(
                         "A placed footprint cannot extend past the container cell space.",
@@ -655,9 +728,12 @@ public sealed record ExtractRecognition
             throw new ArgumentException("An exfil leaves the raid and has no destination map.", nameof(destinationMapId));
         }
 
-        if (kind.Value == ExtractKind.Transit && canonicalId.Value is not null)
+        if (kind.Value == ExtractKind.Transit &&
+            (canonicalId.Value is not null || canonicalId.Candidates.Count != 0 || canonicalId.Corrections.Count != 0))
         {
-            throw new ArgumentException("A transit is absent from extract catalogs and has no canonical extract id.", nameof(canonicalId));
+            throw new ArgumentException(
+                "A transit is absent from extract catalogs, so canonical-id evidence has no value, candidates, or corrections.",
+                nameof(canonicalId));
         }
     }
 
@@ -949,21 +1025,12 @@ public sealed record FleaRecognitionResult : ContextualRecognitionResult<FleaPag
     }
 }
 
-/// <summary>An extract-screen result. An observed raid clock is as of the header's capture time.</summary>
+/// <summary>An extract-screen result whose envelope already enforces screenshot-time raid clocks.</summary>
 public sealed record ExtractMapRecognitionResult : ContextualRecognitionResult<ExtractMapRecognition>
 {
     public ExtractMapRecognitionResult(RecognitionResultEnvelope<ExtractMapRecognition> recognition)
         : base(recognition, RecognizedContext.ExtractsAndMap)
     {
-        if (recognition.Result.Value is { } value)
-        {
-            value.ValidateClockAtCapture(recognition.Header.CapturedUtc);
-        }
-
-        foreach (var candidate in recognition.Result.Candidates)
-        {
-            candidate.Value.ValidateClockAtCapture(recognition.Header.CapturedUtc);
-        }
     }
 }
 

@@ -82,6 +82,48 @@ public sealed class DownstreamShapeContractTests
     }
 
     [Fact]
+    public void GridFitIncludesItemCandidatesSpanCandidatesAndCorrectionHistory()
+    {
+        var anchor = new GridCellAddress(0, 9);
+        var current = V2ContractTestData.Item(width: 1);
+
+        Assert.Throws<ArgumentException>(() => new GridRecognition(
+            V2ContractTestData.Grid().Geometry,
+            [new GridCellRecognition(anchor, ItemWithCandidate(current, V2ContractTestData.Item(width: 2)))]));
+
+        var candidateSpan = WithSpans(
+            SpanWithCandidate(1, 2),
+            V2ContractTestData.Complete<int?>("item.height", 1));
+        Assert.Throws<ArgumentException>(() => new GridRecognition(
+            V2ContractTestData.Grid().Geometry,
+            [new GridCellRecognition(anchor, V2ContractTestData.Complete("grid.0.9", candidateSpan))]));
+
+        var correctedSpan = WithSpans(
+            CorrectedSpan(original: 2, corrected: 1),
+            V2ContractTestData.Complete<int?>("item.height", 1));
+        Assert.Throws<ArgumentException>(() => new GridRecognition(
+            V2ContractTestData.Grid().Geometry,
+            [new GridCellRecognition(anchor, V2ContractTestData.Complete("grid.0.9", correctedSpan))]));
+    }
+
+    [Fact]
+    public void HostileGridJsonCannotHideAnEscapingItemOrSpanCandidate()
+    {
+        var json = JsonSerializer.Serialize(
+            V2ContractTestData.Grid(V2ContractTestData.Cell(0, 9, V2ContractTestData.Item(width: 1))),
+            JsonOptions);
+
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid =>
+            grid["cells"]![0]!["item"]!["candidates"] = JsonSerializer.SerializeToNode(
+                ItemWithCandidate(V2ContractTestData.Item(width: 1), V2ContractTestData.Item(width: 2)).Candidates,
+                JsonOptions)));
+        Assert.ThrowsAny<ArgumentException>(() => MutateGrid(json, grid =>
+            grid["cells"]![0]!["item"]!["value"]!["widthCells"]!["candidates"] = JsonSerializer.SerializeToNode(
+                SpanWithCandidate(1, 2).Candidates,
+                JsonOptions)));
+    }
+
+    [Fact]
     public void AnchorsSitInsideAKnownGridEvenWithoutAnItemOrSize()
     {
         var unreadItem = new GridCellRecognition(new GridCellAddress(4, 0), V2ContractTestData.Unknown<RecognizedItem>("grid.4.0"));
@@ -188,6 +230,47 @@ public sealed class DownstreamShapeContractTests
             ]);
         Assert.Throws<ArgumentException>(() => new StashCaptureRegion(
             "region-0", "artifact-0", 0, "stash", candidateOrigin, rowOutside));
+    }
+
+    [Fact]
+    public void AbsoluteRegionFitIncludesItemAndSpanCandidates()
+    {
+        var anchor = new GridCellAddress(0, GridGeometry.MaxColumns - 2);
+        var origin = new GridCellAddress(0, 1);
+        var current = V2ContractTestData.Item(width: 1);
+        var candidateItemGrid = UnreadGrid(new GridCellRecognition(
+            anchor,
+            ItemWithCandidate(current, V2ContractTestData.Item(width: 2))));
+        var candidateSpanGrid = UnreadGrid(new GridCellRecognition(
+            anchor,
+            V2ContractTestData.Complete(
+                "grid.0.62",
+                WithSpans(
+                    SpanWithCandidate(1, 2),
+                    V2ContractTestData.Complete<int?>("item.height", 1)))));
+
+        Assert.Throws<ArgumentException>(() => RegionAt(origin, candidateItemGrid));
+        Assert.Throws<ArgumentException>(() => RegionAt(origin, candidateSpanGrid));
+    }
+
+    [Fact]
+    public void HostileRegionJsonCannotHideAnAbsolutelyEscapingItemOrSpanCandidate()
+    {
+        var region = RegionAt(
+            new GridCellAddress(0, 1),
+            UnreadGrid(V2ContractTestData.Cell(
+                0,
+                GridGeometry.MaxColumns - 2,
+                V2ContractTestData.Item(width: 1))));
+        var json = JsonSerializer.Serialize(region, JsonOptions);
+
+        Assert.ThrowsAny<ArgumentException>(() => MutateRegion(json, node =>
+            node["grid"]!["cells"]![0]!["item"]!["candidates"] = JsonSerializer.SerializeToNode(
+                ItemWithCandidate(V2ContractTestData.Item(width: 1), V2ContractTestData.Item(width: 2)).Candidates,
+                JsonOptions)));
+        Assert.ThrowsAny<ArgumentException>(() => MutateRegion(json, node =>
+            node["grid"]!["cells"]![0]!["item"]!["value"]!["widthCells"]!["candidates"] =
+                JsonSerializer.SerializeToNode(SpanWithCandidate(1, 2).Candidates, JsonOptions)));
     }
 
     [Fact]
@@ -355,11 +438,51 @@ public sealed class DownstreamShapeContractTests
         return new RecognizedItem(item.CanonicalId, item.DisplayName, item.Quantity, width, height, item.Rotated, item.FoundInRaid, item.Condition);
     }
 
+    private static EvidencedValue<RecognizedItem> ItemWithCandidate(RecognizedItem current, RecognizedItem candidate) => new(
+        "grid.item",
+        current,
+        V2ContractTestData.CompleteStatus,
+        V2ContractTestData.ScreenshotProvenance(),
+        candidates:
+        [
+            new EvidenceCandidate<RecognizedItem>(
+                "wide", "Wide candidate", candidate, V2ContractTestData.ScreenshotProvenance()),
+        ]);
+
+    private static EvidencedValue<int?> SpanWithCandidate(int current, int candidate) => new(
+        "item.width",
+        current,
+        V2ContractTestData.CompleteStatus,
+        V2ContractTestData.ScreenshotProvenance(),
+        candidates:
+        [
+            new EvidenceCandidate<int?>(
+                "wide", "Wide candidate", candidate, V2ContractTestData.ScreenshotProvenance()),
+        ]);
+
+    private static EvidencedValue<int?> CorrectedSpan(int original, int corrected) =>
+        V2ContractTestData.Complete<int?>(
+            "item.width",
+            corrected,
+            corrections:
+            [
+                new EvidenceCorrection<int?>(
+                    1, original, corrected, V2ContractTestData.ObservedUtc,
+                    CorrectionOriginClass.User, "local-user"),
+            ]);
+
     private static GridRecognition? MutateGrid(string json, Action<JsonNode> mutate)
     {
         var node = JsonNode.Parse(json)!;
         mutate(node);
         return JsonSerializer.Deserialize<GridRecognition>(node.ToJsonString(), JsonOptions);
+    }
+
+    private static StashCaptureRegion? MutateRegion(string json, Action<JsonNode> mutate)
+    {
+        var node = JsonNode.Parse(json)!;
+        mutate(node);
+        return JsonSerializer.Deserialize<StashCaptureRegion>(node.ToJsonString(), JsonOptions);
     }
 
     private static StashRecognition? MutateStash(string json, Action<JsonArray> mutate)
