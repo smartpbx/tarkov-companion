@@ -1,0 +1,91 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="TarkovCompanion.App.Views.V2.Primitives.V2PrimitiveGallery">
+  <!-- This is a native fixture, intentionally not a V1 navigation destination. It is loaded by
+       V2 visual/tree tests and later hosted by the isolated V2 shell. All reader-facing text is
+       a resource so the fixture also catches accidental literal UI copy. -->
+  <UserControl.Styles>
+    <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2PrimitiveStyles.axaml" />
+  </UserControl.Styles>
+  <ScrollViewer>
+    <StackPanel Margin="24" Spacing="16"
+                AutomationProperties.LandmarkType="Main"
+                AutomationProperties.Name="{DynamicResource V2.String.Gallery.Title}">
+      <TextBlock Classes="v2-page-heading"
+                 AutomationProperties.HeadingLevel="1"
+                 AutomationProperties.AutomationId="v2-gallery-heading"
+                 Text="{DynamicResource V2.String.Gallery.Title}" />
+      <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Gallery.Description}" />
+
+      <Border Classes="v2-banner" AutomationProperties.AutomationId="v2-state-banner">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="v2-section-heading" AutomationProperties.HeadingLevel="2"
+                     Text="{DynamicResource V2.String.State.Partial}" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Capture.Detail}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card v2-state-error" AutomationProperties.AutomationId="v2-field-error">
+        <StackPanel Spacing="8">
+          <TextBox Classes="v2-field-error" AutomationProperties.HelpText="{DynamicResource V2.String.Error}" />
+          <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Error}" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel Orientation="Horizontal" Spacing="8" AutomationProperties.Name="{DynamicResource V2.String.Status.Badges}">
+        <Border Classes="v2-badge"><TextBlock Classes="v2-label" Text="{DynamicResource V2.String.State.Ready}" /></Border>
+        <Border Classes="v2-badge v2-state-offline"><TextBlock Classes="v2-label" Text="{DynamicResource V2.String.State.Offline}" /></Border>
+        <Border Classes="v2-badge v2-state-unknown"><TextBlock Classes="v2-label" Text="{DynamicResource V2.String.State.Unknown}" /></Border>
+      </StackPanel>
+
+      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-empty-state">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="v2-section-heading" Text="{DynamicResource V2.String.Empty.Title}" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Empty.Body}" />
+          <Button Classes="v2-target" Content="{DynamicResource V2.String.Action.Retry}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-semantic-table">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Table.Caption}" />
+          <Grid Classes="v2-semantic-table" ColumnDefinitions="2*,*,2*" RowDefinitions="Auto,Auto">
+            <TextBlock Grid.Row="0" Grid.Column="0" Classes="v2-label" AutomationProperties.IsColumnHeader="True" Text="{DynamicResource V2.String.Table.Item}" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Classes="v2-label" AutomationProperties.IsColumnHeader="True" Text="{DynamicResource V2.String.Table.State}" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Classes="v2-label" AutomationProperties.IsColumnHeader="True" Text="{DynamicResource V2.String.Table.Evidence}" />
+            <TextBlock Grid.Row="1" Grid.Column="0" Classes="v2-body" AutomationProperties.IsRowHeader="True" Text="{DynamicResource V2.String.Capture.Title}" />
+            <TextBlock Grid.Row="1" Grid.Column="1" Classes="v2-body" Text="{DynamicResource V2.String.State.Partial}" />
+            <TextBlock Grid.Row="1" Grid.Column="2" Classes="v2-body" Text="{DynamicResource V2.String.Why}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-evidence-disclosure">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="v2-section-heading" Text="{DynamicResource V2.String.Device.Title}" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Device.Detail}" />
+          <Button Classes="v2-target" Content="{DynamicResource V2.String.Why}" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel Orientation="Horizontal" Spacing="8" AutomationProperties.LandmarkType="Navigation" AutomationProperties.Name="{DynamicResource V2.String.Toolbar}">
+        <Button Classes="v2-target" Content="{DynamicResource V2.String.Action.Open}" />
+        <Button Classes="v2-target v2-touch-target" Content="{DynamicResource V2.String.Action.Close}" />
+      </StackPanel>
+
+      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-capture-queue">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="v2-section-heading" Text="{DynamicResource V2.String.Capture.Title}" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Capture.Detail}" />
+        </StackPanel>
+      </Border>
+
+      <StackPanel AutomationProperties.LiveSetting="Polite" AutomationProperties.AutomationId="v2-live-polite">
+        <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Live.Polite}" />
+      </StackPanel>
+      <StackPanel AutomationProperties.LiveSetting="Assertive" AutomationProperties.AutomationId="v2-live-assertive">
+        <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Live.Assertive}" />
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

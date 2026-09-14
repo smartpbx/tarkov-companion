@@ -1,0 +1,38 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2ThemeVariants.axaml" />
+  </ResourceDictionary.MergedDictionaries>
+  <!-- A V2 consumer uses role names only. Values are intentionally private to this Avalonia adapter. -->
+  <SolidColorBrush x:Key="V2.Brush.Canvas" Color="{DynamicResource V2.Color.Canvas}" />
+  <SolidColorBrush x:Key="V2.Brush.Surface" Color="{DynamicResource V2.Color.Surface}" />
+  <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="{DynamicResource V2.Color.SurfaceRaised}" />
+  <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="{DynamicResource V2.Color.TextPrimary}" />
+  <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="{DynamicResource V2.Color.TextSecondary}" />
+  <SolidColorBrush x:Key="V2.Brush.Border" Color="{DynamicResource V2.Color.Border}" />
+  <SolidColorBrush x:Key="V2.Brush.Action" Color="{DynamicResource V2.Color.Action}" />
+  <SolidColorBrush x:Key="V2.Brush.Focus" Color="{DynamicResource V2.Color.Focus}" />
+  <SolidColorBrush x:Key="V2.Brush.Success" Color="{DynamicResource V2.Color.Success}" />
+  <SolidColorBrush x:Key="V2.Brush.Warning" Color="{DynamicResource V2.Color.Warning}" />
+  <SolidColorBrush x:Key="V2.Brush.Danger" Color="{DynamicResource V2.Color.Danger}" />
+  <SolidColorBrush x:Key="V2.Brush.Info" Color="{DynamicResource V2.Color.Info}" />
+  <SolidColorBrush x:Key="V2.Brush.Unknown" Color="{DynamicResource V2.Color.Unknown}" />
+  <x:Double x:Key="V2.Type.Display">28</x:Double>
+  <x:Double x:Key="V2.Type.Heading">22</x:Double>
+  <x:Double x:Key="V2.Type.Subheading">18</x:Double>
+  <x:Double x:Key="V2.Type.Body">16</x:Double>
+  <x:Double x:Key="V2.Type.Label">14</x:Double>
+  <Thickness x:Key="V2.Space.Xs">4</Thickness>
+  <Thickness x:Key="V2.Space.Sm">8</Thickness>
+  <Thickness x:Key="V2.Space.Md">12</Thickness>
+  <Thickness x:Key="V2.Space.Lg">16</Thickness>
+  <Thickness x:Key="V2.Space.Xl">24</Thickness>
+  <CornerRadius x:Key="V2.Shape.Control">6</CornerRadius>
+  <CornerRadius x:Key="V2.Shape.Card">10</CornerRadius>
+  <x:Double x:Key="V2.Target.Desktop">44</x:Double>
+  <x:Double x:Key="V2.Target.Touch">48</x:Double>
+  <x:Double x:Key="V2.Focus.Thickness">3</x:Double>
+  <!-- Adapters select these semantic durations when a control actually animates. -->
+  <x:String x:Key="V2.Motion.Full">0:0:0.16</x:String>
+  <x:String x:Key="V2.Motion.Reduced">0:0:0</x:String>
+</ResourceDictionary>

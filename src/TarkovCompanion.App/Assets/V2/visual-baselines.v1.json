@@ -1,0 +1,13 @@
+{
+  "baseline": "v2-primitive-gallery",
+  "version": 1,
+  "determinism": "Synthetic resource-backed strings only; no clock, network data, animation frame, font fallback, or OS-specific capture is accepted.",
+  "cases": [
+    { "id": "desktop-100-standard", "scale": 100, "effectiveWidth": "expanded", "required": ["heading", "toolbar", "card", "table", "legend", "why"] },
+    { "id": "desktop-125-standard", "scale": 125, "effectiveWidth": "standard", "required": ["heading", "status", "capture", "pairedDevice"] },
+    { "id": "desktop-150-compact", "scale": 150, "effectiveWidth": "compact", "required": ["stackedCards", "tableOverflowAffordance", "liveRegion"] },
+    { "id": "desktop-200-narrow", "scale": 200, "effectiveWidth": "narrow", "required": ["singleColumn", "touchTargets", "orderedDataAlternative", "focusRing"] },
+    { "id": "tablet-100-narrow", "scale": 100, "effectiveWidth": "narrow", "required": ["touchTargets", "pairedDevice", "captureQueue"] }
+  ],
+  "treeAssertions": ["one page heading", "named main landmark", "polite live region", "assertive live region", "table column headers", "no focusable decorative glyph"]
+}

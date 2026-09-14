@@ -1,0 +1,52 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Theme selection is deliberately not wired into App.axaml here. #267 isolates the V1 root
+       transform and composition chooses system/user preference once #270 owns persistence. -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <Color x:Key="V2.Color.Canvas">#101820</Color>
+      <Color x:Key="V2.Color.Surface">#182530</Color>
+      <Color x:Key="V2.Color.SurfaceRaised">#223441</Color>
+      <Color x:Key="V2.Color.TextPrimary">#F4F8FA</Color>
+      <Color x:Key="V2.Color.TextSecondary">#C8D5DC</Color>
+      <Color x:Key="V2.Color.Border">#8297A4</Color>
+      <Color x:Key="V2.Color.Action">#63D4DD</Color>
+      <Color x:Key="V2.Color.Focus">#8EEBFF</Color>
+      <Color x:Key="V2.Color.Success">#71D19A</Color>
+      <Color x:Key="V2.Color.Warning">#FFD166</Color>
+      <Color x:Key="V2.Color.Danger">#FF9B8E</Color>
+      <Color x:Key="V2.Color.Info">#86BFFF</Color>
+      <Color x:Key="V2.Color.Unknown">#C0B5F7</Color>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <Color x:Key="V2.Color.Canvas">#F6F8F9</Color>
+      <Color x:Key="V2.Color.Surface">#FFFFFF</Color>
+      <Color x:Key="V2.Color.SurfaceRaised">#EAF0F3</Color>
+      <Color x:Key="V2.Color.TextPrimary">#15232C</Color>
+      <Color x:Key="V2.Color.TextSecondary">#40545F</Color>
+      <Color x:Key="V2.Color.Border">#607783</Color>
+      <Color x:Key="V2.Color.Action">#006D7A</Color>
+      <Color x:Key="V2.Color.Focus">#005FCC</Color>
+      <Color x:Key="V2.Color.Success">#167348</Color>
+      <Color x:Key="V2.Color.Warning">#805B00</Color>
+      <Color x:Key="V2.Color.Danger">#B3261E</Color>
+      <Color x:Key="V2.Color.Info">#155E9F</Color>
+      <Color x:Key="V2.Color.Unknown">#5B4A9C</Color>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="HighContrast">
+      <Color x:Key="V2.Color.Canvas">#000000</Color>
+      <Color x:Key="V2.Color.Surface">#000000</Color>
+      <Color x:Key="V2.Color.SurfaceRaised">#000000</Color>
+      <Color x:Key="V2.Color.TextPrimary">#FFFFFF</Color>
+      <Color x:Key="V2.Color.TextSecondary">#FFFFFF</Color>
+      <Color x:Key="V2.Color.Border">#FFFFFF</Color>
+      <Color x:Key="V2.Color.Action">#00FFFF</Color>
+      <Color x:Key="V2.Color.Focus">#FFFF00</Color>
+      <Color x:Key="V2.Color.Success">#00FF00</Color>
+      <Color x:Key="V2.Color.Warning">#FFFF00</Color>
+      <Color x:Key="V2.Color.Danger">#FF00FF</Color>
+      <Color x:Key="V2.Color.Info">#00FFFF</Color>
+      <Color x:Key="V2.Color.Unknown">#FFFFFF</Color>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

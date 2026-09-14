@@ -1,0 +1,34 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- The default adapter is English. #269 selects culture resources; qps-ploc is stored beside
+       this dictionary so automated expansion checks do not depend on a host UI language. -->
+  <x:String x:Key="V2.String.Gallery.Title">V2 primitive gallery</x:String>
+  <x:String x:Key="V2.String.Gallery.Description">Native, resource-backed examples for design-system review.</x:String>
+  <x:String x:Key="V2.String.State.Ready">Ready</x:String>
+  <x:String x:Key="V2.String.State.Unknown">Unknown</x:String>
+  <x:String x:Key="V2.String.State.Unavailable">Unavailable</x:String>
+  <x:String x:Key="V2.String.State.Offline">Offline</x:String>
+  <x:String x:Key="V2.String.State.Stale">Stale</x:String>
+  <x:String x:Key="V2.String.State.Partial">Partial</x:String>
+  <x:String x:Key="V2.String.State.Denied">Permission denied</x:String>
+  <x:String x:Key="V2.String.State.Failed">Failed</x:String>
+  <x:String x:Key="V2.String.Why">Why</x:String>
+  <x:String x:Key="V2.String.Empty.Title">Nothing to show yet</x:String>
+  <x:String x:Key="V2.String.Empty.Body">Choose a source or try again when it is available.</x:String>
+  <x:String x:Key="V2.String.Error">This field needs attention.</x:String>
+  <x:String x:Key="V2.String.Status.Badges">Status badges</x:String>
+  <x:String x:Key="V2.String.Toolbar">Toolbar</x:String>
+  <x:String x:Key="V2.String.Table.Caption">Sample decisions, strongest reason first</x:String>
+  <x:String x:Key="V2.String.Table.Item">Item</x:String>
+  <x:String x:Key="V2.String.Table.State">State</x:String>
+  <x:String x:Key="V2.String.Table.Evidence">Evidence</x:String>
+  <x:String x:Key="V2.String.Capture.Title">Capture queue</x:String>
+  <x:String x:Key="V2.String.Capture.Detail">1 capture is waiting for review.</x:String>
+  <x:String x:Key="V2.String.Device.Title">Paired device</x:String>
+  <x:String x:Key="V2.String.Device.Detail">Control is held by this desktop; acknowledgement is current.</x:String>
+  <x:String x:Key="V2.String.Live.Polite">Background updates are announced here.</x:String>
+  <x:String x:Key="V2.String.Live.Assertive">Action needs attention.</x:String>
+  <x:String x:Key="V2.String.Action.Retry">Retry</x:String>
+  <x:String x:Key="V2.String.Action.Open">Open details</x:String>
+  <x:String x:Key="V2.String.Action.Close">Close</x:String>
+</ResourceDictionary>

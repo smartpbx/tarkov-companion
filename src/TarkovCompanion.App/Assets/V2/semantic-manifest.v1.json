@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "manifest": "tarkov-companion.v2.semantic-ui",
+  "version": "1.0.0",
+  "purpose": "Platform-neutral meaning and accessibility contract. Platform adapters supply pixels, controls, and operating-system integration.",
+  "platformBoundary": {
+    "shared": ["semantic roles", "state wording", "redundant cues", "provenance requirements", "automation-name templates", "responsive intent"],
+    "excluded": ["Avalonia classes", "CSS", "breakpoints", "focus-ring pixels", "screenshots", "game interaction"]
+  },
+  "tokens": {
+    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown", "mapSeries", "chartSeries"],
+    "type": ["display", "heading", "body", "label", "numeric"],
+    "space": ["xs", "sm", "md", "lg", "xl"],
+    "shape": ["control", "card", "pill"],
+    "elevation": ["flat", "raised", "dialog"],
+    "focus": ["visible", "error", "restore"],
+    "motion": ["system", "reduced", "full"],
+    "density": ["compact", "standard", "comfortable"],
+    "target": ["desktop", "touch"],
+    "mapAndChart": ["historical", "modelled", "manual", "unavailable"]
+  },
+  "variants": {
+    "appearance": ["system", "light", "dark", "highContrast"],
+    "colorVision": ["standard", "redGreenSafe", "blueYellowSafe", "monochrome"],
+    "motion": ["system", "reduced", "full"],
+    "density": ["compact", "standard", "comfortable"]
+  },
+  "states": [
+    { "id": "ready", "wordingKey": "V2.String.State.Ready", "glyph": "check", "border": "solid", "automationTemplate": "{state}: {detail}" },
+    { "id": "unknown", "wordingKey": "V2.String.State.Unknown", "glyph": "question", "border": "dotted", "automationTemplate": "{state}: {detail}" },
+    { "id": "unavailable", "wordingKey": "V2.String.State.Unavailable", "glyph": "minus", "border": "dashed", "automationTemplate": "{state}: {detail}" },
+    { "id": "offline", "wordingKey": "V2.String.State.Offline", "glyph": "link-off", "border": "dashed", "automationTemplate": "{state}: {detail}" },
+    { "id": "stale", "wordingKey": "V2.String.State.Stale", "glyph": "clock", "border": "dotted", "automationTemplate": "{state}: {detail}" },
+    { "id": "partial", "wordingKey": "V2.String.State.Partial", "glyph": "half-circle", "border": "double", "automationTemplate": "{state}: {detail}" },
+    { "id": "denied", "wordingKey": "V2.String.State.Denied", "glyph": "lock", "border": "solid", "automationTemplate": "{state}: {detail}" },
+    { "id": "failed", "wordingKey": "V2.String.State.Failed", "glyph": "cross", "border": "solid", "automationTemplate": "{state}: {detail}" }
+  ],
+  "evidence": {
+    "classes": ["observed", "inferred", "manual", "estimated", "historical", "modelled", "potential"],
+    "requiredWhenMaterial": ["source", "observedOrDataThroughUtc", "generatedUtc", "coverage", "confidence", "modelVersion"],
+    "disclosure": "Show compact identity and decision-changing freshness or confidence inline. Put complete evidence in Why/details; never imply a live detection."
+  },
+  "primitives": [
+    "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary", "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable", "chartLegend", "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "captureQueue"
+  ],
+  "accessibility": {
+    "landmarks": ["banner", "navigation", "main", "complementary", "search"],
+    "focus": "Navigation focuses the page heading; dialogs focus their title then restore their invoker or the page heading; background work never moves focus.",
+    "liveRegions": { "background": "polite", "refusalFailureConflict": "assertive" },
+    "colorAlone": false,
+    "mapAlternative": "Every map or chart has an ordered data alternative."
+  },
+  "adaptation": {
+    "effectiveContentWidths": ["narrow", "compact", "standard", "expanded"],
+    "textScales": ["100", "125", "150", "200"],
+    "rule": "Select layout by effective content width after text scaling, not by device label; tables alone may scroll horizontally."
+  },
+  "localization": {
+    "strings": "resource-backed",
+    "pseudoLocale": "qps-ploc",
+    "rtl": "defer bidirectional-layout validation to #279; use logical start/end alignment and no direction-sensitive icons as the native adapter rule",
+    "formatting": "Use the active culture and timezone; format whole messages, dates, numbers, currencies, and durations without concatenating localized fragments."
+  }
+}

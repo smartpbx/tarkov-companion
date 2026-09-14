@@ -1,0 +1,91 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Tokens.axaml" />
+        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Strings.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Styles.Resources>
+  <Style Selector="TextBlock.v2-page-heading">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Display}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="TextBlock.v2-section-heading">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Subheading}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="TextBlock.v2-body">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body}" />
+    <Setter Property="LineHeight" Value="24" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+  </Style>
+  <Style Selector="TextBlock.v2-label">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label}" />
+    <Setter Property="LineHeight" Value="20" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Border.v2-card">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Space.Lg}" />
+  </Style>
+  <Style Selector="Border.v2-banner">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
+    <Setter Property="BorderThickness" Value="3,1,1,1" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Space.Md}" />
+  </Style>
+  <Style Selector="Border.v2-state-error">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+  </Style>
+  <Style Selector="Border.v2-state-warning">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+  </Style>
+  <Style Selector="Border.v2-state-unknown">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Unknown}" />
+  </Style>
+  <Style Selector="Border.v2-state-offline">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Border.v2-badge">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
+    <Setter Property="Padding" Value="8,4" />
+  </Style>
+  <Style Selector="Button.v2-target">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="Padding" Value="12,8" />
+  </Style>
+  <Style Selector="Button.v2-touch-target">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
+    <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
+  </Style>
+  <Style Selector="Button.v2-target:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
+  </Style>
+  <Style Selector="TextBox:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
+  </Style>
+  <Style Selector="ToggleButton:focus-visible">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
+  </Style>
+  <Style Selector="TextBox.v2-field-error">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="Grid.v2-semantic-table">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+  </Style>
+</Styles>
