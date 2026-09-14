@@ -152,12 +152,44 @@ Optional. A member who simply stops publishing disappears after three minutes.
 
 No key required.
 
+## Who may have a room
+
+By default, anybody who can reach the relay. A key names a room, so a stranger who reaches the
+relay can invent a key and be in one — exactly as they could have invented a room name before
+keys replaced room names. What they cannot do is join *your* room, because its name is the hash
+of a secret and is not discoverable from outside.
+
+That is enough for a relay nobody else knows the address of, and stops being enough when one
+does. So an operator can register the rooms that are meant to exist, from the panel at `/admin`:
+
+- **With nothing registered the relay is open**, and behaves exactly as it always has.
+- **Registering the first room closes it.** From then on, a key whose room is not registered is
+  refused with a 403 and the client says so rather than showing an empty group.
+
+Registering a room does not mean handing the relay a key. Three ways in, all of which end as the
+same stored hash:
+
+| Way | When |
+| --- | --- |
+| Have a key generated | A new group. The key is shown once, on the page, and nowhere else. |
+| Give a key the group already uses | Rooms that predate the list, when you know the key. |
+| Adopt a room the relay is holding | Rooms that predate the list when you do not. |
+
+The third is the one that makes closing an established relay painless: the panel lists the rooms
+that currently have members and are not registered, and adopting one keeps the friends already
+in it. Anything still on that list after you have adopted your own is somebody you did not
+invite.
+
 ## What the server does not do
 
-- It stores nothing on disk. Restarting it forgets everyone.
 - It keeps no history. Where people have been would be easy to record and is deliberately not.
-- It has no accounts, no rate limiting and no identities beyond the display name you send.
-- It never sees your key, only its hash, and never logs either.
+- It has no accounts and no identities beyond the display name you send.
+- It never sees your key, only its hash, and never logs either. Registering a room does not
+  change that: the list holds hashes and labels.
+
+What it does write is two files, both in its state directory and neither about where anybody has
+been: `marks.json`, the waypoints a group placed, and `rooms.json`, the rooms an operator
+registered. Both survive a restart on purpose — the relay updates itself every half hour.
 
 ## Responses
 
@@ -166,6 +198,8 @@ No key required.
 | 200 | Published; the body is everyone else, plus the group's marks |
 | 400 | The display name is missing or longer than 48 characters |
 | 401 | The `X-Group-Key` header is missing or shorter than eight characters |
+| 403 | The relay is closed and this key's room is not one its operator registered |
 
 A 401 does **not** mean a wrong key. There is no such thing here: a key nobody else uses names
-a group nobody else is in, and returns 200 with an empty member list.
+a group nobody else is in, and returns 200 with an empty member list. A 403 is the one answer
+that does mean the key is wrong for this relay, and only on a relay whose operator has closed it.

@@ -191,6 +191,32 @@ public sealed class GroupRooms(TimeProvider timeProvider)
     /// <summary>How many members are held across every room.</summary>
     public int MemberCount => _rooms.Values.Sum(members => members.Count);
 
+    /// <summary>Which rooms hold members right now, and how many each holds.</summary>
+    /// <remarks>
+    /// Counts against room hashes: no names, no positions, nothing about who. It exists so an
+    /// operator can see that a room is in use, which is the only way to tell a group that was
+    /// meant to be here from one that invented a key — and the only way to adopt the first kind
+    /// without asking everybody for their key.
+    /// </remarks>
+    public IReadOnlyDictionary<string, int> Occupancy()
+    {
+        var now = timeProvider.GetUtcNow();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (room, members) in _rooms)
+        {
+            var live = members.Values.Count(entry => now - entry.PublishedUtc <= MemberLifetime);
+            if (live > 0)
+            {
+                counts[room] = live;
+            }
+        }
+
+        return counts;
+    }
+
+    /// <summary>Forgets every member of a room, for when it stops being allowed.</summary>
+    public void Clear(string room) => _rooms.TryRemove(room, out _);
+
     /// <summary>Forgets a member immediately, for when they say they are leaving.</summary>
     public void Remove(string room, string memberKey)
     {

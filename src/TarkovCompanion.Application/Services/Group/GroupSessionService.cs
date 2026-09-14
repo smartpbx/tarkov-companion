@@ -155,6 +155,11 @@ public sealed class GroupSessionService : IAsyncDisposable
         // nobody in it. Saying "wrong group key" sent people to compare keys that were fine.
         HttpRequestException { StatusCode: HttpStatusCode.Unauthorized } =>
             $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
+        // A 403 is the relay's operator saying this room is not one they registered, which is a
+        // different thing from the key being malformed and a different thing again from the
+        // relay being unwell. Somebody told this person a key; it is not the one in use.
+        HttpRequestException { StatusCode: HttpStatusCode.Forbidden } =>
+            "This relay only serves rooms its operator registered",
         HttpRequestException { StatusCode: HttpStatusCode.BadRequest } =>
             "Server rejected the key or the display name",
         HttpRequestException { StatusCode: { } status } =>
@@ -358,15 +363,17 @@ public sealed class GroupSessionService : IAsyncDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            // A 401 is an answer: the key is wrong and no amount of waiting fixes it, so the
-            // group really is off. Everything else is the relay having a bad moment, and the
-            // squad that was on the map a second ago should stay on it.
-            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            // A 401 and a 403 are both answers: the key is unusable here and no amount of
+            // waiting fixes it, so the group really is off. Everything else is the relay having
+            // a bad moment, and the squad that was on the map a second ago should stay on it.
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 _lastGood = null;
                 Publish(GroupSnapshot.Off with
                 {
-                    Detail = $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
+                    Detail = response.StatusCode == HttpStatusCode.Forbidden
+                        ? "This relay only serves rooms its operator registered"
+                        : $"The group key must be between {GroupKeyLimits.Minimum} and {GroupKeyLimits.Maximum} characters",
                     UpdatedUtc = DateTimeOffset.UtcNow,
                 });
                 return;
