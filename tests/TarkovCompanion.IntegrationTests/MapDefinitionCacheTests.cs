@@ -88,6 +88,46 @@ public sealed class MapDefinitionCacheTests
     /// Without this the session would keep reporting no extracts for that map however long it
     /// ran, which is exactly how the empty cache behaved.
     /// </remarks>
+    /// <summary>
+    /// The game's own id finds the map too, not only the slug.
+    /// </summary>
+    /// <remarks>
+    /// A raid reports the slug and every caller asked with one, so that is all this matched.
+    /// The item facts carry the other name — a key's map is "56f40101d2720b2a4d8b45d6" — and
+    /// nothing in the application could turn that into "Customs", so the Keys page printed the
+    /// identifier under a heading that said "Map id", on every one of two hundred and fifty
+    /// seven rows.
+    ///
+    /// Two attempts at fixing that resolved it through the map catalog instead, which is
+    /// the-hideout's maps.json: its locations are keyed by normalised name and carry no such id
+    /// at all. This is the table that has it.
+    /// </remarks>
+    [Fact]
+    public async Task MapIsAlsoFoundByTheGamesOwnId()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), "tarkov-mapdef-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var factory = new SqliteConnectionFactory(new(databasePath));
+            await new SqliteMigrationRunner(factory).ApplyAsync(TestContext.Current.CancellationToken);
+            await SeedAsync(factory);
+
+            var cache = new SqliteMapDefinitionCache(factory);
+            var map = await cache.GetAsync("map-1", TestContext.Current.CancellationToken);
+
+            Assert.NotNull(map);
+            Assert.Equal("Ground Zero", map.Name);
+            Assert.Equal(2, map.Extracts.Count);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+            File.Delete(databasePath + "-shm");
+            File.Delete(databasePath + "-wal");
+        }
+    }
+
     [Fact]
     public async Task RowsThatLandAfterAMissAreSeenOnceTheCacheIsInvalidated()
     {
