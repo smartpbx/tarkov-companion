@@ -1692,8 +1692,43 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public string Status
     {
         get => _status;
-        private set => Set(ref _status, value);
+        private set
+        {
+            if (Set(ref _status, value))
+            {
+                OnPropertyChanged(nameof(StatusLine));
+            }
+        }
     }
+
+    /// <summary>
+    /// What the floor stack did, which outlives the line beside it.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="Status"/> because Status is rewritten constantly and by
+    /// somebody else. The stack reports at the end of a variant load; the fit that follows
+    /// changes the zoom, the zoom re-plans the tiles, and reloading tiles assigns Status
+    /// outright — so the stack's line was written and wiped before any picture was taken.
+    ///
+    /// Three runs of the page gallery read as "the stack said nothing" when what it said had
+    /// been overwritten a moment later. Held on its own, it survives.
+    /// </remarks>
+    public string StackStatus
+    {
+        get => _stackStatus;
+        private set
+        {
+            if (Set(ref _stackStatus, value))
+            {
+                OnPropertyChanged(nameof(StatusLine));
+            }
+        }
+    }
+
+    /// <summary>The two together, which is what the map actually shows.</summary>
+    public string StatusLine => _stackStatus.Length == 0 ? Status : $"{Status} · {_stackStatus}";
+
+    private string _stackStatus = string.Empty;
 
     public string QuestLayerStatus
     {
@@ -4938,7 +4973,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // unwound before reaching here, which is a different question and a narrower one.
         if (!CanStack)
         {
-            Status = $"{Status} · Stacked view: this map has only one floor";
+            StackStatus = "Stacked view: this map has only one floor";
             return;
         }
 
@@ -5105,14 +5140,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             //
             // Only when the stack was actually asked for. A map load with the toggle off comes
             // through here on every single variant load and has nothing to report.
-            if (_openStacked || _isStacked)
-            {
-                Status = _renderModel is null
-                    ? $"{Status} · Stacked view: the map has not finished loading"
+            StackStatus = _openStacked || _isStacked
+                ? _renderModel is null
+                    ? "Stacked view: the map has not finished loading"
                     : Floors.Count == 0
-                        ? $"{Status} · Stacked view: this map has no floors"
-                        : $"{Status} · Stacked view: the stack is off";
-            }
+                        ? "Stacked view: this map has no floors"
+                        : "Stacked view: the stack is off"
+                : string.Empty;
 
             return;
         }
@@ -5166,16 +5200,16 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         // floor in turn -- so on a tile-drawn map the stack has never had anything to draw.
         if (layers.Count == 0)
         {
-            Status = refusal is { Length: > 0 }
-                ? $"{Status} · Stacked view: no floor artwork could be loaded · {refusal}"
-                : $"{Status} · Stacked view: no floor artwork could be loaded";
+            StackStatus = refusal is { Length: > 0 }
+                ? $"Stacked view: no floor artwork could be loaded · {refusal}"
+                : "Stacked view: no floor artwork could be loaded";
         }
         else if (layers.Count == _placements.Count)
         {
             // Said on success too, because "it worked" is the answer a picture could not give
             // otherwise: a stack drawn at the same scale as the flat map, seen small, looks
             // like a flat map. How many plates there are is the difference.
-            Status = $"{Status} · Stacked view: {layers.Count} floors";
+            StackStatus = $"Stacked view: {layers.Count} floors";
         }
         else if (layers.Count < _placements.Count)
         {
@@ -5184,9 +5218,9 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             // 4th floor has no upstream SVG layer while its other three do, so the stack is
             // three plates where the chooser offers four and nothing said which one was
             // missing or why.
-            Status = refusal is { Length: > 0 }
-                ? $"{Status} · Stacked view: {layers.Count} of {_placements.Count} floors · {refusal}"
-                : $"{Status} · Stacked view: {layers.Count} of {_placements.Count} floors";
+            StackStatus = refusal is { Length: > 0 }
+                ? $"Stacked view: {layers.Count} of {_placements.Count} floors · {refusal}"
+                : $"Stacked view: {layers.Count} of {_placements.Count} floors";
         }
     }
 

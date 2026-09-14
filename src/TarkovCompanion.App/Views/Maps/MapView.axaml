@@ -902,13 +902,13 @@
         MaxWidth="520"
         HorizontalAlignment="Left"
         VerticalAlignment="Bottom"
-        ToolTip.Tip="{Binding Status}"
+        ToolTip.Tip="{Binding StatusLine}"
         IsExpanded="False">
       <Expander.Header>
-        <TextBlock Text="{Binding Status}" TextTrimming="CharacterEllipsis" MaxWidth="460" />
+        <TextBlock Text="{Binding StatusLine}" TextTrimming="CharacterEllipsis" MaxWidth="460" />
       </Expander.Header>
       <StackPanel Spacing="6" MaxWidth="490">
-        <TextBlock Classes="label" Text="{Binding Status}" TextWrapping="Wrap" />
+        <TextBlock Classes="label" Text="{Binding StatusLine}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding TransformStatus}" TextWrapping="Wrap" />
         <TextBlock Classes="label" Text="{Binding QuestLayerStatus}" TextWrapping="Wrap" />
         <StackPanel Orientation="Horizontal" Spacing="4">
