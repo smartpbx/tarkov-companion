@@ -42,6 +42,7 @@ public sealed class GroupPageViewModel : PageViewModel
     private string _key = string.Empty;
     private bool _sharesLoadout;
     private bool _sharesQuests;
+    private string _myProfile = string.Empty;
     private string _myLoadout = "Nobody in your party is running this yet.";
     private DateTimeOffset _rendered = DateTimeOffset.MinValue;
 
@@ -70,6 +71,27 @@ public sealed class GroupPageViewModel : PageViewModel
         get => _myLoadout;
         private set => SetProperty(ref _myLoadout, value);
     }
+
+    /// <summary>
+    /// This player's own level, faction and scav timer, from the same place.
+    /// </summary>
+    /// <remarks>
+    /// The same asymmetry as the kit. GroupNotificationParser has read Side, Level and
+    /// SavageLockTime since it was written and every one of them describes somebody else — so
+    /// the Quests level is typed by hand, the profile's faction is never set, and a player's
+    /// own scav cooldown appears nowhere, while four other people's games have all three.
+    /// </remarks>
+    public string MyProfile
+    {
+        get => _myProfile;
+        private set
+        {
+            SetProperty(ref _myProfile, value);
+            OnPropertyChanged(nameof(HasMyProfile));
+        }
+    }
+
+    public bool HasMyProfile => _myProfile.Length > 0;
 
     public IReadOnlyList<GroupMemberRowViewModel> Members
     {
@@ -193,7 +215,40 @@ public sealed class GroupPageViewModel : PageViewModel
             : group.IsSharing
                 ? "Nobody in your party is running this yet."
                 : "Turn sharing on, and a squadmate running this can tell you.";
+        MyProfile = DescribeMe(group);
         Evidence = group.IsSharing ? "Sharing" : "Off";
+    }
+
+    /// <summary>
+    /// What the group knows about this player that their own game will not say.
+    /// </summary>
+    /// <remarks>
+    /// Empty rather than a row of "not known" when nobody has said anything. Three blank fields
+    /// is a panel that looks broken; an absent panel is one that has nothing to add yet, which
+    /// is the truth until a squadmate is also running this.
+    ///
+    /// A scav timer already in the past is left out rather than shown as a negative wait. The
+    /// answer then is "now", and the player can see that by looking at the game.
+    /// </remarks>
+    private static string DescribeMe(GroupSnapshot group)
+    {
+        var parts = new List<string>(3);
+        if (group.MyLevel is { } level)
+        {
+            parts.Add($"Level {level}");
+        }
+
+        if (group.MySide is { Length: > 0 } side)
+        {
+            parts.Add(side);
+        }
+
+        if (group.MyScavLockedUntil is { } until && until > DateTimeOffset.UtcNow)
+        {
+            parts.Add($"Scav available at {until.ToLocalTime():t}");
+        }
+
+        return parts.Count == 0 ? string.Empty : string.Join(" · ", parts);
     }
 
     private static GroupMemberRowViewModel Describe(GroupMemberView member) => new(

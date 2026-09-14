@@ -79,6 +79,27 @@ public sealed record GroupMemberState(
             return "Observations must name at most eight players with at most twelve items each.";
         }
 
+        // Guarded the same way the check above it is, and for the reason the remark on this
+        // method already gives: a payload with "observed": null lands as a null list, and Any
+        // on one throws — which the framework turns into a 500, a malformed request answered
+        // as a server fault. I wrote these two without the guard and the test written for that
+        // exact bug caught it.
+        if (Observed is { } stated)
+        {
+            // The game's own range. A level outside it is a client that has miscounted or is
+            // making something up, and either way it would be handed straight back to the
+            // person it claims to describe and used to gate their quest list.
+            if (stated.Any(entry => entry.Level is { } level && level is < 1 or > 79))
+            {
+                return "An observed level must be between 1 and 79.";
+            }
+
+            if (stated.Any(entry => entry.Side is { Length: > 16 }))
+            {
+                return "An observed side must be 16 characters or fewer.";
+            }
+        }
+
         // A trail is screenshots, not a stream: a raid produces a handful.
         return Trail is { Count: > 12 }
             ? "A trail may carry at most twelve points."
@@ -160,7 +181,33 @@ public sealed record GroupTrailPoint(
 /// <param name="Loadout">The gear slots the game named, in the order a player reads them.</param>
 public sealed record GroupObservedMember(
     [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout);
+    [property: JsonPropertyName("loadout")] IReadOnlyList<string> Loadout)
+{
+    /// <summary>
+    /// What somebody else's game says about this player, which their own does not.
+    /// </summary>
+    /// <remarks>
+    /// The same asymmetry the loadout exploits, and the same rule: this is only ever handed
+    /// back to the person it is about, by the nickname match the kit already uses. Nothing here
+    /// reaches anybody who was not already looking at it on their own screen.
+    ///
+    /// Init properties so a client that predates them still parses, and so a client that does
+    /// not send them is not refused.
+    /// </remarks>
+    [JsonPropertyName("level")]
+    public int? Level { get; init; }
+
+    [JsonPropertyName("side")]
+    public string? Side { get; init; }
+
+    /// <summary>When this player's scav is available again, as a Unix second.</summary>
+    /// <remarks>
+    /// Seconds rather than a formatted time, because the receiver renders it in their own
+    /// locale and a string would have arrived in the sender's.
+    /// </remarks>
+    [JsonPropertyName("scavLockedUntil")]
+    public long? ScavLockedUntilUnix { get; init; }
+}
 
 /// <summary>What the server sends back: everyone in the room except the receiver.</summary>
 /// <param name="Room">The room the update belongs to, so a client can ignore a stale one.</param>

@@ -379,7 +379,14 @@ public sealed class GroupSessionService : IAsyncDisposable
         var room = await response.Content.ReadFromJsonAsync<RoomStateDto>(Json, cancellationToken).ConfigureAwait(false);
         var seen = (room?.Members ?? [])
             .Select(member => (IReadOnlyList<ObservedKit>)(member.Observed ?? [])
-                .Select(kit => new ObservedKit(kit.Name, kit.Loadout ?? []))
+                .Select(kit => new ObservedKit(kit.Name, kit.Loadout ?? [])
+                {
+                    Level = kit.Level,
+                    Side = kit.Side,
+                    ScavLockedUntil = kit.ScavLockedUntilUnix is { } unix
+                        ? DateTimeOffset.FromUnixTimeSeconds(unix)
+                        : null,
+                })
                 .ToArray())
             .ToArray();
         // Each member's kit, from whoever could see it. Their own report wins where they have
@@ -387,6 +394,7 @@ public sealed class GroupSessionService : IAsyncDisposable
         var members = (room?.Members ?? [])
             .Select(member => Fill(Read(member), seen))
             .ToArray();
+        var mine = GroupKitMirror.FindAll(seen, settings.DisplayName);
         // Occasionally, not every five seconds. Three lines at the start answer "is it working
         // at all", which is the question, and one every ten minutes after that shows it still
         // is, without filling an evening's log.
@@ -407,9 +415,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             DescribeSharing(settings.DisplayName, members.Length, snapshot),
             DateTimeOffset.UtcNow)
         {
-            // The one thing this companion cannot read about its own player, handed back by
-            // the people whose game named it.
-            MyLoadout = GroupKitMirror.Find(seen, settings.DisplayName),
+            // The things this companion cannot read about its own player, handed back by the
+            // people whose game named them.
+            MyLoadout = mine?.Loadout ?? [],
+            MyLevel = mine?.Level,
+            MySide = mine?.Side,
+            MyScavLockedUntil = mine?.ScavLockedUntil,
             // The server expires pings for us, so whatever comes back is current by
             // definition and the client needs no timer of its own.
             Waypoints = (room?.Waypoints ?? []).Select(w =>
@@ -522,7 +533,12 @@ public sealed class GroupSessionService : IAsyncDisposable
             // waypoints beside them have carried one from the beginning.
             Y = position?.Position.Y,
             Observed = observed
-                .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout))
+                .Select(kit => new ObservedKitDto(kit.Name, kit.Loadout)
+                {
+                    Level = kit.Level,
+                    Side = kit.Side,
+                    ScavLockedUntilUnix = kit.ScavLockedUntil?.ToUnixTimeSeconds(),
+                })
                 .ToArray(),
             Trail = DescribeTrail(snapshot),
         };
@@ -899,7 +915,17 @@ public sealed class GroupSessionService : IAsyncDisposable
 
     private sealed record ObservedKitDto(
         [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout);
+        [property: JsonPropertyName("loadout")] IReadOnlyList<string>? Loadout)
+    {
+        [JsonPropertyName("level")]
+        public int? Level { get; init; }
+
+        [JsonPropertyName("side")]
+        public string? Side { get; init; }
+
+        [JsonPropertyName("scavLockedUntil")]
+        public long? ScavLockedUntilUnix { get; init; }
+    }
 
     private sealed record RoomStateDto(
         [property: JsonPropertyName("room")] string Room,
