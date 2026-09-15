@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.CompanionProtocol;
 
@@ -12,10 +13,14 @@ public static class CompanionProtocolJson
     {
         typeof(ClientHello),
         typeof(ServerHello),
+        typeof(PairingOffer),
         typeof(PairingRequest),
-        typeof(PairingChallenge),
-        typeof(PairingProof),
+        typeof(SessionResumeRequest),
+        typeof(HandshakeChallenge),
+        typeof(DeviceKeyProof),
+        typeof(SessionEstablished),
         typeof(ClientCommandEnvelope),
+        typeof(ClientDeliveryAcknowledgement),
         typeof(ServerEnvelope),
         typeof(OpaqueRelayFrame),
         typeof(ReconnectRequest),
@@ -25,12 +30,17 @@ public static class CompanionProtocolJson
     private static readonly FrozenSet<string> ProhibitedPropertyNames = new[]
     {
         "$type",
+        "$id",
+        "$ref",
         "typeName",
         "clrType",
         "assemblyQualifiedName",
         "password",
         "shortCode",
+        "pairingCode",
         "privateKey",
+        "sharedSecret",
+        "trafficKey",
         "accessToken",
         "refreshToken",
         "authorizationToken",
@@ -40,20 +50,54 @@ public static class CompanionProtocolJson
 
     public static JsonSerializerOptions Options { get; } = CreateOptions();
 
+    /// <summary>The exact wire roots, in the order the schema's root <c>oneOf</c> lists them.</summary>
+    public static IReadOnlyList<Type> RootTypes { get; } =
+    [
+        typeof(ClientCommandEnvelope),
+        typeof(ClientDeliveryAcknowledgement),
+        typeof(ServerEnvelope),
+        typeof(OpaqueRelayFrame),
+        typeof(ClientHello),
+        typeof(ServerHello),
+        typeof(PairingOffer),
+        typeof(PairingRequest),
+        typeof(SessionResumeRequest),
+        typeof(HandshakeChallenge),
+        typeof(DeviceKeyProof),
+        typeof(SessionEstablished),
+        typeof(ReconnectRequest),
+        typeof(ReconnectPlan),
+    ];
+
     public static byte[] Serialize<T>(T value)
     {
         RequireWireRoot(typeof(T));
         var payload = JsonSerializer.SerializeToUtf8Bytes(value, Options);
-        ValidateLexicalSafety(payload);
+        ValidateLexicalSafety(payload, MaximumBytes(typeof(T)));
         return payload;
     }
 
+    /// <summary>
+    /// Reads one exact root. Every malformed, oversized, ambiguous, or semantically invalid payload
+    /// fails with <see cref="JsonException"/>, so a transport has exactly one rejection path.
+    /// </summary>
     public static T Deserialize<T>(ReadOnlySpan<byte> payload)
     {
         RequireWireRoot(typeof(T));
-        ValidateLexicalSafety(payload);
-        return JsonSerializer.Deserialize<T>(payload, Options)
-            ?? throw new JsonException("A protocol root cannot be null.");
+        ValidateLexicalSafety(payload, MaximumBytes(typeof(T)));
+        try
+        {
+            return JsonSerializer.Deserialize<T>(payload, Options)
+                ?? throw new JsonException("A protocol root cannot be null.");
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or
+                                              InvalidOperationException or NotSupportedException or
+                                              OverflowException or InvalidCastException or
+                                              KeyNotFoundException or IndexOutOfRangeException or
+                                              System.Reflection.TargetInvocationException)
+        {
+            throw new JsonException($"The {typeof(T).Name} payload violates the paired protocol contract.", exception);
+        }
     }
 
     private static JsonSerializerOptions CreateOptions()
@@ -65,11 +109,17 @@ public static class CompanionProtocolJson
             RespectNullableAnnotations = true,
             RespectRequiredConstructorParameters = true,
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+
+            // JSON objects are unordered. A browser client must not have to place "type" first.
+            AllowOutOfOrderMetadataProperties = true,
         };
         options.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
         options.MakeReadOnly(populateMissingResolver: true);
         return options;
     }
+
+    private static int MaximumBytes(Type root) =>
+        root == typeof(OpaqueRelayFrame) ? ProtocolBounds.MaxRelayFrameBytes : ProtocolBounds.MaxPayloadBytes;
 
     private static void RequireWireRoot(Type type)
     {
@@ -79,11 +129,11 @@ public static class CompanionProtocolJson
         }
     }
 
-    private static void ValidateLexicalSafety(ReadOnlySpan<byte> payload)
+    private static void ValidateLexicalSafety(ReadOnlySpan<byte> payload, int maximumBytes)
     {
-        if (payload.Length == 0 || payload.Length > ProtocolBounds.MaxPayloadBytes)
+        if (payload.Length == 0 || payload.Length > maximumBytes)
         {
-            throw new JsonException($"A protocol payload is 1-{ProtocolBounds.MaxPayloadBytes} bytes.");
+            throw new JsonException($"A protocol payload is 1-{maximumBytes} bytes.");
         }
 
         var reader = new Utf8JsonReader(payload, new JsonReaderOptions
@@ -93,57 +143,65 @@ public static class CompanionProtocolJson
             MaxDepth = ProtocolBounds.MaxJsonDepth,
         });
         var containers = new Stack<ContainerFrame>();
-        while (reader.Read())
+        try
         {
-            switch (reader.TokenType)
+            while (reader.Read())
             {
-                case JsonTokenType.StartObject:
-                    CountArrayItem(containers);
-                    containers.Push(ContainerFrame.Object());
-                    break;
-                case JsonTokenType.StartArray:
-                    CountArrayItem(containers);
-                    containers.Push(ContainerFrame.Array());
-                    break;
-                case JsonTokenType.EndObject:
-                case JsonTokenType.EndArray:
-                    if (containers.Count == 0)
-                    {
-                        throw new JsonException("An unexpected container terminator was found.");
-                    }
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.StartObject:
+                        CountArrayItem(containers);
+                        containers.Push(ContainerFrame.Object());
+                        break;
+                    case JsonTokenType.StartArray:
+                        CountArrayItem(containers);
+                        containers.Push(ContainerFrame.Array());
+                        break;
+                    case JsonTokenType.EndObject:
+                    case JsonTokenType.EndArray:
+                        if (containers.Count == 0)
+                        {
+                            throw new JsonException("An unexpected container terminator was found.");
+                        }
 
-                    containers.Pop();
-                    break;
-                case JsonTokenType.PropertyName:
-                    if (containers.Count == 0 || !containers.Peek().IsObject)
-                    {
-                        throw new JsonException("A property appeared outside an object.");
-                    }
+                        containers.Pop();
+                        break;
+                    case JsonTokenType.PropertyName:
+                        if (containers.Count == 0 || !containers.Peek().IsObject)
+                        {
+                            throw new JsonException("A property appeared outside an object.");
+                        }
 
-                    var property = reader.GetString() ?? throw new JsonException("A property name cannot be null.");
-                    ValidateString(property);
-                    if (!containers.Peek().Properties!.Add(property))
-                    {
-                        throw new JsonException($"Duplicate property '{property}' is ambiguous.");
-                    }
+                        var property = reader.GetString() ?? throw new JsonException("A property name cannot be null.");
+                        ValidateString(property);
+                        if (!containers.Peek().Properties!.Add(property))
+                        {
+                            throw new JsonException($"Duplicate property '{property}' is ambiguous.");
+                        }
 
-                    if (ProhibitedPropertyNames.Contains(property))
-                    {
-                        throw new JsonException($"Property '{property}' is prohibited on the paired wire.");
-                    }
+                        if (ProhibitedPropertyNames.Contains(property))
+                        {
+                            throw new JsonException($"Property '{property}' is prohibited on the paired wire.");
+                        }
 
-                    break;
-                case JsonTokenType.String:
-                    CountArrayItem(containers);
-                    ValidateString(reader.GetString() ?? string.Empty);
-                    break;
-                case JsonTokenType.Number:
-                case JsonTokenType.True:
-                case JsonTokenType.False:
-                case JsonTokenType.Null:
-                    CountArrayItem(containers);
-                    break;
+                        break;
+                    case JsonTokenType.String:
+                        CountArrayItem(containers);
+                        ValidateString(reader.GetString() ?? string.Empty);
+                        break;
+                    case JsonTokenType.Number:
+                    case JsonTokenType.True:
+                    case JsonTokenType.False:
+                    case JsonTokenType.Null:
+                        CountArrayItem(containers);
+                        break;
+                }
             }
+        }
+        catch (InvalidOperationException exception)
+        {
+            // Utf8JsonReader reports invalid UTF-8 inside a string token this way.
+            throw new JsonException("A protocol payload contains invalid UTF-8.", exception);
         }
 
         if (containers.Count != 0)
@@ -192,5 +250,69 @@ public static class CompanionProtocolJson
         public static ContainerFrame Object() => new(true);
 
         public static ContainerFrame Array() => new(false);
+    }
+}
+
+/// <summary>
+/// Guarantees that canonical state the reducer commits can always be delivered. The largest
+/// message carrying full state is a command acknowledgement inside a server envelope, so the
+/// check serializes exactly that shape with the widest legal envelope and acknowledgement values
+/// through the same lexical boundary every transport uses.
+/// </summary>
+public static class CanonicalDeliveryBudget
+{
+    private static readonly CommandId ProbeCommand = new(Guid.Parse("7f000000-0000-4000-8000-000000000001"));
+    private static readonly CommandId ProbeChange = new(Guid.Parse("7f000000-0000-4000-8000-000000000002"));
+    private static readonly CompanionDeviceId ProbeDevice = new(Guid.Parse("7f000000-0000-4000-8000-000000000003"));
+    private static readonly DeviceSessionId ProbeSession = new(Guid.Parse("7f000000-0000-4000-8000-000000000004"));
+    private static readonly DateTimeOffset ProbeUtc = new(9999, 12, 31, 23, 59, 59, 999, TimeSpan.Zero);
+
+    public static bool Fits(CanonicalCompanionState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        try
+        {
+            _ = CompanionProtocolJson.Serialize(ProbeEnvelope(state));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    internal static ServerEnvelope ProbeEnvelope(CanonicalCompanionState state)
+    {
+        // The acknowledgement names the probe as the applied change at the widest revision; the
+        // real acknowledgement's values are never wider, and its code is never longer.
+        var probeState = new CanonicalCompanionState(
+            state.AuthorityEpoch,
+            new GlobalRevision(long.MaxValue),
+            state.DesktopDeviceId,
+            state.DeviceModes,
+            state.Workspace,
+            state.Marks,
+            new CaptureIntentAggregate(new AggregateCursor(new AggregateRevision(long.MaxValue), ProbeChange), state.CaptureIntent.ActiveIntent));
+        return new ServerEnvelope(
+            new CompanionProtocolVersion(CompanionProtocolVersion.MaxMajor, CompanionProtocolVersion.MaxMinor),
+            ProbeSession,
+            ProbeDevice,
+            ProbeUtc,
+            new DeliverySequence(long.MaxValue),
+            new CommandAcknowledgementMessage(new CommandAcknowledgement(
+                ProbeCommand,
+                CanonicalAggregateKind.CaptureIntent,
+                new AggregateRevision(long.MaxValue),
+                new AggregateRevision(long.MaxValue),
+                ProbeChange,
+                new GlobalRevision(long.MaxValue),
+                state.AuthorityEpoch,
+                CommandDisposition.RejectedCommandIdReuse,
+                new string('x', ProtocolBounds.MaxShortStringBytes),
+                probeState)));
     }
 }

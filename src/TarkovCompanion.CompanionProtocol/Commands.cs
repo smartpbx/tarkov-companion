@@ -42,6 +42,7 @@ public sealed record OfflineQueuePreview
 [JsonDerivedType(typeof(RequestControlCommand), "requestControl")]
 [JsonDerivedType(typeof(ResolveControlCommand), "resolveControl")]
 [JsonDerivedType(typeof(PreemptControlCommand), "preemptControl")]
+[JsonDerivedType(typeof(UpdateDesktopWorkspaceCommand), "updateDesktopWorkspace")]
 [JsonDerivedType(typeof(ControlWorkspaceCommand), "controlWorkspace")]
 [JsonDerivedType(typeof(ShowOnDesktopCommand), "showOnDesktop")]
 [JsonDerivedType(typeof(UpsertMarkCommand), "upsertMark")]
@@ -260,6 +261,28 @@ public sealed record ControlWorkspaceCommand : CompanionCommand
         Action = ProtocolGuard.NotNull(action, nameof(action));
 
     public WorkspaceAction Action { get; }
+
+    [JsonIgnore]
+    public override CanonicalAggregateKind Aggregate => CanonicalAggregateKind.Workspace;
+}
+
+/// <summary>
+/// A local desktop navigation change. The reducer accepts this only from its authenticated
+/// desktop context, but representing it as an ordinary revisioned command keeps tablets from
+/// missing local UI changes or relying on a second state-update path.
+/// </summary>
+public sealed record UpdateDesktopWorkspaceCommand : CompanionCommand
+{
+    public UpdateDesktopWorkspaceCommand(
+        CommandId commandId,
+        AggregateRevision requestedRevision,
+        DateTimeOffset issuedUtc,
+        DateTimeOffset expiresUtc,
+        WorkspaceProjection projection)
+        : base(commandId, requestedRevision, issuedUtc, expiresUtc, null) =>
+        Projection = ProtocolGuard.NotNull(projection, nameof(projection));
+
+    public WorkspaceProjection Projection { get; }
 
     [JsonIgnore]
     public override CanonicalAggregateKind Aggregate => CanonicalAggregateKind.Workspace;

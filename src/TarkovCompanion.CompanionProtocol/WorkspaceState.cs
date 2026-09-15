@@ -445,16 +445,21 @@ public sealed record DeviceModeAggregate
             throw new ArgumentException("A device has one interaction mode.", nameof(devices));
         }
 
-        if (controlLease is not null && !Devices.Any(item =>
-                item.DeviceId == controlLease.DeviceId && item.Mode == CompanionInteractionMode.Control))
+        // Control and ControlPending are never free-standing: exactly the lease holder is in
+        // Control and exactly the requester is pending, so no device can keep a mode whose lease
+        // or request was released.
+        var controlled = Devices.Where(item => item.Mode == CompanionInteractionMode.Control).ToArray();
+        if (controlled.Length != (controlLease is null ? 0 : 1) ||
+            (controlLease is not null && controlled[0].DeviceId != controlLease.DeviceId))
         {
-            throw new ArgumentException("A control lease must name the device in Control mode.", nameof(controlLease));
+            throw new ArgumentException("A control lease names the only device in Control mode.", nameof(controlLease));
         }
 
-        if (pendingControl is not null && !Devices.Any(item =>
-                item.DeviceId == pendingControl.DeviceId && item.Mode == CompanionInteractionMode.ControlPending))
+        var requesting = Devices.Where(item => item.Mode == CompanionInteractionMode.ControlPending).ToArray();
+        if (requesting.Length != (pendingControl is null ? 0 : 1) ||
+            (pendingControl is not null && requesting[0].DeviceId != pendingControl.DeviceId))
         {
-            throw new ArgumentException("A pending request must name the device in ControlPending mode.", nameof(pendingControl));
+            throw new ArgumentException("A pending request names the only device in ControlPending mode.", nameof(pendingControl));
         }
     }
 
@@ -465,6 +470,10 @@ public sealed record DeviceModeAggregate
     public PendingControlRequest? PendingControl { get; }
 
     public ControlLease? ControlLease { get; }
+
+    /// <summary>A paired device without an entry follows the desktop.</summary>
+    public CompanionInteractionMode ModeOf(CompanionDeviceId deviceId) =>
+        Devices.FirstOrDefault(item => item.DeviceId == deviceId)?.Mode ?? CompanionInteractionMode.Follow;
 }
 
 public sealed record WorkspaceAggregate(AggregateCursor Cursor, WorkspaceProjection Projection)
@@ -496,32 +505,45 @@ public sealed record CaptureIntentAggregate(AggregateCursor Cursor, ContextualCa
     public AggregateCursor Cursor { get; } = ProtocolGuard.NotNull(Cursor, nameof(Cursor));
 }
 
+/// <summary>
+/// The desktop's answer to one command. The first four members share the revision rules of the
+/// v2 <c>AcknowledgementDisposition</c>; the rest are narrower paired-protocol rejections that
+/// leave canonical state untouched. <see cref="CommandAcknowledgement"/> enforces the table in
+/// docs/PAIRED_DEVICE_PROTOCOL.md.
+/// </summary>
 public enum CommandDisposition
 {
     Applied = 1,
-    Duplicate,
-    PendingDesktopApproval,
     RejectedStale,
     RejectedConflict,
+    UnsupportedVersion,
     RejectedExpired,
     RejectedUnauthorized,
     RejectedInvalidState,
     RequiresPreview,
-    UnsupportedVersion,
+    RequiresSnapshot,
+    RejectedCommandIdReuse,
 }
 
+/// <summary>
+/// Desktop-local idempotency memory for one applied command. It is never sent to a tablet: the
+/// fingerprint of another device's command is not canonical state.
+/// </summary>
 public sealed record RecentCommandReceipt(
     CommandId CommandId,
+    CommandFingerprint Fingerprint,
     CompanionDeviceId DeviceId,
     CanonicalAggregateKind Aggregate,
-    AggregateRevision RequestedRevision,
     AggregateRevision AppliedRevision,
-    CommandDisposition Disposition,
     DateTimeOffset ExpiresUtc)
 {
     public CommandId CommandId { get; } = CommandId.Value == Guid.Empty
         ? throw new ArgumentException("A command id is required.", nameof(CommandId))
         : CommandId;
+
+    public CommandFingerprint Fingerprint { get; } = string.IsNullOrWhiteSpace(Fingerprint.Value)
+        ? throw new ArgumentException("A command fingerprint is required.", nameof(Fingerprint))
+        : Fingerprint;
 
     public CompanionDeviceId DeviceId { get; } = DeviceId.Value == Guid.Empty
         ? throw new ArgumentException("A device id is required.", nameof(DeviceId))
@@ -529,7 +551,9 @@ public sealed record RecentCommandReceipt(
 
     public CanonicalAggregateKind Aggregate { get; } = ProtocolGuard.Defined(Aggregate, nameof(Aggregate));
 
-    public CommandDisposition Disposition { get; } = ProtocolGuard.Defined(Disposition, nameof(Disposition));
+    public AggregateRevision AppliedRevision { get; } = AppliedRevision.Value > 0
+        ? AppliedRevision
+        : throw new ArgumentOutOfRangeException(nameof(AppliedRevision), "An applied command occupies a positive revision.");
 
     public DateTimeOffset ExpiresUtc { get; } = ProtocolGuard.Utc(ExpiresUtc, nameof(ExpiresUtc));
 }
@@ -562,9 +586,18 @@ public sealed record CanonicalCompanionState
             nameof(recentCommands),
             ProtocolBounds.MaxRecentCommands);
 
-        if (RecentCommands.Select(item => (item.DeviceId, item.CommandId)).Distinct().Count() != RecentCommands.Count)
+        // A command id is a change identity for the whole authority lifetime, not per device;
+        // otherwise two devices could each be told that "their" change occupies one revision.
+        if (RecentCommands.Select(item => item.CommandId).Distinct().Count() != RecentCommands.Count)
         {
-            throw new ArgumentException("Recent command ids are unique per authenticated device.", nameof(recentCommands));
+            throw new ArgumentException("Recent command ids are unique across devices.", nameof(recentCommands));
+        }
+
+        if (DeviceModes.Devices.Any(item => item.DeviceId == DesktopDeviceId) ||
+            DeviceModes.PendingControl?.DeviceId == DesktopDeviceId ||
+            DeviceModes.ControlLease?.DeviceId == DesktopDeviceId)
+        {
+            throw new ArgumentException("The canonical desktop is the authority, not a paired interaction mode.", nameof(deviceModes));
         }
     }
 

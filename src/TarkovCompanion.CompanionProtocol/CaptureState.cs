@@ -187,6 +187,16 @@ public sealed record ContextualCaptureResult
             : detectedContext;
         CompletedUtc = ProtocolGuard.Utc(completedUtc, nameof(completedUtc));
         Provenance = ProtocolGuard.NotNull(provenance, nameof(provenance));
+
+        // The full #264 lineage stays with the referenced result. A paired snapshot inside a
+        // command acknowledgement reaches JSON depth 13 at this bound, inside the wire limit of 16;
+        // Core's own depth of 8 would make a canonical state that no transport could deliver.
+        if (Depth(Provenance) > ProtocolBounds.MaxCaptureProvenanceDepth)
+        {
+            throw new ArgumentException(
+                $"A paired capture result carries at most {ProtocolBounds.MaxCaptureProvenanceDepth} provenance levels.",
+                nameof(provenance));
+        }
     }
 
     public string ResultId { get; }
@@ -202,6 +212,9 @@ public sealed record ContextualCaptureResult
     public DateTimeOffset CompletedUtc { get; }
 
     public EvidenceProvenance Provenance { get; }
+
+    private static int Depth(EvidenceProvenance provenance) =>
+        1 + (provenance.Inputs.Count == 0 ? 0 : provenance.Inputs.Max(Depth));
 }
 
 public sealed record ContextualCaptureGuidance(
@@ -406,9 +419,12 @@ public sealed record ContextualCaptureIntent
             throw new ArgumentException("A capture result cannot complete after its intent expired.", nameof(Result));
         }
 
-        if (StatusRequiresResult(Status) != (Result is not null))
+        var resultRule = ResultRule(Status);
+        if ((resultRule == true && Result is null) || (resultRule == false && Result is not null))
         {
-            throw new ArgumentException("Awaiting-review and complete capture states carry a result; other states do not.", nameof(Result));
+            throw new ArgumentException(
+                "Awaiting-review and complete captures carry a result, unfinished ones do not, and a terminal failure keeps any result it had.",
+                nameof(Result));
         }
 
         if (Result is not null &&
@@ -449,6 +465,12 @@ public sealed record ContextualCaptureIntent
         }
     }
 
-    private static bool StatusRequiresResult(ContextualCaptureStatus status) =>
-        status is ContextualCaptureStatus.AwaitingReview or ContextualCaptureStatus.Complete;
+    // Expiry, cancellation, and failure can arrive after a result was published; they keep that
+    // result as history instead of making server-time maintenance unable to expire the intent.
+    private static bool? ResultRule(ContextualCaptureStatus status) => status switch
+    {
+        ContextualCaptureStatus.AwaitingReview or ContextualCaptureStatus.Complete => true,
+        ContextualCaptureStatus.Armed or ContextualCaptureStatus.AwaitingUserCapture or ContextualCaptureStatus.InProgress => false,
+        _ => null,
+    };
 }
