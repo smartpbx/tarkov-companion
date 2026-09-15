@@ -50,6 +50,9 @@ public sealed record AppCommandLine(
     /// <summary>How many lines the probe prints per preparation. Twelve on a 32:9 frame is a rounding error.</summary>
     public int? OcrProbeLines { get; init; }
 
+    /// <summary>Read each stash-grid caption as its own production-provider comparison.</summary>
+    public bool OcrProbeCells { get; init; }
+
     /// <summary>
     /// A map to open on, instead of the default one.
     /// </summary>
@@ -101,6 +104,7 @@ public sealed record AppCommandLine(
             StacksFloors = HasFlag(args, "--stack"),
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
+            OcrProbeCells = HasFlag(args, "--ocr-probe-cells"),
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
@@ -127,6 +131,7 @@ public sealed record AppCommandLine(
         "--ocr-probe",
         "--ocr-probe-region",
         "--ocr-probe-lines",
+        "--ocr-probe-cells",
     ];
 
     /// <summary>

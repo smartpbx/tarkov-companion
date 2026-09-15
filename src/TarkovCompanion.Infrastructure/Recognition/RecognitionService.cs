@@ -113,7 +113,11 @@ public sealed class RecognitionService : IRecognitionService
     /// </remarks>
     private static string Describe(CapturedImage image, CoordinatedOcrResult coordinated) =>
         $"{coordinated.FullFrame.Lines.Count} text line(s) read from {image.Width}x{image.Height} " +
-        $"by {coordinated.FullFrame.Engine}; {coordinated.Detection.Evidence}";
+        $"by {coordinated.FullFrame.Engine} in {coordinated.FullFrame.Duration.TotalMilliseconds:F0}ms; " +
+        $"partial={coordinated.IsPartial}; diagnostic={coordinated.DiagnosticCode ?? "none"}; " +
+        $"health-character={coordinated.SupplementalSignals.HealthAndCharacter.DiagnosticCode}; " +
+        $"version-strip={coordinated.SupplementalSignals.VersionStrip.DiagnosticCode}; " +
+        coordinated.Detection.Evidence;
 
     private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(
         OcrResult result,

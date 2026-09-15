@@ -15,7 +15,18 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 public sealed record TesseractOcrOptions(
     string? TessdataPath = null,
     string Language = "eng",
-    bool UseBundledEnglishData = true);
+    bool UseBundledEnglishData = true)
+{
+    public TimeSpan FrameTimeout { get; init; } = TimeSpan.FromSeconds(15);
+
+    public long MaximumSourcePixels { get; init; } = 40_000_000;
+
+    public long MaximumInputBytes { get; init; } = 192L * 1024 * 1024;
+
+    public long MaximumPreparedPixels { get; init; } = 40_000_000;
+
+    public long MaximumEstimatedPeakBytes { get; init; } = 256L * 1024 * 1024;
+}
 
 /// <summary>
 /// Offline Tesseract 5 OCR for the packaged Windows x64 application.
@@ -29,14 +40,19 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     private const string BundledModelSha256 =
         "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2";
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _lifetimeGate = new();
     private readonly string _language;
+    private readonly TesseractOcrOptions _options;
     private Engine? _engine;
+    private Task? _nativeWork;
     private bool _disposed;
 
     public TesseractOcrEngine(TesseractOcrOptions? options = null)
     {
         options ??= new TesseractOcrOptions();
         ArgumentException.ThrowIfNullOrWhiteSpace(options.Language);
+        ValidateOptions(options);
+        _options = options;
         _language = options.Language;
         Availability = Initialize(options);
     }
@@ -44,6 +60,18 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     public OcrEngineAvailability Availability { get; private set; }
 
     public async Task<OcrResult> RecognizeAsync(
+        CapturedImage image,
+        OcrRequest request,
+        CancellationToken cancellationToken) =>
+        (await RecognizeDetailedAsync(image, request, cancellationToken).ConfigureAwait(false)).Result;
+
+    /// <summary>
+    /// Reads one region under a hard caller-visible deadline and reports the exact preparation
+    /// dimensions. Tesseract's native call is not cooperatively cancellable, so a timed-out
+    /// call keeps exclusive ownership of the provider until it really exits; another call can
+    /// never overlap it.
+    /// </summary>
+    public async Task<TesseractOcrExecution> RecognizeDetailedAsync(
         CapturedImage image,
         OcrRequest request,
         CancellationToken cancellationToken)
@@ -55,38 +83,179 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
         if (!Availability.IsAvailable || _engine is null)
         {
-            return new([], TimeSpan.Zero, ProviderName, false, "ocr_provider_unavailable");
+            return EmptyExecution(image, request, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
         }
 
         if (!string.Equals(request.Language, _language, StringComparison.OrdinalIgnoreCase))
         {
-            return new([], TimeSpan.Zero, ProviderName, false, "ocr_language_unavailable");
+            return EmptyExecution(image, request, OcrExecutionStatus.Unavailable, "ocr_language_unavailable");
         }
 
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var stopwatch = Stopwatch.StartNew();
+        using var frameCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        frameCancellation.CancelAfter(_options.FrameTimeout);
         try
         {
-            var stopwatch = Stopwatch.StartNew();
+            await _gate.WaitAsync(frameCancellation.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+            return WithDuration(
+                EmptyExecution(image, request, OcrExecutionStatus.TimedOut, "ocr_frame_timeout"),
+                stopwatch.Elapsed);
+        }
+
+        var releaseGate = true;
+        try
+        {
             var region = ClampRegion(image, request.Region);
             var preparation = request.Preparation;
-            var encoded = EncodePortableGraymap(image, region, preparation);
-            var lines = await Task.Run(
-                () => RecognizeCore(encoded, region, preparation.SafeScale),
-                CancellationToken.None).ConfigureAwait(false);
+            var scale = preparation.SafeScale;
+            var budgetDiagnostic = OcrExecutionBudget.Check(
+                image,
+                region,
+                scale,
+                _options.MaximumSourcePixels,
+                _options.MaximumInputBytes,
+                _options.MaximumPreparedPixels,
+                _options.MaximumEstimatedPeakBytes,
+                out var sourcePixels,
+                out var preparedPixels,
+                out var estimatedPeakBytes);
+            if (budgetDiagnostic is not null)
+            {
+                return CreateExecution(
+                    image,
+                    region,
+                    scale,
+                    sourcePixels,
+                    preparedPixels,
+                    estimatedPeakBytes,
+                    stopwatch.Elapsed,
+                    [],
+                    OcrExecutionStatus.Rejected,
+                    budgetDiagnostic);
+            }
+
+            byte[] encoded;
+            try
+            {
+                encoded = EncodePortableGraymap(image, region, preparation, frameCancellation.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                stopwatch.Stop();
+                return CreateExecution(
+                    image,
+                    region,
+                    scale,
+                    sourcePixels,
+                    preparedPixels,
+                    estimatedPeakBytes,
+                    stopwatch.Elapsed,
+                    [],
+                    OcrExecutionStatus.TimedOut,
+                    "ocr_frame_timeout");
+            }
+
+            var engine = _engine;
+            if (engine is null)
+            {
+                return CreateExecution(
+                    image,
+                    region,
+                    scale,
+                    sourcePixels,
+                    preparedPixels,
+                    estimatedPeakBytes,
+                    stopwatch.Elapsed,
+                    [],
+                    OcrExecutionStatus.Unavailable,
+                    "ocr_provider_unavailable");
+            }
+
+            var nativeWork = Task.Run(
+                () => RecognizeCore(engine, encoded, region, scale),
+                CancellationToken.None);
+            lock (_lifetimeGate)
+            {
+                _nativeWork = nativeWork;
+            }
+
+            IReadOnlyList<OcrLine> lines;
+            try
+            {
+                var remaining = _options.FrameTimeout - stopwatch.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    throw new TimeoutException();
+                }
+
+                lines = await nativeWork
+                    .WaitAsync(remaining, cancellationToken)
+                    .ConfigureAwait(false);
+                ClearNativeWork(nativeWork);
+            }
+            catch (TimeoutException)
+            {
+                stopwatch.Stop();
+                releaseGate = false;
+                _ = ReleaseAfterNativeCompletionAsync(nativeWork);
+                return CreateExecution(
+                    image,
+                    region,
+                    scale,
+                    sourcePixels,
+                    preparedPixels,
+                    estimatedPeakBytes,
+                    stopwatch.Elapsed,
+                    [],
+                    OcrExecutionStatus.TimedOut,
+                    "ocr_frame_timeout");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                releaseGate = false;
+                _ = ReleaseAfterNativeCompletionAsync(nativeWork);
+                throw;
+            }
+            catch
+            {
+                ClearNativeWork(nativeWork);
+                throw;
+            }
+
             stopwatch.Stop();
             cancellationToken.ThrowIfCancellationRequested();
-            return new(lines, stopwatch.Elapsed, ProviderName);
+            return CreateExecution(
+                image,
+                region,
+                scale,
+                sourcePixels,
+                preparedPixels,
+                estimatedPeakBytes,
+                stopwatch.Elapsed,
+                lines,
+                OcrExecutionStatus.Complete,
+                null);
         }
         catch (Exception exception) when (IsProviderFailure(exception))
         {
+            stopwatch.Stop();
             _engine?.Dispose();
             _engine = null;
             Availability = new(false, ProviderName, SummarizeProviderFailure(exception));
-            return new([], TimeSpan.Zero, ProviderName, false, "ocr_provider_failed");
+            return WithDuration(
+                EmptyExecution(image, request, OcrExecutionStatus.Failed, "ocr_provider_failed"),
+                stopwatch.Elapsed);
         }
         finally
         {
-            _gate.Release();
+            if (releaseGate)
+            {
+                _gate.Release();
+            }
         }
     }
 
@@ -98,8 +267,17 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         }
 
         _disposed = true;
-        _engine?.Dispose();
-        _gate.Dispose();
+        lock (_lifetimeGate)
+        {
+            if (_nativeWork is null)
+            {
+                _engine?.Dispose();
+                _engine = null;
+            }
+            // Otherwise the completion observer disposes the provider after native code has
+            // stopped touching it. The semaphore is intentionally not disposed: a completion
+            // observer may still need to release it.
+        }
     }
 
     private OcrEngineAvailability Initialize(TesseractOcrOptions options)
@@ -137,10 +315,14 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         }
     }
 
-    private IReadOnlyList<OcrLine> RecognizeCore(byte[] encoded, PixelRect region, int scale)
+    private static IReadOnlyList<OcrLine> RecognizeCore(
+        Engine engine,
+        byte[] encoded,
+        PixelRect region,
+        int scale)
     {
         using var pix = TesseractImage.LoadFromMemory(encoded);
-        using var page = _engine!.Process(pix, PageSegMode.SparseText);
+        using var page = engine.Process(pix, PageSegMode.SparseText);
         var lines = new List<OcrLine>();
         foreach (var block in page.Layout)
         {
@@ -187,8 +369,8 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
         var left = Math.Clamp(requested.X, 0, image.Width);
         var top = Math.Clamp(requested.Y, 0, image.Height);
-        var right = Math.Clamp(requested.X + requested.Width, left, image.Width);
-        var bottom = Math.Clamp(requested.Y + requested.Height, top, image.Height);
+        var right = (int)Math.Clamp((long)requested.X + requested.Width, left, image.Width);
+        var bottom = (int)Math.Clamp((long)requested.Y + requested.Height, top, image.Height);
         if (right == left || bottom == top)
         {
             throw new ArgumentOutOfRangeException(nameof(requested), "OCR region must intersect the captured image.");
@@ -206,7 +388,11 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     /// repetition keeps the stroke exactly as sharp as it was and simply gives the engine more
     /// of it to work with.
     /// </remarks>
-    private static byte[] EncodePortableGraymap(CapturedImage image, PixelRect region, OcrPreparation preparation)
+    private static byte[] EncodePortableGraymap(
+        CapturedImage image,
+        PixelRect region,
+        OcrPreparation preparation,
+        CancellationToken cancellationToken)
     {
         var scale = preparation.SafeScale;
         var width = region.Width * scale;
@@ -218,6 +404,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         var threshold = preparation.BrightTextOnly ? Midpoint(image, region) : (byte)0;
         for (var y = region.Y; y < region.Y + region.Height; y++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var rowStart = offset;
             for (var x = region.X; x < region.X + region.Width; x++)
             {
@@ -243,6 +430,115 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
         return result;
     }
+
+    private async Task ReleaseAfterNativeCompletionAsync(Task nativeWork)
+    {
+        try
+        {
+            await nativeWork.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Availability = new(false, ProviderName, SummarizeProviderFailure(exception));
+        }
+        finally
+        {
+            ClearNativeWork(nativeWork);
+            _gate.Release();
+        }
+    }
+
+    private void ClearNativeWork(Task nativeWork)
+    {
+        lock (_lifetimeGate)
+        {
+            if (ReferenceEquals(_nativeWork, nativeWork))
+            {
+                _nativeWork = null;
+                if (_disposed)
+                {
+                    _engine?.Dispose();
+                    _engine = null;
+                }
+            }
+        }
+    }
+
+    private static void ValidateOptions(TesseractOcrOptions options)
+    {
+        if (options.FrameTimeout <= TimeSpan.Zero ||
+            options.MaximumSourcePixels <= 0 ||
+            options.MaximumInputBytes <= 0 ||
+            options.MaximumPreparedPixels <= 0 ||
+            options.MaximumEstimatedPeakBytes <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "OCR limits must be positive.");
+        }
+    }
+
+    private static TesseractOcrExecution CreateExecution(
+        CapturedImage image,
+        PixelRect region,
+        int scale,
+        long sourcePixels,
+        long preparedPixels,
+        long estimatedPeakBytes,
+        TimeSpan duration,
+        IReadOnlyList<OcrLine> lines,
+        OcrExecutionStatus status,
+        string? diagnostic)
+    {
+        var available = status is OcrExecutionStatus.Complete or OcrExecutionStatus.Partial;
+        var result = new OcrResult(lines, duration, ProviderName, available, diagnostic);
+        return new(
+            result,
+            region,
+            image.Width,
+            image.Height,
+            scale,
+            checked(region.Width * scale),
+            checked(region.Height * scale),
+            region.Width > 0 && region.Height > 0 ? 1 : 0,
+            sourcePixels,
+            preparedPixels,
+            estimatedPeakBytes,
+            duration,
+            ProviderName,
+            status,
+            diagnostic);
+    }
+
+    private static TesseractOcrExecution EmptyExecution(
+        CapturedImage image,
+        OcrRequest request,
+        OcrExecutionStatus status,
+        string diagnostic)
+    {
+        var region = ClampRegion(image, request.Region);
+        var scale = request.Preparation.SafeScale;
+        var sourcePixels = checked((long)image.Width * image.Height);
+        var preparedPixels = checked((long)region.Width * region.Height * scale * scale);
+        var estimatedPeakBytes = checked(image.Pixels.Length + (preparedPixels * 2) + 64);
+        return CreateExecution(
+            image,
+            region,
+            scale,
+            sourcePixels,
+            preparedPixels,
+            estimatedPeakBytes,
+            TimeSpan.Zero,
+            [],
+            status,
+            diagnostic);
+    }
+
+    private static TesseractOcrExecution WithDuration(
+        TesseractOcrExecution execution,
+        TimeSpan duration) => execution with
+        {
+            Duration = duration,
+            Result = execution.Result with { Duration = duration },
+        };
 
     /// <summary>
     /// Where to cut, when only the bright half of the picture is wanted.

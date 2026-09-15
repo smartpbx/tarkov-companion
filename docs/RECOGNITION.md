@@ -4,12 +4,32 @@ The recognition subsystem consumes only caller-supplied `CapturedImage` buffers.
 
 ## Production OCR and availability
 
-`TesseractOcrEngine` is the production offline provider for packaged Windows x64 builds. It uses
-NuGet package `TesseractOCR` 5.5.2 (Tesseract 5.5.1/Leptonica 1.85.0) and an
-embedded, SHA-256-pinned `tessdata_fast` English model. The package build target copies
-the x64 native libraries into publish output. The model is atomically materialized under
-the user's local application-data cache only after its hash is verified; no runtime
-download occurs.
+The Windows build prefers `WindowsMediaOcrEngine`, the recognizer shipped with Windows 10 and
+later, and falls back to `TesseractOcrEngine`. Tesseract uses NuGet package `TesseractOCR` 5.5.2
+(Tesseract 5.5.1/Leptonica 1.85.0) and an embedded, SHA-256-pinned `tessdata_fast` English model.
+The package build target copies the x64 native libraries into publish output. The model is
+atomically materialized under the user's local application-data cache only after its hash is
+verified; no runtime download occurs.
+
+Windows Media OCR accepts no image with a side above its native limit. Oversized 4K and
+ultrawide source regions therefore use deterministic 128-pixel-overlap tiles at native
+resolution; no source pixel is dropped to make the frame fit. Every tile result is translated
+back to source-image coordinates, and equal or contained text over the same source geometry is
+deduplicated deterministically. The provider publishes no confidence score. Its lines carry
+`null`, which is unscored evidence and remains distinct from a provider reporting numeric zero.
+
+Both providers enforce a 15-second caller-visible frame timeout, 40-million-source-pixel and
+192-MiB input-buffer ceilings, and a 256-MiB estimated peak-memory ceiling. Tesseract also caps
+its prepared grayscale image at 40 million pixels; Windows caps one request at 64 bounded tiles.
+Caller cancellation remains cancellation. A timeout, rejected input, unavailable provider,
+complete empty read, total provider failure, and a result recovered from only some tiles have
+separate diagnostic outcomes. Tesseract's native call cannot be interrupted safely, so a timed
+out or cancelled native call retains the provider's exclusive gate until it really exits; a
+second call is never allowed to overlap it.
+
+The detailed provider results report source region, source and prepared dimensions, scale, tile
+plan and completion counts, duration, provider, estimated peak bytes, line count, and exact
+diagnostic outcome. They contain neither source pixels nor source paths.
 
 The provider exposes `IOcrEngineStatus`. Unsupported operating systems, architectures,
 missing native dependencies, missing language data, and execution failures return an
@@ -30,7 +50,15 @@ data-driven `Recognition/anchors.en.json` catalog, and runs a second OCR pass in
 relative to the matched anchor bounds. Every anchor carries provenance that currently
 labels it as simulator-derived and live-unvalidated. Full-frame lines are merged back into
 the candidate set, so a draggable panel or imperfect contextual crop cannot discard text
-that the first pass already observed.
+that the first pass already observed. Overlapping full/contextual reads use the same
+geometry-aware deterministic deduplication rule as tiled Windows reads. Partial provider
+diagnostics remain attached to the coordinated result rather than being promoted to complete.
+
+Character/health menu captions and the game-version strip are supplemental full-frame text
+signals. They are searched across every returned line, with their observed bounds reported only
+after a match. No location crop is a prerequisite, because window shape and UI scale can move
+both surfaces. These are measured text signals for later v2 adapters, not a claim that limb
+health or game state was inferred.
 
 `SqliteRecognitionCatalogRepository` builds canonical item references from the synchronized
 `items` table, including short names as aliases. Production callers do not supply handcrafted
@@ -119,11 +147,30 @@ The suites deliberately separate two evidence levels:
   noise for a 1080p item, similar-name ambiguity, 1440p extract statuses, a 1440p mixed
   container, and 4K flea rows. The tests call `TesseractOcrEngine`, not a fixture engine.
 
-Rendered-pixel tests are discovered as explicit skips on non-Windows-x64 hosts, with the
-reason reported by the test runner. On Windows x64, provider absence is a failure and every
-scene must pass. Therefore a Linux green run proves packaging, post-OCR behavior, persistence,
-and skip honesty; it does not publish screenshot-recognition accuracy. Accuracy remains
-unmeasured until the Windows suite or VM smoke run records real results.
+Rendered-pixel tests are discovered as explicit skips on non-Windows-x64 hosts, with the reason
+reported by the test runner. The dedicated `TarkovCompanion.Platform.Windows.OcrTests` project
+also renders text beyond the first native Windows tile and calls `WindowsMediaOcrEngine`
+directly; it does not substitute a fixture or Tesseract for the provider that normally ships.
+On Windows x64, provider absence is a failure. Therefore a Linux green run proves compilation,
+post-OCR behavior, persistence, and skip honesty; it does not publish screenshot-recognition
+accuracy. Accuracy remains unmeasured until Windows CI records the provider result, and no
+synthetic result is a benchmark threshold.
+
+## Local OCR probe
+
+`--ocr-probe <image>` compares the preparations each production provider supports. Add
+`--ocr-probe-region x,y,w,h` to select a fractional source region and `--output <json>` for a
+`tarkov-companion.ocr-probe.v1` machine report. Full-frame machine reports omit OCR text; their
+context, timing, bounds, confidence availability, tile, memory, and provider evidence remain.
+
+`--ocr-probe-cells` passes the selected region through `StashGrid.Cells`, reads each returned
+caption with both production providers, prints their local comparison to stderr, and writes one
+machine-readable JSON document to stdout or `--output`. Cell reports retain caption OCR text for
+local comparison. They contain no screenshot path, filename, pixels, username field, token,
+world coordinate, benchmark threshold, or claimed accuracy. The schema is a stable producer
+result owned by the OCR path rather than an implementation of #272's provisional corpus/scorer
+schema; its nullable confidence is intentional. Probe reports are local diagnostic material and
+must not be committed or uploaded as CI artifacts.
 
 The anchors and rendered scenes remain synthetic and English-only. Live validation across
 EFT themes, localization, HDR, ultrawide layouts, and UI revisions is still outstanding.

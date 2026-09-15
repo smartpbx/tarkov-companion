@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Recognition;
@@ -7,27 +9,83 @@ using TarkovCompanion.Infrastructure.Recognition;
 
 namespace TarkovCompanion.App.Services.Diagnostics;
 
+public sealed record OcrProbeFrame(int Width, int Height, DateTimeOffset CapturedUtc);
+
+public sealed record OcrProbeLine(
+    string? Text,
+    PixelRect Bounds,
+    double? Confidence);
+
+public sealed record OcrProbeTile(
+    int Ordinal,
+    PixelRect SourceRegion,
+    int Width,
+    int Height,
+    int Scale,
+    double DurationMilliseconds,
+    string Status,
+    string? DiagnosticCode);
+
+public sealed record OcrProbePass(
+    string Name,
+    string Provider,
+    string Status,
+    string? DiagnosticCode,
+    PixelRect SourceRegion,
+    int SourceWidth,
+    int SourceHeight,
+    int PreparedWidth,
+    int PreparedHeight,
+    int Scale,
+    int TileCount,
+    int AttemptedTileCount,
+    int CompletedTileCount,
+    long SourcePixelCount,
+    long EstimatedPeakBytes,
+    double DurationMilliseconds,
+    int LineCount,
+    int ScoredLineCount,
+    int UnscoredLineCount,
+    string? DetectedContext,
+    double? ContextScore,
+    bool HealthAndCharacterTextPresent,
+    bool VersionStripTextPresent,
+    IReadOnlyList<OcrProbeLine> Lines,
+    IReadOnlyList<OcrProbeTile> Tiles);
+
+public sealed record OcrProbeEngine(
+    string Provider,
+    bool IsAvailable,
+    string? UnavailableReason,
+    IReadOnlyList<OcrProbePass> Passes);
+
+public sealed record OcrProbeCell(
+    int Ordinal,
+    PixelRect Bounds,
+    PixelRect Caption);
+
 /// <summary>
-/// Reads one real screenshot several ways and says which way read it best.
+/// Stable local producer output for OCR diagnostics. It is deliberately independent of the
+/// provisional corpus/scorer schema: in particular, line confidence stays nullable.
 /// </summary>
-/// <remarks>
-/// The engine has been reading plenty of lines and almost none of the words. Verbatim, from a
-/// 3840x1080 screenshot of the stash:
-///
-/// <code>
-/// [&amp; Searching experience - Items (3) | LOOT THIS | \VPO-136 | A-2607 | BD |p | Zarya | SR-MP]
-/// [VSS Ses | Bp B B | 4-2607 | pee tl | RAMP: | "DUG | SLA, | eer | ISS | tit | + a | a=,]
-/// </code>
-///
-/// Real strings leak through, so the capture is of the game and the engine is running. It is
-/// simply reading badly, and a count of lines said none of that: it looked like success.
-///
-/// Two candidate causes, neither settled by argument. The interface text is around sixteen
-/// pixels tall where the engine wants thirty, and the rest of the frame is scenery that it
-/// reads as words. So rather than pick one and ship it, this runs the same picture through
-/// each preparation and prints what each produced. Point it at the screenshots somebody
-/// actually has and the answer is measured instead of assumed.
-/// </remarks>
+public sealed record OcrProbeReport(
+    string SchemaVersion,
+    string Mode,
+    DateTimeOffset GeneratedUtc,
+    OcrProbeFrame Frame,
+    PixelRect SourceRegion,
+    string? DiagnosticCode,
+    IReadOnlyList<OcrProbeCell> Cells,
+    IReadOnlyList<OcrProbeEngine> Engines)
+{
+    public const string CurrentSchemaVersion = "tarkov-companion.ocr-probe.v1";
+}
+
+/// <summary>
+/// Reads one deliberately selected local screenshot and reports what each production OCR
+/// provider measured. Source pixels, source paths, and screenshot filenames never enter the
+/// machine-readable result.
+/// </summary>
 public static class OcrProbe
 {
     private static readonly (string Name, OcrPreparation Preparation)[] Variants =
@@ -40,106 +98,471 @@ public static class OcrProbe
         ("3x, bright text only", new(3, BrightTextOnly: true)),
     ];
 
-    /// <summary>Runs every preparation over one screenshot and writes a table to the console.</summary>
-    public static async Task<int> RunAsync(string screenshotPath, AppCommandLine options, CancellationToken cancellationToken)
+    private static readonly JsonSerializerOptions ReportJson = new(JsonSerializerDefaults.Web)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(screenshotPath);
-        ArgumentNullException.ThrowIfNull(options);
-        if (!File.Exists(screenshotPath))
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
+    };
+
+    /// <summary>Runs every preparation over one screenshot and writes a human-readable table.</summary>
+    public static async Task<int> RunAsync(
+        string screenshotPath,
+        AppCommandLine options,
+        CancellationToken cancellationToken)
+    {
+        var loaded = await LoadAsync(screenshotPath, options, cancellationToken).ConfigureAwait(false);
+        if (loaded is null)
         {
-            await Console.Error.WriteLineAsync($"No such screenshot: {screenshotPath}").ConfigureAwait(false);
             return 1;
         }
 
-        using var services = AppComposition.Build(options);
-        var loader = services.GetRequiredService<IScreenshotImageLoader>();
-        var detector = services.GetRequiredService<ScanContextDetector>();
-
-        // Both engines, named, rather than whichever one the container hands back.
-        //
-        // This resolved IOcrEngine — the Windows engine on Windows — and then ran six
-        // OcrPreparation variants that engine deliberately ignores, printing the same read six
-        // times beside SafeScale figures it never used. Every measurement in
-        // EFT_SCREENSHOT_FACTS.md so far is therefore Tesseract's, while the engine that
-        // ships on Windows is the one nothing has ever measured.
-        var engines = Engines(services);
-        var image = await loader.LoadAsync(screenshotPath, cancellationToken).ConfigureAwait(false);
-        if (image is null)
+        var (services, image, region) = loaded.Value;
+        using (services)
         {
-            await Console.Error.WriteLineAsync($"Could not read that screenshot: {screenshotPath}").ConfigureAwait(false);
-            return 1;
-        }
+            var detector = services.GetRequiredService<ScanContextDetector>();
+            var supplemental = new SupplementalOcrSignalDetector();
+            var lineCount = options.OcrProbeLines ?? DefaultLines;
+            var engines = Engines(services);
+            var engineReports = new List<OcrProbeEngine>(engines.Count);
 
-        var region = ParseRegion(options.OcrProbeRegion, image);
-        var lineCount = options.OcrProbeLines ?? DefaultLines;
-        Console.WriteLine($"{Path.GetFileName(screenshotPath)} · {image.Width}x{image.Height}");
-        if (region is { } cropped)
-        {
-            Console.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"region {cropped.X},{cropped.Y} {cropped.Width}x{cropped.Height}"));
-        }
-
-        Console.WriteLine();
-        foreach (var (engineName, engine) in engines)
-        {
-            Console.WriteLine($"── {engineName} ──");
-            if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
+            // EFT screenshot filenames may carry exact world coordinates. The selected path
+            // is deliberately never echoed into diagnostic output.
+            Console.WriteLine($"selected screenshot · {image.Width}x{image.Height}");
+            if (options.OcrProbeRegion is not null)
             {
-                Console.WriteLine($"unavailable · {status.Availability.Reason ?? "no reason reported"}");
+                Console.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"region {region.X},{region.Y} {region.Width}x{region.Height}"));
+            }
+
+            Console.WriteLine();
+            foreach (var (engineName, engine) in engines)
+            {
+                Console.WriteLine($"── {engineName} ──");
+                if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
+                {
+                    Console.WriteLine($"unavailable · {status.Availability.Reason ?? "no reason reported"}");
+                    Console.WriteLine();
+                    engineReports.Add(new(
+                        status.Availability.Provider,
+                        false,
+                        status.Availability.Reason,
+                        []));
+                    continue;
+                }
+
+                var preparations = Preparations(engine);
+                var passes = new List<OcrProbePass>(preparations.Count);
+                foreach (var (name, preparation) in preparations)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var pass = await ExecuteAsync(
+                            engine,
+                            image,
+                            new OcrRequest(ScanContext.Unknown, region) { Preparation = preparation },
+                            name,
+                            includeText: true,
+                            detector,
+                            supplemental,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    passes.Add(pass);
+
+                    var megapixels = pass.PreparedWidth / 1000d * pass.PreparedHeight / 1000d;
+                    Console.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{name}: {pass.DetectedContext ?? "Unknown"} {FormatScore(pass.ContextScore)} · " +
+                        $"{pass.LineCount} lines · {pass.PreparedWidth}x{pass.PreparedHeight} " +
+                        $"({megapixels:F1} MP) · {pass.TileCount} tile(s) · " +
+                        $"{pass.DurationMilliseconds / 1000:F1}s · {pass.Status}"));
+                    Console.WriteLine("  " + Sample(pass, lineCount));
+                    Console.WriteLine();
+                }
+
+                var availability = engine as IOcrEngineStatus;
+                engineReports.Add(new(
+                    availability?.Availability.Provider ?? engineName,
+                    true,
+                    null,
+                    passes));
                 Console.WriteLine();
-                continue;
             }
 
-        foreach (var (name, preparation) in Variants)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var result = await engine
-                .RecognizeAsync(
-                    image,
-                    new(ScanContext.Unknown, region) { Preparation = preparation },
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (!result.IsAvailable)
+            if (!string.IsNullOrWhiteSpace(options.OutputPath))
             {
-                Console.WriteLine($"{name}: engine unavailable · {result.DiagnosticCode}");
-                continue;
+                var report = Report(
+                    "full-frame",
+                    image,
+                    region,
+                    null,
+                    [],
+                    RedactLineText(engineReports));
+                await WriteReportAsync(options.OutputPath, report, cancellationToken).ConfigureAwait(false);
             }
-
-            // The size it was actually read at, beside the time it took. At three times a
-            // 3840x1080 frame is thirty-seven megapixels, and printing the number next to the
-            // seconds makes the cost of a preparation obvious rather than implied.
-            var width = (region?.Width ?? image.Width) * preparation.SafeScale;
-            var height = (region?.Height ?? image.Height) * preparation.SafeScale;
-            var megapixels = width / 1000d * height / 1000d;
-            var detected = detector.Detect(image, result);
-            Console.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"{name}: {detected.Context} {detected.Confidence.Value:F2} · {result.Lines.Count} lines · " +
-                $"{width}x{height} ({megapixels:F1} MP) · {result.Duration.TotalSeconds:F1}s"));
-            Console.WriteLine("  " + Sample(result.Lines, lineCount));
-            Console.WriteLine();
-        }
-
-            Console.WriteLine();
         }
 
         return 0;
     }
 
     /// <summary>
-    /// Every recogniser this build has, by name, rather than whichever one would be chosen.
+    /// Runs each production provider over the caption returned by <see cref="StashGrid.Cells"/>
+    /// and emits one JSON document. The human comparison goes to stderr so stdout remains a
+    /// parseable machine result when no output file was requested.
     /// </summary>
-    /// <remarks>
-    /// The point of a probe is to compare them. Resolving IOcrEngine gives the one that would
-    /// ship — on Windows that is the Windows engine — so the probe measured one engine while
-    /// every recorded measurement in EFT_SCREENSHOT_FACTS.md came from the other, and nobody
-    /// could see that from the output.
-    ///
-    /// An engine that will not start is listed and reported rather than skipped, because "the
-    /// Windows recogniser is unavailable here, and this is why" is one of the answers the
-    /// probe exists to give.
-    /// </remarks>
+    public static async Task<int> RunCellsAsync(
+        string screenshotPath,
+        AppCommandLine options,
+        CancellationToken cancellationToken)
+    {
+        var loaded = await LoadAsync(screenshotPath, options, cancellationToken).ConfigureAwait(false);
+        if (loaded is null)
+        {
+            return 1;
+        }
+
+        var (services, image, region) = loaded.Value;
+        using (services)
+        {
+            var cells = StashGrid.Cells(image, region)
+                .Select((cell, ordinal) => new OcrProbeCell(ordinal, cell.Bounds, cell.Caption))
+                .ToArray();
+            if (cells.Length == 0)
+            {
+                Console.Error.WriteLine("stash grid not found in the selected source region");
+            }
+            var detector = services.GetRequiredService<ScanContextDetector>();
+            var supplemental = new SupplementalOcrSignalDetector();
+            var engineReports = new List<OcrProbeEngine>();
+
+            foreach (var (engineName, engine) in Engines(services))
+            {
+                var availability = engine as IOcrEngineStatus;
+                if (availability is not null && !availability.Availability.IsAvailable)
+                {
+                    Console.Error.WriteLine(
+                        $"{engineName}: unavailable · {availability.Availability.Reason ?? "no reason reported"}");
+                    engineReports.Add(new(
+                        availability.Availability.Provider,
+                        false,
+                        availability.Availability.Reason,
+                        []));
+                    continue;
+                }
+
+                var passes = new List<OcrProbePass>(cells.Length);
+                foreach (var cell in cells)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var pass = await ExecuteAsync(
+                            engine,
+                            image,
+                            new OcrRequest(ScanContext.Container, cell.Caption),
+                            $"cell-{cell.Ordinal}",
+                            includeText: true,
+                            detector,
+                            supplemental,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    passes.Add(pass);
+                }
+
+                Console.Error.WriteLine(
+                    $"{engineName}: {passes.Count(pass => pass.Status == "complete")}/{cells.Length} cell(s) completed");
+                foreach (var pass in passes)
+                {
+                    Console.Error.WriteLine($"  {pass.Name}: {Sample(pass, DefaultCellLines)}");
+                }
+
+                engineReports.Add(new(
+                    availability?.Availability.Provider ?? engineName,
+                    true,
+                    null,
+                    passes));
+            }
+
+            var report = Report(
+                "cells",
+                image,
+                region,
+                cells.Length == 0 ? "stash_grid_not_found" : null,
+                cells,
+                engineReports);
+            if (string.IsNullOrWhiteSpace(options.OutputPath))
+            {
+                await Console.Out.WriteLineAsync(SerializeReport(report)).ConfigureAwait(false);
+            }
+            else
+            {
+                await WriteReportAsync(options.OutputPath, report, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return 0;
+    }
+
+    private static async Task<OcrProbePass> ExecuteAsync(
+        IOcrEngine engine,
+        CapturedImage image,
+        OcrRequest request,
+        string name,
+        bool includeText,
+        ScanContextDetector detector,
+        SupplementalOcrSignalDetector supplementalDetector,
+        CancellationToken cancellationToken)
+    {
+#if WINDOWS
+        if (engine is TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine windows)
+        {
+            var execution = await windows
+                .RecognizeDetailedAsync(image, request, cancellationToken)
+                .ConfigureAwait(false);
+            return Pass(
+                name,
+                execution.Result,
+                execution.Status.ToString(),
+                execution.DiagnosticCode,
+                image,
+                execution.SourceRegion,
+                execution.SourceWidth,
+                execution.SourceHeight,
+                execution.SourceRegion.Width,
+                execution.SourceRegion.Height,
+                execution.Scale,
+                execution.TileCount,
+                execution.AttemptedTileCount,
+                execution.CompletedTileCount,
+                execution.SourcePixelCount,
+                execution.EstimatedPeakBytes,
+                execution.Duration,
+                includeText,
+                detector,
+                supplementalDetector,
+                execution.Tiles.Select(tile => new OcrProbeTile(
+                    tile.Ordinal,
+                    tile.SourceRegion,
+                    tile.Width,
+                    tile.Height,
+                    tile.Scale,
+                    tile.Duration.TotalMilliseconds,
+                    Status(tile.Status.ToString()),
+                    tile.DiagnosticCode)).ToArray());
+        }
+#endif
+        if (engine is TesseractOcrEngine tesseract)
+        {
+            var execution = await tesseract
+                .RecognizeDetailedAsync(image, request, cancellationToken)
+                .ConfigureAwait(false);
+            var tiles = execution.TileCount == 0
+                ? []
+                : new[]
+                {
+                    new OcrProbeTile(
+                        0,
+                        execution.SourceRegion,
+                        execution.PreparedWidth,
+                        execution.PreparedHeight,
+                        execution.Scale,
+                        execution.Duration.TotalMilliseconds,
+                        Status(execution.Status.ToString()),
+                        execution.DiagnosticCode),
+                };
+            return Pass(
+                name,
+                execution.Result,
+                execution.Status.ToString(),
+                execution.DiagnosticCode,
+                image,
+                execution.SourceRegion,
+                execution.SourceWidth,
+                execution.SourceHeight,
+                execution.PreparedWidth,
+                execution.PreparedHeight,
+                execution.Scale,
+                execution.TileCount,
+                execution.TileCount,
+                execution.Status == OcrExecutionStatus.Complete ? execution.TileCount : 0,
+                execution.SourcePixelCount,
+                execution.EstimatedPeakBytes,
+                execution.Duration,
+                includeText,
+                detector,
+                supplementalDetector,
+                tiles);
+        }
+
+        var result = await engine.RecognizeAsync(image, request, cancellationToken).ConfigureAwait(false);
+        var region = request.Region ?? new PixelRect(0, 0, image.Width, image.Height);
+        var scale = request.Preparation.SafeScale;
+        return Pass(
+            name,
+            result,
+            result.IsAvailable ? "complete" : "unavailable",
+            result.DiagnosticCode,
+            image,
+            region,
+            image.Width,
+            image.Height,
+            checked(region.Width * scale),
+            checked(region.Height * scale),
+            scale,
+            1,
+            1,
+            result.IsAvailable ? 1 : 0,
+            checked((long)image.Width * image.Height),
+            image.Pixels.Length,
+            result.Duration,
+            includeText,
+            detector,
+            supplementalDetector,
+            []);
+    }
+
+    private static OcrProbePass Pass(
+        string name,
+        OcrResult result,
+        string status,
+        string? diagnostic,
+        CapturedImage image,
+        PixelRect sourceRegion,
+        int sourceWidth,
+        int sourceHeight,
+        int preparedWidth,
+        int preparedHeight,
+        int scale,
+        int tileCount,
+        int attemptedTileCount,
+        int completedTileCount,
+        long sourcePixelCount,
+        long estimatedPeakBytes,
+        TimeSpan duration,
+        bool includeText,
+        ScanContextDetector detector,
+        SupplementalOcrSignalDetector supplementalDetector,
+        IReadOnlyList<OcrProbeTile> tiles)
+    {
+        var context = detector.Detect(image, result);
+        var supplemental = supplementalDetector.Detect(result);
+        var lines = result.Lines.Select(line => new OcrProbeLine(
+            includeText ? line.Text : null,
+            line.Bounds,
+            line.Confidence?.Value)).ToArray();
+        return new(
+            name,
+            result.Engine,
+            Status(status),
+            diagnostic,
+            sourceRegion,
+            sourceWidth,
+            sourceHeight,
+            preparedWidth,
+            preparedHeight,
+            scale,
+            tileCount,
+            attemptedTileCount,
+            completedTileCount,
+            sourcePixelCount,
+            estimatedPeakBytes,
+            duration.TotalMilliseconds,
+            result.Lines.Count,
+            result.Lines.Count(line => line.Confidence is not null),
+            result.Lines.Count(line => line.Confidence is null),
+            context.Context.ToString(),
+            result.IsAvailable ? context.Confidence.Value : null,
+            supplemental.HealthAndCharacter.IsPresent,
+            supplemental.VersionStrip.IsPresent,
+            lines,
+            tiles);
+    }
+
+    private static async Task<(ServiceProvider Services, CapturedImage Image, PixelRect Region)?> LoadAsync(
+        string screenshotPath,
+        AppCommandLine options,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(screenshotPath);
+        ArgumentNullException.ThrowIfNull(options);
+        if (!File.Exists(screenshotPath))
+        {
+            await Console.Error.WriteLineAsync("The selected OCR probe screenshot does not exist.").ConfigureAwait(false);
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.OutputPath) &&
+            string.Equals(
+                Path.GetFullPath(screenshotPath),
+                Path.GetFullPath(options.OutputPath),
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+        {
+            await Console.Error.WriteLineAsync("The OCR report output must not overwrite its source screenshot.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        var services = AppComposition.Build(options);
+        try
+        {
+            var loader = services.GetRequiredService<IScreenshotImageLoader>();
+            var image = await loader.LoadAsync(screenshotPath, cancellationToken).ConfigureAwait(false);
+            if (image is null)
+            {
+                await Console.Error.WriteLineAsync("The selected OCR probe screenshot could not be decoded.").ConfigureAwait(false);
+                services.Dispose();
+                return null;
+            }
+
+            var requested = ParseRegion(options.OcrProbeRegion, image);
+            return (services, image, requested ?? new PixelRect(0, 0, image.Width, image.Height));
+        }
+        catch
+        {
+            services.Dispose();
+            throw;
+        }
+    }
+
+    private static OcrProbeReport Report(
+        string mode,
+        CapturedImage image,
+        PixelRect region,
+        string? diagnosticCode,
+        IReadOnlyList<OcrProbeCell> cells,
+        IReadOnlyList<OcrProbeEngine> engines) => new(
+            OcrProbeReport.CurrentSchemaVersion,
+            mode,
+            DateTimeOffset.UtcNow,
+            new(image.Width, image.Height, image.CapturedUtc),
+            region,
+            diagnosticCode,
+            cells,
+            engines);
+
+    private static IReadOnlyList<OcrProbeEngine> RedactLineText(IReadOnlyList<OcrProbeEngine> engines) =>
+        engines.Select(engine => engine with
+        {
+            Passes = engine.Passes.Select(pass => pass with
+            {
+                Lines = pass.Lines.Select(line => line with { Text = null }).ToArray(),
+            }).ToArray(),
+        }).ToArray();
+
+    private static async Task WriteReportAsync(
+        string outputPath,
+        OcrProbeReport report,
+        CancellationToken cancellationToken)
+    {
+        var json = SerializeReport(report);
+        await File.WriteAllTextAsync(outputPath, json + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+    }
+
+    public static string SerializeReport(OcrProbeReport report)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return JsonSerializer.Serialize(report, ReportJson);
+    }
+
+    /// <summary>Every production recogniser this build has, rather than only the selected one.</summary>
     private static IReadOnlyList<(string Name, IOcrEngine Engine)> Engines(IServiceProvider services)
     {
         var engines = new List<(string, IOcrEngine)>();
@@ -152,18 +575,24 @@ public static class OcrProbe
         return engines;
     }
 
-    /// <summary>How many lines are printed unless somebody asks for more.</summary>
-    private const int DefaultLines = 12;
+    private static IReadOnlyList<(string Name, OcrPreparation Preparation)> Preparations(IOcrEngine engine)
+    {
+#if WINDOWS
+        if (engine is TarkovCompanion.Platform.Windows.Ocr.WindowsMediaOcrEngine)
+        {
+            // Windows performs its own binarization and runs every tile at native scale. Six
+            // labels for six ignored Tesseract preparations used to print the same Windows
+            // result six times and falsely claim five transformations were measured.
+            return [("native Windows", OcrPreparation.AsCaptured)];
+        }
+#endif
+        return Variants;
+    }
 
-    /// <summary>
-    /// Turns "x,y,w,h" in fractions of the frame into a rectangle in pixels.
-    /// </summary>
-    /// <remarks>
-    /// Fractions rather than pixels, because a region measured on one screenshot is usually
-    /// pointed at another. A value that will not parse is reported and ignored rather than
-    /// silently treated as the whole frame, which would look like the region simply did not
-    /// help.
-    /// </remarks>
+    private const int DefaultLines = 12;
+    private const int DefaultCellLines = 3;
+
+    /// <summary>Turns "x,y,w,h" in frame fractions into a bounded source rectangle.</summary>
     public static PixelRect? ParseRegion(string? value, CapturedImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
@@ -182,9 +611,10 @@ public static class OcrProbe
         var numbers = new double[4];
         for (var index = 0; index < 4; index++)
         {
-            if (!double.TryParse(parts[index], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[index]))
+            if (!double.TryParse(parts[index], NumberStyles.Float, CultureInfo.InvariantCulture, out numbers[index]) ||
+                !double.IsFinite(numbers[index]))
             {
-                Console.Error.WriteLine($"Ignoring --ocr-probe-region '{value}': '{parts[index]}' is not a number.");
+                Console.Error.WriteLine($"Ignoring --ocr-probe-region '{value}': '{parts[index]}' is not a finite number.");
                 return null;
             }
         }
@@ -202,27 +632,45 @@ public static class OcrProbe
         return new(x, y, width, height);
     }
 
-    /// <summary>
-    /// The first of what it read, so a person can see the difference rather than trust a score.
-    /// </summary>
-    private static string Sample(IReadOnlyList<OcrLine> lines, int count)
+    private static string Sample(OcrProbePass pass, int count)
     {
         var builder = new StringBuilder();
-        foreach (var line in lines.Take(count))
+        foreach (var line in pass.Lines.Take(count))
         {
             if (builder.Length > 0)
             {
                 builder.Append(" | ");
             }
 
-            builder.Append(line.Text);
+            builder.Append(line.Text ?? "[text omitted from report]");
         }
 
-        if (lines.Count > count)
+        if (pass.Lines.Count > count)
         {
-            builder.Append(string.Create(CultureInfo.InvariantCulture, $" | (+{lines.Count - count} more)"));
+            builder.Append(string.Create(CultureInfo.InvariantCulture, $" | (+{pass.Lines.Count - count} more)"));
         }
 
         return builder.Length == 0 ? "(nothing)" : builder.ToString();
+    }
+
+    private static string FormatScore(double? value) => value is { } score
+        ? score.ToString("F2", CultureInfo.InvariantCulture)
+        : "unscored";
+
+    private static string Status(string value)
+    {
+        var builder = new StringBuilder(value.Length + 4);
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (char.IsUpper(character) && index > 0 && builder[^1] != '-')
+            {
+                builder.Append('-');
+            }
+
+            builder.Append(char.ToLowerInvariant(character == '_' ? '-' : character));
+        }
+
+        return builder.ToString();
     }
 }

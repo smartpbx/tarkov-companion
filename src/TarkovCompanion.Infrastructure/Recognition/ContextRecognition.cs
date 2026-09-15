@@ -230,17 +230,29 @@ public sealed record CoordinatedOcrResult(
     OcrResult FullFrame,
     OcrResult Contextual,
     OcrResult Candidates,
-    bool UsedFullFrameSupplement);
+    bool UsedFullFrameSupplement)
+{
+    public required SupplementalOcrSignals SupplementalSignals { get; init; }
+
+    public bool IsPartial { get; init; }
+
+    public string? DiagnosticCode { get; init; }
+}
 
 public sealed class OcrCoordinator
 {
     private readonly IOcrEngine _engine;
     private readonly ScanContextDetector _contextDetector;
+    private readonly SupplementalOcrSignalDetector _supplementalDetector;
 
-    public OcrCoordinator(IOcrEngine engine, ScanContextDetector contextDetector)
+    public OcrCoordinator(
+        IOcrEngine engine,
+        ScanContextDetector contextDetector,
+        SupplementalOcrSignalDetector? supplementalDetector = null)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _contextDetector = contextDetector ?? throw new ArgumentNullException(nameof(contextDetector));
+        _supplementalDetector = supplementalDetector ?? new SupplementalOcrSignalDetector();
     }
 
     public async Task<CoordinatedOcrResult> RecognizeAsync(
@@ -252,9 +264,15 @@ public sealed class OcrCoordinator
             .RecognizeAsync(image, new OcrRequest(ScanContext.Unknown), cancellationToken)
             .ConfigureAwait(false);
         var detection = _contextDetector.Detect(image, fullFrame);
+        var supplemental = _supplementalDetector.Detect(fullFrame);
         if (!fullFrame.IsAvailable || detection.Context == ScanContext.Unknown)
         {
-            return new(detection, fullFrame, fullFrame, fullFrame, false);
+            return new(detection, fullFrame, fullFrame, fullFrame, false)
+            {
+                SupplementalSignals = supplemental,
+                IsPartial = fullFrame.IsAvailable && fullFrame.DiagnosticCode is not null,
+                DiagnosticCode = fullFrame.DiagnosticCode,
+            };
         }
 
         var region = ContextRegionPlanner.For(image, detection);
@@ -262,19 +280,21 @@ public sealed class OcrCoordinator
             .RecognizeAsync(image, new OcrRequest(detection.Context, region), cancellationToken)
             .ConfigureAwait(false);
         var candidates = Merge(contextual, fullFrame, out var supplemented);
-        return new(detection, fullFrame, contextual, candidates, supplemented);
+        return new(detection, fullFrame, contextual, candidates, supplemented)
+        {
+            SupplementalSignals = supplemental,
+            IsPartial =
+                (fullFrame.IsAvailable && fullFrame.DiagnosticCode is not null) ||
+                !contextual.IsAvailable ||
+                contextual.DiagnosticCode is not null,
+            DiagnosticCode = contextual.DiagnosticCode ?? fullFrame.DiagnosticCode,
+        };
     }
 
     private static OcrResult Merge(OcrResult contextual, OcrResult fullFrame, out bool supplemented)
     {
-        var contextualKeys = contextual.Lines
-            .Select(LineKey)
-            .ToHashSet(StringComparer.Ordinal);
-        var supplement = fullFrame.Lines
-            .Where(line => !contextualKeys.Contains(LineKey(line)))
-            .ToArray();
-        supplemented = supplement.Length > 0;
-        var lines = contextual.Lines.Concat(supplement).ToArray();
+        var lines = OcrLineDeduplicator.Merge(contextual.Lines, fullFrame.Lines);
+        supplemented = lines.Count > contextual.Lines.Count;
         return new(
             lines,
             contextual.Duration + fullFrame.Duration,
@@ -283,8 +303,6 @@ public sealed class OcrCoordinator
             contextual.IsAvailable ? null : contextual.DiagnosticCode ?? fullFrame.DiagnosticCode);
     }
 
-    private static string LineKey(OcrLine line) =>
-        $"{line.Text}\u001f{line.Bounds.X}\u001f{line.Bounds.Y}\u001f{line.Bounds.Width}\u001f{line.Bounds.Height}";
 }
 
 public static class ContextRegionPlanner

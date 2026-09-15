@@ -37,6 +37,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.Recognition
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.WindowsSmokeTests", "tests\TarkovCompanion.WindowsSmokeTests\TarkovCompanion.WindowsSmokeTests.csproj", "{31F18DD3-1924-45A9-AEBC-6B5D10989ABA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TarkovCompanion.Platform.Windows.OcrTests", "tests\TarkovCompanion.Platform.Windows.OcrTests\TarkovCompanion.Platform.Windows.OcrTests.csproj", "{A2990C52-7DF8-4E21-9E51-1391B2990C52}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -215,6 +217,18 @@ Global
 		{E6B2D9A4-1F73-4C85-B6A0-9D2E7F4138C5}.Release|x64.Build.0 = Release|Any CPU
 		{E6B2D9A4-1F73-4C85-B6A0-9D2E7F4138C5}.Release|x86.ActiveCfg = Release|Any CPU
 		{E6B2D9A4-1F73-4C85-B6A0-9D2E7F4138C5}.Release|x86.Build.0 = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|x64.Build.0 = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Debug|x86.Build.0 = Debug|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|x64.ActiveCfg = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|x64.Build.0 = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|x86.ActiveCfg = Release|Any CPU
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -233,5 +247,6 @@ Global
 		{B3760808-9FC9-478E-AA13-5633D0875454} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{E6B2D9A4-1F73-4C85-B6A0-9D2E7F4138C5} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{31F18DD3-1924-45A9-AEBC-6B5D10989ABA} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{A2990C52-7DF8-4E21-9E51-1391B2990C52} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal

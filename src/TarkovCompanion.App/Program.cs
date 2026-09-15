@@ -68,7 +68,10 @@ internal static class Program
 
             if (options.OcrProbePath is { Length: > 0 } probePath)
             {
-                return OcrProbe.RunAsync(probePath, options, CancellationToken.None)
+                var probe = options.OcrProbeCells
+                    ? OcrProbe.RunCellsAsync(probePath, options, CancellationToken.None)
+                    : OcrProbe.RunAsync(probePath, options, CancellationToken.None);
+                return probe
                     .GetAwaiter()
                     .GetResult();
             }
