@@ -1,13 +1,16 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging.Abstractions;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -64,6 +67,29 @@ public sealed class RaidObservationServiceTests
     }
 
     [Fact]
+    public async Task FilenamePositionDoesNotWaitForCaptureAdmissionAndLegacyScanStillRuns()
+    {
+        var screenshotRoot = Path.Combine("eft", "Screenshots");
+        var capture = new BlockingCaptureSessionService();
+        var scan = new CountingScanUseCase();
+        using var harness = new Harness(
+            new("eft", null, screenshotRoot, new Confidence(0.8)),
+            imageLoader: new StubImageLoader(),
+            scanUseCase: scan,
+            captureSessions: capture);
+        harness.ScreenshotPaths.Add(Path.Combine(screenshotRoot, "shot.png"));
+
+        await harness.RunUntilAsync(_ => harness.Store.Current.Raid.LastKnownPosition is not null);
+        Assert.Equal(0, scan.ImageScans);
+
+        capture.Release();
+        await UntilAsync(() => scan.ImageScans == 1);
+        Assert.NotNull(capture.Submission);
+        Assert.Equal(CaptureDeliveryKind.WatchedFile, capture.Submission!.DeliveryKind);
+        Assert.Equal(CaptureSourceKind.GameWrittenScreenshot, capture.Submission.Source.SourceKind);
+    }
+
+    [Fact]
     public async Task DoesNotObserveInDemoMode()
     {
         using var harness = new Harness(
@@ -80,7 +106,12 @@ public sealed class RaidObservationServiceTests
 
     private sealed class Harness : IDisposable
     {
-        public Harness(EftPaths paths, bool demoMode = false)
+        public Harness(
+            EftPaths paths,
+            bool demoMode = false,
+            IScreenshotImageLoader? imageLoader = null,
+            IScanUseCase? scanUseCase = null,
+            ICaptureSessionService? captureSessions = null)
         {
             var options = new RuntimeOptions(
                 demoMode,
@@ -106,7 +137,10 @@ public sealed class RaidObservationServiceTests
                 FleaSales,
                 Store,
                 options,
-                NullLogger<RaidObservationService>.Instance);
+                NullLogger<RaidObservationService>.Instance,
+                imageLoader: imageLoader,
+                scanUseCase: scanUseCase,
+                captureSessions: captureSessions);
         }
 
         public SquadStateService Squad { get; } = new();
@@ -142,6 +176,108 @@ public sealed class RaidObservationServiceTests
         }
 
         public void Dispose() => Service.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    private static async Task UntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (DateTime.UtcNow < deadline && !condition())
+        {
+            await Task.Delay(5, CancellationToken.None);
+        }
+
+        Assert.True(condition());
+    }
+
+    private sealed class StubImageLoader : IScreenshotImageLoader
+    {
+        public Task<CapturedImage?> LoadAsync(string path, CancellationToken cancellationToken) =>
+            Task.FromResult<CapturedImage?>(new(
+                new byte[16],
+                2,
+                2,
+                8,
+                PixelFormat.Bgra8888,
+                DateTimeOffset.UnixEpoch,
+                "raid-observation-fixture"));
+    }
+
+    private sealed class CountingScanUseCase : IScanUseCase
+    {
+        public int ImageScans => Volatile.Read(ref _imageScans);
+
+        private int _imageScans;
+
+        public Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken) =>
+            Task.FromResult(Outcome());
+
+        public Task<ScanOutcome> ScanImageAsync(CapturedImage image, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _imageScans);
+            return Task.FromResult(Outcome());
+        }
+
+        private static ScanOutcome Outcome() => new(
+            Guid.NewGuid(),
+            ScanCompletionStatus.Partial,
+            ScanContext.Unknown,
+            DateTimeOffset.UnixEpoch,
+            new(ScanContext.Unknown, [], DateTimeOffset.UnixEpoch, "fixture"),
+            null,
+            null,
+            null,
+            null,
+            [],
+            "fixture");
+    }
+
+    private sealed class BlockingCaptureSessionService : ICaptureSessionService
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event EventHandler? Changed { add { } remove { } }
+
+        public event EventHandler<CaptureReviewRequestedEventArgs>? ReviewRequested { add { } remove { } }
+
+        public event EventHandler<CaptureAcceptedEventArgs>? Accepted { add { } remove { } }
+
+        public CaptureSessionServiceSnapshot Snapshot => CaptureSessionServiceSnapshot.Empty;
+
+        public CaptureSubmission? Submission { get; private set; }
+
+        public CaptureArmReceipt Arm(CaptureArmRequest request) =>
+            new(false, request.Request.SessionId, "fixture_not_armed");
+
+        public async ValueTask<CaptureQueueReceipt> EnqueueAsync(
+            CaptureSubmission submission,
+            CancellationToken cancellationToken)
+        {
+            Submission = submission;
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new(
+                0,
+                CaptureQueueDisposition.Accepted,
+                submission.CorrelationId,
+                submission.SubmittedUtc,
+                "fixture_accepted");
+        }
+
+        public bool TryReview(
+            CaptureSessionId sessionId,
+            string artifactId,
+            CaptureReviewAction action,
+            string origin) => false;
+
+        public bool Cancel(CaptureSessionId sessionId, string origin) => false;
+
+        public void Release() => _release.TrySetResult();
+
+        public ValueTask DisposeAsync()
+        {
+            _release.TrySetResult();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class StubPathLocator(EftPaths paths) : IEftPathLocator
