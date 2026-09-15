@@ -1,0 +1,517 @@
+{
+  "schemaVersion": 1,
+  "observedUtc": "2026-09-15T19:35:40Z",
+  "normalization": {
+    "nameIdentity": "lowercase invariant; retain only Unicode letters and digits",
+    "scope": "canonical map",
+    "primaryVariantRule": "union extract identities after applying each record's explicit canonicalMapId"
+  },
+  "primarySource": {
+    "url": "https://json.tarkov.dev/regular/maps",
+    "translationUrl": "https://json.tarkov.dev/regular/maps_en",
+    "lastModified": "Tue, 15 Sep 2026 08:24:16 GMT",
+    "etag": "\"10df14edb3d8c1ea799fd0742ec4a373\"",
+    "recordCount": 17,
+    "extractRowCountBeforeIdentityCollapse": 152
+  },
+  "canonicalCatalog": {
+    "url": "https://github.com/the-hideout/tarkov-dev/blob/9fd29f7f16e5d5408831d9be48274dcb8862de1d/src/data/maps.json",
+    "commit": "9fd29f7f16e5d5408831d9be48274dcb8862de1d",
+    "sha256": "c53a327dcdcff67a49b9fe2d150731edb4c1611dfc2f75db2ce97444dee2ef77",
+    "excludedVirtualMapIds": [
+      "openworld",
+      "transits"
+    ]
+  },
+  "coordinateSource": {
+    "url": "https://github.com/acidphantasm/SPT-DynamicMaps/tree/4944764f5f6c42d152dca6bd1b5371c4f6212a9e/Plugin/Resources/Maps",
+    "commit": "4944764f5f6c42d152dca6bd1b5371c4f6212a9e"
+  },
+  "primaryRecords": [
+    {
+      "mapId": "customs",
+      "canonicalMapId": "customs",
+      "extractNames": [
+        "Administration Gate",
+        "Boiler Room Basement (Co-op)",
+        "Crossroads",
+        "Dorms V-Ex",
+        "Factory Far Corner",
+        "Factory Shacks",
+        "Military Base CP",
+        "Old Gas Station",
+        "Old Gas Station Gate",
+        "Old Road Gate",
+        "Passage Between Rocks",
+        "Railroad Passage (Flare)",
+        "Railroad to Military Base",
+        "Railroad to Port",
+        "Railroad to Tarkov",
+        "RUAF Roadblock",
+        "Scav Checkpoint",
+        "Smugglers' Boat",
+        "Smugglers' Bunker (ZB-1012)",
+        "Sniper Roadblock",
+        "Trailer Park",
+        "Trailer Park Workers' Shack",
+        "Warehouse 4",
+        "Warehouse 17",
+        "ZB-013",
+        "ZB-1011"
+      ]
+    },
+    {
+      "mapId": "factory",
+      "canonicalMapId": "factory",
+      "extractNames": [
+        "Camera Bunker Door",
+        "Cellars",
+        "Courtyard Gate",
+        "Gate 0",
+        "Gate 2",
+        "Gate 3",
+        "Med Tent Gate",
+        "Office Window",
+        "Smugglers' Passage"
+      ]
+    },
+    {
+      "mapId": "ground-zero",
+      "canonicalMapId": "ground-zero",
+      "extractNames": [
+        "Emercom Checkpoint",
+        "Mira Ave (Flare)",
+        "Nakatani Basement Stairs",
+        "Pinewood Basement (Co-Op)",
+        "Police Cordon V-Ex",
+        "Scav Bunker",
+        "Scav Checkpoint (Co-op)",
+        "Tartowers Sales Office",
+        "UN Roadblock"
+      ]
+    },
+    {
+      "mapId": "ground-zero-21",
+      "canonicalMapId": "ground-zero",
+      "extractNames": [
+        "Emercom Checkpoint",
+        "Mira Ave (Flare)",
+        "Nakatani Basement Stairs",
+        "Police Cordon V-Ex",
+        "Scav Checkpoint (Co-op)",
+        "Tartowers Sales Office"
+      ]
+    },
+    {
+      "mapId": "ground-zero-tutorial",
+      "canonicalMapId": "ground-zero",
+      "extractNames": []
+    },
+    {
+      "mapId": "icebreaker",
+      "canonicalMapId": "icebreaker",
+      "extractNames": []
+    },
+    {
+      "mapId": "interchange",
+      "canonicalMapId": "interchange",
+      "extractNames": [
+        "Emercom Checkpoint",
+        "Hole in the Fence",
+        "Path to River (Flare)",
+        "Power Station V-Ex",
+        "Railway Exfil",
+        "Saferoom Exfil",
+        "Scav Camp (Co-Op)",
+        "Smugglers' Tunnel"
+      ]
+    },
+    {
+      "mapId": "lighthouse",
+      "canonicalMapId": "lighthouse",
+      "extractNames": [
+        "Armored Train",
+        "Mountain Pass",
+        "Northern Checkpoint",
+        "Passage by the Lake",
+        "Path to Shoreline",
+        "Scav Hideout at the Grotto",
+        "Southern Road Landslide"
+      ]
+    },
+    {
+      "mapId": "night-factory",
+      "canonicalMapId": "factory",
+      "extractNames": [
+        "Camera Bunker Door",
+        "Cellars",
+        "Courtyard Gate",
+        "Gate 0",
+        "Gate 3",
+        "Med Tent Gate",
+        "Office Window",
+        "Smugglers' Passage"
+      ]
+    },
+    {
+      "mapId": "reserve",
+      "canonicalMapId": "reserve",
+      "extractNames": [
+        "Armored Train",
+        "Bunker Hermetic Door",
+        "Checkpoint Fence",
+        "Cliff Descent",
+        "Depot Hermetic Door",
+        "Exit to Woods",
+        "Heating Pipe",
+        "Hole in the Wall by the Mountains",
+        "Scav Lands (Co-Op)",
+        "Sewer Manhole"
+      ]
+    },
+    {
+      "mapId": "shoreline",
+      "canonicalMapId": "shoreline",
+      "extractNames": [
+        "Admin Basement",
+        "CCP Temporary",
+        "Cliff Descent",
+        "Climber's Trail",
+        "East Wing Gym Entrance",
+        "Lighthouse",
+        "Mountain Bunker",
+        "Path to Lighthouse",
+        "Pier Boat",
+        "Road to Customs",
+        "Road to North V-Ex",
+        "Rock Passage",
+        "Ruined House Fence",
+        "Ruined Road",
+        "Smugglers' Path (Co-op)",
+        "Svetliy Dead End",
+        "Tunnel"
+      ]
+    },
+    {
+      "mapId": "streets-of-tarkov",
+      "canonicalMapId": "streets-of-tarkov",
+      "extractNames": [
+        "Basement Entrance",
+        "Cardinal Apartment Complex Parking",
+        "Collapsed Crane",
+        "Courtyard",
+        "Crash Site",
+        "Damaged House",
+        "Entrance to Catacombs",
+        "Expo Checkpoint",
+        "Klimov Shopping Mall Exfil",
+        "Klimov Street (Flare)",
+        "Near Kamchatskaya Arch",
+        "Pinewood Basement (Co-Op)",
+        "Primorsky Ave Taxi V-Ex",
+        "Scav Checkpoint",
+        "Sewer Manhole",
+        "Sewer River",
+        "Smugglers' Basement",
+        "Stylobate Building Elevator",
+        "Ventilation Shaft"
+      ]
+    },
+    {
+      "mapId": "terminal",
+      "canonicalMapId": "terminal",
+      "extractNames": []
+    },
+    {
+      "mapId": "the-lab",
+      "canonicalMapId": "the-lab",
+      "extractNames": [
+        "Cargo Elevator",
+        "Hangar Gate",
+        "Main Elevator",
+        "Parking Gate",
+        "Sewage Conduit",
+        "Ventilation Shaft"
+      ]
+    },
+    {
+      "mapId": "the-lab-dark",
+      "canonicalMapId": "the-lab",
+      "extractNames": []
+    },
+    {
+      "mapId": "the-labyrinth",
+      "canonicalMapId": "the-labyrinth",
+      "extractNames": [
+        "Ariadne's Path",
+        "The Way Up"
+      ]
+    },
+    {
+      "mapId": "woods",
+      "canonicalMapId": "woods",
+      "extractNames": [
+        "Boat",
+        "Bridge V-Ex",
+        "Dead Man's Place",
+        "Eastern Rocks",
+        "Mountain Stash",
+        "Northern UN Roadblock",
+        "Old Railway Depot",
+        "Outskirts",
+        "Power Line Passage (Flare)",
+        "Railway Bridge to Tarkov",
+        "RUAF Gate",
+        "RUAF Roadblock",
+        "Scav Bunker",
+        "Scav House",
+        "UN Roadblock",
+        "ZB-014",
+        "ZB-016"
+      ]
+    }
+  ],
+  "referenceMaps": [
+    {
+      "canonicalMapId": "customs",
+      "revision": 355388,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Customs?oldid=355388",
+      "extractNames": [
+        "Administration Gate",
+        "Boiler Room Basement (Co-op)",
+        "Crossroads",
+        "Dorms V-Ex",
+        "Factory Far Corner",
+        "Factory Shacks",
+        "Military Base CP",
+        "Old Gas Station",
+        "Old Gas Station Gate",
+        "Old Road Gate",
+        "Passage Between Rocks",
+        "Railroad Passage (Flare)",
+        "Railroad to Military Base",
+        "Railroad to Port",
+        "Railroad to Tarkov",
+        "RUAF Roadblock",
+        "Scav Checkpoint",
+        "Smugglers' Boat",
+        "Smugglers' Bunker (ZB-1012)",
+        "Sniper Roadblock",
+        "Trailer Park",
+        "Trailer Park Workers' Shack",
+        "Warehouse 4",
+        "Warehouse 17",
+        "ZB-013",
+        "ZB-1011"
+      ]
+    },
+    {
+      "canonicalMapId": "factory",
+      "revision": 355345,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Factory?oldid=355345",
+      "extractNames": [
+        "Camera Bunker Door",
+        "Cellars",
+        "Courtyard Gate",
+        "Gate 0",
+        "Gate 3",
+        "Med Tent Gate",
+        "Office Window",
+        "Smugglers' Passage"
+      ]
+    },
+    {
+      "canonicalMapId": "ground-zero",
+      "revision": 358836,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Ground_Zero?oldid=358836",
+      "extractNames": [
+        "Emercom Checkpoint",
+        "Mira Ave (Flare)",
+        "Nakatani Basement Stairs",
+        "Police Cordon V-Ex",
+        "Scav Checkpoint (Co-op)",
+        "Tartowers Sales Office"
+      ]
+    },
+    {
+      "canonicalMapId": "icebreaker",
+      "revision": 359388,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Icebreaker?oldid=359388",
+      "extractNames": [
+        "Helicopter"
+      ]
+    },
+    {
+      "canonicalMapId": "interchange",
+      "revision": 360210,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Interchange?oldid=360210",
+      "extractNames": [
+        "Emercom Checkpoint",
+        "Path to River (Flare)",
+        "Power Station V-Ex",
+        "Railway Exfil",
+        "Saferoom Exfil",
+        "Scav Camp (Co-Op)",
+        "Smugglers' Tunnel"
+      ]
+    },
+    {
+      "canonicalMapId": "the-lab",
+      "revision": 354844,
+      "url": "https://escapefromtarkov.fandom.com/wiki/The_Lab?oldid=354844",
+      "extractNames": [
+        "Cargo Elevator",
+        "Hangar Gate",
+        "Main Elevator",
+        "Medical Block Elevator",
+        "Parking Gate",
+        "Sewage Conduit",
+        "Ventilation Shaft"
+      ]
+    },
+    {
+      "canonicalMapId": "the-labyrinth",
+      "revision": 359378,
+      "url": "https://escapefromtarkov.fandom.com/wiki/The_Labyrinth?oldid=359378",
+      "extractNames": [
+        "Ariadne's Path",
+        "The Way Up"
+      ]
+    },
+    {
+      "canonicalMapId": "lighthouse",
+      "revision": 359024,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Lighthouse?oldid=359024",
+      "extractNames": [
+        "Armored Train",
+        "Hideout Under the Landing Stage",
+        "Industrial Zone Gates",
+        "Mountain Pass",
+        "Northern Checkpoint",
+        "Passage by the Lake",
+        "Path to Shoreline",
+        "Road to Military Base V-Ex",
+        "Scav Hideout at the Grotto",
+        "Side Tunnel (Co-Op)",
+        "Southern Road",
+        "Southern Road Landslide"
+      ]
+    },
+    {
+      "canonicalMapId": "reserve",
+      "revision": 357731,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Reserve?oldid=357731",
+      "extractNames": [
+        "Armored Train",
+        "Bunker Hermetic Door",
+        "Checkpoint Fence",
+        "Cliff Descent",
+        "D-2",
+        "Depot Hermetic Door",
+        "Exit to Woods",
+        "Heating Pipe",
+        "Hole in the Wall by the Mountains",
+        "Scav Lands (Co-Op)",
+        "Sewer Manhole"
+      ]
+    },
+    {
+      "canonicalMapId": "shoreline",
+      "revision": 357755,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Shoreline?oldid=357755",
+      "extractNames": [
+        "Admin Basement",
+        "Climber's Trail",
+        "East Wing Gym Entrance",
+        "Lighthouse",
+        "Mountain Bunker",
+        "Path to Lighthouse",
+        "Pier Boat",
+        "Railway Bridge",
+        "Road to Customs",
+        "Road to North V-Ex",
+        "Ruined Road",
+        "Smuggler's Path (Co-op)",
+        "Tunnel"
+      ]
+    },
+    {
+      "canonicalMapId": "streets-of-tarkov",
+      "revision": 353481,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Streets_of_Tarkov?oldid=353481",
+      "extractNames": [
+        "Cardinal Apartment Complex Parking",
+        "Collapsed Crane",
+        "Courtyard",
+        "Crash Site",
+        "Damaged House",
+        "Entrance to Catacombs",
+        "Expo Checkpoint",
+        "Klimov Shopping Mall Exfil",
+        "Klimov Street (Flare)",
+        "Near Kamchatskaya Arch",
+        "Pinewood Basement (Co-Op)",
+        "Primorsky Ave Taxi V-Ex",
+        "Sewer Manhole",
+        "Sewer River",
+        "Smugglers' Basement",
+        "Stylobate Building Elevator",
+        "Ventilation Shaft"
+      ]
+    },
+    {
+      "canonicalMapId": "terminal",
+      "revision": 359900,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Terminal?oldid=359900",
+      "extractNames": [
+        "Zubr Boat"
+      ]
+    },
+    {
+      "canonicalMapId": "woods",
+      "revision": 355184,
+      "url": "https://escapefromtarkov.fandom.com/wiki/Woods?oldid=355184",
+      "extractNames": [
+        "Boat",
+        "Bridge V-Ex",
+        "Dead Man's Place",
+        "Eastern Rocks",
+        "Friendship Bridge (Co-Op)",
+        "Mountain Stash",
+        "Northern UN Roadblock",
+        "Old Railway Depot",
+        "Outskirts",
+        "Power Line Passage (Flare)",
+        "Railway Bridge to Tarkov",
+        "RUAF Gate",
+        "RUAF Roadblock",
+        "Scav Bunker",
+        "Scav House",
+        "UN Roadblock",
+        "ZB-014",
+        "ZB-016"
+      ]
+    }
+  ],
+  "expectedGaps": [
+    { "canonicalMapId": "icebreaker", "name": "Helicopter", "side": "pmc" },
+    { "canonicalMapId": "lighthouse", "name": "Hideout Under the Landing Stage", "side": "scav" },
+    { "canonicalMapId": "lighthouse", "name": "Industrial Zone Gates", "side": "scav" },
+    { "canonicalMapId": "lighthouse", "name": "Road to Military Base V-Ex", "side": "pmc" },
+    { "canonicalMapId": "lighthouse", "name": "Side Tunnel (Co-Op)", "side": "shared" },
+    { "canonicalMapId": "lighthouse", "name": "Southern Road", "side": "pmc" },
+    { "canonicalMapId": "reserve", "name": "D-2", "side": "pmc" },
+    { "canonicalMapId": "shoreline", "name": "Railway Bridge", "side": "pmc" },
+    { "canonicalMapId": "the-lab", "name": "Medical Block Elevator", "side": "unknown" },
+    { "canonicalMapId": "terminal", "name": "Zubr Boat", "side": "pmc" },
+    { "canonicalMapId": "woods", "name": "Friendship Bridge (Co-Op)", "side": "shared" }
+  ],
+  "equivalentNameCases": [
+    {
+      "canonicalMapId": "shoreline",
+      "referenceName": "Smuggler's Path (Co-op)",
+      "primaryName": "Smugglers' Path (Co-op)",
+      "normalizedIdentity": "smugglerspathcoop"
+    }
+  ]
+}

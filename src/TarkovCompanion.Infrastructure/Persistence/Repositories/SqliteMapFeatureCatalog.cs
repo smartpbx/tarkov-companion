@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Core.Domain.Maps;
+using TarkovCompanion.Infrastructure.Maps;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
@@ -93,23 +94,28 @@ public sealed class SqliteMapFeatureCatalog(SqliteConnectionFactory connectionFa
         // the key. A handful of ids per map, once per map.
         var itemNames = await ReadItemNamesAsync(connection, payload, cancellationToken).ConfigureAwait(false);
         var containerNames = await ReadContainerNamesAsync(connection, cancellationToken).ConfigureAwait(false);
-        return Read(payload, itemNames, containerNames) ?? [];
+        var primary = Read(payload, itemNames, containerNames) ?? [];
+        return ReviewedExtractCatalog.MergeFeatures(ReadSlug(payload) ?? mapId, primary);
     }
 
     /// <summary>Whether this stored map is the one being asked for.</summary>
     private static bool Matches(string sourceJson, string mapId)
+        => string.Equals(ReadSlug(sourceJson), mapId, StringComparison.OrdinalIgnoreCase);
+
+    private static string? ReadSlug(string sourceJson)
     {
         try
         {
             using var document = JsonDocument.Parse(sourceJson);
             return document.RootElement.ValueKind == JsonValueKind.Object &&
                 document.RootElement.TryGetProperty("normalizedName", out var slug) &&
-                slug.ValueKind == JsonValueKind.String &&
-                string.Equals(slug.GetString(), mapId, StringComparison.OrdinalIgnoreCase);
+                slug.ValueKind == JsonValueKind.String
+                    ? slug.GetString()
+                    : null;
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
     }
 
