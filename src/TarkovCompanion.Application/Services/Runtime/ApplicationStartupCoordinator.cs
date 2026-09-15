@@ -35,7 +35,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly object _backgroundGate = new();
     private readonly BackgroundWorkSupervisor _supervisor;
     private readonly FeatureLifecycleCoordinator _lifecycle;
-    private Task? _backgroundRefresh;
+    private Task<BackgroundWorkResult>? _backgroundRefresh;
+    private Task? _disposeTask;
+    private bool _disposeStarted;
 
     public ApplicationStartupCoordinator(
         IRuntimeDataStore dataStore,
@@ -111,7 +113,16 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IOcrEngineStatus? _ocrStatus;
     private readonly GroupSessionService? _groupSession;
 
-    public Task? BackgroundRefresh => _backgroundRefresh;
+    public Task? BackgroundRefresh
+    {
+        get
+        {
+            lock (_backgroundGate)
+            {
+                return _backgroundRefresh;
+            }
+        }
+    }
 
     /// <summary>
     /// Says whether scanning can run at all, before anyone has tried it.
@@ -155,10 +166,13 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        var snapshot = await _lifecycle.StartAsync(cancellationToken).ConfigureAwait(false);
+        await _lifecycle.StartAsync(cancellationToken).ConfigureAwait(false);
         _stateStore.Update(current => current with
         {
-            Lifecycle = snapshot,
+            // Read while applying the store update. A timed-out start can settle between the
+            // StartAsync await and this publication; writing its captured return value here
+            // regressed the runtime state over that newer lifecycle notification.
+            Lifecycle = _lifecycle.Snapshot,
             Outbox = _raidActivityCoordinator.OutboxSnapshot,
         });
     }
@@ -172,31 +186,75 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
         lock (_backgroundGate)
         {
+            if (_disposeStarted)
+            {
+                return;
+            }
+
             if (_backgroundRefresh is { IsCompleted: false })
             {
                 return;
             }
 
-            var operationId = OperationId.New();
-            var execution = new OperationExecutionRequest(
-                new("data-refresh"),
-                operationId,
-                CorrelationId.New(),
-                new("json-tarkov-dev"),
-                OperationPolicy.Once(
-                    _options.RefreshTimeout,
-                    WorkloadClass.IO,
-                    OperationRestartMode.Manual,
-                    IdempotencyRequirement.Guaranteed));
-            var admission = _supervisor.Submit(
-                new(execution, new("catalog-refresh"), WorkPriority.Background),
-                async (_, token) => await RefreshSupervisedAsync(force: true, token).ConfigureAwait(false));
-            _backgroundRefresh = admission.Handle.Completion;
+            _backgroundRefresh = StartRefreshUnsafe(force: true, WorkPriority.Background);
         }
     }
 
-    public async Task RefreshAsync(bool force, CancellationToken cancellationToken) =>
-        await RefreshWithFaultAsync(force, cancellationToken).ConfigureAwait(false);
+    /// <summary>Starts or joins the one supervised refresh and bounds only this caller's wait.</summary>
+    /// <remarks>
+    /// The wait is deliberately outside the refresh operation. A caller may stop waiting at its
+    /// deadline, but the supervisor's completion remains incomplete, keeps its IO admission, and
+    /// keeps the refresh semaphore alive until the dependency task itself returns. Passing a caller
+    /// token into the shared operation instead would let one cancelled button press stop work that
+    /// startup or another caller is already waiting for.
+    /// </remarks>
+    public async Task RefreshAsync(bool force, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Task<BackgroundWorkResult> refresh;
+        lock (_backgroundGate)
+        {
+            ObjectDisposedException.ThrowIf(_disposeStarted, this);
+            refresh = _backgroundRefresh is { IsCompleted: false } active
+                ? active
+                : _backgroundRefresh = StartRefreshUnsafe(force, WorkPriority.UserBlocking);
+        }
+
+        try
+        {
+            await refresh
+                .WaitAsync(_options.RefreshTimeout, _timeProvider, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The operation remains owned and its Running supervisor snapshot is the truthful
+            // result until the dependency returns. RefreshWithFaultAsync publishes the eventual
+            // timeout/cancellation state after that real completion.
+            _logger.LogWarning(
+                "The caller stopped waiting for the game-data refresh after {RefreshTimeout}; the supervised operation is still observed.",
+                _options.RefreshTimeout);
+        }
+    }
+
+    private Task<BackgroundWorkResult> StartRefreshUnsafe(bool force, WorkPriority priority)
+    {
+        var operationId = OperationId.New();
+        var execution = new OperationExecutionRequest(
+            new("data-refresh"),
+            operationId,
+            CorrelationId.New(),
+            new("json-tarkov-dev"),
+            OperationPolicy.Once(
+                _options.RefreshTimeout,
+                WorkloadClass.IO,
+                OperationRestartMode.Manual,
+                IdempotencyRequirement.Guaranteed));
+        var admission = _supervisor.Submit(
+            new(execution, new("catalog-refresh"), priority),
+            async (_, token) => await RefreshSupervisedAsync(force, token).ConfigureAwait(false));
+        return admission.Handle.Completion;
+    }
 
     private async Task RefreshSupervisedAsync(bool force, CancellationToken cancellationToken)
     {
@@ -228,6 +286,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             cancellationToken,
             deadline.Token);
         await _refreshLock.WaitAsync(operationCancellation.Token).ConfigureAwait(false);
+        CachedDataSnapshot? cached = null;
         try
         {
             _stateStore.Update(current => current with
@@ -238,11 +297,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             var report = await _dataSyncService.SyncAsync(
                     new(_options.GameMode, _options.Language, force),
                     operationCancellation.Token)
-                .WaitAsync(operationCancellation.Token)
                 .ConfigureAwait(false);
-            var cached = await _dataStore.LoadSnapshotAsync(operationCancellation.Token)
-                .WaitAsync(operationCancellation.Token)
-                .ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
+            cached = await _dataStore.LoadSnapshotAsync(operationCancellation.Token).ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
 
             // Fresh rows landed, so anything projected from the old ones is now stale.
             _requirementCatalog.Invalidate();
@@ -255,9 +313,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 projection.Invalidate();
             }
 
-            await WarmCatalogsAsync(operationCancellation.Token)
-                .WaitAsync(operationCancellation.Token)
-                .ConfigureAwait(false);
+            await WarmCatalogsAsync(operationCancellation.Token).ConfigureAwait(false);
+            operationCancellation.Token.ThrowIfCancellationRequested();
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             // The sync has always known when an endpoint answered from a stale cache instead
@@ -287,11 +344,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             });
             return null;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            await SetRefreshErrorAsync(
+            SetRefreshError(
                 "The background refresh exceeded its bounded timeout.",
-                cancellationToken).ConfigureAwait(false);
+                cached?.ItemCount);
             _logger.LogWarning("The game-data refresh exceeded {RefreshTimeout}.", _options.RefreshTimeout);
             return new(
                 RuntimeFailureKind.Timeout,
@@ -300,9 +358,18 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 new("feature:data-refresh"),
                 _timeProvider.GetUtcNow());
         }
+        catch (OperationCanceledException) when (operationCancellation.IsCancellationRequested)
+        {
+            SetRefreshError(
+                deadline.IsCancellationRequested
+                    ? "The background refresh exceeded its bounded timeout."
+                    : "The refresh was stopped; any existing local cache remains available.",
+                cached?.ItemCount);
+            throw;
+        }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            await SetRefreshErrorAsync(
+            await SetRefreshErrorFromStoreAsync(
                 "The refresh failed; any existing local cache remains available.",
                 cancellationToken).ConfigureAwait(false);
             _logger.LogError("The game-data refresh failed; a sanitized runtime state was published.");
@@ -325,10 +392,30 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// finally returned. A stop that runs out of time now leaves the lock alive for that late
     /// release, and the published state says which work is still unfinished.
     /// </remarks>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        var lifecycle = await _lifecycle.StopAsync().ConfigureAwait(false);
-        var supervisor = await _supervisor.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        lock (_backgroundGate)
+        {
+            _disposeStarted = true;
+            // DisposeCoreAsync yields before touching any dependency, so no lifecycle callback
+            // can run while this admission gate is held. Keeping the one task also makes repeated
+            // and concurrent disposal await the same bounded shutdown.
+            _disposeTask ??= DisposeCoreAsync();
+            return new(_disposeTask);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+        // Both owners receive the same shutdown window. Waiting for one full bound before even
+        // asking the other to stop turned two truthful ten-second waits into a twenty-second
+        // application shutdown.
+        var lifecycleStopping = _lifecycle.StopAsync();
+        var supervisorStopping = _supervisor.StopAsync(TimeSpan.FromSeconds(10));
+        await Task.WhenAll(lifecycleStopping, supervisorStopping).ConfigureAwait(false);
+        var lifecycle = await lifecycleStopping.ConfigureAwait(false);
+        var supervisor = await supervisorStopping.ConfigureAwait(false);
         _stateStore.Update(current => current with
         {
             Lifecycle = _lifecycle.Snapshot,
@@ -338,7 +425,15 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _supervisor.Changed -= PublishSupervisorState;
         _lifecycle.Changed -= PublishLifecycleState;
         _raidActivityCoordinator.OutboxChanged -= PublishOutboxState;
-        await _supervisor.DisposeAsync().ConfigureAwait(false);
+        if (supervisor.CompletedWithinDeadline)
+        {
+            await _supervisor.DisposeAsync().ConfigureAwait(false);
+        }
+
+        // A timed-out supervisor still needs its cancelled synchronization objects when the
+        // dependency eventually returns and releases its slot. Calling DisposeAsync here used to
+        // wait a second RefreshTimeout after the already-bounded ten-second stop; leaving those
+        // objects alive is both the truthful ownership model and the single shutdown bound.
         if (supervisor.CompletedWithinDeadline && lifecycle.IsQuiescent && _refreshLock.Wait(0))
         {
             // Held while disposing, so a caller arriving now fails as disposed rather than
@@ -401,13 +496,17 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private async Task WarmCatalogsAsync(CancellationToken cancellationToken)
     {
         var quest = await _requirementCatalog.GetQuestRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var hideout = await _requirementCatalog.GetHideoutRequirementsAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         _needAggregation.Update(quest, hideout);
 
         // The game names the map in its log with an internal token; upstream publishes
         // that token beside the map id, so the parser learns the pairing instead of
         // carrying a hand-written table of guesses.
-        _logParser.UpdateAliases(await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false));
+        var aliases = await _mapAliasCatalog.GetAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        _logParser.UpdateAliases(aliases);
     }
 
     private static string DescribeEmptyRefresh(IReadOnlyList<SyncEndpointResult> errors)
@@ -431,7 +530,24 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     /// have stored items. Reading the item count from the pre-refresh state reported zero and
     /// left item search disabled until the next restart even though the data was on disk.
     /// </remarks>
-    private async Task SetRefreshErrorAsync(string detail, CancellationToken cancellationToken)
+    private void SetRefreshError(string detail, int? observedItemCount = null)
+    {
+        _stateStore.Update(current =>
+        {
+            var itemCount = observedItemCount ?? current.Data.ItemCount;
+            return current with
+            {
+                Data = current.Data with
+                {
+                    Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
+                    ItemCount = itemCount,
+                    Detail = detail,
+                },
+            };
+        });
+    }
+
+    private async Task SetRefreshErrorFromStoreAsync(string detail, CancellationToken cancellationToken)
     {
         var itemCount = _stateStore.Current.Data.ItemCount;
         try
@@ -444,15 +560,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             _logger.LogWarning("The post-failure data snapshot could not be read.");
         }
 
-        _stateStore.Update(current => current with
-        {
-            Data = current.Data with
-            {
-                Availability = itemCount > 0 ? DataAvailability.Cached : DataAvailability.Error,
-                ItemCount = itemCount,
-                Detail = detail,
-            },
-        });
+        SetRefreshError(detail, itemCount);
     }
 
     private IReadOnlyList<RuntimeFeatureDefinition> BuildFeatureGraph()
