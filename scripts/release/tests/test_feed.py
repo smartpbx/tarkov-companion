@@ -36,6 +36,9 @@ def completed(stdout: bytes = b"", stderr: bytes = b"", code: int = 0) -> subpro
 class FakeGitHub:
     def __init__(self) -> None:
         self.visibility = "private"
+        # True, False (the setting is off: 404) or "unreadable" (the token lacks Administration read).
+        self.immutable_setting: bool | str = True
+        self.publish_immutable = True
         self.files: dict[str, bytes] = {}
         self.history: set[str] = set()
         self.releases: list[dict] = []
@@ -90,6 +93,12 @@ class FakeGitHub:
 
         if path == "":
             return completed(f"{self.visibility}\n".encode())
+        if path == "/immutable-releases":
+            if self.immutable_setting == "unreadable":
+                return completed(stderr=b"gh: Resource not accessible by personal access token (HTTP 403)", code=1)
+            if self.immutable_setting is not True:
+                return self.not_found()
+            return completed(json.dumps({"enabled": True, "enforced_by_owner": False}).encode())
         if path.startswith("/commits?path="):
             ring_path = path.split("path=", 1)[1].split("&", 1)[0]
             return completed(json.dumps([{"sha": "1"}] if ring_path in self.history else []).encode())
@@ -136,7 +145,8 @@ class FakeGitHub:
             if method == "PATCH":
                 assert "draft=false" in fields
                 release["draft"] = False
-                return completed(json.dumps({"draft": False, "tag_name": release["tag"], "immutable": True}).encode())
+                release["immutable"] = self.publish_immutable
+                return completed(json.dumps({"draft": False, "tag_name": release["tag"], "immutable": self.publish_immutable}).encode())
         raise AssertionError(f"unexpected api call {method} {endpoint}")
 
     def release_create(self, arguments: list[str]) -> subprocess.CompletedProcess:
@@ -210,6 +220,26 @@ class FeedTests(unittest.TestCase):
             self.feed.require_private("smartpbx/tarkov-companion")
         with self.assertRaises(FeedError):
             Feed("smartpbx/tarkov-companion", runner=self.github).require_private("smartpbx/tarkov-companion")
+
+    def test_the_feed_must_enforce_immutable_releases_and_say_so_to_this_token(self) -> None:
+        self.assertTrue(self.feed.require_immutable_releases()["enabled"])
+        for setting, message in ((False, "not enabled"), ("unreadable", "could not read")):
+            with self.subTest(setting=setting):
+                self.github.immutable_setting = setting
+                with self.assertRaisesRegex(FeedError, message):
+                    self.feed.require_immutable_releases()
+
+    def test_a_build_github_does_not_report_immutable_is_refused_after_publication(self) -> None:
+        directory, manifest = self.build_directory()
+        self.github.publish_immutable = False
+
+        with self.assertRaisesRegex(FeedError, "does not report it immutable"):
+            self.feed.publish_build("v2-build-1.0.608", directory, manifest)
+
+    def test_a_build_tag_uses_the_ring_policys_version_grammar(self) -> None:
+        for tag in ("v2-build-1.0.0-01", "v2-build-01.0.0", "v2-build-1.0.0+meta", "v2-build-1.0.0-rc..1"):
+            with self.subTest(tag=tag), self.assertRaises(FeedError):
+                self.feed.find_build(tag)
 
     # Rings ------------------------------------------------------------------------------------
 

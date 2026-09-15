@@ -23,11 +23,16 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# One grammar for every version the chain handles. This accepted "1.0.0-01" while the ring
+# policy refused it, so such a build would have been signed and attested and then never offered.
+from release_policy import SEMVER  # noqa: E402
+
 
 SCHEMA_VERSION = 1
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$")
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
 PACK_ID = "TarkovCompanionDesktop"
 DESKTOP_ASSEMBLY = "TarkovCompanion.dll"
@@ -425,9 +430,47 @@ def artifact_role(name: str, identity: dict[str, Any]) -> tuple[str, str]:
     return "release", "metadata"
 
 
+def verified_artifacts(record_path: Path, payload: Path, repository: str, commit: str, verification_run_id: str) -> dict[str, Any]:
+    """The artifact record from artifacts.py, checked against this payload file by file.
+
+    Every file verification produced must be one the record saw inside an artifact archive whose
+    digest GitHub recorded at upload, with the same bytes. Only the files this publisher adds
+    itself are exempt, and those are named in PUBLISHER_FILES.
+    """
+    record = read_json(record_path)
+    run = record.get("verificationRun") if isinstance(record, dict) else None
+    if (not isinstance(run, dict) or record.get("schemaVersion") != 1 or record.get("repository") != repository
+            or str(run.get("id")) != verification_run_id or run.get("headSha") != commit
+            or run.get("workflowPath") != ".github/workflows/windows-verify.yml"
+            or run.get("event") != "push" or run.get("headBranch") != "main"):
+        raise ManifestError("the artifact record does not describe this repository's verification run at this commit")
+    produced: dict[str, str] = {}
+    artifacts = record.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ManifestError("the artifact record names no artifacts")
+    for artifact in artifacts:
+        if not isinstance(artifact, dict) or not HEX_64.fullmatch(str(artifact.get("sha256"))):
+            raise ManifestError("the artifact record has an artifact without a recorded digest")
+        for item in artifact.get("files") or []:
+            name = PurePosixPath(str(item.get("path"))).name
+            if name in produced:
+                raise ManifestError(f"the artifact record holds two files named {name}")
+            produced[name] = str(item.get("sha256"))
+    for path in sorted(payload.iterdir()):
+        if not path.is_file() or path.name in PUBLISHER_FILES or NOT_ARTIFACTS.match(path.name):
+            continue
+        if produced.get(path.name) != sha256_file(path):
+            raise ManifestError(f"{path.name} is not a file the verification run uploaded, byte for byte")
+    return {
+        "attempt": run.get("attempt"),
+        "artifacts": [{"name": item["name"], "sha256": item["sha256"], "size": item.get("size")} for item in artifacts],
+    }
+
+
 def create_manifest(args: argparse.Namespace) -> dict[str, Any]:
     payload = args.payload.resolve()
     identity = reconcile(payload, args.source_root, args.commit, args.verification_run_id)
+    produced = verified_artifacts(args.artifact_record, payload, args.repository, args.commit, args.verification_run_id)
     sources = identity["sources"]
 
     for name, source in (("THIRD_PARTY_NOTICES.md", "docs/THIRD_PARTY_NOTICES.md"),
@@ -484,6 +527,9 @@ def create_manifest(args: argparse.Namespace) -> dict[str, Any]:
             "branch": "main",
             "verificationWorkflow": ".github/workflows/windows-verify.yml",
             "verificationRunId": args.verification_run_id,
+            "verificationRunAttempt": produced["attempt"],
+            # The archives verification uploaded, by the digest GitHub recorded at upload.
+            "verificationArtifacts": produced["artifacts"],
         },
         "versions": {
             "package": identity["version"],
@@ -546,6 +592,7 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--output", type=Path, required=True)
         if name == "manifest":
             command.add_argument("--repository", required=True)
+            command.add_argument("--artifact-record", type=Path, required=True)
     return parser
 
 

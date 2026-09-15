@@ -6,7 +6,8 @@ share one feed. It keeps the GitHub behaviours the release design depends on: a 
 that already exists cannot be created again, drafts appear only in the release list, and each
 uploaded asset carries a server-computed sha256 digest. Two one-shot hooks model failure:
 race.json pre-empts the next contents create with another writer's file, and fail-put makes the
-next contents create fail as a server error.
+next contents create fail as a server error. Immutable releases are on unless mutable-releases
+exists, and reading that setting fails as a permission error if immutable-unreadable exists.
 """
 
 from __future__ import annotations
@@ -65,6 +66,12 @@ def api(arguments: list[str]) -> None:
 
     if path == "":
         print((STATE / "visibility").read_text().strip() if (STATE / "visibility").exists() else "private")
+    elif path == "/immutable-releases":
+        if (STATE / "immutable-unreadable").exists():
+            fail("Resource not accessible by personal access token", 403)
+        if (STATE / "mutable-releases").exists():
+            fail("Not Found", 404)
+        print(json.dumps({"enabled": True, "enforced_by_owner": False}))
     elif path.startswith("/commits?path="):
         ring = path.split("path=", 1)[1].split("&", 1)[0]
         history = json.loads((STATE / "history.json").read_text()) if (STATE / "history.json").exists() else []
@@ -106,7 +113,8 @@ def api(arguments: list[str]) -> None:
             fail("Not Found", 404)
     elif path.startswith("/releases?"):
         for release in load_releases():
-            print(json.dumps({"id": release["id"], "tag_name": release["tag"], "draft": release["draft"], "immutable": release["draft"] is False}))
+            immutable = release["draft"] is False and not (STATE / "mutable-releases").exists()
+            print(json.dumps({"id": release["id"], "tag_name": release["tag"], "draft": release["draft"], "immutable": immutable}))
     elif path.startswith("/releases/"):
         release_id = int(path.split("/")[2].split("?")[0])
         releases = load_releases()
@@ -122,7 +130,7 @@ def api(arguments: list[str]) -> None:
         elif method == "PATCH":
             release["draft"] = False
             save_releases(releases)
-            print(json.dumps({"draft": False, "tag_name": release["tag"], "immutable": True}))
+            print(json.dumps({"draft": False, "tag_name": release["tag"], "immutable": not (STATE / "mutable-releases").exists()}))
     else:
         fail(f"unexpected endpoint {endpoint}", 404)
 

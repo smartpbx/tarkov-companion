@@ -84,7 +84,10 @@ if [[ "${ACTION}" == "publish" ]]; then
     case "$(jq -er '.status' "${TASK_WORK}/existing/state.json")" in
         published)
             # An earlier attempt got as far as publishing the build and no further. Its manifest
-            # is used only if it verifies and describes the same verified bytes as this one.
+            # is used only if it verifies and describes the same verified bytes as this one, and
+            # only if GitHub reports the release itself immutable.
+            jq -e '.immutable == true' "${TASK_WORK}/existing/state.json" >/dev/null \
+                || fail "the published ${tag} is not immutable; no ring decision will name it"
             "${TASK_RELEASE}/verify-signed-file.sh" \
                 "${TASK_WORK}/existing/release-manifest.json" \
                 "${TASK_WORK}/existing/release-manifest.json.sigstore.json" \

@@ -32,11 +32,10 @@ from typing import Any, Callable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from release_policy import RINGS, generation_of, index_name, select_current  # noqa: E402
+from release_policy import RINGS, SEMVER, generation_of, index_name, select_current  # noqa: E402
 
 
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
-BUILD_TAG = re.compile(r"^v2-build-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$")
 HTTP_STATUS = re.compile(r"\(HTTP ([0-9]{3})\)")
 KEEP_GENERATIONS = 200
 # Artifacts that may legitimately differ when the same verification run is published twice.
@@ -115,6 +114,25 @@ class Feed:
         value = self._gh(["api", f"repos/{self.repository}", "--jq", ".visibility"]).decode("utf-8").strip()
         if value not in ("private", "internal"):
             raise FeedError(f"the v2 feed repository is {value!r}, not private or internal")
+        return value
+
+    def require_immutable_releases(self) -> dict[str, Any]:
+        """The feed's own setting, read live before anything is written, not assumed from a runbook.
+
+        A published build is the thing a signed manifest names by digest; if its assets can be
+        replaced, a consumer that already verified one download can be served different bytes on
+        the next, and a rollback to it may no longer find what was signed. Reading this setting
+        needs the token's Administration read permission on the feed. A token without it fails
+        here, as does a feed with the setting off.
+        """
+        try:
+            value = self._api_json([f"repos/{self.repository}/immutable-releases"])
+        except FeedError as exception:
+            if exception.status == 404:
+                raise FeedError("immutable releases are not enabled on the v2 feed repository") from exception
+            raise FeedError(f"could not read whether the v2 feed enforces immutable releases: {exception}") from exception
+        if not isinstance(value, dict) or value.get("enabled") is not True:
+            raise FeedError("immutable releases are not enabled on the v2 feed repository")
         return value
 
     # Rings ------------------------------------------------------------------------------------
@@ -208,7 +226,7 @@ class Feed:
     # Builds -----------------------------------------------------------------------------------
 
     def find_build(self, tag: str) -> dict[str, Any] | None:
-        if BUILD_TAG.fullmatch(tag) is None:
+        if not tag.startswith("v2-build-") or SEMVER.fullmatch(tag[len("v2-build-"):]) is None:
             raise FeedError(f"{tag!r} is not a build tag")
         matches = [
             release for release in self._api_lines([
@@ -286,6 +304,10 @@ class Feed:
                                     "-F", "draft=false"])
         if not isinstance(published, dict) or published.get("draft") is not False or published.get("tag_name") != tag:
             raise FeedError(f"GitHub did not publish {tag} as requested")
+        # The repository setting was read before the upload; this is GitHub saying the release
+        # that now exists is itself immutable. No ring decision may name a build that is not.
+        if published.get("immutable") is not True:
+            raise FeedError(f"GitHub published {tag} but does not report it immutable; no ring decision will name it")
         self.verify_build_assets(release_id, expected)
         return {"tag": tag, "releaseId": release_id, "immutable": published.get("immutable"), "assets": len(expected)}
 
@@ -368,7 +390,10 @@ def main() -> int:
     try:
         feed = Feed(args.repository)
         if args.command == "check-feed":
-            result: Any = {"visibility": feed.require_private(args.source_repository)}
+            result: Any = {
+                "visibility": feed.require_private(args.source_repository),
+                "immutableReleases": feed.require_immutable_releases(),
+            }
         elif args.command == "ring-read":
             result = feed.read_ring(args.ring, args.output_dir)
         elif args.command == "ring-commit":

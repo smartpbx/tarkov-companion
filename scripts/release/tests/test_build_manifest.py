@@ -192,10 +192,26 @@ class BuildManifestTests(unittest.TestCase):
             "archiveSha256": relay_sha,
         }))
 
-    def manifest(self) -> dict:
+    def artifact_record(self, **run_overrides: object) -> Path:
+        """What artifacts.py writes after fetching both archives by their recorded digests."""
+        artifacts = []
+        for name, directory in (("windows-release-payload", self.artifacts / "windows"), ("group-server-release", self.artifacts / "relay")):
+            files = [
+                {"path": path.relative_to(directory).as_posix(), "sha256": sha256(path.read_bytes()), "size": path.stat().st_size}
+                for path in sorted(directory.rglob("*")) if path.is_file()
+            ]
+            artifacts.append({"name": name, "id": len(artifacts) + 1, "sha256": "a" * 64, "size": 10, "files": files})
+        run = {"id": int(RUN_ID), "attempt": 2, "workflowPath": ".github/workflows/windows-verify.yml", "event": "push",
+               "headBranch": "main", "headSha": COMMIT, **run_overrides}
+        record = self.root / f"artifact-record-{len(list(self.root.glob('artifact-record-*.json')))}.json"
+        record.write_text(json.dumps({"schemaVersion": 1, "repository": "smartpbx/tarkov-companion",
+                                      "verificationRun": run, "artifacts": artifacts}), encoding="utf-8")
+        return record
+
+    def manifest(self, record: Path | None = None) -> dict:
         return build_manifest.create_manifest(argparse.Namespace(
             payload=self.payload, source_root=self.source, commit=COMMIT, verification_run_id=RUN_ID,
-            repository="smartpbx/tarkov-companion",
+            repository="smartpbx/tarkov-companion", artifact_record=record or self.artifact_record(),
         ))
 
     # Collection and checksums -----------------------------------------------------------------
@@ -255,6 +271,33 @@ class BuildManifestTests(unittest.TestCase):
         self.assertEqual([], manifest["feeds"]["data"]["artifacts"])
         for item in manifest["artifacts"]:
             self.assertEqual(sha256((self.payload / item["name"]).read_bytes()), item["sha256"])
+        self.assertEqual(2, manifest["source"]["verificationRunAttempt"])
+        self.assertEqual(["windows-release-payload", "group-server-release"],
+                         [item["name"] for item in manifest["source"]["verificationArtifacts"]])
+
+    def test_the_manifest_binds_every_produced_file_to_the_uploaded_artifacts(self) -> None:
+        self.reconcile()
+        self.add_publisher_files()
+        record = self.artifact_record()
+        honest = json.loads(record.read_text())
+
+        cases = {
+            "another commit": self.artifact_record(headSha="d" * 40),
+            "another run": self.artifact_record(id=1),
+            "a pull request run": self.artifact_record(event="pull_request"),
+        }
+        altered = json.loads(json.dumps(honest))
+        altered["artifacts"][1]["files"][0]["sha256"] = "0" * 64
+        cases["a file the upload did not contain"] = self.root / "altered.json"
+        cases["a file the upload did not contain"].write_text(json.dumps(altered))
+        undigested = json.loads(json.dumps(honest))
+        undigested["artifacts"][0]["sha256"] = None
+        cases["an artifact without a recorded digest"] = self.root / "undigested.json"
+        cases["an artifact without a recorded digest"].write_text(json.dumps(undigested))
+
+        for label, path in cases.items():
+            with self.subTest(label=label), self.assertRaises(ManifestError):
+                self.manifest(path)
 
     def test_identity_disagreements_are_refused(self) -> None:
         cases = {
@@ -309,8 +352,9 @@ class BuildManifestTests(unittest.TestCase):
                 self.setUp()
                 self.reconcile()
                 self.add_publisher_files(**overrides)
+                record = self.artifact_record()
                 with self.assertRaises(ManifestError):
-                    self.manifest()
+                    self.manifest(record)
 
     def test_sbom_input_unpacks_both_archives(self) -> None:
         identity = self.reconcile()
