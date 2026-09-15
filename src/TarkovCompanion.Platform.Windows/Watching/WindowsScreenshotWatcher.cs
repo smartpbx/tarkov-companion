@@ -26,6 +26,8 @@ public sealed class WindowsScreenshotWatcher(
     : IScreenshotWatcher
 {
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
+    private const FileAttributes CloudPlaceholderAttributes =
+        FileAttributes.Offline | (FileAttributes)0x00040000 | (FileAttributes)0x00400000;
 
     /// <summary>How far back a file already on disk at startup is still considered new.</summary>
     private static readonly TimeSpan StartupGrace = TimeSpan.FromMinutes(2);
@@ -178,7 +180,7 @@ public sealed class WindowsScreenshotWatcher(
     {
         completed = default;
         if (expected.Length is <= 0 || expected.Length > _maximumEncodedBytes
-            || (expected.Attributes & (FileAttributes.Offline | FileAttributes.RecallOnDataAccess)) != 0)
+            || (expected.Attributes & CloudPlaceholderAttributes) != 0)
         {
             return false;
         }

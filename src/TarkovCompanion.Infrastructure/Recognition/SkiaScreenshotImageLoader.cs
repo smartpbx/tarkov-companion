@@ -32,6 +32,8 @@ public sealed class SkiaScreenshotImageLoader(
     /// </remarks>
     private const long MaximumPixels = 40_000_000;
     private const long MaximumEncodedBytes = 256L * 1024 * 1024;
+    private const FileAttributes CloudPlaceholderAttributes =
+        FileAttributes.Offline | (FileAttributes)0x00040000 | (FileAttributes)0x00400000;
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
     private readonly int _maximumAttempts = maximumAttempts is >= 1 and <= 16
         ? maximumAttempts
@@ -90,7 +92,7 @@ public sealed class SkiaScreenshotImageLoader(
         var before = new FileInfo(path);
         before.Refresh();
         if (!before.Exists || before.Length is <= 0 or > MaximumEncodedBytes
-            || (before.Attributes & (FileAttributes.Offline | FileAttributes.RecallOnDataAccess)) != 0)
+            || (before.Attributes & CloudPlaceholderAttributes) != 0)
         {
             return null;
         }
