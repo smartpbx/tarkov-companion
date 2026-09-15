@@ -8,13 +8,25 @@ using TarkovCompanion.Infrastructure.TarkovDevJson;
 
 namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
+internal delegate Task DataRefreshCommitAction(
+    SqliteConnection connection,
+    SqliteTransaction transaction,
+    CancellationToken cancellationToken);
+
 public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connectionFactory)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 
-    public async Task RefreshItemsAsync(
+    public Task RefreshItemsAsync(
         TarkovDevItemsData data,
         DateTimeOffset observedUtc,
+        CancellationToken cancellationToken) =>
+        RefreshItemsWithCommitAsync(data, observedUtc, null, cancellationToken);
+
+    internal async Task RefreshItemsWithCommitAsync(
+        TarkovDevItemsData data,
+        DateTimeOffset observedUtc,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         ValidateItems(data);
@@ -209,11 +221,22 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 ("$measuredUtc", item.Updated is { } measured ? FormatTimestamp(measured) : null)).ConfigureAwait(false);
         }
 
+        if (commitAction is not null)
+        {
+            await commitAction(connection, transaction, cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task RefreshMapsAsync(
+    public Task RefreshMapsAsync(
         TarkovDevMapsData data,
+        CancellationToken cancellationToken) =>
+        RefreshMapsWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshMapsWithCommitAsync(
+        TarkovDevMapsData data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         ValidateMaps(data);
@@ -298,11 +321,18 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshTasksAsync(
+    public Task RefreshTasksAsync(
         QuestCatalogSnapshot catalog,
+        CancellationToken cancellationToken) =>
+        RefreshTasksWithCommitAsync(catalog, null, cancellationToken);
+
+    internal async Task RefreshTasksWithCommitAsync(
+        QuestCatalogSnapshot catalog,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -471,7 +501,8 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 // page answers the same question live, off the profile and the catalog that is
                 // actually loaded, and covers item holdings and pins as well. 0010 drops it.
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
     private static async Task PersistObjectiveAsync(
@@ -672,8 +703,14 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         }
     }
 
-    public async Task RefreshHideoutAsync(
+    public Task RefreshHideoutAsync(
         IReadOnlyDictionary<string, TarkovDevHideoutStation> data,
+        CancellationToken cancellationToken) =>
+        RefreshHideoutWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshHideoutWithCommitAsync(
+        IReadOnlyDictionary<string, TarkovDevHideoutStation> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         await InTransactionAsync(
@@ -762,11 +799,18 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     }
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshTradersAsync(
+    public Task RefreshTradersAsync(
         IReadOnlyDictionary<string, TarkovDevTrader> data,
+        CancellationToken cancellationToken) =>
+        RefreshTradersWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshTradersWithCommitAsync(
+        IReadOnlyDictionary<string, TarkovDevTrader> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         await InTransactionAsync(
@@ -811,11 +855,18 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                     """,
                     cancellationToken).ConfigureAwait(false);
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshCraftsAsync(
+    public Task RefreshCraftsAsync(
         IReadOnlyList<TarkovDevCraft> data,
+        CancellationToken cancellationToken) =>
+        RefreshCraftsWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshCraftsWithCommitAsync(
+        IReadOnlyList<TarkovDevCraft> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         await InTransactionAsync(
@@ -861,11 +912,18 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$sourceJson", JsonSerializer.Serialize(craft.ProductItem, SerializerOptions))).ConfigureAwait(false);
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshBartersAsync(
+    public Task RefreshBartersAsync(
         IReadOnlyList<TarkovDevBarter> data,
+        CancellationToken cancellationToken) =>
+        RefreshBartersWithCommitAsync(data, null, cancellationToken);
+
+    internal async Task RefreshBartersWithCommitAsync(
+        IReadOnlyList<TarkovDevBarter> data,
+        DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
         await InTransactionAsync(
@@ -910,7 +968,8 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                         ("$sourceJson", JsonSerializer.Serialize(barter.OfferedItem, SerializerOptions))).ConfigureAwait(false);
                 }
             },
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            commitAction).ConfigureAwait(false);
     }
 
     public async Task RefreshPriceHistoryAsync(
@@ -967,11 +1026,17 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
 
     private async Task InTransactionAsync(
         Func<SqliteConnection, SqliteTransaction, Task> action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DataRefreshCommitAction? commitAction = null)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await action(connection, transaction).ConfigureAwait(false);
+        if (commitAction is not null)
+        {
+            await commitAction(connection, transaction, cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 

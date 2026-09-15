@@ -136,6 +136,26 @@ public sealed class SqliteSyncStateRepository(SqliteConnectionFactory connection
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await RecordInTransactionAsync(
+            entry,
+            contentHash,
+            runId,
+            recordCount,
+            connection,
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    internal static async Task RecordInTransactionAsync(
+        SyncStateEntry entry,
+        string? contentHash,
+        string? runId,
+        int? recordCount,
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -236,8 +256,6 @@ public sealed class SqliteSyncStateRepository(SqliteConnectionFactory connection
             head.Parameters.AddWithValue("$updated", entry.LastAttemptUtc.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
             await head.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
-
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string> BeginRunAsync(

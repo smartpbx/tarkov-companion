@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using Microsoft.Data.Sqlite;
+using TarkovCompanion.Application.Services;
+using TarkovCompanion.Core.Abstractions;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -9,6 +12,55 @@ namespace TarkovCompanion.IntegrationTests.DataV2;
 [Collection(SqliteCollection.Name)]
 public sealed class PublicationAndPerformanceTests
 {
+    [Fact]
+    public async Task NormalizedRowsAndPublicationHeadRollBackTogether()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using (var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                INSERT INTO items(
+                    id, name, short_name, normalized_name, description, category_type,
+                    width, height, slots, flea_eligible, source_updated_utc)
+                VALUES ('held-item', 'Held before refresh', 'Held', 'held before refresh', '', 'Unknown',
+                        1, 1, 1, 0, '2026-09-15T00:00:00Z');
+
+                CREATE TRIGGER inject_publication_failure
+                BEFORE INSERT ON dataset_publications
+                BEGIN
+                    SELECT RAISE(ABORT, 'injected-publication-failure');
+                END;
+                """;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        await using var client = new TarkovDevJsonClient(
+            new HttpClient(new FixtureApiHandler()),
+            new InMemoryTarkovDevResponseCache(),
+            new DataTranslationService(),
+            new()
+            {
+                BaseAddress = new("https://fixture.invalid/"),
+                InitialRetryDelay = TimeSpan.Zero,
+            });
+        var operation = new TarkovDevDataRefreshOperation(
+            client,
+            new SqliteDataRefreshRepository(database.Factory),
+            new SqliteSyncStateRepository(database.Factory));
+
+        await Assert.ThrowsAsync<SqliteException>(() => operation.RefreshAsync(
+            new SyncRequest(GameMode.Regular, "en", true),
+            TestContext.Current.CancellationToken));
+
+        Assert.Equal("Held before refresh", await ScalarTextAsync(
+            database.Factory,
+            "SELECT name FROM items WHERE id = 'held-item';"));
+        Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM items;"));
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM dataset_publications;"));
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM dataset_heads;"));
+    }
+
     [Fact]
     public async Task RefusedAndStalePublicationStatesPreserveLastKnownGoodAtomically()
     {

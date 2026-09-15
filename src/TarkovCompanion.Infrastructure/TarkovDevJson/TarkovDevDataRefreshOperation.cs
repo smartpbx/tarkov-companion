@@ -35,7 +35,11 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetItemsAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshItemsAsync(response.Data, _timeProvider.GetUtcNow(), cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshItemsWithCommitAsync(
+                    response.Data,
+                    _timeProvider.GetUtcNow(),
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Items.Count,
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
@@ -43,7 +47,10 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetMapsAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshMapsAsync(response.Data, cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshMapsWithCommitAsync(
+                    response.Data,
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Maps.Count,
                 cancellationToken,
                 // Extracts default to an empty list when upstream renames the property, so a
@@ -58,12 +65,13 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetTasksAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshTasksAsync(
+                (response, commitAction) => refreshRepository.RefreshTasksWithCommitAsync(
                     _questCatalogNormalizer.Normalize(
                         response,
                         request.GameMode,
                         request.Language,
                         _timeProvider.GetUtcNow()),
+                    commitAction,
                     cancellationToken),
                 response => response.Data.Tasks.Count,
                 cancellationToken).ConfigureAwait(false),
@@ -72,7 +80,10 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetHideoutAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshHideoutAsync(response.Data, cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshHideoutWithCommitAsync(
+                    response.Data,
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Count,
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
@@ -80,7 +91,10 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetTradersAsync(request.GameMode, request.Language, request.Force, cancellationToken),
-                response => refreshRepository.RefreshTradersAsync(response.Data, cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshTradersWithCommitAsync(
+                    response.Data,
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Count,
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
@@ -88,7 +102,10 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetCraftsAsync(request.GameMode, request.Force, cancellationToken),
-                response => refreshRepository.RefreshCraftsAsync(response.Data, cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshCraftsWithCommitAsync(
+                    response.Data,
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Count,
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
@@ -96,7 +113,10 @@ public sealed class TarkovDevDataRefreshOperation(
                 runId,
                 request,
                 () => client.GetBartersAsync(request.GameMode, request.Force, cancellationToken),
-                response => refreshRepository.RefreshBartersAsync(response.Data, cancellationToken),
+                (response, commitAction) => refreshRepository.RefreshBartersWithCommitAsync(
+                    response.Data,
+                    commitAction,
+                    cancellationToken),
                 response => response.Data.Count,
                 cancellationToken).ConfigureAwait(false),
             };
@@ -115,7 +135,7 @@ public sealed class TarkovDevDataRefreshOperation(
         string runId,
         SyncRequest request,
         Func<Task<TarkovDevResponse<T>>> fetch,
-        Func<TarkovDevResponse<T>, Task> persist,
+        Func<TarkovDevResponse<T>, DataRefreshCommitAction, Task> persist,
         Func<TarkovDevResponse<T>, int> count,
         CancellationToken cancellationToken,
         Func<TarkovDevResponse<T>, string?>? sanityCheck = null)
@@ -124,7 +144,8 @@ public sealed class TarkovDevDataRefreshOperation(
         try
         {
             var response = await fetch().ConfigureAwait(false);
-            if (await RefusalReasonAsync(endpoint, count(response), sanityCheck?.Invoke(response), cancellationToken)
+            var responseCount = count(response);
+            if (await RefusalReasonAsync(endpoint, responseCount, sanityCheck?.Invoke(response), cancellationToken)
                     .ConfigureAwait(false) is { } refusal)
             {
                 await syncStateRepository.RecordAsync(
@@ -145,24 +166,31 @@ public sealed class TarkovDevDataRefreshOperation(
                 return new(endpoint, false, false, 0, refusal);
             }
 
-            await persist(response).ConfigureAwait(false);
             var status = response.IsStale ? "stale" : "current";
-            await syncStateRepository.RecordAsync(
-                new(
-                    endpoint,
-                    ModeSlug(request.GameMode),
-                    request.Language.ToLowerInvariant(),
-                    response.IsStale ? null : attemptUtc,
-                    attemptUtc,
-                    response.ETag,
-                    response.LastModified,
-                    status,
-                    null),
-                Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(response.RawSourceJson ?? response.Json))),
-                cancellationToken,
-                runId,
-                count(response)).ConfigureAwait(false);
-            return new(endpoint, !response.IsStale, response.IsStale, count(response), null);
+            var state = new SyncStateEntry(
+                endpoint,
+                ModeSlug(request.GameMode),
+                request.Language.ToLowerInvariant(),
+                response.IsStale ? null : attemptUtc,
+                attemptUtc,
+                response.ETag,
+                response.LastModified,
+                status,
+                null);
+            var contentHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(response.RawSourceJson ?? response.Json)));
+            await persist(
+                response,
+                (connection, transaction, commitCancellation) =>
+                    SqliteSyncStateRepository.RecordInTransactionAsync(
+                        state,
+                        contentHash,
+                        runId,
+                        responseCount,
+                        connection,
+                        transaction,
+                        commitCancellation)).ConfigureAwait(false);
+            return new(endpoint, !response.IsStale, response.IsStale, responseCount, null);
         }
         catch (OperationCanceledException)
         {
