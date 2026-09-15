@@ -34,6 +34,7 @@ RELAY = "TarkovCompanion-GroupServer-linux-x64.tar.gz"
 # Stands in for Velopack: records its private path and installs the requested build identity.
 FAKE_INSTALLER = """#!/usr/bin/env bash
 set -euo pipefail
+mkdir -p "${FAKE_INSTALL_ROOT}"
 printf '%s\\n' "$0" > "${FAKE_INSTALL_ROOT}/ran-from"
 case "${FAKE_INSTALL_MODE:-install}" in
   noop) exit 0 ;;
