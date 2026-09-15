@@ -73,7 +73,7 @@ public sealed class ScanUseCaseTests
     }
 
     [Fact]
-    public async Task ExtractScanUsesCurrentMapAndPublishesOnlyActiveObservationsToRaidState()
+    public async Task ExtractScanUsesCurrentMapAndPublishesActiveObservationsAndTheRawRaidClock()
     {
         var harness = new Harness(new(ScanContext.ExtractList, [], ObservedUtc, "extract_context"));
         harness.RaidState.Apply(new(
@@ -91,13 +91,20 @@ public sealed class ScanUseCaseTests
             ],
             [],
             [],
-            true);
+            true)
+        {
+            // Verbatim shape from the game: matching strips the trailing measure and then drops
+            // the remaining panel header, so this clock exists only in RawLines.
+            RawLines = ["Find an extraction point 0:12:28", "EXFIL01 Road to Customs"],
+        };
 
         var outcome = await harness.UseCase.ScanAsync(harness.Request, CancellationToken.None);
 
         Assert.Equal(ScanCompletionStatus.Complete, outcome.Status);
         Assert.Equal(1, harness.Extracts.Calls);
         Assert.Equal(["road"], harness.RaidState.Current.ActiveExtracts.Select(extract => extract.ExtractId));
+        Assert.Equal(TimeSpan.FromMinutes(12) + TimeSpan.FromSeconds(28), harness.RaidState.Current.RaidClock);
+        Assert.Equal(ObservedUtc, harness.RaidState.Current.RaidClockReadUtc);
         // Through the coordinator seam, not past it. A scan that reached for the state service
         // again would leave this at zero while every other assertion still passed.
         Assert.Equal(1, harness.Recorder.ExtractsRecorded);
