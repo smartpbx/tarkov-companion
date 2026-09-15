@@ -568,11 +568,19 @@ try {
             ($null -ne $Rollback -and $Action -cnotin @("rollback", "pause", "resume"))) {
             throw "The signed ring decision has inconsistent transition authorization."
         }
-        $Timestamp = [datetime]::MinValue
-        if ((Get-Property $Index "updatedUtc") -isnot [string] -or
-            -not [datetime]::TryParseExact([string](Get-Property $Index "updatedUtc"), "yyyy-MM-dd'T'HH:mm:ss'Z'",
-                [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal,
-                [ref]$Timestamp) -or $Timestamp.ToUniversalTime() -gt [datetime]::UtcNow.AddMinutes(5)) {
+        if ((Get-Property $Index "updatedUtc") -isnot [string]) {
+            throw "The signed ring decision has an invalid or implausibly future timestamp."
+        }
+        $TimestampStyle = [Globalization.DateTimeStyles]::AssumeUniversal -bor
+            [Globalization.DateTimeStyles]::AdjustToUniversal
+        try {
+            [datetimeoffset]$Timestamp = [datetimeoffset]::ParseExact(
+                [string](Get-Property $Index "updatedUtc"), "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                [Globalization.CultureInfo]::InvariantCulture, $TimestampStyle)
+        } catch {
+            throw "The signed ring decision has an invalid or implausibly future timestamp."
+        }
+        if ($Timestamp -gt [datetimeoffset]::UtcNow.AddMinutes(5)) {
             throw "The signed ring decision has an invalid or implausibly future timestamp."
         }
         if ((Get-Property $Release "manifestSha256") -cne $ManifestDigest -or
