@@ -38,6 +38,8 @@ flowchart LR
 
 ## Decision: a private GitHub repository as the feed
 
+Recorded as [ADR 0011](adr/0011-signed-private-release-feed.md); the short form follows.
+
 The v2 feed is a separate private (or internal) GitHub repository chosen per environment through
 `V2_RELEASE_REPOSITORY`. The public source repository's Releases page is not a v2 feed, and the
 publisher and relay updater both refuse it by name and by visibility.
