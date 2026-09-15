@@ -80,6 +80,11 @@ explicit unanchored bootstrap. Offline media are copied privately before verific
 carry a signed ring decision for the named ring and feed, unless an operator breaks glass, which
 is reported as exactly that.
 
+The desktop has the same bounded authenticated reader and signature rule. It stages binary, data
+and model artifacts as one verified plan, applies pause and rollback from the signed decision,
+and records state only after a caller activates the plan. The existing UI gateway is fail-closed;
+#294 owns composition and activation, and #270 owns the state-store implementation.
+
 ## Alternatives considered
 
 - **Keep the public `dev` release and add signatures.** Signatures would stop forgery but leave
@@ -123,8 +128,10 @@ is reported as exactly that.
     them.
   - The feed token needs Administration read on the feed, so the publisher can confirm immutable
     releases.
-  - The desktop's in-app updater does not follow this feed until #294 moves it. Until then signed
-    desktop builds are installed from verified offline bundles.
-  - The legacy `dev` publication in the verification workflow (#279) remains until it is retired.
+  - The desktop's in-app updater remains disabled until #294 composes the authenticated consumer.
+    Until then signed desktop builds are installed from verified offline bundles; there is no
+    fallback to the public feed.
+  - The legacy `dev` publisher is removed. Migrating an existing relay is now an explicit
+    verified offline/provisioning step rather than another release writer remaining active.
 - **Visibility.** Public-good Sigstore publishes artifact digests, names and the source workflow
   identity. For this public source repository that is already public information.

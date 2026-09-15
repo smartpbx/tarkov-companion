@@ -33,6 +33,9 @@ fail() {
     exit 1
 }
 
+[[ "${TASK_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] && ((TASK_ATTEMPTS <= 10)) \
+    || fail "TRANSITION_ATTEMPTS must be a canonical integer from 1 through 10"
+
 summary() {
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
         printf '%s\n' "$@" >> "${GITHUB_STEP_SUMMARY}"
@@ -78,6 +81,8 @@ build_pending=0
 if [[ "${ACTION}" == "publish" ]]; then
     manifest="${RELEASE_DIR}/release-manifest.json"
     [[ -s "${manifest}" && -s "${manifest}.sigstore.json" ]] || fail "the signed release manifest is missing"
+    "${TASK_RELEASE}/verify-signed-file.sh" \
+        "${manifest}" "${manifest}.sigstore.json" "${TARKOV_SIGSTORE_TRUST_ROOT}"
     version="$(jq -er '.version' "${manifest}")"
     tag="v2-build-${version}"
     feed build-inspect --tag "${tag}" --output-dir "${TASK_WORK}/existing" >/dev/null

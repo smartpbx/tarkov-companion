@@ -105,6 +105,34 @@ public sealed partial class RelayUpdateTests : IDisposable
         Assert.Null(state.Installed);
     }
 
+    [Theory]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    [InlineData("gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")]
+    [InlineData("1111111111111111111111111111111111111111111111111111111111111111extra")]
+    public void AStampThatIsNotCanonicalLowercaseSha256IsIgnored(string value)
+    {
+        File.WriteAllText(Path.Combine(Status, "INSTALLED_SHA256"), value);
+
+        var state = new RelayUpdate(State, Status).Read();
+
+        Assert.Null(state.Installed);
+    }
+
+    [Fact]
+    public void ARedirectedStatusStampIsIgnored()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var target = Path.Combine(_root, "forged");
+        File.WriteAllText(target, Installed);
+        File.CreateSymbolicLink(Path.Combine(Status, "INSTALLED_SHA256"), target);
+
+        Assert.Null(new RelayUpdate(State, Status).Read().Installed);
+    }
+
     [Fact]
     public void StampsTheRelayCouldWriteItselfAreNotReported()
     {
@@ -140,6 +168,24 @@ public sealed partial class RelayUpdateTests : IDisposable
     }
 
     [Fact]
+    public void AStatusDirectoryRedirectedIntoTheRelaysOwnIsNotTrusted()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var redirected = Path.Combine(_root, "redirected-status");
+        Directory.CreateSymbolicLink(redirected, State);
+        File.WriteAllText(Path.Combine(State, "INSTALLED_SHA256"), Installed);
+
+        var state = new RelayUpdate(State, redirected).Read();
+
+        Assert.Null(state.Installed);
+        Assert.NotNull(state.Detail);
+    }
+
+    [Fact]
     public void AskingWritesTheFileThePathUnitWatches()
     {
         // The whole mechanism. This process runs unprivileged and must not be able to start a
@@ -150,6 +196,22 @@ public sealed partial class RelayUpdateTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(State, "UPDATE_NOW")));
         Assert.False(File.Exists(Path.Combine(Status, "UPDATE_NOW")));
+    }
+
+    [Fact]
+    public void AskingDoesNotFollowAnExistingRequestMarkerLink()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var target = Path.Combine(_root, "request-target");
+        File.WriteAllText(target, "unchanged");
+        File.CreateSymbolicLink(Path.Combine(State, "UPDATE_NOW"), target);
+
+        Assert.False(new RelayUpdate(State, Status).Request());
+        Assert.Equal("unchanged", File.ReadAllText(target));
     }
 
     [Fact]

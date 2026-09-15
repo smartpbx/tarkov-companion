@@ -23,6 +23,14 @@ usage() {
 TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly TASK_PROJECT_ROOT
 readonly TASK_VERIFY="${TASK_PROJECT_ROOT}/scripts/release/verify-signed-file.sh"
+readonly TASK_LIMITS="${TASK_PROJECT_ROOT}/scripts/release/resource_limits.py"
+readonly TASK_MAX_JSON_BYTES=$((16 * 1024 * 1024))
+readonly TASK_MAX_SIGNATURE_BYTES=$((2 * 1024 * 1024))
+readonly TASK_MAX_ARTIFACT_BYTES=$((512 * 1024 * 1024))
+readonly TASK_MAX_TOTAL_BYTES=$((1024 * 1024 * 1024))
+readonly TASK_MAX_ARTIFACTS=4096
+TASK_TAKEN_COUNT=0
+TASK_TAKEN_BYTES=0
 
 ring=""
 feed=""
@@ -50,7 +58,7 @@ fail() {
     exit 1
 }
 
-for command_name in jq sha256sum python3 stat; do
+for command_name in head jq sha256sum python3 stat; do
     command -v "${command_name}" >/dev/null 2>&1 || fail "required command is unavailable: ${command_name}"
 done
 if ((break_glass)); then
@@ -61,7 +69,10 @@ else
 fi
 [[ "${minimum_generation}" =~ ^[0-9]{1,10}$ ]] || fail "--minimum-generation must be a whole number"
 [[ -d "${TASK_SOURCE}" ]] || fail "the bundle directory does not exist"
-[[ -f "${TASK_TRUST_ROOT}" && -s "${TASK_TRUST_ROOT}" ]] || fail "the trust root is missing"
+[[ -f "${TASK_TRUST_ROOT}" && ! -L "${TASK_TRUST_ROOT}" && -s "${TASK_TRUST_ROOT}" ]] \
+    || fail "the trust root is missing or is not a plain file"
+python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_JSON_BYTES}" "${TASK_TRUST_ROOT}" >/dev/null \
+    || fail "the trust root is not bounded valid JSON"
 [[ -z "${output}" || ! -e "${output}" ]] || fail "--output ${output} already exists"
 
 TASK_WORK="$(mktemp -d "${TMPDIR:-/tmp}/tarkov-offline.XXXXXX")"
@@ -73,21 +84,34 @@ mkdir -m 0700 "${TASK_BUNDLE}"
 
 # One named, plain file off the media into the private copy.
 take() {
-    local name="$1"
+    local name="$1" maximum="$2" source size copied
     if [[ ! "${name}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ || "${name}" == *..* ]]; then
         fail "the manifest names an unsafe artifact: ${name}"
     fi
-    [[ -f "${TASK_SOURCE}/${name}" && ! -L "${TASK_SOURCE}/${name}" ]] || fail "the bundle is missing ${name}, or it is not a plain file"
-    cp -- "${TASK_SOURCE}/${name}" "${TASK_BUNDLE}/${name}"
+    source="${TASK_SOURCE}/${name}"
+    [[ -f "${source}" && ! -L "${source}" ]] || fail "the bundle is missing ${name}, or it is not a plain file"
+    size="$(stat -c %s -- "${source}")"
+    ((size > 0 && size <= maximum)) || fail "${name} is ${size} bytes, outside its ${maximum}-byte limit"
+    ((TASK_TAKEN_COUNT < TASK_MAX_ARTIFACTS * 2 + 4)) || fail "the bundle contains too many selected files"
+    ((TASK_TAKEN_BYTES + size <= TASK_MAX_TOTAL_BYTES)) || fail "the selected bundle exceeds its total byte limit"
+    head -c "$((maximum + 1))" -- "${source}" > "${TASK_BUNDLE}/${name}"
+    copied="$(stat -c %s -- "${TASK_BUNDLE}/${name}")"
+    ((copied == size && copied <= maximum)) || fail "${name} changed or exceeded its byte limit while copied"
+    TASK_TAKEN_COUNT=$((TASK_TAKEN_COUNT + 1))
+    TASK_TAKEN_BYTES=$((TASK_TAKEN_BYTES + copied))
 }
 
 readonly TASK_MANIFEST="${TASK_BUNDLE}/release-manifest.json"
-take release-manifest.json
-take release-manifest.json.sigstore.json
+take release-manifest.json "${TASK_MAX_JSON_BYTES}"
+take release-manifest.json.sigstore.json "${TASK_MAX_SIGNATURE_BYTES}"
+python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_JSON_BYTES}" "${TASK_MANIFEST}" >/dev/null \
+    || fail "the release manifest is not bounded valid JSON"
+python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_SIGNATURE_BYTES}" "${TASK_MANIFEST}.sigstore.json" >/dev/null \
+    || fail "the manifest signature bundle is not bounded valid JSON"
 "${TASK_VERIFY}" "${TASK_MANIFEST}" "${TASK_MANIFEST}.sigstore.json" "${TASK_TRUST_ROOT}"
 jq -e '.schemaVersion == 1
        and (.version | type == "string") and (.commit | type == "string" and test("^[0-9a-f]{40}$"))
-       and (.artifacts | type == "array" and length > 0)
+       and (.artifacts | type == "array" and length > 0 and length <= 4096)
        and ([.artifacts[].name] | length == (unique | length))' \
     "${TASK_MANIFEST}" >/dev/null || fail "the signed manifest is malformed"
 python3 - "${TASK_PROJECT_ROOT}/scripts/release" "$(jq -r .version "${TASK_MANIFEST}")" <<'PY' || fail "the signed manifest names an unsupported version"
@@ -99,9 +123,12 @@ PY
 
 count=0
 while IFS=$'\t' read -r name expected size; do
-    [[ "${expected}" =~ ^[0-9a-f]{64}$ && "${size}" =~ ^[0-9]+$ ]] || fail "the manifest entry for ${name} is malformed"
-    take "${name}"
-    take "${name}.sigstore.json"
+    [[ "${expected}" =~ ^[0-9a-f]{64}$ && "${size}" =~ ^(0|[1-9][0-9]{0,9})$ ]] \
+        || fail "the manifest entry for ${name} is malformed"
+    ((size > 0 && size <= TASK_MAX_ARTIFACT_BYTES)) || fail "the manifest entry for ${name} exceeds the artifact limit"
+    ((count < TASK_MAX_ARTIFACTS)) || fail "the manifest names too many artifacts"
+    take "${name}" "${TASK_MAX_ARTIFACT_BYTES}"
+    take "${name}.sigstore.json" "${TASK_MAX_SIGNATURE_BYTES}"
     file="${TASK_BUNDLE}/${name}"
     [[ "$(sha256sum "${file}" | awk '{print $1}')" == "${expected}" && "$(stat -c %s "${file}")" == "${size}" ]] \
         || fail "${name} does not match the signed manifest"
@@ -114,9 +141,12 @@ if ((break_glass)); then
     decision="BREAK-GLASS: no ring decision was checked; ring, pause, rollback and generation policy were NOT applied"
     printf 'WARNING: %s\n' "${decision}" >&2
 else
-    index="$(find "${TASK_SOURCE}" -maxdepth 1 -type f -name 'release-index-g[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].json' -printf '%f\n' | sort | tail -n 1)"
-    [[ -n "${index}" ]] || fail "the bundle holds no signed ring decision; add the ring's release-index-g*.json, or use --break-glass"
-    take "${index}"
+    if ! index="$(python3 "${TASK_LIMITS}" select-ring "${TASK_SOURCE}")"; then
+        fail "the bundle holds no bounded plain signed ring decision; add the ring's release-index-g*.json, or use --break-glass"
+    fi
+    take "${index}" "${TASK_MAX_JSON_BYTES}"
+    python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_JSON_BYTES}" "${TASK_BUNDLE}/${index}" >/dev/null \
+        || fail "the signed ring envelope is not bounded valid JSON"
     generation="${index#release-index-g}"
     generation="$((10#${generation%.json}))"
     "${TASK_PROJECT_ROOT}/scripts/release/verify-envelope.sh" \

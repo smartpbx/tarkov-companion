@@ -20,6 +20,7 @@ TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly TASK_PROJECT_ROOT
 readonly TASK_VERSION="v3.1.3"
 readonly TASK_DESTINATION="$1"
+readonly TASK_MAX_BYTES=$((256 * 1024 * 1024))
 
 case "$(uname -m)" in
     x86_64 | amd64) asset="cosign-linux-amd64" ;;
@@ -36,10 +37,13 @@ temporary="$(mktemp "${TASK_DESTINATION}/cosign.XXXXXX")"
 trap 'rm -f -- "${temporary}"' EXIT
 url="https://github.com/sigstore/cosign/releases/download/${TASK_VERSION}/${asset}"
 if command -v curl >/dev/null 2>&1; then
-    curl --fail --silent --show-error --location --output "${temporary}" "${url}"
+    ( ulimit -f "$(((TASK_MAX_BYTES + 1023) / 1024))"
+      curl --fail --silent --show-error --location --max-filesize "${TASK_MAX_BYTES}" --output "${temporary}" "${url}" )
 else
-    wget -q -O "${temporary}" "${url}"
+    ( ulimit -f "$(((TASK_MAX_BYTES + 1023) / 1024))"; wget -q --quota="${TASK_MAX_BYTES}" -O "${temporary}" "${url}" )
 fi
+size="$(stat -c %s -- "${temporary}")"
+((size > 0 && size <= TASK_MAX_BYTES)) || { printf 'cosign install failed: download is outside its byte limit\n' >&2; exit 1; }
 actual="$(sha256sum "${temporary}" | awk '{print $1}')"
 if [[ "${actual}" != "${expected}" ]]; then
     printf 'cosign install failed: %s has sha256 %s, not the pinned %s\n' "${asset}" "${actual}" "${expected}" >&2

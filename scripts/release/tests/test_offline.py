@@ -31,12 +31,19 @@ FEED = "example/tarkov-feed"
 INSTALLER = "TarkovCompanionDesktop-win-Setup.exe"
 RELAY = "TarkovCompanion-GroupServer-linux-x64.tar.gz"
 
-# Stands in for the Velopack installer: records where it was run from and installs a marker.
+# Stands in for Velopack: records its private path and installs the requested build identity.
 FAKE_INSTALLER = """#!/usr/bin/env bash
 set -euo pipefail
-mkdir -p "${FAKE_INSTALL_ROOT}/current"
 printf '%s\\n' "$0" > "${FAKE_INSTALL_ROOT}/ran-from"
+case "${FAKE_INSTALL_MODE:-install}" in
+  noop) exit 0 ;;
+  wrong) version=0.0.1; commit=dddddddddddddddddddddddddddddddddddddddd ;;
+  install) version="${FAKE_INSTALL_VERSION}"; commit="${FAKE_INSTALL_COMMIT}" ;;
+  *) exit 9 ;;
+esac
+mkdir -p "${FAKE_INSTALL_ROOT}/current"
 touch "${FAKE_INSTALL_ROOT}/current/TarkovCompanion.exe"
+printf 'version=%s\\ncommit=%s\\n' "$version" "$commit" > "${FAKE_INSTALL_ROOT}/current/BUILD_INFO.txt"
 """
 
 
@@ -93,6 +100,13 @@ class OfflineFixture(unittest.TestCase):
             "version": manifest["version"], "commit": manifest["commit"], "buildTag": f"v2-build-{manifest['version']}",
             "manifestName": "release-manifest.json", "manifestSha256": manifest_sha or self.manifest_sha(),
         }
+        rollback_from = {
+            **release,
+            "version": "9.9.9",
+            "commit": "f" * 40,
+            "buildTag": "v2-build-9.9.9",
+            "manifestSha256": "f" * 64,
+        } if rollback else None
         payload = json.dumps({
             "schemaVersion": 1,
             "mediaType": "application/vnd.tarkov-companion.release-index.v1+json",
@@ -102,14 +116,15 @@ class OfflineFixture(unittest.TestCase):
             "updatedUtc": "2026-09-15T00:00:00Z",
             "paused": paused,
             "release": release,
-            "previous": None,
+            "previous": rollback_from,
             "lastKnownGood": release,
             "highWaterVersion": manifest["version"] if not rollback else "9.9.9",
-            "rollback": {"generation": generation, "from": {**release, "version": "9.9.9", "buildTag": "v2-build-9.9.9"}}
-            if rollback else None,
+            "rollback": {"generation": generation, "from": rollback_from} if rollback else None,
             "authorization": {"action": "rollback" if rollback else "promote", "actor": "operator", "reason": "fixture",
-                              "workflowRunId": "1", "verificationRunId": None, "sourceRing": None,
-                              "sourceGeneration": None, "previousGeneration": generation - 1},
+                              "workflowRunId": "1", "verificationRunId": None,
+                              "sourceRing": None if rollback else "beta",
+                              "sourceGeneration": None if rollback else generation,
+                              "previousGeneration": generation - 1},
         }).encode()
         path = self.bundle / f"release-index-g{generation:010d}.json"
         path.write_text(json.dumps({
@@ -263,8 +278,11 @@ class InstallOfflineTests(OfflineFixture):
             arguments += ["-CosignSha256", self.cosign_sha256]
         if ring:
             arguments += ["-Ring", "stable", "-FeedRepository", FEED]
+        manifest = json.loads((self.bundle / "release-manifest.json").read_text())
         return subprocess.run([*arguments, *extra], capture_output=True, text=True,
-                              env=self.environment(**environment), check=False, timeout=120)
+                              env=self.environment(FAKE_INSTALL_VERSION=manifest["version"],
+                                                   FAKE_INSTALL_COMMIT=manifest["commit"], **environment),
+                              check=False, timeout=120)
 
     def installed(self, version: str | None) -> None:
         (self.install_root / "current").mkdir(parents=True, exist_ok=True)
@@ -288,6 +306,21 @@ class InstallOfflineTests(OfflineFixture):
         self.assertNotEqual(self.bundle, ran_from.parent)
         self.assertTrue(ran_from.name == INSTALLER)
         self.assertFalse(ran_from.exists(), "the private copy was not removed afterwards")
+        identity = (self.install_root / "current/BUILD_INFO.txt").read_text()
+        self.assertIn("version=1.0.608", identity)
+        self.assertIn(f"commit={'c' * 40}", identity)
+
+    def test_an_exit_zero_noop_or_wrong_build_is_not_reported_as_installed(self) -> None:
+        for mode in ("noop", "wrong"):
+            with self.subTest(mode=mode):
+                shutil.rmtree(self.install_root, ignore_errors=True)
+                self.installed("1.0.500")
+                (self.install_root / "current/TarkovCompanion.exe").touch()
+
+                result = self.install(FAKE_INSTALL_MODE=mode)
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("installed identity", plain(result))
 
     def test_the_installer_needs_a_ring_decision_unless_breaking_glass(self) -> None:
         no_ring = self.install("-WhatIf", ring=False)

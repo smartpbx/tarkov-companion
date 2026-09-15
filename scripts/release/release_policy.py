@@ -17,9 +17,18 @@ import json
 import re
 import sys
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from resource_limits import (  # noqa: E402
+    MAX_JSON_BYTES,
+    MAX_SIGNATURE_BYTES,
+    ResourceLimitError,
+    decode_json,
+    read_bytes,
+    read_json as bounded_read_json,
+)
 
 
 SCHEMA_VERSION = 1
@@ -36,6 +45,21 @@ INDEX_NAME = re.compile(r"^release-index-g([0-9]{10})\.json$")
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+MAX_VERSION_NUMBER = 2_147_483_647
+MAX_GENERATION = 9_999_999_999
+MAX_ACTOR_LENGTH = 256
+MAX_REASON_LENGTH = 2048
+SOURCE_REPOSITORY = "smartpbx/tarkov-companion"
+
+INDEX_FIELDS = {
+    "schemaVersion", "mediaType", "feedRepository", "ring", "generation", "updatedUtc",
+    "paused", "release", "previous", "lastKnownGood", "highWaterVersion", "rollback",
+    "authorization",
+}
+AUTHORIZATION_FIELDS = {
+    "action", "actor", "reason", "workflowRunId", "verificationRunId", "sourceRing",
+    "sourceGeneration", "previousGeneration",
+}
 
 
 class PolicyError(ValueError):
@@ -48,8 +72,8 @@ class PolicySuperseded(PolicyError):
 
 def read_json(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exception:
+        value = bounded_read_json(path)
+    except (OSError, ResourceLimitError) as exception:
         raise PolicyError(f"could not read JSON from {path}: {exception}") from exception
     if not isinstance(value, dict):
         raise PolicyError(f"{path} must contain a JSON object")
@@ -59,14 +83,6 @@ def read_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def digest(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 
 def utc_text(value: datetime) -> str:
@@ -79,16 +95,19 @@ def semver_key(value: str) -> tuple[int, int, int, tuple[tuple[int, int, Any], .
     if match is None:
         raise PolicyError(f"version is not a supported semantic version: {value!r}")
     major, minor, patch = (int(match.group(index)) for index in range(1, 4))
+    if any(part > MAX_VERSION_NUMBER for part in (major, minor, patch)):
+        raise PolicyError(f"version has a numeric identifier outside the supported range: {value!r}")
     prerelease = match.group(4)
     if prerelease is None:
         return major, minor, patch, ((1, 0, 0),)
-    return major, minor, patch, tuple(
-        (0, 0, int(part)) if part.isdigit() else (0, 1, part) for part in prerelease.split(".")
-    )
+    parts = prerelease.split(".")
+    if any(part.isdigit() and (len(part) > 10 or int(part) > MAX_VERSION_NUMBER) for part in parts):
+        raise PolicyError(f"version has a numeric identifier outside the supported range: {value!r}")
+    return major, minor, patch, tuple((0, 0, int(part)) if part.isdigit() else (0, 1, part) for part in parts)
 
 
 def index_name(generation: int) -> str:
-    if not isinstance(generation, int) or generation < 1 or generation > 9_999_999_999:
+    if not isinstance(generation, int) or generation < 1 or generation > MAX_GENERATION:
         raise PolicyError(f"generation is out of range: {generation!r}")
     return f"release-index-g{generation:010d}.json"
 
@@ -138,6 +157,12 @@ def validate_index(
     generation: int | None = None,
     label: str = "index",
 ) -> dict[str, Any]:
+    if not isinstance(feed_repository, str) or REPOSITORY.fullmatch(feed_repository) is None:
+        raise PolicyError("the feed repository must be owner/name")
+    if feed_repository.casefold() == SOURCE_REPOSITORY:
+        raise PolicyError("the public source repository cannot be the authenticated v2 feed")
+    if not isinstance(value, dict) or set(value) != INDEX_FIELDS:
+        raise PolicyError(f"{label} must contain exactly {sorted(INDEX_FIELDS)}")
     if value.get("schemaVersion") != SCHEMA_VERSION or value.get("mediaType") != INDEX_MEDIA_TYPE:
         raise PolicyError(f"{label} has an unsupported schema or media type")
     if value.get("feedRepository") != feed_repository:
@@ -145,12 +170,22 @@ def validate_index(
     if value.get("ring") != ring:
         raise PolicyError(f"{label}.ring is {value.get('ring')!r}, expected {ring!r}")
     index_generation = value.get("generation")
-    if not isinstance(index_generation, int) or isinstance(index_generation, bool) or index_generation < 1:
+    if (not isinstance(index_generation, int) or isinstance(index_generation, bool)
+            or index_generation < 1 or index_generation > MAX_GENERATION):
         raise PolicyError(f"{label}.generation must be a positive integer")
     if generation is not None and index_generation != generation:
         raise PolicyError(f"{label} says generation {index_generation} inside file generation {generation}")
     if not isinstance(value.get("paused"), bool):
         raise PolicyError(f"{label}.paused must be a boolean")
+    try:
+        updated_text = value.get("updatedUtc")
+        if not isinstance(updated_text, str):
+            raise ValueError
+        updated = datetime.strptime(updated_text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as exception:
+        raise PolicyError(f"{label}.updatedUtc must be a canonical UTC timestamp") from exception
+    if updated > datetime.now(timezone.utc) + timedelta(minutes=5):
+        raise PolicyError(f"{label}.updatedUtc is implausibly far in the future")
     release = validate_release(value.get("release"), f"{label}.release")
     for name in ("previous", "lastKnownGood"):
         if value.get(name) is not None:
@@ -160,21 +195,68 @@ def validate_index(
         raise PolicyError(f"{label}.highWaterVersion is below its own release")
     rollback = value.get("rollback")
     if rollback is not None:
-        if not isinstance(rollback, dict) or not isinstance(rollback.get("generation"), int):
+        if (not isinstance(rollback, dict) or set(rollback) != {"generation", "from"}
+                or not isinstance(rollback.get("generation"), int)
+                or isinstance(rollback.get("generation"), bool)
+                or rollback["generation"] < 1):
             raise PolicyError(f"{label}.rollback is malformed")
-        validate_release(rollback.get("from"), f"{label}.rollback.from")
+        rollback_from = validate_release(rollback.get("from"), f"{label}.rollback.from")
         if rollback["generation"] > index_generation:
             raise PolicyError(f"{label}.rollback claims a future generation")
+        if rollback_from != value.get("previous") or release != value.get("lastKnownGood") or rollback_from == release:
+            raise PolicyError(f"{label}.rollback is inconsistent with its release, previous, or last-known-good")
     authorization = value.get("authorization")
-    if not isinstance(authorization, dict) or authorization.get("action") not in ACTIONS:
+    if not isinstance(authorization, dict) or set(authorization) != AUTHORIZATION_FIELDS:
+        raise PolicyError(f"{label}.authorization must contain exactly {sorted(AUTHORIZATION_FIELDS)}")
+    action = authorization.get("action")
+    if action not in ACTIONS:
         raise PolicyError(f"{label}.authorization.action is not a known release action")
-    if authorization.get("previousGeneration") != index_generation - 1:
+    actor = authorization.get("actor")
+    reason = authorization.get("reason")
+    workflow_run_id = authorization.get("workflowRunId")
+    verification_run_id = authorization.get("verificationRunId")
+    source_ring = authorization.get("sourceRing")
+    source_generation = authorization.get("sourceGeneration")
+    previous_generation = authorization.get("previousGeneration")
+    if (not isinstance(actor, str) or not actor or actor != actor.strip() or len(actor) > MAX_ACTOR_LENGTH
+            or not isinstance(reason, str) or len(reason) > MAX_REASON_LENGTH
+            or not _is_decimal_id(workflow_run_id)
+            or verification_run_id is not None and not _is_decimal_id(verification_run_id)
+            or source_ring is not None and source_ring not in ("canary", "beta")
+            or source_generation is not None and (
+                not isinstance(source_generation, int) or isinstance(source_generation, bool)
+                or source_generation < 1 or source_generation > MAX_GENERATION
+            )
+            or (source_ring is None) != (source_generation is None)
+            or (action == "promote") != (source_ring is not None)
+            or action == "promote" and source_ring != PROMOTION_SOURCE.get(ring)
+            or action == "publish" and (ring != "canary" or verification_run_id is None)
+            or action != "publish" and verification_run_id is not None
+            or action in ("publish", "promote") and value["paused"]
+            or action == "pause" and not value["paused"]
+            or action == "resume" and value["paused"]
+            or action == "rollback" and rollback is None
+            or rollback is not None and action not in ("rollback", "pause", "resume")):
+        raise PolicyError(f"{label}.authorization is inconsistent with its release transition")
+    if (not isinstance(previous_generation, int) or isinstance(previous_generation, bool)
+            or previous_generation != index_generation - 1):
         raise PolicyError(f"{label} does not follow directly from the previous generation")
     return deepcopy(value)
 
 
+def _is_decimal_id(value: Any) -> bool:
+    return (isinstance(value, str) and 0 < len(value) <= 20 and value.isascii()
+            and value[0] in "123456789" and value.isdecimal())
+
+
 def release_from_manifest(path: Path) -> dict[str, Any]:
-    manifest = read_json(path)
+    try:
+        payload = read_bytes(path, "release manifest", MAX_JSON_BYTES)
+        manifest = decode_json(payload, "release manifest")
+    except (OSError, ResourceLimitError) as exception:
+        raise PolicyError(f"could not read release manifest: {exception}") from exception
+    if not isinstance(manifest, dict):
+        raise PolicyError("release manifest must contain a JSON object")
     if manifest.get("schemaVersion") != SCHEMA_VERSION:
         raise PolicyError("release manifest schema is unsupported")
     return validate_release({
@@ -182,7 +264,7 @@ def release_from_manifest(path: Path) -> dict[str, Any]:
         "commit": manifest.get("commit"),
         "buildTag": f"v2-build-{manifest.get('version')}",
         "manifestName": "release-manifest.json",
-        "manifestSha256": digest(path),
+        "manifestSha256": hashlib.sha256(payload).hexdigest(),
     })
 
 
@@ -216,10 +298,18 @@ def next_index(
         raise PolicyError(f"unknown release ring: {ring!r}")
     if action not in ACTIONS:
         raise PolicyError(f"unknown release action: {action!r}")
-    if not actor.strip():
+    if not isinstance(actor, str) or not actor or actor != actor.strip() or len(actor) > MAX_ACTOR_LENGTH:
         raise PolicyError("the authorizing actor is required")
-    if REPOSITORY.fullmatch(feed_repository or "") is None:
+    if not isinstance(feed_repository, str) or REPOSITORY.fullmatch(feed_repository) is None:
         raise PolicyError("the feed repository must be owner/name")
+    if feed_repository.casefold() == SOURCE_REPOSITORY:
+        raise PolicyError("the public source repository cannot be the authenticated v2 feed")
+    if not _is_decimal_id(workflow_run_id):
+        raise PolicyError("the workflow run id must be a bounded decimal identifier")
+    if verification_run_id is not None and not _is_decimal_id(verification_run_id):
+        raise PolicyError("the verification run id must be a bounded decimal identifier")
+    if not isinstance(reason, str) or len(reason) > MAX_REASON_LENGTH:
+        raise PolicyError("the release reason is outside its length limit")
     if (current is None) != (current_generation == 0):
         raise PolicyError("the current index and its generation disagree about whether the ring exists")
     if current is not None:
@@ -326,27 +416,37 @@ def next_index(
 
 def pack_envelope(payload_path: Path, bundle_path: Path, output_path: Path) -> None:
     """One file holding the exact signed bytes and their bundle, so publication is one create."""
+    payload = read_bytes(payload_path, "release index", MAX_JSON_BYTES)
+    if not isinstance(decode_json(payload, "release index"), dict):
+        raise PolicyError("release index must be a JSON object")
+    bundle = bounded_read_json(bundle_path, maximum=MAX_SIGNATURE_BYTES)
+    if not isinstance(bundle, dict):
+        raise PolicyError("signature bundle must be a JSON object")
     envelope = {
         "schemaVersion": SCHEMA_VERSION,
         "mediaType": ENVELOPE_MEDIA_TYPE,
-        "payloadBase64": base64.b64encode(payload_path.read_bytes()).decode("ascii"),
-        "sigstoreBundle": read_json(bundle_path),
+        "payloadBase64": base64.b64encode(payload).decode("ascii"),
+        "sigstoreBundle": bundle,
     }
     write_json(output_path, envelope)
 
 
 def unpack_envelope(envelope_path: Path, payload_path: Path, bundle_path: Path) -> None:
     envelope = read_json(envelope_path)
-    if envelope.get("schemaVersion") != SCHEMA_VERSION or envelope.get("mediaType") != ENVELOPE_MEDIA_TYPE:
+    if (set(envelope) != {"schemaVersion", "mediaType", "payloadBase64", "sigstoreBundle"}
+            or envelope.get("schemaVersion") != SCHEMA_VERSION
+            or envelope.get("mediaType") != ENVELOPE_MEDIA_TYPE):
         raise PolicyError("signed envelope schema or media type is unsupported")
     encoded = envelope.get("payloadBase64")
     bundle = envelope.get("sigstoreBundle")
     if not isinstance(encoded, str) or not isinstance(bundle, dict):
         raise PolicyError("signed envelope is incomplete")
+    if len(encoded) > ((MAX_JSON_BYTES + 2) // 3) * 4:
+        raise PolicyError("signed envelope payload exceeds the release-index size limit")
     try:
         payload = base64.b64decode(encoded, validate=True)
-        parsed = json.loads(payload)
-    except (ValueError, json.JSONDecodeError) as exception:
+        parsed = decode_json(payload, "signed envelope payload")
+    except (ValueError, ResourceLimitError) as exception:
         raise PolicyError("signed envelope payload is not valid base64 JSON") from exception
     if not isinstance(parsed, dict):
         raise PolicyError("signed envelope payload must be an object")
@@ -356,7 +456,7 @@ def unpack_envelope(envelope_path: Path, payload_path: Path, bundle_path: Path) 
 
 
 def command_select(args: argparse.Namespace) -> None:
-    listing = json.loads(args.listing.read_text(encoding="utf-8"))
+    listing = bounded_read_json(args.listing)
     if not isinstance(listing, list) or not all(isinstance(item, str) for item in listing):
         raise PolicyError("the ring listing must be a JSON array of file names")
     generation, name = select_current(listing)
@@ -450,7 +550,7 @@ def main() -> int:
     except PolicySuperseded as exception:
         print(f"release superseded: {exception}", file=sys.stderr)
         return 3
-    except (PolicyError, OSError, json.JSONDecodeError) as exception:
+    except (PolicyError, OSError, json.JSONDecodeError, ResourceLimitError) as exception:
         print(f"release policy refused: {exception}", file=sys.stderr)
         return 1
     return 0

@@ -60,6 +60,8 @@ public sealed record RelayUpdateState(
 /// <param name="statusDirectory">The directory the updater publishes its status into, which this process only reads.</param>
 public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
 {
+    private const int Sha256Length = 64;
+
     public bool IsAvailable => stateDirectory is { Length: > 0 };
 
     public RelayUpdateState Read()
@@ -101,7 +103,13 @@ public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
         try
         {
             Directory.CreateDirectory(stateDirectory!);
-            File.WriteAllText(Path.Combine(stateDirectory!, "UPDATE_NOW"), string.Empty);
+            var marker = Path.Combine(stateDirectory!, "UPDATE_NOW");
+            if (File.Exists(marker))
+            {
+                return new FileInfo(marker).LinkTarget is null;
+            }
+
+            using var stream = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -124,10 +132,19 @@ public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
             return false;
         }
 
-        var status = Path.TrimEndingDirectorySeparator(Path.GetFullPath(statusDirectory));
-        var state = Path.TrimEndingDirectorySeparator(Path.GetFullPath(stateDirectory!));
-        return !string.Equals(status, state, StringComparison.Ordinal)
-            && !status.StartsWith(state + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+        try
+        {
+            var status = Path.TrimEndingDirectorySeparator(ResolveExistingPath(statusDirectory));
+            var state = Path.TrimEndingDirectorySeparator(ResolveExistingPath(stateDirectory!));
+            var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            return !string.Equals(status, state, comparison)
+                && !status.StartsWith(state + Path.DirectorySeparatorChar, comparison)
+                && !state.StartsWith(status + Path.DirectorySeparatorChar, comparison);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     private string? ReadStatus(string fileName)
@@ -135,11 +152,62 @@ public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
         try
         {
             var path = Path.Combine(statusDirectory!, fileName);
-            return File.Exists(path) ? File.ReadAllText(path).Trim() is { Length: 64 } sum ? sum : null : null;
+            var item = new FileInfo(path);
+            if (!item.Exists || item.LinkTarget is not null || item.Length > Sha256Length + 2)
+            {
+                return null;
+            }
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: Sha256Length + 2, FileOptions.SequentialScan);
+            Span<byte> bytes = stackalloc byte[Sha256Length + 3];
+            var count = 0;
+            while (count < bytes.Length)
+            {
+                var read = stream.Read(bytes[count..]);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                count += read;
+            }
+
+            if (count == bytes.Length)
+            {
+                return null;
+            }
+
+            var sum = System.Text.Encoding.UTF8.GetString(bytes[..count]).Trim();
+            return sum.Length == Sha256Length && sum.All(character => character is >= '0' and <= '9' or >= 'a' and <= 'f')
+                ? sum
+                : null;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.DecoderFallbackException)
         {
             return null;
         }
+    }
+
+    private static string ResolveExistingPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full) ?? throw new IOException("The status path has no root.");
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            var item = Directory.Exists(current)
+                ? (FileSystemInfo)new DirectoryInfo(current)
+                : new FileInfo(current);
+            if (!item.Exists)
+            {
+                continue;
+            }
+
+            current = item.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? item.FullName;
+        }
+
+        return Path.GetFullPath(current);
     }
 }

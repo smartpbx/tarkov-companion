@@ -17,6 +17,7 @@ TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly TASK_PROJECT_ROOT
 readonly TASK_VERSION="1.51.1"
 readonly TASK_DESTINATION="$1"
+readonly TASK_MAX_BYTES=$((64 * 1024 * 1024))
 
 case "$(uname -m)" in
     x86_64 | amd64) asset="syft_${TASK_VERSION}_linux_amd64.tar.gz" ;;
@@ -30,8 +31,11 @@ expected="$(awk -v name="${asset}" '$2 == name {print $1}' "${TASK_PROJECT_ROOT}
 
 work="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/syft.XXXXXX")"
 trap 'rm -rf -- "${work}"' EXIT
-curl --fail --silent --show-error --location --output "${work}/${asset}" \
-    "https://github.com/anchore/syft/releases/download/v${TASK_VERSION}/${asset}"
+( ulimit -f "$(((TASK_MAX_BYTES + 1023) / 1024))"
+  curl --fail --silent --show-error --location --max-filesize "${TASK_MAX_BYTES}" --output "${work}/${asset}" \
+      "https://github.com/anchore/syft/releases/download/v${TASK_VERSION}/${asset}" )
+size="$(stat -c %s -- "${work}/${asset}")"
+((size > 0 && size <= TASK_MAX_BYTES)) || { printf 'syft install failed: download is outside its byte limit\n' >&2; exit 1; }
 actual="$(sha256sum "${work}/${asset}" | awk '{print $1}')"
 if [[ "${actual}" != "${expected}" ]]; then
     printf 'syft install failed: %s has sha256 %s, not the pinned %s\n' "${asset}" "${actual}" "${expected}" >&2

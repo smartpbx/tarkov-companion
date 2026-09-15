@@ -156,6 +156,11 @@ class ArtifactFetchTests(unittest.TestCase):
 
 
 class ProvenanceTests(unittest.TestCase):
+    PRODUCER_ARTIFACTS = [
+        {"name": "windows-release-payload", "sha256": "a" * 64, "size": 10},
+        {"name": "group-server-release", "sha256": "b" * 64, "size": 10},
+    ]
+
     def record(self, **run: object) -> dict:
         return {
             "schemaVersion": 1, "repository": REPOSITORY,
@@ -167,8 +172,19 @@ class ProvenanceTests(unittest.TestCase):
                           {"name": "group-server-release", "id": 8, "sha256": "b" * 64, "size": 10, "files": []}],
         }
 
-    MANIFEST = {"version": "1.0.650", "commit": SHA, "versions": {"package": "1.0.650"},
-                "source": {"verificationRunId": RUN_ID}}
+    MANIFEST = {
+        "version": "1.0.650",
+        "commit": SHA,
+        "versions": {"package": "1.0.650"},
+        "source": {
+            "repository": REPOSITORY,
+            "branch": "main",
+            "verificationWorkflow": ".github/workflows/windows-verify.yml",
+            "verificationRunId": RUN_ID,
+            "verificationRunAttempt": 2,
+            "verificationArtifacts": PRODUCER_ARTIFACTS,
+        },
+    }
     PUBLISHER = {"repository": REPOSITORY, "workflowRef": f"{REPOSITORY}/.github/workflows/publish.yml@refs/heads/main",
                  "runId": "99", "runAttempt": "1"}
 
@@ -191,12 +207,27 @@ class ProvenanceTests(unittest.TestCase):
             "pull request": (self.record(event="pull_request"), self.MANIFEST),
             "another branch": (self.record(headBranch="feature"), self.MANIFEST),
             "another commit": (self.record(), {**self.MANIFEST, "commit": "d" * 40}),
-            "another run": (self.record(), {**self.MANIFEST, "source": {"verificationRunId": "1"}}),
+            "another run": (self.record(), {
+                **self.MANIFEST,
+                "source": {**self.MANIFEST["source"], "verificationRunId": "1"},
+            }),
             "no digests": ({**self.record(), "artifacts": []}, self.MANIFEST),
+            "wrong producer inventory": ({
+                **self.record(),
+                "artifacts": [self.record()["artifacts"][0]],
+            }, self.MANIFEST),
+            "noncanonical finish": (self.record(updatedAt="2026-09-15 03:40:00"), self.MANIFEST),
         }
         for label, (record, manifest) in cases.items():
             with self.subTest(label=label), self.assertRaises(ProvenanceError):
                 provenance.predicate(record, manifest, self.PUBLISHER)
+
+        with self.assertRaises(ProvenanceError):
+            provenance.predicate(
+                self.record(),
+                self.MANIFEST,
+                {**self.PUBLISHER, "workflowRef": f"{REPOSITORY}/.github/workflows/other.yml@refs/heads/main"},
+            )
 
 
 if __name__ == "__main__":

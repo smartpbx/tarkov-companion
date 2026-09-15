@@ -22,21 +22,37 @@ from __future__ import annotations
 
 import argparse
 import base64
-import hashlib
+import io
 import json
 import re
+import resource
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from release_policy import RINGS, SEMVER, generation_of, index_name, select_current  # noqa: E402
+from release_policy import RINGS, generation_of, index_name, select_current, semver_key  # noqa: E402
+from resource_limits import (  # noqa: E402
+    MAX_ARCHIVE_BYTES,
+    MAX_ARTIFACT_COUNT,
+    MAX_JSON_BYTES,
+    MAX_SIGNATURE_BYTES,
+    ResourceLimitError,
+    copy_stream,
+    decode_json,
+    read_bytes as bounded_read_bytes,
+    read_json as bounded_read_json,
+    sha256_file as bounded_sha256_file,
+)
 
 
 REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 HTTP_STATUS = re.compile(r"\(HTTP ([0-9]{3})\)")
+SOURCE_REPOSITORY = "smartpbx/tarkov-companion"
 KEEP_GENERATIONS = 200
 # Artifacts that may legitimately differ when the same verification run is published twice.
 # The SBOM carries its own creation time and document namespace; everything else is derived
@@ -59,21 +75,45 @@ class FeedConflict(FeedError):
 
 
 def run_process(arguments: Sequence[str], stdin: bytes | None) -> subprocess.CompletedProcess:
-    return subprocess.run(list(arguments), input=stdin, capture_output=True, check=False)
+    if stdin is not None and len(stdin) > MAX_JSON_BYTES:
+        return subprocess.CompletedProcess(list(arguments), 125, b"", b"command input exceeds the release JSON limit")
+    output = io.BytesIO()
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(
+            list(arguments), stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=errors,
+            preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (MAX_ARCHIVE_BYTES, MAX_ARCHIVE_BYTES)),
+        )
+        if stdin is not None:
+            assert process.stdin is not None
+            process.stdin.write(stdin)
+            process.stdin.close()
+        try:
+            assert process.stdout is not None
+            copy_stream(process.stdout, output, maximum=MAX_JSON_BYTES, label=f"output from {arguments[0]}")
+            return_code = process.wait()
+        except ResourceLimitError as exception:
+            process.kill()
+            process.wait()
+            return_code = 125
+            errors.write(f"\n{exception}\n".encode())
+        finally:
+            process.stdout.close() if process.stdout is not None else None
+        errors.seek(0)
+        stderr = errors.read(MAX_JSON_BYTES + 1)
+    if len(stderr) > MAX_JSON_BYTES:
+        stderr = stderr[:MAX_JSON_BYTES] + b"\nstderr truncated at the release-input limit\n"
+    return subprocess.CompletedProcess(list(arguments), return_code, output.getvalue(), stderr)
 
 
 def sha256_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+    return bounded_sha256_file(path, path.name, MAX_ARCHIVE_BYTES)
 
 
 def read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exception:
+        return bounded_read_json(path)
+    except (OSError, ResourceLimitError) as exception:
         raise FeedError(f"could not read {path}: {exception}") from exception
 
 
@@ -81,6 +121,8 @@ class Feed:
     def __init__(self, repository: str, runner: Runner = run_process) -> None:
         if REPOSITORY.fullmatch(repository or "") is None:
             raise FeedError("the release repository must be owner/name")
+        if repository.casefold() == SOURCE_REPOSITORY:
+            raise FeedError("the public source repository cannot be the authenticated v2 feed")
         self.repository = repository
         self._run = runner
 
@@ -90,20 +132,23 @@ class Feed:
             error = (result.stderr or b"").decode("utf-8", "replace").strip()
             match = HTTP_STATUS.search(error)
             raise FeedError(error or f"gh {arguments[0]} failed", int(match.group(1)) if match else None)
-        return result.stdout or b""
+        output = result.stdout or b""
+        if len(output) > MAX_JSON_BYTES:
+            raise FeedError(f"gh {arguments[0]} returned more than the {MAX_JSON_BYTES}-byte response limit")
+        return output
 
     def _api_json(self, arguments: Sequence[str], stdin: bytes | None = None) -> Any:
         output = self._gh(["api", *arguments], stdin)
         try:
-            return json.loads(output) if output.strip() else None
-        except json.JSONDecodeError as exception:
+            return decode_json(output, arguments[-1]) if output.strip() else None
+        except ResourceLimitError as exception:
             raise FeedError(f"GitHub returned unreadable JSON for {arguments[-1]}") from exception
 
     def _api_lines(self, arguments: Sequence[str]) -> list[Any]:
         output = self._gh(["api", "--paginate", *arguments])
         try:
-            return [json.loads(line) for line in output.decode("utf-8").splitlines() if line.strip()]
-        except json.JSONDecodeError as exception:
+            return [decode_json(line.encode(), arguments[0]) for line in output.decode("utf-8").splitlines() if line.strip()]
+        except (UnicodeDecodeError, ResourceLimitError) as exception:
             raise FeedError(f"GitHub returned unreadable JSON for {arguments[0]}") from exception
 
     # Repository ------------------------------------------------------------------------------
@@ -186,9 +231,10 @@ class Feed:
         current, _ = self.ring_state(ring)
         if current != generation - 1:
             raise FeedConflict(f"{ring} is at generation {current}; generation {generation} was computed from {generation - 1}")
+        envelope_bytes = bounded_read_bytes(envelope, "signed ring envelope", MAX_JSON_BYTES)
         body = json.dumps({
             "message": f"{ring}: signed release decision generation {generation}",
-            "content": base64.b64encode(envelope.read_bytes()).decode("ascii"),
+            "content": base64.b64encode(envelope_bytes).decode("ascii"),
         }).encode("utf-8")
         try:
             self._api_json(["--method", "PUT", f"repos/{self.repository}/contents/{path}", "--input", "-"], body)
@@ -200,7 +246,7 @@ class Feed:
             raise
         written = self._gh(["api", "-H", "Accept: application/vnd.github.raw+json",
                             f"repos/{self.repository}/contents/{path}"])
-        if written != envelope.read_bytes():
+        if written != envelope_bytes:
             raise FeedError(f"{path} does not read back as the envelope that was written")
         pruned = self._prune(ring, generation, keep)
         return {"ring": ring, "generation": generation, "name": name, "pruned": pruned}
@@ -226,8 +272,12 @@ class Feed:
     # Builds -----------------------------------------------------------------------------------
 
     def find_build(self, tag: str) -> dict[str, Any] | None:
-        if not tag.startswith("v2-build-") or SEMVER.fullmatch(tag[len("v2-build-"):]) is None:
+        if not tag.startswith("v2-build-"):
             raise FeedError(f"{tag!r} is not a build tag")
+        try:
+            semver_key(tag[len("v2-build-"):])
+        except ValueError as exception:
+            raise FeedError(f"{tag!r} is not a build tag") from exception
         matches = [
             release for release in self._api_lines([
                 f"repos/{self.repository}/releases?per_page=100",
@@ -257,10 +307,26 @@ class Feed:
         return result
 
     def download_build_files(self, tag: str, names: Sequence[str], output: Path) -> None:
+        found = self.find_build(tag)
+        if not found or found.get("status") != "published":
+            raise FeedError(f"published build {tag} is absent")
+        assets = self.assets(int(found["id"]))
         output.mkdir(parents=True, exist_ok=True)
         for name in names:
+            maximum = MAX_SIGNATURE_BYTES if name.endswith(".sigstore.json") else (
+                MAX_JSON_BYTES if name.endswith(".json") else MAX_ARCHIVE_BYTES)
+            asset = assets.get(name)
+            if (asset is None or asset.get("state") != "uploaded" or not isinstance(asset.get("size"), int)
+                    or asset["size"] <= 0 or asset["size"] > maximum):
+                raise FeedError(f"build {tag} asset {name} is absent, incomplete, or above its size limit")
             self._gh(["release", "download", tag, "--repo", self.repository, "--pattern", name,
                       "--dir", str(output), "--clobber"])
+            downloaded = output / name
+            if not downloaded.is_file() or downloaded.stat().st_size != asset["size"]:
+                raise FeedError(f"downloaded {name} does not match GitHub's recorded size")
+            digest = str(asset.get("digest") or "")
+            if not digest.startswith("sha256:") or sha256_file(downloaded) != digest.removeprefix("sha256:"):
+                raise FeedError(f"downloaded {name} does not match GitHub's recorded digest")
 
     def verify_build_assets(self, release_id: int, expected: dict[str, tuple[str | None, int | None]]) -> None:
         assets = self.assets(release_id)
@@ -316,13 +382,21 @@ def expected_build_assets(directory: Path, manifest: dict[str, Any], manifest_pa
     """Every file a build release must hold: each artifact, its bundle, the manifest and its bundle."""
     expected: dict[str, tuple[str | None, int | None]] = {}
     artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, list) or not artifacts:
+    if not isinstance(artifacts, list) or not artifacts or len(artifacts) > MAX_ARTIFACT_COUNT:
         raise FeedError("the manifest names no artifacts")
     for artifact in artifacts:
         name = artifact.get("name") if isinstance(artifact, dict) else None
         if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", name) is None or ".." in name:
             raise FeedError(f"the manifest names an unsafe artifact: {name!r}")
-        expected[name] = (artifact.get("sha256"), artifact.get("size"))
+        if name in expected:
+            raise FeedError(f"the manifest repeats artifact {name!r}")
+        size = artifact.get("size")
+        if (not isinstance(size, int) or isinstance(size, bool) or size <= 0 or size > MAX_ARCHIVE_BYTES):
+            raise FeedError(f"the manifest gives {name!r} an unsafe size")
+        digest = artifact.get("sha256")
+        if not isinstance(digest, str) or HEX_64.fullmatch(digest) is None:
+            raise FeedError(f"the manifest gives {name!r} an unsafe digest")
+        expected[name] = (digest, size)
     expected[manifest_path.name] = (sha256_file(manifest_path), manifest_path.stat().st_size)
     for name in list(expected):
         expected[f"{name}.sigstore.json"] = (None, None)
@@ -330,9 +404,14 @@ def expected_build_assets(directory: Path, manifest: dict[str, Any], manifest_pa
         path = directory / name
         if not path.is_file():
             raise FeedError(f"{name} is missing from the signed release directory")
+        maximum = MAX_SIGNATURE_BYTES if name.endswith(".sigstore.json") else (
+            MAX_JSON_BYTES if name.endswith(".json") else MAX_ARCHIVE_BYTES)
+        actual_size = path.stat().st_size
+        if actual_size <= 0 or actual_size > maximum:
+            raise FeedError(f"{name} is outside its {maximum}-byte release limit")
         if digest is not None and sha256_file(path) != digest:
             raise FeedError(f"{name} no longer matches the signed manifest")
-        expected[name] = (sha256_file(path), path.stat().st_size)
+        expected[name] = (sha256_file(path), actual_size)
     return expected
 
 

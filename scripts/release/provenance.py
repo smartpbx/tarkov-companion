@@ -19,13 +19,22 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from resource_limits import MAX_ARTIFACT_COUNT, ResourceLimitError, read_json as bounded_read_json  # noqa: E402
 
 
 BUILD_TYPE = "https://github.com/smartpbx/tarkov-companion/blob/main/docs/RELEASES.md#verified-build-provenance"
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+DECIMAL_ID = re.compile(r"^[1-9][0-9]{0,19}$")
+SOURCE_REPOSITORY = "smartpbx/tarkov-companion"
+VERIFICATION_ARTIFACTS = {"windows-release-payload", "group-server-release"}
 
 
 class ProvenanceError(ValueError):
@@ -34,27 +43,75 @@ class ProvenanceError(ValueError):
 
 def read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exception:
+        return bounded_read_json(path)
+    except (OSError, ResourceLimitError) as exception:
         raise ProvenanceError(f"could not read {path}: {exception}") from exception
 
 
+def canonical_timestamp(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ProvenanceError(f"{label} is not a canonical UTC timestamp")
+    try:
+        datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exception:
+        raise ProvenanceError(f"{label} is not a canonical UTC timestamp") from exception
+    return value
+
+
 def predicate(record: dict[str, Any], manifest: dict[str, Any], publisher: dict[str, str]) -> dict[str, Any]:
+    if not isinstance(record, dict) or not isinstance(manifest, dict):
+        raise ProvenanceError("the artifact record and manifest must be JSON objects")
     run = record.get("verificationRun") or {}
     repository = record.get("repository")
     sha = run.get("headSha")
-    if record.get("schemaVersion") != 1 or not isinstance(repository, str) or not HEX_40.fullmatch(str(sha)):
+    if (record.get("schemaVersion") != 1 or repository != SOURCE_REPOSITORY
+            or REPOSITORY.fullmatch(str(repository)) is None or not isinstance(run, dict)
+            or not HEX_40.fullmatch(str(sha))):
         raise ProvenanceError("the artifact record does not name a repository and a full commit")
     if run.get("workflowPath") != ".github/workflows/windows-verify.yml" or run.get("event") != "push" or run.get("headBranch") != "main":
         raise ProvenanceError("the artifact record is not from a push-to-main Windows verification run")
-    if manifest.get("commit") != sha or str((manifest.get("source") or {}).get("verificationRunId")) != str(run.get("id")):
+    run_id = str(run.get("id"))
+    run_attempt = run.get("attempt")
+    if DECIMAL_ID.fullmatch(run_id) is None or not isinstance(run_attempt, int) or isinstance(run_attempt, bool) or run_attempt <= 0:
+        raise ProvenanceError("the verification invocation has no bounded run id and attempt")
+    started = canonical_timestamp(run.get("startedAt"), "verification start")
+    finished = canonical_timestamp(run.get("updatedAt"), "verification finish")
+    if finished < started:
+        raise ProvenanceError("the verification run finished before it started")
+
+    source = manifest.get("source") or {}
+    if (manifest.get("commit") != sha or not isinstance(source, dict)
+            or source.get("repository") != repository or source.get("branch") != "main"
+            or source.get("verificationWorkflow") != run.get("workflowPath")
+            or str(source.get("verificationRunId")) != run_id
+            or source.get("verificationRunAttempt") != run_attempt):
         raise ProvenanceError("the manifest and the artifact record describe different builds")
     artifacts = record.get("artifacts") or []
-    if not artifacts or any(not HEX_64.fullmatch(str(item.get("sha256"))) for item in artifacts):
+    if (not isinstance(artifacts, list) or not artifacts or len(artifacts) > MAX_ARTIFACT_COUNT
+            or any(not isinstance(item, dict) or not HEX_64.fullmatch(str(item.get("sha256")))
+                   or not isinstance(item.get("id"), int) or isinstance(item.get("id"), bool) or item["id"] <= 0
+                   or not isinstance(item.get("size"), int) or isinstance(item.get("size"), bool) or item["size"] <= 0
+                   for item in artifacts)):
         raise ProvenanceError("the artifact record has no digest-bound artifacts")
+    artifact_names = [item.get("name") for item in artifacts]
+    if len(artifact_names) != len(set(artifact_names)) or set(artifact_names) != VERIFICATION_ARTIFACTS:
+        raise ProvenanceError("the artifact record does not contain exactly the two reviewed producer artifacts")
+    manifest_artifacts = source.get("verificationArtifacts")
+    expected_artifacts = [
+        {"name": item["name"], "sha256": item["sha256"], "size": item["size"]}
+        for item in artifacts
+    ]
+    if manifest_artifacts != expected_artifacts:
+        raise ProvenanceError("the manifest's producer-artifact record differs from the provenance inputs")
     for key in ("repository", "workflowRef", "runId", "runAttempt"):
         if not publisher.get(key):
             raise ProvenanceError(f"the publisher's {key} is required")
+    if (publisher["repository"] != SOURCE_REPOSITORY
+            or publisher["workflowRef"] !=
+            f"{SOURCE_REPOSITORY}/.github/workflows/publish.yml@refs/heads/main"
+            or DECIMAL_ID.fullmatch(publisher["runId"]) is None
+            or DECIMAL_ID.fullmatch(publisher["runAttempt"]) is None):
+        raise ProvenanceError("the attester is not the reviewed protected-main publish workflow")
 
     server = "https://github.com"
     return {
@@ -87,8 +144,8 @@ def predicate(record: dict[str, Any], manifest: dict[str, Any], publisher: dict[
             "builder": {"id": f"{server}/{repository}/{run['workflowPath']}@refs/heads/main"},
             "metadata": {
                 "invocationId": run.get("url") or f"{server}/{repository}/actions/runs/{run['id']}/attempts/{run.get('attempt')}",
-                "startedOn": run.get("startedAt"),
-                "finishedOn": run.get("updatedAt"),
+                "startedOn": started,
+                "finishedOn": finished,
             },
             "byproducts": [
                 {
@@ -121,7 +178,7 @@ def main() -> int:
             "runId": args.publisher_run_id,
             "runAttempt": args.publisher_run_attempt,
         })
-    except ProvenanceError as exception:
+    except (ProvenanceError, ResourceLimitError) as exception:
         print(f"provenance refused: {exception}", file=sys.stderr)
         return 1
     args.output.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")

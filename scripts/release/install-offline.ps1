@@ -42,6 +42,7 @@ param(
 
     [string] $FeedRepository = "",
 
+    [ValidateRange(0, 9999999999)]
     [long] $MinimumGeneration = 0,
 
     # Where the per-user installation lives; overridable so the checks can be exercised anywhere.
@@ -65,6 +66,16 @@ $BundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json"
 # SemVer 2.0 exactly as the publisher's release_policy.py accepts it.
 $Identifier = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 $VersionPattern = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$Identifier(\.$Identifier)*)?$"
+$MaximumVersionNumber = 2147483647
+$MaximumJsonBytes = 16MB
+$MaximumSignatureBytes = 2MB
+$MaximumArtifactBytes = 512MB
+$MaximumCopiedBytes = 1GB
+$MaximumArtifacts = 4096
+$MaximumDecisionFiles = 8192
+$MaximumDirectoryEntries = 16384
+$CopiedBytes = [long]0
+$CopiedFiles = 0
 # cosign v3.1.3, the first v3 release with GHSA-fx35-mq7g-6g98 fixed, from cosign's own signed
 # checksums; the same digests as scripts/release/cosign.sha256.
 $CosignPins = @(
@@ -89,6 +100,46 @@ function Test-OnlyProperties($Object, [string[]] $Allowed) {
     return @($Object.PSObject.Properties.Name | Where-Object { $Allowed -cnotcontains $_ }).Count -eq 0
 }
 
+function Test-ExactProperties($Object, [string[]] $Expected) {
+    if ($Object -isnot [System.Management.Automation.PSCustomObject]) { return $false }
+    $Names = @($Object.PSObject.Properties.Name)
+    return $Names.Count -eq $Expected.Count -and
+        @($Names | Where-Object { $Expected -cnotcontains $_ }).Count -eq 0 -and
+        @($Expected | Where-Object { $Names -cnotcontains $_ }).Count -eq 0
+}
+
+function Test-BoundedInteger($Value, [long] $Minimum, [long] $Maximum) {
+    if ($Value -is [bool] -or $Value -isnot [ValueType]) { return $false }
+    try {
+        $Number = [decimal]$Value
+        return $Number -eq [math]::Truncate($Number) -and $Number -ge $Minimum -and $Number -le $Maximum
+    } catch { return $false }
+}
+
+function Test-DecimalIdentifier($Value) {
+    return $Value -is [string] -and $Value -cmatch '^[1-9][0-9]{0,19}$'
+}
+
+function Test-ReleaseIdentity($Value) {
+    if (-not (Test-ExactProperties $Value @("version", "commit", "buildTag", "manifestName", "manifestSha256")) -or
+        (Get-Property $Value "version") -isnot [string] -or
+        (Get-Property $Value "commit") -isnot [string] -or [string](Get-Property $Value "commit") -cnotmatch '^[0-9a-f]{40}$' -or
+        (Get-Property $Value "manifestSha256") -isnot [string] -or [string](Get-Property $Value "manifestSha256") -cnotmatch '^[0-9a-f]{64}$' -or
+        (Get-Property $Value "manifestName") -cne "release-manifest.json" -or
+        (Get-Property $Value "buildTag") -cne ("v2-build-" + [string](Get-Property $Value "version"))) {
+        return $false
+    }
+    try { Assert-ReleaseVersion ([string](Get-Property $Value "version")); return $true } catch { return $false }
+}
+
+function Test-SameRelease($Left, $Right) {
+    if (-not (Test-ReleaseIdentity $Left) -or -not (Test-ReleaseIdentity $Right)) { return $false }
+    foreach ($Name in @("version", "commit", "buildTag", "manifestName", "manifestSha256")) {
+        if ((Get-Property $Left $Name) -cne (Get-Property $Right $Name)) { return $false }
+    }
+    return $true
+}
+
 function New-PrivateDirectory([string] $Path) {
     if (Test-Windows) {
         $null = New-Item -ItemType Directory -Path $Path -WhatIf:$false
@@ -108,28 +159,126 @@ function Get-Sha256([string] $Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Read-BoundedText([string] $Path, [long] $MaximumBytes, [string] $Label) {
+    $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($Item.PSIsContainer -or ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or
+        $Item.Length -le 0 -or $Item.Length -gt $MaximumBytes) {
+        throw "$Label is redirected, empty, or outside its byte limit."
+    }
+    $Bytes = [System.IO.File]::ReadAllBytes($Item.FullName)
+    if ($Bytes.LongLength -ne $Item.Length -or $Bytes.LongLength -gt $MaximumBytes) {
+        throw "$Label changed or exceeded its byte limit while being read."
+    }
+    try {
+        $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+        return $Utf8.GetString($Bytes).TrimStart([char]0xfeff)
+    } catch { throw "$Label is not valid UTF-8 text." }
+}
+
+function Assert-ReleaseVersion([string] $Value) {
+    $Match = [regex]::Match($Value, $VersionPattern)
+    if (-not $Match.Success) { throw "Unsupported release version '$Value'." }
+    foreach ($Index in 1..3) {
+        $Part = $Match.Groups[$Index].Value
+        if ($Part.Length -gt 10 -or [long]$Part -gt $MaximumVersionNumber) {
+            throw "Release version '$Value' has a numeric identifier outside the supported range."
+        }
+    }
+    $Prerelease = $Match.Groups[4].Value.TrimStart("-")
+    foreach ($Part in @($Prerelease.Split(".") | Where-Object { $_ -cmatch '^[0-9]+$' })) {
+        if ($Part.Length -gt 10 -or [long]$Part -gt $MaximumVersionNumber) {
+            throw "Release version '$Value' has a numeric identifier outside the supported range."
+        }
+    }
+}
+
+function Read-BoundedJson([string] $Path, [long] $MaximumBytes, [string] $Label) {
+    $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($Item.PSIsContainer -or ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or
+        $Item.Length -le 0 -or $Item.Length -gt $MaximumBytes) {
+        throw "$Label is not a plain non-empty file within its $MaximumBytes-byte limit."
+    }
+    $Bytes = [System.IO.File]::ReadAllBytes($Item.FullName)
+    if ($Bytes.LongLength -ne $Item.Length -or $Bytes.LongLength -gt $MaximumBytes) {
+        throw "$Label changed or exceeded its byte limit while being read."
+    }
+    try {
+        $Utf8 = New-Object System.Text.UTF8Encoding($false, $true)
+        $Text = $Utf8.GetString($Bytes)
+    } catch { throw "$Label is not valid UTF-8 JSON." }
+    $Depth = 0
+    $Quoted = $false
+    $Escaped = $false
+    foreach ($Character in $Text.ToCharArray()) {
+        if ($Quoted) {
+            if ($Escaped) { $Escaped = $false }
+            elseif ($Character -ceq '\') { $Escaped = $true }
+            elseif ($Character -ceq '"') { $Quoted = $false }
+            continue
+        }
+        if ($Character -ceq '"') { $Quoted = $true }
+        elseif ($Character -ceq '{' -or $Character -ceq '[') {
+            $Depth++
+            if ($Depth -gt 32) { throw "$Label exceeds the JSON nesting limit of 32." }
+        } elseif ($Character -ceq '}' -or $Character -ceq ']') {
+            $Depth--
+            if ($Depth -lt 0) { throw "$Label has unbalanced JSON delimiters." }
+        }
+    }
+    if ($Quoted -or $Depth -ne 0) { throw "$Label has unbalanced JSON strings or delimiters." }
+    try { return $Text | ConvertFrom-Json } catch { throw "$Label is not valid bounded JSON." }
+}
+
+function Copy-BoundedFile([string] $Source, [string] $Target, [long] $MaximumBytes, [string] $Label) {
+    $Item = Get-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+    if ($null -eq $Item -or $Item.PSIsContainer -or
+        ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or
+        $Item.Length -le 0 -or $Item.Length -gt $MaximumBytes) {
+        throw "$Label is missing, redirected, empty, or above its $MaximumBytes-byte limit."
+    }
+    if ($script:CopiedFiles -ge ($MaximumArtifacts * 2 + 6) -or
+        $script:CopiedBytes + $Item.Length -gt $MaximumCopiedBytes) {
+        throw "The selected offline bundle exceeds its file-count or total-byte limit."
+    }
+    $Input = [System.IO.File]::Open($Item.FullName, [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $Output = [System.IO.File]::Open($Target, [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        try {
+            $Buffer = [byte[]]::new(1MB)
+            $Written = [long]0
+            while (($Read = $Input.Read($Buffer, 0, $Buffer.Length)) -gt 0) {
+                $Written += $Read
+                if ($Written -gt $MaximumBytes) { throw "$Label exceeded its byte limit while copied." }
+                $Output.Write($Buffer, 0, $Read)
+            }
+        } finally { $Output.Dispose() }
+    } finally { $Input.Dispose() }
+    if ($Written -ne $Item.Length) {
+        Remove-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue -WhatIf:$false
+        throw "$Label changed while copied."
+    }
+    $script:CopiedFiles++
+    $script:CopiedBytes += $Written
+    return $Target
+}
+
 # Copies one named file off the media into the private directory, refusing anything but a plain file.
-function Copy-FromMedia([string] $Name, [string] $Label) {
+function Copy-FromMedia([string] $Name, [string] $Label, [long] $MaximumBytes) {
     if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$' -or $Name.Contains("..")) {
         throw "The offline bundle names an unsafe file: $Name."
     }
     $Source = Join-Path $Root $Name
-    $Item = Get-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
-    if ($null -eq $Item -or $Item.PSIsContainer -or ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-        throw "The offline bundle is missing $Label, or it is not a plain file."
-    }
     $Target = Join-Path $Staging $Name
-    Copy-Item -LiteralPath $Source -Destination $Target -WhatIf:$false
-    return $Target
+    return Copy-BoundedFile $Source $Target $MaximumBytes $Label
 }
 
 # Refuses any bundle but a standardized v0.3 message-signature bundle over exactly these bytes.
 function Assert-StandardBundle([string] $Path) {
     $Label = Split-Path -Leaf $Path
-    $Raw = Get-Content -LiteralPath "$Path.sigstore.json" -Raw
     $Refusal = "The signature bundle for $Label is not a standardized v0.3 Sigstore bundle."
-    if ($null -eq $Raw -or -not $Raw.TrimStart().StartsWith("{")) { throw $Refusal }
-    try { $Bundle = $Raw | ConvertFrom-Json } catch { throw $Refusal }
+    try { $Bundle = Read-BoundedJson "$Path.sigstore.json" $MaximumSignatureBytes "Signature bundle for $Label" } catch { throw $Refusal }
     $Material = Get-Property $Bundle "verificationMaterial"
     $Signature = Get-Property $Bundle "messageSignature"
     $Digest = Get-Property $Signature "messageDigest"
@@ -163,26 +312,28 @@ function Invoke-Verification([string] $Path) {
     $Previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $Output = & $StagedCosign verify-blob `
+        & $StagedCosign verify-blob `
             --bundle "$Path.sigstore.json" `
             --trusted-root $StagedTrustRoot `
             --certificate-identity $Identity `
             --certificate-oidc-issuer $Issuer `
             --certificate-github-workflow-repository $SignerRepository `
             --certificate-github-workflow-ref $SignerRef `
-            $Path 2>&1 | Out-String
+            $Path *> $null
         $ExitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $Previous
     }
     if ($ExitCode -ne 0) {
-        throw "The signature on $Label does not verify for the release publisher: $Output"
+        throw "The signature on $Label does not verify for the release publisher."
     }
 }
 
 # Orders two release versions; negative when $Left is older. Prerelease labels sort before their
 # release and compare numerically where both identifiers are numbers.
 function Compare-ReleaseVersion([string] $Left, [string] $Right) {
+    Assert-ReleaseVersion $Left
+    Assert-ReleaseVersion $Right
     $l = [regex]::Match($Left, $VersionPattern)
     $r = [regex]::Match($Right, $VersionPattern)
     if (-not $l.Success -or -not $r.Success) { throw "Cannot compare versions '$Left' and '$Right'." }
@@ -220,9 +371,17 @@ if (-not $BreakGlass -and (-not $Ring -or -not $FeedRepository)) {
 if ($FeedRepository -and $FeedRepository -cnotmatch '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$') {
     throw "-FeedRepository must be owner/name."
 }
+if ($FeedRepository -and $FeedRepository -ieq $SignerRepository) {
+    throw "The public source repository cannot be used as the authenticated release feed."
+}
 
 $Root = (Resolve-Path -LiteralPath $BundleDirectory).Path
-if (-not (Test-Path -LiteralPath $TrustedRoot -PathType Leaf)) {
+$RootItem = Get-Item -LiteralPath $Root -Force
+if (-not $RootItem.PSIsContainer -or ($RootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+    throw "The offline bundle root must be a plain directory."
+}
+if (-not (Test-Path -LiteralPath $TrustedRoot -PathType Leaf) -or
+    ((Get-Item -LiteralPath $TrustedRoot -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
     throw "The trust root $TrustedRoot is missing."
 }
 $Staging = Join-Path ([System.IO.Path]::GetTempPath()) ("tarkov-offline-" + [guid]::NewGuid().ToString("N"))
@@ -231,7 +390,7 @@ try {
     # The verifier is copied and hashed too, so the cosign that is checked is the one that runs.
     $CosignSource = (Get-Command -Name $CosignPath -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
     $StagedCosign = Join-Path $Staging ("cosign" + [System.IO.Path]::GetExtension($CosignSource))
-    Copy-Item -LiteralPath $CosignSource -Destination $StagedCosign -WhatIf:$false
+    $null = Copy-BoundedFile $CosignSource $StagedCosign $MaximumArtifactBytes "cosign verifier"
     $CosignDigest = Get-Sha256 $StagedCosign
     if ($CosignSha256) {
         if ($CosignSha256 -cnotmatch '^[0-9a-f]{64}$') { throw "-CosignSha256 is not a sha256." }
@@ -240,16 +399,22 @@ try {
         throw "$CosignSource (sha256 $CosignDigest) is not a pinned cosign."
     }
     $StagedTrustRoot = Join-Path $Staging "trusted-root.json"
-    Copy-Item -LiteralPath $TrustedRoot -Destination $StagedTrustRoot -WhatIf:$false
+    $null = Copy-BoundedFile $TrustedRoot $StagedTrustRoot $MaximumJsonBytes "Sigstore trust root"
+    $null = Read-BoundedJson $StagedTrustRoot $MaximumJsonBytes "Sigstore trust root"
 
-    $ManifestPath = Copy-FromMedia "release-manifest.json" "release-manifest.json"
-    $null = Copy-FromMedia "release-manifest.json.sigstore.json" "the signature bundle for release-manifest.json"
+    $ManifestPath = Copy-FromMedia "release-manifest.json" "release-manifest.json" $MaximumJsonBytes
+    $null = Copy-FromMedia "release-manifest.json.sigstore.json" "the signature bundle for release-manifest.json" $MaximumSignatureBytes
     Invoke-Verification $ManifestPath
     $ManifestDigest = Get-Sha256 $ManifestPath
 
-    $Manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+    $Manifest = Read-BoundedJson $ManifestPath $MaximumJsonBytes "Release manifest"
     if ($Manifest.schemaVersion -ne 1 -or [string]$Manifest.version -cnotmatch $VersionPattern -or [string]$Manifest.commit -cnotmatch '^[0-9a-f]{40}$') {
         throw "The signed manifest does not describe a supported release."
+    }
+    Assert-ReleaseVersion ([string]$Manifest.version)
+    $Artifacts = @($Manifest.artifacts)
+    if ($Artifacts.Count -le 0 -or $Artifacts.Count -gt $MaximumArtifacts) {
+        throw "The signed manifest artifact count is outside the supported range."
     }
     $Installers = @($Manifest.artifacts | Where-Object { $_.component -eq "desktop" -and $_.role -eq "installer" })
     if ($Installers.Count -ne 1) {
@@ -257,8 +422,14 @@ try {
     }
     $Installer = $Installers[0]
     $InstallerName = [string]$Installer.name
-    $InstallerPath = Copy-FromMedia $InstallerName $InstallerName
-    $null = Copy-FromMedia "$InstallerName.sigstore.json" "the signature bundle for $InstallerName"
+    if ($Installer.sha256 -isnot [string] -or [string]$Installer.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        $Installer.size -is [bool] -or $Installer.size -isnot [ValueType] -or
+        [decimal]$Installer.size -ne [math]::Truncate([decimal]$Installer.size) -or
+        [decimal]$Installer.size -le 0 -or [decimal]$Installer.size -gt $MaximumArtifactBytes) {
+        throw "The signed manifest gives the desktop installer an unsafe digest or size."
+    }
+    $InstallerPath = Copy-FromMedia $InstallerName $InstallerName $MaximumArtifactBytes
+    $null = Copy-FromMedia "$InstallerName.sigstore.json" "the signature bundle for $InstallerName" $MaximumSignatureBytes
     if ((Get-Sha256 $InstallerPath) -cne [string]$Installer.sha256 -or (Get-Item -LiteralPath $InstallerPath).Length -ne [long]$Installer.size) {
         throw "The installer does not match the signed manifest."
     }
@@ -269,39 +440,140 @@ try {
     if ($BreakGlass) {
         Write-Warning "BREAK-GLASS: installing a publisher-signed build without a signed ring decision. Ring, pause, rollback and generation policy were NOT applied; this is the operator's authority, not the ring's."
     } else {
-        # Member-name ForEach-Object honours -WhatIf and would skip the read; plain property access does not.
-        $Decisions = @(Get-ChildItem -LiteralPath $Root -File |
-            Where-Object { $_.Name -cmatch '^release-index-g[0-9]{10}\.json$' } |
-            Sort-Object -Property Name)
+        # Enumerate lazily and stop at a fixed ceiling; hostile removable media must not make
+        # PowerShell allocate an unbounded directory listing before any signature is checked.
+        $Decisions = [System.Collections.Generic.List[System.IO.FileInfo]]::new()
+        $DirectoryEntries = 0
+        foreach ($Candidate in [System.IO.Directory]::EnumerateFileSystemEntries($Root)) {
+            $DirectoryEntries++
+            if ($DirectoryEntries -gt $MaximumDirectoryEntries) {
+                throw "The offline bundle exceeds its directory-entry limit."
+            }
+            $Item = Get-Item -LiteralPath $Candidate -Force
+            if (-not $Item.PSIsContainer -and $Item.Name -cmatch '^release-index-g[0-9]{10}\.json$' -and
+                -not ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                if ($Decisions.Count -ge $MaximumDecisionFiles) {
+                    throw "The offline bundle contains too many ring decision files."
+                }
+                $Decisions.Add($Item)
+            }
+        }
+        $Decisions.Sort([System.Comparison[System.IO.FileInfo]]{
+            param($Left, $Right)
+            [string]::CompareOrdinal($Left.Name, $Right.Name)
+        })
         if ($Decisions.Count -eq 0) {
             throw "The offline bundle holds no signed ring decision; add the ring's release-index-g*.json or pass -BreakGlass."
         }
         $IndexName = @($Decisions[$Decisions.Count - 1].Name)
-        $EnvelopePath = Copy-FromMedia $IndexName[0] "the signed ring decision"
-        $Envelope = Get-Content -LiteralPath $EnvelopePath -Raw | ConvertFrom-Json
-        if ((Get-Property $Envelope "schemaVersion") -ne 1 -or
+        $EnvelopePath = Copy-FromMedia $IndexName[0] "the signed ring decision" $MaximumJsonBytes
+        $Envelope = Read-BoundedJson $EnvelopePath $MaximumJsonBytes "Signed ring envelope"
+        if (-not (Test-ExactProperties $Envelope @("schemaVersion", "mediaType", "payloadBase64", "sigstoreBundle")) -or
+            (Get-Property $Envelope "schemaVersion") -ne 1 -or
             (Get-Property $Envelope "mediaType") -cne "application/vnd.tarkov-companion.signed-release-index.v1+json" -or
             (Get-Property $Envelope "payloadBase64") -isnot [string] -or
             (Get-Property $Envelope "sigstoreBundle") -isnot [System.Management.Automation.PSCustomObject]) {
             throw "The ring envelope is malformed."
         }
         $IndexPath = Join-Path $Staging "release-index.json"
-        [System.IO.File]::WriteAllBytes($IndexPath, [Convert]::FromBase64String($Envelope.payloadBase64))
-        $Envelope.sigstoreBundle | ConvertTo-Json -Depth 32 -Compress | Set-Content -LiteralPath "$IndexPath.sigstore.json" -NoNewline -WhatIf:$false
+        try { $IndexBytes = [Convert]::FromBase64String($Envelope.payloadBase64) } catch {
+            throw "The ring envelope payload is not valid base64."
+        }
+        if ($IndexBytes.LongLength -le 0 -or $IndexBytes.LongLength -gt $MaximumJsonBytes) {
+            throw "The signed ring payload is outside its JSON byte limit."
+        }
+        [System.IO.File]::WriteAllBytes($IndexPath, $IndexBytes)
+        $BundleText = $Envelope.sigstoreBundle | ConvertTo-Json -Depth 32 -Compress
+        $BundleBytes = [System.Text.Encoding]::UTF8.GetBytes($BundleText)
+        if ($BundleBytes.LongLength -le 0 -or $BundleBytes.LongLength -gt $MaximumSignatureBytes) {
+            throw "The ring envelope's signature bundle is outside its byte limit."
+        }
+        [System.IO.File]::WriteAllBytes("$IndexPath.sigstore.json", $BundleBytes)
         Invoke-Verification $IndexPath
 
-        $Index = Get-Content -LiteralPath $IndexPath -Raw | ConvertFrom-Json
+        $Index = Read-BoundedJson $IndexPath $MaximumJsonBytes "Signed ring payload"
         $Generation = [long]$IndexName[0].Substring(15, 10)
         $Release = Get-Property $Index "release"
         $Authorization = Get-Property $Index "authorization"
-        if ((Get-Property $Index "schemaVersion") -ne 1 -or
+        $IndexGeneration = Get-Property $Index "generation"
+        $PreviousGeneration = Get-Property $Authorization "previousGeneration"
+        if (-not (Test-BoundedInteger $IndexGeneration 1 9999999999) -or
+            -not (Test-BoundedInteger $PreviousGeneration 0 9999999998)) {
+            throw "The signed ring decision has an unsupported generation."
+        }
+        $Previous = Get-Property $Index "previous"
+        $LastKnownGood = Get-Property $Index "lastKnownGood"
+        $Rollback = Get-Property $Index "rollback"
+        $Action = Get-Property $Authorization "action"
+        $SourceRing = Get-Property $Authorization "sourceRing"
+        $SourceGeneration = Get-Property $Authorization "sourceGeneration"
+        $VerificationRunId = Get-Property $Authorization "verificationRunId"
+        $IndexFields = @("schemaVersion", "mediaType", "feedRepository", "ring", "generation", "updatedUtc",
+            "paused", "release", "previous", "lastKnownGood", "highWaterVersion", "rollback", "authorization")
+        $AuthorizationFields = @("action", "actor", "reason", "workflowRunId", "verificationRunId", "sourceRing",
+            "sourceGeneration", "previousGeneration")
+        if (-not (Test-ExactProperties $Index $IndexFields) -or
+            -not (Test-ExactProperties $Authorization $AuthorizationFields) -or
+            (Get-Property $Index "schemaVersion") -ne 1 -or
             (Get-Property $Index "mediaType") -cne "application/vnd.tarkov-companion.release-index.v1+json" -or
             (Get-Property $Index "feedRepository") -cne $FeedRepository -or
             (Get-Property $Index "ring") -cne $Ring -or
-            [long](Get-Property $Index "generation") -ne $Generation -or
-            [long](Get-Property $Authorization "previousGeneration") -ne ($Generation - 1) -or
-            (Get-Property $Index "paused") -isnot [bool]) {
+            [long]$IndexGeneration -ne $Generation -or
+            [long]$PreviousGeneration -ne ($Generation - 1) -or
+            (Get-Property $Index "paused") -isnot [bool] -or
+            -not (Test-ReleaseIdentity $Release) -or
+            ($null -ne $Previous -and -not (Test-ReleaseIdentity $Previous)) -or
+            ($null -ne $LastKnownGood -and -not (Test-ReleaseIdentity $LastKnownGood)) -or
+            (Get-Property $Index "highWaterVersion") -isnot [string]) {
             throw "The signed ring decision is not a $Ring decision for $FeedRepository."
+        }
+        try {
+            Assert-ReleaseVersion ([string](Get-Property $Index "highWaterVersion"))
+            if ((Compare-ReleaseVersion ([string](Get-Property $Index "highWaterVersion")) ([string](Get-Property $Release "version"))) -lt 0) {
+                throw "high water below release"
+            }
+        } catch { throw "The signed ring decision has an invalid high-water version." }
+        if ($null -ne $Rollback) {
+            $RollbackFrom = Get-Property $Rollback "from"
+            if (-not (Test-ExactProperties $Rollback @("generation", "from")) -or
+                -not (Test-BoundedInteger (Get-Property $Rollback "generation") 1 $Generation) -or
+                -not (Test-ReleaseIdentity $RollbackFrom) -or
+                -not (Test-SameRelease $RollbackFrom $Previous) -or
+                -not (Test-SameRelease $Release $LastKnownGood) -or
+                (Test-SameRelease $RollbackFrom $Release)) {
+                throw "The signed ring decision has an inconsistent rollback authorization."
+            }
+        }
+        $Actor = Get-Property $Authorization "actor"
+        $Reason = Get-Property $Authorization "reason"
+        $ExpectedSourceRing = if ($Ring -ceq "beta") { "canary" } elseif ($Ring -ceq "stable") { "beta" } else { $null }
+        $KnownActions = @("publish", "promote", "pause", "resume", "mark-lkg", "rollback")
+        if ($KnownActions -cnotcontains $Action -or
+            $Actor -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$Actor) -or
+            [string]$Actor -cne ([string]$Actor).Trim() -or ([string]$Actor).Length -gt 256 -or
+            $Reason -isnot [string] -or ([string]$Reason).Length -gt 2048 -or
+            -not (Test-DecimalIdentifier (Get-Property $Authorization "workflowRunId")) -or
+            ($null -ne $VerificationRunId -and -not (Test-DecimalIdentifier $VerificationRunId)) -or
+            (($null -eq $SourceRing) -ne ($null -eq $SourceGeneration)) -or
+            ($null -ne $SourceRing -and $SourceRing -cnotin @("canary", "beta")) -or
+            ($null -ne $SourceGeneration -and -not (Test-BoundedInteger $SourceGeneration 1 9999999999)) -or
+            (($Action -ceq "promote") -ne ($null -ne $SourceRing)) -or
+            ($Action -ceq "promote" -and $SourceRing -cne $ExpectedSourceRing) -or
+            ($Action -ceq "publish" -and ($Ring -cne "canary" -or $null -eq $VerificationRunId)) -or
+            ($Action -cne "publish" -and $null -ne $VerificationRunId) -or
+            ($Action -cin @("publish", "promote") -and [bool](Get-Property $Index "paused")) -or
+            ($Action -ceq "pause" -and -not [bool](Get-Property $Index "paused")) -or
+            ($Action -ceq "resume" -and [bool](Get-Property $Index "paused")) -or
+            ($Action -ceq "rollback" -and $null -eq $Rollback) -or
+            ($null -ne $Rollback -and $Action -cnotin @("rollback", "pause", "resume"))) {
+            throw "The signed ring decision has inconsistent transition authorization."
+        }
+        $Timestamp = [datetime]::MinValue
+        if ((Get-Property $Index "updatedUtc") -isnot [string] -or
+            -not [datetime]::TryParseExact([string](Get-Property $Index "updatedUtc"), "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal,
+                [ref]$Timestamp) -or $Timestamp.ToUniversalTime() -gt [datetime]::UtcNow.AddMinutes(5)) {
+            throw "The signed ring decision has an invalid or implausibly future timestamp."
         }
         if ((Get-Property $Release "manifestSha256") -cne $ManifestDigest -or
             (Get-Property $Release "version") -cne [string]$Manifest.version -or
@@ -311,7 +583,7 @@ try {
         if ($Generation -lt $MinimumGeneration) {
             throw "Refusing $Ring generation $Generation below the required generation $MinimumGeneration."
         }
-        $RollbackAuthorized = $null -ne (Get-Property $Index "rollback")
+        $RollbackAuthorized = $null -ne $Rollback
         if ($Index.paused -and -not $RollbackAuthorized) {
             throw "$Ring is paused at generation $Generation; consumers hold where they are."
         }
@@ -325,14 +597,27 @@ try {
         $InstalledInfo = Join-Path $Current "BUILD_INFO.txt"
         $InstalledVersion = ""
         if (Test-Path -LiteralPath $InstalledInfo -PathType Leaf) {
-            $Line = @(Get-Content -LiteralPath $InstalledInfo | Where-Object { $_ -cmatch '^version=' } | Select-Object -First 1)
+            $InfoItem = Get-Item -LiteralPath $InstalledInfo -Force
+            if (($InfoItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $InfoItem.Length -gt 65536) {
+                throw "The installed BUILD_INFO.txt is redirected or outside its byte limit."
+            }
+            $Line = @((Read-BoundedText $InstalledInfo 65536 "Installed BUILD_INFO.txt").Split("`n") |
+                ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_ -cmatch '^version=' })
             if ($Line.Count -eq 1) { $InstalledVersion = $Line[0].Substring(8) }
         }
         if ($InstalledVersion -cnotmatch $VersionPattern) {
             if (-not $AllowDowngrade) {
                 throw "The installed version under $Current cannot be read; refusing to install over it without -AllowDowngrade."
             }
-        } elseif ((Compare-ReleaseVersion ([string]$Manifest.version) $InstalledVersion) -lt 0 -and -not $RollbackAuthorized -and -not $AllowDowngrade) {
+        } else {
+            try { Assert-ReleaseVersion $InstalledVersion } catch {
+                if (-not $AllowDowngrade) {
+                    throw "The installed version under $Current cannot be read; refusing to install over it without -AllowDowngrade."
+                }
+                $InstalledVersion = ""
+            }
+        }
+        if ($InstalledVersion -and (Compare-ReleaseVersion ([string]$Manifest.version) $InstalledVersion) -lt 0 -and -not $RollbackAuthorized -and -not $AllowDowngrade) {
             throw "Refusing to install $($Manifest.version) over the newer installed $InstalledVersion without a signed rollback or -AllowDowngrade."
         }
     }
@@ -348,8 +633,33 @@ try {
         throw "The verified installer exited with code $($Process.ExitCode)."
     }
     $Installed = Join-Path $InstallRoot "current/TarkovCompanion.exe"
-    if (-not (Test-Path -LiteralPath $Installed -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $Installed -PathType Leaf) -or
+        ((Get-Item -LiteralPath $Installed -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
         throw "The installer reported success but the application is not installed."
+    }
+    $InstalledBuildInfo = Join-Path $InstallRoot "current/BUILD_INFO.txt"
+    if (-not (Test-Path -LiteralPath $InstalledBuildInfo -PathType Leaf)) {
+        throw "The installer reported success but installed no BUILD_INFO.txt identity."
+    }
+    $InstalledInfoItem = Get-Item -LiteralPath $InstalledBuildInfo -Force
+    if (($InstalledInfoItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -or $InstalledInfoItem.Length -gt 65536) {
+        throw "The installer reported success but installed a redirected or oversized BUILD_INFO.txt identity."
+    }
+    $InstalledIdentity = @{}
+    foreach ($Line in (Read-BoundedText $InstalledBuildInfo 65536 "Installed BUILD_INFO.txt").Split("`n")) {
+        $Line = $Line.TrimEnd("`r")
+        if (-not $Line) { continue }
+        if ($Line -cnotmatch '^(?<key>version|commit|built_utc)=(?<value>.+)$') {
+            throw "The installed BUILD_INFO.txt contains an unknown or malformed line."
+        }
+        if ($InstalledIdentity.ContainsKey($Matches.key)) {
+            throw "The installed BUILD_INFO.txt repeats $($Matches.key)."
+        }
+        $InstalledIdentity[$Matches.key] = $Matches.value
+    }
+    if ($InstalledIdentity.version -cne [string]$Manifest.version -or
+        $InstalledIdentity.commit -cne [string]$Manifest.commit) {
+        throw "The installer exited successfully but installed identity $($InstalledIdentity.version)+$($InstalledIdentity.commit), not signed release $($Manifest.version)+$($Manifest.commit)."
     }
     Write-Host "Installed signed Tarkov Companion $($Manifest.version)."
 } finally {

@@ -174,6 +174,29 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual([], self.releases())
         self.assertEqual({}, self.ring("canary"))
 
+    def test_a_candidate_manifest_changed_after_signing_is_refused_before_publication(self) -> None:
+        release = self.signed_release("1.0.608")
+        manifest = release / "release-manifest.json"
+        value = json.loads(manifest.read_text(encoding="utf-8"))
+        value["commit"] = "d" * 40
+        manifest.write_text(json.dumps(value), encoding="utf-8")
+
+        result = self.transition("publish", "canary", release=release)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("signs different bytes", result.stderr)
+        self.assertEqual([], self.releases())
+        self.assertEqual({}, self.ring("canary"))
+
+    def test_transition_retry_count_is_bounded_before_feed_access(self) -> None:
+        for value in ("0", "01", "11", "999999999999999999999999"):
+            with self.subTest(value=value):
+                result = self.transition("pause", "canary", TRANSITION_ATTEMPTS=value)
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("TRANSITION_ATTEMPTS", result.stderr)
+                self.assertEqual({}, self.ring("canary"))
+
     # Races and interruptions ------------------------------------------------------------------
 
     def test_a_lost_race_recomputes_from_the_winner_without_overwriting_it(self) -> None:

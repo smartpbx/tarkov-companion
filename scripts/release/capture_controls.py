@@ -124,9 +124,11 @@ def evaluate(api: Api, source: str, feed: str | None) -> list[dict[str, Any]]:
         policy = environment.get("deployment_branch_policy") or {}
         branch_state, branches = read(f"repos/{source}/environments/{name}/deployment-branch-policies")
         names = sorted(item.get("name") for item in (branches or {}).get("branch_policies", [])) if branch_state == "ok" else None
-        main_only = policy.get("protected_branches") is True or (policy.get("custom_branch_policies") is True and names == ["main"])
+        # `protected_branches: true` means every protected branch, not main. It may be a sound
+        # deployment policy, but it is not evidence for the narrower claim this record makes.
+        main_only = policy.get("custom_branch_policies") is True and names == ["main"]
         findings.append(finding(f"environment {name}: deployments only from main",
-                                "met" if main_only else "gap", {"policy": policy, "branches": names}, "protected branches or exactly main"))
+                                "met" if main_only else "gap", {"policy": policy, "branches": names}, "custom branch policy naming exactly main"))
         if ring != "canary":
             prevents_self = any(rule.get("prevent_self_review") for rule in reviewers)
             findings.append(finding(f"environment {name}: required reviewer who is not the dispatcher",

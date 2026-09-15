@@ -354,6 +354,29 @@ class FeedTests(unittest.TestCase):
             self.feed.publish_build("v2-build-1.0.608", directory, manifest)
         self.assertEqual([], self.github.releases)
 
+    def test_downloads_are_bound_to_githubs_recorded_size_and_digest(self) -> None:
+        directory, manifest = self.build_directory()
+        self.feed.publish_build("v2-build-1.0.608", directory, manifest)
+        output = self.root / "download"
+
+        self.feed.download_build_files(
+            "v2-build-1.0.608", ["release-manifest.json", "release-manifest.json.sigstore.json"], output)
+
+        self.assertEqual(manifest.read_bytes(), (output / "release-manifest.json").read_bytes())
+        asset = self.github.releases[0]["assets"]["release-manifest.json"]
+        asset["content"] = base64.b64encode(b"different").decode()
+        with self.assertRaisesRegex(FeedError, "recorded size|recorded digest"):
+            self.feed.download_build_files("v2-build-1.0.608", ["release-manifest.json"], self.root / "corrupt")
+
+    def test_an_asset_claiming_an_unbounded_size_is_refused_before_download(self) -> None:
+        directory, manifest = self.build_directory()
+        self.feed.publish_build("v2-build-1.0.608", directory, manifest)
+        self.github.releases[0]["assets"]["release-manifest.json"]["size"] = feed_module.MAX_JSON_BYTES + 1
+
+        with self.assertRaisesRegex(FeedError, "size limit"):
+            self.feed.download_build_files("v2-build-1.0.608", ["release-manifest.json"], self.root / "too-large")
+        self.assertFalse((self.root / "too-large/release-manifest.json").exists())
+
     def test_an_earlier_attempts_build_is_adopted_only_if_it_is_the_same_build(self) -> None:
         existing = {"schemaVersion": 1, "version": "1.0.608", "commit": "c" * 40, "builtUtc": "t", "versions": {"package": "1.0.608"},
                     "source": {"verificationRunId": "1"},

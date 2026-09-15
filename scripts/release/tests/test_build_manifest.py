@@ -19,6 +19,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 RELEASE_DIRECTORY = Path(__file__).resolve().parents[1]
@@ -26,6 +27,7 @@ REPOSITORY_ROOT = RELEASE_DIRECTORY.parents[1]
 sys.path.insert(0, str(RELEASE_DIRECTORY))
 
 import build_manifest  # noqa: E402
+import build_components  # noqa: E402
 from build_manifest import ManifestError  # noqa: E402
 
 
@@ -78,6 +80,8 @@ class BuildManifestTests(unittest.TestCase):
                    "public static V2ContractVersion Current { get; } = new(2, 0);\n")
         self.write(self.source / "src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs",
                    "public const int Version = 2;\n")
+        self.write(self.source / "src/TarkovCompanion.Infrastructure/Recognition/Tessdata/eng.traineddata",
+                   b"reviewed model bytes")
         self.write(self.source / "docs/THIRD_PARTY_NOTICES.md", NOTICES)
         self.write(self.source / "docs/THIRD_PARTY_INVENTORY.json", json.dumps(INVENTORY, indent=2) + "\n")
         for name, value in DEPLOY.items():
@@ -169,6 +173,19 @@ class BuildManifestTests(unittest.TestCase):
             "version": VERSION, "commit": COMMIT, "builtUtc": BUILT, "asset": DESKTOP,
             "sha256": sha256(desktop), "branch": "main", "run": RUN_ID,
         }, indent=2))
+        component_data = json.dumps({
+            "schemaVersion": 1, "version": VERSION, "commit": COMMIT, "builtUtc": BUILT,
+            "contracts": {"databaseSchema": "0010", "relayProtocol": 1, "v2Contract": "2.0", "questExchange": 2},
+        }, indent=2, sort_keys=True).encode() + b"\n"
+        component_model = (self.source / "src/TarkovCompanion.Infrastructure/Recognition/Tessdata/eng.traineddata").read_bytes()
+        component_files = {
+            f"TarkovCompanion-data-{VERSION}.json": component_data,
+            f"TarkovCompanion-model-eng-{VERSION}.traineddata": component_model,
+        }
+        for name, value in component_files.items():
+            self.write(windows / name, value)
+        self.write(windows / "COMPONENT-SHA256SUMS.txt",
+                   "".join(f"{sha256(value)}  {name}\n" for name, value in sorted(component_files.items())))
         self.write(relay_directory / RELAY, relay)
         self.write(relay_directory / "GROUPSERVER-SHA256SUMS.txt", f"{sha256(relay)}  {RELAY}\n")
 
@@ -234,6 +251,16 @@ class BuildManifestTests(unittest.TestCase):
         with self.assertRaises(ManifestError):
             build_manifest.collect([self.artifacts / "relay"], self.root / "deep")
 
+    def test_release_directory_enumeration_stops_at_its_bound(self) -> None:
+        directory = self.root / "too-many"
+        directory.mkdir()
+        for index in range(5):
+            self.write(directory / f"{index}.txt", b"x")
+
+        with mock.patch.object(build_manifest, "MAX_ARTIFACT_COUNT", 1):
+            with self.assertRaisesRegex(ManifestError, "directory-entry limit"):
+                build_manifest.directory_entries(directory, "fixture")
+
     def test_checksum_names_are_reduced_to_safe_file_names(self) -> None:
         sums = self.write(self.root / "sums.txt", f"{'1' * 64} */d/a/x/dist/{DESKTOP}\n{'2' * 64} *RELEASES\n{'3' * 64}  C:\\\\dist\\\\{RELAY}\n")
         self.assertEqual({DESKTOP: "1" * 64, "RELEASES": "2" * 64, RELAY: "3" * 64}, build_manifest.parse_sums(sums))
@@ -244,6 +271,30 @@ class BuildManifestTests(unittest.TestCase):
                 build_manifest.parse_sums(sums)
 
     # Reconciliation --------------------------------------------------------------------------
+
+    def test_component_builder_versions_and_copies_reviewed_inputs(self) -> None:
+        output = self.root / "components"
+
+        paths = build_components.build(self.source, output, self.artifacts / "windows/update.json")
+
+        self.assertEqual(3, len(paths))
+        self.assertEqual(
+            (self.source / "src/TarkovCompanion.Infrastructure/Recognition/Tessdata/eng.traineddata").read_bytes(),
+            (output / f"TarkovCompanion-model-eng-{VERSION}.traineddata").read_bytes(),
+        )
+        data = json.loads((output / f"TarkovCompanion-data-{VERSION}.json").read_text())
+        self.assertEqual(COMMIT, data["commit"])
+        self.assertEqual("0010", data["contracts"]["databaseSchema"])
+
+    def test_component_builder_refuses_a_version_that_could_escape_its_directory(self) -> None:
+        update = json.loads((self.artifacts / "windows/update.json").read_text())
+        update["version"] = "../../outside"
+        path = self.write(self.root / "hostile-update.json", json.dumps(update))
+
+        with self.assertRaises(ValueError):
+            build_components.build(self.source, self.root / "hostile-components", path)
+
+        self.assertFalse((self.root / "hostile-components").exists())
 
     def test_a_coherent_payload_reconciles_every_version(self) -> None:
         identity = self.reconcile()
@@ -268,7 +319,9 @@ class BuildManifestTests(unittest.TestCase):
         self.assertEqual(("release", "sbom"), roles["TarkovCompanion.spdx.json"])
         self.assertIn("BINARY-SHA256SUMS.txt", roles)
         self.assertEqual(f"{VERSION}+{COMMIT}", manifest["versions"]["assemblyInformational"])
-        self.assertEqual([], manifest["feeds"]["data"]["artifacts"])
+        self.assertEqual([f"TarkovCompanion-data-{VERSION}.json"], manifest["feeds"]["data"]["artifacts"])
+        self.assertEqual([f"TarkovCompanion-model-eng-{VERSION}.traineddata"], manifest["feeds"]["model"]["artifacts"])
+        self.assertNotIn(f"TarkovCompanion-data-{VERSION}.json", manifest["feeds"]["binary"]["artifacts"])
         for item in manifest["artifacts"]:
             self.assertEqual(sha256((self.payload / item["name"]).read_bytes()), item["sha256"])
         self.assertEqual(2, manifest["source"]["verificationRunAttempt"])

@@ -47,6 +47,17 @@ readonly COSIGN_PINS=(
     c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
 )
 readonly BUNDLE_MEDIA_TYPE="application/vnd.dev.sigstore.bundle.v0.3+json"
+readonly MAX_JSON_BYTES=$((16 * 1024 * 1024))
+readonly MAX_SIGNATURE_BYTES=$((2 * 1024 * 1024))
+readonly MAX_ARCHIVE_BYTES=$((512 * 1024 * 1024))
+readonly MAX_ARCHIVE_MEMBERS=8192
+readonly MAX_MEMBER_BYTES=$((512 * 1024 * 1024))
+readonly MAX_EXPANDED_BYTES=$((1024 * 1024 * 1024))
+readonly MIN_FREE_RESERVE_BYTES=$((256 * 1024 * 1024))
+readonly MAX_COMMAND_OUTPUT_BYTES=$((64 * 1024))
+readonly MAX_SEMVER_NUMBER=2147483647
+readonly MAX_GENERATION=9999999999
+readonly MAX_OFFLINE_DIRECTORY_ENTRIES=16384
 # A directory holding a signed ring index, its manifest, the relay archive and their bundles.
 # Set, it replaces the network entirely: the recovery path when the feed is down or unreachable.
 readonly OFFLINE_BUNDLE="${TARKOV_RELEASE_BUNDLE_DIR:-}"
@@ -122,12 +133,226 @@ refuse() {
     exit 1
 }
 
+decimal_at_most() {
+    local value="${1#${1%%[!0]*}}" maximum="$2"
+    [[ -n "${value}" ]] || value=0
+    ((${#value} < ${#maximum})) || { ((${#value} == ${#maximum})) && [[ "${value}" < "${maximum}" || "${value}" == "${maximum}" ]]; }
+}
+
+valid_generation() {
+    [[ "$1" =~ ^(0|[1-9][0-9]{0,9})$ ]] && decimal_at_most "$1" "${MAX_GENERATION}"
+}
+
+valid_semver() {
+    local version="$1" part prerelease identifier parts=()
+    [[ "${version}" =~ ${VERSION_PATTERN} ]] || return 1
+    for part in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"; do
+        decimal_at_most "${part}" "${MAX_SEMVER_NUMBER}" || return 1
+    done
+    prerelease="${BASH_REMATCH[5]}"
+    IFS=. read -r -a parts <<< "${prerelease}"
+    for identifier in "${parts[@]}"; do
+        if [[ "${identifier}" =~ ^[0-9]+$ ]]; then
+            decimal_at_most "${identifier}" "${MAX_SEMVER_NUMBER}" || return 1
+        fi
+    done
+}
+
+# A regular file whose name and containing directory cannot be replaced by an untrusted user.
+secure_input_file() {
+    local path="$1" label="$2" secret="${3:-0}" resolved parent owner mode
+    [[ -f "${path}" && ! -L "${path}" ]] || refuse "${label} ${path} is absent or is not a plain file"
+    resolved="$(readlink -f -- "${path}")"
+    [[ -n "${resolved}" && "${resolved}" == "${path}" ]] || refuse "${label} ${path} resolves somewhere else"
+    parent="$(dirname -- "${path}")"
+    [[ ! -L "${parent}" && "$(readlink -f -- "${parent}")" == "${parent}" ]] \
+        || refuse "the directory holding ${label} ${path} is redirected"
+    for candidate in "${path}" "${parent}"; do
+        owner="$(stat -c %u -- "${candidate}")"
+        [[ "${owner}" == 0 || "${owner}" == "$(id -u)" ]] \
+            || refuse "${candidate} belongs to uid ${owner}; ${label} must be controlled by the updater"
+        mode="$(stat -c %a -- "${candidate}")"
+        if ((8#${mode} & 8#022)); then
+            refuse "${candidate} is writable by other users; ${label} must not be replaceable"
+        fi
+    done
+    if ((secret)) && ((8#$(stat -c %a -- "${path}") & 8#077)); then
+        refuse "the feed credential ${path} is readable by other users; make it mode 0600"
+    fi
+}
+
+validate_json_file() {
+    local path="$1" maximum="${2:-${MAX_JSON_BYTES}}" label="${3:-$(basename -- "$1")}";
+    python3 - "${path}" "${maximum}" "${label}" <<'PY'
+import json
+import pathlib
+import sys
+
+path, maximum, label = pathlib.Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+with path.open("rb") as stream:
+    value = stream.read(maximum + 1)
+    if len(value) > maximum or stream.read(1):
+        raise SystemExit(f"{label} exceeds its {maximum}-byte limit")
+depth = 0
+quoted = escaped = False
+for byte in value:
+    char = chr(byte)
+    if quoted:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            quoted = False
+    elif char == '"':
+        quoted = True
+    elif char in "[{":
+        depth += 1
+        if depth > 32:
+            raise SystemExit(f"{label} exceeds the JSON nesting limit")
+    elif char in "]}":
+        depth -= 1
+        if depth < 0:
+            raise SystemExit(f"{label} has unbalanced JSON delimiters")
+if quoted or depth:
+    raise SystemExit(f"{label} has unbalanced JSON")
+try:
+    json.loads(value.decode("utf-8-sig"))
+except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
+    raise SystemExit(f"{label} is not valid bounded JSON: {error}")
+PY
+}
+
+bounded_copy() {
+    local source="$1" target="$2" maximum="$3" label="$4" expected_size copied_size
+    [[ -f "${source}" && ! -L "${source}" ]] || refuse "${label} is missing or not a plain file"
+    expected_size="$(stat -c %s -- "${source}")"
+    ((expected_size > 0 && expected_size <= maximum)) \
+        || refuse "${label} is ${expected_size} bytes, outside its ${maximum}-byte limit"
+    head -c "$((maximum + 1))" -- "${source}" > "${target}"
+    copied_size="$(stat -c %s -- "${target}")"
+    ((copied_size == expected_size && copied_size <= maximum)) \
+        || { rm -f -- "${target}"; refuse "${label} changed or exceeded its byte limit while copied"; }
+}
+
+extract_bounded_archive() {
+    local archive="$1" destination="$2" size
+    size="$(stat -c %s -- "${archive}")"
+    ((size > 0 && size <= MAX_ARCHIVE_BYTES)) \
+        || refuse "the relay archive is ${size} bytes, outside its compressed-size limit"
+    python3 - "${archive}" "${destination}" \
+        "${MAX_ARCHIVE_MEMBERS}" "${MAX_MEMBER_BYTES}" "${MAX_EXPANDED_BYTES}" "${MIN_FREE_RESERVE_BYTES}" <<'PY'
+import os
+from pathlib import Path, PurePosixPath
+import shutil
+import sys
+import tarfile
+
+archive_path, destination = Path(sys.argv[1]), Path(sys.argv[2])
+member_limit, file_limit, expanded_limit, reserve = map(int, sys.argv[3:])
+destination.mkdir(parents=True, exist_ok=False)
+seen: set[str] = set()
+expanded = count = 0
+try:
+    with tarfile.open(archive_path, "r|gz") as archive:
+        for member in archive:
+            count += 1
+            if count > member_limit:
+                raise ValueError(f"relay archive has more than {member_limit} entries")
+            raw = member.name
+            path = PurePosixPath(raw)
+            if path.is_absolute() or ".." in path.parts or "\\" in raw or not (member.isfile() or member.isdir()):
+                raise ValueError(f"relay archive has an unsafe entry: {raw}")
+            parts = tuple(part for part in path.parts if part not in ("", "."))
+            if not parts:
+                if member.isdir():
+                    continue
+                raise ValueError("relay archive has an empty file name")
+            normalized = "/".join(parts)
+            if normalized in seen:
+                raise ValueError(f"relay archive repeats {normalized}")
+            seen.add(normalized)
+            target = destination.joinpath(*parts)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True, mode=0o755)
+                target.chmod(0o755)
+                continue
+            if member.size < 0 or member.size > file_limit:
+                raise ValueError(f"relay archive entry {normalized} exceeds the per-file limit")
+            expanded += member.size
+            if expanded > expanded_limit:
+                raise ValueError("relay archive exceeds the expanded-size limit")
+            if shutil.disk_usage(destination).free < member.size + reserve:
+                raise ValueError("not enough free space remains for bounded extraction")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source = archive.extractfile(member)
+            if source is None:
+                raise ValueError(f"relay archive cannot read {normalized}")
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            written = 0
+            mode = 0o755 if member.mode & 0o111 else 0o644
+            descriptor = os.open(target, flags, mode)
+            try:
+                with os.fdopen(descriptor, "wb") as sink:
+                    descriptor = -1
+                    while True:
+                        chunk = source.read(min(1024 * 1024, member.size - written + 1))
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        if written > member.size:
+                            raise ValueError(f"relay archive entry {normalized} expands beyond its declared size")
+                        sink.write(chunk)
+            finally:
+                source.close()
+                if descriptor >= 0:
+                    os.close(descriptor)
+            if written != member.size:
+                raise ValueError(f"relay archive entry {normalized} is truncated")
+except Exception:
+    shutil.rmtree(destination, ignore_errors=True)
+    raise
+PY
+}
+
+select_offline_index() {
+    python3 - "$1" "${MAX_OFFLINE_DIRECTORY_ENTRIES}" <<'PY'
+import os
+from pathlib import Path
+import re
+import sys
+
+directory, maximum = Path(sys.argv[1]), int(sys.argv[2])
+if directory.is_symlink() or not directory.is_dir():
+    raise SystemExit("offline bundle is not a plain directory")
+pattern = re.compile(r"^release-index-g([0-9]{10})\.json$")
+selected = None
+with os.scandir(directory) as entries:
+    for count, entry in enumerate(entries, start=1):
+        if count > maximum:
+            raise SystemExit(f"offline bundle exceeds its {maximum}-entry directory limit")
+        match = pattern.fullmatch(entry.name)
+        if match is None or not entry.is_file(follow_symlinks=False):
+            continue
+        candidate = (int(match.group(1)), entry.name)
+        if candidate[0] > 0 and (selected is None or candidate > selected):
+            selected = candidate
+if selected is None:
+    raise SystemExit("offline bundle holds no plain signed ring decision")
+print(selected[1])
+PY
+}
+
 # 0 when the first version orders before the second under SemVer 2.0 precedence, 1 otherwise.
 semver_less() {
     local left=() right=() index
-    [[ "$1" =~ ${VERSION_PATTERN} ]] || return 2
+    valid_semver "$1" || return 2
+    [[ "$1" =~ ${VERSION_PATTERN} ]]
     left=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}")
-    [[ "$2" =~ ${VERSION_PATTERN} ]] || return 2
+    valid_semver "$2" || return 2
+    [[ "$2" =~ ${VERSION_PATTERN} ]]
     right=("${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[5]}")
     for index in 0 1 2; do
         if ((10#${left[index]} != 10#${right[index]})); then
@@ -266,6 +491,8 @@ rollback_failed_swap() {
     done
     if [[ -f "${SWAP}/deployment/updater" ]] && ! cmp -s "${SWAP}/deployment/updater" "${SELF}"; then
         install -m 0755 "${SWAP}/deployment/updater" "${SELF}.incoming" && mv -fT -- "${SELF}.incoming" "${SELF}"
+    elif [[ -f "${SWAP}/deployment/updater.absent" && ( -e "${SELF}" || -L "${SELF}" ) ]]; then
+        rm -f -- "${SELF}"
     fi
     ((units_restored)) && systemctl daemon-reload
 
@@ -345,10 +572,12 @@ resolve_cosign() {
 }
 
 verify_signed() {
-    local file="$1" bundle="$2" encoded signed output
+    local file="$1" bundle="$2" encoded signed diagnostic detail
     # The bundle format is settled here rather than by cosign's format detection: exactly one
     # standardized v0.3 message-signature bundle, one certificate, one log entry, and a digest
     # of these bytes. The legacy format, DSSE envelopes, bare keys and chains are refused.
+    validate_json_file "${bundle}" "${MAX_SIGNATURE_BYTES}" "signature bundle for $(basename -- "${file}")" \
+        || refuse "the signature bundle for $(basename -- "${file}") is not bounded valid JSON"
     if ! encoded="$(jq -r \
         --arg mediaType "${BUNDLE_MEDIA_TYPE}" \
         'if type == "object"
@@ -371,17 +600,22 @@ verify_signed() {
     signed="$(base64 --decode <<<"${encoded}" | od -An -v -tx1 | tr -d ' \n')"
     [[ "${signed}" == "$(sha256sum -- "${file}" | awk '{print $1}')" ]] \
         || refuse "the signature bundle for $(basename "${file}") signs different bytes"
-    if ! output="$("${TASK_COSIGN}" verify-blob \
-        --bundle "${bundle}" \
-        --trusted-root "${TRUST_ROOT}" \
-        --certificate-identity "${SIGNER_IDENTITY}" \
-        --certificate-oidc-issuer "${SIGNER_ISSUER}" \
-        --certificate-github-workflow-repository "${SIGNER_REPOSITORY}" \
-        --certificate-github-workflow-ref "${SIGNER_REF}" \
-        "${file}" 2>&1)"; then
-        log "${output}"
+    diagnostic="$(mktemp "${TASK_WORK}/cosign.XXXXXX")"
+    if ! ( ulimit -f "$(((MAX_COMMAND_OUTPUT_BYTES + 1023) / 1024))"
+        "${TASK_COSIGN}" verify-blob \
+            --bundle "${bundle}" \
+            --trusted-root "${TRUST_ROOT}" \
+            --certificate-identity "${SIGNER_IDENTITY}" \
+            --certificate-oidc-issuer "${SIGNER_ISSUER}" \
+            --certificate-github-workflow-repository "${SIGNER_REPOSITORY}" \
+            --certificate-github-workflow-ref "${SIGNER_REF}" \
+            "${file}" >"${diagnostic}" 2>&1 ); then
+        detail="$(head -c "${MAX_COMMAND_OUTPUT_BYTES}" -- "${diagnostic}")"
+        rm -f -- "${diagnostic}"
+        [[ -z "${detail}" ]] || log "${detail}"
         refuse "the signature on $(basename "${file}") does not verify for the release publisher"
     fi
+    rm -f -- "${diagnostic}"
 }
 
 # The only way the feed credential reaches a process, and the only process it reaches.
@@ -390,17 +624,38 @@ feed_gh() {
         gh "$@"
 }
 
+feed_gh_text() {
+    local maximum="$1" label="$2" output size
+    shift 2
+    output="$(mktemp "${TASK_WORK}/gh-response.XXXXXX")"
+    ( ulimit -f "$(((maximum + 1023) / 1024))"; feed_gh "$@" > "${output}" ) \
+        || { rm -f -- "${output}"; refuse "${label} failed or exceeded its ${maximum}-byte limit"; }
+    size="$(stat -c %s -- "${output}")"
+    ((size <= maximum)) || { rm -f -- "${output}"; refuse "${label} exceeded its ${maximum}-byte limit"; }
+    tr -d '\r' < "${output}"
+    rm -f -- "${output}"
+}
+
 # Every file is copied into the private work directory first and verified there, so what is
 # checked is what is used: an offline bundle on shared media can change after it is read.
 fetch_build_file() {
-    local tag="$1" name="$2"
+    local tag="$1" name="$2" maximum asset_size
+    maximum="${MAX_ARCHIVE_BYTES}"
+    [[ "${name}" == *.sigstore.json ]] && maximum="${MAX_SIGNATURE_BYTES}"
+    [[ "${name}" == *.json && "${name}" != *.sigstore.json ]] && maximum="${MAX_JSON_BYTES}"
     if [[ -n "${OFFLINE_BUNDLE}" ]]; then
-        [[ -f "${OFFLINE_BUNDLE}/${name}" ]] || refuse "the offline bundle has no ${name}"
-        cp -- "${OFFLINE_BUNDLE}/${name}" "${TASK_WORK}/${name}"
+        bounded_copy "${OFFLINE_BUNDLE}/${name}" "${TASK_WORK}/${name}" "${maximum}" "offline ${name}"
     else
-        feed_gh release download "${tag}" --repo "${RELEASE_REPOSITORY}" --pattern "${name}" \
-            --dir "${TASK_WORK}" --clobber
+        # RLIMIT_FSIZE is inherited by gh, so even a transport that ignores or lies about
+        # Content-Length cannot fill the host before the signed manifest rejects its bytes.
+        ( ulimit -f "$(((maximum + 1023) / 1024))"
+          feed_gh release download "${tag}" --repo "${RELEASE_REPOSITORY}" --pattern "${name}" \
+              --dir "${TASK_WORK}" --clobber ) \
+            || refuse "downloading ${name} failed or exceeded its ${maximum}-byte limit"
         [[ -f "${TASK_WORK}/${name}" ]] || refuse "the build ${tag} has no ${name}"
+        asset_size="$(stat -c %s -- "${TASK_WORK}/${name}")"
+        ((asset_size > 0 && asset_size <= maximum)) \
+            || refuse "the downloaded ${name} is outside its ${maximum}-byte limit"
     fi
 }
 
@@ -408,7 +663,8 @@ fetch_build_file() {
 # state does not know what it installed; a relay can lie here, but the most a lie buys is to be
 # replaced by a different signed build or to stop its own updates.
 observed_version() {
-    wget -q --timeout=5 -O "${TASK_WORK}/observed.json" "${HEALTH_URL}" 2>/dev/null || return 0
+    ( ulimit -f 1024; wget -q --timeout=5 -O "${TASK_WORK}/observed.json" "${HEALTH_URL}" 2>/dev/null ) || return 0
+    validate_json_file "${TASK_WORK}/observed.json" 1048576 "relay health response" >/dev/null 2>&1 || return 0
     jq -r 'if (.version | type) == "string" then .version else empty end' "${TASK_WORK}/observed.json" 2>/dev/null \
         | head -n 1 || true
 }
@@ -419,7 +675,8 @@ observed_version() {
 health_matches() {
     local attempt
     for ((attempt = 1; attempt <= HEALTH_ATTEMPTS; attempt++)); do
-        if wget -q --timeout=5 -O "${TASK_WORK}/health.json" "${HEALTH_URL}" 2>/dev/null \
+        if ( ulimit -f 1024; wget -q --timeout=5 -O "${TASK_WORK}/health.json" "${HEALTH_URL}" 2>/dev/null ) \
+            && validate_json_file "${TASK_WORK}/health.json" 1048576 "relay health response" >/dev/null 2>&1 \
             && jq -e \
                 --arg version "${TARGET_VERSION}" \
                 --arg commit "${TARGET_COMMIT}" \
@@ -481,6 +738,8 @@ write_swap_journal() {
     done
     if [[ -f "${SELF}" ]]; then
         cp -p -- "${SELF}" "${SWAP}.new/deployment/updater"
+    else
+        : > "${SWAP}.new/deployment/updater.absent"
     fi
     for stamp in "${INSTALLED_STAMPS[@]}"; do
         if [[ -f "${STATE}/${stamp}" ]]; then
@@ -545,7 +804,7 @@ clear_refusal() {
 
 # --- Preconditions --------------------------------------------------------------------------
 
-for command_name in base64 cmp date flock id install jq mktemp od readlink sha256sum stat systemctl tar wget; do
+for command_name in base64 cmp date dirname flock head id install jq mktemp od python3 readlink sha256sum stat systemctl wget; do
     command -v "${command_name}" >/dev/null 2>&1 || refuse "required command is unavailable: ${command_name}"
 done
 for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
@@ -586,11 +845,22 @@ if [[ -d "${PREVIOUS}" ]]; then
 fi
 
 [[ "${RELEASE_RING}" =~ ^(canary|beta|stable)$ ]] || refuse "unknown release ring: ${RELEASE_RING}"
-[[ -f "${TRUST_ROOT}" && -s "${TRUST_ROOT}" ]] || refuse "the Sigstore trust root ${TRUST_ROOT} is absent; see docs/RELEASES.md"
-[[ -z "${MINIMUM_VERSION}" || "${MINIMUM_VERSION}" =~ ${VERSION_PATTERN} ]] || refuse "TARKOV_RELEASE_MINIMUM_VERSION is not a supported version"
-[[ -z "${MINIMUM_GENERATION}" || "${MINIMUM_GENERATION}" =~ ^[1-9][0-9]{0,9}$ ]] || refuse "TARKOV_RELEASE_MINIMUM_GENERATION is not a positive generation"
+[[ "${RELEASE_REPOSITORY}" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] \
+    || refuse "TARKOV_RELEASE_REPOSITORY must name the private feed, including for offline recovery"
+[[ "${RELEASE_REPOSITORY,,}" != "${SOURCE_REPOSITORY,,}" ]] || refuse "the public source repository is not a v2 feed"
+secure_input_file "${TRUST_ROOT}" "Sigstore trust root"
+validate_json_file "${TRUST_ROOT}" "${MAX_JSON_BYTES}" "Sigstore trust root" \
+    || refuse "the Sigstore trust root is not bounded valid JSON"
+[[ -z "${MINIMUM_VERSION}" ]] || valid_semver "${MINIMUM_VERSION}" \
+    || refuse "TARKOV_RELEASE_MINIMUM_VERSION is not a supported bounded version"
+[[ -z "${MINIMUM_GENERATION}" ]] || { valid_generation "${MINIMUM_GENERATION}" && [[ "${MINIMUM_GENERATION}" != 0 ]]; } \
+    || refuse "TARKOV_RELEASE_MINIMUM_GENERATION is not a positive bounded generation"
 [[ -z "${MAX_DECISION_AGE_DAYS}" || "${MAX_DECISION_AGE_DAYS}" =~ ^[1-9][0-9]{0,4}$ ]] || refuse "TARKOV_RELEASE_MAX_DECISION_AGE_DAYS is not a positive number of days"
 [[ "${ALLOW_UNANCHORED_BOOTSTRAP}" =~ ^[01]$ ]] || refuse "TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP must be 0 or 1"
+[[ "${HEALTH_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] && decimal_at_most "${HEALTH_ATTEMPTS}" 60 \
+    || refuse "TARKOV_UPDATE_HEALTH_ATTEMPTS must be a canonical integer from 1 through 60"
+[[ "${HEALTH_INTERVAL}" =~ ^(0|[1-9][0-9]?)$ ]] && decimal_at_most "${HEALTH_INTERVAL}" 60 \
+    || refuse "TARKOV_UPDATE_HEALTH_INTERVAL must be a canonical integer from 0 through 60 seconds"
 [[ -n "${SIGNER_IDENTITY}" && -n "${SIGNER_ISSUER}" && -n "${SIGNER_REPOSITORY}" && -n "${SIGNER_REF}" ]] \
     || refuse "the signer identity, issuer, repository and ref must all be set"
 resolve_cosign
@@ -598,61 +868,134 @@ resolve_cosign
 TASK_WORK="$(mktemp -d "${STATE}/work.XXXXXX")"
 if [[ -n "${OFFLINE_BUNDLE}" ]]; then
     [[ -d "${OFFLINE_BUNDLE}" ]] || refuse "the offline bundle directory does not exist"
-    index_name="$(find "${OFFLINE_BUNDLE}" -maxdepth 1 -type f -name 'release-index-g[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].json' -printf '%f\n' | sort | tail -n 1)"
-    [[ -n "${index_name}" ]] || refuse "the offline bundle holds no signed ring index"
-    cp -- "${OFFLINE_BUNDLE}/${index_name}" "${TASK_WORK}/envelope.json"
+    if ! index_name="$(select_offline_index "${OFFLINE_BUNDLE}")"; then
+        refuse "the offline bundle has no bounded plain signed ring index"
+    fi
+    bounded_copy "${OFFLINE_BUNDLE}/${index_name}" "${TASK_WORK}/envelope.json" \
+        "${MAX_JSON_BYTES}" "offline signed ring envelope"
     log "using the offline bundle ${OFFLINE_BUNDLE}; the network feed is not consulted"
 else
     command -v gh >/dev/null 2>&1 || refuse "the gh client is required to read the private feed"
-    [[ -n "${RELEASE_REPOSITORY}" ]] || refuse "TARKOV_RELEASE_REPOSITORY is not configured; see docs/RELEASES.md"
-    [[ "${RELEASE_REPOSITORY,,}" != "${SOURCE_REPOSITORY,,}" ]] || refuse "the public source repository is not a v2 feed"
-    [[ -f "${RELEASE_TOKEN_FILE}" && -s "${RELEASE_TOKEN_FILE}" ]] || refuse "the feed credential ${RELEASE_TOKEN_FILE} is absent"
-    if (( 8#$(stat -L -c %a -- "${RELEASE_TOKEN_FILE}") & 8#077 )); then
-        refuse "the feed credential ${RELEASE_TOKEN_FILE} is readable by other users; make it mode 0600"
-    fi
+    secure_input_file "${RELEASE_TOKEN_FILE}" "feed credential" 1
     TASK_FEED_TOKEN="$(<"${RELEASE_TOKEN_FILE}")"
     TASK_FEED_TOKEN="${TASK_FEED_TOKEN//[$'\r\n']/}"
-    visibility="$(feed_gh api "repos/${RELEASE_REPOSITORY}" --jq .visibility)"
+    visibility="$(feed_gh_text 1024 "feed visibility lookup" api "repos/${RELEASE_REPOSITORY}" --jq .visibility)"
     [[ "${visibility}" == "private" || "${visibility}" == "internal" ]] \
         || refuse "the release repository is ${visibility:-unreadable}, not private or internal"
-    index_name="$(feed_gh api "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}" \
+    index_name="$(feed_gh_text "${MAX_JSON_BYTES}" "ring listing" api "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}" \
         --jq '[.[] | select(.type == "file") | .name | select(test("^release-index-g[0-9]{10}\\.json$"))] | sort | last // ""')"
     [[ -n "${index_name}" ]] || refuse "the ${RELEASE_RING} ring has no signed decision"
-    feed_gh api -H "Accept: application/vnd.github.raw+json" \
-        "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}/${index_name}" > "${TASK_WORK}/envelope.json"
+    ( ulimit -f "$(((MAX_JSON_BYTES + 1023) / 1024))"
+      feed_gh api -H "Accept: application/vnd.github.raw+json" \
+          "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}/${index_name}" \
+          > "${TASK_WORK}/envelope.json" ) \
+        || refuse "the signed ring envelope download failed or exceeded its byte limit"
 fi
 
 # --- Authenticate the decision --------------------------------------------------------------
 
-jq -e '.schemaVersion == 1
+validate_json_file "${TASK_WORK}/envelope.json" "${MAX_JSON_BYTES}" "signed ring envelope" \
+    || refuse "the ring envelope is not bounded valid JSON"
+jq -e '(keys | sort) == (["schemaVersion", "mediaType", "payloadBase64", "sigstoreBundle"] | sort)
+       and .schemaVersion == 1
        and .mediaType == "application/vnd.tarkov-companion.signed-release-index.v1+json"
        and (.payloadBase64 | type == "string") and (.sigstoreBundle | type == "object")' \
     "${TASK_WORK}/envelope.json" >/dev/null || refuse "the ring envelope is malformed"
 jq -r '.payloadBase64' "${TASK_WORK}/envelope.json" | base64 --decode > "${TASK_WORK}/index.json"
 jq '.sigstoreBundle' "${TASK_WORK}/envelope.json" > "${TASK_WORK}/index.sigstore.json"
+validate_json_file "${TASK_WORK}/index.json" "${MAX_JSON_BYTES}" "signed ring payload" \
+    || refuse "the signed ring payload is not bounded valid JSON"
 verify_signed "${TASK_WORK}/index.json" "${TASK_WORK}/index.sigstore.json"
 
 name_generation="${index_name#release-index-g}"
 name_generation="$((10#${name_generation%.json}))"
-# Offline recovery may run without a feed configured; online, the decision must name this feed so
-# a validly signed index from some other feed cannot be replayed into this one.
+valid_generation "${name_generation}" || refuse "the signed decision names an unsupported generation"
+# Online and offline recovery bind to the provisioned feed. A validly signed decision copied
+# from another private feed is not authority for this host merely because it is on local media.
 jq -e \
     --arg ring "${RELEASE_RING}" \
     --arg feed "${RELEASE_REPOSITORY}" \
     --argjson generation "${name_generation}" \
-    '.schemaVersion == 1
+    '.release as $release
+     | .previous as $previous
+     | .lastKnownGood as $lastKnownGood
+     | .rollback as $rollback
+     | .authorization as $authorization
+     | (keys | sort) == ([
+         "schemaVersion", "mediaType", "feedRepository", "ring", "generation", "updatedUtc",
+         "paused", "release", "previous", "lastKnownGood", "highWaterVersion", "rollback",
+         "authorization"
+       ] | sort)
+     and .schemaVersion == 1
      and .mediaType == "application/vnd.tarkov-companion.release-index.v1+json"
-     and ($feed == "" or .feedRepository == $feed)
+     and .feedRepository == $feed
      and .ring == $ring and .generation == $generation
-     and .authorization.previousGeneration == $generation - 1
      and (.updatedUtc | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
      and (.paused | type == "boolean")
-     and (.release.version | type == "string")
-     and (.release.commit | type == "string" and test("^[0-9a-f]{40}$"))
-     and (.release.manifestSha256 | type == "string" and test("^[0-9a-f]{64}$"))
-     and .release.manifestName == "release-manifest.json"
-     and .release.buildTag == ("v2-build-" + .release.version)
-     and (.rollback == null or (.rollback | type == "object"))' \
+     and ($release | type == "object")
+     and (($release | keys | sort) == (["version", "commit", "buildTag", "manifestName", "manifestSha256"] | sort))
+     and ($release.version | type == "string")
+     and ($release.commit | type == "string" and test("^[0-9a-f]{40}$"))
+     and ($release.manifestSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+     and $release.manifestName == "release-manifest.json"
+     and $release.buildTag == ("v2-build-" + $release.version)
+     and ($previous == null or (
+       ($previous | type) == "object"
+       and (($previous | keys | sort) == (["version", "commit", "buildTag", "manifestName", "manifestSha256"] | sort))
+       and ($previous.version | type == "string")
+       and ($previous.commit | type == "string" and test("^[0-9a-f]{40}$"))
+       and ($previous.manifestSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+       and $previous.manifestName == "release-manifest.json"
+       and $previous.buildTag == ("v2-build-" + $previous.version)
+     ))
+     and ($lastKnownGood == null or (
+       ($lastKnownGood | type) == "object"
+       and (($lastKnownGood | keys | sort) == (["version", "commit", "buildTag", "manifestName", "manifestSha256"] | sort))
+       and ($lastKnownGood.version | type == "string")
+       and ($lastKnownGood.commit | type == "string" and test("^[0-9a-f]{40}$"))
+       and ($lastKnownGood.manifestSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+       and $lastKnownGood.manifestName == "release-manifest.json"
+       and $lastKnownGood.buildTag == ("v2-build-" + $lastKnownGood.version)
+     ))
+     and (.highWaterVersion | type == "string")
+     and ($rollback == null or (
+       ($rollback | type) == "object"
+       and (($rollback | keys | sort) == (["generation", "from"] | sort))
+       and ($rollback.generation | type == "number" and floor == . and . >= 1 and . <= $generation)
+       and $rollback.from == $previous
+       and $release == $lastKnownGood
+       and $rollback.from != $release
+     ))
+     and ($authorization | type == "object")
+     and (($authorization | keys | sort) == ([
+       "action", "actor", "reason", "workflowRunId", "verificationRunId", "sourceRing",
+       "sourceGeneration", "previousGeneration"
+     ] | sort))
+     and (["publish", "promote", "pause", "resume", "mark-lkg", "rollback"] | index($authorization.action)) != null
+     and ($authorization.actor | type == "string" and length > 0 and length <= 256
+       and (test("^\\s|\\s$") | not))
+     and ($authorization.reason | type == "string" and length <= 2048)
+     and ($authorization.workflowRunId | type == "string" and test("^[1-9][0-9]{0,19}$"))
+     and ($authorization.verificationRunId == null or
+       ($authorization.verificationRunId | type == "string" and test("^[1-9][0-9]{0,19}$")))
+     and ($authorization.sourceRing == null or
+       ($authorization.sourceRing | type == "string" and test("^(canary|beta)$")))
+     and ($authorization.sourceGeneration == null or
+       ($authorization.sourceGeneration | type == "number" and floor == . and . >= 1 and . <= 9999999999))
+     and (($authorization.sourceRing == null) == ($authorization.sourceGeneration == null))
+     and (($authorization.action == "promote") == ($authorization.sourceRing != null))
+     and ($authorization.action != "promote" or
+       ($ring == "beta" and $authorization.sourceRing == "canary") or
+       ($ring == "stable" and $authorization.sourceRing == "beta"))
+     and ($authorization.action != "publish" or
+       ($ring == "canary" and $authorization.verificationRunId != null))
+     and ($authorization.action == "publish" or $authorization.verificationRunId == null)
+     and (($authorization.action != "publish" and $authorization.action != "promote") or (.paused | not))
+     and ($authorization.action != "pause" or .paused)
+     and ($authorization.action != "resume" or (.paused | not))
+     and ($authorization.action != "rollback" or $rollback != null)
+     and ($rollback == null or (["rollback", "pause", "resume"] | index($authorization.action)) != null)
+     and ($authorization.previousGeneration | type == "number" and floor == . and . == $generation - 1)' \
     "${TASK_WORK}/index.json" >/dev/null || refuse "the signed ring index is not a valid ${RELEASE_RING} decision for this feed"
 
 TARGET_GENERATION="${name_generation}"
@@ -662,8 +1005,20 @@ target_tag="$(jq -r '.release.buildTag' "${TASK_WORK}/index.json")"
 target_manifest_sha="$(jq -r '.release.manifestSha256' "${TASK_WORK}/index.json")"
 target_paused="$(jq -r '.paused' "${TASK_WORK}/index.json")"
 target_updated="$(jq -r '.updatedUtc' "${TASK_WORK}/index.json")"
+target_high_water="$(jq -r '.highWaterVersion' "${TASK_WORK}/index.json")"
 rollback_authorized="$(jq -r '.rollback != null' "${TASK_WORK}/index.json")"
-[[ "${TARGET_VERSION}" =~ ${VERSION_PATTERN} ]] || refuse "the signed index names an unsupported version"
+valid_semver "${TARGET_VERSION}" || refuse "the signed index names an unsupported bounded version"
+valid_semver "${target_high_water}" || refuse "the signed index names an unsupported bounded high-water version"
+semver_less "${target_high_water}" "${TARGET_VERSION}" \
+    && refuse "the signed index's high-water version is below its release"
+decision_epoch="$(date -u -d "${target_updated}" +%s)" || refuse "the signed decision's timestamp cannot be read"
+now_epoch="$(date -u +%s)"
+((decision_epoch <= now_epoch + 300)) || refuse "the signed decision's timestamp is implausibly in the future"
+if [[ -n "${MAX_DECISION_AGE_DAYS}" ]]; then
+    if (( now_epoch - decision_epoch > MAX_DECISION_AGE_DAYS * 86400 )); then
+        refuse "the ${RELEASE_RING} decision was signed at ${target_updated}, older than this host's ${MAX_DECISION_AGE_DAYS}-day limit; staying on the installed build"
+    fi
+fi
 
 # --- Refuse replays --------------------------------------------------------------------------
 
@@ -674,10 +1029,14 @@ installed_generation="$(read_stamp INSTALLED_GENERATION)"
 published_ring="$(read_stamp PUBLISHED_RING)"
 published_generation="$(read_stamp PUBLISHED_GENERATION)"
 published_manifest="$(read_stamp PUBLISHED_MANIFEST_SHA256)"
+[[ -z "${installed_sha}" || "${installed_sha}" =~ ^[0-9a-f]{64}$ ]] || refuse "the installed digest stamp is malformed"
+[[ -z "${published_manifest}" || "${published_manifest}" =~ ^[0-9a-f]{64}$ ]] || refuse "the published manifest stamp is malformed"
+[[ -z "${installed_ring}" || "${installed_ring}" =~ ^(canary|beta|stable)$ ]] || refuse "the installed ring stamp is malformed"
+[[ -z "${published_ring}" || "${published_ring}" =~ ^(canary|beta|stable)$ ]] || refuse "the published ring stamp is malformed"
 for value in "${installed_generation}" "${published_generation}"; do
-    [[ -z "${value}" || "${value}" =~ ^[0-9]+$ ]] || refuse "a recorded generation stamp is malformed"
+    [[ -z "${value}" ]] || valid_generation "${value}" || refuse "a recorded generation stamp is malformed or unbounded"
 done
-[[ -z "${installed_version}" || "${installed_version}" =~ ${VERSION_PATTERN} ]] || refuse "the installed version stamp is malformed"
+[[ -z "${installed_version}" ]] || valid_semver "${installed_version}" || refuse "the installed version stamp is malformed or unbounded"
 
 if [[ -n "${MINIMUM_GENERATION}" ]] && ((TARGET_GENERATION < MINIMUM_GENERATION)); then
     refuse "refusing ${RELEASE_RING} generation ${TARGET_GENERATION}: this host's configured floor is generation ${MINIMUM_GENERATION}"
@@ -711,6 +1070,8 @@ fi
 
 fetch_build_file "${target_tag}" release-manifest.json
 fetch_build_file "${target_tag}" release-manifest.json.sigstore.json
+validate_json_file "${TASK_WORK}/release-manifest.json" "${MAX_JSON_BYTES}" "release manifest" \
+    || refuse "the release manifest is not bounded valid JSON"
 verify_signed "${TASK_WORK}/release-manifest.json" "${TASK_WORK}/release-manifest.json.sigstore.json"
 [[ "$(sha256sum "${TASK_WORK}/release-manifest.json" | awk '{print $1}')" == "${target_manifest_sha}" ]] \
     || refuse "the signed manifest is not the one the signed ring index names"
@@ -720,13 +1081,17 @@ jq -e \
     '.schemaVersion == 1 and .version == $version and .commit == $commit
      and .versions.package == $version and .versions.manifest == $version and .versions.commit == $commit
      and .versions.assemblyInformational == ($version + "+" + $commit)
-     and (.versions.relayProtocol | type == "number" and . >= 0 and floor == .)
+     and (.artifacts | type == "array" and length > 0 and length <= 4096)
+     and (.versions.relayProtocol | type == "number" and . >= 0 and . <= 2147483647 and floor == .)
      and ([.artifacts[] | select(.component == "relay" and .role == "archive")] | length == 1)' \
     "${TASK_WORK}/release-manifest.json" >/dev/null || refuse "the signed manifest disagrees with the ring index about this build"
 archive_name="$(jq -r '.artifacts[] | select(.component == "relay" and .role == "archive") | .name' "${TASK_WORK}/release-manifest.json")"
 TARGET_SHA="$(jq -r '.artifacts[] | select(.component == "relay" and .role == "archive") | .sha256' "${TASK_WORK}/release-manifest.json")"
+target_archive_size="$(jq -r '.artifacts[] | select(.component == "relay" and .role == "archive") | .size' "${TASK_WORK}/release-manifest.json")"
 TARGET_PROTOCOL="$(jq -r '.versions.relayProtocol' "${TASK_WORK}/release-manifest.json")"
-if [[ ! "${archive_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ || "${archive_name}" == *..* || ! "${TARGET_SHA}" =~ ^[0-9a-f]{64}$ ]]; then
+if [[ ! "${archive_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ || "${archive_name}" == *..* \
+    || ! "${TARGET_SHA}" =~ ^[0-9a-f]{64}$ || ! "${target_archive_size}" =~ ^[1-9][0-9]{0,9}$ ]] \
+    || ((target_archive_size > MAX_ARCHIVE_BYTES)); then
     refuse "the signed manifest names an unsafe relay archive"
 fi
 
@@ -756,7 +1121,7 @@ fi
 current_version="${installed_version}"
 if [[ -z "${current_version}" ]]; then
     observed="$(observed_version)"
-    if [[ -n "${observed}" && "${observed}" =~ ${VERSION_PATTERN} ]]; then
+    if [[ -n "${observed}" ]] && valid_semver "${observed}"; then
         current_version="${observed}"
         log "no install is recorded here; the running relay reports ${observed}, which is taken as the floor"
     elif [[ -z "${MINIMUM_VERSION}" && -z "${MINIMUM_GENERATION}" ]]; then
@@ -765,13 +1130,6 @@ if [[ -z "${current_version}" ]]; then
             refuse "no install is recorded, no relay answers and no floor is configured; set TARKOV_RELEASE_MINIMUM_VERSION (or, knowingly, TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP=1); see docs/RELEASES.md"
         fi
         log "installing without any anchor, as TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP allows"
-    fi
-fi
-
-if [[ -n "${MAX_DECISION_AGE_DAYS}" ]]; then
-    decision_epoch="$(date -u -d "${target_updated}" +%s)" || refuse "the signed decision's timestamp cannot be read"
-    if (( $(date -u +%s) - decision_epoch > MAX_DECISION_AGE_DAYS * 86400 )); then
-        refuse "the ${RELEASE_RING} decision was signed at ${target_updated}, older than this host's ${MAX_DECISION_AGE_DAYS}-day limit; staying on the installed build"
     fi
 fi
 
@@ -802,23 +1160,15 @@ fi
 
 fetch_build_file "${target_tag}" "${archive_name}"
 fetch_build_file "${target_tag}" "${archive_name}.sigstore.json"
+[[ "$(stat -c %s -- "${TASK_WORK}/${archive_name}")" == "${target_archive_size}" ]] \
+    || refuse "the relay archive size does not match the signed manifest"
 verify_signed "${TASK_WORK}/${archive_name}" "${TASK_WORK}/${archive_name}.sigstore.json"
 [[ "$(sha256sum "${TASK_WORK}/${archive_name}" | awk '{print $1}')" == "${TARGET_SHA}" ]] \
     || refuse "the relay archive is not the one the signed manifest names"
 
-tar -tzvf "${TASK_WORK}/${archive_name}" > "${TASK_WORK}/members.txt"
-if cut -c1 "${TASK_WORK}/members.txt" | grep -qv '^[-d]$'; then
-    refuse "the relay archive contains a link or special file"
-fi
-while IFS= read -r member; do
-    if [[ "${member}" == /* || "/${member}/" == *"/../"* ]]; then
-        refuse "the relay archive contains an unsafe path"
-    fi
-done < <(tar -tzf "${TASK_WORK}/${archive_name}")
-
 rm -rf -- "${INCOMING}"
-mkdir -p "${INCOMING}"
-tar --no-same-owner -C "${INCOMING}" -xzf "${TASK_WORK}/${archive_name}"
+extract_bounded_archive "${TASK_WORK}/${archive_name}" "${INCOMING}" \
+    || refuse "the relay archive has an unsafe path, link or special file, or exceeded its extraction limits"
 [[ -f "${INCOMING}/TarkovCompanion.GroupServer" ]] || refuse "the archive has no relay executable"
 chmod 0755 "${INCOMING}/TarkovCompanion.GroupServer"
 

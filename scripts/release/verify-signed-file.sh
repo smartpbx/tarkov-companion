@@ -37,6 +37,11 @@ readonly TASK_ISSUER="${TARKOV_RELEASE_SIGNER_ISSUER:-https://token.actions.gith
 readonly TASK_REPOSITORY="${TARKOV_RELEASE_SIGNER_REPOSITORY:-smartpbx/tarkov-companion}"
 readonly TASK_REF="${TARKOV_RELEASE_SIGNER_REF:-refs/heads/main}"
 readonly TASK_BUNDLE_MEDIA_TYPE="application/vnd.dev.sigstore.bundle.v0.3+json"
+readonly TASK_LIMITS="${TASK_PROJECT_ROOT}/scripts/release/resource_limits.py"
+readonly TASK_MAX_FILE_BYTES=$((512 * 1024 * 1024))
+readonly TASK_MAX_BUNDLE_BYTES=$((2 * 1024 * 1024))
+readonly TASK_MAX_TRUST_ROOT_BYTES=$((16 * 1024 * 1024))
+readonly TASK_MAX_OUTPUT_BYTES=$((64 * 1024))
 
 fail() {
     printf 'Signature verification failed: %s\n' "$1" >&2
@@ -44,10 +49,16 @@ fail() {
 }
 
 for required in "${TASK_FILE}" "${TASK_BUNDLE}" "${TASK_TRUST_ROOT}"; do
-    if [[ ! -f "${required}" || ! -s "${required}" ]]; then
-        fail "missing or empty input: ${required}"
+    if [[ ! -f "${required}" || -L "${required}" || ! -s "${required}" ]]; then
+        fail "missing, empty, or redirected input: ${required}"
     fi
 done
+file_size="$(stat -c %s -- "${TASK_FILE}")"
+((file_size > 0 && file_size <= TASK_MAX_FILE_BYTES)) || fail "signed file is outside its byte limit"
+python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_BUNDLE_BYTES}" "${TASK_BUNDLE}" >/dev/null \
+    || fail "signature bundle is not bounded valid JSON"
+python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_TRUST_ROOT_BYTES}" "${TASK_TRUST_ROOT}" >/dev/null \
+    || fail "trust root is not bounded valid JSON"
 [[ -n "${TASK_IDENTITY}" && -n "${TASK_ISSUER}" && -n "${TASK_REPOSITORY}" && -n "${TASK_REF}" ]] \
     || fail "the signer identity, issuer, repository and ref must all be set"
 
@@ -77,14 +88,19 @@ fi
 bundle_sha="$(base64 --decode <<<"${bundle_sha}" | od -An -v -tx1 | tr -d ' \n')"
 [[ "${bundle_sha}" == "${file_sha}" ]] || fail "$(basename "${TASK_BUNDLE}") signs different bytes from $(basename "${TASK_FILE}")"
 
-if ! TASK_RESULT="$("${TASK_COSIGN}" verify-blob \
-    --bundle "${TASK_BUNDLE}" \
-    --trusted-root "${TASK_TRUST_ROOT}" \
-    --certificate-identity "${TASK_IDENTITY}" \
-    --certificate-oidc-issuer "${TASK_ISSUER}" \
-    --certificate-github-workflow-repository "${TASK_REPOSITORY}" \
-    --certificate-github-workflow-ref "${TASK_REF}" \
-    "${TASK_FILE}" 2>&1)"; then
-    printf 'Signature verification failed for %s:\n%s\n' "$(basename "${TASK_FILE}")" "${TASK_RESULT}" >&2
+TASK_DIAGNOSTIC="$(mktemp "${TMPDIR:-/tmp}/tarkov-cosign.XXXXXX")"
+trap 'rm -f -- "${TASK_DIAGNOSTIC}"' EXIT
+if ! ( ulimit -f "$(((TASK_MAX_OUTPUT_BYTES + 1023) / 1024))"
+    "${TASK_COSIGN}" verify-blob \
+        --bundle "${TASK_BUNDLE}" \
+        --trusted-root "${TASK_TRUST_ROOT}" \
+        --certificate-identity "${TASK_IDENTITY}" \
+        --certificate-oidc-issuer "${TASK_ISSUER}" \
+        --certificate-github-workflow-repository "${TASK_REPOSITORY}" \
+        --certificate-github-workflow-ref "${TASK_REF}" \
+        "${TASK_FILE}" >"${TASK_DIAGNOSTIC}" 2>&1 ); then
+    printf 'Signature verification failed for %s:\n' "$(basename "${TASK_FILE}")" >&2
+    head -c "${TASK_MAX_OUTPUT_BYTES}" -- "${TASK_DIAGNOSTIC}" >&2
+    printf '\n' >&2
     exit 1
 fi

@@ -21,6 +21,7 @@ readonly TASK_IDENTITY="https://github.com/sigstore/timestamp-authority/.github/
 readonly TASK_ISSUER="https://token.actions.githubusercontent.com"
 readonly TASK_REPOSITORY="sigstore/timestamp-authority"
 readonly TASK_REF="refs/tags/v2.1.3"
+readonly TASK_MAX_FIXTURE_BYTES=$((2 * 1024 * 1024))
 
 TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly TASK_PROJECT_ROOT
@@ -36,7 +37,11 @@ readonly TASK_COSIGN
     || { printf 'The pinned cosign does not report v3.1.3\n' >&2; exit 1; }
 
 fetch() {
-    curl --fail --silent --show-error --location --output "${TASK_WORK}/$1" "${TASK_RELEASE}/$1"
+    ( ulimit -f "$(((TASK_MAX_FIXTURE_BYTES + 1023) / 1024))"
+      curl --fail --silent --show-error --location --max-filesize "${TASK_MAX_FIXTURE_BYTES}" \
+          --output "${TASK_WORK}/$1" "${TASK_RELEASE}/$1" )
+    [[ "$(stat -c %s -- "${TASK_WORK}/$1")" -le "${TASK_MAX_FIXTURE_BYTES}" ]] \
+        || { printf 'The downloaded %s exceeds its fixture limit\n' "$1" >&2; exit 1; }
     [[ "$(sha256sum "${TASK_WORK}/$1" | awk '{print $1}')" == "$2" ]] \
         || { printf 'The downloaded %s is not the pinned one\n' "$1" >&2; exit 1; }
 }

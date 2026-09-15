@@ -25,12 +25,14 @@ flowchart LR
   REL -->|create-once file| RING[(Private feed:<br/>rings/RING/release-index-gN.json)]
   RING --> RELAY[Relay updater]
   BUILD --> RELAY
+  RING --> DESKTOP[Desktop signed-feed consumer]
+  BUILD --> DESKTOP
   BUILD --> MEDIA[Offline media]
 ```
 
-- **Verification never publishes** to the signed feed. `windows-verify.yml` (owned by #279)
-  builds, tests, launches, packages and uploads artifacts to its run. Its legacy `dev` job is
-  #279's to retire.
+- **Verification never publishes.** `windows-verify.yml` builds, tests, launches, packages and
+  uploads artifacts to its run. The legacy write-capable `dev` job has been removed; only
+  `publish.yml` can mutate release or tag state.
 - **Publication never builds.** `publish.yml` accepts only what one successful push-to-main
   verification run uploaded. It fetches each artifact archive by the sha256 GitHub recorded at
   upload, and rebuilds nothing.
@@ -86,21 +88,26 @@ artifacts of one verification run, and refuses unless all of these agree:
 | Updater script and units shipped in the relay archive | `deploy/group-server/` at that commit, byte for byte |
 | The relay's `/health` after extracting the archive | version, commit and relay protocol |
 | Database schema, relay protocol, v2 contract, quest exchange | recorded from that commit's source |
+| Versioned data component | the release identity and the same four contracts from that commit |
+| Versioned OCR model component | the reviewed `eng.traineddata` in that commit, byte for byte |
 | The version itself | one SemVer grammar, shared by the manifest builder, ring policy, feed tags, the relay updater and the offline installer |
 
 Any file in the payload that no checksum file or publisher step accounts for is refused, so
 nothing is signed into a release without having been named. The manifest's `source` records the
 verification run, its attempt, and each uploaded artifact archive with its recorded digest.
 
-The manifest also carries `feeds.binary`, `feeds.data` and `feeds.model`. Binary, data and model
-artifacts share one manifest and one ring decision, so pause, rollback and last-known-good cannot
-apply to one and not the others. **No data or model artifact is released today**; those lists
-are empty, and adding one means adding it to the verification payload and to the reconciliation
-above first.
+The manifest also carries non-empty, authenticated `feeds.binary`, `feeds.data` and
+`feeds.model`. Verification emits a deterministic versioned data-contract document and the
+reviewed English OCR model; the manifest builder rejects either if it differs from the verified
+commit. Binary, data and model artifacts share one manifest and one ring decision, so pause,
+rollback and last-known-good cannot apply to one and not the others. No feed has been enabled or
+published yet, so this describes the bytes the first release will contain, not a deployed claim.
 
-Delta packages are signed and recorded when verification produces them. It currently produces
-full packages only, because generating a delta needs the previous release in Velopack's output
-directory and that step belongs to the verification workflow (#279).
+Delta packages are signed and recorded when verification produces them. The desktop consumer
+understands an authenticated `baseSha256` for data/model deltas, stages one only when its
+persisted component digest matches, and always requires the signed full artifact as fallback;
+Velopack performs the equivalent full fallback for binary deltas. Verification currently emits
+full artifacts only, because producing a delta needs the previous release as an input (#279).
 
 Real-payload check: the artifacts of verification run
 [34910997075](https://github.com/smartpbx/tarkov-companion/actions/runs/34910997075) (1.0.608,
@@ -225,8 +232,9 @@ The high-water mark is the highest version ever published or promoted into the r
 does not lower it, so after rolling back from 1.0.610 to 1.0.608, a 1.0.609 that finished
 verifying late cannot re-enter; a fix must be newer than the build rolled away from.
 
-A rollback authorization stays on the ring through pause, resume and mark-lkg, and is withdrawn
-by the next publish or promotion.
+A rollback authorization stays on the ring through pause and resume, and is withdrawn by the
+next publish or promotion. Marking last-known-good while the rolled-back release already is the
+last-known-good is a no-op and is refused.
 
 Use **Actions → Publish signed internal release → Run workflow** on `main`, choosing the action,
 the ring and a reason. Automatic canary publishes share one concurrency group, so a newer pending
@@ -270,8 +278,9 @@ TARKOV_RELEASE_MINIMUM_VERSION=1.0.650
 
 The token file holds a fine-grained token with read-only **Contents** on the feed repository and
 nothing else, and must not be readable by anyone but root: the updater refuses a token file with
-any group or other permission. The token is passed to `gh` alone; `cosign`, `wget`, `tar` and
-`systemctl` never see it. The host needs `gh`, `jq`, `flock`, `tar`, `wget` and a pinned `cosign`.
+any group or other permission. The token is passed to `gh` alone; `cosign`, `wget`, Python and
+`systemctl` never see it. The host needs `gh`, `jq`, `flock`, Python 3, `wget` and a pinned
+`cosign`. Archive extraction is a bounded streaming Python operation; it does not invoke `tar`.
 
 Every signature is checked the same way here as everywhere else, with one rule:
 - the bundle must be a standardized v0.3 message-signature bundle over exactly the file's
@@ -381,17 +390,13 @@ that withholds new decisions holds consumers on an old signed build, undetected 
 
 ### Moving an existing relay onto the signed feed
 
-The relay on CT 115 follows the public `dev` release today, and `windows-verify.yml` (#279) keeps
-publishing `dev` until this replacement is running; retiring that job is #279's follow-up once
-releases are enabled here. After this merges, the next archive the old updater installs from `dev`
-carries this updater and its units. The new updater refuses to run without the configuration
-above. That relay then stays on the build it has and says why in its journal until the host is
-configured: it does not break, and it does not update. Configure the host before merging if
-updates must not pause. Until the new updater has run once, the panel has no status directory to
-read and reports no build.
-
-Because `publish.yml` follows the whole Windows verification run, a failure in its legacy `dev`
-publish job also stops that build from entering canary until the two are separated.
+The relay on CT 115 follows the public `dev` release today. That publisher has been removed, so
+the public release is now a frozen migration source, not a second mutable production channel.
+Provision this updater and its units from a verified offline bundle (or from the final already
+published legacy archive after verifying its recorded checksum), then configure the private feed
+before starting the new update service. The new updater refuses to run without that configuration;
+the relay stays on its existing build. Until the new updater has run once, the panel has no status
+directory to read and reports no build.
 
 1. Install `gh`, and install `cosign` with `scripts/release/install-cosign.sh /usr/local/bin` (it
    refuses anything but the pinned v3.1.3 binary), so root owns it.
@@ -412,14 +417,19 @@ it. Never fetch it from the feed.
 
 ## The desktop
 
-**Not yet moved.** `VelopackUpdateGateway` still reads the public repository's prereleases.
-Changing the in-app updater to read the private feed, carry a read credential, and apply the same
-signature, ring, rollback and last-known-good rules is desktop composition work outside #280. It
-belongs to the integration owner (#294). Until then, signed desktop builds reach machines through
-the offline path below, and the desktop's in-app update does not enforce anything described here.
-When the desktop does track its ring, installed build, refusals and last-known-good, that state is
-persisted through #270's schema and interfaces; this issue defines no desktop storage of its own.
-The relay's stamps are host files in root's own directories, not application data.
+The old anonymous `GithubSource` path is removed. An unconfigured `VelopackUpdateGateway` now
+fails closed and never asks the public repository for updates. `SignedReleaseFeedConsumer` and
+`AuthenticatedGitHubReleaseFeed` provide the typed handoff for #294: a read-only token comes from
+the protected integration-secret store; redirects never receive it; the newest bounded decision,
+manifest and every selected binary/data/model artifact are verified before one plan is returned.
+Pause advances only authenticated generation state, downgrade needs the carried signed rollback,
+and an applicable data/model delta must name the installed component digest.
+
+That consumer is deliberately **not composed into the UI yet**. #294 owns activation of all three
+components and hands only the verified local `SimpleFileSource` to Velopack; #270 owns the durable
+implementation of `IReleaseConsumerStateStore`. Until both are wired, in-app updates report that
+the private feed is not configured and signed desktop builds reach machines through the offline
+path below. The relay's stamps remain host files in root's own directories, not application data.
 
 The installer still installs per user under `%LOCALAPPDATA%\TarkovCompanionDesktop`, separate
 from data under `%LOCALAPPDATA%\TarkovCompanion`; see [WINDOWS.md](WINDOWS.md#release-and-installation).
@@ -487,7 +497,8 @@ script.
 | Syft 1.51.1 | `sbom` job | `scripts/release/syft.sha256` | Syft's `syft_1.51.1_checksums.txt`; equal to GitHub's asset digests |
 | actionlint 1.7.12 | License lock | digest in `license-lock.yml` | the release tarball, checked |
 | PyYAML 6.0.3 | License lock (workflow policy) | `scripts/release/policy-requirements.txt`, wheels only, `--require-hashes` | PyPI's digests, checked against the downloaded cp312 x86_64 wheel |
-| GitHub Actions in `publish.yml` and `license-lock.yml` | both | full commit SHAs; `check_workflow_policy.py --verify-tags` resolves each commented tag to its commit in CI | the resolution itself |
+| vpk 1.2.0 | Windows verification | `scripts/release/vpk.sha256`; restored from a bounded NuGet package with a local-only NuGet configuration | the package downloaded from NuGet and checked against the committed digest |
+| GitHub Actions in every workflow | all | full commit SHAs; `check_workflow_policy.py --enforce-all --verify-tags` resolves each commented tag to its commit in CI | the resolution itself |
 
 Why cosign v3.1.3 and nothing earlier: before it, `cosign verify-blob` given a **legacy** bundle
 whose `cert` field held a bare public key skipped certificate chain and identity checks.
@@ -514,6 +525,7 @@ longer falls back from an unparsable certificate to a key.
 | Build publication | published build, no decision | adopted by a re-run if it is immutable and the same build |
 | Decision write | conflict or error | the previous decision, whole; a conflict is retried |
 | Pending operator dispatch | cancelled in the Actions UI | nothing changed; dispatch again |
+| Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | only its private staging directory is removed; installed/LKG state is unchanged until the caller atomically activates all components and commits |
 | Relay updater | any step | pre-swap: nothing changed; after the journal exists: previous build, units, updater and stamps restored |
 | Offline scripts | any check | nothing installed; the private copy removed |
 
@@ -533,7 +545,7 @@ when. It only reads. The state on **2026-09-15T04:08:06Z**, captured by `smartpb
 | main: reviewed before merge | at least one approving review | **gap**: no review requirement |
 | main: administrators cannot bypass | enforced for administrators | **gap** |
 | Default `GITHUB_TOKEN` permission | read | **gap**: write |
-| Actions pinned to commit SHAs | required at repository level | **gap**: not required; `ci.yml` and `windows-verify.yml` still use tags (#279) |
+| Actions pinned to commit SHAs | required at repository level | **gap**: not required as a repository rule. Every checked-in workflow action is nevertheless pinned to a full commit and the workflow policy rejects future mutable action tags |
 | Secret scanning and push protection | enabled | **gap**: disabled |
 | Dependency graph | enabled, so the pull-request dependency review can run | met |
 | Dependabot vulnerability alerts | enabled | met |
@@ -567,10 +579,11 @@ publish run URL, the approving reviewer shown on that run, and the signed ring g
 | Artifact fetch by recorded digest; provenance predicate | `test_artifacts.py` |
 | Feed writes: create-once decisions, races, drafts, digest checks, immutability, adoption | `test_feed.py`, `test_transition.py` (end to end through the real scripts with a fake GitHub and a digest-bound fake cosign) |
 | Release gates | `test_gates.py` |
-| Workflow policy, including YAML forms the line matcher missed; supply-chain path coverage; pins resolved against GitHub in CI | `test_workflow_policy.py`, `check_workflow_policy.py --verify-tags` |
+| Workflow policy, including YAML forms the line matcher missed; all-workflow coverage; pins resolved against GitHub in CI | `test_workflow_policy.py`, `check_workflow_policy.py --enforce-all --verify-tags` |
 | Cosign pins equal everywhere; unpinned cosign refused by every script | `test_cosign_pins.py` |
 | Relay updater: root-owned state and a hostile relay directory; every post-swap failure, SIGTERM and interrupted commit; hostile bundles; pinned cosign; replay, floors, bootstrap, freshness, downgrade, pause, rollback, locale; refusal truthfulness; token scope | `test_relay_updater.py` |
-| Offline verification and the PowerShell installer: private copies, ring decisions, break-glass, hostile bundles, unreadable installed versions | `test_offline.py` (PowerShell required in CI) |
+| Offline verification and the PowerShell installer: private copies, ring decisions, break-glass, hostile bundles, unreadable installed versions | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op and wrong-identity installers, and refuses inconsistent rollback authority |
+| Desktop private-feed transport and one binary/data/model verification transaction; pause, replay, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `SignedReleaseFeedConsumerTests.cs` |
 | Control capture | `test_capture_controls.py` |
 | The verification command against real Sigstore material, and a real GHSA-fx35-mq7g-6g98-shaped legacy bundle | `scripts/release/test-real-sigstore.sh` |
 | Panel reports only the root-owned status | `tests/TarkovCompanion.UnitTests/RelayUpdateTests.cs` |
@@ -594,10 +607,11 @@ still to be observed and recorded.
   are gaps today.
 - **Provenance is attested by the publisher.** It is checked against GitHub's records of the
   verification run, but it is not signed by the workflow that built.
-- **Tool and action tags in #279's workflows.** `windows-verify.yml` installs `vpk` unpinned and
-  uses tag-pinned actions to build what this pipeline signs. Signing proves the bytes are the
-  ones verification uploaded, not that verification's tools were the reviewed ones.
+- **Repository policy does not itself require SHA pins.** The checked-in workflow policy enforces
+  them across every workflow, but an owner must still configure GitHub's independent SHA-pinning
+  rule before enablement.
 - **Break-glass offline installs** apply no ring policy, by design.
-- **Desktop in-app updates** remain on the unauthenticated public feed until #294 moves them.
+- **Desktop in-app updates** are fail-closed until #294 composes the authenticated consumer and
+  #270 supplies its durable state implementation; they no longer fall back to the public feed.
 - **The update service itself** runs as root with no systemd sandboxing beyond its own checks;
   narrowing it with `ProtectSystem=`/`ReadWritePaths=` is untested on CT 115 and not done here.

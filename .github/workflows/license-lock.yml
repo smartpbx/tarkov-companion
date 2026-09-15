@@ -39,12 +39,18 @@ on:
       - 'TarkovCompanion.sln'
       - 'docs/THIRD_PARTY_NOTICES.md'
       - 'docs/THIRD_PARTY_INVENTORY.json'
+      - 'docs/RELEASES.md'
+      - 'docs/WINDOWS.md'
+      - 'docs/adr/0011-signed-private-release-feed.md'
       # The mapping decides how a package is described in the lock, so editing it
       # invalidates the lock just as surely as adding the package did. Leaving this out
       # meant adding a dependency and describing it in two commits regenerated nothing on
       # the second, and the audit then failed on a branch with no way to fix it from there.
       - 'licenses/**'
       - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
+      - 'src/TarkovCompanion.App/Services/Updates/**'
+      - 'src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs'
+      - 'tests/TarkovCompanion.UnitTests/*ReleaseFeed*.cs'
   pull_request:
     branches: [main]
     paths:
@@ -60,14 +66,32 @@ on:
       - 'TarkovCompanion.sln'
       - 'docs/THIRD_PARTY_NOTICES.md'
       - 'docs/THIRD_PARTY_INVENTORY.json'
+      - 'docs/RELEASES.md'
+      - 'docs/WINDOWS.md'
+      - 'docs/adr/0011-signed-private-release-feed.md'
       - 'licenses/**'
       - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
+      - 'src/TarkovCompanion.App/Services/Updates/**'
+      - 'src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs'
+      - 'tests/TarkovCompanion.UnitTests/*ReleaseFeed*.cs'
 
 permissions:
   contents: read
 
 jobs:
+  offline-windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Exercise offline install and recovery on Windows
+        shell: pwsh
+        run: ./scripts/release/test-offline-windows.ps1
+
   supply-chain:
+    needs: offline-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -128,7 +152,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/release/check_workflow_policy.py \
-            --enforce publish.yml --enforce license-lock.yml --verify-tags \
+            --enforce-all --verify-tags \
             --summary "${GITHUB_STEP_SUMMARY}"
 
       # Checked by digest committed here, not by a checksum file from the same release.
@@ -136,11 +160,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --location --output "${RUNNER_TEMP}/actionlint.tar.gz" \
-            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          ( ulimit -f 65536
+            curl --fail --silent --show-error --location --max-filesize 67108864 \
+              --output "${RUNNER_TEMP}/actionlint.tar.gz" \
+              https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz )
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
-          "${RUNNER_TEMP}/actionlint" -color .github/workflows/publish.yml .github/workflows/license-lock.yml
+          "${RUNNER_TEMP}/actionlint" -color .github/workflows/*.yml
 
       # Fetched by version and accepted by digest (scripts/release/cosign.sha256): v3.1.3, the
       # release with GHSA-fx35-mq7g-6g98 fixed. The installer action this replaced trusted a tag.

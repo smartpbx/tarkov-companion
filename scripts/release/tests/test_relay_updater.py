@@ -220,7 +220,7 @@ class UpdaterFixture(unittest.TestCase):
         version: str,
         commit: str,
         generation: int,
-        action: str = "publish",
+        action: str | None = None,
         *,
         ring: str = "stable",
         paused: bool = False,
@@ -272,6 +272,18 @@ class UpdaterFixture(unittest.TestCase):
             }],
         }
         manifest_value = json.dumps(manifest).encode()
+        effective_action = action or ("publish" if ring == "canary" else "promote")
+        release_identity = {
+            "version": version, "commit": commit, "buildTag": f"v2-build-{version}",
+            "manifestName": "release-manifest.json",
+            "manifestSha256": manifest_digest or sha256(manifest_value),
+        }
+        rollback_from = {
+            "version": "9.9.9", "commit": "f" * 40, "buildTag": "v2-build-9.9.9",
+            "manifestName": "release-manifest.json", "manifestSha256": "f" * 64,
+        } if rollback else None
+        source_ring = ({"stable": "beta", "beta": "canary"}.get(ring)
+                       if effective_action == "promote" else None)
         index = {
             "schemaVersion": 1,
             "mediaType": "application/vnd.tarkov-companion.release-index.v1+json",
@@ -280,14 +292,21 @@ class UpdaterFixture(unittest.TestCase):
             "generation": generation,
             "updatedUtc": signed_at,
             "paused": paused,
-            "release": {
-                "version": version, "commit": commit, "buildTag": f"v2-build-{version}",
-                "manifestName": "release-manifest.json",
-                "manifestSha256": manifest_digest or sha256(manifest_value),
+            "release": release_identity,
+            "previous": rollback_from,
+            "lastKnownGood": release_identity if rollback else None,
+            "highWaterVersion": "9.9.9" if rollback else version,
+            "rollback": {"generation": generation, "from": rollback_from} if rollback else None,
+            "authorization": {
+                "action": effective_action,
+                "actor": "release-operator",
+                "reason": "fixture",
+                "workflowRunId": "43",
+                "verificationRunId": "42" if effective_action == "publish" else None,
+                "sourceRing": source_ring,
+                "sourceGeneration": generation if source_ring is not None else None,
+                "previousGeneration": generation - 1,
             },
-            "highWaterVersion": version,
-            "rollback": {"generation": generation, "from": {}} if rollback else None,
-            "authorization": {"action": action, "previousGeneration": generation - 1},
         }
         index_value = json.dumps(index).encode()
         envelope = json.dumps({
@@ -313,6 +332,16 @@ class UpdaterFixture(unittest.TestCase):
                 (directory / name).write_bytes(value)
         return sha256(archive_value)
 
+    def mutate_offline_index(self, mutate) -> None:
+        path = max(self.bundle.glob("release-index-g*.json"))
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(base64.b64decode(envelope["payloadBase64"]))
+        mutate(payload)
+        payload_bytes = json.dumps(payload).encode()
+        envelope["payloadBase64"] = base64.b64encode(payload_bytes).decode()
+        envelope["sigstoreBundle"] = bundle_for(payload_bytes)
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+
     def run_updater(self, *, online: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
         env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
@@ -320,6 +349,7 @@ class UpdaterFixture(unittest.TestCase):
             "HOME": str(self.root),
             "FAKE_ROOT": str(self.root),
             "FAKE_FEED": FEED,
+            "TARKOV_RELEASE_REPOSITORY": FEED,
             "TARKOV_RELEASE_RING": "stable",
             "TARKOV_SIGSTORE_TRUST_ROOT": str(self.root / "trust.json"),
             "TARKOV_RELEASE_TOKEN_FILE": str(self.root / "token"),
@@ -335,9 +365,7 @@ class UpdaterFixture(unittest.TestCase):
             "TARKOV_COSIGN_SHA256": self.cosign_sha256,
             "FAKE_COSIGN_LOG": str(self.root / "cosign.log"),
         }
-        if online:
-            env["TARKOV_RELEASE_REPOSITORY"] = FEED
-        else:
+        if not online:
             env["TARKOV_RELEASE_BUNDLE_DIR"] = str(self.bundle)
         env.update(environment)
         for counter in self.root.glob("count-*"):
@@ -565,6 +593,20 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertEqual("original service\n", (self.units / "tarkov-group-update.service").read_text())
         self.assertFalse((self.units / "tarkov-group-update.timer").exists())
         self.assertIn("original updater", self.updater_copy.read_text())
+        self.assert_no_leftovers()
+
+    def test_rollback_removes_an_updater_that_was_absent_before_the_swap(self) -> None:
+        self.updater_copy.unlink()
+        self.release("3.0.0", "c" * 40, 1, shipped={
+            "tarkov-group-update.service": b"new service\n",
+            "tarkov-group-update.sh": b"#!/bin/sh\n# first updater\n",
+        })
+
+        result = self.run_updater(FAKE_SYSTEMCTL_FAIL="daemon-reload#1")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(self.updater_copy.exists())
+        self.assertEqual("1.0.0", self.running_version())
         self.assert_no_leftovers()
 
     def test_a_stop_that_fails_still_leaves_the_previous_relay_running(self) -> None:
@@ -815,6 +857,43 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertEqual("1.0.0", self.running_version())
         self.assert_no_leftovers()
 
+    def test_an_envelope_nested_past_the_parser_limit_is_refused_before_verification(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        index = next(self.bundle.glob("release-index-g*.json"))
+        index.write_text("[" * 33 + "0" + "]" * 33, encoding="utf-8")
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not bounded valid JSON", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_an_envelope_with_unrecognized_authority_fields_is_refused(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        path = next(self.bundle.glob("release-index-g*.json"))
+        envelope = json.loads(path.read_text(encoding="utf-8"))
+        envelope["fallbackPublicKey"] = "attacker-controlled"
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("ring envelope is malformed", result.stdout)
+        self.assertFalse((self.root / "cosign.log").exists())
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_an_actor_with_edge_whitespace_is_not_a_canonical_authorization(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        self.mutate_offline_index(
+            lambda index: index["authorization"].__setitem__("actor", " release-operator")
+        )
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not a valid stable decision", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
     # Ordering, replay and rollback -------------------------------------------------------------
 
     def test_a_normal_decision_cannot_downgrade(self) -> None:
@@ -852,7 +931,8 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertIn("without a signed rollback", result.stdout)
 
     def test_a_version_the_publisher_would_refuse_is_refused_here(self) -> None:
-        for version in ("2.0.0-01", "02.0.0", "2.0.0+build", "2.0.0-rc..1"):
+        for version in ("2.0.0-01", "02.0.0", "2.0.0+build", "2.0.0-rc..1",
+                        "2147483648.0.0", "2.0.0-2147483648"):
             with self.subTest(version=version):
                 self.release(version, "b" * 40, 1)
 
@@ -871,6 +951,18 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
         self.assertEqual("1.5.0", self.running_version())
+
+    def test_a_signed_but_inconsistent_rollback_is_not_downgrade_authority(self) -> None:
+        self.release("1.5.0", "c" * 40, 2, action="rollback", rollback=True)
+        self.mutate_offline_index(
+            lambda index: index.__setitem__("previous", index["release"])
+        )
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not a valid stable decision", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
 
     def test_a_paused_ring_holds_but_still_applies_a_signed_rollback(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
@@ -1023,11 +1115,36 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("older than this host's 30-day limit", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
+        self.assertFalse((self.state / "PUBLISHED_VERSION").exists())
 
-    def test_malformed_floors_are_refused(self) -> None:
+    def test_a_decision_implausibly_in_the_future_is_always_refused(self) -> None:
+        self.release("2.0.0", "b" * 40, 1, signed_at="2099-01-01T00:00:00Z")
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("implausibly in the future", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertFalse((self.state / "PUBLISHED_VERSION").exists())
+
+    def test_a_calendar_invalid_signed_timestamp_does_not_advance_published_state(self) -> None:
+        self.release("2.0.0", "b" * 40, 1, signed_at="2026-99-99T00:00:00Z")
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("timestamp cannot be read", result.stdout)
+        self.assertFalse((self.state / "PUBLISHED_VERSION").exists())
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_malformed_policy_and_health_configuration_is_refused(self) -> None:
         for name, value in (("TARKOV_RELEASE_MINIMUM_VERSION", "2.0"), ("TARKOV_RELEASE_MINIMUM_GENERATION", "0"),
                             ("TARKOV_RELEASE_MAX_DECISION_AGE_DAYS", "-1"),
-                            ("TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP", "yes")):
+                            ("TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP", "yes"),
+                            ("TARKOV_UPDATE_HEALTH_ATTEMPTS", "0"),
+                            ("TARKOV_UPDATE_HEALTH_ATTEMPTS", "100000000000000000000"),
+                            ("TARKOV_UPDATE_HEALTH_INTERVAL", "-1"),
+                            ("TARKOV_UPDATE_HEALTH_INTERVAL", "61")):
             with self.subTest(name=name):
                 self.release("2.0.0", "b" * 40, 1)
 
@@ -1088,6 +1205,26 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("readable by other users", result.stdout)
 
+    def test_a_redirected_feed_token_or_trust_root_is_refused(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        for name, online in (("token", True), ("trust.json", False)):
+            with self.subTest(name=name):
+                target = self.root / name
+                saved = target.read_bytes()
+                target.unlink()
+                replacement = self.root / f"real-{name}"
+                replacement.write_bytes(saved)
+                replacement.chmod(0o600)
+                target.symlink_to(replacement)
+
+                result = self.run_updater(online=online)
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertRegex(result.stdout, "plain file|resolves somewhere else")
+                target.unlink()
+                target.write_bytes(saved)
+                target.chmod(0o600)
+
     def test_online_refuses_a_public_feed_or_the_source_repository(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
 
@@ -1104,6 +1241,14 @@ class RelayUpdaterTests(UpdaterFixture):
         self.release("2.0.0", "b" * 40, 1, feed="example/other-feed")
 
         result = self.run_updater(online=True)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("for this feed", result.stdout)
+
+    def test_offline_also_refuses_a_decision_signed_for_another_feed(self) -> None:
+        self.release("2.0.0", "b" * 40, 1, feed="example/other-feed")
+
+        result = self.run_updater()
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("for this feed", result.stdout)

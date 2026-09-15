@@ -207,6 +207,46 @@ class ReleasePolicyTests(unittest.TestCase):
                 current=current, current_generation=2, now=NOW,
             )
 
+    def test_transition_metadata_and_rollback_authority_are_fail_closed(self) -> None:
+        first = self.publish("1.0.608")
+        second = self.publish("1.0.609", first, commit="b" * 40)
+        rollback = self.transition("canary", "rollback", second)
+        cases = {
+            "unknown root field": {**first, "unexpected": True},
+            "publish without producer": {
+                **first,
+                "authorization": {**first["authorization"], "verificationRunId": None},
+            },
+            "promote without source": {
+                **self.promote("beta", first),
+                "authorization": {
+                    **self.promote("beta", first)["authorization"],
+                    "sourceRing": None,
+                    "sourceGeneration": None,
+                },
+            },
+            "rollback from unrelated release": {
+                **rollback,
+                "previous": first["release"],
+            },
+            "rollback action without grant": {
+                **first,
+                "authorization": {
+                    **first["authorization"],
+                    "action": "rollback",
+                    "verificationRunId": None,
+                },
+            },
+        }
+        for label, value in cases.items():
+            with self.subTest(label=label), self.assertRaises(PolicyError):
+                release_policy.validate_index(
+                    value,
+                    ring=value["ring"],
+                    feed_repository=FEED,
+                    generation=value["generation"],
+                )
+
     def test_semantic_versions_order_by_precedence(self) -> None:
         ordered = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0", "1.0.608", "1.1.0"]
         keys = [release_policy.semver_key(value) for value in ordered]

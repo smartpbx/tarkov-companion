@@ -60,6 +60,18 @@ class CosignPinTests(unittest.TestCase):
                 if "cosign" in text:
                     self.assertIn("scripts/release/install-cosign.sh", text)
 
+    def test_velopack_cli_is_version_and_content_pinned(self) -> None:
+        pin = (RELEASE / "vpk.sha256").read_text(encoding="utf-8").strip()
+        source = (RELEASE / "install-vpk.ps1").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/windows-verify.yml").read_text(encoding="utf-8")
+
+        self.assertRegex(pin, r"^[0-9a-f]{64}  vpk\.1\.2\.0\.nupkg$")
+        self.assertIn('$Version = "1.2.0"', source)
+        self.assertIn("$ExpectedDigest", source)
+        self.assertIn("--configfile $Config --no-cache", source)
+        self.assertIn("scripts/release/install-vpk.ps1", workflow)
+        self.assertNotIn("dotnet tool install --global vpk", workflow)
+
 
 class PinnedCosignScriptTests(unittest.TestCase):
     def setUp(self) -> None:

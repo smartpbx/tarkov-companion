@@ -96,7 +96,7 @@ class CaptureControlsTests(unittest.TestCase):
         statuses = self.evaluate(responses)
 
         self.assertEqual("gap", statuses["environment v2-stable-release: deployments only from main"])
-        self.assertEqual("met", statuses["environment v2-beta-release: deployments only from main"])
+        self.assertEqual("gap", statuses["environment v2-beta-release: deployments only from main"])
         self.assertEqual("gap", statuses["environment v2-beta-release: required reviewer who is not the dispatcher"])
 
     def test_a_public_or_mutable_feed_is_a_gap(self) -> None:

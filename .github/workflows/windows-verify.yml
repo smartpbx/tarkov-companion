@@ -21,26 +21,23 @@ on:
       - main
     tags:
       - 'v*'
-  # Branch work is verified before it reaches the trunk, not after. The publishing steps
-  # below are gated on the ref, so a pull request gets the whole gauntlet - build, test,
-  # launch, photograph every page - and publishes nothing.
+  # Branch work is verified before it reaches the trunk, not after. A pull request gets the
+  # whole gauntlet - build, test, launch, photograph every page - and this workflow has no
+  # release-writing job or permission at all.
   pull_request:
     branches:
       - main
 
 # One publish at a time per ref. Two main runs started four seconds apart once and
-# finished out of order, leaving the rolling `dev` release on the older build. An
-# older run is cancelled rather than queued: it is about to be superseded, and since
-# the publish no longer deletes anything and writes the feed files last, a cancelled
-# one leaves the previous build whole.
+# finished out of order, leaving the old rolling `dev` release on the older build. An
+# older verification run is cancelled rather than queued: only a completed push-to-main
+# run can be offered to the separate signed publisher.
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
-# Read by default, so a run that is not publishing cannot. The write is on the publish job
-# alone, and that job does not run for a pull request at all — which is the whole of the
-# scoped-down Ambitious 6: publishing moves out of the PR-triggered path so a PR run has no
-# step that could publish and no token that could.
+# Read-only throughout. Publishing lives in publish.yml, so a pull-request run has no step
+# that could publish and no token that could.
 #
 # The exposure was never a stranger: smartpbx is the only collaborator with push, fork PRs get
 # a read-only token with no secrets, and there is no pull_request_target anywhere. This is the
@@ -56,8 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -83,7 +80,7 @@ jobs:
             -p:PublishSingleFile=false \
             -p:InformationalVersion="1.0.${{ github.run_number }}+${{ github.sha }}" \
             --output artifacts/group-server
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: TarkovCompanion-GroupServer-linux-x64
           path: artifacts/group-server/**
@@ -123,7 +120,7 @@ jobs:
             -cf - . | gzip -n > dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
           ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
           cat dist/GROUPSERVER-SHA256SUMS.txt
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: group-server-release
           path: |
@@ -131,7 +128,7 @@ jobs:
             dist/GROUPSERVER-SHA256SUMS.txt
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: always()
         with:
           name: linux-test-results
@@ -158,9 +155,9 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: 1
       DOTNET_NOLOGO: 1
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -197,7 +194,9 @@ jobs:
             "scripts/windows-page-gallery.ps1",
             "scripts/windows-smoke.ps1",
             "scripts/windows-verification-evidence.ps1",
-            "scripts/verify-windows-verification-static.ps1"
+            "scripts/verify-windows-verification-static.ps1",
+            "scripts/release/install-vpk.ps1",
+            "scripts/release/install-offline.ps1"
           )
           foreach ($Script in $Scripts) {
             $ResolvedScript = (Resolve-Path -LiteralPath $Script).Path
@@ -267,12 +266,17 @@ jobs:
       # gate tests rather than something it produces once everything else has passed. Same
       # bits either way: this packs artifacts/win-x64, which is exactly what the zip the
       # probes launch was made from.
+      - name: Install Velopack CLI by content
+        shell: powershell
+        run: |
+          $Vpk = ./scripts/release/install-vpk.ps1 `
+            -Destination (Join-Path $env:RUNNER_TEMP "vpk-tools")
+          "VPK_PATH=$Vpk" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Pack the installer and the update feed
         shell: bash
         run: |
           set -euo pipefail
-          dotnet tool install --global vpk
-          export PATH="$PATH:$HOME/.dotnet/tools"
           # Must match the version the packaging script stamped into BUILD_INFO.txt, or the
           # file inside the install and the installer that delivered it name different builds.
           VERSION="1.0.${{ github.run_number }}"
@@ -286,7 +290,7 @@ jobs:
           # player's data aside to make room for the program. It did that for real, to a
           # 114 MB database, and only a failed install left the rename target behind to
           # recover from. A successful one would have been worse.
-          vpk pack \
+          "$VPK_PATH" pack \
             --packId TarkovCompanionDesktop \
             --packVersion "$VERSION" \
             --packDir artifacts/win-x64 \
@@ -302,6 +306,14 @@ jobs:
           # directory already renamed aside; that is exactly how this was found.
           ( cd dist/velopack && sha256sum -- * > ../VELOPACK-SHA256SUMS.txt )
           cat dist/VELOPACK-SHA256SUMS.txt
+
+      - name: Build the versioned data and model components
+        shell: powershell
+        run: |
+          python scripts/release/build_components.py `
+            --source . --output dist --update dist/update.json
+          if ($LASTEXITCODE -ne 0) { throw "Building release components failed." }
+          Get-Content -LiteralPath dist/COMPONENT-SHA256SUMS.txt
 
       - name: Headless self-test on a clean machine
         id: self-test-cold
@@ -498,7 +510,7 @@ jobs:
 
       - name: Publish sanitized verification evidence
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: windows-verification
           path: |
@@ -572,7 +584,7 @@ jobs:
           Write-Host "Every Windows verification step passed."
       - name: Publish the verified package
         if: success()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: TarkovCompanion-win-x64
           path: |
@@ -588,7 +600,7 @@ jobs:
       # a release.
       - name: Hand the release payload to the publish job
         if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: windows-release-payload
           path: |
@@ -596,145 +608,8 @@ jobs:
             dist/VELOPACK-SHA256SUMS.txt
             dist/SHA256SUMS.txt
             dist/update.json
+            dist/COMPONENT-SHA256SUMS.txt
+            dist/TarkovCompanion-data-*.json
+            dist/TarkovCompanion-model-eng-*.traineddata
             dist/TarkovCompanion-v1.0.0-win-x64.zip
           if-no-files-found: error
-
-
-  # Publishing, and nothing else. It needs the write token, so it is the only job that has one
-  # and it does not run for a pull request — a PR run therefore has no step that could publish
-  # and no token that could, which is what "structurally cannot" means here.
-  #
-  # On ubuntu rather than windows because every step below is bash, gh and git; the Windows
-  # runner's only job is producing the payload and saying it passed.
-  #
-  # A failure here leaves the previous dev release whole. Nothing is deleted before the new
-  # assets are uploaded and the two feed files are written last, so the worst case is that dev
-  # does not advance — visible, and fixed by re-running.
-  publish:
-    needs: windows-verify
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      # Velopack turns the verified publish directory into an installer plus a delta feed.
-      #
-      # This replaced a hand-written swap script that never once completed on a real machine.
-      # The application was unpacked from a zip onto a OneDrive-synced Desktop, where the sync
-      # client holds handles on the folder continuously, so a directory rename could not
-      # succeed and mirroring file by file only moved the failure to whichever file was locked
-      # when it arrived. Velopack installs per user under LocalAppData, which nothing syncs,
-      # and it owns the restart, so the process is gone before its files are touched.
-      #
-      # The version carries the run number so every verified build is strictly newer than the
-      # last one. Velopack compares versions and will not offer a build it considers older.
-      - uses: actions/checkout@v5
-
-      - name: Collect the verified Windows payload
-        uses: actions/download-artifact@v5
-        with:
-          name: windows-release-payload
-          path: dist
-
-      - name: Collect the group server build
-        uses: actions/download-artifact@v5
-        with:
-          name: group-server-release
-          path: dist
-
-      # A tag cuts a release that stays. The rolling pre-release below is what the group
-      # actually runs and is replaced constantly; a tagged release is a build somebody
-      # decided to keep, and it is never deleted or moved.
-      - name: Publish a tagged release
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          gh release create "$TAG"             --repo "${{ github.repository }}"             --target "${{ github.sha }}"             --title "$TAG"             --notes "Verified on Windows: built, tested, launched, and every page photographed. Install with TarkovCompanionDesktop-win-Setup.exe."             --verify-tag             dist/velopack/*             dist/VELOPACK-SHA256SUMS.txt             dist/SHA256SUMS.txt
-
-      # One rolling pre-release, replaced on every verified build, so the application has a
-      # fixed place to look for a newer version of itself. Only reached when every check above
-      # passed, so nothing that failed verification is ever offered as an update.
-      - name: Publish the verified build for in-app update
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          REPO="${{ github.repository }}"
-          # The manifest is written by the packaging script, from the same values it stamped
-          # into BUILD_INFO.txt, so the two can never disagree about the build they describe.
-          test -s dist/update.json
-          VERSION="$(jq -r .version dist/update.json)"
-
-          # Refuse to go backwards. Two main runs started four seconds apart once and the
-          # older commit finished last, so `dev` ended up on the older build — and the relay,
-          # which follows the feed by checksum alone, would have followed it backwards too.
-          # The concurrency group above makes that unlikely; this makes it harmless.
-          PUBLISHED=""
-          if gh release download dev --repo "$REPO" --pattern update.json --dir /tmp/feed --clobber 2>/dev/null; then
-            PUBLISHED="$(jq -r .version /tmp/feed/update.json 2>/dev/null || echo "")"
-          fi
-          if [ -n "$PUBLISHED" ] && [ "$PUBLISHED" != "$VERSION" ] \
-             && [ "$(printf '%s\n%s\n' "$PUBLISHED" "$VERSION" | sort -V | tail -1)" = "$PUBLISHED" ]; then
-            echo "Refusing to publish $VERSION over the newer $PUBLISHED already on dev." >&2
-            exit 1
-          fi
-
-          # Created if absent, never deleted. Delete-then-create left the install link, the
-          # update feed and the relay updater all pointing at nothing when the create failed
-          # after the delete had succeeded — which happened twice — and it zeroed the download
-          # counts on every single build.
-          if ! gh release view dev --repo "$REPO" >/dev/null 2>&1; then
-            git tag -f dev "${{ github.sha }}"
-            git push -f origin dev
-            gh release create dev \
-              --repo "$REPO" \
-              --title "Latest verified build" \
-              --notes "placeholder" \
-              --prerelease
-          fi
-
-          # Packages first, the two feed files last. Anything reading the feed mid-publish sees
-          # the previous build, whole, rather than a half-written one; and a run cancelled
-          # partway leaves the old feed pointing at assets that are all still present.
-          gh release upload dev --repo "$REPO" --clobber \
-            dist/velopack/* \
-            dist/TarkovCompanion-GroupServer-linux-x64.tar.gz \
-            dist/GROUPSERVER-SHA256SUMS.txt \
-            dist/TarkovCompanion-v1.0.0-win-x64.zip
-          gh release upload dev --repo "$REPO" --clobber \
-            dist/VELOPACK-SHA256SUMS.txt \
-            dist/SHA256SUMS.txt \
-            dist/update.json
-
-          # Stale packages last, once nothing points at them any more.
-          #
-          # --clobber only replaces an asset of the same name, and a Velopack package carries
-          # its version in its filename, so not deleting left every build's nupkg on the
-          # release for ever: ~70 MB a build, twice an hour. Deleting them before the upload
-          # would have been worse — it is the delete-then-create hole in a smaller shape — so
-          # they go after the feed has been repointed and they are genuinely unreferenced.
-          gh release view dev --repo "$REPO" --json assets \
-            --jq '.assets[].name | select(endswith(".nupkg"))' \
-          | while read -r asset; do
-              case "$asset" in
-                *"-${VERSION}-"*) ;;
-                *) echo "removing superseded $asset"
-                   gh release delete-asset dev "$asset" --repo "$REPO" --yes || true ;;
-              esac
-            done
-
-          # The tag follows the build rather than being recreated with it.
-          git tag -f dev "${{ github.sha }}"
-          git push -f origin dev
-          gh release edit dev \
-            --repo "$REPO" \
-            --title "Latest verified build" \
-            --notes "Replaced on every build that passes Windows verification. Commit ${{ github.sha }}. Install with TarkovCompanionDesktop-win-Setup.exe; after that the application updates itself." \
-            --prerelease

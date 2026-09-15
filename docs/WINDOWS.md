@@ -55,9 +55,10 @@ installing renames the player's data aside.
 
 Two things are not true yet, and are recorded rather than implied:
 
-- **In-app updates still read the public repository's prereleases.** `VelopackUpdateGateway` has
-  not been moved to the signed private feed; that composition change belongs to #294. Until it
-  is, the desktop does not enforce signature, ring, pause or rollback rules itself.
+- **In-app updates are not composed yet.** The anonymous public `GithubSource` has been removed,
+  so an unconfigured gateway fails closed. The bounded authenticated transport, pinned Sigstore
+  verifier and binary/data/model transaction are implemented and fixture-tested, but #294 still
+  has to compose them with Velopack and component activation, and #270 supplies persisted state.
 - **Delta packages are not produced.** Verification packs full packages only; the release chain
   signs deltas if verification starts producing them.
 
@@ -77,4 +78,6 @@ Signed desktop builds reach a machine without the in-app updater, or without any
 - `-BreakGlass` installs a publisher-signed build without a ring decision and warns that no ring
   policy was applied.
 
-It has been exercised by the release fixtures under PowerShell 7 on Linux, not yet on Windows.
+It is also exercised on a Windows GitHub runner with a successful installer, an installer that
+does nothing, one that writes the wrong `BUILD_INFO.txt`, and an inconsistent rollback decision;
+only the first is accepted.

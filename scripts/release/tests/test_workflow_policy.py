@@ -88,12 +88,15 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def check(self, files: dict[str, str], *enforced: str, python: str = sys.executable,
-              environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+              environment: dict[str, str] | None = None,
+              enforce_all: bool = False) -> subprocess.CompletedProcess[str]:
         for name in list(self.workflows.glob("*.yml")):
             name.unlink()
         for name, body in files.items():
             (self.workflows / name).write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
         arguments = [python, str(CHECKER), "--workflows", str(self.workflows)]
+        if enforce_all:
+            arguments.append("--enforce-all")
         for name in enforced:
             arguments += ["--enforce", name]
         return subprocess.run(arguments, capture_output=True, text=True, check=False, env=environment)
@@ -120,6 +123,12 @@ class WorkflowPolicyTests(unittest.TestCase):
             "environment named as a string without main": GOOD_PUBLISHER.replace(
                 "    if: github.ref == 'refs/heads/main'\n    environment:\n      name: v2-canary-release\n",
                 "    environment: v2-canary-release\n"),
+            "main words hidden inside a tautology": GOOD_PUBLISHER.replace(
+                "    if: github.ref == 'refs/heads/main'\n",
+                "    if: github.ref == 'refs/heads/main' || true\n"),
+            "bracket secret in an unprotected job": GOOD_PUBLISHER.replace(
+                "      - run: ./scripts/scan-secrets.sh",
+                "      - run: echo ${{ secrets['V2_RELEASE_TOKEN'] }}"),
         }
         for label, body in cases.items():
             with self.subTest(label=label):
@@ -205,6 +214,15 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertIn("ci.yml:8 actions/checkout@v5 is not pinned", result.stdout)
         self.assertIn("runs for pull requests and grants write scopes: contents", result.stdout)
 
+    def test_enforce_all_turns_a_new_workflow_violation_into_a_failure(self) -> None:
+        result = self.check({
+            "publish.yml": GOOD_PUBLISHER,
+            "future.yml": "on:\n  pull_request:\npermissions:\n  contents: read\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v5\n",
+        }, enforce_all=True)
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("future.yml:9 actions/checkout@v5 is not pinned", result.stdout)
+
     def test_an_enforced_workflow_that_does_not_exist_fails(self) -> None:
         self.assertEqual(1, self.check({"publish.yml": GOOD_PUBLISHER}, "publish.yml", "license-lock.yml").returncode)
 
@@ -243,7 +261,10 @@ class WorkflowPolicyTests(unittest.TestCase):
                          "scripts/package-windows.sh", "scripts/audit-licenses.sh", "scripts/scan-secrets.sh",
                          "scripts/release/build_manifest.py", "deploy/group-server/tarkov-group-update.sh",
                          "deploy/group-server/tarkov-group.service", "Directory.Packages.props", "Directory.Build.props",
-                         "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj", "licenses/dependency-license-map.json"):
+                         "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj",
+                         "src/TarkovCompanion.App/Services/Updates/SignedReleaseFeedConsumer.cs",
+                         "tests/TarkovCompanion.UnitTests/SignedReleaseFeedConsumerTests.cs",
+                         "docs/RELEASES.md", "licenses/dependency-license-map.json"):
             with self.subTest(producer=producer):
                 self.assertTrue(any(self.glob_matches(pattern, producer) for pattern in push), producer)
 
@@ -275,7 +296,7 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_the_repository_release_workflows_pass(self) -> None:
         result = subprocess.run(
             [sys.executable, str(CHECKER), "--workflows", str(REPOSITORY_ROOT / ".github/workflows"),
-             "--enforce", "publish.yml", "--enforce", "license-lock.yml"],
+             "--enforce-all"],
             capture_output=True, text=True, check=False,
         )
 

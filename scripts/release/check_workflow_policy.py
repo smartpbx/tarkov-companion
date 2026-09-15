@@ -4,10 +4,9 @@
 Enforced files must pin every action and reusable workflow to a full commit, with the reviewed
 tag in a comment. They must declare their token permissions, and must never grant a write scope
 to a run a pull request can start. The publisher must be unreachable from pull requests and must
-hold its signing identity and secrets only inside a main-only protected environment. Every other
-workflow is reported rather than failed: they belong to other owners, and a report that says
-exactly what is still mutable is more useful than a pass that hides it or a failure nobody here
-may fix. `pull_request_target` fails everywhere.
+hold its signing identity and secrets only inside a main-only protected environment. The release
+gate uses ``--enforce-all`` so a newly added workflow cannot silently reintroduce a mutable
+producer. `pull_request_target` fails everywhere.
 
 The first version matched lines with regular expressions, and valid YAML walked straight past it:
 `permissions: write-all`, flow mappings such as `permissions: {contents: write}` and
@@ -233,6 +232,60 @@ def environment_name(job: dict[str, Any]) -> str | None:
     return None
 
 
+def top_level_conjuncts(expression: str) -> list[str]:
+    """Split a GitHub expression on top-level ``&&`` without trusting substring presence.
+
+    A guard of ``main || true`` contains the right words and is not a main-only guard. Requiring
+    the canonical comparison as its own top-level conjunct keeps other job conditions flexible
+    while making that bypass impossible. Invalid quoting or parentheses yield no conjuncts and
+    therefore fail closed.
+    """
+    value = expression.strip()
+    if value.startswith("${{") and value.endswith("}}"):
+        value = value[3:-2].strip()
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    quote: str | None = None
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if quote is not None:
+            if character == quote:
+                # GitHub expressions escape a single quote by doubling it.
+                if quote == "'" and index + 1 < len(value) and value[index + 1] == "'":
+                    index += 2
+                    continue
+                quote = None
+        elif character in ("'", '"'):
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                return []
+        elif value.startswith("&&", index) and depth == 0:
+            parts.append(value[start:index].strip())
+            index += 2
+            start = index
+            continue
+        index += 1
+    if quote is not None or depth != 0:
+        return []
+    parts.append(value[start:].strip())
+    return [part for part in parts if part]
+
+
+def reads_secret(value: Any) -> bool:
+    """Recognise both ``secrets.NAME`` and ``secrets['NAME']`` in any scalar."""
+    if isinstance(value, dict):
+        return any(reads_secret(key) or reads_secret(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(reads_secret(item) for item in value)
+    return isinstance(value, str) and re.search(r"(?<![A-Za-z0-9_])secrets\s*(?:\.|\[)", value) is not None
+
+
 def check_publisher(triggers: set[str], workflow_writes: set[str], jobs: dict[str, dict[str, Any]],
                     job_writes: dict[str, set[str]], report: Report) -> None:
     if not triggers or not triggers <= PUBLISHER_TRIGGERS:
@@ -246,9 +299,9 @@ def check_publisher(triggers: set[str], workflow_writes: set[str], jobs: dict[st
             report.errors.append(f"publish.yml job {name} calls a reusable workflow, which would hold its authority elsewhere")
         if job_writes[name] and environment is None:
             report.errors.append(f"publish.yml job {name} holds {sorted(job_writes[name])} outside a protected environment")
-        if environment is not None and "github.ref == 'refs/heads/main'" not in condition:
+        if environment is not None and "github.ref == 'refs/heads/main'" not in top_level_conjuncts(condition):
             report.errors.append(f"publish.yml job {name} requests an environment without an explicit main-only condition")
-        if re.search(r"\$\{\{[^}]*\bsecrets\.", json.dumps(job, default=str)) and environment is None:
+        if reads_secret(job) and environment is None:
             report.errors.append(f"publish.yml job {name} reads a secret outside a protected environment")
 
 
@@ -283,6 +336,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--workflows", type=Path, default=Path(".github/workflows"))
     parser.add_argument("--enforce", action="append", default=[], help="workflow file name held to the full policy")
+    parser.add_argument("--enforce-all", action="store_true", help="hold every workflow, including future files, to the full policy")
     parser.add_argument("--summary", type=Path, help="append a Markdown report here")
     parser.add_argument("--verify-tags", action="store_true", help="resolve each pinned tag through the GitHub API")
     args = parser.parse_args()
@@ -292,7 +346,7 @@ def main() -> int:
     missing = sorted(set(args.enforce) - {path.name for path in files})
     report.errors.extend(f"enforced workflow {name} does not exist" for name in missing)
     for path in files:
-        check_workflow(path, report, path.name in args.enforce)
+        check_workflow(path, report, args.enforce_all or path.name in args.enforce)
     if args.verify_tags:
         verify_tags(report)
 

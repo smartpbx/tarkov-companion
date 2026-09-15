@@ -64,8 +64,8 @@ def check_verification_run(run: dict[str, Any], repository: str) -> str:
 
 
 def verification_run(runner: Runner, repository: str, run_id: str) -> dict[str, Any]:
-    if not run_id.isdigit():
-        raise GateError("the verification run id must be numeric")
+    if re.fullmatch(r"[1-9][0-9]{0,19}", run_id) is None:
+        raise GateError("the verification run id must be a bounded positive decimal identifier")
     run = gh_json(runner, f"repos/{repository}/actions/runs/{run_id}")
     sha = check_verification_run(run, repository)
     # Still reachable from main, so a force-push that removed the commit cannot be released.
