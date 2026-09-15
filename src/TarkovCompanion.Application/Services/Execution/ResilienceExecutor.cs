@@ -194,7 +194,7 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             var attemptTimeout = remaining < request.Policy.AttemptTimeout
                 ? remaining
                 : request.Policy.AttemptTimeout;
-            using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Task<T>? pending = null;
             try
             {
@@ -204,12 +204,12 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 var value = await pending
                     .WaitAsync(attemptTimeout, _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
+                attemptCancellation.Dispose();
                 circuit.RecordSuccess();
                 return OperationExecutionResult<T>.Success(value, attempt, startedUtc, _timeProvider.GetUtcNow());
             }
             catch (TimeoutException)
             {
-                attemptCancellation.Cancel();
                 lastFault = TimeoutFault(reference, "operation-attempt-timeout");
                 circuit.RecordFailure(_timeProvider.GetUtcNow());
             }
@@ -238,6 +238,23 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 }
             }
 
+            // Whatever ended the wait — the attempt deadline or the caller's cancellation — an
+            // attempt that is still running is told to stop now. Leaving that to the token link
+            // lost it: the wait can observe the outer cancellation first, and disposing the attempt
+            // source on the way out removed the link before it had cancelled the attempt, which
+            // then ran for ever while its owner, correctly, waited for it. The source also stays
+            // alive until the attempt returns, so a callback it registers late cannot fail.
+            Task? unfinished = null;
+            if (pending is { IsCompleted: false })
+            {
+                TryCancel(attemptCancellation);
+                unfinished = DisposeWhenFinishedAsync(pending, attemptCancellation);
+            }
+            else
+            {
+                attemptCancellation.Dispose();
+            }
+
             if (!CanRetry(request, lastFault) || attempt == request.Policy.MaxAttempts)
             {
                 return OperationExecutionResult<T>.Failure(
@@ -245,20 +262,20 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                     attempt,
                     startedUtc,
                     _timeProvider.GetUtcNow(),
-                    pending is { IsCompleted: false } ? pending : null);
+                    unfinished);
             }
 
             // Retrying while a timed-out dependency is still executing would run two copies
             // under one resource lease. The deadline remains a truthful failure, while the
             // unfinished task lets the supervisor retain ownership until the dependency exits.
-            if (pending is { IsCompleted: false })
+            if (unfinished is not null)
             {
                 return OperationExecutionResult<T>.Failure(
                     lastFault,
                     attempt,
                     startedUtc,
                     _timeProvider.GetUtcNow(),
-                    pending);
+                    unfinished);
             }
 
             var baseDelay = RetryDelay(request.Policy, attempt);
@@ -302,6 +319,34 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
         }
 
         throw new UnreachableException();
+    }
+
+    private static async Task DisposeWhenFinishedAsync(Task attempt, CancellationTokenSource attemptCancellation)
+    {
+        try
+        {
+            await attempt.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The sanitized result already carries this attempt's failure.
+        }
+        finally
+        {
+            attemptCancellation.Dispose();
+        }
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (AggregateException)
+        {
+            // A callback registered by the dependency threw; its own result reports that.
+        }
     }
 
     private DependencyCircuitBreaker CircuitFor(OperationExecutionRequest request)

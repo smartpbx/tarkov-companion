@@ -58,6 +58,47 @@ public sealed class ResilienceExecutorTests
         Assert.False(never.Task.IsCompleted);
     }
 
+    /// <summary>
+    /// The wait for an attempt can observe the caller's cancellation before the token link has
+    /// passed it to the attempt. Disposing the attempt's source on the way out then removed the
+    /// link, and an operation that honours cancellation ran for ever. A supervisor stop hung on it.
+    /// </summary>
+    [Fact]
+    public async Task CallerCancellationAlwaysReachesTheRunningAttempt()
+    {
+        for (var iteration = 0; iteration < 50; iteration++)
+        {
+            var time = new ManualTimeProvider(Epoch);
+            var executor = new ResilienceExecutor(time, new ExactJitter());
+            using var cancellation = new CancellationTokenSource();
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task? attempt = null;
+
+            var execution = executor.ExecuteAsync<int>(
+                Request(OperationPolicy.Once(TimeSpan.FromMinutes(1))),
+                (_, token) =>
+                {
+                    attempt = Task.Delay(Timeout.InfiniteTimeSpan, time, token);
+                    started.TrySetResult();
+                    return WaitThenAnswerAsync(attempt);
+                },
+                cancellation.Token);
+            await started.Task;
+            await cancellation.CancelAsync();
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.False(result.Succeeded);
+            Assert.Equal(RuntimeFailureKind.Cancelled, result.Fault!.Kind);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => attempt!.WaitAsync(TimeSpan.FromSeconds(30)));
+        }
+
+        static async Task<int> WaitThenAnswerAsync(Task attempt)
+        {
+            await attempt;
+            return 1;
+        }
+    }
+
     [Fact]
     public async Task ValidationAuthenticationVersionConflictAndUnsupportedFaultsAreNotRetried()
     {
