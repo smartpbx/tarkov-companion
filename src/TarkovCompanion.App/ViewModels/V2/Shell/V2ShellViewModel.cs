@@ -68,6 +68,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IDisposable
     public ObservableCollection<V2ShellDestinationViewModel> Destinations { get; }
     public ObservableCollection<V2ShellCommand> Commands { get; }
     public string ProvisionalLabel => V2ShellText.Get("V2.Shell.Provisional");
+    public bool IsPreview => true;
     public string VariantName => V2ShellText.Get(Variant.NameKey);
     public string Title => V2ShellText.Format("V2.Shell.WindowTitle", CultureInfo.CurrentCulture, CurrentHeading, ProvisionalLabel);
     public string CurrentHeading => V2ShellText.Get(Registry[Router.Current.Location.Route].HeadingKey);

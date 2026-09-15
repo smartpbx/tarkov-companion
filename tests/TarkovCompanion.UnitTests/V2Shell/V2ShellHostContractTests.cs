@@ -38,7 +38,7 @@ public sealed class V2ShellHostContractTests
         var states = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Services", "V2", "Shell", "V2SurfaceStates.cs"));
 
         Assert.Contains("v2-shell-dialog-title", shell, StringComparison.Ordinal);
-        Assert.Contains("ControlTypeOverride=\"Dialog\"", shell, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=\"Capture dialog\"", shell, StringComparison.Ordinal);
         foreach (var state in Enum.GetNames<V2SurfaceStateKind>()) Assert.Contains($"V2SurfaceStateKind.{state}", states, StringComparison.Ordinal);
     }
 }

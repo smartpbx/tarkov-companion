@@ -11,12 +11,18 @@
 
        All styling lives in Themes/InstrumentStyles.axaml, included once here so that it
        applies to every window and every view. -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Resources.axaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
   <Application.Styles>
     <FluentTheme DensityStyle="Compact" />
     <StyleInclude Source="avares://TarkovCompanion/Themes/InstrumentStyles.axaml" />
     <!-- V2 is merged by the application host, not by the #266 primitive tree.  The legacy
          shell remains styled exactly as before; the V2 classes are opt-in on the preview host. -->
-    <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2Resources.axaml" />
     <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2PrimitiveStyles.axaml" />
     <Style Selector="Window">
       <Setter Property="Background" Value="#11151B" />

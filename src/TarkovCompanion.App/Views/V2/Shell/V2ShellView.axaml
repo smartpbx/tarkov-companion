@@ -63,7 +63,7 @@
          restoration path. It is chrome, never a second window or a second runtime graph. -->
     <Border Grid.RowSpan="3" IsVisible="{Binding IsCaptureOpen}" Background="#B0000000" ZIndex="10" Padding="48">
       <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.ControlTypeOverride="Dialog" AutomationProperties.Name="Capture">
+        <StackPanel Classes="v2-stack" AutomationProperties.Name="Capture dialog">
           <TextBlock x:Name="DialogTitle" Classes="v2-heading-2" Focusable="True" AutomationProperties.AutomationId="v2-shell-dialog-title" AutomationProperties.HeadingLevel="1" Text="Capture" />
           <TextBlock Classes="v2-body" Text="Press the game's own screenshot key. The companion reads the saved file." />
           <Button Classes="v2-target" Content="Close" Command="{Binding CloseTransientCommand}" />
@@ -72,9 +72,9 @@
     </Border>
     <Border Grid.RowSpan="3" IsVisible="{Binding IsPaletteOpen}" Background="#B0000000" ZIndex="10" Padding="48">
       <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.ControlTypeOverride="Dialog" AutomationProperties.Name="Commands">
+        <StackPanel Classes="v2-stack" AutomationProperties.Name="Commands dialog">
           <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="1" Text="Commands" />
-          <TextBox Classes="v2-field-input" Text="{Binding SearchText}" Watermark="Type an item id or address" />
+          <TextBox Classes="v2-field-input" Text="{Binding SearchText}" PlaceholderText="Type an item id or address" />
           <Button Classes="v2-target" Content="Search" Command="{Binding SearchCommand}" />
           <TextBlock Classes="v2-heading-3" Text="Pinned" /><ItemsControl ItemsSource="{Binding Pins}" />
           <TextBlock Classes="v2-heading-3" Text="Recent" /><ItemsControl ItemsSource="{Binding Recents}" />
@@ -84,7 +84,7 @@
     </Border>
     <Border Grid.RowSpan="3" IsVisible="{Binding IsHealthOpen}" Background="#B0000000" ZIndex="10" Padding="48">
       <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.ControlTypeOverride="Dialog" AutomationProperties.Name="Setup status">
+        <StackPanel Classes="v2-stack" AutomationProperties.Name="Setup status dialog">
           <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="1" Text="Setup status" />
           <TextBlock Classes="v2-body" Text="{Binding Readiness.NeedsActionCount, StringFormat={}{0} setup items need action}" />
           <Button Classes="v2-target" Content="Close" Command="{Binding CloseTransientCommand}" />
