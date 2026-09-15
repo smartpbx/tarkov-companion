@@ -24,6 +24,17 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         }
     }
 
+    public DateTimeOffset? NextTimerUtc
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers.Select(timer => timer.DueUtc).Min();
+            }
+        }
+    }
+
     public override ITimer CreateTimer(
         TimerCallback callback,
         object? state,
@@ -77,6 +88,8 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         private DateTimeOffset? _dueUtc;
         private TimeSpan _period = Timeout.InfiniteTimeSpan;
         private bool _disposed;
+
+        public DateTimeOffset? DueUtc => _dueUtc;
 
         public bool Change(TimeSpan dueTime, TimeSpan period)
         {

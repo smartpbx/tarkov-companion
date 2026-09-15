@@ -23,13 +23,15 @@ public sealed class ResilienceExecutorTests
             },
             default);
 
-        await RuntimeTestTasks.DrainAsync();
-        Assert.Equal(1, attempts);
+        await RuntimeTestTasks.UntilAsync(() =>
+            Volatile.Read(ref attempts) == 1
+            && time.NextTimerUtc == Epoch.AddMilliseconds(100));
         Assert.False(execution.IsCompleted);
 
         time.Advance(TimeSpan.FromMilliseconds(100));
-        await RuntimeTestTasks.DrainAsync();
-        Assert.Equal(2, attempts);
+        await RuntimeTestTasks.UntilAsync(() =>
+            Volatile.Read(ref attempts) == 2
+            && time.NextTimerUtc == Epoch.AddMilliseconds(300));
         Assert.False(execution.IsCompleted);
 
         time.Advance(TimeSpan.FromMilliseconds(200));
@@ -45,10 +47,19 @@ public sealed class ResilienceExecutorTests
         var time = new ManualTimeProvider(Epoch);
         var executor = new ResilienceExecutor(time, new ExactJitter());
         var never = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var policy = OperationPolicy.Once(TimeSpan.FromSeconds(1));
 
-        var execution = executor.ExecuteAsync(Request(policy), (_, _) => never.Task, default);
-        await RuntimeTestTasks.DrainAsync();
+        var execution = executor.ExecuteAsync(
+            Request(policy),
+            (_, _) =>
+            {
+                started.TrySetResult();
+                return never.Task;
+            },
+            default);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == Epoch.AddSeconds(1));
         time.Advance(TimeSpan.FromSeconds(1));
         var result = await execution;
 
@@ -147,7 +158,9 @@ public sealed class ResilienceExecutorTests
                 : Task.FromResult(7),
             default);
 
-        await RuntimeTestTasks.DrainAsync();
+        await RuntimeTestTasks.UntilAsync(() =>
+            Volatile.Read(ref attempts) == 1
+            && time.NextTimerUtc == Epoch.AddMilliseconds(100));
         time.Advance(TimeSpan.FromMilliseconds(100));
         var result = await execution;
 
@@ -331,6 +344,7 @@ public sealed class ResilienceExecutorTests
         try
         {
             await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == Epoch.AddSeconds(1));
             time.Advance(TimeSpan.FromSeconds(1));
             await RuntimeTestTasks.UntilAsync(() => execution.IsCompleted);
 
@@ -377,6 +391,7 @@ public sealed class ResilienceExecutorTests
             default);
 
         await operationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == Epoch.AddSeconds(1));
         time.Advance(TimeSpan.FromSeconds(1));
         try
         {
