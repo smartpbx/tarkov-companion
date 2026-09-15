@@ -1,0 +1,44 @@
+# Relay and diagnostics operations runbook
+
+Use UTC in incident notes. Never put group/admin/diagnostic keys, screenshots, OCR crops, names, coordinates, report bodies, raw logs, or full paths in a ticket.
+
+## Readiness alert
+
+1. Use the single relay-watch issue; record its sanitized reason and UTC time.
+2. Check public `/health` for liveness only.
+3. With relay administration, inspect storage, disk, clock, build, update age, latency, failures, rate limits, and rejected-input checks.
+4. Correct the failed check, wait one scheduled watch interval, and comment on the existing incident. Do not open a duplicate.
+
+## Backup and restore
+
+The relay backup may include registered rooms, waypoints, and report references. It must exclude live positions, pings, group keys, admin keys, and diagnostic tokens.
+
+1. Stop `tarkov-group.service` in a maintenance window.
+2. Create an encrypted, access-controlled state-directory copy outside `/opt/tarkov-group`; record only backup id, UTC, checksum, and operator.
+3. Start the service and verify liveness plus authenticated readiness.
+4. To restore, stop the service, preserve the failed state directory under the same controls, restore atomically, start, and verify a test group.
+
+Desktop diagnostic state is backed up/restored only through #270's recovery interface. Never invent a diagnostic SQLite table.
+
+## Key rotation
+
+1. Generate a new diagnostic token of at least 32 random characters in the secret manager; never print it in a terminal transcript.
+2. Set `TARKOV_COMPANION_DIAGNOSTIC_TOKEN` to `new,old@<UTC expiry>` with a short overlap and redeploy normally.
+3. Using a non-sensitive fixture request, verify the new token works, the old one works before expiry, and the old one is refused after expiry.
+4. Remove/revoke the old value and record only rotation UTC and outcome.
+
+Rotate the relay admin key separately. A group key is a membership secret, not an operator key.
+
+## Update, maintenance, and disaster recovery
+
+For an old build, inspect `REFUSED_SHA256`, updater journal, checksum fetch, and authenticated update status. A failed health check must roll back; never force a partly unpacked build live. Resolve disk pressure only after a verified backup; repair clock synchronization before retrying expiry-sensitive operations.
+
+For host loss, provision from the released package, restore the approved state backup, configure the protected admin-key drop-in, and verify readiness before switching address. An absent backup means an honest loss of waypoints/registrations; never reconstruct positions or pings.
+
+## Privacy or diagnostic incident
+
+1. Disable `TARKOV_COMPANION_INTERNAL_TELEMETRY` and prevent further export.
+2. Revoke implicated diagnostic/admin tokens and preserve minimum sanitized metadata.
+3. Determine whether a prohibited field left the device/relay without reproducing it with real evidence.
+4. Delete affected local diagnostic scope through the reviewed operation when retention obligations permit, and report the actual outcome.
+5. Add a closed-schema/redaction test before re-enabling telemetry.
