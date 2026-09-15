@@ -16,7 +16,7 @@ $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $InstallerScript = Join-Path $RepositoryRoot "scripts/release/install-offline.ps1"
 $FixtureScript = Join-Path $RepositoryRoot "scripts/release/tests/create_windows_offline_fixture.py"
 $OrphanWorker = Join-Path $Root "orphan-worker.py"
-$OrphanLauncher = Join-Path $Root "orphan-launcher.py"
+$OrphanLauncher = Join-Path $Root "orphan-launcher.ps1"
 $OrphanPid = Join-Path $Install "orphan-pid"
 
 New-Item -ItemType Directory -Path $Bundle -Force | Out-Null
@@ -33,20 +33,26 @@ time.sleep(120)
 held_installer.close()
 '@ | Set-Content -LiteralPath $OrphanWorker -Encoding ascii
     @'
-import subprocess
-import sys
-
-flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-child = subprocess.Popen(
-    [sys.executable, sys.argv[1], sys.argv[2], sys.argv[3]],
-    stdin=subprocess.DEVNULL,
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    close_fds=True,
-    creationflags=flags,
+param(
+    [Parameter(Mandatory)] [string] $Worker,
+    [Parameter(Mandatory)] [string] $Installer,
+    [Parameter(Mandatory)] [string] $PidFile
 )
-with open(sys.argv[3], "w", encoding="ascii") as stream:
-    stream.write(str(child.pid))
+
+$ErrorActionPreference = "Stop"
+foreach ($Value in @($Worker, $Installer, $PidFile)) {
+    if ($Value.Contains('"')) { throw "The orphan fixture path contains a quote." }
+}
+$Python = (Get-Command python -ErrorAction Stop).Source
+$CommandLine = ('"{0}" "{1}" "{2}" "{3}"' -f $Python, $Worker, $Installer, $PidFile)
+# Win32_Process.Create brokers creation through WMI rather than the installer process. The worker
+# is therefore not in the installer's descendant tree and models the exact handle the platform's
+# tree-kill request cannot prove absent.
+$Created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $CommandLine }
+if ($Created.ReturnValue -ne 0 -or $Created.ProcessId -le 0) {
+    throw "WMI could not create the orphan fixture process (return $($Created.ReturnValue))."
+}
+Set-Content -LiteralPath $PidFile -Value ([string]$Created.ProcessId) -Encoding ascii -NoNewline
 '@ | Set-Content -LiteralPath $OrphanLauncher -Encoding ascii
     @"
 @echo off
@@ -58,7 +64,8 @@ if /I "%FAKE_INSTALL_MODE%"=="hang-installer" (
   exit /b 99
 )
 if /I "%FAKE_INSTALL_MODE%"=="orphan-installer" (
-  python "%FAKE_ORPHAN_LAUNCHER%" "%FAKE_ORPHAN_WORKER%" "%~f0" "%FAKE_ORPHAN_PID%"
+  pwsh -NoLogo -NoProfile -NonInteractive -File "%FAKE_ORPHAN_LAUNCHER%" -Worker "%FAKE_ORPHAN_WORKER%" -Installer "%~f0" -PidFile "%FAKE_ORPHAN_PID%"
+  if errorlevel 1 exit /b 98
   ping -n 31 127.0.0.1 >nul
   exit /b 99
 )
