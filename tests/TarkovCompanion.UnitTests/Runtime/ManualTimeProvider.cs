@@ -5,6 +5,7 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
     private readonly object _gate = new();
     private readonly List<ManualTimer> _timers = [];
     private DateTimeOffset _utcNow = startUtc.ToUniversalTime();
+    private long _timerCreations;
 
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
 
@@ -35,6 +36,19 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         }
     }
 
+    public int ScheduledTimerCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _timers.Count;
+            }
+        }
+    }
+
+    public long TimerCreationCount => Interlocked.Read(ref _timerCreations);
+
     public override ITimer CreateTimer(
         TimerCallback callback,
         object? state,
@@ -44,6 +58,7 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         ArgumentNullException.ThrowIfNull(callback);
         var timer = new ManualTimer(this, callback, state);
         timer.Change(dueTime, period);
+        Interlocked.Increment(ref _timerCreations);
         return timer;
     }
 

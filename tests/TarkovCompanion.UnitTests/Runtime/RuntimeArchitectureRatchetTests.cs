@@ -197,6 +197,20 @@ public sealed partial class RuntimeArchitectureRatchetTests
         Assert.DoesNotContain("raidStateService.Apply(", source, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void RuntimeStateReplacementIsLinearizedBeforeSubscriberNotification()
+    {
+        var source = File.ReadAllText(Path.Combine(RuntimeDirectory(), "RuntimeState.cs"));
+        var update = source.IndexOf("public void Update(", StringComparison.Ordinal);
+        var notificationGate = source.IndexOf("lock (_notificationGate)", update, StringComparison.Ordinal);
+        var stateGate = source.IndexOf("lock (_gate)", notificationGate, StringComparison.Ordinal);
+        var invoke = source.IndexOf("handler(this, EventArgs.Empty)", stateGate, StringComparison.Ordinal);
+
+        Assert.True(notificationGate > update, "Runtime updates no longer enter the publication gate.");
+        Assert.True(stateGate > notificationGate, "State can be replaced before publication is serialized.");
+        Assert.True(invoke > stateGate, "Subscribers are no longer notified inside the publication gate.");
+    }
+
     private static void AssertShape<T>(params string[] expected) =>
         Assert.Equal(
             expected.Order(StringComparer.Ordinal),

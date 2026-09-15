@@ -499,11 +499,16 @@ public sealed class OutboxProcessorTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await RuntimeTestTasks.UntilAsync(() => time.ScheduledTimerCount >= 2);
+            var timersBeforeRenewal = time.TimerCreationCount;
             for (var period = 1; period <= 6; period++)
             {
                 time.Advance(TimeSpan.FromMilliseconds(100));
                 var expectedRenewals = period;
-                await RuntimeTestTasks.UntilAsync(() => store.SuccessfulRenewals >= expectedRenewals);
+                var expectedTimers = timersBeforeRenewal + (period * 2);
+                await RuntimeTestTasks.UntilAsync(() =>
+                    store.SuccessfulRenewals >= expectedRenewals
+                    && time.TimerCreationCount >= expectedTimers);
                 var competingPass = await competing.ProcessBatchAsync(
                     1,
                     TimeSpan.FromMilliseconds(200),
@@ -692,11 +697,16 @@ public sealed class OutboxProcessorTests
         try
         {
             await acknowledgementEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await RuntimeTestTasks.UntilAsync(() => time.ScheduledTimerCount >= 3);
+            var timersBeforeRenewal = time.TimerCreationCount;
             for (var period = 1; period <= 4; period++)
             {
                 time.Advance(TimeSpan.FromMilliseconds(100));
                 var expectedRenewals = period;
-                await RuntimeTestTasks.UntilAsync(() => store.SuccessfulRenewals >= expectedRenewals);
+                var expectedTimers = timersBeforeRenewal + (period * 3);
+                await RuntimeTestTasks.UntilAsync(() =>
+                    store.SuccessfulRenewals >= expectedRenewals
+                    && time.TimerCreationCount >= expectedTimers);
             }
 
             acknowledgementRelease.TrySetResult(true);
