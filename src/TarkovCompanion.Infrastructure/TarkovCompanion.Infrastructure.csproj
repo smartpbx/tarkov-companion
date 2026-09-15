@@ -13,6 +13,11 @@
     <PackageReference Include="TesseractOCR" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Release verifier tests inject a process boundary so cancellation can prove the child is
+         gone before staging cleanup begins, without executing an untrusted test binary. -->
+    <InternalsVisibleTo Include="TarkovCompanion.UnitTests" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="Persistence/Migrations/*.sql" />
     <EmbeddedResource Include="Recognition/anchors.en.json"
                       WithCulture="false"

@@ -98,7 +98,35 @@ function Read-ReportText {
         return [string]::Empty
     }
 
-    return [System.IO.File]::ReadAllText($Path)
+    for ($Attempt = 1; $Attempt -le 50; $Attempt++) {
+        try {
+            return [System.IO.File]::ReadAllText($Path)
+        }
+        catch [System.IO.IOException] {
+            if ($Attempt -eq 50) { throw }
+            # Start-Process drains redirected streams asynchronously. WaitForExit() normally joins
+            # that work, but the retry keeps a delayed hosted-runner file close from turning an
+            # otherwise complete launch probe into a sharing-violation flake.
+            Start-Sleep -Milliseconds 100
+        }
+    }
+
+    return [string]::Empty
+}
+
+function Complete-RedirectedProcess {
+    param(
+        [System.Diagnostics.Process] $Process,
+        [int] $TimeoutMilliseconds = 10000
+    )
+
+    if (-not $Process.HasExited -and -not $Process.WaitForExit($TimeoutMilliseconds)) {
+        return $false
+    }
+    # The parameterless overload is required after a timed wait to finish the asynchronous
+    # stdout/stderr redirection workers before their files are opened or the process is disposed.
+    $Process.WaitForExit()
+    return $Process.HasExited
 }
 
 function Expand-DesktopResolution {
@@ -371,10 +399,11 @@ try {
 
     if (-not $Process.HasExited) {
         Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
-        $Process.WaitForExit(10000) | Out-Null
+        $null = Complete-RedirectedProcess -Process $Process
         Add-Observation -Name "clean-shutdown" -Passed $false -Detail "The window-close request did not end the process within $ShutdownTimeoutSeconds second(s)."
     }
     else {
+        $null = Complete-RedirectedProcess -Process $Process
         $ExitCode = $Process.ExitCode
         Add-Observation -Name "clean-shutdown" -Passed ($ExitCode -eq 0) -Detail "Closing the window exited with code $ExitCode after $ShutdownSeconds second(s) (graceful request accepted: $GracefulClose)."
     }
@@ -384,9 +413,18 @@ catch {
     $Errors.Add($_.Exception.Message)
 }
 finally {
-    if ($null -ne $Process -and -not $Process.HasExited) {
-        Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
-        $Process.WaitForExit(10000) | Out-Null
+    if ($null -ne $Process) {
+        if (-not $Process.HasExited) {
+            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+        }
+        if (-not (Complete-RedirectedProcess -Process $Process)) {
+            $Errors.Add("The application process did not exit and drain redirected output after termination.")
+        }
+        elseif ($null -eq $ExitCode) {
+            $ExitCode = $Process.ExitCode
+        }
+        $Process.Dispose()
+        $Process = $null
     }
 
     $DataAfter = Measure-Directory -Path $LocalDataRoot

@@ -144,6 +144,8 @@ public sealed record QuestProgressImportPreview(
 public enum IntegrationSecretKind
 {
     TarkovTrackerProgressToken,
+    /// <summary>Read-only credential for the private signed release feed.</summary>
+    ReleaseFeedReadToken,
 }
 
 public sealed record IntegrationSecretReference(
