@@ -3,3 +3,5 @@ docs/THIRD_PARTY_INVENTORY.json text eol=lf
 fixtures/licenses/*.json text eol=lf
 licenses/*.json text eol=lf
 LICENSES/** -text
+# Byte-exact golden documents: a checksum covers these bytes, so checkout must never rewrite them.
+fixtures/profiles/*.json -text
