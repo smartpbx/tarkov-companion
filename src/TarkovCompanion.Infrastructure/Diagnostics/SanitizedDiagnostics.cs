@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using TarkovCompanion.Application.Services.Execution;
 
 namespace TarkovCompanion.Infrastructure.Diagnostics;
 
@@ -15,10 +15,10 @@ public sealed record SanitizedDiagnosticEvent
 {
     public SanitizedDiagnosticEvent(
         DiagnosticEventKind Kind,
-        DiagnosticCorrelationId CorrelationId,
+        CorrelationId correlationId,
         DateTimeOffset OccurredUtc,
         DiagnosticOutcome Outcome,
-        DiagnosticFailureCode Failure,
+        RuntimeFailureKind FailureKind,
         int? DurationMilliseconds = null,
         int? Attempt = null)
     {
@@ -27,7 +27,27 @@ public sealed record SanitizedDiagnosticEvent
             throw new ArgumentException("Diagnostic timestamps must be UTC.", nameof(OccurredUtc));
         }
 
-        if (DurationMilliseconds is < 0 or > 300_000)
+        if (!Enum.IsDefined(Kind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(Kind));
+        }
+
+        if (!correlationId.IsDefined)
+        {
+            throw new ArgumentException("A runtime correlation id is required.", nameof(correlationId));
+        }
+
+        if (!Enum.IsDefined(Outcome))
+        {
+            throw new ArgumentOutOfRangeException(nameof(Outcome));
+        }
+
+        if (!Enum.IsDefined(FailureKind))
+        {
+            throw new ArgumentOutOfRangeException(nameof(FailureKind));
+        }
+
+        if (DurationMilliseconds is < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(DurationMilliseconds));
         }
@@ -38,23 +58,27 @@ public sealed record SanitizedDiagnosticEvent
         }
 
         this.Kind = Kind;
-        this.CorrelationId = CorrelationId;
+        this.CorrelationId = correlationId;
         this.OccurredUtc = OccurredUtc;
         this.Outcome = Outcome;
-        this.Failure = Failure;
-        this.DurationMilliseconds = DurationMilliseconds;
+        this.FailureKind = FailureKind;
+        // An operation that takes longer than the reporting ceiling is still a real operation.
+        // Capping preserves the closed numeric surface without making diagnostics the failure.
+        this.DurationMilliseconds = DurationMilliseconds is { } duration
+            ? Math.Min(duration, 300_000)
+            : null;
         this.Attempt = Attempt;
     }
 
     public DiagnosticEventKind Kind { get; }
 
-    public DiagnosticCorrelationId CorrelationId { get; }
+    public CorrelationId CorrelationId { get; }
 
     public DateTimeOffset OccurredUtc { get; }
 
     public DiagnosticOutcome Outcome { get; }
 
-    public DiagnosticFailureCode Failure { get; }
+    public RuntimeFailureKind FailureKind { get; }
 
     public int? DurationMilliseconds { get; }
 
@@ -86,47 +110,32 @@ public enum DiagnosticOutcome
 }
 
 /// <summary>
-/// Failure classes, not exception messages. The omitted message is the privacy boundary.
+/// Adapts the canonical runtime fault vocabulary to the closed diagnostic event shape.
 /// </summary>
-public enum DiagnosticFailureCode
+/// <remarks>
+/// The runtime owns correlation and failure classification. Keeping this adapter on the
+/// Infrastructure side avoids a second identifier or failure DTO that Application could never
+/// emit, while preserving the diagnostics persistence seam for #270.
+/// </remarks>
+public static class RuntimeDiagnosticAdapter
 {
-    None = 0,
-    Cancelled = 1,
-    TimedOut = 2,
-    Unavailable = 3,
-    InvalidInput = 4,
-    RateLimited = 5,
-    StorageUnavailable = 6,
-    StorageFull = 7,
-    NetworkFailure = 8,
-    Unexpected = 9,
-}
-
-/// <summary>A random per-operation join key; it is never derived from a person, room, or path.</summary>
-public readonly record struct DiagnosticCorrelationId
-{
-    private const int ByteLength = 16;
-
-    private DiagnosticCorrelationId(string value) => Value = value;
-
-    public string Value { get; }
-
-    public static DiagnosticCorrelationId Create() =>
-        new(Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(ByteLength)));
-
-    public static bool TryParse(string? value, out DiagnosticCorrelationId correlationId)
+    public static SanitizedDiagnosticEvent FromRuntimeFault(
+        DiagnosticEventKind kind,
+        CorrelationId correlationId,
+        RuntimeFault fault,
+        int? durationMilliseconds = null,
+        int? attempt = null)
     {
-        if (value is { Length: ByteLength * 2 } && value.All(Uri.IsHexDigit))
-        {
-            correlationId = new(value.ToLowerInvariant());
-            return true;
-        }
-
-        correlationId = default;
-        return false;
+        ArgumentNullException.ThrowIfNull(fault);
+        return new(
+            kind,
+            correlationId,
+            fault.OccurredUtc,
+            DiagnosticOutcome.Failed,
+            fault.Kind,
+            durationMilliseconds,
+            attempt);
     }
-
-    public override string ToString() => Value;
 }
 
 /// <summary>
@@ -138,15 +147,17 @@ public sealed record CrashRecoveryState
 
     public static CrashRecoveryState Empty { get; } = new([]);
 
-    public CrashRecoveryState(IReadOnlyList<SanitizedDiagnosticEvent> Events)
+    public CrashRecoveryState(IReadOnlyList<SanitizedDiagnosticEvent> events)
     {
-        ArgumentNullException.ThrowIfNull(Events);
-        if (Events.Count > MaximumEvents || Events.Any(diagnosticEvent => diagnosticEvent is null))
+        ArgumentNullException.ThrowIfNull(events);
+        if (events.Count > MaximumEvents || events.Any(diagnosticEvent => diagnosticEvent is null))
         {
-            throw new ArgumentOutOfRangeException(nameof(Events));
+            throw new ArgumentOutOfRangeException(nameof(events));
         }
 
-        this.Events = Events;
+        // The caller can pass a mutable List through IReadOnlyList. Copy after validation so a
+        // later append or null replacement cannot bypass the recovery bound or alias this state.
+        Events = [.. events];
     }
 
     public IReadOnlyList<SanitizedDiagnosticEvent> Events { get; }
@@ -159,6 +170,25 @@ public sealed record CrashRecoveryState
     }
 
     /// <summary>The startup UI can truthfully say whether the preceding run failed without exposing a stack trace.</summary>
-    public SanitizedDiagnosticEvent? PreviousFailure =>
-        Events.LastOrDefault(diagnosticEvent => diagnosticEvent.Outcome == DiagnosticOutcome.Failed);
+    public SanitizedDiagnosticEvent? PreviousFailure
+    {
+        get
+        {
+            for (var index = Events.Count - 1; index >= 0; index--)
+            {
+                var diagnosticEvent = Events[index];
+                if (diagnosticEvent.Outcome == DiagnosticOutcome.Recovered)
+                {
+                    return null;
+                }
+
+                if (diagnosticEvent.Outcome == DiagnosticOutcome.Failed)
+                {
+                    return diagnosticEvent;
+                }
+            }
+
+            return null;
+        }
+    }
 }

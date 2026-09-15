@@ -1,65 +1,112 @@
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Infrastructure.Diagnostics;
 
 namespace TarkovCompanion.UnitTests.Diagnostics;
 
 public sealed class SanitizedDiagnosticsTests
 {
+    private static readonly DateTimeOffset UtcNow = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
+
     [Fact]
-    public void StructuredEventHasNoFreeTextOrSensitiveFieldSurface()
+    public void StructuredEventHasAnExactClosedNonStringSurface()
     {
-        var diagnosticEvent = new SanitizedDiagnosticEvent(
+        var properties = typeof(SanitizedDiagnosticEvent).GetProperties()
+            .Select(property => property.Name)
+            .Order()
+            .ToArray();
+
+        Assert.Equal(
+            ["Attempt", "CorrelationId", "DurationMilliseconds", "FailureKind", "Kind", "OccurredUtc", "Outcome"],
+            properties);
+        Assert.DoesNotContain(typeof(SanitizedDiagnosticEvent).GetProperties(), property =>
+            property.PropertyType == typeof(string));
+    }
+
+    [Fact]
+    public void EventUsesTheCanonicalRuntimeIdentifiersAndFailureVocabulary()
+    {
+        var correlationId = CorrelationId.New();
+        var fault = new RuntimeFault(
+            RuntimeFailureKind.Validation,
+            new RuntimeFaultCode("fixture-invalid"),
+            RuntimeRecoveryAction.CheckConfiguration,
+            new DiagnosticReference("fixture:diagnostics"),
+            UtcNow);
+
+        var diagnosticEvent = RuntimeDiagnosticAdapter.FromRuntimeFault(
             DiagnosticEventKind.RecognitionStage,
-            DiagnosticCorrelationId.Create(),
-            DateTimeOffset.UtcNow,
+            correlationId,
+            fault,
+            durationMilliseconds: 12,
+            attempt: 1);
+
+        Assert.Equal(correlationId, diagnosticEvent.CorrelationId);
+        Assert.Equal(RuntimeFailureKind.Validation, diagnosticEvent.FailureKind);
+        Assert.Equal(DiagnosticOutcome.Failed, diagnosticEvent.Outcome);
+        Assert.Equal(UtcNow, diagnosticEvent.OccurredUtc);
+    }
+
+    [Fact]
+    public void EventRejectsDefaultIdentifiersInvalidEnumsAndNonUtcTime()
+    {
+        Assert.Throws<ArgumentException>(() => new SanitizedDiagnosticEvent(
+            DiagnosticEventKind.RecognitionStage,
+            default,
+            UtcNow,
             DiagnosticOutcome.Failed,
-            DiagnosticFailureCode.InvalidInput,
-            DurationMilliseconds: 42,
-            Attempt: 1);
-
-        var properties = typeof(SanitizedDiagnosticEvent).GetProperties().Select(property => property.Name);
-
-        Assert.DoesNotContain("Message", properties);
-        Assert.DoesNotContain("Path", properties);
-        Assert.DoesNotContain("Name", properties);
-        Assert.DoesNotContain("Coordinates", properties);
-        Assert.DoesNotContain("ReportBody", properties);
-        Assert.Equal(DiagnosticEventKind.RecognitionStage, diagnosticEvent.Kind);
+            RuntimeFailureKind.Unexpected));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateEvent(kind: (DiagnosticEventKind)999));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateEvent(outcome: (DiagnosticOutcome)999));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateEvent(failureKind: (RuntimeFailureKind)999));
+        Assert.Throws<ArgumentException>(() => CreateEvent(occurredUtc: UtcNow.ToOffset(TimeSpan.FromHours(1))));
     }
 
     [Fact]
-    public void CorrelationIsRandomAndNonIdentifying()
+    public void EventCapsLongDurationButRejectsNegativeDurationAndInvalidAttempt()
     {
-        var first = DiagnosticCorrelationId.Create();
-        var second = DiagnosticCorrelationId.Create();
-
-        Assert.NotEqual(first, second);
-        Assert.Matches("^[0-9a-f]{32}$", first.Value);
-        Assert.True(DiagnosticCorrelationId.TryParse(first.Value.ToUpperInvariant(), out var parsed));
-        Assert.Equal(first, parsed);
+        Assert.Equal(300_000, CreateEvent(durationMilliseconds: 300_001).DurationMilliseconds);
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateEvent(durationMilliseconds: -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CreateEvent(attempt: 101));
     }
 
     [Fact]
-    public void CrashRecoveryIsBoundedAndKeepsOnlySanitizedEvents()
+    public void CrashRecoveryCopiesInputAndKeepsTheBoundAfterCallerMutation()
     {
-        var recovery = CrashRecoveryState.Empty;
-        for (var index = 0; index < CrashRecoveryState.MaximumEvents + 4; index++)
+        var supplied = new List<SanitizedDiagnosticEvent> { CreateEvent() };
+        var recovery = new CrashRecoveryState(supplied);
+
+        supplied.Clear();
+        for (var index = 0; index < CrashRecoveryState.MaximumEvents + 1; index++)
         {
-            recovery = recovery.Add(new(
-                DiagnosticEventKind.Failure,
-                DiagnosticCorrelationId.Create(),
-                DateTimeOffset.UtcNow,
-                DiagnosticOutcome.Failed,
-                DiagnosticFailureCode.Unexpected));
+            supplied.Add(CreateEvent());
         }
 
-        Assert.Equal(CrashRecoveryState.MaximumEvents, recovery.Events.Count);
-        Assert.NotNull(recovery.PreviousFailure);
+        Assert.Single(recovery.Events);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CrashRecoveryState(
+            Enumerable.Repeat(CreateEvent(), CrashRecoveryState.MaximumEvents + 1).ToArray()));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new CrashRecoveryState([null!]));
     }
 
     [Fact]
-    public void DefaultControlsAreLocalOnlyAndTraceNeedsAnExplicitRuntimeControl()
+    public void RecoveryDoesNotReportAFailureAfterANewerRecovery()
+    {
+        var failed = CreateEvent(outcome: DiagnosticOutcome.Failed);
+        var recovered = CreateEvent(outcome: DiagnosticOutcome.Recovered);
+
+        Assert.Null(new CrashRecoveryState([failed, recovered]).PreviousFailure);
+        Assert.Equal(failed, new CrashRecoveryState([recovered, failed]).PreviousFailure);
+    }
+
+    [Fact]
+    public void ControlsUseSafeDefaultsForMissingOrInvalidEnvironmentValues()
     {
         var defaults = DiagnosticRuntimeControls.FromEnvironment(_ => null);
+        var invalid = DiagnosticRuntimeControls.FromEnvironment(name => name switch
+        {
+            "TARKOV_COMPANION_DIAGNOSTIC_LOG_LEVEL" => "verbose",
+            "TARKOV_COMPANION_INTERNAL_TELEMETRY" => "yes",
+            _ => null,
+        });
         var enabled = DiagnosticRuntimeControls.FromEnvironment(name => name switch
         {
             "TARKOV_COMPANION_DIAGNOSTIC_LOG_LEVEL" => "trace",
@@ -67,34 +114,52 @@ public sealed class SanitizedDiagnosticsTests
             _ => null,
         });
 
-        Assert.False(defaults.InternalTelemetryEnabled);
         Assert.Equal(DiagnosticLogVerbosity.Information, defaults.Verbosity);
-        Assert.True(enabled.InternalTelemetryEnabled);
+        Assert.False(defaults.InternalTelemetryEnabled);
+        Assert.Equal(DiagnosticLogVerbosity.Information, invalid.Verbosity);
+        Assert.False(invalid.InternalTelemetryEnabled);
         Assert.Equal(DiagnosticLogVerbosity.Trace, enabled.Verbosity);
+        Assert.True(enabled.InternalTelemetryEnabled);
     }
 
     [Fact]
-    public void RotatedTokenIsAcceptedOnlyUntilItsExplicitExpiry()
+    public void TokensRequireUtcBoundedExpiryAndSafeShape()
     {
         const string current = "abcdefghijklmnopqrstuvwxyz0123456789-current";
         const string previous = "abcdefghijklmnopqrstuvwxyz0123456789-old-old";
-        Assert.True(DiagnosticTokenSet.TryParse(
-            $"{current},{previous}@2026-09-16T00:00:00Z",
-            out var tokens));
+        var expires = UtcNow.AddHours(1);
 
+        Assert.True(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-15T13:00:00Z", UtcNow, out var tokens));
         var tokenSet = Assert.IsType<DiagnosticTokenSet>(tokens);
-        Assert.True(tokenSet.IsValid(current, new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero)));
-        Assert.True(tokenSet.IsValid(previous, new(2026, 9, 16, 0, 0, 0, TimeSpan.Zero)));
-        Assert.False(tokenSet.IsValid(previous, new(2026, 9, 16, 0, 0, 1, TimeSpan.Zero)));
-        Assert.False(tokenSet.IsValid("wrong", new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero)));
+        Assert.True(tokenSet.IsValid(current, UtcNow));
+        Assert.True(tokenSet.IsValid(previous, expires));
+        Assert.False(tokenSet.IsValid(previous, expires.AddSeconds(1)));
+        Assert.False(tokenSet.IsValid("short", UtcNow));
+        Assert.False(tokenSet.IsValid(new string('a', 257), UtcNow));
+
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-15", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-15T14:00:00+01:00", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-17T12:00:01Z", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{current}@2026-09-15T13:00:00Z", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-15T13:00:00Z,abcdefghijklmnopqrstuvwxyz0123456789-third@2026-09-15T13:00:00Z,abcdefghijklmnopqrstuvwxyz0123456789-fourth@2026-09-15T13:00:00Z", UtcNow, out _));
+        Assert.False(DiagnosticTokenSet.TryParse($"{current},{previous}@2026-09-15T13:00:00Z", UtcNow.ToOffset(TimeSpan.FromHours(1)), out _));
     }
 
-    [Fact]
-    public void APreviousTokenWithoutExpiryIsRefused()
-    {
-        const string first = "abcdefghijklmnopqrstuvwxyz0123456789-first";
-        const string second = "abcdefghijklmnopqrstuvwxyz0123456789-second";
-
-        Assert.False(DiagnosticTokenSet.TryParse($"{first},{second}", out _));
-    }
+    private static SanitizedDiagnosticEvent CreateEvent(
+        DiagnosticEventKind kind = DiagnosticEventKind.RecognitionStage,
+        CorrelationId correlationId = default,
+        DateTimeOffset? occurredUtc = null,
+        DiagnosticOutcome outcome = DiagnosticOutcome.Failed,
+        RuntimeFailureKind failureKind = RuntimeFailureKind.Unexpected,
+        int? durationMilliseconds = null,
+        int? attempt = null) =>
+        new(
+            kind,
+            correlationId.IsDefined ? correlationId : CorrelationId.New(),
+            occurredUtc ?? UtcNow,
+            outcome,
+            failureKind,
+            durationMilliseconds,
+            attempt);
 }

@@ -5,9 +5,9 @@ namespace TarkovCompanion.GroupServer.Diagnostics;
 /// room identifiers, report bodies, group keys, names, or positions in its model.
 /// </summary>
 /// <remarks>
-/// The public health route remains a minimal liveness response. Program composition publishes
-/// this richer result only behind relay administration; wiring that route is owned by the
-/// integration owner because <c>Program.cs</c> is shared composition.
+/// The current public health route also exposes aggregate counts; this richer result is not
+/// published anywhere yet. Future composition must place it behind relay administration, and is
+/// owned by the integration owner because <c>Program.cs</c> is shared composition.
 /// </remarks>
 public static class RelayReadiness
 {
@@ -16,6 +16,9 @@ public static class RelayReadiness
     public const int MaximumUpdateAgeMinutes = 90;
     public const int MaximumLatencyMilliseconds = 2_000;
     public const int MaximumConsecutiveFailures = 3;
+    public const int ObservationWindowMinutes = 5;
+    public const int MaximumRateLimitRejectionsInObservationWindow = 3;
+    public const int MaximumRejectedInputsInObservationWindow = 3;
 
     public static RelayReadinessResult Evaluate(RelayReadinessProbe probe)
     {
@@ -25,13 +28,17 @@ public static class RelayReadiness
         {
             Check(RelayReadinessCheck.Storage, probe.StorageAvailable),
             Check(RelayReadinessCheck.Disk, probe.FreeDiskMegabytes >= MinimumFreeDiskMegabytes),
-            Check(RelayReadinessCheck.Clock, Math.Abs(probe.ClockDriftSeconds) <= MaximumClockDriftSeconds),
+            Check(RelayReadinessCheck.Clock, Math.Abs((long)probe.ClockDriftSeconds) <= MaximumClockDriftSeconds),
             Check(RelayReadinessCheck.Build, probe.BuildKnown),
             Check(RelayReadinessCheck.UpdateAge, probe.UpdateAgeMinutes <= MaximumUpdateAgeMinutes),
             Check(RelayReadinessCheck.Latency, probe.LatencyMilliseconds <= MaximumLatencyMilliseconds),
             Check(RelayReadinessCheck.Failures, probe.ConsecutiveFailures < MaximumConsecutiveFailures),
-            Check(RelayReadinessCheck.RateLimits, probe.RateLimitRejections == 0),
-            Check(RelayReadinessCheck.RejectedInput, probe.RejectedInputCount == 0),
+            Check(
+                RelayReadinessCheck.RateLimits,
+                probe.RateLimitRejectionsInObservationWindow <= MaximumRateLimitRejectionsInObservationWindow),
+            Check(
+                RelayReadinessCheck.RejectedInput,
+                probe.RejectedInputCountInObservationWindow <= MaximumRejectedInputsInObservationWindow),
         };
         return new(checks.All(check => check.IsReady) ? RelayReadinessStatus.Ready : RelayReadinessStatus.Degraded, checks);
     }
@@ -42,31 +49,55 @@ public static class RelayReadiness
 public sealed record RelayReadinessProbe
 {
     public RelayReadinessProbe(
-        bool StorageAvailable,
-        int FreeDiskMegabytes,
-        int ClockDriftSeconds,
-        bool BuildKnown,
-        int UpdateAgeMinutes,
-        int LatencyMilliseconds,
-        int ConsecutiveFailures,
-        int RateLimitRejections,
-        int RejectedInputCount)
+        bool storageAvailable,
+        int freeDiskMegabytes,
+        int clockDriftSeconds,
+        bool buildKnown,
+        int updateAgeMinutes,
+        int latencyMilliseconds,
+        int consecutiveFailures,
+        int rateLimitRejectionsInObservationWindow,
+        int rejectedInputCountInObservationWindow)
     {
-        if (FreeDiskMegabytes < 0 || UpdateAgeMinutes < 0 || LatencyMilliseconds < 0 ||
-            ConsecutiveFailures < 0 || RateLimitRejections < 0 || RejectedInputCount < 0)
+        if (freeDiskMegabytes < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(FreeDiskMegabytes));
+            throw new ArgumentOutOfRangeException(nameof(freeDiskMegabytes));
         }
 
-        this.StorageAvailable = StorageAvailable;
-        this.FreeDiskMegabytes = FreeDiskMegabytes;
-        this.ClockDriftSeconds = ClockDriftSeconds;
-        this.BuildKnown = BuildKnown;
-        this.UpdateAgeMinutes = UpdateAgeMinutes;
-        this.LatencyMilliseconds = LatencyMilliseconds;
-        this.ConsecutiveFailures = ConsecutiveFailures;
-        this.RateLimitRejections = RateLimitRejections;
-        this.RejectedInputCount = RejectedInputCount;
+        if (updateAgeMinutes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(updateAgeMinutes));
+        }
+
+        if (latencyMilliseconds < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(latencyMilliseconds));
+        }
+
+        if (consecutiveFailures < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(consecutiveFailures));
+        }
+
+        if (rateLimitRejectionsInObservationWindow < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rateLimitRejectionsInObservationWindow));
+        }
+
+        if (rejectedInputCountInObservationWindow < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rejectedInputCountInObservationWindow));
+        }
+
+        StorageAvailable = storageAvailable;
+        FreeDiskMegabytes = freeDiskMegabytes;
+        ClockDriftSeconds = clockDriftSeconds;
+        BuildKnown = buildKnown;
+        UpdateAgeMinutes = updateAgeMinutes;
+        LatencyMilliseconds = latencyMilliseconds;
+        ConsecutiveFailures = consecutiveFailures;
+        RateLimitRejectionsInObservationWindow = rateLimitRejectionsInObservationWindow;
+        RejectedInputCountInObservationWindow = rejectedInputCountInObservationWindow;
     }
 
     public bool StorageAvailable { get; }
@@ -83,9 +114,18 @@ public sealed record RelayReadinessProbe
 
     public int ConsecutiveFailures { get; }
 
-    public int RateLimitRejections { get; }
+    /// <summary>
+    /// Rejections recorded by relay-owned rate-limit accounting during the preceding fixed
+    /// <see cref="RelayReadiness.ObservationWindowMinutes"/> minutes; it is never a cumulative
+    /// request counter or a value supplied by an unauthenticated request.
+    /// </summary>
+    public int RateLimitRejectionsInObservationWindow { get; }
 
-    public int RejectedInputCount { get; }
+    /// <summary>
+    /// Rejected inputs recorded by relay-owned validation accounting during the same fixed
+    /// observation window; it is never a cumulative counter or untrusted client field.
+    /// </summary>
+    public int RejectedInputCountInObservationWindow { get; }
 }
 
 public enum RelayReadinessStatus { Ready, Degraded }

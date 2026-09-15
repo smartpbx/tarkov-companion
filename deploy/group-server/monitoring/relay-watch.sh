@@ -9,31 +9,33 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: relay-watch.sh --health-file FILE --expected-commit SHA --commit-utc UNIX [options]
+Usage: relay-watch.sh --health-file FILE --expected-commit SHA --expected-commit-utc UNIX [options]
 
 Classify a relay's minimal public health response. Writes only status and a sanitized reason.
 
 Options:
   --now-utc UNIX          Current UTC epoch seconds (default: current time).
-  --max-age-minutes N     Maximum deployed-build age (default: 90).
+  --deployment-grace-minutes N
+                           Time allowed for the relay updater to reach a new expected commit
+                           (default: 45). A matching commit is ready at any age.
   --github-output FILE    Write status/reason in GitHub output format as well as stdout.
 EOF
 }
 
 health_file=""
 expected_commit=""
-commit_utc=""
+expected_commit_utc=""
 now_utc="$(date -u +%s)"
-max_age_minutes=90
+deployment_grace_minutes=45
 github_output=""
 
 while (($# > 0)); do
     case "$1" in
         --health-file) health_file="$2"; shift 2 ;;
         --expected-commit) expected_commit="$2"; shift 2 ;;
-        --commit-utc) commit_utc="$2"; shift 2 ;;
+        --expected-commit-utc) expected_commit_utc="$2"; shift 2 ;;
         --now-utc) now_utc="$2"; shift 2 ;;
-        --max-age-minutes) max_age_minutes="$2"; shift 2 ;;
+        --deployment-grace-minutes) deployment_grace_minutes="$2"; shift 2 ;;
         --github-output) github_output="$2"; shift 2 ;;
         --help) usage; exit 0 ;;
         *) printf 'relay-watch: unknown argument\n' >&2; usage >&2; exit 2 ;;
@@ -48,8 +50,8 @@ for command_name in jq grep; do
 done
 
 if [[ ! -r "$health_file" || ! "$expected_commit" =~ ^[0-9a-fA-F]{7,64}$ ||
-      ! "$commit_utc" =~ ^[0-9]+$ || ! "$now_utc" =~ ^[0-9]+$ ||
-      ! "$max_age_minutes" =~ ^[0-9]+$ ]]; then
+      ! "$expected_commit_utc" =~ ^[0-9]+$ || ! "$now_utc" =~ ^[0-9]+$ ||
+      ! "$deployment_grace_minutes" =~ ^[0-9]+$ ]]; then
     printf 'relay-watch: invalid invocation\n' >&2
     exit 2
 fi
@@ -64,20 +66,25 @@ if jq -e '
     (.commit | type == "string" and test("^[0-9a-fA-F]{7,64}$"))
   ' "$health_file" >/dev/null 2>&1; then
     actual_commit="$(jq -r '.commit' "$health_file")"
-    age_seconds=$((now_utc - commit_utc))
-    maximum_age_seconds=$((max_age_minutes * 60))
-    if ((age_seconds < 0)); then
+    expected_age_seconds=$((now_utc - expected_commit_utc))
+    grace_seconds=$((deployment_grace_minutes * 60))
+    if ((expected_age_seconds < 0)); then
         status="failed"
-        reason="relay build time is in the future"
-    elif [[ "${actual_commit,,}" != "${expected_commit,,}" ]]; then
-        status="stale"
-        reason="relay commit differs from the expected deployment"
-    elif ((age_seconds > maximum_age_seconds)); then
-        status="stale"
-        reason="relay deployment exceeds the configured update-age limit"
-    else
+        reason="expected deployment time is in the future"
+    elif [[ "${expected_commit,,}" == "${actual_commit,,}"* || "${actual_commit,,}" == "${expected_commit,,}"* ]]; then
+        # A release may report Git's short SHA while Actions has the full SHA. Once the relay
+        # matches the expected revision, the commit's age is irrelevant: a quiet main branch is
+        # healthy, not a deployment incident.
         status="ready"
         reason="relay health is current"
+    elif ((expected_age_seconds > grace_seconds)); then
+        status="stale"
+        reason="relay did not reach the expected deployment before the grace window elapsed"
+    else
+        # Publishing takes roughly eight minutes and the relay polls every 30±5 minutes. This
+        # 45-minute window avoids alerting during a normal rollout while still bounding a miss.
+        status="updating"
+        reason="relay deployment is within the documented grace window"
     fi
 fi
 
@@ -86,4 +93,4 @@ if [[ -n "$github_output" ]]; then
     printf 'status=%s\nreason=%s\n' "$status" "$reason" >> "$github_output"
 fi
 
-[[ "$status" == "ready" ]]
+[[ "$status" == "ready" || "$status" == "updating" ]]
