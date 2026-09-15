@@ -357,3 +357,32 @@ must not be committed or uploaded as CI artifacts.
 The anchors and rendered scenes remain synthetic and English-only. Live validation across
 EFT themes, localization, HDR, ultrawide layouts, and UI revisions is still outstanding.
 No output from this subsystem should be described as a live detection or gameplay-state guarantee.
+
+## Capture sessions (v2 checkpoint)
+
+Capture sessions are an Application-owned intake and review boundary for pixels the player
+explicitly supplied, pasted, selected, or caused the game to write. An armed intent is claimed
+atomically when intake accepts the next submission; a full bounded queue rejects visibly instead
+of retaining waiting writers. The single
+preparation reader preserves intake order, while independent review waits do not occupy that
+reader or a runtime-supervisor CPU slot. Every decoded buffer has one `CapturePixelLease` owner,
+accounts its exact owned byte segment against the configured pixel budget, and is fully zeroed on acceptance, duplicate rejection,
+cancellation, timeout, analysis failure, retry, and shutdown.
+
+Artifacts preserve delivery and source kind, capture/submission UTC, correlation and batch IDs,
+the frozen workspace context, canonical `ProfileContext` when supplied, confidence, review
+correction, decode revision, and evidence provenance. Content digests are process-local dedupe keys only: they are not
+published or persisted, are bounded and expired, and are cleared when review requests a retry.
+`UseArmedIntent` is carried to consumers as an explicit decision and effective intent; the
+detector result remains available as evidence rather than being silently rewritten. Responses are
+revision-bound, and unavailable, ambiguous, unknown, expired, cancelled, or failed captures record
+a typed no-change result without entering domain handoff. Valid results discard pixels before the
+bounded durable handoff; only its positive acknowledgement publishes an accepted result.
+
+This checkpoint does **not** register capture sessions in production. `SupervisedCaptureWorkScheduler`
+is the adapter to the #268 runtime supervisor, but App composition issue #294 still owns creating
+the concrete recognition pipeline, review UI, durable accepted-result handoff, and canonical active
+`ProfileContext` provider. Until that composition lands, `RaidObservationService` receives no
+`ICaptureSessionService`, and the established `ScanUseCase`/HUD path remains authoritative. The
+bounded screenshot decoder from OCR PR #333 is also an integration dependency; its deadline,
+pixel cap, encoded-buffer lifetime, and per-attempt failure contract must survive reconciliation.
