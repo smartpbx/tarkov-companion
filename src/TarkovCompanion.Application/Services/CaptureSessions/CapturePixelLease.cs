@@ -12,24 +12,33 @@ public sealed class CapturePixelLease : IDisposable
 
     public CapturePixelLease(CapturedImage image)
     {
-        _image = image ?? throw new ArgumentNullException(nameof(image));
+        ArgumentNullException.ThrowIfNull(image);
         if (!MemoryMarshal.TryGetArray(image.Pixels, out var ownedPixels) || ownedPixels.Array is null)
         {
             throw new ArgumentException("Transient capture pixels must be backed by an owned byte array.", nameof(image));
         }
 
         _ownedPixels = ownedPixels;
-
-        if (image.Width <= 0 || image.Height <= 0 || image.Stride <= 0)
+        long byteLength;
+        try
         {
-            throw new ArgumentException("Transient capture dimensions must be positive.", nameof(image));
+            byteLength = checked((long)image.Stride * image.Height);
+        }
+        catch (OverflowException)
+        {
+            CryptographicOperations.ZeroMemory(_ownedPixels.AsSpan());
+            throw new ArgumentException("Transient capture dimensions overflow their pixel buffer.", nameof(image));
         }
 
-        ByteLength = checked((long)image.Stride * image.Height);
-        if (ByteLength > _ownedPixels.Count)
+        if (image.Width <= 0 || image.Height <= 0 || image.Stride <= 0
+            || byteLength <= 0 || byteLength > _ownedPixels.Count)
         {
-            throw new ArgumentException("The pixel buffer is shorter than the declared image.", nameof(image));
+            CryptographicOperations.ZeroMemory(_ownedPixels.AsSpan());
+            throw new ArgumentException("Transient capture dimensions do not fit their pixel buffer.", nameof(image));
         }
+
+        ByteLength = byteLength;
+        _image = image;
     }
 
     public CapturedImage Image => _image ?? throw new ObjectDisposedException(nameof(CapturePixelLease));

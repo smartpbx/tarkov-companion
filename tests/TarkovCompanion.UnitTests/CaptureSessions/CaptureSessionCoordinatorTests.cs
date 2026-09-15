@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.UnitTests.Runtime;
 
 namespace TarkovCompanion.UnitTests.CaptureSessions;
 
@@ -225,6 +227,297 @@ public sealed class CaptureSessionCoordinatorTests
         Assert.All(second, value => Assert.Equal(0, value));
     }
 
+    [Fact]
+    public async Task IntentIsBoundAtAdmissionWhileAnEarlierCaptureIsStillAnalyzing()
+    {
+        var pipeline = new BlockingPipeline();
+        await using var harness = new Harness(pipeline);
+        await harness.EnqueueAsync(CaptureDeliveryKind.WatchedFile, Pixels(110));
+        await pipeline.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await harness.EnqueueAsync(CaptureDeliveryKind.WatchedFile, Pixels(111));
+        var armed = harness.Arm(ScanIntent.Stash);
+        await harness.EnqueueAsync(CaptureDeliveryKind.WatchedFile, Pixels(112));
+
+        var snapshot = harness.Coordinator.Snapshot;
+        var armedSession = snapshot.Sessions.Single(item => item.Request.SessionId == armed);
+        Assert.True(armedSession.IntentClaimed);
+        Assert.Empty(armedSession.Artifacts);
+        pipeline.Release(RecognizedContext.Item);
+    }
+
+    [Fact]
+    public async Task CancelDuringUninterruptibleAnalysisCannotPoisonSnapshotAndClearsPixels()
+    {
+        var pipeline = new BlockingPipeline();
+        await using var harness = new Harness(pipeline);
+        var pixels = Pixels(113);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, pixels);
+        var request = await pipeline.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(harness.Coordinator.Cancel(request.SessionId, "test-cancel"));
+        pipeline.Release(RecognizedContext.Item);
+
+        var snapshot = await harness.WaitForAsync(state =>
+            state.Sessions.Single(item => item.Request.SessionId == request.SessionId).IsTerminal);
+        Assert.Equal(0, snapshot.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+        Assert.Equal(
+            CaptureSessionStage.Cancelled,
+            snapshot.Sessions.Single(item => item.Request.SessionId == request.SessionId).Snapshot.Progress[^1].Stage);
+        _ = harness.Coordinator.Snapshot;
+    }
+
+    [Fact]
+    public async Task CancelDuringReviewEndsSessionEvenWhenEndAfterReviewIsFalse()
+    {
+        await using var harness = new Harness();
+        var pixels = Pixels(114);
+        CaptureReviewRequest? review = null;
+        harness.Coordinator.ReviewRequested += (_, args) => review = args.Review;
+        await harness.EnqueueAsync(
+            CaptureDeliveryKind.Paste,
+            pixels,
+            endSessionAfterReview: false);
+        await harness.WaitForAsync(_ => review is not null);
+
+        Assert.True(harness.Coordinator.Cancel(review!.SessionId, "test-cancel"));
+        var terminal = await harness.WaitForAsync(state =>
+            state.Sessions.Single(item => item.Request.SessionId == review.SessionId).IsTerminal);
+        Assert.Equal(0, terminal.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task CancelDuringRedecodeWinsEvenWhenAnalysisReturnsLate()
+    {
+        var pipeline = new BlockingRedecodePipeline();
+        await using var harness = new Harness(pipeline);
+        var pixels = Pixels(115);
+        harness.Coordinator.ReviewRequested += (_, args) =>
+        {
+            if (args.Review.DecodeRevision == 0)
+            {
+                harness.Coordinator.TryReview(
+                    args.Review.SessionId,
+                    args.Review.ArtifactId,
+                    CaptureReviewAction.Redecode,
+                    "test-redecode");
+            }
+        };
+
+        await harness.EnqueueAsync(CaptureDeliveryKind.Picker, pixels);
+        var request = await pipeline.RedecodeStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(harness.Coordinator.Cancel(request.SessionId, "test-cancel"));
+        pipeline.ReleaseRedecode();
+
+        var terminal = await harness.WaitForAsync(state =>
+            state.Sessions.Single(item => item.Request.SessionId == request.SessionId).IsTerminal);
+        Assert.Equal(0, terminal.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task RetryCaptureRearmsAndAllowsTheSameContent()
+    {
+        await using var harness = new Harness();
+        var pixels = Pixels(116);
+        var reviews = 0;
+        harness.Coordinator.ReviewRequested += (_, args) => harness.Coordinator.TryReview(
+            args.Review.SessionId,
+            args.Review.ArtifactId,
+            Interlocked.Increment(ref reviews) == 1
+                ? CaptureReviewAction.RetryCapture
+                : CaptureReviewAction.UseDetected,
+            "test-review");
+
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, pixels);
+        var retrying = await harness.WaitForAsync(state => state.Sessions.Any(item =>
+            !item.IsTerminal
+            && !item.IntentClaimed
+            && item.Artifacts.Length == 1
+            && item.Snapshot.Progress[^1].Stage == CaptureSessionStage.AwaitingCapture));
+        var sessionId = retrying.Sessions.Single(item => !item.IsTerminal).Request.SessionId;
+
+        var retryPixels = Pixels(116);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, retryPixels);
+        var terminal = await harness.WaitForAsync(state =>
+            state.Sessions.Single(item => item.Request.SessionId == sessionId).IsTerminal);
+        Assert.Equal(2, terminal.Sessions.Single(item => item.Request.SessionId == sessionId).Artifacts.Length);
+        Assert.Equal(0, terminal.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+        Assert.All(retryPixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task ReviewTimeoutUsesInjectedTimeAndClearsTheLease()
+    {
+        await using var harness = new Harness();
+        var pixels = Pixels(117);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, pixels);
+        await harness.WaitForAsync(state => state.PixelsInUse > 0);
+
+        harness.Clock.Advance(TimeSpan.FromSeconds(3));
+        var terminal = await harness.WaitForAsync(state => state.Sessions.Any(item => item.IsTerminal));
+        Assert.Equal(0, terminal.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task QueueWaitCancellationRollsBackItsProvisionalSessionAndZerosPixels()
+    {
+        var pipeline = new BlockingPipeline();
+        await using var harness = new Harness(
+            pipeline,
+            options: new(
+                queueCapacity: 1,
+                maximumRetainedPixelBytes: 1024,
+                decodeRetryDelay: TimeSpan.FromMilliseconds(1),
+                reviewTimeout: TimeSpan.FromSeconds(2),
+                intentLifetime: TimeSpan.FromSeconds(2),
+                deduplicationLifetime: TimeSpan.FromMinutes(1)));
+        harness.Coordinator.ReviewRequested += (_, args) => harness.Coordinator.TryReview(
+            args.Review.SessionId,
+            args.Review.ArtifactId,
+            CaptureReviewAction.UseDetected,
+            "test-review");
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(118));
+        await pipeline.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(119));
+
+        var cancelledPixels = Pixels(120);
+        using var cancelled = new CancellationTokenSource();
+        var waiting = harness.Coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.Drop,
+                new MemoryCaptureSource(new(
+                    cancelledPixels,
+                    2,
+                    2,
+                    8,
+                    PixelFormat.Bgra8888,
+                    harness.Clock.GetUtcNow(),
+                    "fixture"), CaptureSourceKind.UserSelectedImage),
+                Context,
+                harness.Clock.GetUtcNow(),
+                CaptureCorrelationId.New()),
+            cancelled.Token).AsTask();
+        cancelled.Cancel();
+        var receipt = await waiting;
+        Assert.Equal(CaptureQueueDisposition.Cancelled, receipt.Disposition);
+        Assert.All(cancelledPixels, value => Assert.Equal(0, value));
+        pipeline.Release(RecognizedContext.Item);
+    }
+
+    [Fact]
+    public async Task PixelBudgetFailureZerosTheRejectedFrameWithoutDisturbingReview()
+    {
+        await using var harness = new Harness(options: new(
+            queueCapacity: 4,
+            maximumRetainedPixelBytes: 16,
+            decodeRetryDelay: TimeSpan.FromMilliseconds(1),
+            reviewTimeout: TimeSpan.FromSeconds(2),
+            intentLifetime: TimeSpan.FromSeconds(2),
+            deduplicationLifetime: TimeSpan.FromMinutes(1)));
+        var retained = Pixels(121);
+        var rejected = Pixels(122);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, retained);
+        await harness.WaitForAsync(state => state.PixelsInUse == 16);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, rejected);
+
+        await harness.WaitForAsync(state => state.Rejected > 0);
+        Assert.All(rejected, value => Assert.Equal(0, value));
+        var waiting = harness.Coordinator.Snapshot.Sessions.Single(item => item.Artifacts.Any(a => a.PixelsRetained));
+        Assert.True(harness.Coordinator.Cancel(waiting.Request.SessionId, "test-cleanup"));
+    }
+
+    [Fact]
+    public async Task AnalysisFailureEndsTheSessionAndZerosPixels()
+    {
+        await using var harness = new Harness(new ThrowingPipeline());
+        var pixels = Pixels(123);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, pixels);
+
+        var terminal = await harness.WaitForAsync(state => state.Sessions.Any(item => item.IsTerminal));
+        var artifact = Assert.Single(terminal.Sessions.Single().Artifacts);
+        Assert.Equal("analysis_failed", artifact.DiagnosticCode);
+        Assert.Equal(0, terminal.PixelsInUse);
+        Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task UseArmedIntentCarriesCorrectionAndProvenanceToConsumers()
+    {
+        await using var harness = new Harness(new StubPipeline(RecognizedContext.Flea));
+        var sessionId = harness.Arm(ScanIntent.Stash);
+        CaptureAcceptedEventArgs? accepted = null;
+        harness.Coordinator.Accepted += (_, args) => accepted = args;
+        harness.Coordinator.ReviewRequested += (_, args) => harness.Coordinator.TryReview(
+            args.Review.SessionId,
+            args.Review.ArtifactId,
+            CaptureReviewAction.UseArmedIntent,
+            "test-correction");
+
+        var capturedUtc = harness.Clock.GetUtcNow();
+        await harness.EnqueueAsync(
+            CaptureDeliveryKind.Batch,
+            Pixels(124),
+            batchId: "batch-provenance",
+            sessionId: sessionId);
+        await harness.WaitForAsync(_ => accepted is not null);
+
+        Assert.Equal(CaptureReviewAction.UseArmedIntent, accepted!.Decision);
+        Assert.Equal(ScanIntent.Stash, accepted.EffectiveIntent);
+        Assert.Equal(CaptureSourceKind.UserSelectedImage, accepted.SourceKind);
+        Assert.Equal("batch-provenance", accepted.BatchId);
+        Assert.Equal(new Confidence(0.91), accepted.Analysis.Confidence);
+        Assert.Equal(CaptureReviewAction.UseArmedIntent, accepted.Correction.Action);
+        Assert.Equal(capturedUtc, accepted.CapturedUtc);
+    }
+
+    [Fact]
+    public async Task NewCoordinatorDoesNotCarryProcessLocalDedupeAcrossRestart()
+    {
+        var firstPixels = Pixels(125);
+        await using (var first = new Harness())
+        {
+            first.Coordinator.ReviewRequested += (_, args) => first.Coordinator.TryReview(
+                args.Review.SessionId,
+                args.Review.ArtifactId,
+                CaptureReviewAction.UseDetected,
+                "test-review");
+            await first.EnqueueAsync(CaptureDeliveryKind.Drop, firstPixels);
+            await first.WaitForTerminalAsync();
+        }
+
+        var secondPixels = Pixels(125);
+        await using var second = new Harness();
+        second.Coordinator.ReviewRequested += (_, args) => second.Coordinator.TryReview(
+            args.Review.SessionId,
+            args.Review.ArtifactId,
+            CaptureReviewAction.UseDetected,
+            "test-review");
+        await second.EnqueueAsync(CaptureDeliveryKind.Drop, secondPixels);
+        var terminal = await second.WaitForTerminalAsync();
+        Assert.Single(terminal.Artifacts);
+        Assert.Equal(0, second.Coordinator.Snapshot.Duplicate);
+    }
+
+    [Fact]
+    public void InvalidPixelLeaseClearsOwnedBytesBeforeRejectingDimensions()
+    {
+        var pixels = Pixels(126);
+        Assert.Throws<ArgumentException>(() => new CapturePixelLease(new(
+            pixels,
+            2,
+            2,
+            32,
+            PixelFormat.Bgra8888,
+            DateTimeOffset.UnixEpoch,
+            "invalid-fixture")));
+        Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
     private static readonly CaptureContextMetadata Context = new(
         "workspace-a",
         "profile-a",
@@ -244,14 +537,18 @@ public sealed class CaptureSessionCoordinatorTests
 
     private sealed class Harness : IAsyncDisposable
     {
-        public Harness(ICaptureSessionPipeline? pipeline = null)
+        public Harness(
+            ICaptureSessionPipeline? pipeline = null,
+            ICaptureWorkScheduler? scheduler = null,
+            CaptureSessionOptions? options = null)
         {
+            Clock = new(DateTimeOffset.Parse("2026-09-15T00:00:00Z"));
             Coordinator = new(
-                new InlineCaptureWorkScheduler(),
+                scheduler ?? new InlineCaptureWorkScheduler(),
                 pipeline ?? new StubPipeline(RecognizedContext.Item),
                 Origin,
-                TimeProvider.System,
-                new(
+                Clock,
+                options ?? new(
                     queueCapacity: 4,
                     maximumRetainedPixelBytes: 1024,
                     maximumDecodeAttempts: 4,
@@ -262,12 +559,14 @@ public sealed class CaptureSessionCoordinatorTests
                     historyLimit: 256));
         }
 
+        public ManualTimeProvider Clock { get; }
+
         public CaptureSessionCoordinator Coordinator { get; }
 
         public CaptureSessionId Arm(ScanIntent intent, TimeSpan? lifetime = null)
         {
             var id = new CaptureSessionId(Guid.NewGuid());
-            var now = DateTimeOffset.UtcNow;
+            var now = Clock.GetUtcNow();
             var receipt = Coordinator.Arm(new(
                 new(id, intent, Origin, now, Context.ActiveProfile, Context.ActiveMap, now.Add(lifetime ?? TimeSpan.FromSeconds(2))),
                 Context,
@@ -280,18 +579,22 @@ public sealed class CaptureSessionCoordinatorTests
             CaptureDeliveryKind delivery,
             byte[] pixels,
             string? batchId = null,
-            CaptureCorrelationId? correlation = null) =>
+            CaptureCorrelationId? correlation = null,
+            CaptureSessionId? sessionId = null,
+            bool endSessionAfterReview = true) =>
             Coordinator.EnqueueAsync(
                 new(
                     delivery,
                     new MemoryCaptureSource(
-                        new(pixels, 2, 2, 8, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, "fixture"),
+                        new(pixels, 2, 2, 8, PixelFormat.Bgra8888, Clock.GetUtcNow(), "fixture"),
                         delivery == CaptureDeliveryKind.WatchedFile
                             ? CaptureSourceKind.GameWrittenScreenshot
                             : CaptureSourceKind.UserSelectedImage),
                     Context,
-                    DateTimeOffset.UtcNow,
+                    Clock.GetUtcNow(),
                     correlation ?? CaptureCorrelationId.New(),
+                    sessionId,
+                    endSessionAfterReview,
                     batchId: batchId),
                 CancellationToken.None);
 
@@ -313,7 +616,8 @@ public sealed class CaptureSessionCoordinatorTests
                     return snapshot;
                 }
 
-                await Task.Delay(5);
+                Clock.Advance(TimeSpan.FromMilliseconds(1));
+                await Task.Delay(1);
             }
 
             Assert.Fail("Capture session did not reach the expected state.");
@@ -348,15 +652,83 @@ public sealed class CaptureSessionCoordinatorTests
                 context,
                 false,
                 true,
-                null));
+                null,
+                new Confidence(0.91)));
         }
     }
+
+    private sealed class BlockingPipeline : ICaptureSessionPipeline
+    {
+        private readonly TaskCompletionSource<RecognizedContext> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<CaptureAnalysisRequest> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<CaptureAnalysis> AnalyzeAsync(
+            CaptureAnalysisRequest request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult(request);
+            // Deliberately ignores cancellation. This fixture proves that a dependency returning
+            // late cannot append after a terminal session or retain its caller-owned pixels.
+            var context = await _release.Task.ConfigureAwait(false);
+            return Analysis(context, request);
+        }
+
+        public void Release(RecognizedContext context) => _release.TrySetResult(context);
+    }
+
+    private sealed class BlockingRedecodePipeline : ICaptureSessionPipeline
+    {
+        private readonly TaskCompletionSource _releaseRedecode =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<CaptureAnalysisRequest> RedecodeStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<CaptureAnalysis> AnalyzeAsync(
+            CaptureAnalysisRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (request.DecodeRevision == 0)
+            {
+                return Analysis(RecognizedContext.Item, request);
+            }
+
+            RedecodeStarted.TrySetResult(request);
+            // As above, a hostile dependency is allowed to ignore the token and return late.
+            await _releaseRedecode.Task.ConfigureAwait(false);
+            return Analysis(RecognizedContext.Item, request);
+        }
+
+        public void ReleaseRedecode() => _releaseRedecode.TrySetResult();
+    }
+
+    private sealed class ThrowingPipeline : ICaptureSessionPipeline
+    {
+        public Task<CaptureAnalysis> AnalyzeAsync(
+            CaptureAnalysisRequest request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Hostile fixture analysis failure.");
+    }
+
+    private static CaptureAnalysis Analysis(
+        RecognizedContext context,
+        CaptureAnalysisRequest request) =>
+        new(
+            $"result-{request.CorrelationId}",
+            context,
+            false,
+            true,
+            null,
+            new Confidence(0.91));
 
     private sealed class RetrySource(int failures, byte[] pixels) : ICaptureContentSource
     {
         private int _remaining = failures;
         private CapturePixelLease? _pixels = new(
-            new(pixels, 2, 2, 8, PixelFormat.Bgra8888, DateTimeOffset.UtcNow, "retry-fixture"));
+            new(pixels, 2, 2, 8, PixelFormat.Bgra8888, DateTimeOffset.Parse("2026-09-15T00:00:00Z"), "retry-fixture"));
 
         public CaptureSourceKind SourceKind => CaptureSourceKind.GameWrittenScreenshot;
 

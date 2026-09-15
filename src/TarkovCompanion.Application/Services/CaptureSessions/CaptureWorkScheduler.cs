@@ -1,3 +1,5 @@
+using TarkovCompanion.Application.Services.Execution;
+
 namespace TarkovCompanion.Application.Services.CaptureSessions;
 
 public enum CaptureWorkPriority
@@ -64,5 +66,63 @@ public sealed class InlineCaptureWorkScheduler : ICaptureWorkScheduler
         {
             return new(true, false, "capture_work_failed");
         }
+    }
+}
+
+/// <summary>
+/// Production adapter onto the process-wide bounded supervisor introduced by #268. Registration
+/// remains with the application composition owner; this adapter keeps capture from inventing a
+/// second scheduler or bypassing interactive admission.
+/// </summary>
+public sealed class SupervisedCaptureWorkScheduler : ICaptureWorkScheduler
+{
+    private static readonly RuntimeFeatureId FeatureId = new("capture-sessions");
+    private static readonly RuntimeDependencyId DependencyId = new("capture-recognition");
+    private readonly IBackgroundWorkSupervisor _supervisor;
+    private readonly TimeSpan _operationTimeout;
+
+    public SupervisedCaptureWorkScheduler(
+        IBackgroundWorkSupervisor supervisor,
+        TimeSpan? operationTimeout = null)
+    {
+        _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
+        _operationTimeout = operationTimeout ?? TimeSpan.FromSeconds(45);
+        if (_operationTimeout <= TimeSpan.Zero || _operationTimeout > OperationPolicy.MaximumDuration)
+        {
+            throw new ArgumentOutOfRangeException(nameof(operationTimeout));
+        }
+    }
+
+    public async Task<CaptureWorkResult> RunAsync(
+        CaptureWorkRequest request,
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(operation);
+        var execution = new OperationExecutionRequest(
+            FeatureId,
+            OperationId.New(),
+            new CorrelationId(request.CorrelationId.Value),
+            DependencyId,
+            OperationPolicy.Once(_operationTimeout, WorkloadClass.CPU));
+        var admission = _supervisor.Submit(
+            new(
+                execution,
+                new OperationScopeId(request.Scope),
+                request.Priority == CaptureWorkPriority.ReviewBlocking
+                    ? WorkPriority.UserBlocking
+                    : WorkPriority.Interactive),
+            (_, token) => operation(token),
+            cancellationToken);
+        if (!admission.Accepted)
+        {
+            return new(false, false, admission.Fault?.Code.Value ?? "capture_supervisor_rejected");
+        }
+
+        var completed = await admission.Handle.Completion.ConfigureAwait(false);
+        return completed.State == BackgroundWorkState.Succeeded
+            ? CaptureWorkResult.Success
+            : new(true, false, completed.Fault?.Code.Value ?? $"capture_{completed.State.ToString().ToLowerInvariant()}");
     }
 }

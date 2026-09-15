@@ -17,7 +17,10 @@ public sealed class ScreenshotFileCaptureSource(string path, IScreenshotImageLoa
     {
         var image = await _loader.LoadAsync(_path, cancellationToken).ConfigureAwait(false);
         return image is null
-            ? CaptureSourceReadResult.Failure("decode_incomplete_or_unavailable")
+            // The authoritative loader already owns its bounded read/decode deadline and any
+            // retry it can perform without multiplying encoded buffers. Retrying that whole
+            // policy again in the session coordinator used to turn four reads into sixteen.
+            ? CaptureSourceReadResult.Failure("decode_incomplete_or_unavailable", retryable: false)
             : CaptureSourceReadResult.Success(new(image));
     }
 

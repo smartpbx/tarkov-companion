@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.CaptureSessions;
@@ -251,7 +252,8 @@ public sealed record CaptureAnalysis(
     RecognizedContext? DetectedContext,
     bool IsAmbiguous,
     bool IsAvailable,
-    string? DiagnosticCode)
+    string? DiagnosticCode,
+    Confidence Confidence)
 {
     public string ResultId { get; } = string.IsNullOrWhiteSpace(ResultId)
         ? throw new ArgumentException("A result id is required.", nameof(ResultId))
@@ -286,6 +288,11 @@ public sealed record CaptureArtifactSnapshot(
     CaptureDeliveryKind DeliveryKind,
     CaptureCorrelationId CorrelationId,
     CaptureContextMetadata Context,
+    CaptureSourceKind SourceKind,
+    DateTimeOffset CapturedUtc,
+    DateTimeOffset SubmittedUtc,
+    string? BatchId,
+    Confidence Confidence,
     CaptureAnalysis? Analysis,
     CaptureReviewRequest? Review,
     ImmutableArray<CaptureCorrection> Corrections,
@@ -302,6 +309,7 @@ public sealed record CaptureSessionState(
     CaptureSessionSnapshot Snapshot,
     ImmutableArray<CaptureArtifactSnapshot> Artifacts,
     bool IntentClaimed,
+    bool CancellationRequested,
     bool IsTerminal);
 
 public sealed record CaptureTimingSnapshot(
@@ -358,7 +366,14 @@ public sealed class CaptureAcceptedEventArgs(
     string artifactId,
     CaptureAnalysis analysis,
     CaptureContextMetadata context,
-    CaptureCorrelationId correlationId) : EventArgs
+    CaptureCorrelationId correlationId,
+    CaptureSourceKind sourceKind,
+    DateTimeOffset capturedUtc,
+    DateTimeOffset submittedUtc,
+    string? batchId,
+    CaptureReviewAction decision,
+    ScanIntent effectiveIntent,
+    CaptureCorrection correction) : EventArgs
 {
     public CaptureSessionId SessionId { get; } = sessionId;
 
@@ -369,6 +384,34 @@ public sealed class CaptureAcceptedEventArgs(
     public CaptureContextMetadata Context { get; } = context ?? throw new ArgumentNullException(nameof(context));
 
     public CaptureCorrelationId CorrelationId { get; } = correlationId;
+
+    public CaptureSourceKind SourceKind { get; } = Enum.IsDefined(sourceKind)
+        ? sourceKind
+        : throw new ArgumentOutOfRangeException(nameof(sourceKind));
+
+    public DateTimeOffset CapturedUtc { get; } = capturedUtc == default
+        ? throw new ArgumentOutOfRangeException(nameof(capturedUtc))
+        : capturedUtc.ToUniversalTime();
+
+    public DateTimeOffset SubmittedUtc { get; } = submittedUtc == default
+        ? throw new ArgumentOutOfRangeException(nameof(submittedUtc))
+        : submittedUtc.ToUniversalTime();
+
+    public string? BatchId { get; } = string.IsNullOrWhiteSpace(batchId) ? null : batchId.Trim();
+
+    public CaptureReviewAction Decision { get; } = Enum.IsDefined(decision)
+        ? decision
+        : throw new ArgumentOutOfRangeException(nameof(decision));
+
+    /// <summary>
+    /// The intent consumers must apply after review. For UseArmedIntent this is the explicit
+    /// user correction, not the detector's disagreed context.
+    /// </summary>
+    public ScanIntent EffectiveIntent { get; } = Enum.IsDefined(effectiveIntent)
+        ? effectiveIntent
+        : throw new ArgumentOutOfRangeException(nameof(effectiveIntent));
+
+    public CaptureCorrection Correction { get; } = correction ?? throw new ArgumentNullException(nameof(correction));
 }
 
 public interface ICaptureSessionService : IAsyncDisposable

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Threading.Channels;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.Application.Services.CaptureSessions;
@@ -16,7 +17,8 @@ public sealed record CaptureSessionOptions
         TimeSpan? reviewTimeout = null,
         TimeSpan? intentLifetime = null,
         TimeSpan? deduplicationLifetime = null,
-        int historyLimit = 256)
+        int historyLimit = 256,
+        int sessionLimit = 256)
     {
         QueueCapacity = queueCapacity is >= 1 and <= 4096
             ? queueCapacity
@@ -34,6 +36,9 @@ public sealed record CaptureSessionOptions
         HistoryLimit = historyLimit is >= 16 and <= 100_000
             ? historyLimit
             : throw new ArgumentOutOfRangeException(nameof(historyLimit));
+        SessionLimit = sessionLimit is >= 16 and <= 10_000
+            ? sessionLimit
+            : throw new ArgumentOutOfRangeException(nameof(sessionLimit));
     }
 
     public int QueueCapacity { get; }
@@ -51,6 +56,8 @@ public sealed record CaptureSessionOptions
     public TimeSpan DeduplicationLifetime { get; }
 
     public int HistoryLimit { get; }
+
+    public int SessionLimit { get; }
 
     private static TimeSpan Positive(TimeSpan value, string parameterName) =>
         value > TimeSpan.Zero && value <= TimeSpan.FromHours(24)
@@ -78,6 +85,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     private readonly Dictionary<CaptureSessionId, MutableSession> _sessions = [];
     private readonly Dictionary<string, DeduplicationEntry> _deduplication = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingReview> _pendingReviews = new(StringComparer.Ordinal);
+    private readonly HashSet<Task> _reviewTasks = [];
     private readonly List<CaptureTimingSnapshot> _timings = [];
     private readonly List<CaptureSessionNotice> _notices = [];
     private readonly Task _pump;
@@ -163,9 +171,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 return new(false, arm.Request.SessionId, "intent_request_in_future");
             }
 
-            if (_sessions.ContainsKey(arm.Request.SessionId))
+            if (_sessions.TryGetValue(arm.Request.SessionId, out var known))
             {
-                return new(true, arm.Request.SessionId, "already_known");
+                return known.IsTerminal
+                    ? new(false, arm.Request.SessionId, "terminal_session_already_known")
+                    : new(true, arm.Request.SessionId, "already_known");
             }
 
             if (_armedSessionId is not null)
@@ -173,7 +183,17 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 return new(false, arm.Request.SessionId, "intent_already_armed");
             }
 
-            var expiresUtc = arm.Request.ExpiresUtc ?? now.Add(_options.IntentLifetime);
+            if (!EnsureSessionCapacityUnsafe())
+            {
+                return new(false, arm.Request.SessionId, "capture_session_capacity_reached");
+            }
+
+            // A remote or malformed caller cannot hold the one armed slot for days. The
+            // configured lifetime is a ceiling as well as the default.
+            var maximumExpiry = now.Add(_options.IntentLifetime);
+            var expiresUtc = arm.Request.ExpiresUtc is { } requestedExpiry && requestedExpiry < maximumExpiry
+                ? requestedExpiry
+                : maximumExpiry;
             if (expiresUtc <= now)
             {
                 return new(false, arm.Request.SessionId, "intent_already_expired");
@@ -197,7 +217,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
 
         Notify(changed);
-        _ = ExpireIntentAsync(request.SessionId, request.ExpiresUtc!.Value, _lifetime.Token);
+        _ = ExpireIntentAsync(request.SessionId, _lifetime.Token);
         return new(true, request.SessionId, "armed");
     }
 
@@ -206,52 +226,101 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(submission);
-        long intakeSequence;
+        QueuedCapture? queued = null;
+        CaptureQueueReceipt? rejected = null;
+        EventHandler? changed;
         lock (_gate)
         {
+            var now = _timeProvider.GetUtcNow();
             if (_stopping || _disposed)
             {
-                Interlocked.Increment(ref _rejected);
-                submission.Source.Dispose();
-                return new(
+                _rejected++;
+                rejected = new(
                     -1,
                     CaptureQueueDisposition.Rejected,
                     submission.CorrelationId,
-                    _timeProvider.GetUtcNow(),
+                    now,
                     "capture_service_stopping");
             }
-
-            if (submission.SubmittedUtc > _timeProvider.GetUtcNow())
+            else if (submission.SubmittedUtc > now)
             {
                 _rejected++;
-                submission.Source.Dispose();
-                return new(
+                rejected = new(
                     -1,
                     CaptureQueueDisposition.Rejected,
                     submission.CorrelationId,
-                    _timeProvider.GetUtcNow(),
+                    now,
                     "capture_submission_in_future");
             }
+            else
+            {
+                var binding = ResolveSessionAtIntakeUnsafe(submission, now);
+                if (binding is null)
+                {
+                    _rejected++;
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.QueueRejected,
+                        now,
+                        submission.CorrelationId,
+                        submission.SessionId,
+                        null,
+                        "unknown_or_terminal_session");
+                    rejected = new(
+                        -1,
+                        CaptureQueueDisposition.Rejected,
+                        submission.CorrelationId,
+                        now,
+                        "unknown_or_terminal_session");
+                }
+                else
+                {
+                    var intakeSequence = checked(_nextIntakeSequence++);
+                    binding.Session.ActiveCaptureCount++;
+                    queued = new(
+                        intakeSequence,
+                        submission,
+                        now,
+                        binding.Session.Request.SessionId,
+                        binding.ClaimedArmedIntent,
+                        binding.CreatedSession);
+                    _queueDepth++;
+                }
+            }
 
-            intakeSequence = checked(_nextIntakeSequence++);
-            _queueDepth++;
+            changed = _changed;
         }
 
-        var queued = new QueuedCapture(intakeSequence, submission, _timeProvider.GetUtcNow());
+        if (rejected is not null)
+        {
+            submission.Source.Dispose();
+            Notify(changed);
+            return rejected;
+        }
+
+        Notify(changed);
         try
         {
-            await _queue.Writer.WriteAsync(queued, cancellationToken).ConfigureAwait(false);
+            await _queue.Writer.WriteAsync(queued!, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             submission.Source.Dispose();
+            var rearmed = false;
             lock (_gate)
             {
                 _queueDepth--;
                 _rejected++;
+                rearmed = RollBackIntakeUnsafe(queued!, _timeProvider.GetUtcNow());
+                changed = _changed;
             }
+            if (rearmed)
+            {
+                _ = ExpireIntentAsync(queued!.BoundSessionId, _lifetime.Token);
+            }
+
+            Notify(changed);
             return new(
-                intakeSequence,
+                queued!.IntakeSequence,
                 CaptureQueueDisposition.Cancelled,
                 submission.CorrelationId,
                 _timeProvider.GetUtcNow(),
@@ -260,20 +329,28 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         catch (ChannelClosedException)
         {
             submission.Source.Dispose();
+            var rearmed = false;
             lock (_gate)
             {
                 _queueDepth--;
                 _rejected++;
+                rearmed = RollBackIntakeUnsafe(queued!, _timeProvider.GetUtcNow());
+                changed = _changed;
             }
+            if (rearmed)
+            {
+                _ = ExpireIntentAsync(queued!.BoundSessionId, _lifetime.Token);
+            }
+
+            Notify(changed);
             return new(
-                intakeSequence,
+                queued!.IntakeSequence,
                 CaptureQueueDisposition.Rejected,
                 submission.CorrelationId,
                 _timeProvider.GetUtcNow(),
                 "capture_service_stopping");
         }
 
-        EventHandler? changed;
         lock (_gate)
         {
             _accepted++;
@@ -282,7 +359,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         Notify(changed);
         return new(
-            intakeSequence,
+            queued!.IntakeSequence,
             CaptureQueueDisposition.Accepted,
             submission.CorrelationId,
             _timeProvider.GetUtcNow(),
@@ -323,7 +400,14 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     public bool Cancel(CaptureSessionId sessionId, string origin)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(origin);
+        var trimmedOrigin = origin.Trim();
+        if (trimmedOrigin.Length > 128)
+        {
+            throw new ArgumentOutOfRangeException(nameof(origin));
+        }
+
         EventHandler? changed;
+        CancellationTokenSource cancellation;
         lock (_gate)
         {
             if (!_sessions.TryGetValue(sessionId, out var session) || session.IsTerminal)
@@ -336,25 +420,31 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 _armedSessionId = null;
             }
 
+            var now = _timeProvider.GetUtcNow();
+            session.CancellationRequested = true;
             foreach (var pending in _pendingReviews.Values.Where(item => item.SessionId == sessionId))
             {
-                pending.Decision.TrySetResult(new(CaptureReviewAction.Cancel, origin.Trim(), _timeProvider.GetUtcNow()));
+                pending.Decision.TrySetResult(new(CaptureReviewAction.Cancel, trimmedOrigin, now));
             }
 
-            if (!_pendingReviews.Values.Any(item => item.SessionId == sessionId))
+            if (session.ActiveCaptureCount == 0)
             {
-                session.AppendSession(CaptureSessionStage.Cancelled, _timeProvider.GetUtcNow(), "session_cancelled");
+                session.AppendSession(CaptureSessionStage.Cancelled, now, "session_cancelled");
+                PruneSessionsUnsafe();
             }
 
+            cancellation = session.Cancellation;
             changed = _changed;
         }
 
+        cancellation.Cancel();
         Notify(changed);
         return true;
     }
 
     public async ValueTask DisposeAsync()
     {
+        CancellationTokenSource[] sessionCancellations;
         lock (_gate)
         {
             if (_disposed)
@@ -365,13 +455,27 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             _disposed = true;
             _stopping = true;
             _queue.Writer.TryComplete();
+            var now = _timeProvider.GetUtcNow();
+            foreach (var session in _sessions.Values.Where(item => !item.IsTerminal))
+            {
+                session.CancellationRequested = true;
+                session.RequestTerminal(CaptureSessionStage.Cancelled);
+            }
+
             foreach (var pending in _pendingReviews.Values)
             {
                 pending.Decision.TrySetResult(new(
                     CaptureReviewAction.Cancel,
                     "shutdown",
-                    _timeProvider.GetUtcNow()));
+                    now));
             }
+
+            sessionCancellations = [.. _sessions.Values.Select(item => item.Cancellation)];
+        }
+
+        foreach (var cancellation in sessionCancellations)
+        {
+            cancellation.Cancel();
         }
 
         await _lifetime.CancelAsync().ConfigureAwait(false);
@@ -386,6 +490,30 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         while (_queue.Reader.TryRead(out var queued))
         {
             queued.Submission.Source.Dispose();
+            lock (_gate)
+            {
+                _queueDepth--;
+                if (_sessions.TryGetValue(queued.BoundSessionId, out var session))
+                {
+                    CompleteActiveCaptureUnsafe(queued, session, _timeProvider.GetUtcNow());
+                }
+            }
+        }
+
+        Task[] reviews;
+        lock (_gate)
+        {
+            reviews = [.. _reviewTasks];
+        }
+
+        try
+        {
+            await Task.WhenAll(reviews).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Review loops contain their own cleanup; a fault is observed here so disposal can
+            // still perform the final lease audit below.
         }
 
         lock (_gate)
@@ -405,6 +533,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             }
 
             _pendingReviews.Clear();
+            foreach (var session in _sessions.Values)
+            {
+                session.Cancellation.Dispose();
+            }
         }
 
         _lifetime.Dispose();
@@ -419,19 +551,33 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 _queueDepth--;
             }
 
+            var reviewOwnsCompletion = false;
             try
             {
-                await ProcessQueuedAsync(queued, cancellationToken).ConfigureAwait(false);
+                reviewOwnsCompletion = await ProcessQueuedAsync(queued, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
                 queued.Submission.Source.Dispose();
+                if (!reviewOwnsCompletion)
+                {
+                    CompleteActiveCapture(queued);
+                }
             }
         }
     }
 
-    private async Task ProcessQueuedAsync(QueuedCapture queued, CancellationToken cancellationToken)
+    private async Task<bool> ProcessQueuedAsync(QueuedCapture queued, CancellationToken cancellationToken)
     {
+        MutableSession session;
+        lock (_gate)
+        {
+            session = _sessions[queued.BoundSessionId];
+        }
+
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            session.Cancellation.Token);
         var prepared = PreparedCapture.Rejected;
         var work = await _scheduler.RunAsync(
                 new(
@@ -440,204 +586,302 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     CaptureWorkPriority.Intake),
                 async token =>
                 {
-                    prepared = await PrepareAsync(queued, token).ConfigureAwait(false);
+                    prepared = await PrepareAsync(queued, session, token).ConfigureAwait(false);
                 },
-                cancellationToken)
+                operation.Token)
             .ConfigureAwait(false);
         if (!work.Accepted || !work.Succeeded)
         {
-            Reject(queued, work.DiagnosticCode ?? "capture_work_rejected");
-            return;
+            FinalizeUnstartedCapture(
+                queued,
+                session,
+                session.CancellationRequested ? "capture_cancelled" : work.DiagnosticCode ?? "capture_work_rejected");
+            return false;
         }
 
         if (prepared.IsDuplicate || prepared.Pixels is null || prepared.Session is null || prepared.Artifact is null)
         {
-            return;
+            return false;
         }
 
-        await ReviewLoopAsync(queued, prepared, cancellationToken).ConfigureAwait(false);
+        var review = ReviewLoopAsync(queued, prepared, cancellationToken);
+        lock (_gate)
+        {
+            _reviewTasks.Add(review);
+        }
+
+        _ = review.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                lock (_gate)
+                {
+                    _reviewTasks.Remove(completed);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return true;
     }
 
-    private async Task<PreparedCapture> PrepareAsync(QueuedCapture queued, CancellationToken cancellationToken)
+    private async Task<PreparedCapture> PrepareAsync(
+        QueuedCapture queued,
+        MutableSession session,
+        CancellationToken cancellationToken)
     {
         var decodeStarted = _timeProvider.GetUtcNow();
         CapturePixelLease? pixels = null;
+        MutableArtifact? artifact = null;
+        var reserved = false;
+        var transferred = false;
+        var duplicate = false;
+        var rearmedIntent = false;
         var attempts = 0;
         string? diagnostic = null;
-        for (attempts = 1; attempts <= _options.MaximumDecodeAttempts; attempts++)
-        {
-            var result = await queued.Submission.Source.ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (result.Pixels is not null)
-            {
-                pixels = result.Pixels;
-                break;
-            }
-
-            diagnostic = result.DiagnosticCode ?? "decode_failed";
-            if (!result.Retryable || attempts == _options.MaximumDecodeAttempts)
-            {
-                break;
-            }
-
-            await Task.Delay(_options.DecodeRetryDelay, _timeProvider, cancellationToken).ConfigureAwait(false);
-        }
-
-        if (pixels is null)
-        {
-            Reject(queued, diagnostic ?? "decode_failed");
-            return PreparedCapture.Rejected;
-        }
-
-        if (!TryReservePixels(pixels))
-        {
-            pixels.Dispose();
-            Reject(queued, "decoded_pixel_budget_exceeded");
-            return PreparedCapture.Rejected;
-        }
-
-        var digest = ContentIdentity(pixels.Image);
-        MutableSession session;
-        MutableArtifact artifact;
-        EventHandler? changed;
-        lock (_gate)
-        {
-            var now = _timeProvider.GetUtcNow();
-            TrimDeduplicationUnsafe(now);
-            if (_deduplication.ContainsKey(digest))
-            {
-                _duplicate++;
-                AddNoticeUnsafe(
-                    CaptureSessionNoticeKind.Duplicate,
-                    now,
-                    queued.Submission.CorrelationId,
-                    queued.Submission.SessionId,
-                    null,
-                    "duplicate_content");
-                ReleasePixelsUnsafe(pixels, queued.Submission.SessionId, null, "duplicate_content");
-                changed = _changed;
-                Notify(changed);
-                return PreparedCapture.Duplicate;
-            }
-
-            var resolvedSession = ResolveSessionUnsafe(queued.Submission, now);
-            if (resolvedSession is null)
-            {
-                ReleasePixelsUnsafe(pixels, queued.Submission.SessionId, null, "unknown_session");
-                RejectUnsafe(queued, "unknown_session");
-                changed = _changed;
-                Notify(changed);
-                return PreparedCapture.Rejected;
-            }
-
-            session = resolvedSession;
-
-            if (session.IsTerminal)
-            {
-                ReleasePixelsUnsafe(pixels, session.Request.SessionId, null, "stale_session");
-                RejectUnsafe(queued, "stale_session");
-                changed = _changed;
-                Notify(changed);
-                return PreparedCapture.Rejected;
-            }
-
-            var artifactId = $"capture-{Guid.NewGuid():N}";
-            artifact = session.AddArtifact(
-                artifactId,
-                queued.Submission.DeliveryKind,
-                queued.Submission.CorrelationId,
-                attempts);
-            for (var retry = 1; retry <= attempts; retry++)
-            {
-                session.AppendCapture(artifact, CaptureSessionStage.Settling, now, retry == 1 ? "source_settled" : "decode_retry");
-                session.AppendCapture(artifact, CaptureSessionStage.Decoding, now, $"decode_attempt_{retry}");
-            }
-
-            session.AppendCapture(artifact, CaptureSessionStage.DetectingContext, now, "detecting_context");
-            _deduplication.Add(digest, new(artifactId, now.Add(_options.DeduplicationLifetime)));
-            changed = _changed;
-        }
-
-        Notify(changed);
-        var analysisStarted = _timeProvider.GetUtcNow();
-        CaptureAnalysis analysis;
         try
         {
-            analysis = await _pipeline.AnalyzeAsync(
-                    new(
+            for (attempts = 1; attempts <= _options.MaximumDecodeAttempts; attempts++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var result = await queued.Submission.Source.ReadAsync(cancellationToken).ConfigureAwait(false);
+                if (result.Pixels is not null)
+                {
+                    pixels = result.Pixels;
+                    break;
+                }
+
+                diagnostic = result.DiagnosticCode ?? "decode_failed";
+                if (!result.Retryable || attempts == _options.MaximumDecodeAttempts)
+                {
+                    break;
+                }
+
+                await Task.Delay(_options.DecodeRetryDelay, _timeProvider, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (pixels is null)
+            {
+                FinalizeUnstartedCapture(queued, session, diagnostic ?? "decode_failed");
+                return PreparedCapture.Rejected;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!TryReservePixels(pixels))
+            {
+                pixels.Dispose();
+                pixels = null;
+                FinalizeUnstartedCapture(queued, session, "decoded_pixel_budget_exceeded");
+                return PreparedCapture.Rejected;
+            }
+
+            reserved = true;
+            var digest = ContentIdentity(pixels.Image);
+            EventHandler? changed;
+            lock (_gate)
+            {
+                var now = _timeProvider.GetUtcNow();
+                TrimDeduplicationUnsafe(now);
+                if (_deduplication.ContainsKey(digest))
+                {
+                    duplicate = true;
+                    _duplicate++;
+                    rearmedIntent = RestoreIntentAfterUnusableCaptureUnsafe(queued, session, now);
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.Duplicate,
+                        now,
+                        queued.Submission.CorrelationId,
+                        session.Request.SessionId,
+                        null,
+                        "duplicate_content");
+                    ReleasePixelsUnsafe(pixels, session.Request.SessionId, null, "duplicate_content");
+                    reserved = false;
+                    pixels = null;
+                    changed = _changed;
+                }
+                else if (session.IsTerminal || session.CancellationRequested)
+                {
+                    ReleasePixelsUnsafe(pixels, session.Request.SessionId, null, "stale_or_cancelled_session");
+                    reserved = false;
+                    pixels = null;
+                    RejectUnsafe(queued, "stale_or_cancelled_session");
+                    changed = _changed;
+                }
+                else
+                {
+                    var capturedUtc = pixels.Image.CapturedUtc == default
+                        ? queued.Submission.SubmittedUtc
+                        : pixels.Image.CapturedUtc.ToUniversalTime();
+                    var artifactId = $"capture-{Guid.NewGuid():N}";
+                    artifact = session.AddArtifact(
+                        artifactId,
+                        queued.Submission.DeliveryKind,
+                        queued.Submission.CorrelationId,
+                        queued.Submission.Source.SourceKind,
+                        capturedUtc,
+                        queued.Submission.SubmittedUtc,
+                        queued.Submission.BatchId,
+                        attempts,
+                        digest);
+                    for (var retry = 1; retry <= attempts; retry++)
+                    {
+                        session.AppendCapture(artifact, CaptureSessionStage.Settling, now, retry == 1 ? "source_settled" : "decode_retry");
+                        session.AppendCapture(artifact, CaptureSessionStage.Decoding, now, $"decode_attempt_{retry}");
+                    }
+
+                    session.AppendCapture(artifact, CaptureSessionStage.DetectingContext, now, "detecting_context");
+                    _deduplication.Add(digest, new(session.Request.SessionId, artifactId, now.Add(_options.DeduplicationLifetime)));
+                    changed = _changed;
+                }
+            }
+
+            Notify(changed);
+            if (rearmedIntent)
+            {
+                _ = ExpireIntentAsync(session.Request.SessionId, _lifetime.Token);
+            }
+
+            if (pixels is null)
+            {
+                return duplicate ? PreparedCapture.Duplicate : PreparedCapture.Rejected;
+            }
+
+            var analysisStarted = _timeProvider.GetUtcNow();
+            CaptureAnalysis analysis;
+            try
+            {
+                analysis = await _pipeline.AnalyzeAsync(
+                        new(
+                            session.Request.SessionId,
+                            artifact!.ArtifactId,
+                            artifact.CaptureOrdinal,
+                            session.Request.Intent,
+                            session.Context,
+                            pixels.Image,
+                            queued.Submission.CorrelationId,
+                            0),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                FinalizeArtifactFailure(queued, session, artifact!, pixels, "analysis_cancelled", cancelled: true);
+                reserved = false;
+                pixels = null;
+                return PreparedCapture.Rejected;
+            }
+            catch
+            {
+                FinalizeArtifactFailure(queued, session, artifact!, pixels, "analysis_failed", cancelled: false);
+                reserved = false;
+                pixels = null;
+                return PreparedCapture.Rejected;
+            }
+
+            CaptureReviewRequest review;
+            lock (_gate)
+            {
+                var now = _timeProvider.GetUtcNow();
+                if (session.CancellationRequested || session.IsTerminal)
+                {
+                    FinalizeArtifactUnsafe(queued, session, artifact!, CaptureSessionStage.Cancelled, "analysis_cancelled");
+                    artifact!.PixelsRetained = false;
+                    ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, "analysis_cancelled");
+                    reserved = false;
+                    pixels = null;
+                    changed = _changed;
+                    review = null!;
+                }
+                else
+                {
+                    artifact!.Analysis = analysis;
+                    artifact.Confidence = analysis.Confidence;
+                    session.AppendCapture(artifact, CaptureSessionStage.DetectingRegions, now, "context_detected");
+                    session.AppendCapture(artifact, CaptureSessionStage.Matching, now, "matching_complete");
+                    session.AppendCapture(artifact, CaptureSessionStage.EnrichingProfile, now, "profile_context_frozen");
+                    session.AppendCapture(artifact, CaptureSessionStage.Recommending, now, "analysis_ready");
+                    session.AppendCapture(artifact, CaptureSessionStage.AwaitingReview, now, "review_required");
+                    var disagreement = RequiresReview(session.Request.Intent, analysis);
+                    review = new(
                         session.Request.SessionId,
                         artifact.ArtifactId,
                         artifact.CaptureOrdinal,
                         session.Request.Intent,
-                        session.Context,
-                        pixels.Image,
+                        analysis.DetectedContext,
+                        disagreement,
+                        artifact.DecodeRevision,
+                        now.Add(_options.ReviewTimeout),
+                        queued.Submission.CorrelationId);
+                    artifact.Review = review;
+                    var pending = new PendingReview(session.Request.SessionId, artifact.ArtifactId, pixels);
+                    _pendingReviews.Add(artifact.ArtifactId, pending);
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.ReviewRequired,
+                        now,
                         queued.Submission.CorrelationId,
-                        0),
-                    cancellationToken)
-                .ConfigureAwait(false);
+                        session.Request.SessionId,
+                        artifact.ArtifactId,
+                        disagreement ? "intent_context_disagreement" : "decision_pause");
+                    AddTimingUnsafe(new(
+                        queued.IntakeSequence,
+                        queued.Submission.CorrelationId,
+                        session.Request.SessionId,
+                        artifact.ArtifactId,
+                        ElapsedMilliseconds(queued.EnqueuedUtc, decodeStarted),
+                        ElapsedMilliseconds(decodeStarted, analysisStarted),
+                        ElapsedMilliseconds(analysisStarted, now),
+                        0));
+                    transferred = true;
+                    changed = _changed;
+                }
+            }
+
+            Notify(changed);
+            if (!transferred)
+            {
+                return PreparedCapture.Rejected;
+            }
+
+            NotifyReviewRequested(review);
+            return new(session, artifact, pixels, false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (artifact is not null && pixels is not null && reserved)
+            {
+                FinalizeArtifactFailure(queued, session, artifact, pixels, "capture_cancelled", cancelled: true);
+                reserved = false;
+                pixels = null;
+            }
+            else
+            {
+                FinalizeUnstartedCapture(queued, session, "capture_cancelled");
+            }
+
+            return PreparedCapture.Rejected;
         }
         catch
         {
-            lock (_gate)
+            if (artifact is not null && pixels is not null && reserved)
             {
-                session.AppendCapture(artifact, CaptureSessionStage.Failed, _timeProvider.GetUtcNow(), "analysis_failed");
-                artifact.DiagnosticCode = "analysis_failed";
-                if (queued.Submission.EndSessionAfterReview)
-                {
-                    session.AppendSession(CaptureSessionStage.Failed, _timeProvider.GetUtcNow(), "analysis_failed");
-                }
-
-                artifact.PixelsRetained = false;
-                ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, "analysis_failed");
+                FinalizeArtifactFailure(queued, session, artifact, pixels, "capture_prepare_failed", cancelled: false);
+                reserved = false;
+                pixels = null;
+            }
+            else
+            {
+                FinalizeUnstartedCapture(queued, session, "capture_prepare_failed");
             }
 
-            throw;
+            return PreparedCapture.Rejected;
         }
-
-        CaptureReviewRequest review;
-        lock (_gate)
+        finally
         {
-            var now = _timeProvider.GetUtcNow();
-            artifact.Analysis = analysis;
-            session.AppendCapture(artifact, CaptureSessionStage.DetectingRegions, now, "context_detected");
-            session.AppendCapture(artifact, CaptureSessionStage.Matching, now, "matching_complete");
-            session.AppendCapture(artifact, CaptureSessionStage.EnrichingProfile, now, "profile_context_frozen");
-            session.AppendCapture(artifact, CaptureSessionStage.Recommending, now, "analysis_ready");
-            session.AppendCapture(artifact, CaptureSessionStage.AwaitingReview, now, "review_required");
-            var disagreement = RequiresReview(session.Request.Intent, analysis);
-            review = new(
-                session.Request.SessionId,
-                artifact.ArtifactId,
-                artifact.CaptureOrdinal,
-                session.Request.Intent,
-                analysis.DetectedContext,
-                disagreement,
-                artifact.DecodeRevision,
-                now.Add(_options.ReviewTimeout),
-                queued.Submission.CorrelationId);
-            artifact.Review = review;
-            var pending = new PendingReview(session.Request.SessionId, artifact.ArtifactId, pixels);
-            _pendingReviews.Add(artifact.ArtifactId, pending);
-            AddNoticeUnsafe(
-                CaptureSessionNoticeKind.ReviewRequired,
-                now,
-                queued.Submission.CorrelationId,
-                session.Request.SessionId,
-                artifact.ArtifactId,
-                disagreement ? "intent_context_disagreement" : "decision_pause");
-            AddTimingUnsafe(new(
-                queued.IntakeSequence,
-                queued.Submission.CorrelationId,
-                session.Request.SessionId,
-                artifact.ArtifactId,
-                ElapsedMilliseconds(queued.EnqueuedUtc, decodeStarted),
-                ElapsedMilliseconds(decodeStarted, analysisStarted),
-                ElapsedMilliseconds(analysisStarted, now),
-                0));
+            if (pixels is not null && reserved && !transferred)
+            {
+                ReleasePixels(pixels, session.Request.SessionId, artifact?.ArtifactId, "capture_cleanup");
+            }
         }
-
-        NotifyReviewRequested(review);
-        NotifyChanged();
-        return new(session, artifact, pixels, false);
     }
 
     private async Task ReviewLoopAsync(
@@ -649,106 +893,228 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         var artifact = prepared.Artifact!;
         var pixels = prepared.Pixels!;
         var reviewStarted = _timeProvider.GetUtcNow();
-        while (true)
+        using var operation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            session.Cancellation.Token);
+        try
         {
-            PendingReview pending;
+            while (true)
+            {
+                PendingReview pending;
+                DateTimeOffset expiresUtc;
+                lock (_gate)
+                {
+                    if (!_pendingReviews.TryGetValue(artifact.ArtifactId, out pending!))
+                    {
+                        return;
+                    }
+
+                    expiresUtc = artifact.Review!.ExpiresUtc;
+                }
+
+                ReviewDecision decision;
+                try
+                {
+                    decision = await WaitForReviewDecisionAsync(pending, expiresUtc, operation.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (operation.IsCancellationRequested)
+                {
+                    decision = new(CaptureReviewAction.Cancel, "session-cancelled", _timeProvider.GetUtcNow());
+                }
+
+                if (decision.Action == CaptureReviewAction.Redecode)
+                {
+                    lock (_gate)
+                    {
+                        if (_pendingReviews.TryGetValue(artifact.ArtifactId, out var current)
+                            && ReferenceEquals(current, pending))
+                        {
+                            _pendingReviews.Remove(artifact.ArtifactId);
+                            artifact.Review = null;
+                        }
+                    }
+
+                    if (await RedecodeAsync(queued, session, artifact, pixels, operation.Token).ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
+                    decision = new(
+                        CaptureReviewAction.Cancel,
+                        session.CancellationRequested ? "session-cancelled" : "redecode-failed",
+                        _timeProvider.GetUtcNow());
+                }
+
+                CaptureAcceptedEventArgs? accepted = null;
+                CaptureCorrection correction;
+                var rearm = false;
+                var cancelSession = false;
+                EventHandler? changed;
+                lock (_gate)
+                {
+                    if (_pendingReviews.TryGetValue(artifact.ArtifactId, out var current)
+                        && ReferenceEquals(current, pending))
+                    {
+                        _pendingReviews.Remove(artifact.ArtifactId);
+                    }
+
+                    var correctedUtc = session.NormalizeTimestamp(decision.ChangedUtc < reviewStarted
+                        ? reviewStarted
+                        : decision.ChangedUtc);
+                    correction = new(
+                        decision.Action,
+                        session.Request.Intent,
+                        artifact.Analysis?.DetectedContext,
+                        correctedUtc,
+                        decision.Origin);
+                    artifact.Corrections.Add(correction);
+
+                    switch (decision.Action)
+                    {
+                        case CaptureReviewAction.UseDetected:
+                        case CaptureReviewAction.UseArmedIntent:
+                            session.AppendCapture(artifact, CaptureSessionStage.Complete, correctedUtc, "review_accepted");
+                            artifact.IsTerminal = true;
+                            artifact.Disposition = CaptureQueueDisposition.Accepted;
+                            if (queued.Submission.EndSessionAfterReview)
+                            {
+                                session.RequestTerminal(CaptureSessionStage.Complete);
+                            }
+
+                            if (session.PendingTerminalStage == CaptureSessionStage.Complete
+                                && session.ActiveCaptureCount == 1
+                                && session.Artifacts.All(item => item.IsTerminal))
+                            {
+                                session.AppendSession(CaptureSessionStage.Complete, correctedUtc, "session_complete");
+                                PruneSessionsUnsafe();
+                            }
+
+                            var effectiveIntent = decision.Action == CaptureReviewAction.UseArmedIntent
+                                ? session.Request.Intent
+                                : IntentForDetectedContext(artifact.Analysis!.DetectedContext, session.Request.Intent);
+                            accepted = new(
+                                session.Request.SessionId,
+                                artifact.ArtifactId,
+                                artifact.Analysis!,
+                                session.Context,
+                                artifact.CorrelationId,
+                                artifact.SourceKind,
+                                artifact.CapturedUtc,
+                                artifact.SubmittedUtc,
+                                artifact.BatchId,
+                                decision.Action,
+                                effectiveIntent,
+                                correction);
+                            break;
+
+                        case CaptureReviewAction.RetryCapture:
+                            session.AppendCapture(artifact, CaptureSessionStage.Cancelled, correctedUtc, "retry_requested");
+                            artifact.IsTerminal = true;
+                            artifact.Disposition = CaptureQueueDisposition.Cancelled;
+                            RemoveDeduplicationUnsafe(artifact);
+                            rearm = RearmIntentUnsafe(session, correctedUtc, "retry_requested");
+                            break;
+
+                        default:
+                            session.AppendCapture(artifact, CaptureSessionStage.Cancelled, correctedUtc, "review_cancelled");
+                            artifact.IsTerminal = true;
+                            artifact.Disposition = CaptureQueueDisposition.Cancelled;
+                            RemoveDeduplicationUnsafe(artifact);
+                            session.CancellationRequested = true;
+                            cancelSession = true;
+                            if (session.ActiveCaptureCount == 1)
+                            {
+                                session.AppendSession(CaptureSessionStage.Cancelled, correctedUtc, "session_cancelled");
+                                PruneSessionsUnsafe();
+                            }
+
+                            break;
+                    }
+
+                    artifact.Review = null;
+                    artifact.PixelsRetained = false;
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.ReviewResolved,
+                        correctedUtc,
+                        artifact.CorrelationId,
+                        session.Request.SessionId,
+                        artifact.ArtifactId,
+                        decision.Action.ToString());
+                    UpdateReviewTimingUnsafe(queued.IntakeSequence, reviewStarted, correctedUtc);
+                    ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, "consumer_finished");
+                    changed = _changed;
+                }
+
+                if (cancelSession)
+                {
+                    session.Cancellation.Cancel();
+                }
+
+                if (rearm)
+                {
+                    _ = ExpireIntentAsync(session.Request.SessionId, _lifetime.Token);
+                }
+
+                if (accepted is not null)
+                {
+                    NotifyAccepted(accepted);
+                }
+
+                Notify(changed);
+                return;
+            }
+        }
+        finally
+        {
+            EventHandler? changed;
             lock (_gate)
             {
-                pending = _pendingReviews[artifact.ArtifactId];
+                _pendingReviews.Remove(artifact.ArtifactId);
+                if (!pixels.IsDisposed)
+                {
+                    if (!artifact.IsTerminal)
+                    {
+                        FinalizeArtifactUnsafe(queued, session, artifact, CaptureSessionStage.Cancelled, "review_abandoned");
+                    }
+
+                    artifact.Review = null;
+                    artifact.PixelsRetained = false;
+                    ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, "review_cleanup");
+                }
+
+                CompleteActiveCaptureUnsafe(queued, session, _timeProvider.GetUtcNow());
+                changed = _changed;
             }
 
-            ReviewDecision decision;
+            Notify(changed);
+        }
+    }
+
+    private async Task<ReviewDecision> WaitForReviewDecisionAsync(
+        PendingReview pending,
+        DateTimeOffset expiresUtc,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var remaining = expiresUtc - _timeProvider.GetUtcNow();
+            if (remaining <= TimeSpan.Zero)
+            {
+                return new(CaptureReviewAction.Cancel, "review-expired", _timeProvider.GetUtcNow());
+            }
+
             try
             {
-                decision = await pending.Decision.Task
-                    .WaitAsync(_options.ReviewTimeout, _timeProvider, cancellationToken)
+                return await pending.Decision.Task
+                    .WaitAsync(remaining, _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
-                decision = new(CaptureReviewAction.Cancel, "review-expired", _timeProvider.GetUtcNow());
+                // TimeProvider timers may wake on a coarse boundary. Re-check the provider and
+                // arm the remaining interval instead of silently losing the expiry.
             }
-
-            if (decision.Action == CaptureReviewAction.Redecode)
-            {
-                if (!await RedecodeAsync(queued, session, artifact, pixels, cancellationToken).ConfigureAwait(false))
-                {
-                    decision = new(CaptureReviewAction.Cancel, "redecode-failed", _timeProvider.GetUtcNow());
-                }
-                else
-                {
-                    continue;
-                }
-            }
-
-            CaptureAcceptedEventArgs? accepted = null;
-            lock (_gate)
-            {
-                _pendingReviews.Remove(artifact.ArtifactId);
-                var correctedUtc = decision.ChangedUtc < reviewStarted ? reviewStarted : decision.ChangedUtc;
-                artifact.Corrections.Add(new(
-                    decision.Action,
-                    session.Request.Intent,
-                    artifact.Analysis?.DetectedContext,
-                    correctedUtc,
-                    decision.Origin));
-
-                switch (decision.Action)
-                {
-                    case CaptureReviewAction.UseDetected:
-                    case CaptureReviewAction.UseArmedIntent:
-                        session.AppendCapture(artifact, CaptureSessionStage.Complete, correctedUtc, "review_accepted");
-                        artifact.Disposition = CaptureQueueDisposition.Accepted;
-                        if (queued.Submission.EndSessionAfterReview)
-                        {
-                            session.AppendSession(CaptureSessionStage.Complete, correctedUtc, "session_complete");
-                        }
-
-                        accepted = new(
-                            session.Request.SessionId,
-                            artifact.ArtifactId,
-                            artifact.Analysis!,
-                            session.Context,
-                            artifact.CorrelationId);
-                        break;
-
-                    case CaptureReviewAction.RetryCapture:
-                        session.AppendCapture(artifact, CaptureSessionStage.Cancelled, correctedUtc, "retry_requested");
-                        session.AppendSession(CaptureSessionStage.AwaitingCapture, correctedUtc, "retry_requested");
-                        artifact.Disposition = CaptureQueueDisposition.Cancelled;
-                        break;
-
-                    default:
-                        session.AppendCapture(artifact, CaptureSessionStage.Cancelled, correctedUtc, "review_cancelled");
-                        artifact.Disposition = CaptureQueueDisposition.Cancelled;
-                        if (queued.Submission.EndSessionAfterReview)
-                        {
-                            session.AppendSession(CaptureSessionStage.Cancelled, correctedUtc, "session_cancelled");
-                        }
-
-                        break;
-                }
-
-                artifact.Review = null;
-                artifact.PixelsRetained = false;
-                AddNoticeUnsafe(
-                    CaptureSessionNoticeKind.ReviewResolved,
-                    correctedUtc,
-                    artifact.CorrelationId,
-                    session.Request.SessionId,
-                    artifact.ArtifactId,
-                    decision.Action.ToString());
-                UpdateReviewTimingUnsafe(queued.IntakeSequence, reviewStarted, correctedUtc);
-                ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, "consumer_finished");
-            }
-
-            if (accepted is not null)
-            {
-                NotifyAccepted(accepted);
-            }
-
-            NotifyChanged();
-            return;
         }
     }
 
@@ -790,8 +1156,14 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         CaptureReviewRequest review;
         lock (_gate)
         {
+            if (session.CancellationRequested || session.IsTerminal || cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+
             artifact.DecodeRevision = revision;
             artifact.Analysis = analysis;
+            artifact.Confidence = analysis.Confidence;
             var now = _timeProvider.GetUtcNow();
             review = new(
                 session.Request.SessionId,
@@ -819,30 +1191,39 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         return true;
     }
 
-    private MutableSession? ResolveSessionUnsafe(CaptureSubmission submission, DateTimeOffset now)
+    private IntakeBinding? ResolveSessionAtIntakeUnsafe(CaptureSubmission submission, DateTimeOffset now)
     {
         ExpireArmedUnsafe(now);
         if (submission.SessionId is { } requested)
         {
-            if (!_sessions.TryGetValue(requested, out var existing))
+            if (!_sessions.TryGetValue(requested, out var existing)
+                || existing.IsTerminal
+                || existing.CancellationRequested)
             {
                 return null;
             }
 
+            var claimed = false;
             if (_armedSessionId == requested)
             {
                 _armedSessionId = null;
                 existing.IntentClaimed = true;
+                claimed = true;
             }
 
-            return existing;
+            return new(existing, claimed, false);
         }
 
         if (_armedSessionId is { } armed && _sessions.TryGetValue(armed, out var armedSession))
         {
             _armedSessionId = null;
             armedSession.IntentClaimed = true;
-            return armedSession;
+            return new(armedSession, true, false);
+        }
+
+        if (!EnsureSessionCapacityUnsafe())
+        {
+            return null;
         }
 
         var request = new CaptureSessionRequest(
@@ -862,55 +1243,361 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         session.AppendSession(CaptureSessionStage.Armed, now, "automatic_session");
         session.AppendSession(CaptureSessionStage.AwaitingCapture, now, "capture_received");
         _sessions.Add(request.SessionId, session);
-        return session;
+        return new(session, false, true);
     }
 
     private async Task ExpireIntentAsync(
         CaptureSessionId sessionId,
-        DateTimeOffset expiresUtc,
         CancellationToken cancellationToken)
     {
-        var delay = expiresUtc - _timeProvider.GetUtcNow();
-        if (delay > TimeSpan.Zero)
+        while (!cancellationToken.IsCancellationRequested)
         {
+            DateTimeOffset expiresUtc;
+            lock (_gate)
+            {
+                if (_armedSessionId != sessionId
+                    || !_sessions.TryGetValue(sessionId, out var session)
+                    || session.Request.ExpiresUtc is not { } currentExpiry)
+                {
+                    return;
+                }
+
+                expiresUtc = currentExpiry;
+            }
+
+            var delay = expiresUtc - _timeProvider.GetUtcNow();
             try
             {
-                await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException)
             {
                 return;
             }
-        }
 
-        EventHandler? changed;
-        lock (_gate)
-        {
-            if (_armedSessionId != sessionId)
+            EventHandler? changed;
+            var expired = false;
+            lock (_gate)
             {
+                if (_armedSessionId != sessionId)
+                {
+                    return;
+                }
+
+                expired = ExpireArmedUnsafe(_timeProvider.GetUtcNow());
+                changed = _changed;
+            }
+
+            if (expired)
+            {
+                Notify(changed);
                 return;
             }
 
-            ExpireArmedUnsafe(_timeProvider.GetUtcNow());
-            changed = _changed;
+            // A coarse timer can wake a fraction early. Looping recalculates and re-arms the
+            // remaining duration against the injected provider.
         }
-
-        Notify(changed);
     }
 
-    private void ExpireArmedUnsafe(DateTimeOffset now)
+    private bool ExpireArmedUnsafe(DateTimeOffset now)
     {
         if (_armedSessionId is not { } sessionId
             || !_sessions.TryGetValue(sessionId, out var session)
             || session.Request.ExpiresUtc is not { } expiresUtc
             || expiresUtc > now)
         {
-            return;
+            return false;
         }
 
         _armedSessionId = null;
         session.AppendSession(CaptureSessionStage.Cancelled, now, "intent_expired");
         AddNoticeUnsafe(CaptureSessionNoticeKind.IntentExpired, now, null, sessionId, null, "intent_expired");
+        PruneSessionsUnsafe();
+        return true;
+    }
+
+    private void FinalizeUnstartedCapture(QueuedCapture queued, MutableSession session, string code)
+    {
+        var rearmed = false;
+        EventHandler? changed;
+        lock (_gate)
+        {
+            RejectUnsafe(queued, code);
+            if (queued.ClaimedArmedIntent && !session.CancellationRequested)
+            {
+                rearmed = RearmIntentUnsafe(session, _timeProvider.GetUtcNow(), code);
+            }
+            else if (session.CancellationRequested)
+            {
+                session.RequestTerminal(CaptureSessionStage.Cancelled);
+            }
+            else if (queued.CreatedSession || queued.Submission.EndSessionAfterReview)
+            {
+                session.RequestTerminal(CaptureSessionStage.Failed);
+            }
+
+            changed = _changed;
+        }
+
+        if (rearmed)
+        {
+            _ = ExpireIntentAsync(session.Request.SessionId, _lifetime.Token);
+        }
+
+        Notify(changed);
+    }
+
+    private void FinalizeArtifactFailure(
+        QueuedCapture queued,
+        MutableSession session,
+        MutableArtifact artifact,
+        CapturePixelLease pixels,
+        string code,
+        bool cancelled)
+    {
+        EventHandler? changed;
+        lock (_gate)
+        {
+            FinalizeArtifactUnsafe(
+                queued,
+                session,
+                artifact,
+                cancelled ? CaptureSessionStage.Cancelled : CaptureSessionStage.Failed,
+                code);
+            artifact.PixelsRetained = false;
+            ReleasePixelsUnsafe(pixels, session.Request.SessionId, artifact.ArtifactId, code);
+            changed = _changed;
+        }
+
+        Notify(changed);
+    }
+
+    private void FinalizeArtifactUnsafe(
+        QueuedCapture queued,
+        MutableSession session,
+        MutableArtifact artifact,
+        CaptureSessionStage terminalStage,
+        string code)
+    {
+        if (artifact.IsTerminal)
+        {
+            return;
+        }
+
+        session.AppendCapture(artifact, terminalStage, _timeProvider.GetUtcNow(), code);
+        artifact.IsTerminal = true;
+        artifact.Disposition = terminalStage == CaptureSessionStage.Complete
+            ? CaptureQueueDisposition.Accepted
+            : CaptureQueueDisposition.Cancelled;
+        artifact.DiagnosticCode = code;
+        if (terminalStage != CaptureSessionStage.Complete)
+        {
+            RemoveDeduplicationUnsafe(artifact);
+        }
+
+        if (terminalStage == CaptureSessionStage.Cancelled)
+        {
+            session.CancellationRequested = true;
+            session.RequestTerminal(CaptureSessionStage.Cancelled);
+        }
+        else if (terminalStage == CaptureSessionStage.Failed && queued.Submission.EndSessionAfterReview)
+        {
+            session.RequestTerminal(CaptureSessionStage.Failed);
+        }
+    }
+
+    private void CompleteActiveCapture(QueuedCapture queued)
+    {
+        EventHandler? changed;
+        lock (_gate)
+        {
+            if (_sessions.TryGetValue(queued.BoundSessionId, out var session))
+            {
+                CompleteActiveCaptureUnsafe(queued, session, _timeProvider.GetUtcNow());
+            }
+
+            changed = _changed;
+        }
+
+        Notify(changed);
+    }
+
+    private void CompleteActiveCaptureUnsafe(
+        QueuedCapture queued,
+        MutableSession session,
+        DateTimeOffset changedUtc)
+    {
+        if (session.ActiveCaptureCount <= 0)
+        {
+            return;
+        }
+
+        session.ActiveCaptureCount--;
+        if (session.ActiveCaptureCount != 0 || session.IsTerminal)
+        {
+            return;
+        }
+
+        var terminal = session.CancellationRequested
+            ? CaptureSessionStage.Cancelled
+            : session.PendingTerminalStage;
+        if (terminal is { } stage)
+        {
+            var detail = stage switch
+            {
+                CaptureSessionStage.Complete => "session_complete",
+                CaptureSessionStage.Failed => "session_failed",
+                _ => "session_cancelled",
+            };
+            session.AppendSession(stage, changedUtc, detail);
+            PruneSessionsUnsafe();
+        }
+    }
+
+    private bool RollBackIntakeUnsafe(QueuedCapture queued, DateTimeOffset now)
+    {
+        if (!_sessions.TryGetValue(queued.BoundSessionId, out var session))
+        {
+            return false;
+        }
+
+        if (session.ActiveCaptureCount > 0)
+        {
+            session.ActiveCaptureCount--;
+        }
+
+        if (queued.CreatedSession && session.ActiveCaptureCount == 0 && session.Artifacts.Count == 0)
+        {
+            _sessions.Remove(session.Request.SessionId);
+            session.Cancellation.Dispose();
+            return false;
+        }
+
+        return queued.ClaimedArmedIntent && RearmIntentUnsafe(session, now, "queue_wait_cancelled");
+    }
+
+    private bool RestoreIntentAfterUnusableCaptureUnsafe(
+        QueuedCapture queued,
+        MutableSession session,
+        DateTimeOffset now)
+    {
+        if (queued.ClaimedArmedIntent)
+        {
+            return RearmIntentUnsafe(session, now, "capture_not_consumed");
+        }
+
+        if (queued.CreatedSession && !session.IsTerminal)
+        {
+            session.RequestTerminal(CaptureSessionStage.Cancelled);
+        }
+
+        return false;
+    }
+
+    private bool RearmIntentUnsafe(MutableSession session, DateTimeOffset now, string detail)
+    {
+        if (session.IsTerminal
+            || session.CancellationRequested
+            || (_armedSessionId is { } armed && armed != session.Request.SessionId))
+        {
+            return false;
+        }
+
+        session.ReplaceExpiry(now.Add(_options.IntentLifetime));
+        session.PendingTerminalStage = null;
+        session.IntentClaimed = false;
+        _armedSessionId = session.Request.SessionId;
+        session.AppendSession(CaptureSessionStage.AwaitingCapture, now, detail);
+        AddNoticeUnsafe(
+            CaptureSessionNoticeKind.Progress,
+            now,
+            null,
+            session.Request.SessionId,
+            null,
+            "intent_rearmed");
+        return true;
+    }
+
+    private bool EnsureSessionCapacityUnsafe()
+    {
+        foreach (var terminal in _sessions.Values
+                     .Where(item => item.IsTerminal && item.ActiveCaptureCount == 0)
+                     .OrderBy(item => item.LastChangedUtc)
+                     .ThenBy(item => item.Request.SessionId.Value)
+                     .ToArray())
+        {
+            if (_sessions.Count < _options.SessionLimit)
+            {
+                break;
+            }
+
+            _sessions.Remove(terminal.Request.SessionId);
+            terminal.Cancellation.Dispose();
+        }
+
+        return _sessions.Count < _options.SessionLimit;
+    }
+
+    private void PruneSessionsUnsafe()
+    {
+        if (_sessions.Count <= _options.SessionLimit)
+        {
+            return;
+        }
+
+        foreach (var terminal in _sessions.Values
+                     .Where(item => item.IsTerminal && item.ActiveCaptureCount == 0)
+                     .OrderBy(item => item.LastChangedUtc)
+                     .ThenBy(item => item.Request.SessionId.Value)
+                     .Take(_sessions.Count - _options.SessionLimit)
+                     .ToArray())
+        {
+            _sessions.Remove(terminal.Request.SessionId);
+            terminal.Cancellation.Dispose();
+        }
+    }
+
+    private void RemoveDeduplicationUnsafe(MutableArtifact artifact)
+    {
+        if (_deduplication.TryGetValue(artifact.ContentDigest, out var entry)
+            && entry.SessionId == artifact.SessionId
+            && string.Equals(entry.ArtifactId, artifact.ArtifactId, StringComparison.Ordinal))
+        {
+            _deduplication.Remove(artifact.ContentDigest);
+        }
+    }
+
+    private static ScanIntent IntentForDetectedContext(RecognizedContext? context, ScanIntent fallback) =>
+        context switch
+        {
+            RecognizedContext.Item or RecognizedContext.Grid or RecognizedContext.Loot => ScanIntent.Loot,
+            RecognizedContext.Stash => ScanIntent.Stash,
+            RecognizedContext.Ammo => ScanIntent.Ammo,
+            RecognizedContext.Keys => ScanIntent.Keys,
+            RecognizedContext.QuestItems => ScanIntent.QuestItems,
+            RecognizedContext.ExtractsAndMap => ScanIntent.ExtractsAndMap,
+            RecognizedContext.HealthAndCharacter => ScanIntent.HealthAndCharacter,
+            RecognizedContext.Flea => ScanIntent.Flea,
+            _ => fallback,
+        };
+
+    private void ReleasePixels(
+        CapturePixelLease pixels,
+        CaptureSessionId? sessionId,
+        string? artifactId,
+        string code)
+    {
+        EventHandler? changed;
+        lock (_gate)
+        {
+            ReleasePixelsUnsafe(pixels, sessionId, artifactId, code);
+            changed = _changed;
+        }
+
+        Notify(changed);
     }
 
     private bool TryReservePixels(CapturePixelLease pixels)
@@ -968,7 +1655,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             CaptureSessionNoticeKind.QueueRejected,
             _timeProvider.GetUtcNow(),
             queued.Submission.CorrelationId,
-            queued.Submission.SessionId,
+            queued.BoundSessionId,
             null,
             code);
     }
@@ -1151,9 +1838,20 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     private sealed record QueuedCapture(
         long IntakeSequence,
         CaptureSubmission Submission,
-        DateTimeOffset EnqueuedUtc);
+        DateTimeOffset EnqueuedUtc,
+        CaptureSessionId BoundSessionId,
+        bool ClaimedArmedIntent,
+        bool CreatedSession);
 
-    private sealed record DeduplicationEntry(string ArtifactId, DateTimeOffset ExpiresUtc);
+    private sealed record IntakeBinding(
+        MutableSession Session,
+        bool ClaimedArmedIntent,
+        bool CreatedSession);
+
+    private sealed record DeduplicationEntry(
+        CaptureSessionId SessionId,
+        string ArtifactId,
+        DateTimeOffset ExpiresUtc);
 
     private sealed record ReviewDecision(
         CaptureReviewAction Action,
@@ -1193,7 +1891,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     {
         private readonly List<CaptureStageProgress> _progress = [];
 
-        public CaptureSessionRequest Request { get; } = request;
+        public CaptureSessionRequest Request { get; private set; } = request;
 
         public CaptureContextMetadata Context { get; } = context;
 
@@ -1203,34 +1901,48 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         public bool IntentClaimed { get; set; }
 
+        public bool CancellationRequested { get; set; }
+
+        public int ActiveCaptureCount { get; set; }
+
+        public CaptureSessionStage? PendingTerminalStage { get; set; }
+
+        public CancellationTokenSource Cancellation { get; } = new();
+
+        public DateTimeOffset LastChangedUtc { get; private set; } = request.RequestedUtc;
+
         public bool IsTerminal { get; private set; }
 
         public MutableArtifact AddArtifact(
             string artifactId,
             CaptureDeliveryKind deliveryKind,
             CaptureCorrelationId correlationId,
-            int decodeAttempts)
+            CaptureSourceKind sourceKind,
+            DateTimeOffset capturedUtc,
+            DateTimeOffset submittedUtc,
+            string? batchId,
+            int decodeAttempts,
+            string contentDigest)
         {
             var artifact = new MutableArtifact(
+                Request.SessionId,
                 artifactId,
                 Artifacts.Count,
                 deliveryKind,
                 correlationId,
                 Context,
-                decodeAttempts);
+                sourceKind,
+                capturedUtc,
+                submittedUtc,
+                batchId,
+                decodeAttempts,
+                contentDigest);
             Artifacts.Add(artifact);
             return artifact;
         }
 
-        public void AppendSession(CaptureSessionStage stage, DateTimeOffset changedUtc, string detail)
-        {
-            if (stage is CaptureSessionStage.Complete or CaptureSessionStage.Cancelled or CaptureSessionStage.Failed)
-            {
-                IsTerminal = true;
-            }
-
+        public void AppendSession(CaptureSessionStage stage, DateTimeOffset changedUtc, string detail) =>
             Append(new(Request.SessionId, _progress.Count, stage, changedUtc, detail: detail));
-        }
 
         public void AppendCapture(
             MutableArtifact artifact,
@@ -1270,25 +1982,110 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 new(Request, [.. _progress], status),
                 [.. Artifacts.Select(item => item.Freeze())],
                 IntentClaimed,
+                CancellationRequested,
                 IsTerminal);
+        }
+
+        public DateTimeOffset NormalizeTimestamp(DateTimeOffset changedUtc)
+        {
+            var utc = changedUtc == default ? LastChangedUtc : changedUtc.ToUniversalTime();
+            return utc < LastChangedUtc ? LastChangedUtc : utc;
+        }
+
+        public void ReplaceExpiry(DateTimeOffset expiresUtc)
+        {
+            Request = new(
+                Request.SessionId,
+                Request.Intent,
+                Request.Origin,
+                Request.RequestedUtc,
+                Request.ProfileId,
+                Request.MapId,
+                expiresUtc);
+        }
+
+        public void RequestTerminal(CaptureSessionStage stage)
+        {
+            if (stage is not (CaptureSessionStage.Complete or CaptureSessionStage.Cancelled or CaptureSessionStage.Failed))
+            {
+                throw new ArgumentOutOfRangeException(nameof(stage));
+            }
+
+            if (PendingTerminalStage is null || TerminalRank(stage) > TerminalRank(PendingTerminalStage.Value))
+            {
+                PendingTerminalStage = stage;
+            }
         }
 
         private void Append(CaptureStageProgress progress)
         {
-            _progress.Add(progress);
-            // Validate at every transition so no invalid history can be published even briefly.
-            _ = Freeze();
+            var changedUtc = NormalizeTimestamp(progress.ChangedUtc);
+            var candidate = new CaptureStageProgress(
+                progress.SessionId,
+                progress.Sequence,
+                progress.Stage,
+                changedUtc,
+                progress.ArtifactId,
+                progress.CaptureOrdinal,
+                progress.Percent,
+                progress.Detail);
+            var sessionTerminal = candidate.ArtifactId is null
+                && candidate.Stage is CaptureSessionStage.Complete or CaptureSessionStage.Cancelled or CaptureSessionStage.Failed;
+            var completeness = sessionTerminal
+                ? candidate.Stage switch
+                {
+                    CaptureSessionStage.Complete => ResultCompleteness.Complete,
+                    CaptureSessionStage.Failed => ResultCompleteness.Unavailable,
+                    _ => ResultCompleteness.Partial,
+                }
+                : Artifacts.Count == 0
+                    ? ResultCompleteness.Unknown
+                    : ResultCompleteness.Partial;
+            var status = new ResultStatus(
+                completeness,
+                sessionTerminal && completeness == ResultCompleteness.Unavailable
+                    ? FreshnessState.Unknown
+                    : FreshnessState.Current);
+            var proposed = _progress.Append(candidate).ToArray();
+
+            // Validate the proposed immutable history before committing it. Cancellation used
+            // to add first and validate second, leaving one bad entry that made every later
+            // Snapshot throw and stranded the pixel lease.
+            _ = new CaptureSessionSnapshot(Request, proposed, status);
+            _progress.Add(candidate);
+            LastChangedUtc = changedUtc;
+            if (sessionTerminal)
+            {
+                IsTerminal = true;
+                PendingTerminalStage = null;
+            }
         }
+
+        private static int TerminalRank(CaptureSessionStage stage) => stage switch
+        {
+            CaptureSessionStage.Complete => 1,
+            CaptureSessionStage.Failed => 2,
+            CaptureSessionStage.Cancelled => 3,
+            _ => 0,
+        };
     }
 
     private sealed class MutableArtifact(
+        CaptureSessionId sessionId,
         string artifactId,
         int captureOrdinal,
         CaptureDeliveryKind deliveryKind,
         CaptureCorrelationId correlationId,
         CaptureContextMetadata context,
-        int decodeAttempts)
+        CaptureSourceKind sourceKind,
+        DateTimeOffset capturedUtc,
+        DateTimeOffset submittedUtc,
+        string? batchId,
+        int decodeAttempts,
+        string contentDigest)
     {
+        public CaptureSessionId SessionId { get; } = sessionId;
+
         public string ArtifactId { get; } = artifactId;
 
         public int CaptureOrdinal { get; } = captureOrdinal;
@@ -1298,6 +2095,26 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         public CaptureCorrelationId CorrelationId { get; } = correlationId;
 
         public CaptureContextMetadata Context { get; } = context;
+
+        public CaptureSourceKind SourceKind { get; } = Enum.IsDefined(sourceKind)
+            ? sourceKind
+            : throw new ArgumentOutOfRangeException(nameof(sourceKind));
+
+        public DateTimeOffset CapturedUtc { get; } = capturedUtc == default
+            ? throw new ArgumentOutOfRangeException(nameof(capturedUtc))
+            : capturedUtc.ToUniversalTime();
+
+        public DateTimeOffset SubmittedUtc { get; } = submittedUtc == default
+            ? throw new ArgumentOutOfRangeException(nameof(submittedUtc))
+            : submittedUtc.ToUniversalTime();
+
+        public string? BatchId { get; } = string.IsNullOrWhiteSpace(batchId) ? null : batchId.Trim();
+
+        public string ContentDigest { get; } = string.IsNullOrWhiteSpace(contentDigest)
+            ? throw new ArgumentException("A private content identity is required.", nameof(contentDigest))
+            : contentDigest;
+
+        public Confidence Confidence { get; set; } = Confidence.Unknown;
 
         public CaptureAnalysis? Analysis { get; set; }
 
@@ -1315,12 +2132,19 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         public string? DiagnosticCode { get; set; }
 
+        public bool IsTerminal { get; set; }
+
         public CaptureArtifactSnapshot Freeze() => new(
             ArtifactId,
             CaptureOrdinal,
             DeliveryKind,
             CorrelationId,
             Context,
+            SourceKind,
+            CapturedUtc,
+            SubmittedUtc,
+            BatchId,
+            Confidence,
             Analysis,
             Review,
             [.. Corrections],
