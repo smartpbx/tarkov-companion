@@ -58,7 +58,7 @@
   "localization": {
     "strings": "resource-backed",
     "pseudoLocale": "qps-ploc",
-    "rtl": "defer bidirectional-layout validation to #279; use logical start/end alignment and no direction-sensitive icons as the native adapter rule",
+    "rtl": "defer RTL/bidirectional-layout validation to #279; use logical start/end alignment and no direction-sensitive icons as the native adapter rule",
     "formatting": "Use the active culture and timezone; format whole messages, dates, numbers, currencies, and durations without concatenating localized fragments."
   }
 }
