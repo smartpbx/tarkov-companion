@@ -13,6 +13,7 @@ using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Loadouts;
+using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
 
