@@ -306,7 +306,7 @@ public sealed class FeatureLifecycleCoordinator
         {
             var cancelling = ObserveAsync(_startupCancellation.CancelAsync());
             PublishChanged();
-            RunShutdown(owner, cancelling);
+            ShutdownWork = RunShutdownAsync(owner, cancelling);
         }
 
         try
@@ -322,8 +322,8 @@ public sealed class FeatureLifecycleCoordinator
         return Snapshot;
     }
 
-    /// <summary>Starts the shutdown walk; its completion is observed through the owner.</summary>
-    private void RunShutdown(TaskCompletionSource owner, Task cancelling) => RunShutdownAsync(owner, cancelling);
+    /// <summary>The shutdown walk, retained for its lifetime; callers observe its owner instead.</summary>
+    private Task? ShutdownWork { get; set; }
 
     private async Task RunShutdownAsync(TaskCompletionSource owner, Task cancelling)
     {
@@ -624,14 +624,11 @@ public sealed class FeatureLifecycleCoordinator
         if (owner is not null)
         {
             PublishChanged();
-            RunStop(node, owner);
+            node.StopWork = StopAfterStartAsync(node, owner);
         }
 
         return stop;
     }
-
-    /// <summary>Starts one node's stop; its completion is observed through the owner.</summary>
-    private void RunStop(FeatureNode node, TaskCompletionSource owner) => StopAfterStartAsync(node, owner);
 
     private async Task StopAfterStartAsync(FeatureNode node, TaskCompletionSource owner)
     {
@@ -900,6 +897,9 @@ public sealed class FeatureLifecycleCoordinator
         public TaskCompletionSource<Task>? StartInvocation { get; set; }
 
         public TaskCompletionSource? StopCompletion { get; set; }
+
+        /// <summary>The stop itself, retained for its lifetime; callers observe the completion.</summary>
+        public Task? StopWork { get; set; }
 
         public RuntimeFeatureSnapshot Snapshot() => new(
             Definition.FeatureId,

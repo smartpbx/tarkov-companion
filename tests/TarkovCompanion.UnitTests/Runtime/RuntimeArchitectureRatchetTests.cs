@@ -208,7 +208,7 @@ public sealed partial class RuntimeArchitectureRatchetTests
     {
         if (type.IsArray)
         {
-            return payloads.Contains(type.GetElementType());
+            return type.GetElementType() is { } element && payloads.Contains(element);
         }
 
         var underlying = Nullable.GetUnderlyingType(type) ?? type;
