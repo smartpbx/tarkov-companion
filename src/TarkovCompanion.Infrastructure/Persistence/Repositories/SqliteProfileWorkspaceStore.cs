@@ -220,7 +220,7 @@ public sealed class SqliteProfileWorkspaceStore(
         }
 
         var revision = ReadRequiredInt64(reader, 0, "workspace revision", 0, long.MaxValue);
-        var activeProfileId = reader.IsDBNull(1)
+        Guid? activeProfileId = reader.IsDBNull(1)
             ? null
             : ReadRequiredGuid(reader, 1, 3, budget, "active profile id");
         _ = ReadRequiredTimestamp(reader, 2, 4, budget, "workspace update time");

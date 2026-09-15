@@ -208,9 +208,10 @@ public sealed class TarkovDevDataRefreshOperation(
         {
             return Superseded(endpoint, exception);
         }
-        catch (TarkovDevDatasetRefusedException exception)
+        catch (InvalidDataException exception) when (
+            exception.InnerException is TarkovDevDatasetRefusalMarker)
         {
-            var refusal = Summarize(exception);
+            var refusal = ((TarkovDevDatasetRefusalMarker)exception.InnerException).Reason;
             return await RecordTerminalAsync(
                 endpoint,
                 run,

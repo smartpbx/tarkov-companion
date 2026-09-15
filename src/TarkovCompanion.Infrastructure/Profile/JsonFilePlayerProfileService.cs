@@ -244,27 +244,29 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
     {
         // File.ReadAllText historically accepted the standard Unicode BOMs. Preserve that
         // compatibility while making each decoder reject malformed byte sequences explicitly.
-        if (bytes.StartsWith([0x00, 0x00, 0xFE, 0xFF]))
+        if (bytes.Length >= 4 &&
+            bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
         {
             return StrictUtf32BigEndian.GetString(bytes[4..]);
         }
 
-        if (bytes.StartsWith([0xFF, 0xFE, 0x00, 0x00]))
+        if (bytes.Length >= 4 &&
+            bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00)
         {
             return StrictUtf32LittleEndian.GetString(bytes[4..]);
         }
 
-        if (bytes.StartsWith([0xEF, 0xBB, 0xBF]))
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
         {
             return StrictUtf8.GetString(bytes[3..]);
         }
 
-        if (bytes.StartsWith([0xFE, 0xFF]))
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
         {
             return StrictUtf16BigEndian.GetString(bytes[2..]);
         }
 
-        if (bytes.StartsWith([0xFF, 0xFE]))
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
         {
             return StrictUtf16LittleEndian.GetString(bytes[2..]);
         }

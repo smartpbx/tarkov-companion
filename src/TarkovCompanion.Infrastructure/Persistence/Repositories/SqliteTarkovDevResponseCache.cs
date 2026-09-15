@@ -125,21 +125,21 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 
                 if (hash is not null &&
                     string.Equals(compression, "gzip", StringComparison.Ordinal) &&
-                    compressedBytes is { } declaredCompressedBytes &&
-                    declaredCompressedBytes is >= 1 && declaredCompressedBytes <= _policy.MaximumCompressedBytes &&
-                    expectedBytes is { } declaredUncompressedBytes &&
-                    declaredUncompressedBytes is >= 1 &&
-                    declaredUncompressedBytes <= _policy.MaximumUncompressedBodyBytes &&
-                    actualCompressedBytes is { } actualBodyBytes &&
-                    actualBodyBytes == declaredCompressedBytes &&
-                    actualBodyBytes <= int.MaxValue &&
+                    compressedBytes is { } readDeclaredCompressedBytes &&
+                    readDeclaredCompressedBytes is >= 1 && readDeclaredCompressedBytes <= _policy.MaximumCompressedBytes &&
+                    expectedBytes is { } readDeclaredUncompressedBytes &&
+                    readDeclaredUncompressedBytes is >= 1 &&
+                    readDeclaredUncompressedBytes <= _policy.MaximumUncompressedBodyBytes &&
+                    actualCompressedBytes is { } readActualBodyBytes &&
+                    readActualBodyBytes == readDeclaredCompressedBytes &&
+                    readActualBodyBytes <= int.MaxValue &&
                     createdUtcText is not null &&
                     cachedUtcText is not null &&
                     lastAccessedUtcText is not null &&
                     etagIsValid &&
                     lastModifiedIsValid)
                 {
-                    compressed = new byte[checked((int)actualBodyBytes)];
+                    compressed = new byte[checked((int)readActualBodyBytes)];
                     var offset = 0;
                     while (offset < compressed.Length)
                     {
@@ -212,7 +212,7 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
                 throw new InvalidDataException("The cached catalog body does not match its content address.");
             }
 
-            using var _ = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 64 });
+            using var parsedDocument = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 64 });
         }
         catch (Exception exception) when (
             exception is InvalidDataException or IOException or JsonException or FormatException or ArgumentException or OverflowException)
