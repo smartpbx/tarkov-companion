@@ -38,14 +38,12 @@ public sealed class ApplicationStartupCoordinatorTests
         await RuntimeTestTasks.AdvanceUntilAsync(
             fixture.Time,
             TimeSpan.FromSeconds(1),
-            () => manualWait.IsCompleted);
+            () => manualWait.IsCompleted
+                && fixture.State.Current.Supervisor.Operations.Any(operation =>
+                    operation.LastFault?.Code.Value == "operation-attempt-timeout"));
         await manualWait;
         try
         {
-            await RuntimeTestTasks.UntilAsync(() =>
-                fixture.State.Current.Supervisor.Operations.Any(operation =>
-                    operation.LastFault?.Code.Value == "operation-attempt-timeout"));
-
             Assert.Same(ownedRefresh, fixture.Coordinator.BackgroundRefresh);
             Assert.False(ownedRefresh.IsCompleted);
             Assert.Equal(1, fixture.Sync.Calls);
@@ -91,10 +89,14 @@ public sealed class ApplicationStartupCoordinatorTests
             Assert.Same(disposing, repeatedDispose);
             await RuntimeTestTasks.UntilAsync(() =>
                 fixture.State.Current.Supervisor.IsStopping
-                && fixture.Control.ReceivedToken.IsCancellationRequested);
+                && fixture.Control.ReceivedToken.IsCancellationRequested
+                && fixture.State.Current.Supervisor.Operations.Any(operation =>
+                    operation.LastFault?.Code.Value == "operation-cancelled"));
 
-            fixture.Time.Advance(TimeSpan.FromSeconds(10));
-            await RuntimeTestTasks.UntilAsync(() => disposing.IsCompleted);
+            await RuntimeTestTasks.AdvanceUntilAsync(
+                fixture.Time,
+                TimeSpan.FromSeconds(10),
+                () => disposing.IsCompleted);
             await disposing;
 
             Assert.False(ownedRefresh.IsCompleted);
@@ -149,6 +151,8 @@ public sealed class ApplicationStartupCoordinatorTests
         var waiting = fixture.Coordinator.RefreshAsync(force: true, callerCancellation.Token);
         await fixture.Control.Started.Task;
         var ownedRefresh = fixture.Coordinator.BackgroundRefresh!;
+        await RuntimeTestTasks.UntilAsync(() =>
+            fixture.State.Current.Supervisor.Resources.RunningIO == 1);
 
         try
         {
