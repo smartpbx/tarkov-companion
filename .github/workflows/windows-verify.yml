@@ -542,7 +542,10 @@ jobs:
           if (Test-Path -LiteralPath $EvidencePath) {
             $Evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
             if ($null -ne $Evidence.launch) {
-              $Lines += "Launch probe: main window handle after $($Evidence.launch.mainWindowAfterSeconds)s; window released $($Evidence.launch.windowReleasedAfterCloseSeconds)s after the close request; exit code $($Evidence.launch.exitCode). Window presence and process health, not semantic interactivity."
+              # The release time is only observed when the handle goes before the process does; a
+              # process that exits first leaves it null, and that is said rather than printed blank.
+              $Released = if ($null -ne $Evidence.launch.windowReleasedAfterCloseSeconds) { "window released $($Evidence.launch.windowReleasedAfterCloseSeconds)s after the close request" } else { "process exited before a separate window release was observed" }
+              $Lines += "Launch probe: main window handle after $($Evidence.launch.mainWindowAfterSeconds)s; $Released; exit code $($Evidence.launch.exitCode). Window presence and process health, not semantic interactivity."
             }
             if ($null -ne $Evidence.gallery) {
               $Clean = $Evidence.gallery.launchCount - $Evidence.gallery.failedCount
