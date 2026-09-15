@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using TarkovCompanion.Application.Services.Group;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Profile;
@@ -186,6 +188,17 @@ public sealed record ApplicationRuntimeSnapshot(
     RaidSnapshot Raid,
     ScanExecutionResult Scan)
 {
+    /// <summary>A process-local publication revision, unrelated to cross-device state revision.</summary>
+    public long LocalRevision { get; init; }
+
+    public FeatureLifecycleSnapshot Lifecycle { get; init; } = FeatureLifecycleSnapshot.Empty;
+
+    public BackgroundWorkSupervisorSnapshot Supervisor { get; init; } = BackgroundWorkSupervisorSnapshot.Empty;
+
+    public OutboxSnapshot Outbox { get; init; } = OutboxSnapshot.Empty;
+
+    public RuntimeResourceSnapshot Resources { get; init; } = RuntimeResourceSnapshot.Empty;
+
     public EftObservationState Observation { get; init; } =
         OperatingSystem.IsWindows() ? EftObservationState.Idle : EftObservationState.Unsupported;
 
@@ -229,15 +242,22 @@ public interface IRuntimeStateStore
     void Update(Func<ApplicationRuntimeSnapshot, ApplicationRuntimeSnapshot> update);
 }
 
+public sealed record RuntimeResourceSnapshot(long StateSubscriberFaults)
+{
+    public static RuntimeResourceSnapshot Empty { get; } = new(0);
+}
+
 public sealed class RuntimeStateStore : IRuntimeStateStore
 {
     private readonly object _gate = new();
     private ApplicationRuntimeSnapshot _current;
+    private EventHandler? _changed;
+    private long _subscriberFaults;
 
     public RuntimeStateStore(RuntimeOptions options, TimeProvider? timeProvider = null)
     {
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
-        _current = new(
+        _current = Freeze(new(
             options.DemoMode,
             options.Offline,
             false,
@@ -274,10 +294,26 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                 // guess, and this is replaced within a second of the window appearing.
                 : ScanExecutionResult.Unavailable(
                     "Checking whether the scanner can run…",
-                    now));
+                    now)));
     }
 
-    public event EventHandler? Changed;
+    public event EventHandler? Changed
+    {
+        add
+        {
+            lock (_gate)
+            {
+                _changed += value;
+            }
+        }
+        remove
+        {
+            lock (_gate)
+            {
+                _changed -= value;
+            }
+        }
+    }
 
     public ApplicationRuntimeSnapshot Current
     {
@@ -293,13 +329,127 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
     public void Update(Func<ApplicationRuntimeSnapshot, ApplicationRuntimeSnapshot> update)
     {
         ArgumentNullException.ThrowIfNull(update);
+        EventHandler[] handlers;
         lock (_gate)
         {
-            _current = update(_current);
+            var proposed = update(_current)
+                ?? throw new InvalidOperationException("A runtime state update cannot return null.");
+            _current = Freeze(proposed with
+            {
+                LocalRevision = checked(_current.LocalRevision + 1),
+                Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
+            });
+            handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
+        var failures = 0;
+        foreach (var handler in handlers)
+        {
+            try
+            {
+                handler(this, EventArgs.Empty);
+            }
+            catch (Exception)
+            {
+                failures++;
+            }
+        }
+
+        if (failures == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _subscriberFaults = checked(_subscriberFaults + failures);
+            _current = Freeze(_current with
+            {
+                LocalRevision = checked(_current.LocalRevision + 1),
+                Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
+            });
+        }
     }
+
+    private static ApplicationRuntimeSnapshot Freeze(ApplicationRuntimeSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(snapshot.Data);
+        ArgumentNullException.ThrowIfNull(snapshot.Raid);
+        ArgumentNullException.ThrowIfNull(snapshot.Scan);
+        ArgumentNullException.ThrowIfNull(snapshot.Observation);
+        ArgumentNullException.ThrowIfNull(snapshot.Squad);
+        ArgumentNullException.ThrowIfNull(snapshot.FleaSales);
+        ArgumentNullException.ThrowIfNull(snapshot.Group);
+        ArgumentNullException.ThrowIfNull(snapshot.Lifecycle);
+        ArgumentNullException.ThrowIfNull(snapshot.Supervisor);
+        ArgumentNullException.ThrowIfNull(snapshot.Outbox);
+        ArgumentNullException.ThrowIfNull(snapshot.Resources);
+
+        return snapshot with
+        {
+            Profile = snapshot.Profile is null ? null : FreezeProfile(snapshot.Profile),
+            Raid = snapshot.Raid with
+            {
+                ActiveExtracts = snapshot.Raid.ActiveExtracts.ToImmutableArray(),
+                PositionTrail = snapshot.Raid.PositionTrail.ToImmutableArray(),
+                ExtractLinesNotMatched = snapshot.Raid.ExtractLinesNotMatched.ToImmutableArray(),
+                Transits = snapshot.Raid.Transits.ToImmutableArray(),
+                Hud = snapshot.Raid.Hud is null
+                    ? null
+                    : snapshot.Raid.Hud with { Bars = snapshot.Raid.Hud.Bars.ToImmutableArray() },
+            },
+            Squad = snapshot.Squad with
+            {
+                Members = [.. snapshot.Squad.Members.Select(member => member with
+                {
+                    Equipment = member.Equipment.ToImmutableArray(),
+                })],
+            },
+            RecentScreenshotNames = snapshot.RecentScreenshotNames.ToImmutableArray(),
+            FleaSales = snapshot.FleaSales with { Sales = snapshot.FleaSales.Sales.ToImmutableArray() },
+            Group = snapshot.Group with
+            {
+                Members = [.. snapshot.Group.Members.Select(member => member with
+                {
+                    Loadout = member.Loadout.ToImmutableArray(),
+                    Quests = member.Quests.ToImmutableArray(),
+                    Extracts = member.Extracts.ToImmutableArray(),
+                    Transits = member.Transits.ToImmutableArray(),
+                    QuestIds = member.QuestIds.ToImmutableArray(),
+                    Trail = member.Trail.ToImmutableArray(),
+                })],
+                Waypoints = snapshot.Group.Waypoints.ToImmutableArray(),
+                Pings = snapshot.Group.Pings.ToImmutableArray(),
+                MyLoadout = snapshot.Group.MyLoadout.ToImmutableArray(),
+            },
+            Lifecycle = snapshot.Lifecycle with
+            {
+                Features = snapshot.Lifecycle.Features.IsDefault
+                    ? []
+                    : [.. snapshot.Lifecycle.Features.Select(feature => feature with
+                    {
+                        Dependencies = feature.Dependencies.IsDefault ? [] : [.. feature.Dependencies],
+                    })],
+            },
+            Supervisor = snapshot.Supervisor with
+            {
+                Operations = snapshot.Supervisor.Operations.IsDefault ? [] : [.. snapshot.Supervisor.Operations],
+            },
+        };
+    }
+
+    private static PlayerProfile FreezeProfile(PlayerProfile profile) => profile with
+    {
+        TraderLevels = profile.TraderLevels.ToImmutableDictionary(StringComparer.Ordinal),
+        CompletedTaskIds = profile.CompletedTaskIds.ToImmutableHashSet(StringComparer.Ordinal),
+        ObjectiveProgress = profile.ObjectiveProgress.ToImmutableDictionary(StringComparer.Ordinal),
+        HideoutStationLevels = profile.HideoutStationLevels.ToImmutableDictionary(StringComparer.Ordinal),
+        WishlistItemIds = profile.WishlistItemIds.ToImmutableHashSet(StringComparer.Ordinal),
+        OwnedItemCounts = profile.OwnedItemCounts.ToImmutableDictionary(StringComparer.Ordinal),
+        EventItemStates = profile.EventItemStates.ToImmutableDictionary(StringComparer.Ordinal),
+        ItemOverrides = profile.ItemOverrides.ToImmutableDictionary(StringComparer.Ordinal),
+    };
 }
 
 public sealed record RuntimeOptions(

@@ -1,89 +1,112 @@
-using System.Threading.Channels;
+using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Runtime;
 
-/// <summary>
-/// Writes raid history behind a queue, so persistence can never take observation down.
-/// </summary>
-/// <remarks>
-/// <para>
-/// Every event was written inline on the thread that observed it. A screenshot is read, a
-/// position is recorded, and the recording awaits a SQLite write — so a database busy with the
-/// hourly catalog refresh stalls the watcher that is reading the game's log. The observation
-/// side is the half that must never stop: a write that arrives late is a row with the right
-/// timestamp, and an observation that never happens is gone.
-/// </para>
-/// <para>
-/// One reader, so order is kept by construction. Start then events then End is the order they
-/// were queued in and therefore the order they are written in, which matters because an event
-/// references a raid row that has to exist.
-/// </para>
-/// <para>
-/// Starting a raid is deliberately not queued. It returns the id everything else is keyed by,
-/// so it cannot be deferred without inventing one — and it happens once per raid rather than
-/// once per screenshot, which is the cost this exists to move off the hot path.
-/// </para>
-/// </remarks>
-public sealed class RaidHistoryOutbox : IRaidHistoryService, IAsyncDisposable
+/// <summary>Marks a raid-history adapter whose writes are accepted only after outbox enqueue.</summary>
+public interface IAtLeastOnceRaidHistoryService
 {
-    /// <summary>
-    /// How many writes may wait.
-    /// </summary>
-    /// <remarks>
-    /// A raid produces a few dozen: one per screenshot, one per scan, one per state change. A
-    /// thousand is room for a long raid several times over while still being a bound rather
-    /// than a memory leak with a queue in front of it.
-    /// </remarks>
-    private const int Capacity = 1000;
+}
 
-    /// <summary>How many times a busy database is retried before the write is given up on.</summary>
-    /// <remarks>
-    /// The waits double from 50 ms, so five attempts spans about a second and a half. The
-    /// refresh transactions this contends with are shorter than that, and a write still failing
-    /// after them is failing for a reason waiting will not fix.
-    /// </remarks>
-    private const int Attempts = 5;
-
+/// <summary>Adapts raid history to the typed, leased, at-least-once runtime outbox.</summary>
+/// <remarks>
+/// The former queue held delegates, retried against wall-clock time, and silently discarded its
+/// last failure. A stored command now exists before acceptance, retains one aggregate sequence,
+/// and reaches a visible retry or dead-letter state through lease-token compare-and-swap. The
+/// default fixture store holds accepted items for this object's lifetime but not across process
+/// restart; issue #270 replaces it with SQLite and owns that durability claim.
+/// </remarks>
+public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHistoryService, IAsyncDisposable
+{
+    private const int BatchSize = 32;
+    private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RetainFor = TimeSpan.FromDays(1);
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(10);
+    private static readonly RuntimeFeatureId FeatureId = new("raid-history");
     private readonly IRaidHistoryService _inner;
     private readonly ILogger<RaidHistoryOutbox>? _logger;
-    private readonly Channel<Func<CancellationToken, Task>> _queue;
-    private readonly CancellationTokenSource _stopping = new();
+    private readonly TimeProvider _timeProvider;
+    private readonly IOutboxStore _store;
+    private readonly OutboxProcessor _processor;
+    private readonly SemaphoreSlim _enqueueLock = new(1, 1);
+    private readonly SemaphoreSlim _signal = new(0);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Dictionary<Guid, long> _sequences = [];
+    private readonly Dictionary<OperationId, TaskCompletionSource<OutboxDeliveryState>> _accepted = [];
+    private readonly object _gate = new();
     private readonly Task _pump;
-    private bool _reportedFull;
-    private bool _reportedGaveUp;
+    private OutboxSnapshot _snapshot = OutboxSnapshot.Empty;
+    private bool _accepting = true;
+    private bool _disposed;
 
-    public RaidHistoryOutbox(IRaidHistoryService inner, ILogger<RaidHistoryOutbox>? logger = null)
+    public RaidHistoryOutbox(
+        IRaidHistoryService inner,
+        ILogger<RaidHistoryOutbox>? logger = null,
+        TimeProvider? timeProvider = null,
+        IOutboxStore? store = null,
+        IRetryJitter? jitter = null)
     {
-        _inner = inner;
+        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
         _logger = logger;
-        _queue = Channel.CreateBounded<Func<CancellationToken, Task>>(new BoundedChannelOptions(Capacity)
-        {
-            SingleReader = true,
-            // Waiting rather than dropping. A dropped write is a hole in a record that nothing
-            // anywhere would report, and the queue only fills if the database has been busy for
-            // longer than a raid — at which point one observation waiting is the smaller harm.
-            FullMode = BoundedChannelFullMode.Wait,
-        });
-        _pump = Task.Run(PumpAsync);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _store = store ?? new FixtureOutboxStore();
+        _processor = new(_store, new RaidHistoryCommandHandler(_inner), _timeProvider, jitter);
+        _pump = Task.Factory.StartNew(
+                PumpAsync,
+                _lifetime.Token,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default)
+            .Unwrap();
     }
 
-    public Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken) =>
-        _inner.StartAsync(raid, cancellationToken);
+    public OutboxSnapshot Snapshot
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _snapshot;
+            }
+        }
+    }
+
+    public IOutboxStore Store => _store;
+
+    public async Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(raid);
+        await EnqueueAsync(
+                raid.Id,
+                OutboxCommandKind.RaidStarted,
+                OutboxPayload.FromTypedJson(new RaidStartedPayload(raid)),
+                cancellationToken)
+            .ConfigureAwait(false);
+        return raid.Id;
+    }
 
     public Task RecordEventAsync(
         Guid raidId,
         string type,
         DateTimeOffset timestampUtc,
         string payloadJson,
-        CancellationToken cancellationToken) =>
-        EnqueueAsync(
-            token => _inner.RecordEventAsync(raidId, type, timestampUtc, payloadJson, token),
-            $"{type} event for raid {raidId}",
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        ArgumentException.ThrowIfNullOrWhiteSpace(payloadJson);
+        return EnqueueAsync(
+            raidId,
+            OutboxCommandKind.RaidEventRecorded,
+            OutboxPayload.FromTypedJson(new RaidEventPayload(
+                raidId,
+                type,
+                timestampUtc.ToUniversalTime(),
+                payloadJson)),
             cancellationToken);
+    }
 
     public Task EndAsync(
         Guid raidId,
@@ -92,8 +115,13 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAsyncDisposable
         string? notes,
         CancellationToken cancellationToken) =>
         EnqueueAsync(
-            token => _inner.EndAsync(raidId, endUtc, outcome, notes, token),
-            $"end of raid {raidId}",
+            raidId,
+            OutboxCommandKind.RaidEnded,
+            OutboxPayload.FromTypedJson(new RaidEndedPayload(
+                raidId,
+                endUtc.ToUniversalTime(),
+                outcome,
+                notes)),
             cancellationToken);
 
     public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
@@ -122,130 +150,328 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAsyncDisposable
     public Task ExportJsonAsync(Stream destination, CancellationToken cancellationToken) =>
         _inner.ExportJsonAsync(destination, cancellationToken);
 
-    /// <summary>
-    /// Waits until everything queued so far has been written.
-    /// </summary>
-    /// <remarks>
-    /// The honest cost of moving writes off the observation thread: a caller that writes and
-    /// then immediately reads is now racing its own write. Almost nothing does that — the
-    /// application writes as it observes and reads when somebody opens a page — but a test
-    /// that asserts a row landed does, and so would a shutdown that wanted to be sure.
-    ///
-    /// A marker through the same queue rather than a flag. One reader means the marker cannot
-    /// be reached until everything queued before it has been, which is the same property the
-    /// ordering relies on rather than a second mechanism that could disagree with it.
-    /// </remarks>
+    /// <summary>Waits for every command accepted before this call to reach a terminal state.</summary>
     public async Task FlushAsync(CancellationToken cancellationToken)
     {
-        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await _queue.Writer.WriteAsync(
-            _ =>
-            {
-                drained.TrySetResult();
-                return Task.CompletedTask;
-            },
-            cancellationToken).ConfigureAwait(false);
-        await drained.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Drains what is queued, then stops.
-    /// </summary>
-    /// <remarks>
-    /// Completing the channel before waiting means the pump writes everything already queued
-    /// rather than abandoning it. A raid that ended as the application closed should still be
-    /// in the database next time it opens.
-    /// </remarks>
-    public async ValueTask DisposeAsync()
-    {
-        _queue.Writer.TryComplete();
-        try
+        Task[] completions;
+        lock (_gate)
         {
-            await _pump.ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
+            completions = [.. _accepted.Values.Select(completion => completion.Task)];
         }
 
-        await _stopping.CancelAsync().ConfigureAwait(false);
-        _stopping.Dispose();
-    }
-
-    private async Task EnqueueAsync(
-        Func<CancellationToken, Task> write,
-        string what,
-        CancellationToken cancellationToken)
-    {
-        if (_queue.Writer.TryWrite(write))
+        if (completions.Length == 0)
         {
             return;
         }
 
-        // Said once. A queue that has filled says something about the database, and saying it
-        // per write would fill the log with the symptom of the thing already reported.
-        if (!_reportedFull)
+        _signal.Release();
+        await Task.WhenAll(completions).WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> RetryDeadLetterAsync(OperationId operationId, CancellationToken cancellationToken)
+    {
+        var retried = await _store.ManualRetryAsync(
+                operationId,
+                _timeProvider.GetUtcNow(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (retried)
         {
-            _reportedFull = true;
-            _logger?.LogWarning(
-                "The raid history queue is full at {Capacity} writes; observation is waiting on the database.",
-                Capacity);
+            lock (_gate)
+            {
+                _accepted[operationId] = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            _signal.Release();
         }
 
-        await _queue.Writer.WriteAsync(write, cancellationToken).ConfigureAwait(false);
+        return retried;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _accepting = false;
+        }
+
+        _signal.Release();
+        try
+        {
+            await _pump.WaitAsync(StopTimeout, _timeProvider).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            await _lifetime.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await _pump.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+            {
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+        }
+
+        lock (_gate)
+        {
+            _disposed = true;
+        }
+
+        _enqueueLock.Dispose();
+        _signal.Dispose();
+        _lifetime.Dispose();
+    }
+
+    private async Task EnqueueAsync(
+        Guid raidId,
+        OutboxCommandKind command,
+        OutboxPayload payload,
+        CancellationToken cancellationToken)
+    {
+        if (raidId == Guid.Empty)
+        {
+            throw new ArgumentException("A raid id is required.", nameof(raidId));
+        }
+
+        await _enqueueLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_accepting)
+                {
+                    throw new InvalidOperationException("The raid history outbox is stopping.");
+                }
+            }
+
+            var sequence = checked(_sequences.GetValueOrDefault(raidId) + 1);
+            var operationId = OperationId.New();
+            var now = _timeProvider.GetUtcNow();
+            var aggregateId = new OutboxAggregateId($"raid:{raidId:N}");
+            var item = new OutboxItem(
+                operationId,
+                new($"{aggregateId}:{sequence}"),
+                CorrelationId.New(),
+                FeatureId,
+                command,
+                OutboxContractVersion.Current,
+                aggregateId,
+                sequence,
+                now,
+                now,
+                AddBounded(now, RetainFor),
+                payload,
+                OutboxAttemptPolicy.Default);
+            var receipt = await _store.EnqueueAsync(item, cancellationToken).ConfigureAwait(false);
+            if (!receipt.Added && receipt.OperationId != operationId)
+            {
+                throw new InvalidOperationException("An outbox idempotency key resolved to another operation.");
+            }
+
+            _sequences[raidId] = sequence;
+            lock (_gate)
+            {
+                _accepted[receipt.OperationId] = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _enqueueLock.Release();
+        }
+
+        _signal.Release();
     }
 
     private async Task PumpAsync()
     {
-        await foreach (var write in _queue.Reader.ReadAllAsync(_stopping.Token).ConfigureAwait(false))
+        try
         {
-            await AttemptAsync(write).ConfigureAwait(false);
+            while (true)
+            {
+                await _signal.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+                while (true)
+                {
+                    var result = await _processor.ProcessBatchAsync(BatchSize, LeaseDuration, _lifetime.Token)
+                        .ConfigureAwait(false);
+                    await ResolveTerminalOperationsAsync(_lifetime.Token).ConfigureAwait(false);
+                    if (result.DeadLettered > 0)
+                    {
+                        _logger?.LogWarning(
+                            "Raid history moved {Count} command(s) to the visible dead-letter state.",
+                            result.DeadLettered);
+                    }
+
+                    if (result.Leased > 0)
+                    {
+                        continue;
+                    }
+
+                    var nextDue = await FindNextDeliverableUtcAsync(_lifetime.Token).ConfigureAwait(false);
+                    bool accepting;
+                    lock (_gate)
+                    {
+                        accepting = _accepting;
+                    }
+
+                    if (nextDue is null)
+                    {
+                        if (!accepting)
+                        {
+                            return;
+                        }
+
+                        break;
+                    }
+
+                    var delay = nextDue.Value - _timeProvider.GetUtcNow();
+                    if (delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(delay, _timeProvider, _lifetime.Token).ConfigureAwait(false);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
         }
     }
 
-    /// <summary>
-    /// Writes, retrying a busy database and giving up rather than blocking the queue for ever.
-    /// </summary>
-    /// <remarks>
-    /// A write that will not go is dropped after its attempts, and that is the right trade in
-    /// this direction: the queue behind it holds a raid's whole record, and stalling all of it
-    /// on one row would turn one lost event into every lost event.
-    ///
-    /// The failure is reported once rather than per write, for the same reason the full queue
-    /// is. What matters is that somebody knows history stopped being written, not how many
-    /// times it stopped.
-    /// </remarks>
-    private async Task AttemptAsync(Func<CancellationToken, Task> write)
+    private async Task ResolveTerminalOperationsAsync(CancellationToken cancellationToken)
     {
-        var wait = TimeSpan.FromMilliseconds(50);
-        for (var attempt = 1; attempt <= Attempts; attempt++)
+        var items = await _store.ListAsync(cancellationToken).ConfigureAwait(false);
+        lock (_gate)
         {
-            try
+            foreach (var item in items.Where(item => item.State is OutboxDeliveryState.Completed or OutboxDeliveryState.DeadLetter))
             {
-                await write(_stopping.Token).ConfigureAwait(false);
-                return;
-            }
-            catch (OperationCanceledException)
-            {
-                return;
-            }
-            catch (Exception exception)
-            {
-                if (attempt == Attempts)
+                if (_accepted.TryGetValue(item.Item.OperationId, out var completion))
                 {
-                    if (!_reportedGaveUp)
+                    completion.TrySetResult(item.State);
+                }
+            }
+        }
+
+        await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<DateTimeOffset?> FindNextDeliverableUtcAsync(CancellationToken cancellationToken)
+    {
+        var items = await _store.ListAsync(cancellationToken).ConfigureAwait(false);
+        return items
+            .Where(item => item.State != OutboxDeliveryState.Completed)
+            .GroupBy(item => item.Item.AggregateId)
+            .Select(group => group.OrderBy(item => item.Item.AggregateSequence).First())
+            .Where(item => item.State is OutboxDeliveryState.Pending or OutboxDeliveryState.Retrying)
+            .Select(item => (DateTimeOffset?)item.NextAttemptUtc)
+            .Min();
+    }
+
+    private async Task RefreshSnapshotAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await _store.GetSnapshotAsync(_timeProvider.GetUtcNow(), cancellationToken)
+            .ConfigureAwait(false);
+        lock (_gate)
+        {
+            _snapshot = snapshot;
+        }
+    }
+
+    private static DateTimeOffset AddBounded(DateTimeOffset value, TimeSpan duration)
+    {
+        try
+        {
+            return value + duration;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return DateTimeOffset.MaxValue;
+        }
+    }
+
+    private sealed record RaidStartedPayload(RaidHistoryEntry Raid);
+
+    private sealed record RaidEventPayload(
+        Guid RaidId,
+        string Type,
+        DateTimeOffset TimestampUtc,
+        string PayloadJson);
+
+    private sealed record RaidEndedPayload(
+        Guid RaidId,
+        DateTimeOffset EndUtc,
+        string? Outcome,
+        string? Notes);
+
+    private sealed class RaidHistoryCommandHandler(IRaidHistoryService inner) : IOutboxCommandHandler
+    {
+        public async Task HandleAsync(
+            OutboxItem item,
+            OutboxDeliveryContext context,
+            CancellationToken cancellationToken)
+        {
+            if (item.Version != OutboxContractVersion.Current)
+            {
+                throw new RuntimeFaultException(new(
+                    RuntimeFailureKind.Version,
+                    new("outbox-command-version"),
+                    RuntimeRecoveryAction.Upgrade,
+                    new($"operation:{context.OperationId}"),
+                    item.CreatedUtc));
+            }
+
+            switch (item.Command)
+            {
+                case OutboxCommandKind.RaidStarted:
+                    var started = item.Payload.ReadTypedJson<RaidStartedPayload>();
+                    var id = await inner.StartAsync(started.Raid, cancellationToken).ConfigureAwait(false);
+                    if (id != started.Raid.Id)
                     {
-                        _reportedGaveUp = true;
-                        _logger?.LogWarning(
-                            exception,
-                            "Gave up writing raid history after {Attempts} attempts. Observation is unaffected.",
-                            Attempts);
+                        throw new RuntimeFaultException(new(
+                            RuntimeFailureKind.Conflict,
+                            new("raid-start-id-conflict"),
+                            RuntimeRecoveryAction.ResolveConflict,
+                            new($"operation:{context.OperationId}"),
+                            item.CreatedUtc));
                     }
 
-                    return;
-                }
-
-                await Task.Delay(wait, _stopping.Token).ConfigureAwait(false);
-                wait *= 2;
+                    break;
+                case OutboxCommandKind.RaidEventRecorded:
+                    var recorded = item.Payload.ReadTypedJson<RaidEventPayload>();
+                    await inner.RecordEventAsync(
+                            recorded.RaidId,
+                            recorded.Type,
+                            recorded.TimestampUtc,
+                            recorded.PayloadJson,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                case OutboxCommandKind.RaidEnded:
+                    var ended = item.Payload.ReadTypedJson<RaidEndedPayload>();
+                    await inner.EndAsync(
+                            ended.RaidId,
+                            ended.EndUtc,
+                            ended.Outcome,
+                            ended.Notes,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    break;
+                default:
+                    throw new RuntimeFaultException(new(
+                        RuntimeFailureKind.Unsupported,
+                        new("outbox-command-unsupported"),
+                        RuntimeRecoveryAction.Upgrade,
+                        new($"operation:{context.OperationId}"),
+                        item.CreatedUtc));
             }
         }
     }

@@ -7,19 +7,14 @@ using TarkovCompanion.Core.Domain.Raids;
 namespace TarkovCompanion.Application.Services.Runtime;
 
 /// <summary>
-/// Applies what was observed to the raid state, shows it, and then records it.
+/// Applies what was observed to raid state and records it without making durable acceptance
+/// optional.
 /// </summary>
 /// <remarks>
-/// Show first, record second. Every one of these used to await the database before publishing,
-/// so each marker waited behind its own write even when nothing was wrong — and when something
-/// was wrong (a full disk, an antivirus lock, or the catalog refresh holding SQLite's write
-/// lock past the five-second busy timeout on the evening's first launch) the write threw, the
-/// watcher rethrew, and observation was torn down: the squad list cleared and "events read"
-/// reset, because a row could not be inserted.
-///
-/// Publishing is in-memory and cannot fail, and the snapshot is complete before any of this
-/// runs, so nothing shown is waiting on the disk to confirm it. What a failure still costs is
-/// the recording; the queue that stops it costing the watcher as well is a separate change.
+/// Direct v1 stores retain their show-first behavior. The at-least-once adapter instead returns
+/// as soon as its bounded store has accepted an ordered command, then publishes; it does not
+/// wait for SQLite delivery, but a full or failed outbox can no longer be mistaken for accepted
+/// state. This preserves the observation loop's short path while making acceptance truthful.
 ///
 /// <see cref="EnsureStartedAsync"/> still runs before any event is recorded: raid_events.raid_id
 /// is NOT NULL REFERENCES raids(id), so the raid row has to exist first. That ordering is a
@@ -91,8 +86,23 @@ public sealed class RaidActivityCoordinator(
             (current, adopted) = await ResumeAsync(current, canAdopt, cancellationToken).ConfigureAwait(false);
         }
 
-        Publish(current);
-        await PersistTransitionAsync(previous, current, evidence, adopted, cancellationToken).ConfigureAwait(false);
+        if (raidHistoryService is IAtLeastOnceRaidHistoryService)
+        {
+            // The outbox has made acceptance cheap, but not optional: publish only after its
+            // store accepted the ordered start/event/end commands. A full or failed store must
+            // be visible as a failed operation, never disguised as volatile state that happened
+            // to make it onto the screen.
+            await PersistTransitionAsync(previous, current, evidence, adopted, cancellationToken).ConfigureAwait(false);
+            Publish(current);
+        }
+        else
+        {
+            // Compatibility for direct v1 stores. Production composition uses the outbox above;
+            // direct callers keep the old fail-soft display behavior until they migrate.
+            Publish(current);
+            await PersistTransitionAsync(previous, current, evidence, adopted, cancellationToken).ConfigureAwait(false);
+        }
+
         return current;
     }
 
@@ -226,16 +236,29 @@ public sealed class RaidActivityCoordinator(
     {
         var previous = raidStateService.Current;
         var current = raidStateService.ApplyPosition(position);
-        Publish(current);
-        await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
-        if (current.RaidId is { } raidId)
+        async Task PersistAsync()
         {
-            await raidHistoryService.RecordEventAsync(
-                raidId,
-                "position",
-                position.Timestamp,
-                JsonSerializer.Serialize(position),
-                cancellationToken).ConfigureAwait(false);
+            await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
+            if (current.RaidId is { } raidId)
+            {
+                await raidHistoryService.RecordEventAsync(
+                    raidId,
+                    "position",
+                    position.Timestamp,
+                    JsonSerializer.Serialize(position),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (raidHistoryService is IAtLeastOnceRaidHistoryService)
+        {
+            await PersistAsync().ConfigureAwait(false);
+            Publish(current);
+        }
+        else
+        {
+            Publish(current);
+            await PersistAsync().ConfigureAwait(false);
         }
 
         return current;
@@ -260,16 +283,29 @@ public sealed class RaidActivityCoordinator(
     {
         var previous = raidStateService.Current;
         var current = raidStateService.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits);
-        Publish(current);
-        await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
-        if (current.RaidId is { } raidId)
+        async Task PersistAsync()
         {
-            await raidHistoryService.RecordEventAsync(
-                raidId,
-                "extracts",
-                observedUtc,
-                JsonSerializer.Serialize(extracts),
-                cancellationToken).ConfigureAwait(false);
+            await EnsureStartedAsync(previous, current, alreadyRecorded: false, cancellationToken).ConfigureAwait(false);
+            if (current.RaidId is { } raidId)
+            {
+                await raidHistoryService.RecordEventAsync(
+                    raidId,
+                    "extracts",
+                    observedUtc,
+                    JsonSerializer.Serialize(extracts),
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        if (raidHistoryService is IAtLeastOnceRaidHistoryService)
+        {
+            await PersistAsync().ConfigureAwait(false);
+            Publish(current);
+        }
+        else
+        {
+            Publish(current);
+            await PersistAsync().ConfigureAwait(false);
         }
 
         return current;
