@@ -285,7 +285,7 @@ workflow="${TASK_ROOT}/../../../.github/workflows/relay-watch.yml"
 grep -Fq "group: relay-watch-\${{ github.event_name == 'pull_request'" "$workflow"
 grep -Fq "if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch" "$workflow"
 grep -Fq -- '--max-filesize 65536' "$workflow"
-grep -Fq -- '--existing-state all' "$workflow"
+grep -Fq -- '--existing-state all' "${TASK_ROOT}/file-relay-reports.sh"
 if grep -Eq 'reports.*\|\|[[:space:]]*(echo|printf).*\[\]' "$workflow"; then
     printf 'relay-watch workflow must fail visibly rather than substitute an empty report list\n' >&2
     exit 1
