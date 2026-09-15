@@ -259,6 +259,23 @@ public sealed class OutboxProcessor : IAsyncDisposable
                 {
                     accumulated = Merge(accumulated, report);
                 }
+
+                // A terminal first report is also the admission boundary for an operator retry.
+                // Wait until those exact owners have left the local ownership map before returning;
+                // otherwise an immediate manual retry can acquire a fresh store lease while the
+                // completed owner still looks like a duplicate, leaving the new lease Processing.
+                // Timed-out and acknowledgement-uncertain work reports InFlight and deliberately
+                // remains retained, so hostile work cannot make this batch wait unboundedly.
+                var terminalOwners = started
+                    .Where((_, index) => reports[index].InFlight == 0)
+                    .Select(delivery => delivery.Released.Task)
+                    .ToArray();
+                if (terminalOwners.Length > 0)
+                {
+                    await Task.WhenAll(terminalOwners)
+                        .WaitAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
 
             lock (_gate)
@@ -489,6 +506,7 @@ public sealed class OutboxProcessor : IAsyncDisposable
 
             if (ownerRemoved)
             {
+                delivery.Released.TrySetResult();
                 NotifyProgress();
             }
         }
@@ -1096,6 +1114,8 @@ public sealed class OutboxProcessor : IAsyncDisposable
         public TaskCompletionSource Terminal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ShutdownRequested { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Released { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task HandlerTask { get; set; } = Task.CompletedTask;
         public Task RenewalTask { get; set; } = Task.CompletedTask;

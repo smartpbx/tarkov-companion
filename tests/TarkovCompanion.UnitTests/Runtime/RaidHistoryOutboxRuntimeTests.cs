@@ -385,7 +385,8 @@ public sealed class RaidHistoryOutboxRuntimeTests
 
         var deadLetter = Assert.Single(outbox.Snapshot.DeadLetters);
         Assert.True(deadLetter.CanRetry);
-        Assert.True(await outbox.ResolveDeadLetterAsync(Assert.Single(accepted), default));
+        Assert.Equal(2, accepted.Length);
+        Assert.True(await outbox.ResolveDeadLetterAsync(accepted[0], default));
         await outbox.FlushAsync(default);
 
         Assert.Equal(["end"], history.Types);
