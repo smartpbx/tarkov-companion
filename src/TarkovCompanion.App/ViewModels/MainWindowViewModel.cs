@@ -8,6 +8,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -2422,6 +2423,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private string? _followedMapId;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
+    private V2ShellViewModel? _previewShell;
     private IReadOnlyList<StatusChip> _status = [];
     private string _modeLabel = string.Empty;
     private string _lastScanName = "No item scanned";
@@ -2714,6 +2716,24 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         get => _modeLabel;
         private set => SetProperty(ref _modeLabel, value);
     }
+
+    /// <summary>The optional process-start preview shell; V1 remains the default when this is null.</summary>
+    public V2ShellViewModel? PreviewShell
+    {
+        get => _previewShell;
+        set
+        {
+            if (SetProperty(ref _previewShell, value))
+            {
+                OnPropertyChanged(nameof(IsLegacyShell));
+                OnPropertyChanged(nameof(IsPreviewShell));
+            }
+        }
+    }
+
+    public bool IsLegacyShell => PreviewShell is null;
+
+    public bool IsPreviewShell => PreviewShell is not null;
 
     public string LastScanName
     {

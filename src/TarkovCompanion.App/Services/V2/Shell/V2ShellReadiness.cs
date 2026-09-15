@@ -22,7 +22,10 @@ public sealed record V2ReadinessCheck(
     V2CheckStatus Status,
     string Detail,
     V2RouteId ActionRoute,
-    bool Required);
+    bool Required)
+{
+    public string Label => V2ShellText.Get(LabelKey);
+}
 
 /// <summary>
 /// The checklist behind Get ready, Home, and the one compact health affordance in the header.

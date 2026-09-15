@@ -6,6 +6,7 @@
     xmlns:vm="using:TarkovCompanion.App.ViewModels"
     xmlns:questVm="using:TarkovCompanion.App.ViewModels.Quests"
     xmlns:pages="using:TarkovCompanion.App.Views.Pages"
+    xmlns:shell="using:TarkovCompanion.App.Views.V2.Shell"
     Title="Tarkov Companion"
     Icon="/Assets/TarkovCompanion.ico"
     Width="1500"
@@ -67,6 +68,8 @@
        stay at their designed size — that is the platform, not a thing this can reach. And the
        map's pointer maths is unaffected, because GetPosition already reads through every
        transform above the surface. -->
+  <Grid>
+  <shell:LegacyPageHost IsVisible="{Binding IsLegacyShell}">
   <LayoutTransformControl>
     <LayoutTransformControl.LayoutTransform>
       <ScaleTransform ScaleX="{Binding InterfaceScale}" ScaleY="{Binding InterfaceScale}" />
@@ -223,4 +226,7 @@
     </Border>
   </Grid>
   </LayoutTransformControl>
+  </shell:LegacyPageHost>
+  <shell:V2ShellView IsVisible="{Binding IsPreviewShell}" DataContext="{Binding PreviewShell}" />
+  </Grid>
 </Window>

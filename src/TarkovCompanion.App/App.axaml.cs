@@ -3,8 +3,10 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Views;
 
 namespace TarkovCompanion.App;
@@ -28,7 +30,11 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // without anyone ever seeing them rendered, and a broken binding on one of them
             // only shows when somebody navigates there.
             var options = services.GetService<AppCommandLine>();
-            if (options?.StartPage is { } startPage && !viewModel.Navigate(startPage))
+            if (options is { UiShell: var mode } && mode.IsPreview())
+            {
+                viewModel.PreviewShell = services.GetRequiredService<V2ShellViewModel>();
+            }
+            else if (options?.StartPage is { } startPage && !viewModel.Navigate(startPage))
             {
                 throw new ArgumentException($"No destination is named '{startPage}'.");
             }
@@ -45,6 +51,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             desktop.MainWindow = new MainWindow
             {
                 DataContext = viewModel,
+                Title = viewModel.PreviewShell?.Title ?? "Tarkov Companion",
             };
             _initialization = viewModel.InitializeAsync(_stopping.Token);
         }
@@ -63,6 +70,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     public async Task StopAsync()
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
+        services.GetService<V2ShellViewModel>()?.Dispose();
         services.GetService<MapViewModel>()?.Dispose();
         try
         {
