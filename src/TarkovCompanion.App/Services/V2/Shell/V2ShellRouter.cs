@@ -220,9 +220,23 @@ public sealed class V2ShellRouter
     {
         if (Variant.IntelPlacement == V2IntelPlacement.Workspace)
         {
-            return Current.Location.Route == V2Routes.Item && CanGoBack
-                ? Back()
-                : V2NavigationResult.Refused("Intel is not open on top of another page.");
+            if (Current.Location.Route != V2Routes.Item)
+            {
+                return V2NavigationResult.Refused("Intel is not open on top of another page.");
+            }
+
+            if (CanGoBack)
+            {
+                return Back();
+            }
+
+            // A copied/restored item address begins with intentionally empty history. Its visible
+            // Close button must still lead somewhere useful instead of claiming Intel is not open.
+            return Push(
+                new(V2Routes.Items),
+                selectedEntity: null,
+                invoker: null,
+                focus: new(PageHeadingTarget, V2FocusReason.PageHeading));
         }
 
         if (Current.Location.IntelItem is null)

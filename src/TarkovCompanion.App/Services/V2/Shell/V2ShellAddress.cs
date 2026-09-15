@@ -82,6 +82,16 @@ public sealed class V2AddressCodec
         }
 
         var definition = _registry[location.Route];
+        if (_variant.IntelPlacement == V2IntelPlacement.BesideCurrentPage && definition.TakesItem)
+        {
+            // In this presentation the item template is a suffix, not a standalone page. Letting
+            // Format emit #/intel/{item} would create an address Parse deliberately refuses and
+            // would let Router.Restore enter a location the UI can never reopen from persistence.
+            throw new ArgumentException(
+                $"Item Intel opens beside an addressable page in {_variant.Token}.",
+                nameof(location));
+        }
+
         if (definition.TakesItem != (location.Item is not null))
         {
             throw new ArgumentException($"Route '{location.Route}' is addressed with an item exactly when it takes one.", nameof(location));

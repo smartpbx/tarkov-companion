@@ -99,6 +99,21 @@ public sealed class V2ShellRouterTests
     }
 
     [Fact]
+    public void Variant_a_can_close_item_intel_restored_without_history()
+    {
+        var router = Router(V2ShellMode.VariantA);
+        Assert.True(router.Restore(new(V2Routes.Item, Item: Drill), Drill, V2ShellRouter.IntelHeadingTarget).Succeeded);
+
+        var closed = router.CloseIntel();
+
+        Assert.True(closed.Succeeded);
+        Assert.Equal("#/intel", router.CurrentAddress);
+        Assert.Equal(V2Routes.Items, router.Current.Location.Route);
+        Assert.Equal(V2FocusReason.PageHeading, closed.Focus?.Reason);
+        Assert.True(router.CanGoBack);
+    }
+
+    [Fact]
     public void Variant_b_opens_intel_beside_the_page_at_its_own_address()
     {
         var router = Router(V2ShellMode.VariantB);
@@ -227,6 +242,17 @@ public sealed class V2ShellRouterTests
         Assert.Equal("5c05308086f7746b2101e90b", router.Current.SelectedEntity);
         Assert.Equal(V2FocusReason.IntelHeading, opened.Focus?.Reason);
         Assert.Equal(V2Routes.Plan, router.CurrentDestination);
+    }
+
+    [Fact]
+    public void Variant_b_refuses_a_standalone_item_location_that_has_no_native_address()
+    {
+        var router = Router(V2ShellMode.VariantB);
+        var location = new V2ShellLocation(V2Routes.Item, Item: Drill);
+
+        Assert.Throws<ArgumentException>(() => router.Addresses.Format(location));
+        Assert.False(router.Restore(location, Drill, V2ShellRouter.IntelHeadingTarget).Succeeded);
+        Assert.Equal("#/home", router.CurrentAddress);
     }
 
     [Fact]
