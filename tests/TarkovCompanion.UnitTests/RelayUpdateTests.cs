@@ -1,3 +1,4 @@
+using System.Reflection;
 using TarkovCompanion.GroupServer;
 
 namespace TarkovCompanion.UnitTests;
@@ -15,6 +16,7 @@ public sealed class RelayUpdateTests : IDisposable
 {
     private const string Installed = "1111111111111111111111111111111111111111111111111111111111111111";
     private const string Refused = "2222222222222222222222222222222222222222222222222222222222222222";
+    private const string Published = "3333333333333333333333333333333333333333333333333333333333333333";
 
     private readonly string _directory = Path.Combine(
         Path.GetTempPath(),
@@ -23,52 +25,71 @@ public sealed class RelayUpdateTests : IDisposable
     public RelayUpdateTests() => Directory.CreateDirectory(_directory);
 
     [Fact]
-    public async Task ItReadsTheBuildTheUpdaterRecorded()
+    public void ItReadsTheBuildTheUpdaterRecorded()
     {
         File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), Installed);
         var update = new RelayUpdate(_directory);
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.Equal(Installed, state.Installed);
         Assert.True(state.Available);
     }
 
     [Fact]
-    public async Task ARefusedBuildIsReported()
+    public void ARefusedBuildIsReported()
     {
         // The one thing an operator cannot otherwise see. A relay that installed a build, found
         // it would not answer and rolled back is a relay that is behind and will stay behind
-        // until a newer one is published, with nothing in the panel to say why.
+        // until the ring publishes a new decision, with nothing in the panel to say why.
         File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), Installed);
         File.WriteAllText(Path.Combine(_directory, "REFUSED_SHA256"), Refused);
         var update = new RelayUpdate(_directory);
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.Equal(Refused, state.Refused);
     }
 
     [Fact]
-    public async Task ABuildTheUpdaterHasNeverRecordedIsNotInvented()
+    public void ARolledBackBuildIsReportedAsRefusedAndNotAsInstalled()
+    {
+        // RISK-RELAY-UPDATE-STATE. The updater used to write the new installed stamp before the
+        // health check, so after a rollback the panel named the refused build as the one running.
+        // It now leaves the previous stamp in place; this is the state the panel must read then.
+        File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), Installed);
+        File.WriteAllText(Path.Combine(_directory, "PUBLISHED_SHA256"), Refused);
+        File.WriteAllText(Path.Combine(_directory, "REFUSED_SHA256"), Refused);
+        var update = new RelayUpdate(_directory);
+
+        var state = update.Read();
+
+        Assert.Equal(Installed, state.Installed);
+        Assert.Equal(Refused, state.Published);
+        Assert.Equal(state.Published, state.Refused);
+        Assert.NotEqual(state.Installed, state.Published);
+    }
+
+    [Fact]
+    public void ABuildTheUpdaterHasNeverRecordedIsNotInvented()
     {
         // A relay installed by hand has no stamp. Saying nothing is the honest answer; saying
         // "up to date" would be a claim nothing supports.
         var update = new RelayUpdate(_directory);
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.Null(state.Installed);
         Assert.True(state.Available);
     }
 
     [Fact]
-    public async Task AStampThatIsNotAChecksumIsIgnored()
+    public void AStampThatIsNotAChecksumIsIgnored()
     {
         File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), "this is not a checksum");
         var update = new RelayUpdate(_directory);
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.Null(state.Installed);
     }
@@ -86,39 +107,63 @@ public sealed class RelayUpdateTests : IDisposable
     }
 
     [Fact]
-    public async Task AnAskThatHasNotStartedYetIsShown()
+    public void AnAskThatHasNotStartedYetIsShown()
     {
         var update = new RelayUpdate(_directory);
         update.Request();
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.True(state.Requested);
     }
 
     [Fact]
-    public async Task ARelayWithNoStateDirectoryCannotBeAsked()
+    public void ARelayWithNoStateDirectoryCannotBeAsked()
     {
         // Every local run and every test. Saying so is better than a button that writes nothing
         // and reports success.
         var update = new RelayUpdate(null);
 
         Assert.False(update.Request());
-        Assert.False((await update.ReadAsync(TimeProvider.System, CancellationToken.None)).Available);
+        Assert.False(update.Read().Available);
     }
 
     [Fact]
-    public async Task APublishedChecksumThatCannotBeReadIsNotTreatedAsUpToDate()
+    public void WithoutAnAuthenticatedDecisionNothingIsReportedAsPublished()
     {
-        // A relay that cannot reach GitHub is a relay that is not updating, which is worth
-        // knowing on the same page as the build it is stuck on.
+        // Absence means the updater has not verified a signed decision. The panel must not fill
+        // the gap with a checksum of its own finding and turn that into "up to date".
         File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), Installed);
         var update = new RelayUpdate(_directory);
 
-        var state = await update.ReadAsync(TimeProvider.System, CancellationToken.None);
+        var state = update.Read();
 
         Assert.Null(state.Published);
         Assert.NotNull(state.Detail);
+    }
+
+    [Fact]
+    public void ItReportsThePublishedBuildTheUpdaterAuthenticated()
+    {
+        File.WriteAllText(Path.Combine(_directory, "INSTALLED_SHA256"), Installed);
+        File.WriteAllText(Path.Combine(_directory, "PUBLISHED_SHA256"), Published + "\n");
+        var update = new RelayUpdate(_directory);
+
+        var state = update.Read();
+
+        Assert.Equal(Published, state.Published);
+        Assert.Null(state.Detail);
+    }
+
+    [Fact]
+    public void ThePanelCannotBeGivenAWayToAskTheNetwork()
+    {
+        // Structural: the only input is the state directory. An HttpClient parameter coming back
+        // would be the unauthenticated second opinion this class used to fetch.
+        var constructors = typeof(RelayUpdate).GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+
+        var parameters = Assert.Single(constructors).GetParameters();
+        Assert.Equal(typeof(string), Assert.Single(parameters).ParameterType);
     }
 
     public void Dispose()

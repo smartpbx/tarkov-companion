@@ -25,17 +25,10 @@ builder.Services.AddSingleton(provider => new GroupMarks(
 builder.Services.AddSingleton(provider => new GroupRoomRegistry(
     provider.GetRequiredService<TimeProvider>(),
     StorePath("rooms.json")));
-// Which build is on the box against which build is published, and the file that asks for the
-// difference. Its own client: GitHub being slow must not hold up the panel, let alone the group
-// exchange this server mainly exists for.
-builder.Services.AddHttpClient(RelayUpdate.HttpClientName, client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(15);
-    client.DefaultRequestHeaders.UserAgent.ParseAdd("TarkovCompanion-GroupServer/1.0");
-});
-builder.Services.AddSingleton(provider => new RelayUpdate(
-    StateDirectory(),
-    provider.GetRequiredService<IHttpClientFactory>().CreateClient(RelayUpdate.HttpClientName)));
+// Which build is on the box against which build the signed release ring selects, and the file
+// that asks for the difference. Read from the updater's own stamps: only the updater holds the
+// feed credential and the trust root, so the panel makes no release request of its own.
+builder.Services.AddSingleton(_ => new RelayUpdate(StateDirectory()));
 
 // Where the squad's marks are kept, or null to hold them in memory as before.
 //
@@ -639,24 +632,22 @@ app.MapDelete("/admin/rooms/{room}", Results<Ok, NotFound, UnauthorizedHttpResul
     return TypedResults.Ok();
 });
 
-// Which build this relay is on against the one that is published.
+// Which build this relay is on against the one its signed release ring selects.
 //
 // The relay has updated itself every half hour for a while and could say nothing about it. A
 // relay running an old build looked exactly like one running the newest, and one that installed
 // a build, failed its health check and rolled back looked like both — the updater records the
 // refusal so it does not loop, and nothing surfaced it.
-app.MapGet("/admin/update", async Task<Results<Ok<RelayUpdateState>, UnauthorizedHttpResult>> (
+app.MapGet("/admin/update", Results<Ok<RelayUpdateState>, UnauthorizedHttpResult> (
     HttpRequest request,
-    RelayUpdate update,
-    TimeProvider timeProvider,
-    CancellationToken cancellationToken) =>
+    RelayUpdate update) =>
 {
     if (!RelayAdmin.IsAuthorised(request))
     {
         return TypedResults.Unauthorized();
     }
 
-    return TypedResults.Ok(await update.ReadAsync(timeProvider, cancellationToken).ConfigureAwait(false));
+    return TypedResults.Ok(update.Read());
 });
 
 // Asks for one now rather than at the next tick.

@@ -1,8 +1,14 @@
 [Unit]
-Description=Update the Tarkov Companion group relay to the newest verified build
+Description=Update the Tarkov Companion group relay to its signed release ring
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
+# The feed, ring and trust root this host follows. Optional so that a host not yet configured
+# fails with the updater's own explanation rather than a unit that will not start.
+EnvironmentFile=-/etc/tarkov-group/release-feed.env
 ExecStart=/opt/tarkov-group-update.sh
+# A oneshot has no start timeout by default, so a hung download would hold the lock for ever.
+# Timing out sends SIGTERM, which the updater turns into the same rollback as any other failure.
+TimeoutStartSec=20min

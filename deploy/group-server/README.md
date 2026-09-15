@@ -15,6 +15,7 @@ install -m 0644 tarkov-group-update.path    /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now tarkov-group-update.timer
 systemctl enable --now tarkov-group-update.path
+# configure the feed, ring, token and trust root first: docs/RELEASES.md#the-relay-updater
 systemctl start tarkov-group-update.service   # fetch the current build now
 ```
 
@@ -42,22 +43,37 @@ builds would simply fall behind the desktop client. That matters because the two
 a room and a server-side secret, a client that had updated could not talk to a server that had
 not.
 
+It follows a **signed release ring** in a private feed, not the public `dev` release. Until the
+host has the feed, ring, token and Sigstore trust root described in
+[`docs/RELEASES.md`](../../docs/RELEASES.md#the-relay-updater), the updater refuses to run and the
+relay stays on the build it has. That page also has the steps for moving an existing relay over.
+
 The update is arranged so a failure leaves the service on the build it was already running:
 
-- the checksum is verified against the published one **before** anything is unpacked
-- a rollback copy is taken **before** anything is replaced
-- the new build has to **answer** `/health`, not merely start, because a process that starts
-  and then fails to serve is exactly the failure worth catching and systemd calls it success
-- if it does not answer, the previous build goes back and the run reports failure
+- the ring decision, the manifest and the archive are each **signature-verified** against the
+  trust root on the host, and against the one workflow allowed to publish, **before** anything is
+  unpacked; a checksum from the same place as the archive proves nothing about who put it there
+- an older build is refused unless the ring's signed decision is a rollback, and an older ring
+  decision is refused outright
+- a rollback copy is taken, and a journal of the units, the updater and the stamps is written,
+  **before** anything is replaced
+- the new build has to **answer** `/health` as the signed version, commit and protocol, not merely
+  start, because a process that starts and then fails to serve is exactly the failure worth
+  catching and systemd calls it success
+- if it does not, or anything after the swap fails, the previous build, units, updater and stamps
+  all go back and the run reports failure; a run that was killed is undone by the next one
 
-A stamp file records the checksum in place, so a timer that fires every half hour does nothing
-at all unless the published build actually changed. Without it every member would disappear and
-reappear twice an hour for no reason.
+The stamps record what is installed only after it has proved itself, so a timer that fires every
+half hour does nothing unless the ring actually moved, and never claims a build that was rolled
+back. Without that, every member would disappear and reappear twice an hour for no reason, and a
+refused build would look installed.
 
-A build that installed, failed its health check and was rolled back is written to
-`REFUSED_SHA256` and not retried until a newer one is published. That is the right behaviour and
-it used to be invisible: a relay stuck behind for that reason looked exactly like one that was
-up to date. The panel reads both files and says which it is.
+A build that installed, failed its check and was rolled back is written to `REFUSED_SHA256` and
+`REFUSED_RELEASE.json` and not retried until the ring publishes a new signed decision. That is the
+right behaviour and it used to be invisible: a relay stuck behind for that reason looked exactly
+like one that was up to date. The panel reads the stamps and says which it is.
+
+A paused ring holds the relay where it is; a signed rollback is applied even while paused.
 
 ## Why wget and not curl
 
@@ -70,6 +86,7 @@ failed instantly on the real container, and the runbook had already recorded tha
 ```
 systemctl list-timers tarkov-group-update.timer
 journalctl -u tarkov-group-update.service -n 50
+cat /var/lib/tarkov-group/INSTALLED_VERSION /var/lib/tarkov-group/PUBLISHED_VERSION
 wget -qO- https://tarkov.mannerow.net/health
 ```
 
