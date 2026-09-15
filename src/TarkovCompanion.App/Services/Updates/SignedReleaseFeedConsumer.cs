@@ -790,7 +790,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 !LowerHex64().IsMatch(artifact.Sha256 ?? string.Empty) ||
                 artifact.Size is <= 0 or > ReleaseFeedLimits.MaximumArtifactBytes ||
                 artifact.BaseSha256 is not null &&
-                (!LowerHex64().IsMatch(artifact.BaseSha256) || !IsDeltaRole(artifact.Role)) ||
+                (!LowerHex64().IsMatch(artifact.BaseSha256) || !IsDeltaRole(artifact.Role ?? string.Empty)) ||
                 artifact.Component is "data" or "model" && artifact.Role == "delta" &&
                 artifact.BaseSha256 is null ||
                 !IsDirectChild(artifact.Path, plan.Directory)) ||

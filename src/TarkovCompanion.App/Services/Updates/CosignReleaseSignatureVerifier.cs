@@ -24,8 +24,9 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
     public CosignReleaseSignatureVerifier(SignedReleaseFeedOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        if (!LowerHex64().IsMatch(options.CosignSha256 ?? string.Empty) ||
-            !PinnedCosignDigests.Contains(options.CosignSha256))
+        var cosignSha256 = options.CosignSha256;
+        if (cosignSha256 is null || !LowerHex64().IsMatch(cosignSha256) ||
+            !PinnedCosignDigests.Contains(cosignSha256))
         {
             throw new ArgumentException("Cosign must be one of the reviewed v3.1.3 builds.", nameof(options));
         }
