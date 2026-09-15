@@ -58,7 +58,7 @@ function Get-FailedDetails {
         $Passed = $Item.passed
         if ($null -ne $Passed -and -not [bool]$Passed) {
             $Name = $Item.$NameProperty
-            $Details.Add("$Name: $(ConvertTo-SafeEvidenceText $Item.detail)")
+            $Details.Add("${Name}: $(ConvertTo-SafeEvidenceText $Item.detail)")
         }
     }
     return $Details.ToArray()
