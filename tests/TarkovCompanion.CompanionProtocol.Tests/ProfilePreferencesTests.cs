@@ -290,7 +290,7 @@ public sealed class ProfilePreferencesTests
             observed.Replica.CreateReconnectRequest(
                 CompanionProtocolVersion.Current,
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 Now.AddSeconds(1)),
             DeliveryLedger.Empty,
             TabletDevice,

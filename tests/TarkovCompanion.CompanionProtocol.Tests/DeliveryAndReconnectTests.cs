@@ -280,7 +280,7 @@ public sealed class DeliveryAndReconnectTests
     {
         var flow = Flow.Create();
         var replica = flow.ReplicaThrough(2);
-        var request = replica.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+        var request = replica.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
 
         var replay = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger, TabletDevice, TabletSession, CompanionProtocolVersion.Current);
         var wirePlan = CompanionProtocolJson.Deserialize<ReconnectPlan>(CompanionProtocolJson.Serialize(replay.Plan));
@@ -309,7 +309,7 @@ public sealed class DeliveryAndReconnectTests
             new ReconnectRequest(
                 CompanionProtocolVersion.Current,
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 new AuthorityEpoch(Guid.Parse("30000000-0000-0000-0000-000000000099")),
                 request.LastGlobalRevision,
                 request.LastDeliverySequence,
@@ -319,7 +319,7 @@ public sealed class DeliveryAndReconnectTests
             TabletSession,
             CompanionProtocolVersion.Current);
         var currentRequest = flow.ReplicaThrough(5).CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var current = ReconnectPlanner.Plan(
             flow.Final, currentRequest, flow.Ledger, TabletDevice, TabletSession, CompanionProtocolVersion.Current);
         var unsupported = ReconnectPlanner.Plan(
@@ -327,7 +327,7 @@ public sealed class DeliveryAndReconnectTests
             new ReconnectRequest(
                 new CompanionProtocolVersion(3, 0),
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 request.AuthorityEpoch,
                 request.LastGlobalRevision,
                 request.LastDeliverySequence,
@@ -337,7 +337,7 @@ public sealed class DeliveryAndReconnectTests
             TabletSession,
             CompanionProtocolVersion.Current);
         var reloadRequest = CanonicalReplica.Empty.CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var reloaded = ReconnectPlanner.Plan(
             flow.Final,
             reloadRequest,
@@ -366,7 +366,7 @@ public sealed class DeliveryAndReconnectTests
         var flow = Flow.Create();
         var replica = flow.ReplicaThrough(2);
         var request = replica.CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var planning = ReconnectPlanner.Plan(
             flow.Final,
             request,
@@ -428,7 +428,7 @@ public sealed class DeliveryAndReconnectTests
         Assert.Throws<ArgumentException>(() => new ReconnectRequest(
             CompanionProtocolVersion.Current,
             TabletSession,
-            ReconnectRequest,
+            DefaultReconnectRequestId,
             request.AuthorityEpoch,
             request.LastGlobalRevision,
             request.LastDeliverySequence,
@@ -441,7 +441,7 @@ public sealed class DeliveryAndReconnectTests
         var flow = Flow.Create();
         var requestedFrom = flow.ReplicaThrough(2);
         var request = requestedFrom.CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var initial = InitialState();
         var replacement = new CanonicalCompanionState(
             new AuthorityEpoch(Guid.Parse("30000000-0000-0000-0000-000000000099")),
@@ -457,7 +457,7 @@ public sealed class DeliveryAndReconnectTests
         var delayed = new ReconnectPlan(
             CompanionProtocolVersion.Current,
             TabletSession,
-            ReconnectRequest,
+            DefaultReconnectRequestId,
             ReconnectDisposition.FullSnapshot,
             [],
             replacement,
@@ -493,7 +493,7 @@ public sealed class DeliveryAndReconnectTests
             new ReconnectRequest(
                 CompanionProtocolVersion.Current,
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 Epoch,
                 new GlobalRevision(0),
                 new DeliverySequence(0),
@@ -548,7 +548,7 @@ public sealed class DeliveryAndReconnectTests
             new ReconnectRequest(
                 CompanionProtocolVersion.Current,
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 Epoch,
                 heldState.GlobalRevision,
                 new DeliverySequence(0),
@@ -568,7 +568,7 @@ public sealed class DeliveryAndReconnectTests
     {
         var flow = Flow.Create();
         var request = flow.ReplicaThrough(2).CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var replay = ReconnectPlanner.Plan(
             flow.Final,
             request,
@@ -580,7 +580,7 @@ public sealed class DeliveryAndReconnectTests
         var staleSnapshot = new ReconnectPlan(
             CompanionProtocolVersion.Current,
             TabletSession,
-            ReconnectRequest,
+            DefaultReconnectRequestId,
             ReconnectDisposition.FullSnapshot,
             [],
             flow.Initial,
@@ -589,7 +589,7 @@ public sealed class DeliveryAndReconnectTests
         var staleSameEpochSnapshot = new ReconnectPlan(
             CompanionProtocolVersion.Current,
             TabletSession,
-            ReconnectRequest,
+            DefaultReconnectRequestId,
             ReconnectDisposition.FullSnapshot,
             [],
             flow.Initial,
@@ -608,7 +608,7 @@ public sealed class DeliveryAndReconnectTests
             new ReconnectPlan(
                 CompanionProtocolVersion.Current,
                 TabletSession,
-                ReconnectRequest,
+                DefaultReconnectRequestId,
                 ReconnectDisposition.UpToDate,
                 [],
                 null,
@@ -653,13 +653,13 @@ public sealed class DeliveryAndReconnectTests
         // After a desktop restart the new ledger has assigned nothing, so the plan resumes at zero.
         var plan = ReconnectPlanner.Plan(
             restarted,
-            cached.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now),
+            cached.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now),
             DeliveryLedger.Empty,
             TabletDevice,
             TabletSession,
             CompanionProtocolVersion.Current).Plan;
         var restartRequest = cached.CreateReconnectRequest(
-            CompanionProtocolVersion.Current, TabletSession, ReconnectRequest, Now);
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
         var adopted = cached.ApplyReconnectPlan(plan, restartRequest, TabletSession, CompanionProtocolVersion.Current);
         var nextLive = Observe(adopted.Replica, Delivered(1, new CanonicalUpdateMessage(RestartedMarksUpdate(restartedEpoch)), TabletDevice));
         var liveSnapshot = Observe(cached, Delivered(1, new CanonicalSnapshotMessage(restarted)));
