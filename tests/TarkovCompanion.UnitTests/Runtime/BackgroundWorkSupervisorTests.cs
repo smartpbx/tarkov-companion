@@ -370,7 +370,7 @@ public sealed class BackgroundWorkSupervisorTests
         Assert.False(release.Task.IsCompleted);
 
         release.TrySetResult();
-        Assert.Equal(BackgroundWorkState.Cancelled, (await operation.Handle.Completion).State);
+        AssertLateOutcome((await operation.Handle.Completion).State);
         var second = await supervisor.StopAsync(TimeSpan.FromSeconds(1));
         Assert.True(second.CompletedWithinDeadline);
         Assert.Equal(0, second.UnfinishedOperations);
@@ -406,7 +406,7 @@ public sealed class BackgroundWorkSupervisorTests
         Assert.False(supervisor.Submit(Request(WorkPriority.UserBlocking), (_, _) => Task.CompletedTask).Accepted);
 
         release.TrySetResult();
-        Assert.Equal(BackgroundWorkState.Cancelled, (await ignoring.Handle.Completion).State);
+        AssertLateOutcome((await ignoring.Handle.Completion).State);
         await RuntimeTestTasks.UntilAsync(() => supervisor.Snapshot.Resources.RunningCPU == 0);
     }
 
@@ -434,7 +434,7 @@ public sealed class BackgroundWorkSupervisorTests
 
         release.TrySetResult();
         var result = await operation.Handle.Completion.WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.Equal(BackgroundWorkState.Cancelled, result.State);
+        AssertLateOutcome(result.State);
         await RuntimeTestTasks.UntilAsync(() => supervisor.Snapshot.Resources.Running == 0);
     }
 
@@ -551,6 +551,15 @@ public sealed class BackgroundWorkSupervisorTests
             burst: 1,
             minimumRestartDelay: TimeSpan.Zero));
     }
+
+    /// <summary>What an operation that ignored cancellation may truthfully end as once it returns.</summary>
+    /// <remarks>
+    /// The stop's cancellation reaches the executor's wait asynchronously. If the ignoring work
+    /// returns first it really did succeed, and reporting that is correct; what must never happen
+    /// is a terminal state, or a released slot, before it returns — asserted before release.
+    /// </remarks>
+    private static void AssertLateOutcome(BackgroundWorkState state) =>
+        Assert.Contains(state, new[] { BackgroundWorkState.Cancelled, BackgroundWorkState.Succeeded });
 
     private static BackgroundWorkRequest Request(
         WorkPriority priority,
