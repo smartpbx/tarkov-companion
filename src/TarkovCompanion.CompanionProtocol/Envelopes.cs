@@ -42,10 +42,11 @@ public sealed record ClientCommandEnvelope
 }
 
 /// <summary>
-/// The desktop's answer to one command. <see cref="AppliedRevision"/> is the aggregate's revision
-/// after handling and <see cref="AppliedChangeId"/> is whichever change occupies it, so comparing
-/// it with <see cref="CommandId"/> is what distinguishes the command that landed from a divergent
-/// one, exactly as for the v2 <c>StateAcknowledgement</c>.
+/// The desktop's answer to one command. When it describes a revision, <see cref="AppliedRevision"/>
+/// is the aggregate's revision and <see cref="AppliedChangeId"/> is the change occupying it, so
+/// comparing that id with <see cref="CommandId"/> distinguishes the command that landed from a
+/// divergent one, exactly as for the v2 <c>StateAcknowledgement</c>. Only <see cref="CommandDisposition.Applied"/>
+/// ever names this command as the applied change.
 /// </summary>
 public sealed record CommandAcknowledgement
 {
@@ -88,7 +89,7 @@ public sealed record CommandAcknowledgement
         if (RequiresCanonicalState(disposition) != (canonicalState is not null))
         {
             throw new ArgumentException(
-                "Stale, conflict, preview, snapshot, and identifier-reuse responses include canonical state; others do not.",
+                "Stale, conflict, preview, and snapshot responses include canonical state; others do not.",
                 nameof(canonicalState));
         }
 
@@ -98,11 +99,11 @@ public sealed record CommandAcknowledgement
             CommandDisposition.Applied => thisCommandApplied && appliedRevision == requestedRevision,
             CommandDisposition.RejectedStale => !thisCommandApplied && appliedRevision.Value > requestedRevision.Value,
             CommandDisposition.RejectedConflict => !thisCommandApplied && appliedRevision == requestedRevision,
+            CommandDisposition.RequiresPreview or CommandDisposition.RequiresSnapshot => !thisCommandApplied,
 
-            // The retained id already names a different accepted payload; the applied change may be
-            // that original command, and naming it never means this payload applied.
-            CommandDisposition.RejectedCommandIdReuse => true,
-            _ => !thisCommandApplied,
+            // A rejection that carries no state describes no revision, so it can never be read as
+            // naming this command, or a reused identifier's original change, as applied.
+            _ => appliedRevision.Value == 0,
         };
         if (!consistent)
         {
@@ -163,8 +164,7 @@ public sealed record CommandAcknowledgement
         CommandDisposition.RejectedStale or
         CommandDisposition.RejectedConflict or
         CommandDisposition.RequiresPreview or
-        CommandDisposition.RequiresSnapshot or
-        CommandDisposition.RejectedCommandIdReuse;
+        CommandDisposition.RequiresSnapshot;
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
@@ -331,7 +331,7 @@ public sealed record OpaqueRelayFrame
         }
 
         NonceBase64Url = nonceBase64Url;
-        CiphertextLength = ciphertextLength is > 0 and <= ProtocolBounds.MaxPayloadBytes
+        CiphertextLength = ciphertextLength is >= ProtocolBounds.MinRelayPlaintextBytes and <= ProtocolBounds.MaxRelayPlaintextBytes
             ? ciphertextLength
             : throw new ArgumentOutOfRangeException(nameof(ciphertextLength));
         CiphertextChunksBase64Url = ProtocolGuard.List(ciphertextChunksBase64Url, nameof(ciphertextChunksBase64Url));

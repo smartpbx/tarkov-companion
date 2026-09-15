@@ -133,9 +133,7 @@ public sealed record RequestControlCommand : CompanionCommand
         DateTimeOffset expiresUtc,
         TimeSpan requestedLease)
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, null) =>
-        RequestedLease = requestedLease > TimeSpan.Zero && requestedLease <= ProtocolBounds.MaximumControlLeaseLifetime
-            ? requestedLease
-            : throw new ArgumentOutOfRangeException(nameof(requestedLease));
+        RequestedLease = ProtocolGuard.LeaseDuration(requestedLease, nameof(requestedLease));
 
     public TimeSpan RequestedLease { get; }
 
@@ -369,7 +367,7 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
         CaptureIntentId intentId,
         string correlationId,
         CaptureSessionId captureSessionId,
-        ContextualCapturePurpose purpose,
+        ScanIntent intent,
         CompanionCaptureContext context,
         OfflineQueuePreview? offlineQueuePreview = null)
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
@@ -379,7 +377,7 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
         CaptureSessionId = captureSessionId.Value == Guid.Empty
             ? throw new ArgumentException("A capture session id is required.", nameof(captureSessionId))
             : captureSessionId;
-        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        Intent = PairedScanIntents.Require(intent, nameof(intent));
         Context = ProtocolGuard.NotNull(context, nameof(context));
     }
 
@@ -389,7 +387,8 @@ public sealed record RequestCaptureIntentCommand : CompanionCommand
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    public ContextualCapturePurpose Purpose { get; }
+    /// <summary>The frozen #264 scan intent to arm; flea recognition is not a paired capture intent.</summary>
+    public ScanIntent Intent { get; }
 
     public CompanionCaptureContext Context { get; }
 

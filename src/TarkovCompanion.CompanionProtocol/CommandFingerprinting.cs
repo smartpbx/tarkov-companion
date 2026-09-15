@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -27,16 +28,30 @@ public readonly record struct CommandFingerprint
 /// the change that already landed.
 /// </summary>
 /// <remarks>
-/// The command is first serialized through the protocol's closed polymorphic model, so the
-/// discriminator and every wire field (including revision, lifetime, and offline preview) take
-/// part. The resulting JSON tree is then hashed in a tagged binary form: object members sorted
-/// by ordinal name, arrays in order, strings as unescaped UTF-8, and numbers as the model
+/// The fingerprint covers the command's type and payload, not its delivery metadata: the command
+/// id, requested revision, issue and expiry times, and offline preview are excluded. A client that
+/// re-previews an offline draft after a lost acknowledgement refreshes exactly those members, so the
+/// resubmission stays the same logical action and is acknowledged as the change that already
+/// landed rather than applied twice. Payload revisions such as a mark's expected revision are part
+/// of the action and do take part. The command is serialized through the protocol's closed
+/// polymorphic model and the resulting JSON tree is hashed in a tagged binary form: object members
+/// sorted by ordinal name, arrays in order, strings as unescaped UTF-8, and numbers as the model
 /// serializer's round-trip text. The hash therefore does not depend on JSON property order or on
 /// the serializer's escaping choices. Fingerprints are desktop-local and never cross the wire.
 /// </remarks>
 public static class CanonicalCommandFingerprint
 {
     private const string Domain = "TarkovCompanion.PairedDevice/v2/command-fingerprint";
+
+    /// <summary>The top-level delivery members a retry may refresh without changing the action.</summary>
+    public static IReadOnlySet<string> DeliveryMetadataMembers { get; } = new[]
+    {
+        "commandId",
+        "requestedRevision",
+        "issuedUtc",
+        "expiresUtc",
+        "offlineQueuePreview",
+    }.ToFrozenSet(StringComparer.Ordinal);
 
     public static CommandFingerprint Compute(CompanionCommand command)
     {
@@ -50,16 +65,17 @@ public static class CanonicalCommandFingerprint
             new JsonDocumentOptions { MaxDepth = ProtocolBounds.MaxJsonDepth });
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         AppendBytes(hash, Encoding.UTF8.GetBytes(Domain));
-        Append(hash, document.RootElement);
+        Append(hash, document.RootElement, excludeDeliveryMetadata: true);
         return new CommandFingerprint(ProtocolGuard.EncodeBase64Url(hash.GetHashAndReset()));
     }
 
-    private static void Append(IncrementalHash hash, JsonElement element)
+    private static void Append(IncrementalHash hash, JsonElement element, bool excludeDeliveryMetadata = false)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.Object:
                 var properties = element.EnumerateObject()
+                    .Where(property => !excludeDeliveryMetadata || !DeliveryMetadataMembers.Contains(property.Name))
                     .OrderBy(property => property.Name, StringComparer.Ordinal)
                     .ToArray();
                 AppendTag(hash, (byte)'o', properties.Length);

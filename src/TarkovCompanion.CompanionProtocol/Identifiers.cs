@@ -78,31 +78,31 @@ public readonly record struct RelayChannelId
 public readonly record struct AggregateRevision
 {
     [JsonConstructor]
-    public AggregateRevision(long value) => Value = ProtocolGuard.NonNegative(value, nameof(value));
+    public AggregateRevision(long value) => Value = ProtocolGuard.WireInteger(value, nameof(value));
 
     public long Value { get; }
 
-    public AggregateRevision Next() => new(checked(Value + 1));
+    public AggregateRevision Next() => new(Value + 1);
 }
 
 public readonly record struct GlobalRevision
 {
     [JsonConstructor]
-    public GlobalRevision(long value) => Value = ProtocolGuard.NonNegative(value, nameof(value));
+    public GlobalRevision(long value) => Value = ProtocolGuard.WireInteger(value, nameof(value));
 
     public long Value { get; }
 
-    public GlobalRevision Next() => new(checked(Value + 1));
+    public GlobalRevision Next() => new(Value + 1);
 }
 
 public readonly record struct DeliverySequence
 {
     [JsonConstructor]
-    public DeliverySequence(long value) => Value = ProtocolGuard.NonNegative(value, nameof(value));
+    public DeliverySequence(long value) => Value = ProtocolGuard.WireInteger(value, nameof(value));
 
     public long Value { get; }
 
-    public DeliverySequence Next() => new(checked(Value + 1));
+    public DeliverySequence Next() => new(Value + 1);
 }
 
 /// <summary>

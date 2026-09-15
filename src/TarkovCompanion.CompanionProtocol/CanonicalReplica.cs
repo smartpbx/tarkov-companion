@@ -56,21 +56,30 @@ public sealed record CanonicalReplica
         return Observe(envelope.DeliverySequence, envelope.Message);
     }
 
+    /// <summary>
+    /// Applies a reconnect plan only where it continues this replica's position. Plans carry no
+    /// request correlation, so a plan whose resume position is behind the replica is a late answer
+    /// to an earlier request and is discarded; a replay that starts after the next expected sequence
+    /// cannot close the gap and requires another resynchronization.
+    /// </summary>
     public ReplicaObservation ApplyReconnectPlan(ReconnectPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        if (plan.ResumeAfterDeliverySequence.Value < LastDeliverySequence.Value)
+        {
+            return new(this, ReplicaDisposition.Discarded, "stale-reconnect-plan");
+        }
+
         switch (plan.Disposition)
         {
             case ReconnectDisposition.FullSnapshot:
                 return new(new CanonicalReplica(plan.Snapshot, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "snapshot-applied");
-            case ReconnectDisposition.UpToDate when State is not null:
-                return new(new CanonicalReplica(State, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "up-to-date");
-            case ReconnectDisposition.Replay when State is not null:
-                var replica = new CanonicalReplica(
-                    State,
-                    new DeliverySequence(plan.Replay[0].DeliverySequence.Value - 1),
-                    false);
-                foreach (var delivery in plan.Replay)
+            case ReconnectDisposition.UpToDate when State is not null && plan.ResumeAfterDeliverySequence == LastDeliverySequence:
+                return new(new CanonicalReplica(State, LastDeliverySequence, false), ReplicaDisposition.Applied, "up-to-date");
+            case ReconnectDisposition.Replay when State is not null &&
+                                                  plan.Replay[0].DeliverySequence.Value <= LastDeliverySequence.Value + 1:
+                var replica = new CanonicalReplica(State, LastDeliverySequence, false);
+                foreach (var delivery in plan.Replay.Where(item => item.DeliverySequence.Value > LastDeliverySequence.Value))
                 {
                     var observed = replica.Observe(delivery.DeliverySequence, delivery.Message);
                     if (observed.Disposition is ReplicaDisposition.ResyncRequired or ReplicaDisposition.Discarded or ReplicaDisposition.Duplicate)

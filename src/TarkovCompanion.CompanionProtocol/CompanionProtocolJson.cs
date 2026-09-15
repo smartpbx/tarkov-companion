@@ -14,6 +14,7 @@ public static class CompanionProtocolJson
         typeof(ClientHello),
         typeof(ServerHello),
         typeof(PairingOffer),
+        typeof(PairingNonceReveal),
         typeof(PairingRequest),
         typeof(SessionResumeRequest),
         typeof(HandshakeChallenge),
@@ -36,6 +37,12 @@ public static class CompanionProtocolJson
         "clrType",
         "assemblyQualifiedName",
         "password",
+        "passphrase",
+        "secret",
+        "apiKey",
+        "authorization",
+        "cookie",
+        "sessionToken",
         "shortCode",
         "pairingCode",
         "privateKey",
@@ -60,6 +67,7 @@ public static class CompanionProtocolJson
         typeof(ClientHello),
         typeof(ServerHello),
         typeof(PairingOffer),
+        typeof(PairingNonceReveal),
         typeof(PairingRequest),
         typeof(SessionResumeRequest),
         typeof(HandshakeChallenge),
@@ -100,6 +108,22 @@ public static class CompanionProtocolJson
         }
     }
 
+    /// <summary>Reads the exact root an authenticated relay payload names.</summary>
+    public static object DeserializeRelayPayload(RelayPayload payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        var json = payload.Json.Span;
+        return payload.Kind switch
+        {
+            RelayPayloadKind.ClientCommandEnvelope => Deserialize<ClientCommandEnvelope>(json),
+            RelayPayloadKind.ClientDeliveryAcknowledgement => Deserialize<ClientDeliveryAcknowledgement>(json),
+            RelayPayloadKind.ReconnectRequest => Deserialize<ReconnectRequest>(json),
+            RelayPayloadKind.ServerEnvelope => Deserialize<ServerEnvelope>(json),
+            RelayPayloadKind.ReconnectPlan => Deserialize<ReconnectPlan>(json),
+            _ => throw new JsonException("Unknown relay payload kind."),
+        };
+    }
+
     private static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -129,7 +153,7 @@ public static class CompanionProtocolJson
         }
     }
 
-    private static void ValidateLexicalSafety(ReadOnlySpan<byte> payload, int maximumBytes)
+    internal static void ValidateLexicalSafety(ReadOnlySpan<byte> payload, int maximumBytes)
     {
         if (payload.Length == 0 || payload.Length > maximumBytes)
         {
@@ -257,7 +281,8 @@ public static class CompanionProtocolJson
 /// Guarantees that canonical state the reducer commits can always be delivered. The largest
 /// message carrying full state is a command acknowledgement inside a server envelope, so the
 /// check serializes exactly that shape with the widest legal envelope and acknowledgement values
-/// through the same lexical boundary every transport uses.
+/// through the same lexical boundary every transport uses, and keeps
+/// <see cref="ProtocolBounds.MaintenanceReserveBytes"/> of headroom for server-time maintenance.
 /// </summary>
 public static class CanonicalDeliveryBudget
 {
@@ -267,12 +292,56 @@ public static class CanonicalDeliveryBudget
     private static readonly DeviceSessionId ProbeSession = new(Guid.Parse("7f000000-0000-4000-8000-000000000004"));
     private static readonly DateTimeOffset ProbeUtc = new(9999, 12, 31, 23, 59, 59, 999, TimeSpan.Zero);
 
-    public static bool Fits(CanonicalCompanionState state)
+    /// <summary>True when the state fits with maintenance headroom; the reducer never commits state that does not.</summary>
+    public static bool Fits(CanonicalCompanionState state) =>
+        Fits(state, ProtocolBounds.MaxPayloadBytes - ProtocolBounds.MaintenanceReserveBytes);
+
+    /// <summary>True when every message carrying the state can still be delivered, without headroom.</summary>
+    public static bool IsDeliverable(CanonicalCompanionState state) =>
+        Fits(state, ProtocolBounds.MaxPayloadBytes);
+
+    internal static ServerEnvelope ProbeEnvelope(CanonicalCompanionState state)
+    {
+        // The acknowledgement names another change at the widest revision; a real acknowledgement's
+        // values are never wider, its disposition name never longer, and its code never longer.
+        var widest = new AggregateRevision(ProtocolBounds.MaxWireInteger);
+        var probeState = new CanonicalCompanionState(
+            state.AuthorityEpoch,
+            state.WorkspaceId,
+            state.DesktopInstanceId,
+            new GlobalRevision(ProtocolBounds.MaxWireInteger),
+            state.DesktopDeviceId,
+            state.DeviceModes,
+            state.Workspace,
+            state.Marks,
+            new CaptureIntentAggregate(new AggregateCursor(widest, ProbeChange), state.CaptureIntent.ActiveIntent));
+        return new ServerEnvelope(
+            new CompanionProtocolVersion(CompanionProtocolVersion.MaxMajor, CompanionProtocolVersion.MaxMinor),
+            ProbeSession,
+            ProbeDevice,
+            ProbeUtc,
+            new DeliverySequence(ProtocolBounds.MaxWireInteger),
+            new CommandAcknowledgementMessage(new CommandAcknowledgement(
+                ProbeCommand,
+                CanonicalAggregateKind.CaptureIntent,
+                widest,
+                widest,
+                ProbeChange,
+                new GlobalRevision(ProtocolBounds.MaxWireInteger),
+                state.AuthorityEpoch,
+                CommandDisposition.RequiresSnapshot,
+                new string('x', ProtocolBounds.MaxShortStringBytes),
+                probeState)));
+    }
+
+    private static bool Fits(CanonicalCompanionState state, int maximumBytes)
     {
         ArgumentNullException.ThrowIfNull(state);
         try
         {
-            _ = CompanionProtocolJson.Serialize(ProbeEnvelope(state));
+            CompanionProtocolJson.ValidateLexicalSafety(
+                JsonSerializer.SerializeToUtf8Bytes(ProbeEnvelope(state), CompanionProtocolJson.Options),
+                maximumBytes);
             return true;
         }
         catch (JsonException)
@@ -283,36 +352,5 @@ public static class CanonicalDeliveryBudget
         {
             return false;
         }
-    }
-
-    internal static ServerEnvelope ProbeEnvelope(CanonicalCompanionState state)
-    {
-        // The acknowledgement names the probe as the applied change at the widest revision; the
-        // real acknowledgement's values are never wider, and its code is never longer.
-        var probeState = new CanonicalCompanionState(
-            state.AuthorityEpoch,
-            new GlobalRevision(long.MaxValue),
-            state.DesktopDeviceId,
-            state.DeviceModes,
-            state.Workspace,
-            state.Marks,
-            new CaptureIntentAggregate(new AggregateCursor(new AggregateRevision(long.MaxValue), ProbeChange), state.CaptureIntent.ActiveIntent));
-        return new ServerEnvelope(
-            new CompanionProtocolVersion(CompanionProtocolVersion.MaxMajor, CompanionProtocolVersion.MaxMinor),
-            ProbeSession,
-            ProbeDevice,
-            ProbeUtc,
-            new DeliverySequence(long.MaxValue),
-            new CommandAcknowledgementMessage(new CommandAcknowledgement(
-                ProbeCommand,
-                CanonicalAggregateKind.CaptureIntent,
-                new AggregateRevision(long.MaxValue),
-                new AggregateRevision(long.MaxValue),
-                ProbeChange,
-                new GlobalRevision(long.MaxValue),
-                state.AuthorityEpoch,
-                CommandDisposition.RejectedCommandIdReuse,
-                new string('x', ProtocolBounds.MaxShortStringBytes),
-                probeState)));
     }
 }

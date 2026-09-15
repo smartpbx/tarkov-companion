@@ -26,6 +26,9 @@
       "$ref": "#/$defs/pairingOffer"
     },
     {
+      "$ref": "#/$defs/pairingNonceReveal"
+    },
+    {
       "$ref": "#/$defs/pairingRequest"
     },
     {
@@ -105,7 +108,8 @@
       "properties": {
         "value": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -117,7 +121,8 @@
       "properties": {
         "value": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 9007199254740991
         }
       }
     },
@@ -200,7 +205,8 @@
     },
     "timeSpan": {
       "type": "string",
-      "pattern": "^(?:[0-9]+\\.)?[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,7})?$"
+      "pattern": "^00:0[0-5]:[0-9]{2}(?:\\.[0-9]{3}0000)?$",
+      "$comment": "A control lease duration: whole milliseconds, positive, at most five minutes (enforced by the C# boundary)."
     },
     "clientHello": {
       "type": "object",
@@ -464,7 +470,7 @@
         "attemptId",
         "desktopIdentityKey",
         "desktopEphemeralKey",
-        "desktopNonceBase64Url",
+        "desktopNonceCommitmentBase64Url",
         "offeredUtc",
         "expiresUtc"
       ],
@@ -478,8 +484,8 @@
         "desktopEphemeralKey": {
           "$ref": "#/$defs/ephemeralPublicKey"
         },
-        "desktopNonceBase64Url": {
-          "$ref": "#/$defs/nonceBase64Url"
+        "desktopNonceCommitmentBase64Url": {
+          "$ref": "#/$defs/sha256Base64Url"
         },
         "offeredUtc": {
           "$ref": "#/$defs/utc"
@@ -1217,7 +1223,7 @@
         "intentId",
         "correlationId",
         "captureSessionId",
-        "purpose",
+        "intent",
         "context"
       ],
       "properties": {
@@ -1233,8 +1239,8 @@
         "captureSessionId": {
           "$ref": "#/$defs/guidId"
         },
-        "purpose": {
-          "$ref": "#/$defs/capturePurpose"
+        "intent": {
+          "$ref": "#/$defs/pairedScanIntent"
         },
         "context": {
           "$ref": "#/$defs/captureContext"
@@ -1469,7 +1475,13 @@
           "$ref": "#/$defs/shortString"
         },
         "originDeepLink": {
-          "$ref": "#/$defs/nullableString1024"
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 512,
+          "pattern": "^tarkov-companion://[a-z][a-z0-9-]{0,31}(/(?!\\.{1,2}(/|$))[A-Za-z0-9._~-]{1,128}){1,4}$",
+          "$comment": "A companion deep link only; the desktop never passes it to the operating-system shell."
         },
         "focusToken": {
           "$ref": "#/$defs/nullableShortString"
@@ -1566,10 +1578,11 @@
       "required": [
         "kind",
         "scope",
-        "coordinate",
-        "label",
-        "color",
-        "expiresUtc"
+        "state",
+        "coordinateSpace",
+        "projectionVersion",
+        "height",
+        "color"
       ],
       "properties": {
         "kind": {
@@ -1587,25 +1600,29 @@
             "Team"
           ]
         },
-        "coordinate": {
-          "$ref": "#/$defs/mapCoordinate"
+        "state": {
+          "$ref": "#/$defs/mapMarkState"
         },
-        "label": {
-          "$ref": "#/$defs/nullableString1024"
+        "coordinateSpace": {
+          "enum": [
+            "World",
+            "Normalized"
+          ]
+        },
+        "projectionVersion": {
+          "$ref": "#/$defs/shortString"
+        },
+        "height": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -1000000,
+          "maximum": 1000000
         },
         "color": {
           "type": "string",
           "pattern": "^#[0-9A-F]{6}$"
-        },
-        "expiresUtc": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/utc"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       }
     },
@@ -1614,23 +1631,27 @@
       "required": [
         "markId",
         "revision",
+        "lastChangeId",
         "kind",
         "scope",
         "authorDeviceId",
-        "coordinate",
-        "label",
+        "state",
+        "coordinateSpace",
+        "projectionVersion",
+        "height",
         "color",
         "createdUtc",
-        "updatedUtc",
-        "expiresUtc"
+        "updatedUtc"
       ],
       "properties": {
         "markId": {
           "$ref": "#/$defs/guidId"
         },
         "revision": {
-          "type": "integer",
-          "minimum": 1
+          "$ref": "#/$defs/wireRevision"
+        },
+        "lastChangeId": {
+          "$ref": "#/$defs/guidId"
         },
         "kind": {
           "enum": [
@@ -1650,11 +1671,25 @@
         "authorDeviceId": {
           "$ref": "#/$defs/guidId"
         },
-        "coordinate": {
-          "$ref": "#/$defs/mapCoordinate"
+        "state": {
+          "$ref": "#/$defs/mapMarkState"
         },
-        "label": {
-          "$ref": "#/$defs/nullableString1024"
+        "coordinateSpace": {
+          "enum": [
+            "World",
+            "Normalized"
+          ]
+        },
+        "projectionVersion": {
+          "$ref": "#/$defs/shortString"
+        },
+        "height": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -1000000,
+          "maximum": 1000000
         },
         "color": {
           "type": "string",
@@ -1665,16 +1700,6 @@
         },
         "updatedUtc": {
           "$ref": "#/$defs/utc"
-        },
-        "expiresUtc": {
-          "oneOf": [
-            {
-              "$ref": "#/$defs/utc"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       }
     },
@@ -1856,18 +1881,6 @@
           }
         }
       }
-    },
-    "capturePurpose": {
-      "enum": [
-        "LootDecision",
-        "FullStash",
-        "Ammo",
-        "Keys",
-        "QuestAndFutureQuestItems",
-        "MapAndExtracts",
-        "HealthAndCharacter",
-        "AutoDetect"
-      ]
     },
     "captureProgressPhase": {
       "enum": [
@@ -2327,11 +2340,9 @@
         "intentId",
         "correlationId",
         "captureSessionId",
-        "purpose",
+        "state",
         "initiatingDeviceId",
         "initiatingSurface",
-        "requestedUtc",
-        "expiresUtc",
         "status",
         "context",
         "progress",
@@ -2350,8 +2361,8 @@
         "captureSessionId": {
           "$ref": "#/$defs/guidId"
         },
-        "purpose": {
-          "$ref": "#/$defs/capturePurpose"
+        "state": {
+          "$ref": "#/$defs/captureIntentState"
         },
         "initiatingDeviceId": {
           "$ref": "#/$defs/guidId"
@@ -2364,12 +2375,6 @@
             "NarrowPhone",
             "DesktopBrowser"
           ]
-        },
-        "requestedUtc": {
-          "$ref": "#/$defs/utc"
-        },
-        "expiresUtc": {
-          "$ref": "#/$defs/utc"
         },
         "status": {
           "enum": [
@@ -2455,6 +2460,8 @@
       "type": "object",
       "required": [
         "authorityEpoch",
+        "workspaceId",
+        "desktopInstanceId",
         "globalRevision",
         "desktopDeviceId",
         "deviceModes",
@@ -2465,6 +2472,12 @@
       "properties": {
         "authorityEpoch": {
           "$ref": "#/$defs/guidId"
+        },
+        "workspaceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "desktopInstanceId": {
+          "$ref": "#/$defs/shortString"
         },
         "globalRevision": {
           "$ref": "#/$defs/nonNegativeRevision"
@@ -2571,8 +2584,7 @@
                   "RejectedStale",
                   "RejectedConflict",
                   "RequiresPreview",
-                  "RequiresSnapshot",
-                  "RejectedCommandIdReuse"
+                  "RequiresSnapshot"
                 ]
               }
             }
@@ -2618,8 +2630,38 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "UnsupportedVersion",
+                  "RejectedExpired",
+                  "RejectedUnauthorized",
+                  "RejectedInvalidState",
+                  "RejectedCommandIdReuse"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "appliedRevision": {
+                "properties": {
+                  "value": {
+                    "const": 0
+                  }
+                }
+              },
+              "appliedChangeId": {
+                "type": "null"
+              }
+            }
+          }
         }
-      ]
+      ],
+      "$comment": "Only Applied names this command as the applied change. Stale, conflict, preview, and snapshot responses carry canonical state describing the aggregate cursor; every other rejection describes no revision (zero and null)."
     },
     "canonicalUpdate": {
       "oneOf": [
@@ -2645,6 +2687,8 @@
         "globalRevision",
         "changeId",
         "changedUtc",
+        "origin",
+        "contractVersion",
         "state"
       ],
       "properties": {
@@ -2662,6 +2706,12 @@
         },
         "changedUtc": {
           "$ref": "#/$defs/utc"
+        },
+        "origin": {
+          "$ref": "#/$defs/workspaceOrigin"
+        },
+        "contractVersion": {
+          "$ref": "#/$defs/v2ContractVersion"
         }
       }
     },
@@ -2904,8 +2954,9 @@
         },
         "ciphertextLength": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 65536
+          "minimum": 3,
+          "maximum": 65538,
+          "$comment": "u16(payload kind) followed by the 1-65536 byte JSON root."
         },
         "ciphertextChunksBase64Url": {
           "type": "array",
@@ -3156,6 +3207,157 @@
         },
         "message": {
           "$ref": "#/$defs/serverMessage"
+        }
+      }
+    },
+    "wireRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "pairingNonceReveal": {
+      "type": "object",
+      "required": [
+        "attemptId",
+        "desktopNonceBase64Url"
+      ],
+      "properties": {
+        "attemptId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "desktopNonceBase64Url": {
+          "$ref": "#/$defs/nonceBase64Url"
+        }
+      }
+    },
+    "v2ContractVersion": {
+      "type": "object",
+      "required": [
+        "major",
+        "minor"
+      ],
+      "$comment": "Core V2ContractVersion; its read-only isDefined member is written and ignored on read.",
+      "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        },
+        "isDefined": {
+          "const": true
+        }
+      }
+    },
+    "workspaceOrigin": {
+      "type": "object",
+      "required": [
+        "workspaceId",
+        "deviceId",
+        "kind",
+        "instanceId"
+      ],
+      "$comment": "Core WorkspaceOrigin: audit attribution, not authentication.",
+      "properties": {
+        "workspaceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "kind": {
+          "enum": [
+            "DesktopApplication",
+            "PairedDevice",
+            "User"
+          ]
+        },
+        "instanceId": {
+          "$ref": "#/$defs/shortString"
+        }
+      }
+    },
+    "pairedScanIntent": {
+      "$comment": "Core ScanIntent without Flea, which is never a paired capture intent.",
+      "enum": [
+        "Auto",
+        "Loot",
+        "Stash",
+        "Ammo",
+        "Keys",
+        "QuestItems",
+        "ExtractsAndMap",
+        "HealthAndCharacter"
+      ]
+    },
+    "captureIntentState": {
+      "type": "object",
+      "required": [
+        "intent",
+        "armedUtc",
+        "expiresUtc"
+      ],
+      "$comment": "Core CaptureIntentState; a paired intent always expires, at most two minutes after it was armed.",
+      "properties": {
+        "intent": {
+          "$ref": "#/$defs/pairedScanIntent"
+        },
+        "armedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "mapMarkState": {
+      "type": "object",
+      "required": [
+        "mapId",
+        "floorId",
+        "x",
+        "y",
+        "label",
+        "expiresUtc"
+      ],
+      "$comment": "Core MapMarkState: the user's own annotation in map plane coordinates, never a player position. Labels are at most 80 UTF-16 code units.",
+      "properties": {
+        "mapId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "floorId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "x": {
+          "type": "number",
+          "minimum": -1000000,
+          "maximum": 1000000
+        },
+        "y": {
+          "type": "number",
+          "minimum": -1000000,
+          "maximum": 1000000
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "expiresUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     }

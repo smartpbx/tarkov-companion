@@ -182,28 +182,31 @@ public static class ReconnectPlanner
     /// <summary>
     /// Replays only when the retained stream provably covers every device sequence and every global
     /// revision after the client's position, in order, without a coalesced marker, and within the
-    /// replay and payload bounds. Anything else is an authoritative snapshot.
+    /// replay and payload bounds. Anything else is an authoritative snapshot. Every plan is stamped
+    /// with the session's negotiated version, the only version the client is guaranteed to read.
     /// </summary>
     public static ReconnectPlanning Plan(
         CanonicalCompanionState canonical,
         ReconnectRequest request,
         DeliveryLedger ledger,
-        CompanionDeviceId deviceId)
+        CompanionDeviceId deviceId,
+        CompanionProtocolVersion negotiatedVersion)
     {
         ArgumentNullException.ThrowIfNull(canonical);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(ledger);
+        var version = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
         var lastAssigned = ledger.For(deviceId)?.LastAssigned ?? new DeliverySequence(0);
-        if (!CompanionProtocolVersion.Current.CanRead(request.ProtocolVersion))
+        if (!CompanionProtocolVersion.Current.CanRead(request.ProtocolVersion) || request.ProtocolVersion != version)
         {
             return new ReconnectPlanning(
                 new ReconnectPlan(
-                    CompanionProtocolVersion.Current,
+                    version,
                     ReconnectDisposition.UnsupportedVersion,
                     [],
                     null,
                     request.LastDeliverySequence,
-                    "unsupported-version"),
+                    CompanionProtocolVersion.Current.CanRead(request.ProtocolVersion) ? "version-not-negotiated" : "unsupported-version"),
                 ledger);
         }
 
@@ -212,7 +215,7 @@ public static class ReconnectPlanner
             request.LastDeliverySequence.Value > lastAssigned.Value ||
             !AggregateAcknowledgement.AgreeWith(canonical, request.AggregateAcknowledgements))
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, "authority-or-cursor-mismatch");
+            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "authority-or-cursor-mismatch");
         }
 
         if (request.LastDeliverySequence == lastAssigned)
@@ -220,14 +223,14 @@ public static class ReconnectPlanner
             return request.LastGlobalRevision == canonical.GlobalRevision
                 ? new ReconnectPlanning(
                     new ReconnectPlan(
-                        CompanionProtocolVersion.Current,
+                        version,
                         ReconnectDisposition.UpToDate,
                         [],
                         null,
                         lastAssigned,
                         "already-current"),
                     ledger.Acknowledge(deviceId, lastAssigned))
-                : Snapshot(canonical, ledger, deviceId, lastAssigned, "revision-not-in-delivery-stream");
+                : Snapshot(canonical, ledger, deviceId, lastAssigned, version, "revision-not-in-delivery-stream");
         }
 
         var retained = ledger.PendingFor(deviceId)
@@ -238,7 +241,7 @@ public static class ReconnectPlanner
             retained.LongLength != expectedCount ||
             retained.Any(item => item.SnapshotRequired))
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, "delivery-history-unavailable");
+            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "delivery-history-unavailable");
         }
 
         var nextSequence = request.LastDeliverySequence.Value + 1;
@@ -247,7 +250,7 @@ public static class ReconnectPlanner
         {
             if (item.Sequence.Value != nextSequence)
             {
-                return Snapshot(canonical, ledger, deviceId, lastAssigned, "delivery-sequence-gap");
+                return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "delivery-sequence-gap");
             }
 
             nextSequence++;
@@ -255,7 +258,7 @@ public static class ReconnectPlanner
             {
                 if (update.AuthorityEpoch != canonical.AuthorityEpoch || update.GlobalRevision.Value != nextGlobal)
                 {
-                    return Snapshot(canonical, ledger, deviceId, lastAssigned, "global-revision-gap");
+                    return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "global-revision-gap");
                 }
 
                 nextGlobal++;
@@ -264,11 +267,11 @@ public static class ReconnectPlanner
 
         if (nextGlobal - 1 != canonical.GlobalRevision.Value)
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, "global-revision-gap");
+            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "global-revision-gap");
         }
 
         var plan = new ReconnectPlan(
-            CompanionProtocolVersion.Current,
+            version,
             ReconnectDisposition.Replay,
             retained.Select(item => new DeliveredServerMessage(item.Sequence, item.EnqueuedUtc, item.Message!)).ToArray(),
             null,
@@ -280,7 +283,7 @@ public static class ReconnectPlanner
         }
         catch (JsonException)
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, "replay-exceeds-payload-bound");
+            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "replay-exceeds-payload-bound");
         }
 
         return new ReconnectPlanning(plan, ledger.Acknowledge(deviceId, lastAssigned));
@@ -291,10 +294,11 @@ public static class ReconnectPlanner
         DeliveryLedger ledger,
         CompanionDeviceId deviceId,
         DeliverySequence lastAssigned,
+        CompanionProtocolVersion version,
         string reason) =>
         new(
             new ReconnectPlan(
-                CompanionProtocolVersion.Current,
+                version,
                 ReconnectDisposition.FullSnapshot,
                 [],
                 canonical,

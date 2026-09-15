@@ -114,7 +114,7 @@ public sealed record RequestCaptureIntentOfflineAction : OfflineAction
         CaptureIntentId intentId,
         string correlationId,
         CaptureSessionId captureSessionId,
-        ContextualCapturePurpose purpose,
+        ScanIntent intent,
         CompanionCaptureContext context)
         : base(actionId, queuedUtc, expiresUtc)
     {
@@ -123,7 +123,7 @@ public sealed record RequestCaptureIntentOfflineAction : OfflineAction
         CaptureSessionId = captureSessionId.Value == Guid.Empty
             ? throw new ArgumentException("A capture session id is required.", nameof(captureSessionId))
             : captureSessionId;
-        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        Intent = PairedScanIntents.Require(intent, nameof(intent));
         Context = ProtocolGuard.NotNull(context, nameof(context));
     }
 
@@ -133,7 +133,7 @@ public sealed record RequestCaptureIntentOfflineAction : OfflineAction
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    public ContextualCapturePurpose Purpose { get; }
+    public ScanIntent Intent { get; }
 
     public CompanionCaptureContext Context { get; }
 
@@ -148,7 +148,7 @@ public sealed record RequestCaptureIntentOfflineAction : OfflineAction
             IntentId,
             CorrelationId,
             CaptureSessionId,
-            Purpose,
+            Intent,
             Context,
             preview);
 }

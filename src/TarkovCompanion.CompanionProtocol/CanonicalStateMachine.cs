@@ -15,6 +15,7 @@ public sealed record AuthenticatedCommandContext
         CompanionDeviceId deviceId,
         DeviceSessionId sessionId,
         DeviceKeyId deviceKeyId,
+        string instanceId,
         CompanionProtocolVersion negotiatedVersion,
         CompanionSurfaceKind surface,
         IReadOnlyList<DeviceCapability> capabilities,
@@ -30,6 +31,7 @@ public sealed record AuthenticatedCommandContext
         DeviceKeyId = string.IsNullOrWhiteSpace(deviceKeyId.Value)
             ? throw new ArgumentException("An authenticated device key is required.", nameof(deviceKeyId))
             : deviceKeyId;
+        InstanceId = ProtocolGuard.Required(instanceId, nameof(instanceId), ProtocolBounds.MaxShortStringBytes);
         NegotiatedVersion = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
         Surface = ProtocolGuard.Defined(surface, nameof(surface));
         Capabilities = ProtocolGuard.List(
@@ -46,6 +48,13 @@ public sealed record AuthenticatedCommandContext
 
     public DeviceKeyId DeviceKeyId { get; }
 
+    /// <summary>
+    /// The application instance that sent the command: the desktop instance, or the
+    /// <see cref="ClientHello.ClientInstanceId"/> of the connection that carries this session. It is
+    /// v2 audit attribution, never authentication.
+    /// </summary>
+    public string InstanceId { get; }
+
     public CompanionProtocolVersion NegotiatedVersion { get; }
 
     public CompanionSurfaceKind Surface { get; }
@@ -59,12 +68,14 @@ public sealed record AuthenticatedCommandContext
     public bool Has(DeviceCapability capability) => IsDesktop || Capabilities.Contains(capability);
 
     /// <summary>
-    /// Builds a paired-device context only from a live, key-bound session record. Capabilities are
-    /// the intersection of the device grant and the session grant.
+    /// Builds a paired-device context only from a live, key-bound session record whose frame was
+    /// authenticated with that session's traffic keys. Capabilities are the intersection of the
+    /// device grant and the session grant.
     /// </summary>
     public static AuthenticatedCommandContext ForPairedSession(
         PairedDevice device,
         DeviceSession session,
+        string clientInstanceId,
         DateTimeOffset receivedUtc)
     {
         ArgumentNullException.ThrowIfNull(device);
@@ -78,6 +89,7 @@ public sealed record AuthenticatedCommandContext
             device.DeviceId,
             session.SessionId,
             session.DeviceKeyId,
+            clientInstanceId,
             session.ProtocolVersion,
             session.Surface,
             session.Capabilities.Intersect(device.Capabilities).ToArray(),
@@ -151,7 +163,10 @@ public static class DesktopCanonicalStateMachine
     /// A lease or pending request whose session or device is no longer live returns that device to
     /// Follow even if the transport never reported the disconnect; a terminated device leaves the
     /// mode table. Synthetic change ids derive from the prior state and instant, so replaying
-    /// maintenance is deterministic.
+    /// maintenance is deterministic. Maintenance never adds a mark, device, or capture; it only
+    /// removes entries or rewrites a status, mode, cursor, or timestamp in place, which
+    /// <see cref="ProtocolBounds.MaintenanceReserveBytes"/> of committed headroom always absorbs, so
+    /// maintained state stays deliverable without a rejection path.
     /// </summary>
     public static MaintenanceReduction ApplyMaintenance(
         CanonicalCompanionState state,
@@ -219,7 +234,14 @@ public static class DesktopCanonicalStateMachine
                 liveMarks);
             var global = current.GlobalRevision.Next();
             current = current.With(global, marks: aggregate);
-            updates.Add(new MarksCanonicalUpdate(current.AuthorityEpoch, global, change, now, aggregate));
+            updates.Add(new MarksCanonicalUpdate(
+                current.AuthorityEpoch,
+                global,
+                change,
+                now,
+                DesktopOrigin(current),
+                V2ContractVersion.Current,
+                aggregate));
         }
 
         if (current.CaptureIntent.ActiveIntent is { } capture &&
@@ -233,7 +255,14 @@ public static class DesktopCanonicalStateMachine
                 expired);
             var global = current.GlobalRevision.Next();
             current = current.With(global, captureIntent: aggregate);
-            updates.Add(new CaptureCanonicalUpdate(current.AuthorityEpoch, global, change, now, aggregate));
+            updates.Add(new CaptureCanonicalUpdate(
+                current.AuthorityEpoch,
+                global,
+                change,
+                now,
+                DesktopOrigin(current),
+                V2ContractVersion.Current,
+                aggregate));
         }
 
         current = current.With(current.GlobalRevision, recentCommands: RetainReceipts(current, current.RecentCommands, now));
@@ -332,10 +361,16 @@ public static class DesktopCanonicalStateMachine
             return Reject(state, command, CommandDisposition.RejectedUnauthorized, "authenticated-session-mismatch");
         }
 
-        if (!CompanionProtocolVersion.Current.CanRead(envelope.ProtocolVersion) ||
-            envelope.ProtocolVersion != context.NegotiatedVersion)
+        if (!CompanionProtocolVersion.Current.CanRead(envelope.ProtocolVersion))
         {
-            return Reject(state, command, CommandDisposition.UnsupportedVersion, "version-not-negotiated");
+            return Reject(state, command, CommandDisposition.UnsupportedVersion, "protocol-version-unreadable");
+        }
+
+        // A readable version this session did not negotiate is a peer bug, not version skew: the
+        // v2 unsupported-version rule applies only when the receiver cannot read the change.
+        if (envelope.ProtocolVersion != context.NegotiatedVersion)
+        {
+            return Reject(state, command, CommandDisposition.RejectedInvalidState, "version-not-negotiated");
         }
 
         var fingerprint = CanonicalCommandFingerprint.Compute(command);
@@ -348,9 +383,18 @@ public static class DesktopCanonicalStateMachine
                 return Reject(state, command, CommandDisposition.RejectedCommandIdReuse, "command-id-reused");
             }
 
+            // The retry may carry a refreshed revision, lifetime, or preview; the action it names
+            // landed at the receipt's revision, which is what the acknowledgement reports.
             return new CommandReduction(
                 state,
-                Acknowledge(state, command, CommandDisposition.Applied, "duplicate-command", receipt.AppliedRevision, command.CommandId),
+                Acknowledge(
+                    state,
+                    command,
+                    CommandDisposition.Applied,
+                    "duplicate-command",
+                    receipt.AppliedRevision,
+                    receipt.AppliedRevision,
+                    command.CommandId),
                 null);
         }
 
@@ -460,9 +504,25 @@ public static class DesktopCanonicalStateMachine
     {
         var context = scope.Context;
         var modes = scope.State.DeviceModes;
-        if (context.IsDesktop || modes.PendingControl is not null || modes.ControlLease?.DeviceId == context.DeviceId)
+
+        // An expired request or lease that maintenance has not yet collected is already absent: it
+        // must not block a new request, and an expired lease of the requester is not control.
+        var livePending = modes.PendingControl is { } current && current.ExpiresUtc > scope.Now ? current : null;
+        var liveLease = modes.ControlLease is { } held && held.ExpiresUtc > scope.Now ? held : null;
+        if (context.IsDesktop || livePending is not null || liveLease?.DeviceId == context.DeviceId)
         {
             return Reject(scope, CommandDisposition.RejectedInvalidState, "control-request-not-available");
+        }
+
+        var devices = modes.Devices;
+        if (modes.PendingControl is { } expiredPending && livePending is null)
+        {
+            devices = SetMode(devices, expiredPending.DeviceId, CompanionInteractionMode.Follow, scope.Now);
+        }
+
+        if (modes.ControlLease is { } expiredLease && liveLease is null)
+        {
+            devices = SetMode(devices, expiredLease.DeviceId, CompanionInteractionMode.Follow, scope.Now);
         }
 
         var pending = new PendingControlRequest(
@@ -474,9 +534,9 @@ public static class DesktopCanonicalStateMachine
             command.RequestedLease);
         return CommitModes(
             scope,
-            SetMode(modes.Devices, context.DeviceId, CompanionInteractionMode.ControlPending, scope.Now),
+            SetMode(devices, context.DeviceId, CompanionInteractionMode.ControlPending, scope.Now),
             pending,
-            modes.ControlLease,
+            liveLease,
             "desktop-approval-required");
     }
 
@@ -600,7 +660,7 @@ public static class DesktopCanonicalStateMachine
                 return Reject(scope, CommandDisposition.RejectedInvalidState, "mark-bound-reached");
             }
 
-            next = CreateMark(command.MarkId, 1, command.Mark, context.DeviceId, scope.Now);
+            next = CreateMark(command.MarkId, 1, command.Mark, context.DeviceId, scope.Now, scope.Command.CommandId);
             marks.Add(next);
         }
         else
@@ -618,10 +678,11 @@ public static class DesktopCanonicalStateMachine
 
             next = CreateMark(
                 current.MarkId,
-                checked(current.Revision + 1),
+                current.Revision + 1,
                 command.Mark,
                 current.AuthorDeviceId,
                 scope.Now,
+                scope.Command.CommandId,
                 current.CreatedUtc);
             marks[index] = next;
         }
@@ -674,11 +735,9 @@ public static class DesktopCanonicalStateMachine
             command.IntentId,
             command.CorrelationId,
             command.CaptureSessionId,
-            command.Purpose,
+            new CaptureIntentState(command.Intent, scope.Now, expires),
             context.DeviceId,
             context.Surface,
-            scope.Now,
-            expires,
             ContextualCaptureStatus.Armed,
             command.Context,
             [
@@ -714,8 +773,13 @@ public static class DesktopCanonicalStateMachine
             command.ArtifactId,
             command.CaptureOrdinal,
             command.Detail)).ToArray();
+        var perCapture = command.CaptureOrdinal is not null;
         var status = command.Phase switch
         {
+            // A cancelled or failed artifact ends only that capture: the session stays open for the
+            // user's next visible capture, or keeps its published result awaiting review.
+            ContextualCaptureProgressPhase.Cancelled or ContextualCaptureProgressPhase.Failed when perCapture =>
+                current.Result is not null ? current.Status : ContextualCaptureStatus.AwaitingUserCapture,
             ContextualCaptureProgressPhase.Cancelled => ContextualCaptureStatus.Cancelled,
             ContextualCaptureProgressPhase.Failed => ContextualCaptureStatus.Failed,
 
@@ -751,6 +815,11 @@ public static class DesktopCanonicalStateMachine
         if (correlated is null)
         {
             return Reject(scope, CommandDisposition.RejectedInvalidState, "result-artifact-not-correlated");
+        }
+
+        if (correlated.Phase is ContextualCaptureProgressPhase.Cancelled or ContextualCaptureProgressPhase.Failed)
+        {
+            return Reject(scope, CommandDisposition.RejectedInvalidState, "result-artifact-ended");
         }
 
         var progress = current.Progress.Append(new ContextualCaptureProgress(
@@ -923,13 +992,15 @@ public static class DesktopCanonicalStateMachine
         MapMarkDraft draft,
         CompanionDeviceId author,
         DateTimeOffset now,
+        CommandId changeId,
         DateTimeOffset? created = null)
     {
         // A ping's lifetime runs from its creation, so editing it can never extend it past 45 seconds.
         var createdUtc = created ?? now;
+        var requested = draft.State;
         var expires = draft.Kind == MapMarkKind.Ping
-            ? draft.ExpiresUtc ?? createdUtc.Add(ProtocolBounds.PingLifetime)
-            : draft.ExpiresUtc;
+            ? requested.ExpiresUtc ?? createdUtc.Add(ProtocolBounds.PingLifetime)
+            : requested.ExpiresUtc;
         if (expires <= now ||
             (draft.Kind == MapMarkKind.Ping && expires - createdUtc > ProtocolBounds.PingLifetime))
         {
@@ -939,15 +1010,17 @@ public static class DesktopCanonicalStateMachine
         return new MapMark(
             id,
             revision,
+            changeId,
             draft.Kind,
             draft.Scope,
             author,
-            draft.Coordinate,
-            draft.Label,
+            new MapMarkState(requested.MapId, requested.FloorId, requested.X, requested.Y, requested.Label, expires),
+            draft.CoordinateSpace,
+            draft.ProjectionVersion,
+            draft.Height,
             draft.Color,
             createdUtc,
-            now,
-            expires);
+            now);
     }
 
     private static ContextualCaptureIntent RequireCapture(
@@ -982,11 +1055,9 @@ public static class DesktopCanonicalStateMachine
             current.IntentId,
             current.CorrelationId,
             current.CaptureSessionId,
-            current.Purpose,
+            current.State,
             current.InitiatingDeviceId,
             current.InitiatingSurface,
-            current.RequestedUtc,
-            current.ExpiresUtc,
             status ?? current.Status,
             current.Context,
             progress ?? current.Progress,
@@ -1053,25 +1124,31 @@ public static class DesktopCanonicalStateMachine
         var state = scope.State;
         var command = scope.Command;
         var global = state.GlobalRevision.Next();
+        var origin = new WorkspaceOrigin(
+            state.WorkspaceId,
+            scope.Context.DeviceId,
+            scope.Context.IsDesktop ? WorkspaceOriginKind.DesktopApplication : WorkspaceOriginKind.PairedDevice,
+            scope.Context.InstanceId);
+        var contract = V2ContractVersion.Current;
         CanonicalCompanionState staged;
         CanonicalUpdate update;
         switch (aggregate)
         {
             case DeviceModeAggregate modes:
                 staged = state.With(global, deviceModes: modes);
-                update = new DeviceModeCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, modes);
+                update = new DeviceModeCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, modes);
                 break;
             case WorkspaceAggregate workspace:
                 staged = state.With(global, workspace: workspace);
-                update = new WorkspaceCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, workspace);
+                update = new WorkspaceCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, workspace);
                 break;
             case MarkAggregate marks:
                 staged = state.With(global, marks: marks);
-                update = new MarksCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, marks);
+                update = new MarksCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, marks);
                 break;
             case CaptureIntentAggregate capture:
                 staged = state.With(global, captureIntent: capture);
-                update = new CaptureCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, capture);
+                update = new CaptureCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, capture);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(aggregate));
@@ -1091,7 +1168,7 @@ public static class DesktopCanonicalStateMachine
         var next = staged.With(global, recentCommands: receipts);
         return new CommandReduction(
             next,
-            Acknowledge(next, command, CommandDisposition.Applied, code, command.RequestedRevision, command.CommandId),
+            Acknowledge(next, command, CommandDisposition.Applied, code, command.RequestedRevision, command.RequestedRevision, command.CommandId),
             update);
     }
 
@@ -1132,6 +1209,11 @@ public static class DesktopCanonicalStateMachine
     private static CommandReduction Reject(Scope scope, CommandDisposition disposition, string code) =>
         Reject(scope.State, scope.Command, disposition, code);
 
+    /// <summary>
+    /// A rejection that carries canonical state describes the aggregate cursor it holds; any other
+    /// rejection describes no revision (zero and no change id), so no rejection can be read as naming
+    /// the rejected command, or a reused identifier's original change, as the applied change.
+    /// </summary>
     private static CommandReduction Reject(
         CanonicalCompanionState state,
         CompanionCommand command,
@@ -1139,17 +1221,25 @@ public static class DesktopCanonicalStateMachine
         string code)
     {
         var cursor = state.Cursor(command.Aggregate);
-        if (cursor.LastChangeId == command.CommandId && disposition != CommandDisposition.RejectedCommandIdReuse)
+        if (CommandAcknowledgement.RequiresCanonicalState(disposition) && cursor.LastChangeId == command.CommandId)
         {
-            // Only identifier reuse can reach a rejection while the aggregate's current change carries
-            // this id, because that change's exact retry is always a retained duplicate.
+            // Unreachable: the change occupying a cursor always keeps its receipt, so its id reaches
+            // the duplicate or reuse check first. Kept so the typed rejection can never throw.
             disposition = CommandDisposition.RejectedCommandIdReuse;
             code = "command-id-reused";
         }
 
+        var carriesState = CommandAcknowledgement.RequiresCanonicalState(disposition);
         return new CommandReduction(
             state,
-            Acknowledge(state, command, disposition, code, cursor.Revision, cursor.LastChangeId),
+            Acknowledge(
+                state,
+                command,
+                disposition,
+                code,
+                command.RequestedRevision,
+                carriesState ? cursor.Revision : new AggregateRevision(0),
+                carriesState ? cursor.LastChangeId : null),
             null);
     }
 
@@ -1158,12 +1248,13 @@ public static class DesktopCanonicalStateMachine
         CompanionCommand command,
         CommandDisposition disposition,
         string code,
+        AggregateRevision requestedRevision,
         AggregateRevision appliedRevision,
         CommandId? appliedChangeId) =>
         new(
             command.CommandId,
             command.Aggregate,
-            command.RequestedRevision,
+            requestedRevision,
             appliedRevision,
             appliedChangeId,
             state.GlobalRevision,
@@ -1190,7 +1281,14 @@ public static class DesktopCanonicalStateMachine
         var next = state.With(global, deviceModes: aggregate);
         return new MaintenanceReduction(
             next,
-            [new DeviceModeCanonicalUpdate(state.AuthorityEpoch, global, change, changedUtc, aggregate)]);
+            [new DeviceModeCanonicalUpdate(
+                state.AuthorityEpoch,
+                global,
+                change,
+                changedUtc,
+                DesktopOrigin(state),
+                V2ContractVersion.Current,
+                aggregate)]);
     }
 
     private static CommandId SyntheticId(
@@ -1203,6 +1301,9 @@ public static class DesktopCanonicalStateMachine
             $"{state.AuthorityEpoch.Value:D}|{state.GlobalRevision.Value}|{aggregate}|{now.ToUnixTimeMilliseconds()}|{reason}");
         return new CommandId(ProtocolGuard.UuidVersion8(SHA256.HashData(material)));
     }
+
+    private static WorkspaceOrigin DesktopOrigin(CanonicalCompanionState state) =>
+        new(state.WorkspaceId, state.DesktopDeviceId, WorkspaceOriginKind.DesktopApplication, state.DesktopInstanceId);
 
     private sealed record Scope(
         CanonicalCompanionState State,

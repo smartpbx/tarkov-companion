@@ -3,16 +3,16 @@ using TarkovCompanion.Core.Domain.Evidence;
 
 namespace TarkovCompanion.CompanionProtocol;
 
-public enum ContextualCapturePurpose
+/// <summary>The paired capture intents: the frozen #264 <see cref="ScanIntent"/> set without flea recognition.</summary>
+public static class PairedScanIntents
 {
-    LootDecision = 1,
-    FullStash,
-    Ammo,
-    Keys,
-    QuestAndFutureQuestItems,
-    MapAndExtracts,
-    HealthAndCharacter,
-    AutoDetect,
+    public static IReadOnlyList<ScanIntent> Allowed { get; } =
+        Enum.GetValues<ScanIntent>().Where(intent => intent != ScanIntent.Flea).ToArray();
+
+    internal static ScanIntent Require(ScanIntent intent, string parameterName) =>
+        Enum.IsDefined(intent) && intent != ScanIntent.Flea
+            ? intent
+            : throw new ArgumentOutOfRangeException(parameterName, intent, "Flea recognition is not a paired-device capture intent.");
 }
 
 public enum ContextualCaptureStatus
@@ -277,11 +277,9 @@ public sealed record ContextualCaptureIntent
         CaptureIntentId intentId,
         string correlationId,
         CaptureSessionId captureSessionId,
-        ContextualCapturePurpose purpose,
+        CaptureIntentState state,
         CompanionDeviceId initiatingDeviceId,
         CompanionSurfaceKind initiatingSurface,
-        DateTimeOffset requestedUtc,
-        DateTimeOffset expiresUtc,
         ContextualCaptureStatus status,
         CompanionCaptureContext context,
         IReadOnlyList<ContextualCaptureProgress> progress,
@@ -295,13 +293,19 @@ public sealed record ContextualCaptureIntent
         CaptureSessionId = captureSessionId.Value == Guid.Empty
             ? throw new ArgumentException("A capture session id is required.", nameof(captureSessionId))
             : captureSessionId;
-        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        State = ProtocolGuard.NotNull(state, nameof(state));
+        PairedScanIntents.Require(State.Intent, nameof(state));
+        ProtocolGuard.Utc(State.ArmedUtc, nameof(state));
+        if (State.ExpiresUtc is not { } expires)
+        {
+            throw new ArgumentException("A paired capture intent always expires.", nameof(state));
+        }
+
+        ProtocolGuard.Utc(expires, nameof(state));
         InitiatingDeviceId = initiatingDeviceId.Value == Guid.Empty
             ? throw new ArgumentException("An initiating device is required.", nameof(initiatingDeviceId))
             : initiatingDeviceId;
         InitiatingSurface = ProtocolGuard.Defined(initiatingSurface, nameof(initiatingSurface));
-        RequestedUtc = ProtocolGuard.Utc(requestedUtc, nameof(requestedUtc));
-        ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         Status = ProtocolGuard.Defined(status, nameof(status));
         Context = ProtocolGuard.NotNull(context, nameof(context));
         Progress = ProtocolGuard.List(progress, nameof(progress));
@@ -312,7 +316,7 @@ public sealed record ContextualCaptureIntent
 
         if (ExpiresUtc <= RequestedUtc || ExpiresUtc - RequestedUtc > ProtocolBounds.CaptureIntentLifetime)
         {
-            throw new ArgumentOutOfRangeException(nameof(expiresUtc), "A contextual capture intent is short lived.");
+            throw new ArgumentOutOfRangeException(nameof(state), "A contextual capture intent is short lived.");
         }
 
         ValidateProgress();
@@ -325,15 +329,12 @@ public sealed record ContextualCaptureIntent
 
     public CaptureSessionId CaptureSessionId { get; }
 
-    public ContextualCapturePurpose Purpose { get; }
+    /// <summary>The Core v2 capture intent: the scan intent, armed time, and expiry.</summary>
+    public CaptureIntentState State { get; }
 
     public CompanionDeviceId InitiatingDeviceId { get; }
 
     public CompanionSurfaceKind InitiatingSurface { get; }
-
-    public DateTimeOffset RequestedUtc { get; }
-
-    public DateTimeOffset ExpiresUtc { get; }
 
     public ContextualCaptureStatus Status { get; }
 
@@ -350,18 +351,13 @@ public sealed record ContextualCaptureIntent
     public IReadOnlyList<ContextualCaptureCorrection> Corrections { get; }
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public ScanIntent CoreIntent => Purpose switch
-    {
-        ContextualCapturePurpose.LootDecision => ScanIntent.Loot,
-        ContextualCapturePurpose.FullStash => ScanIntent.Stash,
-        ContextualCapturePurpose.Ammo => ScanIntent.Ammo,
-        ContextualCapturePurpose.Keys => ScanIntent.Keys,
-        ContextualCapturePurpose.QuestAndFutureQuestItems => ScanIntent.QuestItems,
-        ContextualCapturePurpose.MapAndExtracts => ScanIntent.ExtractsAndMap,
-        ContextualCapturePurpose.HealthAndCharacter => ScanIntent.HealthAndCharacter,
-        ContextualCapturePurpose.AutoDetect => ScanIntent.Auto,
-        _ => throw new InvalidOperationException("Unsupported capture purpose."),
-    };
+    public ScanIntent Intent => State.Intent;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTimeOffset RequestedUtc => State.ArmedUtc;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DateTimeOffset ExpiresUtc => State.ExpiresUtc!.Value;
 
     private void ValidateProgress()
     {

@@ -21,6 +21,26 @@ public static class ProtocolBounds
     /// </summary>
     public const int MaxRelayFrameBytes = 96 * 1024;
 
+    /// <summary>
+    /// Plaintext inside a relay frame: a two-byte payload kind followed by one JSON root of at most
+    /// <see cref="MaxPayloadBytes"/>.
+    /// </summary>
+    public const int MaxRelayPlaintextBytes = MaxPayloadBytes + 2;
+
+    /// <summary>The smallest relay plaintext: a payload kind and a one-byte JSON root.</summary>
+    public const int MinRelayPlaintextBytes = 3;
+
+    /// <summary>
+    /// Headroom a committed state keeps below <see cref="MaxPayloadBytes"/> so server-time maintenance,
+    /// which can lengthen a status or timestamp by a few bytes, never produces undeliverable state.
+    /// </summary>
+    public const int MaintenanceReserveBytes = 2 * 1024;
+
+    /// <summary>2^53-1: every integer on the wire stays exactly representable as a JavaScript number.</summary>
+    public const long MaxWireInteger = 9_007_199_254_740_991;
+
+    public const int MaxDeepLinkBytes = 512;
+    public const int PairingCodeCharacters = 10;
     public const int MaxStringBytes = 1024;
     public const int MaxShortStringBytes = 128;
     public const int MaxCollectionItems = 256;
@@ -73,6 +93,19 @@ public static class ProtocolBounds
 
 internal static class ProtocolGuard
 {
+    private static readonly System.Text.RegularExpressions.Regex DeepLinkPattern = new(
+        "\\Atarkov-companion://[a-z][a-z0-9-]{0,31}(/(?!\\.{1,2}(/|\\z))[A-Za-z0-9._~-]{1,128}){1,4}\\z",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(100));
+
+    private static readonly System.Numerics.BigInteger P256Prime = System.Numerics.BigInteger.Parse(
+        "115792089210356248762697446949407573530086143415290314195533631308867097853951",
+        System.Globalization.CultureInfo.InvariantCulture);
+
+    private static readonly System.Numerics.BigInteger P256B = System.Numerics.BigInteger.Parse(
+        "41058363725152142129326129780047268409114441015993725554835256314039467401291",
+        System.Globalization.CultureInfo.InvariantCulture);
+
     // DER SubjectPublicKeyInfo header for id-ecPublicKey with prime256v1, followed by an
     // uncompressed point marker. WebCrypto exportKey("spki") and .NET ExportSubjectPublicKeyInfo
     // both produce exactly this prefix for ECDH and ECDSA P-256 keys.
@@ -150,6 +183,38 @@ internal static class ProtocolGuard
     public static long NonNegative(long value, string parameterName) =>
         value >= 0 ? value : throw new ArgumentOutOfRangeException(parameterName);
 
+    public static long WireInteger(long value, string parameterName) =>
+        value is >= 0 and <= ProtocolBounds.MaxWireInteger
+            ? value
+            : throw new ArgumentOutOfRangeException(parameterName, "Wire integers stay between 0 and 2^53-1.");
+
+    public static TimeSpan LeaseDuration(TimeSpan value, string parameterName) =>
+        value > TimeSpan.Zero &&
+        value <= ProtocolBounds.MaximumControlLeaseLifetime &&
+        value.Ticks % TimeSpan.TicksPerMillisecond == 0
+            ? value
+            : throw new ArgumentOutOfRangeException(parameterName, "A control lease is a whole number of milliseconds up to five minutes.");
+
+    /// <summary>
+    /// Accepts only <c>tarkov-companion://kind/segment[/segment...]</c> with unreserved characters and
+    /// no dot segments, so a hostile tablet cannot place a shell, file, or web URI, or a traversal, in
+    /// desktop focus state. The desktop routes it internally and never hands it to the OS shell.
+    /// </summary>
+    public static string? DeepLink(string? value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (value.Length > ProtocolBounds.MaxDeepLinkBytes || !DeepLinkPattern.IsMatch(value))
+        {
+            throw new ArgumentException("A deep link is tarkov-companion://kind/segment with unreserved characters.", parameterName);
+        }
+
+        return value;
+    }
+
     public static long Positive(long value, string parameterName) =>
         value > 0 ? value : throw new ArgumentOutOfRangeException(parameterName);
 
@@ -190,12 +255,33 @@ internal static class ProtocolGuard
             value,
             parameterName,
             exactDecodedBytes: ProtocolBounds.P256SubjectPublicKeyInfoBytes);
-        if (!bytes.AsSpan(0, P256SubjectPublicKeyInfoPrefix.Length).SequenceEqual(P256SubjectPublicKeyInfoPrefix))
+        if (!bytes.AsSpan(0, P256SubjectPublicKeyInfoPrefix.Length).SequenceEqual(P256SubjectPublicKeyInfoPrefix) ||
+            !IsOnP256(bytes.AsSpan(27, 32), bytes.AsSpan(59, 32)))
         {
-            throw new ArgumentException("Expected an uncompressed P-256 SubjectPublicKeyInfo.", parameterName);
+            throw new ArgumentException("Expected an uncompressed P-256 SubjectPublicKeyInfo whose point is on the curve.", parameterName);
         }
 
         return bytes;
+    }
+
+    /// <summary>True when the affine point satisfies y^2 = x^3 - 3x + b over the P-256 prime field.</summary>
+    public static bool IsOnP256(ReadOnlySpan<byte> x, ReadOnlySpan<byte> y)
+    {
+        var px = new System.Numerics.BigInteger(x, isUnsigned: true, isBigEndian: true);
+        var py = new System.Numerics.BigInteger(y, isUnsigned: true, isBigEndian: true);
+        if (px >= P256Prime || py >= P256Prime)
+        {
+            return false;
+        }
+
+        var left = System.Numerics.BigInteger.ModPow(py, 2, P256Prime);
+        var right = (System.Numerics.BigInteger.ModPow(px, 3, P256Prime) - (3 * px) + P256B) % P256Prime;
+        if (right.Sign < 0)
+        {
+            right += P256Prime;
+        }
+
+        return left == right;
     }
 
     public static string Thumbprint(ReadOnlySpan<byte> publicKeyBytes) =>
