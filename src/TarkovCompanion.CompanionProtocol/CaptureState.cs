@@ -361,7 +361,7 @@ public sealed record ContextualCaptureIntent
 
     private void ValidateProgress()
     {
-        var captures = new List<(string ArtifactId, ContextualCaptureProgressPhase Phase)>();
+        var captures = new List<(string ArtifactId, ContextualCaptureProgressPhase Phase, DateTimeOffset ChangedUtc)>();
         for (var index = 0; index < Progress.Count; index++)
         {
             var item = Progress[index];
@@ -392,7 +392,7 @@ public sealed record ContextualCaptureIntent
                     throw new ArgumentException("An artifact belongs to one capture ordinal.", nameof(Progress));
                 }
 
-                captures.Add((item.ArtifactId!, item.Phase));
+                captures.Add((item.ArtifactId!, item.Phase, item.ChangedUtc));
                 continue;
             }
 
@@ -407,12 +407,15 @@ public sealed record ContextualCaptureIntent
                 throw new ArgumentException("A capture artifact moves forward once and cannot be rebound.", nameof(Progress));
             }
 
-            captures[ordinal] = (previous.ArtifactId, item.Phase);
+            captures[ordinal] = (previous.ArtifactId, item.Phase, item.ChangedUtc);
         }
 
-        if (Result is not null && Result.CompletedUtc > ExpiresUtc)
+        if (Result is not null &&
+            (Result.CompletedUtc < RequestedUtc ||
+             Result.CompletedUtc > ExpiresUtc ||
+             Result.Provenance.ObservedUtc > Result.CompletedUtc))
         {
-            throw new ArgumentException("A capture result cannot complete after its intent expired.", nameof(Result));
+            throw new ArgumentException("A capture result follows its request and evidence observation and precedes intent expiry.", nameof(Result));
         }
 
         var resultRule = ResultRule(Status);
@@ -428,6 +431,27 @@ public sealed record ContextualCaptureIntent
              !string.Equals(captures[Result.CaptureOrdinal].ArtifactId, Result.ArtifactId, StringComparison.Ordinal)))
         {
             throw new ArgumentException("A result identifies an artifact already correlated in progress.", nameof(Result));
+        }
+
+        if (Result is not null)
+        {
+            var correlated = Progress
+                .Where(item => item.CaptureOrdinal == Result.CaptureOrdinal &&
+                               string.Equals(item.ArtifactId, Result.ArtifactId, StringComparison.Ordinal))
+                .ToArray();
+            var awaitingReview = correlated.LastOrDefault(item => item.Phase == ContextualCaptureProgressPhase.AwaitingReview);
+            if (awaitingReview is null)
+            {
+                throw new ArgumentException("A result has an awaiting-review transition.", nameof(Result));
+            }
+
+            var evidence = correlated.LastOrDefault(item =>
+                item.Sequence < awaitingReview.Sequence && item.Phase != ContextualCaptureProgressPhase.AwaitingReview);
+            if (evidence is null ||
+                Result.CompletedUtc < evidence.ChangedUtc || Result.CompletedUtc > awaitingReview.ChangedUtc)
+            {
+                throw new ArgumentException("A result completes after correlated evidence and before its awaiting-review transition.", nameof(Result));
+            }
         }
     }
 

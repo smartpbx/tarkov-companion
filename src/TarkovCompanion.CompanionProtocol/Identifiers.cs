@@ -27,6 +27,15 @@ public readonly record struct DeviceSessionId
     public Guid Value { get; }
 }
 
+/// <summary>One client-generated reconnect exchange identifier, echoed by the desktop response.</summary>
+public readonly record struct ReconnectRequestId
+{
+    [JsonConstructor]
+    public ReconnectRequestId(Guid value) => Value = ProtocolGuard.Id(value, nameof(value));
+
+    public Guid Value { get; }
+}
+
 public readonly record struct CommandId
 {
     [JsonConstructor]

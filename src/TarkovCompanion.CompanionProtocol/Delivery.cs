@@ -24,12 +24,16 @@ public sealed record DeliveryItem
     public DeliveryItem(
         DeliverySequence sequence,
         DeliveryChannel channel,
+        CompanionDeviceId authenticatedOriginDeviceId,
         DateTimeOffset enqueuedUtc,
         ServerMessage? message,
         bool snapshotRequired)
     {
         Sequence = sequence.Value > 0 ? sequence : throw new ArgumentOutOfRangeException(nameof(sequence));
         Channel = ProtocolGuard.Defined(channel, nameof(channel));
+        AuthenticatedOriginDeviceId = authenticatedOriginDeviceId.Value == Guid.Empty
+            ? throw new ArgumentException("An authenticated origin device is required.", nameof(authenticatedOriginDeviceId))
+            : authenticatedOriginDeviceId;
         EnqueuedUtc = ProtocolGuard.Utc(enqueuedUtc, nameof(enqueuedUtc));
         Message = message;
         SnapshotRequired = snapshotRequired;
@@ -43,6 +47,8 @@ public sealed record DeliveryItem
     public DeliverySequence Sequence { get; }
 
     public DeliveryChannel Channel { get; }
+
+    public CompanionDeviceId AuthenticatedOriginDeviceId { get; }
 
     public DateTimeOffset EnqueuedUtc { get; }
 
@@ -140,7 +146,11 @@ public sealed record DeliveryLedger
     public DeviceDeliveryState? For(CompanionDeviceId deviceId) =>
         Devices.FirstOrDefault(item => item.DeviceId == deviceId);
 
-    public DeliveryEnqueueResult Enqueue(CompanionDeviceId deviceId, ServerMessage message, DateTimeOffset enqueuedUtc)
+    public DeliveryEnqueueResult Enqueue(
+        CompanionDeviceId deviceId,
+        CompanionDeviceId authenticatedOriginDeviceId,
+        ServerMessage message,
+        DateTimeOffset enqueuedUtc)
     {
         ArgumentNullException.ThrowIfNull(message);
         var devices = Devices.ToList();
@@ -159,8 +169,8 @@ public sealed record DeliveryLedger
         var coalesce = sameChannel.Length >= ProtocolBounds.MaxDeliveryItemsPerChannel ||
                        sameChannel.Any(existing => existing.SnapshotRequired);
         var delivery = coalesce
-            ? new DeliveryItem(sequence, channel, enqueuedUtc, null, snapshotRequired: true)
-            : new DeliveryItem(sequence, channel, enqueuedUtc, message, snapshotRequired: false);
+            ? new DeliveryItem(sequence, channel, authenticatedOriginDeviceId, enqueuedUtc, null, snapshotRequired: true)
+            : new DeliveryItem(sequence, channel, authenticatedOriginDeviceId, enqueuedUtc, message, snapshotRequired: false);
         var pending = coalesce
             ? prior.Pending.Where(existing => existing.Channel != channel).Append(delivery)
             : prior.Pending.Append(delivery);
@@ -177,8 +187,8 @@ public sealed record DeliveryLedger
         return new DeliveryEnqueueResult(new DeliveryLedger(devices), delivery);
     }
 
-    /// <summary>Acknowledges the device stream through one sequence; an old acknowledgement is ignored.</summary>
-    public DeliveryLedger Acknowledge(CompanionDeviceId deviceId, DeliverySequence through)
+    /// <summary>Trims one authenticated device stream through a validated sequence.</summary>
+    private DeliveryLedger Trim(CompanionDeviceId deviceId, DeliverySequence through)
     {
         var devices = Devices.ToList();
         var index = devices.FindIndex(item => item.DeviceId == deviceId);
@@ -202,30 +212,46 @@ public sealed record DeliveryLedger
     /// a revision or change the desktop does not hold, is refused and the client must resynchronize.
     /// </summary>
     public DeliveryAcknowledgementResult Acknowledge(
-        CompanionDeviceId deviceId,
+        CompanionDeviceId authenticatedDeviceId,
+        DeviceSessionId authenticatedSessionId,
+        CompanionProtocolVersion negotiatedVersion,
         ClientDeliveryAcknowledgement acknowledgement,
         CanonicalCompanionState canonical)
     {
         ArgumentNullException.ThrowIfNull(acknowledgement);
         ArgumentNullException.ThrowIfNull(canonical);
+        var version = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
+        if (authenticatedSessionId.Value == Guid.Empty || acknowledgement.SessionId != authenticatedSessionId)
+        {
+            return new DeliveryAcknowledgementResult(this, false, "authenticated-session-mismatch");
+        }
+
+        if (!CompanionProtocolVersion.Current.CanRead(acknowledgement.ProtocolVersion) ||
+            acknowledgement.ProtocolVersion != version)
+        {
+            return new DeliveryAcknowledgementResult(this, false, "protocol-version-mismatch");
+        }
+
         if (acknowledgement.AuthorityEpoch != canonical.AuthorityEpoch)
         {
             return new DeliveryAcknowledgementResult(this, false, "authority-epoch-mismatch");
         }
 
-        if (acknowledgement.GlobalRevision.Value > canonical.GlobalRevision.Value ||
-            !AggregateAcknowledgement.AgreeWith(canonical, acknowledgement.AggregateAcknowledgements))
+        if (!AggregateAcknowledgement.ExactlyMatches(
+                canonical,
+                acknowledgement.GlobalRevision,
+                acknowledgement.AggregateAcknowledgements))
         {
             return new DeliveryAcknowledgementResult(this, false, "acknowledged-state-diverges");
         }
 
-        var state = For(deviceId);
+        var state = For(authenticatedDeviceId);
         if (state is null || acknowledgement.ThroughDeliverySequence.Value > state.LastAssigned.Value)
         {
             return new DeliveryAcknowledgementResult(this, false, "delivery-sequence-not-assigned");
         }
 
-        return new DeliveryAcknowledgementResult(Acknowledge(deviceId, acknowledgement.ThroughDeliverySequence), true, "acknowledged");
+        return new DeliveryAcknowledgementResult(Trim(authenticatedDeviceId, acknowledgement.ThroughDeliverySequence), true, "acknowledged");
     }
 
     public IReadOnlyList<DeliveryItem> PendingFor(CompanionDeviceId deviceId) =>

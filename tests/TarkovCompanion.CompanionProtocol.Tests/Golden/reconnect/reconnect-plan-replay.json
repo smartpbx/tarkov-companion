@@ -3,11 +3,20 @@
     "major": 2,
     "minor": 0
   },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "requestId": {
+    "value": "90000000-0000-4000-8000-000000000001"
+  },
   "disposition": "Replay",
   "replay": [
     {
       "deliverySequence": {
         "value": 10
+      },
+      "authenticatedOriginDeviceId": {
+        "value": "10000000-0000-4000-8000-000000000002"
       },
       "serverUtc": "2026-09-14T20:00:50+00:00",
       "message": {
@@ -85,6 +94,9 @@
     {
       "deliverySequence": {
         "value": 11
+      },
+      "authenticatedOriginDeviceId": {
+        "value": "10000000-0000-4000-8000-000000000002"
       },
       "serverUtc": "2026-09-14T20:00:51+00:00",
       "message": {

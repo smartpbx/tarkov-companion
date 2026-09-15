@@ -3,6 +3,12 @@
     "major": 2,
     "minor": 0
   },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "requestId": {
+    "value": "90000000-0000-4000-8000-000000000001"
+  },
   "disposition": "UnsupportedVersion",
   "replay": [],
   "snapshot": null,

@@ -268,7 +268,10 @@ public sealed record ClientDeliveryAcknowledgement
             ? throughDeliverySequence
             : throw new ArgumentOutOfRangeException(nameof(throughDeliverySequence));
         GlobalRevision = globalRevision;
-        AggregateAcknowledgements = AggregateAcknowledgement.RequireDistinct(aggregateAcknowledgements, nameof(aggregateAcknowledgements));
+        AggregateAcknowledgements = AggregateAcknowledgement.RequireComplete(
+            aggregateAcknowledgements,
+            globalRevision,
+            nameof(aggregateAcknowledgements));
     }
 
     public CompanionProtocolVersion ProtocolVersion { get; }

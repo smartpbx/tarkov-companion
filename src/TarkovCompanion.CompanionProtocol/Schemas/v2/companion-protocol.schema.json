@@ -3760,6 +3760,7 @@
       "required": [
         "protocolVersion",
         "sessionId",
+        "requestId",
         "authorityEpoch",
         "lastGlobalRevision",
         "lastDeliverySequence",
@@ -3770,6 +3771,9 @@
           "$ref": "#/$defs/version"
         },
         "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "requestId": {
           "$ref": "#/$defs/guidId"
         },
         "authorityEpoch": {
@@ -3795,12 +3799,40 @@
             "$ref": "#/$defs/aggregateAcknowledgement"
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "authorityEpoch": {
+                "type": "null"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "aggregateAcknowledgements": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "aggregateAcknowledgements": {
+                "minItems": 5,
+                "maxItems": 5
+              }
+            }
+          }
+        }
+      ]
     },
     "reconnectPlan": {
       "type": "object",
       "required": [
         "protocolVersion",
+        "sessionId",
+        "requestId",
         "disposition",
         "replay",
         "snapshot",
@@ -3810,6 +3842,12 @@
       "properties": {
         "protocolVersion": {
           "$ref": "#/$defs/version"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "requestId": {
+          "$ref": "#/$defs/guidId"
         },
         "disposition": {
           "enum": [
@@ -3923,6 +3961,7 @@
         },
         "aggregateAcknowledgements": {
           "type": "array",
+          "minItems": 5,
           "maxItems": 5,
           "items": {
             "$ref": "#/$defs/aggregateAcknowledgement"
@@ -3934,12 +3973,16 @@
       "type": "object",
       "required": [
         "deliverySequence",
+        "authenticatedOriginDeviceId",
         "serverUtc",
         "message"
       ],
       "properties": {
         "deliverySequence": {
           "$ref": "#/$defs/positiveRevision"
+        },
+        "authenticatedOriginDeviceId": {
+          "$ref": "#/$defs/guidId"
         },
         "serverUtc": {
           "$ref": "#/$defs/utc"

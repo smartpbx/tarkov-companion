@@ -520,18 +520,21 @@ Rejection reasons, in reducer order:
 3. A retained receipt exists for the command ID: the same device resending the same action
    fingerprint is an idempotent `Applied` duplicate with code `duplicate-command`; anything else is
    `RejectedCommandIdReuse`.
-4. The ID is a version-8 UUID, reserved for desktop maintenance changes, or already occupies an
+4. The ID is in the authority lifetime's irreversible consumed-ID set:
+   `RejectedCommandIdReuse` with code `command-id-already-consumed`.
+5. The ID is a version-8 UUID, reserved for desktop maintenance changes, or already occupies an
    aggregate cursor: `RejectedCommandIdReuse`.
-5. The command has expired, was issued more than one minute in the desktop's future, or was issued
+6. The command has expired, was issued more than one minute in the desktop's future, or was issued
    at or before the receipt horizon: `RejectedExpired` or `RejectedInvalidState`.
-6. The context lacks the capability: `RejectedUnauthorized`.
-7. The envelope names another authority epoch: `RequiresSnapshot`.
-8. An offline preview is not bound to the current epoch and aggregate revision: `RequiresPreview`.
-9. Revision below, equal to, or beyond the next: `RejectedStale`, `RejectedConflict`, `RequiresSnapshot`.
-10. The transition itself is invalid, unauthorized, or would exceed the delivery budget.
+7. The context lacks the capability: `RejectedUnauthorized`.
+8. The envelope names another authority epoch: `RequiresSnapshot`.
+9. An offline preview is not bound to the current epoch and aggregate revision: `RequiresPreview`.
+10. Revision below, equal to, or beyond the next: `RejectedStale`, `RejectedConflict`, `RequiresSnapshot`.
+11. The transition itself is invalid, unauthorized, or would exceed the delivery budget.
 
 **Idempotency.** A command ID is a change identity for the whole authority lifetime, not per
-device. The desktop keeps a `RecentCommandReceipt` with the command's action fingerprint,
+device. The desktop irreversibly records every applied ID in `ConsumedCommandIds` for that lifetime
+and keeps a bounded `RecentCommandReceipt` with the command's action fingerprint,
 authenticated device, aggregate, applied revision, and expiry. A receipt is retained until its
 command expires and, regardless of expiry, while its change still occupies its aggregate cursor, up
 to the newest 256; pinned receipts are never evicted. A same-device retry of the same action is
@@ -539,12 +542,14 @@ always the duplicate while its receipt is retained, even when the retry carries 
 requested revision, lifetime, or offline preview, as a re-previewed offline draft does after a lost
 acknowledgement. The duplicate reports the receipt's revision as both requested and applied
 revision, names the command as the applied change, and reports the current global revision; it never
-changes the landed action, including a lifetime derived from the original command. When the bound
-forces out a receipt that has not expired, the receipt horizon advances to that command's issue time,
+changes the landed action, including a lifetime derived from the original command. When expiry or
+the bound removes a receipt, the receipt horizon advances to that command's issue time,
 and any later command without a receipt issued at or before the horizon is `RejectedInvalidState`
-with code `idempotency-window-exceeded`, because a retry repeats its original issue time. So a change
-never applies twice, whatever revision its retry requests. Same-device reuse of an ID for a different
-action, and any other device's use of it, is `RejectedCommandIdReuse`.
+with code `idempotency-window-exceeded`, because a conforming retry repeats its original issue time.
+The consumed-ID set independently rejects a hostile retry that refreshes that metadata after the
+detailed receipt is gone. So a change never applies twice, whatever revision or lifetime its retry
+requests. Same-device reuse of an ID for a different action, and any other device's use of it, is
+`RejectedCommandIdReuse`.
 
 The fingerprint is `CanonicalCommandFingerprint`: the command serialized through the closed
 polymorphic model without its delivery metadata (`commandId`, `requestedRevision`, `issuedUtc`,
@@ -552,8 +557,8 @@ polymorphic model without its delivery metadata (`commandId`, `requestedRevision
 sorted by ordinal name, arrays in order, strings as unescaped UTF-8, and numbers as the serializer's
 round-trip text. The discriminator and every action field, including payload revisions such as a
 mark's expected revision, take part. It does not depend on JSON member order or escaping.
-Fingerprints are desktop-local and never cross the wire. Receipts are not part of the serialized
-snapshot; #277 persists them and the receipt horizon beside canonical state.
+Fingerprints are desktop-local and never cross the wire. Receipts, the receipt horizon, and consumed
+IDs are not part of the serialized snapshot; #277 persists all three beside canonical state.
 
 The reducer returns a typed rejection for every hostile or malformed command. An `ArgumentException`,
 `InvalidOperationException`, `UnauthorizedAccessException`, `OverflowException`, `JsonException`, or
@@ -655,7 +660,9 @@ initiating device and surface. It expires within two minutes of being armed and 
 `CaptureSessionId`, correlation ID, map/floor/profile context, previous-result reference, and
 bounded objective/plan/mark references.
 
-The desktop reports ordered progress for Armed, Awaiting user capture, Settling, Decoding, Detecting
+Only the authenticated desktop reports progress and publishes recognition results; a paired device
+cannot gain that authority through a capability grant. The desktop reports ordered progress for
+Armed, Awaiting user capture, Settling, Decoding, Detecting
 context, Detecting regions, Matching, Enriching profile, Recommending, Awaiting review, and terminal
 Complete/Cancelled/Failed stages. Progress preserves sequence, capture artifact and ordinal where
 applicable, UTC, percent, and detail. As in the v2 capture contract, a Cancelled or Failed stage that
@@ -665,7 +672,9 @@ without an artifact ends the whole intent. A guided follow-up capture reported a
 that result awaiting review. Results reference the typed #264 recognition result by result/artifact
 ID and capture ordinal and retain completeness, freshness, detected context, completion UTC, and at
 most three provenance levels. A reviewed or corrected result cannot be replaced; re-recognition
-starts a new intent. Guidance is a closed manual instruction such as take a user screenshot, open
+starts a new intent. Result completion cannot precede the armed request, its correlated progress, or
+the provenance observation, and cannot follow the desktop's awaiting-review transition. Guidance is
+a closed manual instruction such as take a user screenshot, open
 the relevant panel, scroll for overlap, review ambiguity, or confirm the result. None performs the
 instruction.
 
@@ -690,17 +699,20 @@ the executable model:
   sequence. The transport sends a marker as a canonical snapshot of the state current when it is
   sent. Other channels of the device and every other device keep accepting deliveries, so a slow
   tablet cannot block unrelated state.
-- `ClientDeliveryAcknowledgement` acknowledges the whole device stream through one sequence. The
-  desktop refuses an acknowledgement from another authority epoch, one claiming a revision it does
-  not hold or a different change at a revision it does hold, or one beyond the last assigned
-  sequence. An old acknowledgement is ignored.
+- `ClientDeliveryAcknowledgement` acknowledges the whole device stream through one sequence. It is
+  accepted only from the authenticated session at its negotiated version and contains exactly one
+  cursor for every aggregate whose revisions sum to the global revision. History is trimmed only
+  when that complete vector exactly matches current canonical state and the sequence was assigned.
+  An old valid acknowledgement is ignored; a stale, partial, divergent, wrong-session, or
+  wrong-version acknowledgement leaves the ledger unchanged.
 
 `CanonicalReplica` is the executable tablet reading of that stream and the reference #290 mirrors:
 
 | Delivery | Replica result |
 | --- | --- |
-| Snapshot, or acknowledgement carrying canonical state, from another authority epoch at any sequence | Replaces the cache and becomes the stream position: the new epoch restarted the stream. |
-| Other delivery from another authority epoch | Resync required (discarded while awaiting resync). |
+| Session or protocol version differs from authenticated negotiated context | Discarded; nothing changes. |
+| Update attribution differs from the envelope's authenticated origin, its change is after server UTC, or server UTC regresses | Resync required; nothing is applied. |
+| Any delivery from another authority epoch | Resync required; only a correlated reconnect plan can adopt the new lifetime. |
 | Sequence at or below the last applied | Duplicate; nothing changes. |
 | Canonical snapshot at any newer sequence | Replaces the cache and becomes the stream position. |
 | Any other delivery while awaiting resync | Discarded. |
@@ -708,38 +720,43 @@ the executable model:
 | Update whose global revision is at or below the cache and whose aggregate revision is not newer | Already reflected (a snapshot contained it); the position advances. |
 | Update whose global revision is not exactly the next, or whose aggregate revision is not exactly the next | Resync required. |
 | Next update | Replaces that aggregate and advances the global revision. |
-| Acknowledgement carrying newer or other-epoch canonical state | Replaces the cache. |
+| Acknowledgement carrying newer same-epoch canonical state | Replaces the cache. |
 | Other acknowledgement or deprecation notice | Advances the position. |
 
 A replica requiring resync sends `ReconnectRequest` on the live session.
 
 ## Reconnect and replay
 
-A reconnect request sends the negotiated version, session, cached authority epoch (null after a
-reload with no cache), last global revision, last contiguous delivery sequence, and one
-acknowledgement per aggregate. `ReconnectPlanner.Plan(canonical, request, ledger, device,
-negotiatedVersion)` returns the plan, stamped with the negotiated version, and the ledger after
-handover:
+A reconnect request sends a client-generated request ID, the negotiated version, session, cached
+authority epoch (null after a reload with no cache), last global revision, last contiguous delivery
+sequence, and exactly one acknowledgement per aggregate when a cache exists. The aggregate revisions
+sum to the global revision. `ReconnectPlanner.Plan(canonical, request, ledger, device, session,
+negotiatedVersion)` first binds the inner request to the authenticated session. It returns a plan
+stamped with the same session, negotiated version, and request ID, plus the unchanged ledger:
 
 - `UnsupportedVersion` when the request version cannot be read or is not the negotiated version;
-- `FullSnapshot` after an epoch change or missing cache, a claimed revision or change the desktop
-  does not hold, a claimed sequence the desktop never assigned, a coalesced marker or acknowledged
-  gap in the retained stream, more than 256 deliveries to replay, retained updates whose global
-  revisions are not exactly contiguous to the current revision, or a replay plan that would exceed
-  64 KiB;
-- `UpToDate` when the client already holds the last assigned sequence and current global revision;
-- `Replay` of the retained envelopes with their original sequences otherwise.
+- `FullSnapshot` after an epoch change or missing cache, an incomplete or impossible cursor vector,
+  a claimed sequence the desktop never assigned, a coalesced marker or gap in the retained stream,
+  more than 256 deliveries to replay, retained updates whose global and aggregate revisions do not
+  prove a contiguous path to every current cursor, or a replay plan that would exceed 64 KiB;
+- `UpToDate` only when the complete vector exactly matches current canonical state and the client
+  already holds the last assigned sequence;
+- `Replay` of the retained messages with their original sequence, authenticated origin, and server
+  UTC otherwise.
 
 `ResumeAfterDeliverySequence` is the device's last assigned sequence; the client adopts it after
-applying the plan and live delivery continues from the next sequence. Every plan except
-`UnsupportedVersion` hands the stream over by acknowledging it through that sequence. A snapshot is
+applying the plan and live delivery continues from the next sequence. Sending a plan never
+acknowledges delivery or trims history; only the client's later authenticated, exact-current
+`ClientDeliveryAcknowledgement` does that. A snapshot is
 authoritative and atomically replaces the tablet's cache before deltas resume.
-`CanonicalReplica.ApplyReconnectPlan` always adopts a snapshot from another authority epoch at the
-plan's position, because that epoch restarted the stream. Within an epoch, plans carry no request
-correlation, so it discards a plan whose resume position is behind the replica as a late answer,
-skips replayed deliveries the replica already applied, requires a replay to start no later than the
-next expected sequence, and applies `UpToDate` only at the replica's own position. Expired control
-or capture commands never replay because commands are never replayed, only their canonical results.
+`CanonicalReplica.ApplyReconnectPlan` accepts only the response to the named outstanding request on
+the authenticated session and negotiated version. It adopts a snapshot from another authority epoch
+only while that request still describes the replica. Within an epoch, it refuses a snapshot whose
+global or aggregate cursors would roll back or diverge from state received since the request,
+discards a plan whose resume position is behind the replica, skips replayed deliveries already
+applied, requires a replay to start no later than the next expected sequence, and applies `UpToDate`
+only at the replica's own position. Expired control or capture commands never replay because commands
+are never replayed, only their canonical results.
 
 ## Offline actions
 
@@ -783,6 +800,7 @@ All transports call `CompanionProtocolJson` rather than default serializer optio
 | Paired devices | 32 |
 | Marks | 256 |
 | Recent idempotency receipts | 256 newest; a receipt whose change occupies a cursor is never evicted |
+| Consumed command IDs | Every applied client ID for the authority lifetime; never expired or compacted |
 | Offline actions | 64, each for fifteen minutes |
 | Delivery channel | 64 per device and channel |
 | Replay | 256 deliveries |
@@ -870,10 +888,10 @@ GitHub Actions runs these tests on every change; local runs are supplementary.
 | Pairing is commit-then-reveal and requires approval, the code, a desktop signature, and a WebAuthn proof; resume is single-use with increasing key epochs; relay substitution is detected; the rate limiter fails closed | `HandshakeTests` |
 | Session roots are framed on every transport; the pairing code, QR payload, and source hash match the independent vectors | `TransportBindingTests` |
 | Acknowledgements satisfy the disposition table and the Core `StateAcknowledgement` rules; hostile command sequences never escape the reducer; this document and `docs/V2_CONTRACT.md` do not drift | `AcknowledgementContractTests` |
-| Duplicates across refreshed delivery metadata, mutated reuse, cross-device reuse, reserved IDs, bounded receipts, and the receipt horizon | `IdempotencyTests` |
+| Duplicates across refreshed delivery metadata, mutated reuse, cross-device reuse, reserved IDs, bounded receipts, the receipt horizon, and irreversible replay rejection after receipt expiry | `IdempotencyTests` |
 | Zero-offset timestamps inside Core DTOs; Core DTOs serialize as under `V2ContractJson.Options` | `GoldenAndHostileJsonTests` |
-| Desktop-local changes, disconnect/revoke/expiry to Follow, expired requests and leases, maintenance enforcement and delivery budget, v2 attribution and Core projections, per-capture terminal stages, context construction | `DeviceModeLifecycleTests`, `CanonicalStateMachineTests` |
-| Delivery sequencing, isolation, gap detection, replica resync, late plans, a restarted authority epoch, and reconnect plans | `DeliveryAndReconnectTests` |
+| Desktop-local changes, disconnect/revoke/expiry to Follow, expired requests and leases, maintenance enforcement and delivery budget, v2 attribution and Core projections, desktop-only capture evidence, result chronology, per-capture terminal stages, context construction | `DeviceModeLifecycleTests`, `CanonicalStateMachineTests` |
+| Delivery sequencing, exact authenticated acknowledgements, isolation, gap detection, session/version/origin/time binding, replica resync, correlated late plans, a restarted authority epoch, and provable reconnect plans | `DeliveryAndReconnectTests` |
 | The 64-action offline bound, expiry, preview binding, and eligibility | `OfflineActionQueueTests` |
 | Negotiation and deprecation | `CompatibilityTests` |
 | Profile context isolation, 1.0→1.1 migration, field-scoped forward compatibility, all closed mutations, reset/delete, bounds, attribution, replica, reconnect, and acknowledgement | `ProfilePreferencesTests` |
@@ -899,11 +917,13 @@ desktop approval UI orchestration, and transport composition. It must:
   `DeserializeRelayPayload`, construct authenticated context only with `ForPairedSession`, call
   `ApplySessionTermination`, `ApplyDeviceTermination`, and `ApplyMaintenance` as described, and end a
   device's previous session as `Replaced` after resume;
-- persist canonical state, its receipts and receipt horizon, and the delivery ledger atomically for
-  the life of an authority epoch, mint a new epoch whenever that state is lost, enqueue every
-  returned acknowledgement and update through `DeliveryLedger`, resolve markers at send time, plan
-  reconnects with the negotiated version, and hand the stream over with the ledger returned by
-  `ReconnectPlanner`;
+- persist canonical state, its receipts, receipt horizon, irreversible consumed-command-ID set, and
+  the delivery ledger atomically for the life of an authority epoch, mint a new epoch whenever that
+  state is lost, enqueue every returned acknowledgement and update through `DeliveryLedger` with
+  authenticated origin, resolve
+  markers at send time, validate delivery acknowledgements with authenticated device, session, and
+  negotiated version, and plan reconnects with that same session context. Keep the ledger returned by
+  `ReconnectPlanner` until the client sends an accepted exact-current acknowledgement;
 - load only the active profile's preferences into `ProfilePreferences`, normalize persisted 1.0
   documents through `PreferenceSchemaPolicy`, apply the closed commands through the reducer, and
   atomically persist the resulting profile-scoped document without copying it into another context;
@@ -914,8 +934,9 @@ vectors; pins the desktop identity key from the QR payload or verification code 
 key for every resume; checks the nonce reveal against the offer before showing the code and
 `SessionEstablished` against the verified challenge; displays the code and mode/lease/security/
 conflict/expiry state; sends session traffic only in frames; resends a command byte-for-byte unchanged
-when it retries one; corrects its clock from `ServerUtc`;
-mirrors `CanonicalReplica` exactly; uses `OfflineActionQueue` semantics for explicit drafts; and keeps
+when it retries one; creates a fresh reconnect request ID and accepts only the plan that echoes its
+session, negotiated version, and outstanding request ID; corrects its clock from `ServerUtc`; mirrors
+`CanonicalReplica` exactly; uses `OfflineActionQueue` semantics for explicit drafts; and keeps
 reusable authorization material out of browser storage. It cannot create a second JavaScript
 state-machine interpretation: server acknowledgements, snapshots, and updates are authoritative.
 

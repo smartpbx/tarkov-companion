@@ -359,6 +359,116 @@ public sealed class CanonicalStateMachineTests
     }
 
     [Fact]
+    public void PairedDevicesCannotReportCaptureEvidenceEvenWhenGrantedEveryCapability()
+    {
+        var armed = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext());
+        var progressAt = Now.AddSeconds(1);
+        var progressCommand = new ReportCaptureProgressCommand(
+            Command(41),
+            new AggregateRevision(2),
+            progressAt,
+            progressAt.AddSeconds(30),
+            Capture(1),
+            ContextualCaptureProgressPhase.Decoding,
+            30,
+            "artifact-1",
+            0,
+            "decoding-visible-capture");
+        var pairedProgress = Apply(
+            armed.State,
+            progressCommand,
+            TabletContext(progressAt, Enum.GetValues<DeviceCapability>()));
+        var desktopProgress = DesktopCanonicalStateMachine.Apply(
+            armed.State,
+            Envelope(progressCommand, DesktopSession),
+            DesktopContext(progressAt));
+        var resultAt = progressAt.AddSeconds(1);
+        var resultCommand = new PublishCaptureResultCommand(
+            Command(42),
+            new AggregateRevision(3),
+            resultAt,
+            resultAt.AddSeconds(30),
+            Capture(1),
+            new ContextualCaptureResult(
+                "result-1",
+                "artifact-1",
+                0,
+                new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current),
+                RecognizedContext.Loot,
+                resultAt,
+                ScreenshotProvenance(resultAt)),
+            []);
+        var pairedResult = Apply(
+            desktopProgress.State,
+            resultCommand,
+            TabletContext(resultAt, Enum.GetValues<DeviceCapability>()));
+
+        Assert.All(new[] { pairedProgress, pairedResult }, reduction =>
+        {
+            Assert.Equal(CommandDisposition.RejectedUnauthorized, reduction.Acknowledgement.Disposition);
+            Assert.Equal("capability-denied", reduction.Acknowledgement.Code);
+            Assert.Null(reduction.Update);
+        });
+        Assert.Equal(CommandDisposition.Applied, desktopProgress.Acknowledgement.Disposition);
+    }
+
+    [Fact]
+    public void CaptureResultsCannotPrecedeTheirRequestOrCorrelatedProgress()
+    {
+        var armed = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext());
+        var progressAt = Now.AddSeconds(2);
+        var progressed = DesktopCanonicalStateMachine.Apply(
+            armed.State,
+            Envelope(
+                new ReportCaptureProgressCommand(
+                    Command(41),
+                    new AggregateRevision(2),
+                    progressAt,
+                    progressAt.AddSeconds(30),
+                    Capture(1),
+                    ContextualCaptureProgressPhase.Decoding,
+                    30,
+                    "artifact-1",
+                    0,
+                    null),
+                DesktopSession),
+            DesktopContext(progressAt));
+
+        CommandReduction Publish(DateTimeOffset completedUtc, int command) =>
+            DesktopCanonicalStateMachine.Apply(
+                progressed.State,
+                Envelope(
+                    new PublishCaptureResultCommand(
+                        Command(command),
+                        new AggregateRevision(3),
+                        progressAt.AddSeconds(1),
+                        progressAt.AddSeconds(30),
+                        Capture(1),
+                        new ContextualCaptureResult(
+                            $"result-{command}",
+                            "artifact-1",
+                            0,
+                            new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current),
+                            RecognizedContext.Loot,
+                            completedUtc,
+                            ScreenshotProvenance(completedUtc)),
+                        []),
+                    DesktopSession),
+                DesktopContext(progressAt.AddSeconds(1)));
+
+        var beforeRequest = Publish(Now.AddMilliseconds(-1), 42);
+        var beforeProgress = Publish(Now.AddSeconds(1), 43);
+
+        Assert.All(new[] { beforeRequest, beforeProgress }, reduction =>
+        {
+            Assert.Equal(CommandDisposition.RejectedInvalidState, reduction.Acknowledgement.Disposition);
+            Assert.Equal("invalid-capture-result", reduction.Acknowledgement.Code);
+            Assert.Null(reduction.Update);
+            Assert.Same(progressed.State, reduction.State);
+        });
+    }
+
+    [Fact]
     public void AFollowUpCaptureKeepsThePublishedResultButAReviewedResultCannotBeReplaced()
     {
         var published = PublishedCapture(ScreenshotProvenance(Now.AddSeconds(2)));

@@ -375,8 +375,7 @@ public static class DesktopCanonicalStateMachine
         }
 
         var fingerprint = CanonicalCommandFingerprint.Compute(command);
-        var receipt = state.RecentCommands.FirstOrDefault(item =>
-            item.CommandId == command.CommandId && IsRetained(state, item, now));
+        var receipt = state.RecentCommands.FirstOrDefault(item => item.CommandId == command.CommandId);
         if (receipt is not null)
         {
             if (receipt.DeviceId != context.DeviceId || receipt.Fingerprint != fingerprint)
@@ -397,6 +396,11 @@ public static class DesktopCanonicalStateMachine
                     receipt.AppliedRevision,
                     command.CommandId),
                 null);
+        }
+
+        if (state.ConsumedCommandIds.Contains(command.CommandId))
+        {
+            return Reject(state, command, CommandDisposition.RejectedCommandIdReuse, "command-id-already-consumed");
         }
 
         if (ProtocolGuard.UuidVersion(command.CommandId.Value) == ReservedChangeIdVersion ||
@@ -814,7 +818,9 @@ public static class DesktopCanonicalStateMachine
             return Reject(scope, CommandDisposition.RejectedInvalidState, "capture-result-already-reviewed");
         }
 
-        if (command.Result.CompletedUtc > scope.Now ||
+        if (command.Result.CompletedUtc < current.RequestedUtc ||
+            command.Result.CompletedUtc > scope.Now ||
+            command.Result.Provenance.ObservedUtc > command.Result.CompletedUtc ||
             command.Guidance.Select(item => item.Order).Distinct().Count() != command.Guidance.Count)
         {
             return Reject(scope, CommandDisposition.RejectedInvalidState, "invalid-capture-result");
@@ -832,6 +838,11 @@ public static class DesktopCanonicalStateMachine
         if (correlated.Phase is ContextualCaptureProgressPhase.Cancelled or ContextualCaptureProgressPhase.Failed)
         {
             return Reject(scope, CommandDisposition.RejectedInvalidState, "result-artifact-ended");
+        }
+
+        if (command.Result.CompletedUtc < correlated.ChangedUtc)
+        {
+            return Reject(scope, CommandDisposition.RejectedInvalidState, "invalid-capture-result");
         }
 
         var progress = current.Progress.Append(new ContextualCaptureProgress(
@@ -1063,7 +1074,7 @@ public static class DesktopCanonicalStateMachine
         ShowOnDesktopCommand => context.Has(DeviceCapability.ShowOnDesktop),
         UpsertMarkCommand or DeleteMarkCommand => context.Has(DeviceCapability.ManageOwnMarks),
         RequestCaptureIntentCommand => context.Has(DeviceCapability.RequestCaptureIntent),
-        ReportCaptureProgressCommand or PublishCaptureResultCommand => context.Has(DeviceCapability.ReportCaptureProgress),
+        ReportCaptureProgressCommand or PublishCaptureResultCommand => context.IsDesktop,
         ReviewCaptureResultCommand or CorrectCaptureResultCommand => context.Has(DeviceCapability.ReviewCaptureResult),
         ActivateProfilePreferencesCommand => context.IsDesktop,
         MutateProfilePreferencesCommand or ResetProfilePreferencesCommand or DeleteProfilePreferencesCommand =>
@@ -1361,7 +1372,12 @@ public static class DesktopCanonicalStateMachine
             staged,
             state.RecentCommands.Where(item => item.CommandId != command.CommandId).Append(receipt),
             scope.Now);
-        var next = staged.With(global, recentCommands: receipts, receiptHorizonUtc: horizon);
+        var consumedCommandIds = state.ConsumedCommandIds.Append(command.CommandId).ToHashSet();
+        var next = staged.With(
+            global,
+            recentCommands: receipts,
+            receiptHorizonUtc: horizon,
+            consumedCommandIds: consumedCommandIds);
         return new CommandReduction(
             next,
             Acknowledge(next, command, CommandDisposition.Applied, code, command.RequestedRevision, command.RequestedRevision, command.CommandId),
@@ -1372,7 +1388,8 @@ public static class DesktopCanonicalStateMachine
     /// A receipt is retained until its command expires, and always while its change still occupies
     /// its aggregate cursor, so the newest change's exact retry is recognized after expiry and a
     /// rejection can never have to name the rejected command as the applied change. When the bound
-    /// forces an unexpired receipt out, the receipt horizon advances to its issue time.
+    /// drops any receipt, the receipt horizon advances to its issue time. The irreversible consumed
+    /// id set remains the primary replay barrier even if a hostile retry refreshes client timestamps.
     /// </summary>
     private static (IReadOnlyList<RecentCommandReceipt> Receipts, DateTimeOffset? Horizon) RetainReceipts(
         CanonicalCompanionState state,
@@ -1380,7 +1397,13 @@ public static class DesktopCanonicalStateMachine
         DateTimeOffset now)
     {
         var horizon = state.ReceiptHorizonUtc;
-        var retained = receipts.Where(item => IsRetained(state, item, now)).ToList();
+        var candidates = receipts.ToList();
+        var retained = candidates.Where(item => IsRetained(state, item, now)).ToList();
+        foreach (var removed in candidates.Where(item => !IsRetained(state, item, now)))
+        {
+            horizon = Later(horizon, removed.IssuedUtc);
+        }
+
         while (retained.Count > ProtocolBounds.MaxRecentCommands)
         {
             var oldestUnpinned = retained.FindIndex(item => !IsPinned(state, item));
@@ -1390,12 +1413,15 @@ public static class DesktopCanonicalStateMachine
             }
 
             var evicted = retained[oldestUnpinned];
-            horizon = horizon is { } current && current >= evicted.IssuedUtc ? current : evicted.IssuedUtc;
+            horizon = Later(horizon, evicted.IssuedUtc);
             retained.RemoveAt(oldestUnpinned);
         }
 
         return (retained, horizon);
     }
+
+    private static DateTimeOffset Later(DateTimeOffset? current, DateTimeOffset candidate) =>
+        current is { } value && value >= candidate ? value : candidate;
 
     private static bool IsRetained(CanonicalCompanionState state, RecentCommandReceipt receipt, DateTimeOffset now) =>
         receipt.ExpiresUtc > now || IsPinned(state, receipt);

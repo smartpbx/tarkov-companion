@@ -268,7 +268,9 @@ public sealed class ProfilePreferencesTests
             DesktopDevice,
             Now,
             new DeliverySequence(1),
-            new CanonicalUpdateMessage(activated.Update!)));
+            new CanonicalUpdateMessage(activated.Update!)),
+            TabletSession,
+            CompanionProtocolVersion.Current);
         var acknowledgement = observed.Replica.CreateDeliveryAcknowledgement(
             CompanionProtocolVersion.Current,
             TabletSession,
@@ -285,9 +287,14 @@ public sealed class ProfilePreferencesTests
 
         var plan = ReconnectPlanner.Plan(
             activated.State,
-            observed.Replica.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now.AddSeconds(1)),
+            observed.Replica.CreateReconnectRequest(
+                CompanionProtocolVersion.Current,
+                TabletSession,
+                ReconnectRequest,
+                Now.AddSeconds(1)),
             DeliveryLedger.Empty,
             TabletDevice,
+            TabletSession,
             CompanionProtocolVersion.Current);
         Assert.Equal(ReconnectDisposition.FullSnapshot, plan.Plan.Disposition);
         Assert.Equal(PreferenceContext(), plan.Plan.Snapshot!.ProfilePreferences.ActiveProfile!.Context);

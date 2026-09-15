@@ -97,7 +97,9 @@ rejection, identifier reuse included, describes applied revision zero with no ap
 command ID identifies one change for the whole authority lifetime: a retry is a duplicate when the
 same device resends the same action fingerprint, which excludes the requested revision, lifetime,
 and offline preview a re-previewed retry refreshes, and any other reuse is
-`RejectedCommandIdReuse`. The reducer returns a typed rejection for every hostile command instead of
+`RejectedCommandIdReuse`. Detailed receipts are bounded, while an irreversible consumed-ID set
+prevents the same ID from applying again after receipt expiry even if hostile metadata is refreshed.
+The reducer returns a typed rejection for every hostile command instead of
 throwing, and it refuses to commit state that could not be delivered inside the wire bounds with a
 fixed reserve that covers later server-time maintenance.
 
@@ -184,7 +186,8 @@ complete desktop and can keep offline tablet browsing local. Rejected.
 
 Issue #277 must implement DPAPI-protected desktop identity and device material, the WebAuthn
 verifier (signature, RP ID hash, origin, counter), atomic persistence of canonical state with its
-idempotency receipts, authenticated context construction from live session records, lifecycle and
+idempotency receipts, receipt horizon, and irreversible consumed-ID set, authenticated context
+construction from live session records, lifecycle and
 maintenance calls, single-use resume attempts with recorded key epochs, recorded device use, the
 transport binding on both routes, delivery ledger handling, relay receiver checks, and direct/relay
 transport adapters. The approval prompt must show the verification code. Issue #290 consumes authoritative

@@ -10,6 +10,7 @@ DESKTOP = gid("10000000-0000-0000-0000-000000000001")
 TABLET = gid("10000000-0000-4000-8000-000000000002")
 DESKTOP_SESSION = gid("20000000-0000-4000-8000-000000000001")
 SESSION = gid("20000000-0000-4000-8000-000000000002")
+RECONNECT_REQUEST = gid("90000000-0000-4000-8000-000000000001")
 WORKSPACE = gid("80000000-0000-4000-8000-000000000001")
 DESKTOP_INSTANCE = "desktop-install-1"
 TABLET_INSTANCE = "tablet-install-1"
@@ -170,14 +171,14 @@ files["server/deprecation.json"] = server(8, deprecation, origin=DESKTOP)
 files["hello/client-hello.json"] = {"supportedVersions": {"minimum": V, "maximum": {"major": 2, "minor": 3}}, "clientInstanceId": "tablet-install-1", "optionalFeatures": ["independent-offline-queue"]}
 files["hello/server-hello-compatible.json"] = {"disposition": "Compatible", "negotiatedVersion": V, "desktopVersions": {"minimum": V, "maximum": V}, "deprecation": None, "recoveryAction": None}
 files["hello/server-hello-no-shared-major.json"] = {"disposition": "NoSharedMajor", "negotiatedVersion": None, "desktopVersions": {"minimum": V, "maximum": V}, "deprecation": None, "recoveryAction": "UpdateTablet"}
-files["reconnect/reconnect-request.json"] = {"protocolVersion": V, "sessionId": SESSION, "authorityEpoch": EPOCH, "lastGlobalRevision": rev(7), "lastDeliverySequence": rev(9), "aggregateAcknowledgements": aggregate_acks}
-files["reconnect/reconnect-request-without-cache.json"] = {"protocolVersion": V, "sessionId": SESSION, "authorityEpoch": None, "lastGlobalRevision": rev(0), "lastDeliverySequence": rev(0), "aggregateAcknowledgements": []}
+files["reconnect/reconnect-request.json"] = {"protocolVersion": V, "sessionId": SESSION, "requestId": RECONNECT_REQUEST, "authorityEpoch": EPOCH, "lastGlobalRevision": rev(7), "lastDeliverySequence": rev(9), "aggregateAcknowledgements": aggregate_acks}
+files["reconnect/reconnect-request-without-cache.json"] = {"protocolVersion": V, "sessionId": SESSION, "requestId": RECONNECT_REQUEST, "authorityEpoch": None, "lastGlobalRevision": rev(0), "lastDeliverySequence": rev(0), "aggregateAcknowledgements": []}
 def plan(disposition, replay, snapshot, resume, reason):
-    return {"protocolVersion": V, "disposition": disposition, "replay": replay, "snapshot": snapshot, "resumeAfterDeliverySequence": rev(resume), "reason": reason}
+    return {"protocolVersion": V, "sessionId": SESSION, "requestId": RECONNECT_REQUEST, "disposition": disposition, "replay": replay, "snapshot": snapshot, "resumeAfterDeliverySequence": rev(resume), "reason": reason}
 files["reconnect/reconnect-plan-up-to-date.json"] = plan("UpToDate", [], None, 12, "already-current")
 files["reconnect/reconnect-plan-replay.json"] = plan("Replay", [
-    {"deliverySequence": rev(10), "serverUtc": at(50), "message": update("marks", marks, 6, cmd(4))},
-    {"deliverySequence": rev(11), "serverUtc": at(51), "message": applied_ack}], None, 11, "bounded-replay")
+    {"deliverySequence": rev(10), "authenticatedOriginDeviceId": TABLET, "serverUtc": at(50), "message": update("marks", marks, 6, cmd(4))},
+    {"deliverySequence": rev(11), "authenticatedOriginDeviceId": TABLET, "serverUtc": at(51), "message": applied_ack}], None, 11, "bounded-replay")
 files["reconnect/reconnect-plan-full-snapshot.json"] = plan("FullSnapshot", [], state, 12, "authority-or-cursor-mismatch")
 files["reconnect/reconnect-plan-unsupported-version.json"] = plan("UnsupportedVersion", [], None, 9, "unsupported-version")
 

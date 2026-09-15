@@ -35,11 +35,24 @@ public sealed record ReplicaObservation(CanonicalReplica Replica, ReplicaDisposi
 /// </remarks>
 public sealed record CanonicalReplica
 {
-    public CanonicalReplica(CanonicalCompanionState? state, DeliverySequence lastDeliverySequence, bool awaitingResync)
+    public CanonicalReplica(
+        CanonicalCompanionState? state,
+        DeliverySequence lastDeliverySequence,
+        bool awaitingResync,
+        DateTimeOffset? lastServerUtc = null,
+        CompanionDeviceId? lastAuthenticatedOriginDeviceId = null)
     {
         State = state;
         LastDeliverySequence = lastDeliverySequence;
         AwaitingResync = awaitingResync || state is null;
+        LastServerUtc = ProtocolGuard.UtcOptional(lastServerUtc, nameof(lastServerUtc));
+        LastAuthenticatedOriginDeviceId = lastAuthenticatedOriginDeviceId is { } origin && origin.Value == Guid.Empty
+            ? throw new ArgumentException("An authenticated origin device is required when present.", nameof(lastAuthenticatedOriginDeviceId))
+            : lastAuthenticatedOriginDeviceId;
+        if ((LastServerUtc is null) != (LastAuthenticatedOriginDeviceId is null))
+        {
+            throw new ArgumentException("Accepted server time and authenticated origin are recorded together.");
+        }
     }
 
     public CanonicalCompanionState? State { get; }
@@ -48,29 +61,97 @@ public sealed record CanonicalReplica
 
     public bool AwaitingResync { get; }
 
+    /// <summary>The trusted server time on the newest accepted delivery, used to reject temporal rollback.</summary>
+    public DateTimeOffset? LastServerUtc { get; }
+
+    public CompanionDeviceId? LastAuthenticatedOriginDeviceId { get; }
+
     public static CanonicalReplica Empty { get; } = new(null, new DeliverySequence(0), awaitingResync: true);
 
-    public ReplicaObservation Observe(ServerEnvelope envelope)
+    public ReplicaObservation Observe(
+        ServerEnvelope envelope,
+        DeviceSessionId authenticatedSessionId,
+        CompanionProtocolVersion negotiatedVersion)
     {
         ArgumentNullException.ThrowIfNull(envelope);
-        return Observe(envelope.DeliverySequence, envelope.Message);
+        var version = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
+        if (authenticatedSessionId.Value == Guid.Empty || envelope.SessionId != authenticatedSessionId)
+        {
+            return new(this, ReplicaDisposition.Discarded, "authenticated-session-mismatch");
+        }
+
+        if (!CompanionProtocolVersion.Current.CanRead(envelope.ProtocolVersion) || envelope.ProtocolVersion != version)
+        {
+            return new(this, ReplicaDisposition.Discarded, "protocol-version-mismatch");
+        }
+
+        if (envelope.DeliverySequence.Value > LastDeliverySequence.Value &&
+            LastServerUtc is { } lastServerUtc && envelope.ServerUtc < lastServerUtc)
+        {
+            return RequireResync("server-time-regressed");
+        }
+
+        if (envelope.Message is CanonicalUpdateMessage update &&
+            update.Update.Origin.DeviceId != envelope.AuthenticatedOriginDeviceId)
+        {
+            return RequireResync("authenticated-origin-mismatch");
+        }
+
+        return Observe(
+            envelope.DeliverySequence,
+            envelope.ServerUtc,
+            envelope.AuthenticatedOriginDeviceId,
+            envelope.Message);
     }
 
     /// <summary>
-    /// Applies a reconnect plan only where it continues this replica's position. A delivery stream is
-    /// scoped to one authority epoch, so a snapshot from another epoch is always adopted at its own
-    /// position. Within an epoch, plans carry no request correlation, so a plan whose resume position is
-    /// behind the replica is a late answer to an earlier request and is discarded; a replay that starts
-    /// after the next expected sequence cannot close the gap and requires another resynchronization.
+    /// Applies only the response to the named outstanding request on this authenticated session. A
+    /// new authority lifetime is adopted only if the request still describes this replica, preventing
+    /// a delayed response from rolling a newer cache back to an unrelated epoch.
     /// </summary>
-    public ReplicaObservation ApplyReconnectPlan(ReconnectPlan plan)
+    public ReplicaObservation ApplyReconnectPlan(
+        ReconnectPlan plan,
+        ReconnectRequest request,
+        DeviceSessionId authenticatedSessionId,
+        CompanionProtocolVersion negotiatedVersion)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        ArgumentNullException.ThrowIfNull(request);
+        var version = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
+        if (authenticatedSessionId.Value == Guid.Empty ||
+            request.SessionId != authenticatedSessionId ||
+            plan.SessionId != authenticatedSessionId)
+        {
+            return new(this, ReplicaDisposition.Discarded, "authenticated-session-mismatch");
+        }
+
+        if (request.ProtocolVersion != version || plan.ProtocolVersion != version ||
+            !CompanionProtocolVersion.Current.CanRead(plan.ProtocolVersion))
+        {
+            return new(this, ReplicaDisposition.Discarded, "protocol-version-mismatch");
+        }
+
+        if (plan.RequestId != request.RequestId)
+        {
+            return new(this, ReplicaDisposition.Discarded, "reconnect-request-mismatch");
+        }
 
         // A snapshot from another authority lifetime restarts the delivery stream at its position.
         if (plan.Snapshot is { } snapshot && (State is null || snapshot.AuthorityEpoch != State.AuthorityEpoch))
         {
-            return new(new CanonicalReplica(snapshot, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "snapshot-applied");
+            return RequestDescribesReplica(request)
+                ? new(new CanonicalReplica(snapshot, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "snapshot-applied")
+                : new(this, ReplicaDisposition.Discarded, "stale-reconnect-plan");
+        }
+
+        // A snapshot marker may have been resolved after the reconnect response was planned. Its
+        // newer sequence can therefore carry state newer than the delayed plan's same-epoch
+        // snapshot. Never trade that state for an older or divergent aggregate vector merely
+        // because the plan's resume position is still ahead.
+        if (plan.Snapshot is { } sameEpochSnapshot && State is { } current &&
+            !SnapshotDominates(sameEpochSnapshot, current))
+        {
+            return new(this, ReplicaDisposition.Discarded, "stale-reconnect-plan");
         }
 
         if (plan.ResumeAfterDeliverySequence.Value < LastDeliverySequence.Value)
@@ -83,16 +164,31 @@ public sealed record CanonicalReplica
             case ReconnectDisposition.FullSnapshot:
                 return new(new CanonicalReplica(plan.Snapshot, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "snapshot-applied");
             case ReconnectDisposition.UpToDate when State is not null && plan.ResumeAfterDeliverySequence == LastDeliverySequence:
-                return new(new CanonicalReplica(State, LastDeliverySequence, false), ReplicaDisposition.Applied, "up-to-date");
+                return new(
+                    new CanonicalReplica(State, LastDeliverySequence, false, LastServerUtc, LastAuthenticatedOriginDeviceId),
+                    ReplicaDisposition.Applied,
+                    "up-to-date");
             case ReconnectDisposition.Replay when State is not null &&
                                                   plan.Replay[0].DeliverySequence.Value <= LastDeliverySequence.Value + 1:
-                var replica = new CanonicalReplica(State, LastDeliverySequence, false);
+                var replica = new CanonicalReplica(
+                    State,
+                    LastDeliverySequence,
+                    false,
+                    LastServerUtc,
+                    LastAuthenticatedOriginDeviceId);
                 foreach (var delivery in plan.Replay.Where(item => item.DeliverySequence.Value > LastDeliverySequence.Value))
                 {
-                    var observed = replica.Observe(delivery.DeliverySequence, delivery.Message);
+                    var observed = replica.Observe(
+                        delivery.DeliverySequence,
+                        delivery.ServerUtc,
+                        delivery.AuthenticatedOriginDeviceId,
+                        delivery.Message);
                     if (observed.Disposition is ReplicaDisposition.ResyncRequired or ReplicaDisposition.Discarded or ReplicaDisposition.Duplicate)
                     {
-                        return new(new CanonicalReplica(State, LastDeliverySequence, true), ReplicaDisposition.ResyncRequired, observed.Code);
+                        return new(
+                            new CanonicalReplica(State, LastDeliverySequence, true, LastServerUtc, LastAuthenticatedOriginDeviceId),
+                            ReplicaDisposition.ResyncRequired,
+                            observed.Code);
                     }
 
                     replica = observed.Replica;
@@ -100,7 +196,10 @@ public sealed record CanonicalReplica
 
                 return new(replica, ReplicaDisposition.Applied, "replay-applied");
             default:
-                return new(new CanonicalReplica(State, LastDeliverySequence, true), ReplicaDisposition.ResyncRequired, "reconnect-not-applicable");
+                return new(
+                    new CanonicalReplica(State, LastDeliverySequence, true, LastServerUtc, LastAuthenticatedOriginDeviceId),
+                    ReplicaDisposition.ResyncRequired,
+                    "reconnect-not-applicable");
         }
     }
 
@@ -108,12 +207,14 @@ public sealed record CanonicalReplica
     public ReconnectRequest CreateReconnectRequest(
         CompanionProtocolVersion protocolVersion,
         DeviceSessionId sessionId,
+        ReconnectRequestId requestId,
         DateTimeOffset acknowledgedUtc) =>
         State is null
-            ? new ReconnectRequest(protocolVersion, sessionId, null, new GlobalRevision(0), LastDeliverySequence, [])
+            ? new ReconnectRequest(protocolVersion, sessionId, requestId, null, new GlobalRevision(0), LastDeliverySequence, [])
             : new ReconnectRequest(
                 protocolVersion,
                 sessionId,
+                requestId,
                 State.AuthorityEpoch,
                 State.GlobalRevision,
                 LastDeliverySequence,
@@ -134,17 +235,19 @@ public sealed record CanonicalReplica
                 State.GlobalRevision,
                 AggregateAcknowledgements(acknowledgedUtc));
 
-    private ReplicaObservation Observe(DeliverySequence sequence, ServerMessage message)
+    private ReplicaObservation Observe(
+        DeliverySequence sequence,
+        DateTimeOffset serverUtc,
+        CompanionDeviceId authenticatedOriginDeviceId,
+        ServerMessage message)
     {
-        // A new authority lifetime (a desktop restart or state replacement) restarts the device's
-        // delivery stream, so its sequences are not comparable with the cached position.
+        // An unsolicited epoch change has no ordering relationship to the cached stream. A
+        // correlated reconnect response is the only safe way to adopt that authority lifetime.
         if (State is not null && EpochOf(message) is { } epoch && epoch != State.AuthorityEpoch)
         {
-            return CarriedState(message) is { } carried
-                ? new(new CanonicalReplica(carried, sequence, false), ReplicaDisposition.Applied, "authority-epoch-state-applied")
-                : AwaitingResync
-                    ? new(this, ReplicaDisposition.Discarded, "awaiting-resync")
-                    : RequireResync("authority-epoch-changed");
+            return AwaitingResync
+                ? new(this, ReplicaDisposition.Discarded, "awaiting-resync")
+                : RequireResync("authority-epoch-changed");
         }
 
         if (sequence.Value <= LastDeliverySequence.Value)
@@ -152,9 +255,24 @@ public sealed record CanonicalReplica
             return new(this, ReplicaDisposition.Duplicate, "delivery-already-applied");
         }
 
+        if (LastServerUtc is { } previousServerUtc && serverUtc < previousServerUtc)
+        {
+            return RequireResync("server-time-regressed");
+        }
+
+        if (message is CanonicalUpdateMessage attributed &&
+            (attributed.Update.Origin.DeviceId != authenticatedOriginDeviceId ||
+             attributed.Update.ChangedUtc > serverUtc))
+        {
+            return RequireResync("authenticated-origin-or-time-mismatch");
+        }
+
         if (message is CanonicalSnapshotMessage snapshot)
         {
-            return new(new CanonicalReplica(snapshot.State, sequence, false), ReplicaDisposition.Applied, "snapshot-applied");
+            return new(
+                new CanonicalReplica(snapshot.State, sequence, false, serverUtc, authenticatedOriginDeviceId),
+                ReplicaDisposition.Applied,
+                "snapshot-applied");
         }
 
         if (AwaitingResync)
@@ -170,17 +288,27 @@ public sealed record CanonicalReplica
         switch (message)
         {
             case CanonicalUpdateMessage { Update: var update }:
-                return ObserveUpdate(sequence, update);
+                return ObserveUpdate(sequence, serverUtc, authenticatedOriginDeviceId, update);
             case CommandAcknowledgementMessage { Acknowledgement.CanonicalState: { } included }
                 when included.AuthorityEpoch != State!.AuthorityEpoch ||
                      included.GlobalRevision.Value > State!.GlobalRevision.Value:
-                return new(new CanonicalReplica(included, sequence, false), ReplicaDisposition.Applied, "acknowledgement-state-applied");
+                return new(
+                    new CanonicalReplica(included, sequence, false, serverUtc, authenticatedOriginDeviceId),
+                    ReplicaDisposition.Applied,
+                    "acknowledgement-state-applied");
             default:
-                return new(new CanonicalReplica(State, sequence, false), ReplicaDisposition.Applied, "control-message-received");
+                return new(
+                    new CanonicalReplica(State, sequence, false, serverUtc, authenticatedOriginDeviceId),
+                    ReplicaDisposition.Applied,
+                    "control-message-received");
         }
     }
 
-    private ReplicaObservation ObserveUpdate(DeliverySequence sequence, CanonicalUpdate update)
+    private ReplicaObservation ObserveUpdate(
+        DeliverySequence sequence,
+        DateTimeOffset serverUtc,
+        CompanionDeviceId authenticatedOriginDeviceId,
+        CanonicalUpdate update)
     {
         var state = State!;
         if (update.AuthorityEpoch != state.AuthorityEpoch)
@@ -193,7 +321,10 @@ public sealed record CanonicalReplica
         if (update.GlobalRevision.Value <= state.GlobalRevision.Value)
         {
             return incoming.Revision.Value <= local.Revision.Value
-                ? new(new CanonicalReplica(state, sequence, false), ReplicaDisposition.AlreadyReflected, "update-already-reflected")
+                ? new(
+                    new CanonicalReplica(state, sequence, false, serverUtc, authenticatedOriginDeviceId),
+                    ReplicaDisposition.AlreadyReflected,
+                    "update-already-reflected")
                 : RequireResync("revision-disagreement");
         }
 
@@ -217,7 +348,10 @@ public sealed record CanonicalReplica
                 state.With(update.GlobalRevision, profilePreferences: preferences.State),
             _ => throw new ArgumentOutOfRangeException(nameof(update)),
         };
-        return new(new CanonicalReplica(next, sequence, false), ReplicaDisposition.Applied, "update-applied");
+        return new(
+            new CanonicalReplica(next, sequence, false, serverUtc, authenticatedOriginDeviceId),
+            ReplicaDisposition.Applied,
+            "update-applied");
     }
 
     private static AuthorityEpoch? EpochOf(ServerMessage message) => message switch
@@ -228,15 +362,41 @@ public sealed record CanonicalReplica
         _ => null,
     };
 
-    private static CanonicalCompanionState? CarriedState(ServerMessage message) => message switch
-    {
-        CanonicalSnapshotMessage snapshot => snapshot.State,
-        CommandAcknowledgementMessage { Acknowledgement.CanonicalState: { } included } => included,
-        _ => null,
-    };
-
     private ReplicaObservation RequireResync(string code) =>
-        new(new CanonicalReplica(State, LastDeliverySequence, true), ReplicaDisposition.ResyncRequired, code);
+        new(
+            new CanonicalReplica(State, LastDeliverySequence, true, LastServerUtc, LastAuthenticatedOriginDeviceId),
+            ReplicaDisposition.ResyncRequired,
+            code);
+
+    private bool RequestDescribesReplica(ReconnectRequest request)
+    {
+        if (request.LastDeliverySequence != LastDeliverySequence)
+        {
+            return false;
+        }
+
+        return State is null
+            ? request.AuthorityEpoch is null && request.LastGlobalRevision.Value == 0 && request.AggregateAcknowledgements.Count == 0
+            : request.AuthorityEpoch == State.AuthorityEpoch &&
+              AggregateAcknowledgement.ExactlyMatches(State, request.LastGlobalRevision, request.AggregateAcknowledgements);
+    }
+
+    private static bool SnapshotDominates(CanonicalCompanionState candidate, CanonicalCompanionState current)
+    {
+        if (candidate.AuthorityEpoch != current.AuthorityEpoch ||
+            candidate.GlobalRevision.Value < current.GlobalRevision.Value)
+        {
+            return false;
+        }
+
+        return Enum.GetValues<CanonicalAggregateKind>().All(aggregate =>
+        {
+            var held = current.Cursor(aggregate);
+            var incoming = candidate.Cursor(aggregate);
+            return incoming.Revision.Value > held.Revision.Value ||
+                   (incoming.Revision == held.Revision && incoming.LastChangeId == held.LastChangeId);
+        });
+    }
 
     private IReadOnlyList<AggregateAcknowledgement> AggregateAcknowledgements(DateTimeOffset acknowledgedUtc) =>
         Enum.GetValues<CanonicalAggregateKind>()

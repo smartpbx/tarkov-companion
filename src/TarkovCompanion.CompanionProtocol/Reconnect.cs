@@ -24,16 +24,12 @@ public sealed record AggregateAcknowledgement(
     /// <summary>Diagnostic only; desktop ordering never uses a client clock.</summary>
     public DateTimeOffset AcknowledgedUtc { get; } = ProtocolGuard.Utc(AcknowledgedUtc, nameof(AcknowledgedUtc));
 
-    /// <summary>
-    /// True when no acknowledgement claims a revision the desktop does not hold, or a different
-    /// change at a revision it does hold. A divergent change at an equal revision is never an
-    /// idempotent copy.
-    /// </summary>
-    public static bool AgreeWith(CanonicalCompanionState canonical, IReadOnlyList<AggregateAcknowledgement> acknowledgements)
+    /// <summary>True when a complete cursor vector is no newer than the desktop and agrees at every equal cursor.</summary>
+    public static bool CanAdvanceTo(CanonicalCompanionState canonical, IReadOnlyList<AggregateAcknowledgement> acknowledgements)
     {
         ArgumentNullException.ThrowIfNull(canonical);
         ArgumentNullException.ThrowIfNull(acknowledgements);
-        return acknowledgements.All(acknowledgement =>
+        return IsComplete(acknowledgements) && acknowledgements.All(acknowledgement =>
         {
             var cursor = canonical.Cursor(acknowledgement.Aggregate);
             return acknowledgement.Revision.Value < cursor.Revision.Value ||
@@ -41,18 +37,38 @@ public sealed record AggregateAcknowledgement(
         });
     }
 
-    internal static IReadOnlyList<AggregateAcknowledgement> RequireDistinct(
+    /// <summary>True only when the vector is the exact current canonical state.</summary>
+    public static bool ExactlyMatches(
+        CanonicalCompanionState canonical,
+        GlobalRevision globalRevision,
+        IReadOnlyList<AggregateAcknowledgement> acknowledgements) =>
+        globalRevision == canonical.GlobalRevision &&
+        IsComplete(acknowledgements) &&
+        acknowledgements.All(acknowledgement =>
+        {
+            var cursor = canonical.Cursor(acknowledgement.Aggregate);
+            return acknowledgement.Revision == cursor.Revision && acknowledgement.AppliedChangeId == cursor.LastChangeId;
+        });
+
+    internal static IReadOnlyList<AggregateAcknowledgement> RequireComplete(
         IReadOnlyList<AggregateAcknowledgement> acknowledgements,
+        GlobalRevision globalRevision,
         string parameterName)
     {
         var list = ProtocolGuard.List(acknowledgements, parameterName, Enum.GetValues<CanonicalAggregateKind>().Length);
-        if (list.Select(item => item.Aggregate).Distinct().Count() != list.Count)
+        if (!IsComplete(list) || list.Sum(item => item.Revision.Value) != globalRevision.Value)
         {
-            throw new ArgumentException("Each aggregate is acknowledged at most once.", parameterName);
+            throw new ArgumentException(
+                "A cached state acknowledges every aggregate exactly once and its revisions sum to the global revision.",
+                parameterName);
         }
 
         return list;
     }
+
+    private static bool IsComplete(IReadOnlyList<AggregateAcknowledgement> acknowledgements) =>
+        acknowledgements.Count == Enum.GetValues<CanonicalAggregateKind>().Length &&
+        acknowledgements.Select(item => item.Aggregate).Distinct().Count() == acknowledgements.Count;
 }
 
 public sealed record ReconnectRequest
@@ -60,6 +76,7 @@ public sealed record ReconnectRequest
     public ReconnectRequest(
         CompanionProtocolVersion protocolVersion,
         DeviceSessionId sessionId,
+        ReconnectRequestId requestId,
         AuthorityEpoch? authorityEpoch,
         GlobalRevision lastGlobalRevision,
         DeliverySequence lastDeliverySequence,
@@ -69,21 +86,36 @@ public sealed record ReconnectRequest
         SessionId = sessionId.Value == Guid.Empty
             ? throw new ArgumentException("A device session id is required.", nameof(sessionId))
             : sessionId;
+        RequestId = requestId.Value == Guid.Empty
+            ? throw new ArgumentException("A reconnect request id is required.", nameof(requestId))
+            : requestId;
         AuthorityEpoch = authorityEpoch is { } epoch && epoch.Value == Guid.Empty
             ? throw new ArgumentException("An authority epoch is required when present.", nameof(authorityEpoch))
             : authorityEpoch;
         LastGlobalRevision = lastGlobalRevision;
         LastDeliverySequence = lastDeliverySequence;
-        AggregateAcknowledgements = AggregateAcknowledgement.RequireDistinct(aggregateAcknowledgements, nameof(aggregateAcknowledgements));
-        if (authorityEpoch is null && (lastGlobalRevision.Value != 0 || AggregateAcknowledgements.Count != 0))
+        if (authorityEpoch is null)
         {
-            throw new ArgumentException("A client without a cached authority epoch has no revisions to acknowledge.", nameof(authorityEpoch));
+            AggregateAcknowledgements = ProtocolGuard.List(aggregateAcknowledgements, nameof(aggregateAcknowledgements), 0);
+            if (lastGlobalRevision.Value != 0)
+            {
+                throw new ArgumentException("A client without a cached authority epoch has no revisions to acknowledge.", nameof(authorityEpoch));
+            }
+        }
+        else
+        {
+            AggregateAcknowledgements = AggregateAcknowledgement.RequireComplete(
+                aggregateAcknowledgements,
+                lastGlobalRevision,
+                nameof(aggregateAcknowledgements));
         }
     }
 
     public CompanionProtocolVersion ProtocolVersion { get; }
 
     public DeviceSessionId SessionId { get; }
+
+    public ReconnectRequestId RequestId { get; }
 
     /// <summary>Null when the tablet holds no canonical cache, for example after a browser reload.</summary>
     public AuthorityEpoch? AuthorityEpoch { get; }
@@ -99,16 +131,25 @@ public sealed record ReconnectRequest
 /// <summary>One retained delivery replayed with its original device sequence.</summary>
 public sealed record DeliveredServerMessage
 {
-    public DeliveredServerMessage(DeliverySequence deliverySequence, DateTimeOffset serverUtc, ServerMessage message)
+    public DeliveredServerMessage(
+        DeliverySequence deliverySequence,
+        CompanionDeviceId authenticatedOriginDeviceId,
+        DateTimeOffset serverUtc,
+        ServerMessage message)
     {
         DeliverySequence = deliverySequence.Value > 0
             ? deliverySequence
             : throw new ArgumentOutOfRangeException(nameof(deliverySequence));
+        AuthenticatedOriginDeviceId = authenticatedOriginDeviceId.Value == Guid.Empty
+            ? throw new ArgumentException("An authenticated origin device is required.", nameof(authenticatedOriginDeviceId))
+            : authenticatedOriginDeviceId;
         ServerUtc = ProtocolGuard.Utc(serverUtc, nameof(serverUtc));
         Message = ProtocolGuard.NotNull(message, nameof(message));
     }
 
     public DeliverySequence DeliverySequence { get; }
+
+    public CompanionDeviceId AuthenticatedOriginDeviceId { get; }
 
     public DateTimeOffset ServerUtc { get; }
 
@@ -131,6 +172,8 @@ public sealed record ReconnectPlan
 {
     public ReconnectPlan(
         CompanionProtocolVersion protocolVersion,
+        DeviceSessionId sessionId,
+        ReconnectRequestId requestId,
         ReconnectDisposition disposition,
         IReadOnlyList<DeliveredServerMessage> replay,
         CanonicalCompanionState? snapshot,
@@ -138,6 +181,12 @@ public sealed record ReconnectPlan
         string reason)
     {
         ProtocolVersion = ProtocolGuard.Version(protocolVersion, nameof(protocolVersion));
+        SessionId = sessionId.Value == Guid.Empty
+            ? throw new ArgumentException("A device session id is required.", nameof(sessionId))
+            : sessionId;
+        RequestId = requestId.Value == Guid.Empty
+            ? throw new ArgumentException("A reconnect request id is required.", nameof(requestId))
+            : requestId;
         Disposition = ProtocolGuard.Defined(disposition, nameof(disposition));
         Replay = ProtocolGuard.List(replay, nameof(replay), ProtocolBounds.MaxReplayItems);
         Snapshot = snapshot;
@@ -163,6 +212,10 @@ public sealed record ReconnectPlan
 
     public CompanionProtocolVersion ProtocolVersion { get; }
 
+    public DeviceSessionId SessionId { get; }
+
+    public ReconnectRequestId RequestId { get; }
+
     public ReconnectDisposition Disposition { get; }
 
     public IReadOnlyList<DeliveredServerMessage> Replay { get; }
@@ -174,7 +227,7 @@ public sealed record ReconnectPlan
     public string Reason { get; }
 }
 
-/// <summary>A reconnect plan and the delivery ledger after the planned deliveries are handed over.</summary>
+/// <summary>A reconnect plan and the unchanged ledger; only an authenticated client acknowledgement trims history.</summary>
 public sealed record ReconnectPlanning(ReconnectPlan Plan, DeliveryLedger Ledger);
 
 public static class ReconnectPlanner
@@ -190,18 +243,26 @@ public static class ReconnectPlanner
         ReconnectRequest request,
         DeliveryLedger ledger,
         CompanionDeviceId deviceId,
+        DeviceSessionId authenticatedSessionId,
         CompanionProtocolVersion negotiatedVersion)
     {
         ArgumentNullException.ThrowIfNull(canonical);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(ledger);
         var version = ProtocolGuard.Version(negotiatedVersion, nameof(negotiatedVersion));
+        if (authenticatedSessionId.Value == Guid.Empty || request.SessionId != authenticatedSessionId)
+        {
+            throw new UnauthorizedAccessException("The reconnect request does not belong to the authenticated session.");
+        }
+
         var lastAssigned = ledger.For(deviceId)?.LastAssigned ?? new DeliverySequence(0);
         if (!CompanionProtocolVersion.Current.CanRead(request.ProtocolVersion) || request.ProtocolVersion != version)
         {
             return new ReconnectPlanning(
                 new ReconnectPlan(
                     version,
+                    authenticatedSessionId,
+                    request.RequestId,
                     ReconnectDisposition.UnsupportedVersion,
                     [],
                     null,
@@ -213,24 +274,26 @@ public static class ReconnectPlanner
         if (request.AuthorityEpoch != canonical.AuthorityEpoch ||
             request.LastGlobalRevision.Value > canonical.GlobalRevision.Value ||
             request.LastDeliverySequence.Value > lastAssigned.Value ||
-            !AggregateAcknowledgement.AgreeWith(canonical, request.AggregateAcknowledgements))
+            !AggregateAcknowledgement.CanAdvanceTo(canonical, request.AggregateAcknowledgements))
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "authority-or-cursor-mismatch");
+            return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "authority-or-cursor-mismatch");
         }
 
         if (request.LastDeliverySequence == lastAssigned)
         {
-            return request.LastGlobalRevision == canonical.GlobalRevision
+            return AggregateAcknowledgement.ExactlyMatches(canonical, request.LastGlobalRevision, request.AggregateAcknowledgements)
                 ? new ReconnectPlanning(
                     new ReconnectPlan(
                         version,
+                        authenticatedSessionId,
+                        request.RequestId,
                         ReconnectDisposition.UpToDate,
                         [],
                         null,
                         lastAssigned,
                         "already-current"),
-                    ledger.Acknowledge(deviceId, lastAssigned))
-                : Snapshot(canonical, ledger, deviceId, lastAssigned, version, "revision-not-in-delivery-stream");
+                    ledger)
+                : Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "revision-not-in-delivery-stream");
         }
 
         var retained = ledger.PendingFor(deviceId)
@@ -241,39 +304,56 @@ public static class ReconnectPlanner
             retained.LongLength != expectedCount ||
             retained.Any(item => item.SnapshotRequired))
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "delivery-history-unavailable");
+            return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "delivery-history-unavailable");
         }
 
         var nextSequence = request.LastDeliverySequence.Value + 1;
         var nextGlobal = request.LastGlobalRevision.Value + 1;
+        var cursors = request.AggregateAcknowledgements.ToDictionary(item => item.Aggregate);
         foreach (var item in retained)
         {
             if (item.Sequence.Value != nextSequence)
             {
-                return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "delivery-sequence-gap");
+                return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "delivery-sequence-gap");
             }
 
             nextSequence++;
             if (item.Message is CanonicalUpdateMessage { Update: var update })
             {
-                if (update.AuthorityEpoch != canonical.AuthorityEpoch || update.GlobalRevision.Value != nextGlobal)
+                var incoming = CursorOf(update);
+                var prior = cursors[update.Aggregate];
+                if (update.AuthorityEpoch != canonical.AuthorityEpoch ||
+                    update.GlobalRevision.Value != nextGlobal ||
+                    incoming.Revision.Value != prior.Revision.Value + 1)
                 {
-                    return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "global-revision-gap");
+                    return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "global-or-aggregate-revision-gap");
                 }
 
+                cursors[update.Aggregate] = new AggregateAcknowledgement(
+                    update.Aggregate,
+                    incoming.Revision,
+                    incoming.LastChangeId,
+                    update.ChangedUtc);
                 nextGlobal++;
             }
         }
 
-        if (nextGlobal - 1 != canonical.GlobalRevision.Value)
+        if (nextGlobal - 1 != canonical.GlobalRevision.Value ||
+            !AggregateAcknowledgement.ExactlyMatches(canonical, canonical.GlobalRevision, cursors.Values.ToArray()))
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "global-revision-gap");
+            return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "global-or-aggregate-revision-gap");
         }
 
         var plan = new ReconnectPlan(
             version,
+            authenticatedSessionId,
+            request.RequestId,
             ReconnectDisposition.Replay,
-            retained.Select(item => new DeliveredServerMessage(item.Sequence, item.EnqueuedUtc, item.Message!)).ToArray(),
+            retained.Select(item => new DeliveredServerMessage(
+                item.Sequence,
+                item.AuthenticatedOriginDeviceId,
+                item.EnqueuedUtc,
+                item.Message!)).ToArray(),
             null,
             lastAssigned,
             "bounded-replay");
@@ -283,26 +363,39 @@ public static class ReconnectPlanner
         }
         catch (JsonException)
         {
-            return Snapshot(canonical, ledger, deviceId, lastAssigned, version, "replay-exceeds-payload-bound");
+            return Snapshot(canonical, ledger, lastAssigned, version, authenticatedSessionId, request.RequestId, "replay-exceeds-payload-bound");
         }
 
-        return new ReconnectPlanning(plan, ledger.Acknowledge(deviceId, lastAssigned));
+        return new ReconnectPlanning(plan, ledger);
     }
 
     private static ReconnectPlanning Snapshot(
         CanonicalCompanionState canonical,
         DeliveryLedger ledger,
-        CompanionDeviceId deviceId,
         DeliverySequence lastAssigned,
         CompanionProtocolVersion version,
+        DeviceSessionId sessionId,
+        ReconnectRequestId requestId,
         string reason) =>
         new(
             new ReconnectPlan(
                 version,
+                sessionId,
+                requestId,
                 ReconnectDisposition.FullSnapshot,
                 [],
                 canonical,
                 lastAssigned,
                 reason),
-            ledger.Acknowledge(deviceId, lastAssigned));
+            ledger);
+
+    private static AggregateCursor CursorOf(CanonicalUpdate update) => update switch
+    {
+        DeviceModeCanonicalUpdate modes => modes.State.Cursor,
+        WorkspaceCanonicalUpdate workspace => workspace.State.Cursor,
+        MarksCanonicalUpdate marks => marks.State.Cursor,
+        CaptureCanonicalUpdate capture => capture.State.Cursor,
+        ProfilePreferencesCanonicalUpdate preferences => preferences.State.Cursor,
+        _ => throw new ArgumentOutOfRangeException(nameof(update)),
+    };
 }

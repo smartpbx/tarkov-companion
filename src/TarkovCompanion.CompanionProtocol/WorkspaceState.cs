@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Abstractions.V2;
 
@@ -629,7 +630,8 @@ public sealed record CanonicalCompanionState
         CaptureIntentAggregate captureIntent,
         ProfilePreferencesAggregate profilePreferences,
         IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
-        DateTimeOffset? receiptHorizonUtc = null)
+        DateTimeOffset? receiptHorizonUtc = null,
+        IReadOnlySet<CommandId>? consumedCommandIds = null)
     {
         AuthorityEpoch = authorityEpoch.Value == Guid.Empty
             ? throw new ArgumentException("An authority epoch is required.", nameof(authorityEpoch))
@@ -652,6 +654,14 @@ public sealed record CanonicalCompanionState
             nameof(recentCommands),
             ProtocolBounds.MaxRecentCommands);
         ReceiptHorizonUtc = ProtocolGuard.UtcOptional(receiptHorizonUtc, nameof(receiptHorizonUtc));
+        var consumed = (consumedCommandIds ?? RecentCommands.Select(item => item.CommandId)).ToHashSet();
+        if (consumed.Any(item => item.Value == Guid.Empty) ||
+            RecentCommands.Any(item => !consumed.Contains(item.CommandId)))
+        {
+            throw new ArgumentException("Consumed command ids include every receipt and are non-empty.", nameof(consumedCommandIds));
+        }
+
+        ConsumedCommandIds = consumed.ToFrozenSet();
 
         // A command id is a change identity for the whole authority lifetime, not per device;
         // otherwise two devices could each be told that "their" change occupies one revision.
@@ -720,6 +730,14 @@ public sealed record CanonicalCompanionState
     [JsonIgnore]
     public DateTimeOffset? ReceiptHorizonUtc { get; }
 
+    /// <summary>
+    /// Irreversible authority-lifetime replay protection. Detailed receipts stay bounded, but an
+    /// applied client command id remains consumed after its receipt expires or is compacted.
+    /// Desktop persistence must store this set atomically with canonical state.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlySet<CommandId> ConsumedCommandIds { get; }
+
     public AggregateCursor Cursor(CanonicalAggregateKind aggregate) => aggregate switch
     {
         CanonicalAggregateKind.DeviceModes => DeviceModes.Cursor,
@@ -738,7 +756,8 @@ public sealed record CanonicalCompanionState
         CaptureIntentAggregate? captureIntent = null,
         ProfilePreferencesAggregate? profilePreferences = null,
         IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
-        DateTimeOffset? receiptHorizonUtc = null) =>
+        DateTimeOffset? receiptHorizonUtc = null,
+        IReadOnlySet<CommandId>? consumedCommandIds = null) =>
         new(
             AuthorityEpoch,
             WorkspaceId,
@@ -751,7 +770,8 @@ public sealed record CanonicalCompanionState
             captureIntent ?? CaptureIntent,
             profilePreferences ?? ProfilePreferences,
             recentCommands ?? RecentCommands,
-            receiptHorizonUtc ?? ReceiptHorizonUtc);
+            receiptHorizonUtc ?? ReceiptHorizonUtc,
+            consumedCommandIds ?? ConsumedCommandIds);
 }
 
 /// <summary>

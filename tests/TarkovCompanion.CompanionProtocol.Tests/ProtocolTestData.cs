@@ -16,6 +16,7 @@ internal static class ProtocolTestData
     public static readonly DeviceSessionId DesktopSession = new(Guid.Parse("20000000-0000-0000-0000-000000000001"));
     public static readonly DeviceSessionId TabletSession = new(Guid.Parse("20000000-0000-0000-0000-000000000002"));
     public static readonly DeviceSessionId OtherSession = new(Guid.Parse("20000000-0000-0000-0000-000000000003"));
+    public static readonly ReconnectRequestId ReconnectRequest = new(Guid.Parse("90000000-0000-4000-8000-000000000001"));
     public static readonly DeviceKeyId DesktopKey = new(Thumbprint("desktop-key"));
     public static readonly DeviceKeyId TabletKey = new(Thumbprint("tablet-key"));
     public static readonly DeviceKeyId OtherKey = new(Thumbprint("other-key"));
@@ -142,6 +143,21 @@ internal static class ProtocolTestData
         DesktopCanonicalStateMachine.Apply(state, Envelope(command, context.SessionId), context);
 
     public static CommandId Command(int number) => new(Guid.Parse($"40000000-0000-0000-0000-{number:000000000000}"));
+
+    public static IReadOnlyList<AggregateAcknowledgement> AcknowledgementsFor(
+        CanonicalCompanionState state,
+        DateTimeOffset? acknowledgedUtc = null) =>
+        Enum.GetValues<CanonicalAggregateKind>()
+            .Select(aggregate =>
+            {
+                var cursor = state.Cursor(aggregate);
+                return new AggregateAcknowledgement(
+                    aggregate,
+                    cursor.Revision,
+                    cursor.LastChangeId,
+                    acknowledgedUtc ?? Now);
+            })
+            .ToArray();
 
     public static MarkId Mark(int number) => new(Guid.Parse($"50000000-0000-0000-0000-{number:000000000000}"));
 
