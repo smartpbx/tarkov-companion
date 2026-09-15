@@ -236,11 +236,11 @@ public sealed class RaidObservationServiceTests
         private readonly TaskCompletionSource _release =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public event EventHandler? Changed;
+        public event EventHandler? Changed { add { } remove { } }
 
-        public event EventHandler<CaptureReviewRequestedEventArgs>? ReviewRequested;
+        public event EventHandler<CaptureReviewRequestedEventArgs>? ReviewRequested { add { } remove { } }
 
-        public event EventHandler<CaptureAcceptedEventArgs>? Accepted;
+        public event EventHandler<CaptureAcceptedEventArgs>? Accepted { add { } remove { } }
 
         public CaptureSessionServiceSnapshot Snapshot => CaptureSessionServiceSnapshot.Empty;
 
