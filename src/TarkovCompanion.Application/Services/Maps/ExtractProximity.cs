@@ -18,7 +18,16 @@ public sealed record NearbyExtract(
     double? MetresFromPlayer,
     string Bearing,
     bool IsTransit,
-    bool WasOffered);
+    bool WasOffered)
+{
+    /// <summary>Whether the catalog supplies a trusted position for this row.</summary>
+    /// <remarks>
+    /// False only for an EXFIL row the screenshot proved was offered but neither the primary
+    /// catalog nor a reviewed supplement could place. It stays in the list and never becomes a
+    /// marker at the map origin.
+    /// </remarks>
+    public bool HasKnownPosition { get; init; } = true;
+}
 
 /// <summary>
 /// The exits nearest the player, whether or not anything has been recognised.
@@ -89,6 +98,29 @@ public static class ExtractProximity
                 confirmed.Contains(feature.Name)));
         }
 
+        // The game can add an extract before the structured catalog catches up. A screenshot's
+        // EXFIL row is still useful evidence that the exit was offered, so retain any name the
+        // static features could not represent. Its location is explicitly unavailable; drawing
+        // it at an invented origin would be worse than omitting the marker.
+        foreach (var name in confirmed.Where(name => !string.IsNullOrWhiteSpace(name)))
+        {
+            if (found.Any(exit => string.Equals(exit.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            found.Add(new(
+                name.Trim(),
+                MapFeatureFaction.Unknown,
+                null,
+                string.Empty,
+                IsTransit: false,
+                WasOffered: true)
+            {
+                HasKnownPosition = false,
+            });
+        }
+
         // Offered first, because a confirmed exit is worth more than a nearer unconfirmed one;
         // then exits before transits, because leaving the raid is the usual question; then by
         // distance, which is the only one of the three that is a measurement. Name last, so a
@@ -98,11 +130,26 @@ public static class ExtractProximity
         [
             .. found
                 .OrderByDescending(exit => exit.WasOffered)
+                .ThenBy(exit => exit.HasKnownPosition)
                 .ThenBy(exit => exit.IsTransit)
                 .ThenBy(exit => exit.MetresFromPlayer ?? double.MaxValue)
                 .ThenBy(exit => exit.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(limit),
         ];
+    }
+
+    /// <summary>What the compact extract row should say about location.</summary>
+    public static string DescribeLocation(NearbyExtract exit)
+    {
+        ArgumentNullException.ThrowIfNull(exit);
+        if (!exit.HasKnownPosition)
+        {
+            return "Location unavailable";
+        }
+
+        return exit.MetresFromPlayer is { } metres
+            ? $"{SpawnProximity.Describe(metres)} {exit.Bearing}".TrimEnd()
+            : string.Empty;
     }
 
     /// <summary>

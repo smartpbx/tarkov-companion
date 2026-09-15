@@ -77,6 +77,120 @@ public sealed class ExtractAndFleaTests
     }
 
     [Fact]
+    public async Task A_labelled_extract_missing_from_the_catalog_is_preserved_as_an_observation()
+    {
+        var image = CreateImage(1000, 700) with { Source = "fixture://extract-catalog-gap" };
+        var engine = new FixtureOcrEngine(
+        [
+            new FixtureOcrScene(
+                image.Source,
+                [new OcrLine(
+                    "EXFIL01 Hideout Under the Landing Stage",
+                    new PixelRect(650, 100, 300, 24),
+                    new Confidence(0.96))])
+        ]);
+        var provenance = new DataProvenance("fixture", image.CapturedUtc);
+        var map = new MapDefinition(
+            "lighthouse",
+            "Lighthouse",
+            null,
+            null,
+            [],
+            [new MapExtract(
+                "grotto",
+                "lighthouse",
+                "Scav Hideout at the Grotto",
+                null,
+                null,
+                provenance)],
+            null,
+            provenance);
+
+        var result = await new ExtractRecognitionService(engine)
+            .RecognizeAsync(image, map, CancellationToken.None);
+
+        var observation = Assert.Single(result.Observations);
+        Assert.Equal("Hideout Under the Landing Stage", observation.Name);
+        Assert.StartsWith("catalog-gap:lighthouse:", observation.ExtractId, StringComparison.Ordinal);
+        Assert.Equal(ExtractStatus.Active, observation.Status);
+        Assert.Equal(0.60, observation.Confidence.Value, 3);
+        Assert.Contains("catalog=missing", observation.Source, StringComparison.Ordinal);
+        Assert.Equal(observation.ExtractId, Assert.Single(result.Extracts).ExtractId);
+        Assert.Equal(["EXFIL01 Hideout Under the Landing Stage"], result.CatalogGapLines);
+        Assert.Empty(result.UnmatchedLines);
+        Assert.Empty(result.AmbiguousLines);
+        Assert.Equal("extract_catalog_gap", result.DiagnosticCode);
+    }
+
+    [Fact]
+    public async Task Unlabelled_text_does_not_become_a_catalog_gap()
+    {
+        var image = CreateImage(1000, 700) with { Source = "fixture://unlabelled-catalog-gap" };
+        var engine = new FixtureOcrEngine(
+        [
+            new FixtureOcrScene(
+                image.Source,
+                [new OcrLine(
+                    "Hideout Under the Landing Stage",
+                    new PixelRect(650, 100, 300, 24),
+                    new Confidence(0.96))])
+        ]);
+        var provenance = new DataProvenance("fixture", image.CapturedUtc);
+        var map = new MapDefinition(
+            "lighthouse",
+            "Lighthouse",
+            null,
+            null,
+            [],
+            [],
+            null,
+            provenance);
+
+        var result = await new ExtractRecognitionService(engine)
+            .RecognizeAsync(image, map, CancellationToken.None);
+
+        Assert.Empty(result.Extracts);
+        Assert.Empty(result.Observations);
+        Assert.Empty(result.CatalogGapLines);
+        Assert.Equal(["Hideout Under the Landing Stage"], result.UnmatchedLines);
+    }
+
+    [Fact]
+    public async Task A_labelled_near_tie_remains_ambiguous_instead_of_becoming_a_new_extract()
+    {
+        var image = CreateImage(1000, 700) with { Source = "fixture://labelled-extract-near-tie" };
+        var engine = new FixtureOcrEngine(
+        [
+            new FixtureOcrScene(
+                image.Source,
+                [new OcrLine(
+                    "EXFIL01 ZB-101",
+                    new PixelRect(650, 100, 160, 24),
+                    new Confidence(0.96))])
+        ]);
+        var provenance = new DataProvenance("fixture", image.CapturedUtc);
+        var map = new MapDefinition(
+            "customs",
+            "Customs",
+            null,
+            null,
+            [],
+            [
+                new MapExtract("zb-1011", "customs", "ZB-1011", null, null, provenance),
+                new MapExtract("zb-1012", "customs", "ZB-1012", null, null, provenance),
+            ],
+            null,
+            provenance);
+
+        var result = await new ExtractRecognitionService(engine)
+            .RecognizeAsync(image, map, CancellationToken.None);
+
+        Assert.Empty(result.Observations);
+        Assert.Empty(result.CatalogGapLines);
+        Assert.Equal(["EXFIL01 ZB-101"], result.AmbiguousLines);
+    }
+
+    [Fact]
     public async Task ExtractStatusModelPreservesActiveClosedPendingAndUnknown()
     {
         var image = CreateImage(1000, 700) with { Source = "fixture://extract-statuses" };

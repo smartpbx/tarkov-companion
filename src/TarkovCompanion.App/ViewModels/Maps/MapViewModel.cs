@@ -4429,7 +4429,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void UpdateExtractPanel()
     {
-        if (_mapFeatures.Count == 0)
+        if (_mapFeatures.Count == 0 && _activeExtracts.Count == 0)
         {
             ExtractPanel = [];
             return;
@@ -4440,10 +4440,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             .Near(_mapFeatures, _playerPosition?.Position, _side, offered)
             .Select(exit => new ExtractPanelViewModel(
                 exit.Name,
-                // Without a screenshot there is no player position, so there is no distance to
-                // print. The row is still worth having; a made-up distance from the origin of
-                // the map would not be.
-                exit.MetresFromPlayer is { } metres ? $"{SpawnProximity.Describe(metres)} {exit.Bearing}" : string.Empty,
+                ExtractProximity.DescribeLocation(exit),
                 SideWord(exit.Side),
                 exit.WasOffered,
                 exit.IsTransit))

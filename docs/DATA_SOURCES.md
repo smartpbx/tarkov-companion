@@ -23,6 +23,15 @@ Modes: `regular`, `pve`, `pvp-season`. English is the initial application langua
 
 Static datasets default to a 9-hour stale-while-revalidate window. Viewed/scanned price data defaults to a 10-minute window. Clients use bounded timeouts, cancellation, at most three attempts with jittered exponential delay, request deduplication, ETag/Last-Modified where present, and valid stale cache on failure.
 
+### Reviewed extract supplements
+
+The primary map payload is supplemented only for measured current extract omissions under ADR
+0012. The bounded 2026-09-15 set contains nine name/faction/coordinate facts across five maps,
+with a pinned MIT-licensed coordinate reference and current EFT Wiki list corroboration. It is
+compiled into Infrastructure, performs no additional runtime request, retains per-row
+provenance, and yields whenever the primary publishes the same map-scoped normalized name. See
+`docs/research/EXTRACT_CATALOG_COVERAGE.md` for the reproducible sweep and exclusions.
+
 ## Map configuration and assets
 
 Map geometry/configuration may be derived from current `the-hideout/tarkov-dev` data with provenance. Third-party map imagery is optional per-map data and cannot be treated as project-owned. When its license is not distribution-compatible, the app must download the original asset into the user's cache and expose attribution rather than embed a derivative.

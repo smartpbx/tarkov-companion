@@ -123,6 +123,58 @@ public sealed class ExtractProximityTests
         Assert.Equal(["Crossroads", "RUAF Roadblock"], found.Select(exit => exit.Name));
         Assert.All(found, exit => Assert.Null(exit.MetresFromPlayer));
         Assert.All(found, exit => Assert.Equal(string.Empty, exit.Bearing));
+        Assert.All(found, exit => Assert.Equal(string.Empty, ExtractProximity.DescribeLocation(exit)));
+    }
+
+    [Fact]
+    public void An_offered_extract_absent_from_the_catalog_is_kept_without_an_invented_position()
+    {
+        var features = new[] { Exit("Scav Hideout at the Grotto", 20, 0, "scav") };
+
+        var found = ExtractProximity.Near(
+            features,
+            At(0, 0),
+            MapFeatureFaction.Scav,
+            ["Hideout Under the Landing Stage"]);
+
+        Assert.Equal("Hideout Under the Landing Stage", found[0].Name);
+        Assert.True(found[0].WasOffered);
+        Assert.False(found[0].HasKnownPosition);
+        Assert.Null(found[0].MetresFromPlayer);
+        Assert.Equal("Location unavailable", ExtractProximity.DescribeLocation(found[0]));
+    }
+
+    [Fact]
+    public void An_offered_extract_survives_when_no_static_features_have_synced()
+    {
+        var found = ExtractProximity.Near(
+            [],
+            player: null,
+            MapFeatureFaction.Pmc,
+            ["A New Way Out"]);
+
+        var exit = Assert.Single(found);
+        Assert.Equal("A New Way Out", exit.Name);
+        Assert.False(exit.HasKnownPosition);
+    }
+
+    [Fact]
+    public void Catalog_gap_rows_are_not_displaced_by_the_default_limit()
+    {
+        var features = Enumerable
+            .Range(1, 10)
+            .Select(index => Exit($"Known {index:00}", index, 0))
+            .ToArray();
+
+        var found = ExtractProximity.Near(
+            features,
+            At(0, 0),
+            MapFeatureFaction.Pmc,
+            ["Known 01", "Unknown Offered"]);
+
+        Assert.Equal("Unknown Offered", found[0].Name);
+        Assert.Contains(found, exit => exit.Name == "Known 01" && exit.WasOffered);
+        Assert.Equal(6, found.Count);
     }
 
     [Fact]

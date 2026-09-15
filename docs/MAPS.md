@@ -10,6 +10,12 @@ The map view provides explicit location, visual-variant, and upstream floor sele
 
 Map metadata enters the application through `IMapDefinitionCache` and `MapDataService`. The normalized cache JSON reader accepts unknown fields so a source can add data without breaking an installed client, but it rejects missing map, floor, or extract identities. Each definition keeps its `DataProvenance`; map artwork is referenced rather than embedded and must retain its own attribution and distribution terms.
 
+Extracts pass through the reviewed repair layer described by ADR 0012 at both map read
+boundaries. The primary catalog always wins by map-scoped normalized name; only a measured
+omission is supplied locally, with its own provenance. The 2026-09-15 sweep found nine such rows
+across five maps; the evidence and exact count live in
+`docs/research/EXTRACT_CATALOG_COVERAGE.md`.
+
 ## Coordinate transforms
 
 A transform is usable only when all values are finite, world and visual extents are positive, and floor ranges are finite, non-empty, and non-overlapping. World X/Z is mapped to the visual plane, with configured flips and rotation. World Y selects a floor using an inclusive lower and exclusive upper bound.
@@ -27,3 +33,8 @@ Positions are always labeled last known. By default an observation becomes stale
 ## Extracts
 
 Recognized active extracts are joined to cached static extract metadata by canonical ID. An active extract remains visible when its static position is missing, with explicit guidance that no marker can be shown. OCR confidence and source remain attached to the active observation.
+
+A structurally labelled `EXFIL` screenshot row that cannot be matched to either the primary or
+reviewed catalog is retained as an offered extract with conservative confidence. It appears in
+the compact extract list as `Location unavailable` and is not plotted. Unlabelled OCR text and
+near-tied catalog matches remain unmatched or ambiguous rather than becoming map facts.

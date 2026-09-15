@@ -170,6 +170,7 @@ Exact package URLs, content hashes, dependency relationships, and project reacha
 
 - tarkov.dev / the-hideout contributors provide structured Escape from Tarkov data through `json.tarkov.dev`; see <https://tarkov.dev> and <https://github.com/the-hideout/tarkov-api>.
 - `the-hideout/tarkov-dev` contributors provide runtime map configuration from `src/data/maps.json` under MIT terms; see <https://github.com/the-hideout/tarkov-dev>.
+- SPT Leaderboard contributors provide the pinned coordinate reference for nine reviewed extract facts under MIT terms; see [commit `389e23571d7d6fe8c3da354f80fdca9cd14e9098`](https://github.com/SPT-Leaderboard/Website/tree/389e23571d7d6fe8c3da354f80fdca9cd14e9098/live-map/maps). No code or artwork is included. See `LICENSES/SPT-Leaderboard-MIT.txt`.
 - `the-hideout/tarkov-dev-svg-maps` contributors and the author credited by each selected variant provide optional runtime-cached map artwork under CC BY-NC-SA 4.0; see <https://github.com/the-hideout/tarkov-dev-svg-maps> and <https://creativecommons.org/licenses/by-nc-sa/4.0/>. The upstream repository additionally prohibits use in cheating or unfair-advantage software, including radar/ESP overlays, cheat-client maps, automation, and pixel bots.
 
 Third-party map artwork is not included in the source tree or release archive. Original URLs, author links, retrieval timestamps, hashes, and license references remain in the user's local cache metadata and are attributed in-app.

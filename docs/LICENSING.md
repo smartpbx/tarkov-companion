@@ -10,6 +10,18 @@ Project source is MIT licensed. Dependency and asset obligations are tracked sep
 - TarkovMonitor: GPL-3.0 reference only; no source is copied or linked.
 - eft-ammo.com: inspiration/sanity checking only; no scraping or copied ranking/presentation.
 
+## Reviewed extract coordinate facts
+
+ADR 0012's extract supplement uses nine factual name/faction/world-coordinate records from the
+SPT Leaderboard Website map files at commit
+[`389e23571d7d6fe8c3da354f80fdca9cd14e9098`](https://github.com/SPT-Leaderboard/Website/tree/389e23571d7d6fe8c3da354f80fdca9cd14e9098/live-map/maps).
+The repository is MIT licensed, copyright 2025 SPT Leaderboard; the retained license is
+`LICENSES/SPT-Leaderboard-MIT.txt`. No implementation, artwork, marker assets, wording, or layout
+is copied. Current EFT Wiki extract lists corroborate names and factions, but no wiki prose or
+assets are redistributed. Each compiled fact links both review sources and records confidence
+and timestamps. The primary `json.tarkov.dev` record supersedes the supplement by normalized
+identity when it appears.
+
 ## Offline OCR redistribution review
 
 The production OCR provider uses `TesseractOCR` 5.5.2, a .NET wrapper containing
