@@ -93,7 +93,7 @@ public sealed class WindowsScreenshotWatcher(
             {
                 var wasTracked = seen.TryGetValue(candidate.Path, out var delivered);
                 if (wasTracked
-                    && delivered.Fingerprint == candidate.Fingerprint)
+                    && delivered!.Fingerprint == candidate.Fingerprint)
                 {
                     continue;
                 }
