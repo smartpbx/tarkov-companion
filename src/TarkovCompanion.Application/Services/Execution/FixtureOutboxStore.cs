@@ -6,54 +6,111 @@ namespace TarkovCompanion.Application.Services.Execution;
 /// A deterministic fixture store with the same atomic lease-token rules as the durable store.
 /// It intentionally makes no process-restart durability claim; issue #270 owns SQLite durability.
 /// </summary>
+/// <remarks>
+/// Capacity bounds outstanding work only. Counting every row made one completed batch — or a
+/// poison command waiting for someone to retry it — permanently brick a bounded process-local
+/// store. Completed rows are instead kept for a bounded retention window so they stay
+/// inspectable without growing for the life of the process; dead letters are kept until retried,
+/// because a dead-lettered head is what holds the rest of its aggregate in order.
+/// </remarks>
 public sealed class FixtureOutboxStore : IOutboxStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<OperationId, MutableItem> _items = [];
     private readonly Dictionary<IdempotencyKey, OperationId> _idempotency = [];
     private readonly int _capacity;
+    private readonly int _completedRetention;
 
-    public FixtureOutboxStore(int capacity = 1000)
+    public FixtureOutboxStore(int capacity = 1000, int? completedRetention = null)
     {
         if (capacity is < 1 or > 100_000)
         {
             throw new ArgumentOutOfRangeException(nameof(capacity));
         }
 
+        var retention = completedRetention ?? capacity;
+        if (retention is < 0 or > 100_000)
+        {
+            throw new ArgumentOutOfRangeException(nameof(completedRetention));
+        }
+
         _capacity = capacity;
+        _completedRetention = retention;
     }
 
-    public Task<OutboxEnqueueReceipt> EnqueueAsync(OutboxItem item, CancellationToken cancellationToken)
+    public async Task<OutboxEnqueueReceipt> EnqueueAsync(OutboxItem item, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(item);
+        var receipts = await EnqueueBatchAsync([item], cancellationToken).ConfigureAwait(false);
+        return receipts[0];
+    }
+
+    public Task<ImmutableArray<OutboxEnqueueReceipt>> EnqueueBatchAsync(
+        ImmutableArray<OutboxItem> items,
+        CancellationToken cancellationToken)
+    {
+        if (items.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException("At least one outbox item is required.", nameof(items));
+        }
+
+        if (items.Any(item => item is null))
+        {
+            throw new ArgumentException("Outbox items cannot contain null.", nameof(items));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         lock (_gate)
         {
-            if (_idempotency.TryGetValue(item.IdempotencyKey, out var existing))
+            // Everything is validated before anything is stored, so a refusal leaves no part of
+            // the batch behind.
+            var receipts = new OutboxEnqueueReceipt[items.Length];
+            var added = new List<OutboxItem>();
+            var batchKeys = new Dictionary<IdempotencyKey, OperationId>();
+            for (var index = 0; index < items.Length; index++)
             {
-                return Task.FromResult(new OutboxEnqueueReceipt(false, existing));
+                var item = items[index];
+                if (_idempotency.TryGetValue(item.IdempotencyKey, out var duplicateOf)
+                    || batchKeys.TryGetValue(item.IdempotencyKey, out duplicateOf))
+                {
+                    receipts[index] = new(false, duplicateOf);
+                    continue;
+                }
+
+                if (_items.ContainsKey(item.OperationId)
+                    || added.Any(candidate => candidate.OperationId == item.OperationId))
+                {
+                    throw new InvalidOperationException("An outbox operation id may be enqueued only once.");
+                }
+
+                if (_items.Values.Any(stored =>
+                        stored.Item.AggregateId == item.AggregateId
+                        && stored.Item.AggregateSequence == item.AggregateSequence)
+                    || added.Any(candidate =>
+                        candidate.AggregateId == item.AggregateId
+                        && candidate.AggregateSequence == item.AggregateSequence))
+                {
+                    throw new InvalidOperationException("An aggregate sequence may be enqueued only once.");
+                }
+
+                batchKeys.Add(item.IdempotencyKey, item.OperationId);
+                added.Add(item);
+                receipts[index] = new(true, item.OperationId);
             }
 
-            if (_items.Count >= _capacity)
+            var activeCount = _items.Values.Count(stored => IsActive(stored.State));
+            if (added.Count > 0 && activeCount + added.Count > _capacity)
             {
                 throw new OutboxCapacityException();
             }
 
-            if (_items.ContainsKey(item.OperationId))
+            foreach (var accepted in added)
             {
-                throw new InvalidOperationException("An outbox operation id may be enqueued only once.");
+                _items.Add(accepted.OperationId, new(accepted));
+                _idempotency.Add(accepted.IdempotencyKey, accepted.OperationId);
             }
 
-            if (_items.Values.Any(existing =>
-                    existing.Item.AggregateId == item.AggregateId
-                    && existing.Item.AggregateSequence == item.AggregateSequence))
-            {
-                throw new InvalidOperationException("An aggregate sequence may be enqueued only once.");
-            }
-
-            _items.Add(item.OperationId, new(item));
-            _idempotency.Add(item.IdempotencyKey, item.OperationId);
-            return Task.FromResult(new OutboxEnqueueReceipt(true, item.OperationId));
+            return Task.FromResult<ImmutableArray<OutboxEnqueueReceipt>>([.. receipts]);
         }
     }
 
@@ -122,6 +179,7 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 item.LeaseToken = null;
                 item.LeaseExpiresUtc = null;
                 item.LastFault = null;
+                PruneCompletedUnsafe();
             },
             cancellationToken);
 
@@ -204,6 +262,12 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 return Task.FromResult(false);
             }
 
+            if (_items.Values.Count(existing => IsActive(existing.State)) >= _capacity)
+            {
+                // A retried dead letter becomes outstanding work again and is bounded like it.
+                return Task.FromResult(false);
+            }
+
             item.State = OutboxDeliveryState.Retrying;
             item.AttemptCount = 0;
             item.NextAttemptUtc = nowUtc.ToUniversalTime();
@@ -234,9 +298,23 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 : oldest > nowUtc
                     ? TimeSpan.Zero
                     : nowUtc - oldest.Value;
-            return Task.FromResult(new OutboxSnapshot(
-                counts,
-                age));
+            return Task.FromResult(new OutboxSnapshot(counts, age)
+            {
+                DeadLetters = [.. _items.Values
+                    .Where(item => item.State == OutboxDeliveryState.DeadLetter)
+                    .OrderBy(item => item.CompletedUtc)
+                    .ThenBy(item => item.Item.AggregateId.Value, StringComparer.Ordinal)
+                    .ThenBy(item => item.Item.AggregateSequence)
+                    .Take(OutboxSnapshot.MaxListedDeadLetters)
+                    .Select(item => new OutboxDeadLetterSnapshot(
+                        item.Item.OperationId,
+                        item.Item.AggregateId,
+                        item.Item.AggregateSequence,
+                        item.Item.Command,
+                        item.AttemptCount,
+                        item.LastFault,
+                        item.CompletedUtc))],
+            });
         }
     }
 
@@ -279,6 +357,12 @@ public sealed class FixtureOutboxStore : IOutboxStore
         }
     }
 
+    /// <summary>Returns expired leases to retry, or dead-letters them once attempts are spent.</summary>
+    /// <remarks>
+    /// A lease that expires is an attempt that crashed or hung. It already counted when it was
+    /// leased, so recovering it into another attempt without checking the budget let a command
+    /// that kills its handler replay for ever.
+    /// </remarks>
     private int RecoverExpiredUnsafe(DateTimeOffset nowUtc)
     {
         var recovered = 0;
@@ -286,16 +370,19 @@ public sealed class FixtureOutboxStore : IOutboxStore
                      item.State == OutboxDeliveryState.Processing
                      && item.LeaseExpiresUtc <= nowUtc))
         {
-            item.State = OutboxDeliveryState.Retrying;
+            var exhausted = item.AttemptCount >= item.Item.AttemptPolicy.MaxAttempts
+                || item.Item.ExpiresUtc <= nowUtc;
+            item.State = exhausted ? OutboxDeliveryState.DeadLetter : OutboxDeliveryState.Retrying;
             item.NextAttemptUtc = nowUtc;
             item.LeaseToken = null;
             item.LeaseExpiresUtc = null;
             item.LastFault = new(
-                RuntimeFailureKind.Transient,
-                new("outbox-lease-expired"),
-                RuntimeRecoveryAction.RetryAutomatically,
+                exhausted ? RuntimeFailureKind.Timeout : RuntimeFailureKind.Transient,
+                new(exhausted ? "outbox-lease-attempts-exhausted" : "outbox-lease-expired"),
+                exhausted ? RuntimeRecoveryAction.RetryManually : RuntimeRecoveryAction.RetryAutomatically,
                 new($"operation:{item.Item.OperationId}"),
                 nowUtc);
+            item.CompletedUtc = exhausted ? nowUtc : null;
             recovered++;
         }
 
@@ -318,6 +405,32 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 nowUtc);
         }
     }
+
+    private void PruneCompletedUnsafe()
+    {
+        var completed = _items.Values.Count(item => item.State == OutboxDeliveryState.Completed);
+        if (completed <= _completedRetention)
+        {
+            return;
+        }
+
+        foreach (var item in _items.Values
+                     .Where(item => item.State == OutboxDeliveryState.Completed)
+                     .OrderBy(item => item.CompletedUtc)
+                     .ThenBy(item => item.Item.AggregateId.Value, StringComparer.Ordinal)
+                     .ThenBy(item => item.Item.AggregateSequence)
+                     .Take(completed - _completedRetention)
+                     .ToArray())
+        {
+            _items.Remove(item.Item.OperationId);
+            _idempotency.Remove(item.Item.IdempotencyKey);
+        }
+    }
+
+    private static bool IsActive(OutboxDeliveryState state) => state is
+        OutboxDeliveryState.Pending or
+        OutboxDeliveryState.Processing or
+        OutboxDeliveryState.Retrying;
 
     private static DateTimeOffset AddBounded(DateTimeOffset value, TimeSpan duration)
     {

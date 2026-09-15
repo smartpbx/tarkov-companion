@@ -11,7 +11,7 @@ public enum BackgroundWorkState
     Cancelled,
     TimedOut,
     Rejected,
-    StopTimedOut,
+    Restarting,
 }
 
 public sealed record BackgroundWorkSupervisorOptions
@@ -25,7 +25,8 @@ public sealed record BackgroundWorkSupervisorOptions
         int cpuLimit,
         int maxPriorityBurst,
         int terminalHistoryLimit,
-        TimeSpan defaultStopTimeout)
+        TimeSpan defaultStopTimeout,
+        TimeSpan? minimumRestartDelay = null)
     {
         if (capacity < 1)
         {
@@ -72,6 +73,14 @@ public sealed record BackgroundWorkSupervisorOptions
             throw new ArgumentOutOfRangeException(nameof(defaultStopTimeout));
         }
 
+        // A zero floor would let an operation that fails immediately restart in a hot loop and
+        // hold a CPU while never being admitted as new work.
+        var restartDelay = minimumRestartDelay ?? TimeSpan.FromSeconds(1);
+        if (restartDelay <= TimeSpan.Zero || restartDelay > OperationPolicy.MaximumDuration)
+        {
+            throw new ArgumentOutOfRangeException(nameof(minimumRestartDelay));
+        }
+
         Capacity = capacity;
         ReservedInteractiveAdmission = reservedInteractiveAdmission;
         MaxConcurrent = maxConcurrent;
@@ -81,6 +90,7 @@ public sealed record BackgroundWorkSupervisorOptions
         MaxPriorityBurst = maxPriorityBurst;
         TerminalHistoryLimit = terminalHistoryLimit;
         DefaultStopTimeout = defaultStopTimeout;
+        MinimumRestartDelay = restartDelay;
     }
 
     public int Capacity { get; }
@@ -100,6 +110,9 @@ public sealed record BackgroundWorkSupervisorOptions
     public int TerminalHistoryLimit { get; }
 
     public TimeSpan DefaultStopTimeout { get; }
+
+    /// <summary>The shortest pause before an automatically restarted operation runs again.</summary>
+    public TimeSpan MinimumRestartDelay { get; }
 
     public static BackgroundWorkSupervisorOptions Default { get; } = new(
         capacity: 64,
@@ -148,6 +161,7 @@ public sealed record BackgroundWorkSnapshot(
     WorkPriority Priority,
     BackgroundWorkState State,
     int Attempts,
+    int Restarts,
     DateTimeOffset SubmittedUtc,
     DateTimeOffset? StartedUtc,
     DateTimeOffset? CompletedUtc,
@@ -166,7 +180,8 @@ public sealed record SupervisorResourceSnapshot(
     long Admitted,
     long Rejected,
     long Completed,
-    long SubscriberFaults);
+    long SubscriberFaults,
+    int Restarting = 0);
 
 public sealed record BackgroundWorkSupervisorSnapshot(
     bool IsStopping,
@@ -197,6 +212,11 @@ public sealed class BackgroundWorkHandle
     public Task<BackgroundWorkResult> Completion { get; }
 }
 
+/// <summary>How a bounded stop ended.</summary>
+/// <param name="CompletedWithinDeadline">Every admitted operation reached a terminal state and its
+/// user work returned before the deadline.</param>
+/// <param name="UnfinishedOperations">Operations still executing, or still owning their resources,
+/// when the deadline passed. They stay non-terminal and are not reported as cancelled.</param>
 public sealed record SupervisorStopResult(bool CompletedWithinDeadline, int UnfinishedOperations);
 
 public interface IBackgroundWorkSupervisor : IAsyncDisposable
@@ -219,6 +239,19 @@ public interface IBackgroundWorkSupervisor : IAsyncDisposable
 }
 
 /// <summary>A bounded priority scheduler with explicit resource-class limits.</summary>
+/// <remarks>
+/// <para>
+/// A stop used to mark an operation that ignored cancellation as terminal and hand its slot back,
+/// so a second copy of the same user work could be admitted while the first was still running.
+/// An operation now keeps its state, its completion and its exact resource class until the
+/// dependency really returns; a stop that runs out of time says how many are still unfinished
+/// instead of pretending they ended.
+/// </para>
+/// <para>
+/// Cancellation registrations are only ever unregistered while the scheduler lock is held.
+/// Disposing one there waits for a callback that is itself waiting for the lock.
+/// </para>
+/// </remarks>
 public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
 {
     private readonly object _gate = new();
@@ -231,12 +264,14 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
     private readonly Dictionary<OperationId, WorkItem> _items = [];
     private readonly Task _dispatcher;
     private EventHandler? _changed;
+    private Task _lifetimeCancellation = Task.CompletedTask;
     private long _nextSequence;
     private long _admitted;
     private long _rejected;
     private long _completed;
     private long _subscriberFaults;
     private int _running;
+    private int _restarting;
     private int _runningLight;
     private int _runningIo;
     private int _runningCpu;
@@ -245,6 +280,7 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
     private int _priorityBurst;
     private bool _stopping;
     private bool _disposed;
+    private bool _signalDisposed;
 
     public BackgroundWorkSupervisor(
         TimeProvider timeProvider,
@@ -311,15 +347,8 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             if (_stopping || !HasAdmissionUnsafe(request.Priority))
             {
                 item = CreateItem(request, operation, cancellationToken, BackgroundWorkState.Rejected);
-                item.LastFault = CapacityFault(request.Execution.OperationId);
-                item.CompletedUtc = _timeProvider.GetUtcNow();
-                item.Completion.TrySetResult(new(
-                    request.Execution.OperationId,
-                    BackgroundWorkState.Rejected,
-                    item.LastFault,
-                    0,
-                    item.CompletedUtc.Value));
                 _items.Add(request.Execution.OperationId, item);
+                CompleteUnsafe(item, BackgroundWorkState.Rejected, CapacityFault(request.Execution.OperationId));
                 _rejected = checked(_rejected + 1);
                 TrimHistoryUnsafe();
                 accepted = false;
@@ -330,21 +359,19 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
                 _items.Add(request.Execution.OperationId, item);
                 _pending.Add(item);
                 _admitted = checked(_admitted + 1);
-                item.CancellationRegistration = cancellationToken.Register(
-                    static state =>
-                    {
-                        var cancellation = (PendingCancellation)state!;
-                        cancellation.Owner.CancelPending(cancellation.OperationId);
-                    },
-                    new PendingCancellation(this, request.Execution.OperationId));
                 accepted = true;
             }
+        }
+
+        if (accepted)
+        {
+            RegisterPendingCancellation(item);
         }
 
         PublishChanged();
         if (accepted)
         {
-            _signal.Release();
+            Wake();
         }
 
         return new(accepted, item.Handle, item.LastFault);
@@ -363,9 +390,11 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
                 throw new InvalidOperationException("Only a known terminal operation can be retried.");
             }
 
-            if (original.Request.Execution.Policy.RestartMode == OperationRestartMode.Never)
+            // OnFailure and Always are restarted by the supervisor itself. A caller retry beside
+            // that loop would run two copies of work the policy said should run as one.
+            if (original.Request.Execution.Policy.RestartMode != OperationRestartMode.Manual)
             {
-                throw new InvalidOperationException("The operation policy forbids restart.");
+                throw new InvalidOperationException("Only a manually restartable operation can be retried by a caller.");
             }
 
             if (original.Request.Execution.Policy.IdempotencyRequirement == IdempotencyRequirement.SingleAttempt)
@@ -396,69 +425,92 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             throw new ArgumentOutOfRangeException(nameof(timeout));
         }
 
-        Task[] completions;
+        List<CancellationTokenRegistration> released = [];
+        Task[] runs;
+        var beganStopping = false;
         lock (_gate)
         {
             if (!_stopping)
             {
                 _stopping = true;
-                foreach (var pending in _pending.ToArray())
+                beganStopping = true;
+                foreach (var pending in _pending)
                 {
-                    CompletePendingUnsafe(pending, BackgroundWorkState.Cancelled);
+                    released.Add(pending.CancellationRegistration);
+                    pending.CancellationRegistration = default;
+                    CompleteUnsafe(pending, BackgroundWorkState.Cancelled, pending.LastFault);
                 }
 
                 _pending.Clear();
             }
 
-            completions = [.. _items.Values
-                .Where(item => !IsTerminal(item.State) || item.ExecutionTask is { IsCompleted: false })
-                .Select(item => item.ExecutionTask ?? item.Completion.Task)];
+            runs = [.. _items.Values
+                .Where(item => item.RunCompletion is { Task.IsCompleted: false })
+                .Select(item => item.RunCompletion!.Task)];
         }
 
-        await _lifetime.CancelAsync().ConfigureAwait(false);
-        _signal.Release();
-        PublishChanged();
-        var combined = Task.WhenAll(completions.Append(_dispatcher));
-        try
+        foreach (var registration in released)
         {
-            await combined.WaitAsync(timeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-            return new(true, 0);
+            registration.Unregister();
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+
+        Task cancelling;
+        if (beganStopping)
+        {
+            cancelling = ObserveAsync(_lifetime.CancelAsync());
+            lock (_gate)
+            {
+                _lifetimeCancellation = cancelling;
+            }
+        }
+        else
         {
             lock (_gate)
             {
-                if (_items.Values.All(item => IsTerminal(item.State)))
-                {
-                    return new(true, 0);
-                }
+                cancelling = _lifetimeCancellation;
             }
+        }
 
-            return MarkStopTimedOut();
+        // The deadline timer exists before anything is awaited, so a stop is bounded from the
+        // moment it is requested rather than from whenever cancellation callbacks finished.
+        var waiting = Task.WhenAll(runs.Append(_dispatcher).Append(cancelling))
+            .WaitAsync(timeout, _timeProvider, cancellationToken);
+        if (beganStopping)
+        {
+            PublishChanged();
+            Wake();
+        }
+
+        try
+        {
+            await waiting.ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
-            return MarkStopTimedOut();
+            return ReportStopTimeout();
         }
-        catch (OperationCanceledException)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
 
-            return new(true, 0);
+        int unfinished;
+        lock (_gate)
+        {
+            unfinished = CountUnfinishedUnsafe();
         }
+
+        return unfinished == 0 ? new(true, 0) : ReportStopTimeout();
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed)
+        lock (_gate)
         {
-            return;
+            if (_disposed)
+            {
+                return;
+            }
         }
 
         var stopped = await StopAsync(_options.DefaultStopTimeout).ConfigureAwait(false);
+        List<CancellationTokenRegistration> registrations = [];
         lock (_gate)
         {
             if (_disposed)
@@ -469,13 +521,22 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             _disposed = true;
             foreach (var item in _items.Values)
             {
-                item.CancellationRegistration.Dispose();
+                registrations.Add(item.CancellationRegistration);
+                item.CancellationRegistration = default;
             }
+
+            _signalDisposed = stopped.CompletedWithinDeadline;
         }
 
-        // A timed-out operation may still be returning from dependency code that ignored
-        // cancellation. Leave the already-cancelled synchronization objects alive for that
-        // bounded late completion instead of turning it into an ObjectDisposedException.
+        foreach (var registration in registrations)
+        {
+            registration.Unregister();
+        }
+
+        // An operation still running past the deadline will release its slot and signal the
+        // dispatcher when its dependency finally returns. Leave the already-cancelled
+        // synchronization objects alive for that late completion instead of turning it into an
+        // ObjectDisposedException.
         if (stopped.CompletedWithinDeadline)
         {
             _signal.Dispose();
@@ -493,6 +554,7 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
                 while (true)
                 {
                     WorkItem? item;
+                    CancellationTokenRegistration registration;
                     lock (_gate)
                     {
                         item = ChooseNextUnsafe();
@@ -502,13 +564,16 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
                         }
 
                         _pending.Remove(item);
-                        item.CancellationRegistration.Dispose();
+                        registration = item.CancellationRegistration;
+                        item.CancellationRegistration = default;
                         item.State = BackgroundWorkState.Running;
                         item.StartedUtc = _timeProvider.GetUtcNow();
+                        item.RunCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
                         AcquireResourcesUnsafe(item.Request.Execution.Policy.WorkloadClass);
                     }
 
-                    item.ExecutionTask = ExecuteItemAsync(item);
+                    registration.Unregister();
+                    StartRun(item);
                     PublishChanged();
                 }
             }
@@ -518,71 +583,159 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         }
     }
 
+    /// <summary>Starts one run of an item.</summary>
+    /// <remarks>
+    /// The run is supervised through <c>WorkItem.RunCompletion</c>, which it completes in a
+    /// finally block and which stop and history trimming both consult. Its own task never
+    /// faults, so there is nothing further to observe here.
+    /// </remarks>
+    private void StartRun(WorkItem item) => ExecuteItemAsync(item);
+
     private async Task ExecuteItemAsync(WorkItem item)
     {
-        OperationExecutionResult<bool> result;
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-            _lifetime.Token,
-            item.CallerCancellation);
+        var run = item.RunCompletion!;
         try
         {
-            result = await _executor.ExecuteAsync(
-                    item.Request.Execution,
-                    async (context, token) =>
-                    {
-                        await item.Operation(context, token).ConfigureAwait(false);
-                        return true;
-                    },
-                    linked.Token)
-                .ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            result = OperationExecutionResult<bool>.Failure(
-                RuntimeFault.FromException(
-                    exception,
-                    _timeProvider,
-                    new($"operation:{item.Request.Execution.OperationId}")),
-                0,
-                item.StartedUtc ?? _timeProvider.GetUtcNow(),
-                _timeProvider.GetUtcNow());
-        }
-
-        lock (_gate)
-        {
-            ReleaseResourcesUnsafe(item.Request.Execution.Policy.WorkloadClass);
-            if (item.State != BackgroundWorkState.StopTimedOut)
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                _lifetime.Token,
+                item.CallerCancellation);
+            OperationExecutionResult<bool> result;
+            try
             {
-                item.State = result.Succeeded
-                    ? BackgroundWorkState.Succeeded
-                    : result.Fault?.Kind switch
-                    {
-                        RuntimeFailureKind.Cancelled => BackgroundWorkState.Cancelled,
-                        RuntimeFailureKind.Timeout => BackgroundWorkState.TimedOut,
-                        _ => BackgroundWorkState.Faulted,
-                    };
-                item.Attempts = result.Attempts;
-                item.LastFault = result.Fault;
-                item.CompletedUtc = result.CompletedUtc;
-                item.Completion.TrySetResult(new(
-                    item.Request.Execution.OperationId,
-                    item.State,
-                    result.Fault,
-                    result.Attempts,
-                    result.CompletedUtc));
-                _completed = checked(_completed + 1);
+                result = await _executor.ExecuteAsync(
+                        item.Request.Execution,
+                        async (context, token) =>
+                        {
+                            await item.Operation(context, token).ConfigureAwait(false);
+                            return true;
+                        },
+                        linked.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                result = OperationExecutionResult<bool>.Failure(
+                    RuntimeFault.FromException(
+                        exception,
+                        _timeProvider,
+                        new($"operation:{item.Request.Execution.OperationId}")),
+                    0,
+                    item.StartedUtc ?? _timeProvider.GetUtcNow(),
+                    _timeProvider.GetUtcNow());
             }
 
-            TrimHistoryUnsafe();
-        }
+            if (result.UnfinishedAttempt is { } unfinished)
+            {
+                lock (_gate)
+                {
+                    item.LastFault = result.Fault;
+                }
 
-        PublishChanged();
-        _signal.Release();
+                PublishChanged();
+                try
+                {
+                    await unfinished.ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                    // The sanitized result already records the failure. This await exists only
+                    // to retain the scheduler's exact resource ownership until user work ends.
+                }
+            }
+
+            var restart = false;
+            var restartDelay = TimeSpan.Zero;
+            lock (_gate)
+            {
+                ReleaseResourcesUnsafe(item.Request.Execution.Policy.WorkloadClass);
+                item.Attempts = checked(item.Attempts + result.Attempts);
+                item.ConsecutiveFailures = result.Succeeded ? 0 : checked(item.ConsecutiveFailures + 1);
+                var outcome = OutcomeOf(result);
+                restart = !_stopping
+                    && !item.CallerCancellation.IsCancellationRequested
+                    && ShouldRestart(item.Request.Execution.Policy.RestartMode, outcome);
+                if (restart)
+                {
+                    item.LastFault = result.Fault;
+                    item.State = BackgroundWorkState.Restarting;
+                    item.Restarts = checked(item.Restarts + 1);
+                    item.StartedUtc = null;
+                    _restarting++;
+                    restartDelay = RestartDelayUnsafe(item, result.Succeeded);
+                }
+                else
+                {
+                    CompleteUnsafe(item, outcome, result.Fault);
+                }
+            }
+
+            PublishChanged();
+            if (!restart)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(restartDelay, _timeProvider, linked.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (linked.IsCancellationRequested)
+            {
+            }
+
+            var requeued = false;
+            lock (_gate)
+            {
+                _restarting--;
+                if (!_stopping && !item.CallerCancellation.IsCancellationRequested)
+                {
+                    item.Sequence = checked(++_nextSequence);
+                    item.State = BackgroundWorkState.Pending;
+                    _pending.Add(item);
+                    requeued = true;
+                }
+                else
+                {
+                    CompleteUnsafe(item, BackgroundWorkState.Cancelled, item.LastFault);
+                }
+            }
+
+            if (requeued)
+            {
+                RegisterPendingCancellation(item);
+            }
+
+            PublishChanged();
+        }
+        finally
+        {
+            run.TrySetResult();
+            lock (_gate)
+            {
+                TrimHistoryUnsafe();
+            }
+
+            Wake();
+        }
     }
 
+    /// <summary>Chooses the next item that may start, or null.</summary>
+    /// <remarks>
+    /// Fairness is bounded in two ways. A higher priority may overtake the oldest eligible item
+    /// at most <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/> times in a row, and
+    /// a pending heavy-exclusive item stops new admissions until running work drains, because a
+    /// continuous stream of small work would otherwise always hold one slot and keep the
+    /// exclusive item ineligible for ever.
+    /// </remarks>
     private WorkItem? ChooseNextUnsafe()
     {
-        if (_running >= _options.MaxConcurrent || _heavyExclusiveRunning)
+        if (_stopping || _running >= _options.MaxConcurrent || _heavyExclusiveRunning)
+        {
+            return null;
+        }
+
+        if (_running > 0 && _pending.Any(item =>
+                item.Request.Execution.Policy.WorkloadClass == WorkloadClass.HeavyExclusive))
         {
             return null;
         }
@@ -593,30 +746,28 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             return null;
         }
 
-        var high = eligible
-            .Where(item => item.Request.Priority >= WorkPriority.Interactive)
+        var highest = eligible
             .OrderByDescending(item => item.Request.Priority)
             .ThenBy(item => item.Sequence)
-            .FirstOrDefault();
-        var lower = eligible
-            .Where(item => item.Request.Priority < WorkPriority.Interactive)
-            .OrderByDescending(item => item.Request.Priority)
-            .ThenBy(item => item.Sequence)
-            .FirstOrDefault();
+            .First();
+        var oldest = eligible.OrderBy(item => item.Sequence).First();
 
-        if (high is not null && (lower is null || _priorityBurst < _options.MaxPriorityBurst))
+        if (highest.Request.Priority > oldest.Request.Priority
+            && _priorityBurst < _options.MaxPriorityBurst)
         {
             _priorityBurst++;
-            return high;
+            return highest;
         }
 
         _priorityBurst = 0;
-        return lower ?? high;
+        return oldest;
     }
 
     private bool HasAdmissionUnsafe(WorkPriority priority)
     {
-        var admittedNow = _pending.Count + _running;
+        // An operation waiting out a restart delay still owns its admission; counting only
+        // pending and running work let restart loops grow past the capacity bound.
+        var admittedNow = _pending.Count + _running + _restarting;
         var limit = priority >= WorkPriority.Interactive
             ? _options.Capacity
             : _options.Capacity - _options.ReservedInteractiveAdmission;
@@ -680,6 +831,39 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         }
     }
 
+    private void RegisterPendingCancellation(WorkItem item)
+    {
+        if (!item.CallerCancellation.CanBeCanceled)
+        {
+            return;
+        }
+
+        // Registered outside the scheduler lock: a token that is already cancelled runs the
+        // callback inline, and the callback takes that lock.
+        var registration = item.CallerCancellation.Register(
+            static state =>
+            {
+                var cancellation = (PendingCancellation)state!;
+                cancellation.Owner.CancelPending(cancellation.OperationId);
+            },
+            new PendingCancellation(this, item.Request.Execution.OperationId));
+        var kept = false;
+        lock (_gate)
+        {
+            if (item.State == BackgroundWorkState.Pending && !_disposed)
+            {
+                item.CancellationRegistration.Unregister();
+                item.CancellationRegistration = registration;
+                kept = true;
+            }
+        }
+
+        if (!kept)
+        {
+            registration.Unregister();
+        }
+    }
+
     private void CancelPending(OperationId operationId)
     {
         var changed = false;
@@ -688,7 +872,10 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             if (_items.TryGetValue(operationId, out var item) && item.State == BackgroundWorkState.Pending)
             {
                 _pending.Remove(item);
-                CompletePendingUnsafe(item, BackgroundWorkState.Cancelled);
+                // This runs inside the registration's own callback; forgetting it is enough.
+                item.CancellationRegistration = default;
+                CompleteUnsafe(item, BackgroundWorkState.Cancelled, item.LastFault);
+                TrimHistoryUnsafe();
                 changed = true;
             }
         }
@@ -696,50 +883,72 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         if (changed)
         {
             PublishChanged();
-            _signal.Release();
+            Wake();
         }
     }
 
-    private void CompletePendingUnsafe(WorkItem item, BackgroundWorkState state)
+    private void CompleteUnsafe(WorkItem item, BackgroundWorkState state, RuntimeFault? fault)
     {
-        item.CancellationRegistration.Dispose();
         item.State = state;
+        item.LastFault = fault;
         item.CompletedUtc = _timeProvider.GetUtcNow();
-        item.Completion.TrySetResult(new(item.Request.Execution.OperationId, state, null, 0, item.CompletedUtc.Value));
-        _completed = checked(_completed + 1);
+        item.Completion.TrySetResult(new(
+            item.Request.Execution.OperationId,
+            state,
+            fault,
+            item.Attempts,
+            item.CompletedUtc.Value));
+        if (state != BackgroundWorkState.Rejected)
+        {
+            _completed = checked(_completed + 1);
+        }
     }
 
-    private SupervisorStopResult MarkStopTimedOut()
+    private int CountUnfinishedUnsafe() => _items.Values.Count(item =>
+        !IsTerminal(item.State) || item.RunCompletion is { Task.IsCompleted: false });
+
+    private SupervisorStopResult ReportStopTimeout()
     {
         var unfinished = 0;
         lock (_gate)
         {
             foreach (var item in _items.Values.Where(item =>
-                         !IsTerminal(item.State) || item.ExecutionTask is { IsCompleted: false }))
+                         !IsTerminal(item.State) || item.RunCompletion is { Task.IsCompleted: false }))
             {
                 unfinished++;
-                if (item.State != BackgroundWorkState.StopTimedOut)
-                {
-                    item.State = BackgroundWorkState.StopTimedOut;
-                    item.CompletedUtc = _timeProvider.GetUtcNow();
-                    item.LastFault = new(
-                        RuntimeFailureKind.Timeout,
-                        new("supervisor-stop-timeout"),
-                        RuntimeRecoveryAction.RetryManually,
-                        new($"operation:{item.Request.Execution.OperationId}"),
-                        item.CompletedUtc.Value);
-                    item.Completion.TrySetResult(new(
-                        item.Request.Execution.OperationId,
-                        item.State,
-                        item.LastFault,
-                        item.Attempts,
-                        item.CompletedUtc.Value));
-                }
+                item.LastFault = new(
+                    RuntimeFailureKind.Timeout,
+                    new("supervisor-stop-timeout"),
+                    RuntimeRecoveryAction.RetryManually,
+                    new($"operation:{item.Request.Execution.OperationId}"),
+                    _timeProvider.GetUtcNow());
             }
         }
 
         PublishChanged();
-        return new(false, unfinished);
+        return new(unfinished == 0, unfinished);
+    }
+
+    private TimeSpan RestartDelayUnsafe(WorkItem item, bool succeeded)
+    {
+        var policy = item.Request.Execution.Policy;
+        var exponent = succeeded ? 0 : Math.Max(0, item.ConsecutiveFailures - 1);
+        var ticks = Math.Min(
+            policy.MaxRetryDelay.Ticks,
+            policy.InitialRetryDelay.Ticks * Math.Pow(policy.RetryBackoffFactor, exponent));
+        var delay = TimeSpan.FromTicks((long)Math.Round(ticks, MidpointRounding.AwayFromZero));
+        return delay < _options.MinimumRestartDelay ? _options.MinimumRestartDelay : delay;
+    }
+
+    private void Wake()
+    {
+        lock (_gate)
+        {
+            if (!_signalDisposed)
+            {
+                _signal.Release();
+            }
+        }
     }
 
     private WorkItem CreateItem(
@@ -770,13 +979,14 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         }
 
         foreach (var item in _items.Values
-                     .Where(item => IsTerminal(item.State))
+                     .Where(item => IsTerminal(item.State) && item.RunCompletion is null or { Task.IsCompleted: true })
                      .OrderBy(item => item.CompletedUtc)
                      .Take(_items.Count - _options.TerminalHistoryLimit)
                      .ToArray())
         {
             _items.Remove(item.Request.Execution.OperationId);
-            item.CancellationRegistration.Dispose();
+            item.CancellationRegistration.Unregister();
+            item.CancellationRegistration = default;
         }
     }
 
@@ -795,7 +1005,8 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             _admitted,
             _rejected,
             _completed,
-            _subscriberFaults),
+            _subscriberFaults,
+            _restarting),
         [.. _items.Values.OrderBy(item => item.Sequence).Select(item => item.Snapshot())]);
 
     private void PublishChanged()
@@ -827,13 +1038,50 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         }
     }
 
+    private static async Task ObserveAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // A throwing cancellation callback belongs to the operation that registered it; the
+            // stop still completes and the operation's own result records the failure.
+        }
+    }
+
+    private static BackgroundWorkState OutcomeOf(OperationExecutionResult<bool> result) =>
+        result.Succeeded
+            ? BackgroundWorkState.Succeeded
+            : result.Fault?.Kind switch
+            {
+                RuntimeFailureKind.Cancelled => BackgroundWorkState.Cancelled,
+                RuntimeFailureKind.Timeout => BackgroundWorkState.TimedOut,
+                _ => BackgroundWorkState.Faulted,
+            };
+
     private static bool IsTerminal(BackgroundWorkState state) => state is
         BackgroundWorkState.Succeeded
         or BackgroundWorkState.Faulted
         or BackgroundWorkState.Cancelled
         or BackgroundWorkState.TimedOut
-        or BackgroundWorkState.Rejected
-        or BackgroundWorkState.StopTimedOut;
+        or BackgroundWorkState.Rejected;
+
+    /// <summary>Whether a finished run is queued again rather than completed.</summary>
+    /// <remarks>
+    /// OnFailure restarts a run that faulted or timed out; Always also restarts one that
+    /// succeeded, for long-lived loops. Neither restarts a cancelled run, and neither restarts
+    /// once the caller cancelled or the supervisor began stopping.
+    /// </remarks>
+    private static bool ShouldRestart(OperationRestartMode restartMode, BackgroundWorkState outcome) => restartMode switch
+    {
+        OperationRestartMode.OnFailure => outcome is BackgroundWorkState.Faulted or BackgroundWorkState.TimedOut,
+        OperationRestartMode.Always => outcome is BackgroundWorkState.Succeeded
+            or BackgroundWorkState.Faulted
+            or BackgroundWorkState.TimedOut,
+        _ => false,
+    };
 
     private sealed class WorkItem
     {
@@ -858,17 +1106,21 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         public BackgroundWorkRequest Request { get; }
         public Func<OperationAttemptContext, CancellationToken, Task> Operation { get; }
         public CancellationToken CallerCancellation { get; }
-        public long Sequence { get; }
+        public long Sequence { get; set; }
         public DateTimeOffset SubmittedUtc { get; }
         public TaskCompletionSource<BackgroundWorkResult> Completion { get; }
         public BackgroundWorkHandle Handle { get; }
         public BackgroundWorkState State { get; set; }
         public int Attempts { get; set; }
+        public int Restarts { get; set; }
+        public int ConsecutiveFailures { get; set; }
         public DateTimeOffset? StartedUtc { get; set; }
         public DateTimeOffset? CompletedUtc { get; set; }
         public RuntimeFault? LastFault { get; set; }
         public CancellationTokenRegistration CancellationRegistration { get; set; }
-        public Task? ExecutionTask { get; set; }
+
+        /// <summary>The current or most recent run, completed only once its user work returned.</summary>
+        public TaskCompletionSource? RunCompletion { get; set; }
 
         public BackgroundWorkSnapshot Snapshot() => new(
             Request.Execution.FeatureId,
@@ -879,6 +1131,7 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             Request.Priority,
             State,
             Attempts,
+            Restarts,
             SubmittedUtc,
             StartedUtc,
             CompletedUtc,

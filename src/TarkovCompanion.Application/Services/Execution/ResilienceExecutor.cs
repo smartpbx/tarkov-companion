@@ -107,6 +107,13 @@ public sealed record OperationExecutionResult<T>(
     DateTimeOffset StartedUtc,
     DateTimeOffset CompletedUtc)
 {
+    /// <summary>
+    /// The dependency invocation that exceeded a deadline or ignored cancellation. A caller may
+    /// report the deadline immediately, but must retain its exact resources and withhold terminal
+    /// completion until this task really ends.
+    /// </summary>
+    internal Task? UnfinishedAttempt { get; init; }
+
     public static OperationExecutionResult<T> Success(
         T value,
         int attempts,
@@ -118,8 +125,12 @@ public sealed record OperationExecutionResult<T>(
         RuntimeFault fault,
         int attempts,
         DateTimeOffset startedUtc,
-        DateTimeOffset completedUtc) =>
-        new(false, default, fault, attempts, startedUtc, completedUtc);
+        DateTimeOffset completedUtc,
+        Task? unfinishedAttempt = null) =>
+        new(false, default, fault, attempts, startedUtc, completedUtc)
+        {
+            UnfinishedAttempt = unfinishedAttempt,
+        };
 }
 
 /// <summary>Executes dependency work against injected time and one circuit per dependency.</summary>
@@ -184,10 +195,11 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 ? remaining
                 : request.Policy.AttemptTimeout;
             using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            Task<T>? pending = null;
             try
             {
                 var attemptContext = new OperationAttemptContext(request, attempt, now);
-                var pending = operation(attemptContext, attemptCancellation.Token)
+                pending = operation(attemptContext, attemptCancellation.Token)
                     ?? throw new InvalidOperationException("The operation returned no task.");
                 var value = await pending
                     .WaitAsync(attemptTimeout, _timeProvider, cancellationToken)
@@ -232,7 +244,21 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                     lastFault,
                     attempt,
                     startedUtc,
-                    _timeProvider.GetUtcNow());
+                    _timeProvider.GetUtcNow(),
+                    pending is { IsCompleted: false } ? pending : null);
+            }
+
+            // Retrying while a timed-out dependency is still executing would run two copies
+            // under one resource lease. The deadline remains a truthful failure, while the
+            // unfinished task lets the supervisor retain ownership until the dependency exits.
+            if (pending is { IsCompleted: false })
+            {
+                return OperationExecutionResult<T>.Failure(
+                    lastFault,
+                    attempt,
+                    startedUtc,
+                    _timeProvider.GetUtcNow(),
+                    pending);
             }
 
             var baseDelay = RetryDelay(request.Policy, attempt);

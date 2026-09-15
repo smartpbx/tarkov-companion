@@ -97,6 +97,12 @@ public sealed record OperationPolicy
             throw new ArgumentException("Non-idempotent work must have exactly one attempt.", nameof(maxAttempts));
         }
 
+        if (idempotencyRequirement == IdempotencyRequirement.SingleAttempt
+            && restartMode is OperationRestartMode.OnFailure or OperationRestartMode.Always)
+        {
+            throw new ArgumentException("Automatically restarted work requires an idempotency guarantee.", nameof(restartMode));
+        }
+
         MaxAttempts = maxAttempts;
         InitialRetryDelay = initialRetryDelay;
         MaxRetryDelay = maxRetryDelay;
