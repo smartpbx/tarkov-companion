@@ -41,6 +41,23 @@ public interface IAtLeastOnceRaidHistoryService
     bool RequestPumpRecovery();
 }
 
+/// <summary>A target-owned atomic side-effect and replay-ledger scope.</summary>
+/// <remarks>
+/// The outbox is at-least-once, so a process can stop after the SQLite side effect commits but
+/// before the queue acknowledgement does. A durable target implements this seam to commit the
+/// side effect and operation id together; fixture targets keep their ordinary at-least-once
+/// behavior. The scope carries no game data and never observes the game process.
+/// </remarks>
+public interface IRaidHistoryOperationStore
+{
+    Task ApplyOnceAsync(
+        OperationId operationId,
+        OutboxCommandKind commandKind,
+        Guid raidId,
+        Func<CancellationToken, Task> apply,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>Adapts raid history to the typed, leased, at-least-once runtime outbox.</summary>
 /// <remarks>
 /// <para>
@@ -1310,23 +1327,42 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                     item.CreatedUtc));
             }
 
-            if (command is RaidHistoryCommand.Started started)
+            if (inner is IRaidHistoryOperationStore operationStore)
             {
-                var id = await inner.StartAsync(started.Raid, cancellationToken).ConfigureAwait(false);
-                if (id != started.Raid.Id)
-                {
-                    throw new RuntimeFaultException(new(
-                        RuntimeFailureKind.Conflict,
-                        new("raid-start-id-conflict"),
-                        RuntimeRecoveryAction.ResolveConflict,
-                        new($"operation:{context.OperationId}"),
-                        item.CreatedUtc));
-                }
-
+                await operationStore.ApplyOnceAsync(
+                    context.OperationId,
+                    item.Command,
+                    command.RaidId,
+                    token => WriteAsync(command, context.OperationId, token),
+                    cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            await command.WriteAsync(inner, cancellationToken).ConfigureAwait(false);
+            await WriteAsync(command, context.OperationId, cancellationToken).ConfigureAwait(false);
+
+            async Task WriteAsync(
+                RaidHistoryCommand decoded,
+                OperationId operationId,
+                CancellationToken token)
+            {
+                if (decoded is RaidHistoryCommand.Started started)
+                {
+                    var id = await inner.StartAsync(started.Raid, token).ConfigureAwait(false);
+                    if (id != started.Raid.Id)
+                    {
+                        throw new RuntimeFaultException(new(
+                            RuntimeFailureKind.Conflict,
+                            new("raid-start-id-conflict"),
+                            RuntimeRecoveryAction.ResolveConflict,
+                            new($"operation:{operationId}"),
+                            item.CreatedUtc));
+                    }
+
+                    return;
+                }
+
+                await decoded.WriteAsync(inner, token).ConfigureAwait(false);
+            }
         }
     }
 }

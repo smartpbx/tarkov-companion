@@ -186,6 +186,36 @@ public sealed class OutboxPayload
         return new(bytes);
     }
 
+    /// <summary>Rehydrates bytes already accepted by a durable outbox.</summary>
+    /// <remarks>
+    /// This is deliberately not a generic producer API: it validates only the bounded JSON
+    /// envelope, while the closed command codec still validates the exact typed shape before
+    /// delivery. Persistence cannot call the internal typed factory because it does not know
+    /// which command type owns the bytes.
+    /// </remarks>
+    public static OutboxPayload FromStoredBytes(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length is < 1 or > MaxBytes)
+        {
+            throw new InvalidDataException("A stored outbox payload is outside the bounded contract.");
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(bytes.ToArray(), new() { MaxDepth = 16 });
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidDataException("A stored outbox payload must be one JSON object.");
+            }
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("A stored outbox payload is malformed JSON.", exception);
+        }
+
+        return new(bytes);
+    }
+
     internal static OutboxPayload FromTypedJson<T>(T value)
     {
         ArgumentNullException.ThrowIfNull(value);
