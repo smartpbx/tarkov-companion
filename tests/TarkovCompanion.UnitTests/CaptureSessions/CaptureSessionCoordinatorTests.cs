@@ -137,7 +137,7 @@ public sealed class CaptureSessionCoordinatorTests
                 CaptureDeliveryKind.WatchedFile,
                 source,
                 Context,
-                DateTimeOffset.UtcNow,
+                harness.Clock.GetUtcNow(),
                 CaptureCorrelationId.New()),
             CancellationToken.None);
         var session = await harness.WaitForTerminalAsync();
