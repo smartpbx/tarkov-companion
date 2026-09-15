@@ -237,7 +237,7 @@ public sealed class V2DesignSystemContractTests
     {
         var gallery = ReadXaml(GalleryPath);
         var elements = gallery.Descendants().ToArray();
-        var styleSetters = ReadXaml(StylesPath).Descendants(Avalonia + "Setter").Select(setter => Attr(setter, "Property")).OfType<string>();
+        var styleSetters = ReadXaml(StylesPath).Descendants(AvaloniaXmlns + "Setter").Select(setter => Attr(setter, "Property")).OfType<string>();
 
         // Avalonia 12.1.2 documents both as "currently has no effect" and implements no UIA table or
         // grid pattern; a table built on them reads as loose text.
@@ -297,16 +297,16 @@ public sealed class V2DesignSystemContractTests
         {
             var id = Classes(badge).Single(name => name.StartsWith("v2-availability-", StringComparison.Ordinal))["v2-availability-".Length..];
             var expected = availability[id];
-            AssertPattern(expected.Pattern, badge.Elements(Avalonia + "Rectangle").Single());
+            AssertPattern(expected.Pattern, badge.Elements(AvaloniaXmlns + "Rectangle").Single());
 
-            var texts = badge.Descendants(Avalonia + "TextBlock").Select(text => Attr(text, "Text")).OfType<string>().ToArray();
+            var texts = badge.Descendants(AvaloniaXmlns + "TextBlock").Select(text => Attr(text, "Text")).OfType<string>().ToArray();
             Assert.Contains($"{{DynamicResource V2.Glyph.{Pascal(expected.Glyph)}}}", texts);
             Assert.Contains($"{{DynamicResource {expected.Word}}}", texts);
         }
 
         foreach (var (legendId, classPrefix, entriesProperty) in new[] { ("v2-map-legend", "v2-map-", "mapEvidence"), ("v2-chart-legend", "v2-chart-", "chartSeries") })
         {
-            var swatches = ById(elements, legendId).Descendants(Avalonia + "Rectangle").ToArray();
+            var swatches = ById(elements, legendId).Descendants(AvaloniaXmlns + "Rectangle").ToArray();
             var entries = manifest.RootElement.GetProperty(entriesProperty).EnumerateArray().ToArray();
             Assert.Equal(entries.Length, swatches.Length);
 
@@ -316,7 +316,7 @@ public sealed class V2DesignSystemContractTests
                 AssertPattern(entry.GetProperty("pattern").GetString()!, swatch);
                 if (entry.TryGetProperty("wordingKey", out var wordingKey))
                 {
-                    var word = swatch.Parent!.Elements(Avalonia + "TextBlock").Single();
+                    var word = swatch.Parent!.Elements(AvaloniaXmlns + "TextBlock").Single();
                     Assert.Equal($"{{DynamicResource {wordingKey.GetString()}}}", Attr(word, "Text"));
                 }
             }
@@ -368,7 +368,7 @@ public sealed class V2DesignSystemContractTests
         Assert.Equal("44", tokens["V2.Target.Desktop"]);
         Assert.Equal("48", tokens["V2.Target.Touch"]);
 
-        var styles = ReadXaml(StylesPath).Elements(Avalonia + "Style").ToArray();
+        var styles = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").ToArray();
 
         // The section heading once used the 18 DIP subheading size under HeadingLevel 2.
         foreach (var level in new[] { 1, 2, 3 })
@@ -381,7 +381,7 @@ public sealed class V2DesignSystemContractTests
         string[] whitespace = ["Padding", "Spacing"];
         foreach (var style in styles.Where(style => Attr(style, "Selector")!.Contains("v2-density-", StringComparison.Ordinal)))
         {
-            Assert.All(style.Elements(Avalonia + "Setter"), setter => Assert.Contains(Attr(setter, "Property")!, whitespace));
+            Assert.All(style.Elements(AvaloniaXmlns + "Setter"), setter => Assert.Contains(Attr(setter, "Property")!, whitespace));
         }
 
         var densityKeys = tokens.Keys.Where(key => key.StartsWith("V2.Density.", StringComparison.Ordinal)).ToArray();
@@ -497,7 +497,7 @@ public sealed class V2DesignSystemContractTests
         elements.Where(element => element.Name.LocalName == type).ToArray();
 
     private static Dictionary<string, string> Setters(XElement style) =>
-        style.Elements(Avalonia + "Setter").ToDictionary(setter => Attr(setter, "Property")!, setter => Attr(setter, "Value")!, StringComparer.Ordinal);
+        style.Elements(AvaloniaXmlns + "Setter").ToDictionary(setter => Attr(setter, "Property")!, setter => Attr(setter, "Value")!, StringComparer.Ordinal);
 
     private static Dictionary<string, string> Setters(IEnumerable<XElement> styles, string selector) =>
         Setters(styles.Single(style => Attr(style, "Selector") == selector));

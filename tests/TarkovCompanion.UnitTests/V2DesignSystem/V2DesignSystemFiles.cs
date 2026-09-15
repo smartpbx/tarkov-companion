@@ -12,7 +12,7 @@ namespace TarkovCompanion.UnitTests.V2DesignSystem;
 /// </summary>
 internal static partial class V2DesignSystemFiles
 {
-    public static readonly XNamespace Avalonia = "https://github.com/avaloniaui";
+    public static readonly XNamespace AvaloniaXmlns = "https://github.com/avaloniaui";
     public static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
 
     public static readonly string[] ManifestPath = ["src", "TarkovCompanion.App", "Assets", "V2", "semantic-manifest.v1.json"];
@@ -71,8 +71,8 @@ internal static partial class V2DesignSystemFiles
     {
         const string staticPrefix = "{x:Static v2:V2Appearance.";
         return ReadXaml(ThemeVariantsPath)
-            .Element(Avalonia + "ResourceDictionary.ThemeDictionaries")!
-            .Elements(Avalonia + "ResourceDictionary")
+            .Element(AvaloniaXmlns + "ResourceDictionary.ThemeDictionaries")!
+            .Elements(AvaloniaXmlns + "ResourceDictionary")
             .ToDictionary(
                 dictionary => Key(dictionary)!.StartsWith(staticPrefix, StringComparison.Ordinal)
                     ? Key(dictionary)![staticPrefix.Length..^1]
