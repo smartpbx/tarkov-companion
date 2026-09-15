@@ -103,6 +103,189 @@ public sealed class TesseractOcrBoundsTests
         Assert.Equal(1, reader.MaximumConcurrentReads);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ALateNativeFailureRetiresTheReaderBeforeARequestQueuedBehindItCanStartOnIt(bool callerCancels)
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var release = new ManualResetEventSlim();
+        var reader = new FakePageReader(call =>
+        {
+            if (call != 0)
+            {
+                return [new OcrLine("INSPECT", new(1, 1, 20, 8), new Confidence(0.9))];
+            }
+
+            if (callerCancels)
+            {
+                cancellation.Cancel();
+            }
+
+            release.Wait();
+            // The native engine fails after the request that started it has already left.
+            throw new InvalidOperationException("synthetic late native failure");
+        });
+        // A caller that cancels leaves without spending the frame timeout, so the queued request
+        // can be given a long one. A timed-out caller spends the whole of it first.
+        using var engine = new TesseractOcrEngine(
+            new TesseractOcrOptions
+            {
+                FrameTimeout = callerCancels ? TimeSpan.FromSeconds(30) : TimeSpan.FromSeconds(2),
+            },
+            reader);
+
+        Task<TesseractOcrExecution> queued;
+        try
+        {
+            if (callerCancels)
+            {
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                    engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), cancellation.Token));
+            }
+            else
+            {
+                var abandoned = await engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+                Assert.Equal(OcrExecutionStatus.TimedOut, abandoned.Status);
+                Assert.Equal(1, abandoned.AttemptedTileCount);
+            }
+
+            // An async method runs synchronously up to its first incomplete wait, and this one's
+            // first is the provider gate the abandoned read still holds. So an incomplete task
+            // here is a request that passed the availability check while the provider was still
+            // available and is now queued on the gate: the exact request the late failure used to
+            // hand a failed engine.
+            queued = engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+            Assert.False(queued.IsCompleted, "the request did not queue behind the abandoned read");
+            Assert.True(engine.Availability.IsAvailable, engine.Availability.Reason);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        var execution = await queued.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(OcrExecutionStatus.Unavailable, execution.Status);
+        Assert.Equal("ocr_provider_unavailable", execution.DiagnosticCode);
+        Assert.False(execution.Result.IsAvailable);
+        Assert.Empty(execution.Result.Lines);
+        Assert.Equal(0, execution.AttemptedTileCount);
+        Assert.Equal(0, execution.CompletedTileCount);
+        Assert.False(engine.Availability.IsAvailable);
+        Assert.Contains("InvalidOperationException", engine.Availability.Reason, StringComparison.Ordinal);
+        // No read started on the failed engine, and it was freed exactly once, after its read exited.
+        Assert.Equal(1, reader.Calls);
+        Assert.Equal(1, reader.Disposals);
+        Assert.Equal(0, reader.DisposalsDuringRead);
+        Assert.Equal(0, reader.ReadsOnDisposedReader);
+        Assert.Equal(0, reader.BuffersChangedDuringRead);
+
+        var later = await engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+        engine.Dispose();
+
+        Assert.Equal(OcrExecutionStatus.Unavailable, later.Status);
+        Assert.Equal(1, reader.Calls);
+        Assert.Equal(1, reader.Disposals);
+    }
+
+    [Fact]
+    public async Task ASettleWaitReportsAbandonedWorkUntilItsLateFailureHasRetiredTheProvider()
+    {
+        using var release = new ManualResetEventSlim();
+        var reader = new FakePageReader(_ =>
+        {
+            release.Wait();
+            throw new InvalidOperationException("synthetic late native failure");
+        });
+        using var engine = new TesseractOcrEngine(
+            new TesseractOcrOptions { FrameTimeout = TimeSpan.FromMilliseconds(200) },
+            reader);
+
+        bool settledWhileRunning;
+        Task<bool> settle;
+        try
+        {
+            // The last read a caller makes times out, and nothing reads after it to notice.
+            var abandoned = await engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+            Assert.Equal(OcrExecutionStatus.TimedOut, abandoned.Status);
+
+            settledWhileRunning = await engine.WaitForSettledAsync(TimeSpan.FromMilliseconds(50), CancellationToken.None);
+            // Availability read now is the stale answer a report used to keep.
+            Assert.True(engine.Availability.IsAvailable);
+
+            engine.SettleWaiting = release.Set;
+            settle = engine.WaitForSettledAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.False(settledWhileRunning, "a settle wait reported idle while native work was still running");
+        Assert.True(await settle, "the abandoned work never settled");
+        // Settled means reconciled: the failure had already retired the provider.
+        Assert.False(engine.Availability.IsAvailable);
+        Assert.Contains("InvalidOperationException", engine.Availability.Reason, StringComparison.Ordinal);
+        Assert.Equal(1, reader.Disposals);
+        Assert.Equal(0, reader.DisposalsDuringRead);
+    }
+
+    [Fact]
+    public async Task ARequestQueuedBehindAbandonedWorkWhenTheProviderIsDisposedReadsNoPixelsAndStartsNoRead()
+    {
+        using var release = new ManualResetEventSlim();
+        var reader = new FakePageReader(call =>
+        {
+            if (call == 0)
+            {
+                release.Wait();
+                throw new InvalidOperationException("synthetic late native failure");
+            }
+
+            return [];
+        });
+        var engine = new TesseractOcrEngine(
+            new TesseractOcrOptions { FrameTimeout = TimeSpan.FromSeconds(2) },
+            reader);
+        var pixels = new ObservedPixels(new byte[64 * 32]);
+        var image = new CapturedImage(
+            pixels.Memory,
+            64,
+            32,
+            64,
+            PixelFormat.Gray8,
+            new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero),
+            "fixture://queued-behind-disposal");
+
+        Task<TesseractOcrExecution> queued;
+        try
+        {
+            var abandoned = await engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+            Assert.Equal(OcrExecutionStatus.TimedOut, abandoned.Status);
+            queued = engine.RecognizeDetailedAsync(image, AsCaptured(), CancellationToken.None);
+            Assert.False(queued.IsCompleted, "the request did not queue behind the abandoned read");
+
+            engine.Dispose();
+
+            // The abandoned read is still inside native code, so Dispose left the reader to it.
+            Assert.Equal(0, reader.Disposals);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => queued.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // Refused on taking the gate, before preparing a frame nothing would read.
+        Assert.Equal(0, pixels.Reads);
+        Assert.Equal(1, reader.Calls);
+        Assert.Equal(1, reader.Disposals);
+        Assert.Equal(0, reader.DisposalsDuringRead);
+        Assert.Equal(0, reader.ReadsOnDisposedReader);
+    }
+
     [Fact]
     public async Task DisposeCannotLandBetweenTakingTheReaderAndRegisteringItsRead()
     {
@@ -440,6 +623,7 @@ public sealed class TesseractOcrBoundsTests
         private int _disposals;
         private int _readsOnDisposedReader;
         private int _disposalsDuringRead;
+        private int _buffersChangedDuringRead;
 
         public int Calls => Volatile.Read(ref _calls);
 
@@ -453,8 +637,15 @@ public sealed class TesseractOcrBoundsTests
         /// <summary>Frees that happened while a read was still inside native code.</summary>
         public int DisposalsDuringRead => Volatile.Read(ref _disposalsDuringRead);
 
+        /// <summary>
+        /// Reads whose encoded page changed while native code still held it: a buffer reused or
+        /// cleared under an abandoned read, in production.
+        /// </summary>
+        public int BuffersChangedDuringRead => Volatile.Read(ref _buffersChangedDuringRead);
+
         public IReadOnlyList<OcrLine> Read(byte[] portableGraymap, PixelRect region, int scale, int maximumLines)
         {
+            var page = (byte[])portableGraymap.Clone();
             if (Disposals > 0)
             {
                 Interlocked.Increment(ref _readsOnDisposedReader);
@@ -476,6 +667,11 @@ public sealed class TesseractOcrBoundsTests
             }
             finally
             {
+                if (!portableGraymap.AsSpan().SequenceEqual(page))
+                {
+                    Interlocked.Increment(ref _buffersChangedDuringRead);
+                }
+
                 Interlocked.Decrement(ref _running);
             }
         }

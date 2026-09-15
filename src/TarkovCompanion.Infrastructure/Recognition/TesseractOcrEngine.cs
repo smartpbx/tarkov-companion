@@ -59,6 +59,10 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     private Task? _nativeWork;
     private bool _disposed;
 
+    // Set, with Availability, under the lifetime lock when native work fails. A retired reader is
+    // never read again and is freed as soon as no native work is registered on it.
+    private bool _retired;
+
     public TesseractOcrEngine(TesseractOcrOptions? options = null)
     {
         options ??= new TesseractOcrOptions();
@@ -94,6 +98,43 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
     /// A test stands a concurrent Dispose here to prove it cannot land between the two.
     /// </remarks>
     internal Action? NativeWorkRegistering { get; set; }
+
+    /// <summary>Runs as <see cref="WaitForSettledAsync"/> begins, before it waits for the provider.</summary>
+    /// <remarks>A test releases stalled native work here, once a settle wait is certainly under way.</remarks>
+    internal Action? SettleWaiting { get; set; }
+
+    /// <summary>
+    /// Waits until the provider is idle: no request is reading and no native work a request
+    /// abandoned is still running.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Availability"/> is final only then. A timed-out or cancelled request returns while
+    /// its native read carries on, and a failure that read reports later retires the provider after
+    /// the request has gone. Anything that records availability once it has finished reading, as the
+    /// OCR probe's report does, used to record it before that failure landed and so kept saying
+    /// available. Abandoned work holds the provider gate until it has settled and the provider has
+    /// been retired if it failed, so obtaining the gate here is the proof that it has.
+    /// </remarks>
+    /// <returns>
+    /// True once idle; false when native work had still not settled within <paramref name="timeout"/>,
+    /// in which case the availability read afterwards may yet change.
+    /// </returns>
+    public async Task<bool> WaitForSettledAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (timeout < TimeSpan.Zero || timeout > TimeSpan.FromDays(1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "The settle wait must be non-negative and bounded.");
+        }
+
+        SettleWaiting?.Invoke();
+        if (!await _gate.WaitAsync(timeout, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        _gate.Release();
+        return true;
+    }
 
     public async Task<OcrResult> RecognizeAsync(
         CapturedImage image,
@@ -179,6 +220,20 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         var attempted = 0;
         try
         {
+            // Looked at again now that this request owns the provider. It can have queued behind
+            // native work an earlier request abandoned, and that work can fail, or the provider be
+            // disposed, while it waits. The availability check above ran before either; a late
+            // failure used to mark the provider unavailable but leave its reader in place, so the
+            // request queued behind it prepared the frame and started a read on the failed engine.
+            lock (_lifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_retired || _reader is null)
+                {
+                    return plan.Create(stopwatch.Elapsed, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
+                }
+            }
+
             var remaining = _options.FrameTimeout - stopwatch.Elapsed;
             if (remaining <= TimeSpan.Zero)
             {
@@ -217,7 +272,7 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
                 // lock, and they used to be three: a Dispose landing between taking the reader and
                 // registering the read freed it, and the read then started on a freed engine.
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                if (_reader is not { } reader)
+                if (_retired || _reader is not { } reader)
                 {
                     return plan.Create(stopwatch.Elapsed, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
                 }
@@ -310,14 +365,9 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             stopwatch.Stop();
             lock (_lifetimeGate)
             {
-                if (_nativeWork is null)
-                {
-                    _reader?.Dispose();
-                    _reader = null;
-                }
+                RetireLocked(exception);
             }
 
-            Availability = new(false, ProviderName, SummarizeProviderFailure(exception));
             return plan.Create(
                 stopwatch.Elapsed,
                 OcrExecutionStatus.Failed,
@@ -343,14 +393,10 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             }
 
             _disposed = true;
-            if (_nativeWork is null)
-            {
-                _reader?.Dispose();
-                _reader = null;
-            }
-            // Otherwise the completion observer disposes the provider after native code has
-            // stopped touching it. The semaphore is intentionally not disposed: a completion
-            // observer may still need to release it.
+            // With native work registered, the completion observer frees the reader after native
+            // code has stopped touching it. The semaphore is intentionally not disposed: a
+            // completion observer may still need to release it.
+            FreeReaderIfUnusedLocked();
         }
     }
 
@@ -509,15 +555,25 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         return result;
     }
 
+    /// <summary>
+    /// Holds the gate for native work a request abandoned, and settles that work before opening it.
+    /// </summary>
+    /// <remarks>
+    /// The work is cleared and, when it failed, the provider retired, in one step under the
+    /// lifetime lock and before the gate is released. A request queued on the gate therefore
+    /// finds the provider either still usable or already retired, and never a failed engine
+    /// whose reader is still in place.
+    /// </remarks>
     private async Task ReleaseAfterNativeCompletionAsync(Task nativeWork)
     {
+        Exception? providerFailure = null;
         try
         {
             await nativeWork.ConfigureAwait(false);
         }
         catch (Exception exception) when (IsProviderFailure(exception))
         {
-            Availability = new(false, ProviderName, SummarizeProviderFailure(exception));
+            providerFailure = exception;
         }
         catch
         {
@@ -526,24 +582,49 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         }
         finally
         {
-            ClearNativeWork(nativeWork);
+            ClearNativeWork(nativeWork, providerFailure);
             _gate.Release();
         }
     }
 
-    private void ClearNativeWork(Task nativeWork)
+    private void ClearNativeWork(Task nativeWork, Exception? providerFailure = null)
     {
         lock (_lifetimeGate)
         {
             if (ReferenceEquals(_nativeWork, nativeWork))
             {
                 _nativeWork = null;
-                if (_disposed)
-                {
-                    _reader?.Dispose();
-                    _reader = null;
-                }
             }
+
+            if (providerFailure is not null)
+            {
+                RetireLocked(providerFailure);
+            }
+            else
+            {
+                FreeReaderIfUnusedLocked();
+            }
+        }
+    }
+
+    /// <summary>Marks the provider unavailable and its reader unusable. Caller holds the lifetime lock.</summary>
+    private void RetireLocked(Exception failure)
+    {
+        _retired = true;
+        Availability = new(false, ProviderName, SummarizeProviderFailure(failure));
+        FreeReaderIfUnusedLocked();
+    }
+
+    /// <summary>
+    /// Frees the reader once no native work is registered on it and nothing may read it again.
+    /// Caller holds the lifetime lock.
+    /// </summary>
+    private void FreeReaderIfUnusedLocked()
+    {
+        if (_nativeWork is null && (_disposed || _retired))
+        {
+            _reader?.Dispose();
+            _reader = null;
         }
     }
 

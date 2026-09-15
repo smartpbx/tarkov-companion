@@ -121,6 +121,17 @@ public sealed record OcrProbeLimits
 
     /// <summary>The most stash-grid captions one run reads with each provider.</summary>
     public int MaximumCells { get; init; } = 256;
+
+    /// <summary>
+    /// How long a provider's report waits, after its last pass, for native work a pass abandoned to
+    /// settle before availability is recorded.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the run deadline, which may be what abandoned the work. Work still running
+    /// when this runs out is reported as <see cref="OcrProbe.SettleTimeoutDiagnostic"/> rather
+    /// than as a provider that is known to be available.
+    /// </remarks>
+    public TimeSpan SettleTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
@@ -132,6 +143,12 @@ public static class OcrProbe
 {
     public const string DeadlineDiagnostic = "ocr_probe_deadline_exceeded";
     public const string CellLimitDiagnostic = "ocr_probe_cell_limit_exceeded";
+
+    /// <summary>
+    /// A provider's native work abandoned by a pass had not settled when its report was recorded,
+    /// so the availability in that report is the last known one and may since have changed.
+    /// </summary>
+    public const string SettleTimeoutDiagnostic = "ocr_provider_settle_timeout";
     private const string MemoryExhaustedDiagnostic = "ocr_memory_exhausted";
     private const string ProviderFailedDiagnostic = "ocr_provider_failed";
     private const string ProviderUnavailableDiagnostic = "ocr_provider_unavailable";
@@ -509,6 +526,13 @@ public static class OcrProbe
             }
         }
 
+        // Settled before availability is read. A pass that timed out, or that the run deadline
+        // cancelled, leaves its native read running, and a failure that read reports later retires
+        // the provider. Availability read at once was read before that failure landed, and a report
+        // written from it said available with no diagnostic for as long as it was kept. The wait is
+        // bounded on its own: the run deadline may be what abandoned the work.
+        var settled = engine is not TesseractOcrEngine tesseract ||
+                      await tesseract.WaitForSettledAsync(run.SettleTimeout, cancellationToken).ConfigureAwait(false);
         var availability = (engine as IOcrEngineStatus)?.Availability;
         return new(
             availability?.Provider ?? engineName,
@@ -519,7 +543,11 @@ public static class OcrProbe
             PlannedPassCount = planned.Count,
             AttemptedPassCount = attempted,
             CompletedPassCount = passes.Count(pass => pass.Status is "complete" or "empty"),
-            DiagnosticCode = providerFailure,
+            // What stopped the passes first; otherwise a failure that landed after the last one;
+            // otherwise that the provider's final state could not be waited for.
+            DiagnosticCode = providerFailure ??
+                             (availability is { IsAvailable: false } ? ProviderFailedDiagnostic : null) ??
+                             (settled ? null : SettleTimeoutDiagnostic),
         };
     }
 
@@ -1002,18 +1030,23 @@ public static class OcrProbe
             ArgumentNullException.ThrowIfNull(limits);
             if (limits.RunTimeout <= TimeSpan.Zero ||
                 limits.RunTimeout > TimeSpan.FromDays(1) ||
-                limits.MaximumCells <= 0)
+                limits.MaximumCells <= 0 ||
+                limits.SettleTimeout < TimeSpan.Zero ||
+                limits.SettleTimeout > TimeSpan.FromDays(1))
             {
                 throw new ArgumentOutOfRangeException(nameof(limits), "OCR probe limits must be positive and bounded.");
             }
 
             caller.ThrowIfCancellationRequested();
             _caller = caller;
+            SettleTimeout = limits.SettleTimeout;
             _deadline = CancellationTokenSource.CreateLinkedTokenSource(caller);
             _deadline.CancelAfter(limits.RunTimeout);
         }
 
         public CancellationToken Token => _deadline.Token;
+
+        public TimeSpan SettleTimeout { get; }
 
         public bool IsExpired => _deadline.IsCancellationRequested && !_caller.IsCancellationRequested;
 
