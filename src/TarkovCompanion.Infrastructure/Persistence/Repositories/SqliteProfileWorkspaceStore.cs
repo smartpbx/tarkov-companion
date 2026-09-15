@@ -15,10 +15,15 @@ public sealed class SqliteProfileWorkspaceStore(
     public async Task<ProfileWorkspaceSnapshot> ReadAsync(CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        var (revision, activeProfileId) = await ReadWorkspaceAsync(connection, cancellationToken).ConfigureAwait(false);
+        // A workspace is one aggregate spread across the root, profile, progress, and pin tables.
+        // Keep one SQLite snapshot for every read so a concurrent replacement cannot pair the old
+        // root revision with the new child rows (or vice versa).
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        var (revision, activeProfileId) = await ReadWorkspaceAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         var rows = new List<RawProfile>();
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT profile_id, generation, name, game_mode, wipe_season, language, region,
                        time_zone, data_snapshot_id, data_snapshot_published_utc, level, lifecycle, updated_utc
@@ -47,11 +52,12 @@ public sealed class SqliteProfileWorkspaceStore(
                     new(row.Language, row.Region, row.TimeZone),
                     new(row.SnapshotId, ParseUtc(row.SnapshotPublishedUtc))),
                 row.Name,
-                await ReadProgressAsync(connection, row.ProfileId, row.Level, cancellationToken).ConfigureAwait(false),
+                await ReadProgressAsync(connection, transaction, row.ProfileId, row.Level, cancellationToken).ConfigureAwait(false),
                 Enum.Parse<ProfileLifecycle>(row.Lifecycle, false),
                 ParseUtc(row.UpdatedUtc)));
         }
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(revision, activeProfileId, profiles);
     }
 
@@ -112,9 +118,11 @@ public sealed class SqliteProfileWorkspaceStore(
 
     private static async Task<(long Revision, Guid? ActiveProfileId)> ReadWorkspaceAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "SELECT revision, active_profile_id FROM profile_workspaces WHERE workspace_key = 1;";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -127,20 +135,21 @@ public sealed class SqliteProfileWorkspaceStore(
 
     private static async Task<ProfileProgress> ReadProgressAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         Guid profileId,
         int level,
         CancellationToken cancellationToken)
     {
         var id = profileId.ToString("D");
-        var traderLevels = await ReadDictionaryAsync(connection, "profile_trader_progress_v2", "trader_id", "level", id, cancellationToken).ConfigureAwait(false);
-        var completedTasks = await ReadSetAsync(connection, "profile_completed_tasks_v2", "task_id", id, cancellationToken).ConfigureAwait(false);
-        var objectives = await ReadDictionaryAsync(connection, "profile_objective_progress_v2", "objective_id", "progress_count", id, cancellationToken).ConfigureAwait(false);
-        var hideout = await ReadDictionaryAsync(connection, "profile_hideout_progress_v2", "station_id", "level", id, cancellationToken).ConfigureAwait(false);
-        var wishlist = await ReadSetAsync(connection, "profile_wishlist_v2", "item_id", id, cancellationToken).ConfigureAwait(false);
-        var owned = await ReadDictionaryAsync(connection, "profile_owned_counts_v2", "item_id", "item_count", id, cancellationToken).ConfigureAwait(false);
-        var events = await ReadTextDictionaryAsync(connection, "profile_event_states_v2", "item_id", "state", id, cancellationToken).ConfigureAwait(false);
-        var overrides = await ReadTextDictionaryAsync(connection, "profile_item_overrides_v2", "item_id", "value", id, cancellationToken).ConfigureAwait(false);
-        var pins = await ReadPinsAsync(connection, id, cancellationToken).ConfigureAwait(false);
+        var traderLevels = await ReadDictionaryAsync(connection, transaction, "profile_trader_progress_v2", "trader_id", "level", id, cancellationToken).ConfigureAwait(false);
+        var completedTasks = await ReadSetAsync(connection, transaction, "profile_completed_tasks_v2", "task_id", id, cancellationToken).ConfigureAwait(false);
+        var objectives = await ReadDictionaryAsync(connection, transaction, "profile_objective_progress_v2", "objective_id", "progress_count", id, cancellationToken).ConfigureAwait(false);
+        var hideout = await ReadDictionaryAsync(connection, transaction, "profile_hideout_progress_v2", "station_id", "level", id, cancellationToken).ConfigureAwait(false);
+        var wishlist = await ReadSetAsync(connection, transaction, "profile_wishlist_v2", "item_id", id, cancellationToken).ConfigureAwait(false);
+        var owned = await ReadDictionaryAsync(connection, transaction, "profile_owned_counts_v2", "item_id", "item_count", id, cancellationToken).ConfigureAwait(false);
+        var events = await ReadTextDictionaryAsync(connection, transaction, "profile_event_states_v2", "item_id", "state", id, cancellationToken).ConfigureAwait(false);
+        var overrides = await ReadTextDictionaryAsync(connection, transaction, "profile_item_overrides_v2", "item_id", "value", id, cancellationToken).ConfigureAwait(false);
+        var pins = await ReadPinsAsync(connection, transaction, id, cancellationToken).ConfigureAwait(false);
         return new(level, traderLevels, completedTasks, objectives, hideout, wishlist, owned, events, overrides, pins);
     }
 
@@ -186,10 +195,11 @@ public sealed class SqliteProfileWorkspaceStore(
         }
     }
 
-    private static async Task<Dictionary<string, int>> ReadDictionaryAsync(SqliteConnection connection, string table, string key, string value, string profileId, CancellationToken cancellationToken)
+    private static async Task<Dictionary<string, int>> ReadDictionaryAsync(SqliteConnection connection, SqliteTransaction transaction, string table, string key, string value, string profileId, CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, int>(StringComparer.Ordinal);
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = $"SELECT {key}, {value} FROM {table} WHERE profile_id = $profileId ORDER BY {key};";
         command.Parameters.AddWithValue("$profileId", profileId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -197,10 +207,11 @@ public sealed class SqliteProfileWorkspaceStore(
         return result;
     }
 
-    private static async Task<Dictionary<string, string>> ReadTextDictionaryAsync(SqliteConnection connection, string table, string key, string value, string profileId, CancellationToken cancellationToken)
+    private static async Task<Dictionary<string, string>> ReadTextDictionaryAsync(SqliteConnection connection, SqliteTransaction transaction, string table, string key, string value, string profileId, CancellationToken cancellationToken)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = $"SELECT {key}, {value} FROM {table} WHERE profile_id = $profileId ORDER BY {key};";
         command.Parameters.AddWithValue("$profileId", profileId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -208,10 +219,11 @@ public sealed class SqliteProfileWorkspaceStore(
         return result;
     }
 
-    private static async Task<List<string>> ReadSetAsync(SqliteConnection connection, string table, string key, string profileId, CancellationToken cancellationToken)
+    private static async Task<List<string>> ReadSetAsync(SqliteConnection connection, SqliteTransaction transaction, string table, string key, string profileId, CancellationToken cancellationToken)
     {
         var result = new List<string>();
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = $"SELECT {key} FROM {table} WHERE profile_id = $profileId ORDER BY {key};";
         command.Parameters.AddWithValue("$profileId", profileId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -219,10 +231,11 @@ public sealed class SqliteProfileWorkspaceStore(
         return result;
     }
 
-    private static async Task<List<ProfilePin>> ReadPinsAsync(SqliteConnection connection, string profileId, CancellationToken cancellationToken)
+    private static async Task<List<ProfilePin>> ReadPinsAsync(SqliteConnection connection, SqliteTransaction transaction, string profileId, CancellationToken cancellationToken)
     {
         var result = new List<ProfilePin>();
         await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = "SELECT target_kind, target_id, sort_order, note FROM profile_pins_v2 WHERE profile_id = $profileId ORDER BY sort_order, target_kind, target_id;";
         command.Parameters.AddWithValue("$profileId", profileId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

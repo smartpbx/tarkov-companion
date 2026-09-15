@@ -394,6 +394,18 @@ public sealed record OutboxEnqueueReceipt(bool Added, OperationId OperationId);
 
 public sealed class OutboxCapacityException() : Exception("The bounded outbox has no admission capacity.");
 
+/// <summary>Optional durable sequence ledger used to resume aggregate numbering after restart.</summary>
+/// <remarks>
+/// Completed delivery rows are retention-bounded, but their spent sequence numbers are not. A
+/// durable store exposes the greatest sequence ever admitted for each aggregate so a restarted
+/// producer cannot reuse an old number or place new work ahead of an unresolved older command.
+/// </remarks>
+public interface IOutboxAggregateSequenceStore
+{
+    Task<IReadOnlyDictionary<OutboxAggregateId, long>> ReadAggregateSequenceHeadsAsync(
+        CancellationToken cancellationToken);
+}
+
 /// <summary>A leased, ordered, at-least-once command store.</summary>
 /// <remarks>
 /// A store may forget a <see cref="OutboxDeliveryState.Completed"/> row once it has been

@@ -111,6 +111,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
     private RuntimeFault? _lastAcceptanceFault;
     private DateTimeOffset? _lastSuccessfulPumpUtc;
     private int _consecutivePumpFaults;
+    private bool _aggregateSequencesRestored;
     private bool _accepting = true;
     private bool _processorStopping;
     private bool _disposing;
@@ -255,6 +256,16 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                 }
             }
 
+            try
+            {
+                await RestoreAggregateSequencesAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                RecordAcceptanceFault(exception);
+                throw;
+            }
+
             var now = _timeProvider.GetUtcNow();
             var allocated = new Dictionary<Guid, long>();
             var items = ImmutableArray.CreateBuilder<OutboxItem>(encoded.Length);
@@ -326,6 +337,38 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         {
             _enqueueLock.Release();
         }
+    }
+
+    /// <summary>Restores sequence cursors once, while the acceptance lock excludes new writes.</summary>
+    private async Task RestoreAggregateSequencesAsync(CancellationToken cancellationToken)
+    {
+        if (_aggregateSequencesRestored)
+        {
+            return;
+        }
+
+        if (_store is IOutboxAggregateSequenceStore durableSequences)
+        {
+            var heads = await durableSequences.ReadAggregateSequenceHeadsAsync(cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The durable outbox returned no aggregate sequence ledger.");
+            foreach (var (aggregateId, sequence) in heads)
+            {
+                if (sequence < 1)
+                {
+                    throw new InvalidDataException("The durable outbox contains an invalid aggregate sequence cursor.");
+                }
+
+                const string raidPrefix = "raid:";
+                if (aggregateId.Value.StartsWith(raidPrefix, StringComparison.Ordinal)
+                    && Guid.TryParseExact(aggregateId.Value[raidPrefix.Length..], "N", out var raidId))
+                {
+                    _sequences[raidId] = Math.Max(_sequences.GetValueOrDefault(raidId), sequence);
+                }
+            }
+        }
+
+        _aggregateSequencesRestored = true;
     }
 
     /// <summary>Waits for every command accepted before this call to reach a terminal state.</summary>

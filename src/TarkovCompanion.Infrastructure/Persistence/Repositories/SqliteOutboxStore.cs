@@ -10,7 +10,7 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 public sealed class SqliteOutboxStore(
     SqliteConnectionFactory connectionFactory,
     int capacity = 10_000,
-    int completedRetention = 10_000) : IOutboxStore
+    int completedRetention = 10_000) : IOutboxStore, IOutboxAggregateSequenceStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -36,6 +36,7 @@ public sealed class SqliteOutboxStore(
         var batchKeys = new Dictionary<IdempotencyKey, OperationId>();
         var operations = new HashSet<OperationId>();
         var sequences = new HashSet<(OutboxAggregateId, long)>();
+        var sequenceFloors = new Dictionary<OutboxAggregateId, long>();
         for (var index = 0; index < items.Length; index++)
         {
             var item = items[index];
@@ -48,6 +49,17 @@ public sealed class SqliteOutboxStore(
 
             if (!operations.Add(item.OperationId) || await OperationExistsAsync(connection, transaction, item.OperationId, cancellationToken).ConfigureAwait(false))
                 throw new InvalidOperationException("An outbox operation id may be enqueued only once.");
+            if (!sequenceFloors.TryGetValue(item.AggregateId, out var nextSequence))
+            {
+                nextSequence = await ReadNextAggregateSequenceAsync(
+                    connection,
+                    transaction,
+                    item.AggregateId,
+                    cancellationToken).ConfigureAwait(false);
+                sequenceFloors.Add(item.AggregateId, nextSequence);
+            }
+            if (item.AggregateSequence < nextSequence)
+                throw new InvalidOperationException("An aggregate sequence may never be reused after durable admission.");
             if (!sequences.Add((item.AggregateId, item.AggregateSequence)) || await SequenceExistsAsync(connection, transaction, item, cancellationToken).ConfigureAwait(false))
                 throw new InvalidOperationException("An aggregate sequence may be enqueued only once.");
             batchKeys.Add(item.IdempotencyKey, item.OperationId);
@@ -74,6 +86,22 @@ public sealed class SqliteOutboxStore(
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return [.. receipts];
+    }
+
+    public async Task<IReadOnlyDictionary<OutboxAggregateId, long>> ReadAggregateSequenceHeadsAsync(
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT aggregate_id, next_sequence FROM outbox_aggregate_sequences ORDER BY aggregate_id;";
+        var result = new Dictionary<OutboxAggregateId, long>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            result.Add(new(reader.GetString(0)), checked(reader.GetInt64(1) - 1));
+        }
+
+        return result;
     }
 
     public async Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
@@ -536,6 +564,18 @@ public sealed class SqliteOutboxStore(
         await ExistsAsync(connection, transaction, "SELECT EXISTS(SELECT 1 FROM durable_outbox WHERE operation_id = $one);", id.ToString(), null, cancellationToken).ConfigureAwait(false);
     private static async Task<bool> SequenceExistsAsync(SqliteConnection connection, SqliteTransaction transaction, OutboxItem item, CancellationToken cancellationToken) =>
         await ExistsAsync(connection, transaction, "SELECT EXISTS(SELECT 1 FROM durable_outbox WHERE aggregate_id = $one AND aggregate_sequence = $two);", item.AggregateId.Value, item.AggregateSequence, cancellationToken).ConfigureAwait(false);
+    private static async Task<long> ReadNextAggregateSequenceAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        OutboxAggregateId aggregateId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT next_sequence FROM outbox_aggregate_sequences WHERE aggregate_id = $aggregate;";
+        command.Parameters.AddWithValue("$aggregate", aggregateId.Value);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is long next ? next : 1;
+    }
     private static async Task<bool> ExistsAsync(SqliteConnection connection, SqliteTransaction transaction, string sql, object one, object? two, CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand(); command.Transaction = transaction; command.CommandText = sql;

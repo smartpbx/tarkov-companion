@@ -67,6 +67,37 @@ public sealed class DurableStoreTests
     }
 
     [Fact]
+    public async Task DurableAggregateSequencesSurviveCompletedRowPruning()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var store = new SqliteOutboxStore(database.Factory, completedRetention: 0);
+        var first = Item("first-sequence", "durable-sequence", 1, now);
+        await store.EnqueueAsync(first, TestContext.Current.CancellationToken);
+        var leased = Assert.Single(await store.LeaseNextAsync(
+            now,
+            TimeSpan.FromSeconds(10),
+            1,
+            TestContext.Current.CancellationToken));
+        Assert.True(await store.CompleteAsync(
+            first.OperationId,
+            leased.LeaseToken!.Value,
+            now.AddSeconds(1),
+            TestContext.Current.CancellationToken));
+        Assert.Empty(await store.ListAsync(TestContext.Current.CancellationToken));
+
+        var restarted = new SqliteOutboxStore(database.Factory, completedRetention: 0);
+        var heads = await restarted.ReadAggregateSequenceHeadsAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(1, heads[new("durable-sequence")]);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => restarted.EnqueueAsync(
+            Item("reused-sequence", "durable-sequence", 1, now.AddSeconds(2)),
+            TestContext.Current.CancellationToken));
+        Assert.True((await restarted.EnqueueAsync(
+            Item("next-sequence", "durable-sequence", 2, now.AddSeconds(2)),
+            TestContext.Current.CancellationToken)).Added);
+    }
+
+    [Fact]
     public async Task DurableRetryFencesAtTransitionTimeAndKeepsLaterEligibility()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
