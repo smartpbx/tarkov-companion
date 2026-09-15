@@ -313,8 +313,10 @@ internal sealed class ZeroOffsetDateTimeOffsetConverter : JsonConverter<DateTime
 public static class CanonicalDeliveryBudget
 {
     private static readonly CommandId ProbeCommand = new(Guid.Parse("7f000000-0000-4000-8000-000000000001"));
-    private static readonly CommandId ProbeChange = new(Guid.Parse("7f000000-0000-4000-8000-000000000002"));
-    private static readonly CommandId ProbePreferenceChange = new(Guid.Parse("7f000000-0000-4000-8000-000000000005"));
+    // Probe cursors use the reducer's reserved v8 UUID space, so a client-selected command id
+    // cannot collide with a synthetic cursor while the delivery bound is being measured.
+    private static readonly CommandId ProbeChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000002"));
+    private static readonly CommandId ProbePreferenceChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000005"));
     private static readonly CompanionDeviceId ProbeDevice = new(Guid.Parse("7f000000-0000-4000-8000-000000000003"));
     private static readonly DeviceSessionId ProbeSession = new(Guid.Parse("7f000000-0000-4000-8000-000000000004"));
     private static readonly DateTimeOffset ProbeUtc = new(9999, 12, 31, 23, 59, 59, 999, TimeSpan.Zero);

@@ -57,8 +57,8 @@ public static class PreferenceSchemaPolicy
 
     /// <summary>
     /// Migrates a readable document without interpreting unknown fields. Version 1.1 added explicit
-    /// shared-personalization entries; a 1.0 document normalizes with its existing (normally empty)
-    /// list. Later migrations append another reviewed step here rather than replacing this one.
+    /// shared-personalization entries; an omitted 1.0 field is read as an empty list, while an
+    /// already-present list is preserved. Later migrations append another reviewed step here.
     /// </summary>
     public static ProfilePreferencesDocument Normalize(ProfilePreferencesDocument source)
     {
@@ -436,9 +436,6 @@ public sealed record ProfilePreferencesAggregate
     public DateTimeOffset? ChangedUtc { get; }
 
     public static ProfilePreferencesAggregate Empty { get; } = new(AggregateCursor.Empty, null, null, null);
-
-    internal ProfilePreferencesAggregate WithAttribution(WorkspaceOrigin origin, DateTimeOffset changedUtc) =>
-        new(Cursor, ActiveProfile, ProtocolGuard.NotNull(origin, nameof(origin)), changedUtc);
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
