@@ -185,8 +185,8 @@ public sealed class V2ShellViewModelTests : IDisposable
         var saveAttempts = 0;
         Task Reset(CancellationToken _)
         {
-            attempts++;
-            return attempts == 1
+            var attempt = Interlocked.Increment(ref attempts);
+            return attempt == 1
                 ? Task.FromException(new IOException("fixture file is locked"))
                 : Task.CompletedTask;
         }
@@ -217,7 +217,7 @@ public sealed class V2ShellViewModelTests : IDisposable
 
         shell.RetryPersistenceCommand.Execute(null);
         await WaitUntilAsync(() =>
-            attempts == 2 &&
+            Volatile.Read(ref attempts) == 2 &&
             !shell.HasPersistenceFailure &&
             shell.Pins.Count == 0 &&
             shell.Router.CurrentAddress == "#/home" &&

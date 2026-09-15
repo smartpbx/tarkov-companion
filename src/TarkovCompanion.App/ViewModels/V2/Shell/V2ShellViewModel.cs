@@ -1611,6 +1611,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(PersistenceRetryPending));
         OnPropertyChanged(nameof(CanRetryPersistence));
         OnPropertyChanged(nameof(PersistenceRetryLabel));
+        // Publish the in-progress state before starting work. A fast durable operation may finish
+        // synchronously enough to publish its final result before Execute returns; announcing the
+        // retry afterwards would then overwrite the truthful "reset"/"restored" outcome.
+        Announce(V2ShellText.Get("V2.Shell.Announce.PersistenceRetrying"), V2Announcement.Polite);
         if (_persistenceFailureKind == V2ShellPersistenceOperationKind.Reset)
         {
             ResetPreviewCommand.Execute(null);
@@ -1619,7 +1623,6 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             _persistence.QueueSave(Snapshot());
         }
-        Announce(V2ShellText.Get("V2.Shell.Announce.PersistenceRetrying"), V2Announcement.Polite);
     }
 
     private void ResetPreviewCanExecuteChanged(object? sender, EventArgs eventArgs) =>
