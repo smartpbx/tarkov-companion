@@ -725,9 +725,10 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
     /// at most <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/> times in a row.
     /// A pending heavy-exclusive item blocks lower-priority new admissions until running work
     /// drains, because a continuous stream of small work would otherwise always hold one slot and
-    /// keep the exclusive item ineligible for ever. Interactive and UserBlocking work is still
-    /// admitted during that drain, also bounded by <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/>,
-    /// so a long-lived or uncooperative task cannot starve high-priority callers indefinitely.
+    /// keep the exclusive item ineligible for ever. While work that predates the oldest heavy
+    /// request is still running, otherwise-idle capacity remains available to Interactive and
+    /// UserBlocking work. Once those original blockers return, later interactive work drains and
+    /// no new work starts until the exclusive item gets its turn.
     /// </para>
     /// </remarks>
     private WorkItem? ChooseNextUnsafe()
@@ -737,12 +738,24 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             return null;
         }
 
-        var hasPendingHeavy = _running > 0 && _pending.Any(item =>
-            item.Request.Execution.Policy.WorkloadClass == WorkloadClass.HeavyExclusive);
+        var pendingHeavy = _running > 0
+            ? _pending
+                .Where(item => item.Request.Execution.Policy.WorkloadClass == WorkloadClass.HeavyExclusive)
+                .OrderBy(item => item.Sequence)
+                .FirstOrDefault()
+            : null;
 
-        // In drain mode, once the priority burst for high-priority items is exhausted, stop
-        // admitting until slots drain so the exclusive item can eventually acquire them all.
-        if (hasPendingHeavy && _priorityBurst >= _options.MaxPriorityBurst)
+        // A heavy request cannot run until everything already executing when it arrived returns.
+        // If one of those original invocations ignores cancellation indefinitely, freezing the
+        // reserved lane after a finite burst would also freeze every later contextual screenshot.
+        // Continue using otherwise-idle capacity for interactive work while an original blocker
+        // exists. Work admitted after the barrier is not itself a reason to admit more: when the
+        // original blockers finish, these later runs drain and the heavy request starts next.
+        var canServeReservedLaneWhileDraining = pendingHeavy is not null
+            && _items.Values.Any(item =>
+                item.State == BackgroundWorkState.Running
+                && item.Sequence < pendingHeavy.Sequence);
+        if (pendingHeavy is not null && !canServeReservedLaneWhileDraining)
         {
             return null;
         }
@@ -752,7 +765,7 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         var eligible = _pending
             .Where(item =>
                 CanRunUnsafe(item.Request.Execution.Policy.WorkloadClass)
-                && (!hasPendingHeavy || item.Request.Priority >= WorkPriority.Interactive))
+                && (pendingHeavy is null || item.Request.Priority >= WorkPriority.Interactive))
             .ToArray();
 
         if (eligible.Length == 0)
@@ -773,10 +786,13 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             return highest;
         }
 
-        if (hasPendingHeavy)
+        if (pendingHeavy is not null)
         {
-            // Count each drain-mode admission against the burst so the bound stays finite.
-            _priorityBurst++;
+            // Remember that the reserved lane has already overtaken the heavy barrier. As soon
+            // as the pre-barrier work is gone, the heavy item therefore wins before another new
+            // high-priority item; while a blocker remains, FIFO still keeps the reserved lane
+            // making progress beyond any finite burst.
+            _priorityBurst = _options.MaxPriorityBurst;
             return oldest;
         }
 

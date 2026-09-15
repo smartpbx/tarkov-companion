@@ -199,8 +199,20 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             try
             {
                 var attemptContext = new OperationAttemptContext(request, attempt, now);
-                pending = operation(attemptContext, attemptCancellation.Token)
-                    ?? throw new InvalidOperationException("The operation returned no task.");
+                // Invoke on the default scheduler so an operation that blocks before returning
+                // its Task cannot prevent this owner from arming and reporting its deadline. The
+                // returned invocation remains retained below when it outlives that deadline.
+                pending = Task.Factory.StartNew(
+                        () =>
+                        {
+                            attemptCancellation.Token.ThrowIfCancellationRequested();
+                            return operation(attemptContext, attemptCancellation.Token)
+                                ?? throw new InvalidOperationException("The operation returned no task.");
+                        },
+                        default,
+                        TaskCreationOptions.DenyChildAttach,
+                        TaskScheduler.Default)
+                    .Unwrap();
                 var value = await pending
                     .WaitAsync(attemptTimeout, _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
@@ -268,8 +280,12 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             Task? unfinished = null;
             if (pending is { IsCompleted: false })
             {
-                TryCancel(attemptCancellation);
-                unfinished = DisposeWhenFinishedAsync(pending, attemptCancellation);
+                // A callback registered by dependency code can block or throw. CancelAsync starts
+                // delivery without making the deadline path wait for callbacks. The retained
+                // unfinished task observes both the invocation and its cancellation, and keeps
+                // the source alive until both have settled.
+                var cancellation = CancelAndObserveAsync(attemptCancellation);
+                unfinished = DisposeWhenFinishedAsync(pending, cancellation, attemptCancellation);
             }
             else
             {
@@ -342,7 +358,10 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
         throw new UnreachableException();
     }
 
-    private static async Task DisposeWhenFinishedAsync(Task attempt, CancellationTokenSource attemptCancellation)
+    private static async Task DisposeWhenFinishedAsync(
+        Task attempt,
+        Task cancellation,
+        CancellationTokenSource attemptCancellation)
     {
         try
         {
@@ -352,21 +371,32 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
         {
             // The sanitized result already carries this attempt's failure.
         }
+
+        try
+        {
+            await cancellation.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // CancelAndObserveAsync currently consumes callback faults. Keep this owner defensive
+            // so a future cancellation implementation still cannot leak an unobserved task.
+        }
         finally
         {
             attemptCancellation.Dispose();
         }
     }
 
-    private static void TryCancel(CancellationTokenSource cancellation)
+    private static async Task CancelAndObserveAsync(CancellationTokenSource cancellation)
     {
         try
         {
-            cancellation.Cancel();
+            await cancellation.CancelAsync().ConfigureAwait(false);
         }
-        catch (AggregateException)
+        catch (Exception)
         {
-            // A callback registered by the dependency threw; its own result reports that.
+            // A callback registered by the dependency threw; the sanitized attempt result owns
+            // the externally visible failure and cancellation remains advisory.
         }
     }
 

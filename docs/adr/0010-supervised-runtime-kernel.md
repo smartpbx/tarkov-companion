@@ -56,12 +56,17 @@ synchronous prefix cannot serialize otherwise independent feature starts on the 
 Run background work through a bounded supervisor with separate interactive and maintenance
 admission. Capacity is reserved for interactive work. Fairness is bounded in two ways: a higher
 priority may overtake the oldest eligible item at most `MaxPriorityBurst` times in a row, and a
-pending `HeavyExclusive` item stops new admissions until running work drains, because a
-continuous stream of small work could otherwise always hold one slot and keep the exclusive item
-ineligible for ever. Every operation has a typed policy, deadline, cancellation ownership, and
-sanitized fault. Retry and circuit behavior consume `TimeProvider`, making delay, recovery, and
-half-open transitions deterministic in tests. Cancellation registrations are unregistered, never
-disposed, while the scheduler lock is held.
+pending `HeavyExclusive` item creates a sequence barrier. Maintenance work behind that barrier
+stops while earlier invocations drain. Otherwise-idle reserved capacity remains available to
+interactive work for as long as an earlier invocation is still running, including one that ignores
+cancellation; once those original blockers return, later interactive work drains and the exclusive
+item receives the next turn. This preserves contextual screenshot availability without letting a
+continuous stream of small work keep an eligible exclusive item out for ever. Every operation has
+a typed policy, deadline, cancellation ownership, and sanitized fault. Dependency callbacks are
+scheduled before invocation so synchronous prefixes cannot prevent a deadline being armed. Retry
+and circuit behavior consume `TimeProvider`, making delay, recovery, and half-open transitions
+deterministic in tests. Cancellation registrations are unregistered, never disposed, while the
+scheduler lock is held.
 
 Restart modes mean exactly this:
 
@@ -82,6 +87,8 @@ Caller `Retry` is refused for `OnFailure` and `Always`, which the supervisor res
 Use generation tokens for latest-wins work. Starting a newer generation invalidates an older
 result; completion may publish only through an atomic generation check. Cancellation alone is
 not treated as sufficient because a dependency can return after ignoring or racing cancellation.
+Invalidation starts cancellation outside the generation lock and returns without waiting for
+callbacks; callback tasks and token sources remain owned and observed until they settle.
 
 ### Durable commands
 
@@ -148,7 +155,9 @@ under its own lock, and no subscriber runs while that lock is held.
 Cancellation of an attempt that is still running is explicit. A wait can observe a caller's
 cancellation before a linked token has passed it on, and tearing the link down afterwards used to
 drop it, so the executor, outbox processor, and feature starts cancel an unfinished attempt
-directly and keep its token source alive until the attempt returns.
+directly and keep its token source alive until the attempt and cancellation callbacks return.
+Cancellation delivery is asynchronous: a hostile callback cannot hold a timeout or invalidation
+caller hostage.
 
 This change includes an in-process bounded fixture store only. Its capacity bounds unresolved
 work, including dead letters; completed rows have a separate bounded retention window. A dead

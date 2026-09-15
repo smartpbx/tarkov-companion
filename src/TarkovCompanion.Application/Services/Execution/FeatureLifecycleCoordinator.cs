@@ -487,7 +487,7 @@ public sealed class FeatureLifecycleCoordinator
                 }
             }
 
-            DisposeStartCancellation(node);
+            await DisposeStartCancellationAsync(node).ConfigureAwait(false);
             PublishChanged();
             if (exception is OperationCanceledException
                 && cancellationToken.IsCancellationRequested
@@ -519,7 +519,7 @@ public sealed class FeatureLifecycleCoordinator
             }
         }
 
-        DisposeStartCancellation(node);
+        await DisposeStartCancellationAsync(node).ConfigureAwait(false);
         PublishChanged();
     }
 
@@ -648,7 +648,7 @@ public sealed class FeatureLifecycleCoordinator
                 started = false;
             }
 
-            DisposeStartCancellation(node);
+            await DisposeStartCancellationAsync(node).ConfigureAwait(false);
             if (!started)
             {
                 // The start itself failed, so nothing began and there is nothing to stop.
@@ -663,7 +663,8 @@ public sealed class FeatureLifecycleCoordinator
             }
 
             PublishChanged();
-            using var stopCancellation = new CancellationTokenSource();
+            var stopCancellation = new CancellationTokenSource();
+            var cancellingStop = Task.CompletedTask;
             var stopping = InvokeOnScheduler(
                 node.Definition.Stop,
                 stopCancellation.Token,
@@ -671,43 +672,55 @@ public sealed class FeatureLifecycleCoordinator
 
             try
             {
-                await stopping.WaitAsync(_options.StopTimeout, _timeProvider).ConfigureAwait(false);
-            }
-            catch (TimeoutException)
-            {
-                // The stop's own task decides the outcome, not the wait: it may have finished in
-                // the instant after the deadline, and classifying the deadline as a stop failure
-                // then reported a feature that stopped cleanly as StopFailed.
-                if (!stopping.IsCompleted)
-                {
-                    TryCancel(stopCancellation);
-                    lock (_gate)
-                    {
-                        node.State = FeatureLifecycleState.Stopping;
-                        node.CompletedUtc = null;
-                        node.LastFault = FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout");
-                    }
-
-                    PublishChanged();
-                }
-
                 try
                 {
-                    await stopping.ConfigureAwait(false);
+                    await stopping.WaitAsync(_options.StopTimeout, _timeProvider).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    // The stop's own task decides the outcome, not the wait: it may have finished
+                    // in the instant after the deadline, and classifying the deadline as a stop
+                    // failure then reported a feature that stopped cleanly as StopFailed.
+                    if (!stopping.IsCompleted)
+                    {
+                        cancellingStop = CancelAndObserveAsync(stopCancellation);
+                        lock (_gate)
+                        {
+                            node.State = FeatureLifecycleState.Stopping;
+                            node.CompletedUtc = null;
+                            node.LastFault = FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout");
+                        }
+
+                        PublishChanged();
+                    }
+
+                    try
+                    {
+                        await stopping.ConfigureAwait(false);
+                    }
+                    catch (Exception exception)
+                    {
+                        await cancellingStop.ConfigureAwait(false);
+                        SettleStopped(node, StopFault(node, exception), startSucceeded: true);
+                        return;
+                    }
                 }
                 catch (Exception exception)
                 {
                     SettleStopped(node, StopFault(node, exception), startSucceeded: true);
                     return;
                 }
-            }
-            catch (Exception exception)
-            {
-                SettleStopped(node, StopFault(node, exception), startSucceeded: true);
-                return;
-            }
 
-            SettleStopped(node, stopFault: null, startSucceeded: true);
+                await cancellingStop.ConfigureAwait(false);
+                SettleStopped(node, stopFault: null, startSucceeded: true);
+            }
+            finally
+            {
+                // CancelAsync completion owns every callback. Do not dispose the source while a
+                // feature callback is still using it.
+                await cancellingStop.ConfigureAwait(false);
+                stopCancellation.Dispose();
+            }
         }
         finally
         {
@@ -761,15 +774,21 @@ public sealed class FeatureLifecycleCoordinator
 
         if (cancellation is not null)
         {
-            TryCancel(cancellation);
+            lock (_gate)
+            {
+                if (ReferenceEquals(node.StartCancellation, cancellation))
+                {
+                    node.StartCancellationTask ??= CancelAndObserveAsync(cancellation);
+                }
+            }
         }
     }
 
-    private static void TryCancel(CancellationTokenSource cancellation)
+    private static async Task CancelAndObserveAsync(CancellationTokenSource cancellation)
     {
         try
         {
-            cancellation.Cancel();
+            await cancellation.CancelAsync().ConfigureAwait(false);
         }
         catch (ObjectDisposedException)
         {
@@ -781,13 +800,21 @@ public sealed class FeatureLifecycleCoordinator
         }
     }
 
-    private void DisposeStartCancellation(FeatureNode node)
+    private async Task DisposeStartCancellationAsync(FeatureNode node)
     {
         CancellationTokenSource? cancellation;
+        Task? cancelling;
         lock (_gate)
         {
             cancellation = node.StartCancellation;
+            cancelling = node.StartCancellationTask;
             node.StartCancellation = null;
+            node.StartCancellationTask = null;
+        }
+
+        if (cancelling is not null)
+        {
+            await cancelling.ConfigureAwait(false);
         }
 
         cancellation?.Dispose();
@@ -937,6 +964,7 @@ public sealed class FeatureLifecycleCoordinator
         public bool StartupSettled { get; set; }
         public bool StartupFailed { get; set; }
         public CancellationTokenSource? StartCancellation { get; set; }
+        public Task? StartCancellationTask { get; set; }
 
         /// <summary>The task the start callback returned, published before any stop may run.</summary>
         public TaskCompletionSource<Task>? StartInvocation { get; set; }

@@ -286,6 +286,55 @@ public sealed class FeatureLifecycleCoordinatorTests
     }
 
     [Fact]
+    public async Task BlockedStartCancellationCallbackCannotBlockTheTimeoutSnapshot()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var startEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseCallback = new ManualResetEventSlim();
+        CancellationTokenRegistration registration = default;
+        var lifecycle = new FeatureLifecycleCoordinator(
+        [
+            new(
+                new("blocked-cancellation"),
+                FeatureStartupPriority.Normal,
+                [],
+                token =>
+                {
+                    registration = token.Register(() =>
+                    {
+                        callbackEntered.TrySetResult();
+                        releaseCallback.Wait();
+                    });
+                    startEntered.TrySetResult();
+                    return releaseStart.Task;
+                }),
+        ], time, new(1, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+
+        var startup = lifecycle.StartAsync();
+        await startEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        time.Advance(TimeSpan.FromSeconds(1));
+        try
+        {
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await RuntimeTestTasks.UntilAsync(() => startup.IsCompleted);
+            Assert.Equal(
+                FeatureLifecycleState.StartTimedOut,
+                State(await startup, "blocked-cancellation"));
+        }
+        finally
+        {
+            releaseCallback.Set();
+            releaseStart.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() =>
+            State(lifecycle.Snapshot, "blocked-cancellation") == FeatureLifecycleState.Failed);
+        await registration.DisposeAsync();
+    }
+
+    [Fact]
     public async Task StopBeforeStartMeansNothingEverStarts()
     {
         var starts = 0;

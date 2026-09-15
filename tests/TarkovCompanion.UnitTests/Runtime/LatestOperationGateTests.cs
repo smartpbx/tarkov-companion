@@ -72,25 +72,25 @@ public sealed class LatestOperationGateTests
     /// callback would block on acquiring the same lock.
     /// </summary>
     [Fact]
-    public void CancellationCallbackCanCallIsCurrentWithoutDeadlocking()
+    public async Task CancellationCallbackCanCallIsCurrentWithoutDeadlocking()
     {
         using var gate = new LatestOperationGate();
         var scope = new OperationScopeId("reentrant-scope");
 
         var first = gate.Begin(scope);
-        var callbackRan = false;
+        var callbackRan = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Register a callback that calls back into the gate while the previous lease is cancelled.
         first.CancellationToken.Register(() =>
         {
             // This would deadlock if Cancel() ran under _gate.
-            callbackRan = gate.IsCurrent(first) == false;
+            callbackRan.TrySetResult(gate.IsCurrent(first) == false);
         });
 
         // Replacing the entry cancels the first lease and fires its callback.
         gate.Begin(scope);
 
-        Assert.True(callbackRan);
+        Assert.True(await callbackRan.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     /// <summary>
@@ -99,17 +99,23 @@ public sealed class LatestOperationGateTests
     /// was already added before the throw, so it survives.
     /// </summary>
     [Fact]
-    public void ThrowingCancellationCallbackDoesNotCorruptGateState()
+    public async Task ThrowingCancellationCallbackDoesNotCorruptGateState()
     {
         using var gate = new LatestOperationGate();
         var scope = new OperationScopeId("throwing-scope");
 
         var first = gate.Begin(scope);
-        first.CancellationToken.Register(() => throw new InvalidOperationException("callback threw"));
+        var callbackRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        first.CancellationToken.Register(() =>
+        {
+            callbackRan.TrySetResult();
+            throw new InvalidOperationException("callback threw");
+        });
 
         // Begin with a throwing callback must not propagate the throw.
         var second = gate.Begin(scope);
         Assert.True(gate.IsCurrent(second));
+        await callbackRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var published = false;
         Assert.True(gate.TryCommit(second, () => published = true));
@@ -121,7 +127,7 @@ public sealed class LatestOperationGateTests
     /// leave any leaked or uncancelled sources.
     /// </summary>
     [Fact]
-    public void DisposeWithThrowingCallbackStillCancelsRemainingEntries()
+    public async Task DisposeWithThrowingCallbackStillCancelsRemainingEntries()
     {
         var gate = new LatestOperationGate();
         var scope1 = new OperationScopeId("scope-a");
@@ -130,12 +136,50 @@ public sealed class LatestOperationGateTests
         var lease1 = gate.Begin(scope1);
         var lease2 = gate.Begin(scope2);
 
-        lease1.CancellationToken.Register(() => throw new InvalidOperationException("scope-a threw"));
+        var callbackRan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lease1.CancellationToken.Register(() =>
+        {
+            callbackRan.TrySetResult();
+            throw new InvalidOperationException("scope-a threw");
+        });
 
         // Dispose must not propagate the throw; both leases should still be cancelled.
         gate.Dispose();
+        await callbackRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(lease1.CancellationToken.IsCancellationRequested);
         Assert.True(lease2.CancellationToken.IsCancellationRequested);
+    }
+
+    /// <summary>
+    /// Cancellation is only a hint to old work. A hostile callback may never return, but it must
+    /// not hold the latest-generation admission path hostage.
+    /// </summary>
+    [Fact]
+    public async Task BlockedCancellationCallbackDoesNotBlockTheNextBegin()
+    {
+        using var gate = new LatestOperationGate();
+        var scope = new OperationScopeId("blocked-callback");
+        var first = gate.Begin(scope);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseCallback = new ManualResetEventSlim();
+        first.CancellationToken.Register(() =>
+        {
+            callbackEntered.TrySetResult();
+            releaseCallback.Wait();
+        });
+
+        var replacing = Task.Run(() => gate.Begin(scope));
+        try
+        {
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var second = await replacing.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(gate.IsCurrent(second));
+            Assert.True(first.CancellationToken.IsCancellationRequested);
+        }
+        finally
+        {
+            releaseCallback.Set();
+        }
     }
 
     [Fact]

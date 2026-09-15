@@ -305,6 +305,96 @@ public sealed class ResilienceExecutorTests
         Assert.Equal(CircuitState.Open, Assert.Single(executor.Circuits).State);
     }
 
+    /// <summary>
+    /// A dependency may block before it returns a Task. Its invocation belongs on the default
+    /// scheduler so the executor can still arm and report the attempt deadline while retaining
+    /// that blocked invocation as unfinished work.
+    /// </summary>
+    [Fact]
+    public async Task SynchronousDependencyPrefixCannotPreventTheAttemptDeadline()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var executor = new ResilienceExecutor(time, new ExactJitter());
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseCallback = new ManualResetEventSlim();
+
+        var execution = Task.Run(() => executor.ExecuteAsync(
+            Request(OperationPolicy.Once(TimeSpan.FromSeconds(1))),
+            (_, _) =>
+            {
+                callbackEntered.TrySetResult();
+                releaseCallback.Wait();
+                return Task.FromResult(42);
+            },
+            default));
+
+        try
+        {
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(1));
+            await RuntimeTestTasks.UntilAsync(() => execution.IsCompleted);
+
+            var result = await execution;
+            Assert.False(result.Succeeded);
+            Assert.Equal(RuntimeFailureKind.Timeout, result.Fault!.Kind);
+            Assert.Equal("operation-attempt-timeout", result.Fault.Code.Value);
+        }
+        finally
+        {
+            releaseCallback.Set();
+        }
+
+        await RuntimeTestTasks.DrainAsync();
+    }
+
+    /// <summary>
+    /// A cancellation callback is dependency code and may block indefinitely. Reporting a
+    /// deadline must remain prompt; ownership of the callback and invocation continues behind
+    /// the returned unfinished-attempt fence until both settle.
+    /// </summary>
+    [Fact]
+    public async Task BlockedAttemptCancellationCallbackDoesNotBlockTimeoutReporting()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var executor = new ResilienceExecutor(time, new ExactJitter());
+        var operationStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseCallback = new ManualResetEventSlim();
+
+        var execution = executor.ExecuteAsync(
+            Request(OperationPolicy.Once(TimeSpan.FromSeconds(1))),
+            (_, token) =>
+            {
+                token.Register(() =>
+                {
+                    callbackEntered.TrySetResult();
+                    releaseCallback.Wait();
+                });
+                operationStarted.TrySetResult();
+                return pending.Task;
+            },
+            default);
+
+        await operationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        time.Advance(TimeSpan.FromSeconds(1));
+        try
+        {
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await RuntimeTestTasks.UntilAsync(() => execution.IsCompleted);
+            var result = await execution;
+            Assert.False(result.Succeeded);
+            Assert.Equal(RuntimeFailureKind.Timeout, result.Fault!.Kind);
+        }
+        finally
+        {
+            releaseCallback.Set();
+            pending.TrySetResult(1);
+        }
+
+        await RuntimeTestTasks.DrainAsync();
+    }
+
     private static OperationExecutionRequest Request(OperationPolicy policy) => new(
         new("runtime-test"),
         OperationId.New(),

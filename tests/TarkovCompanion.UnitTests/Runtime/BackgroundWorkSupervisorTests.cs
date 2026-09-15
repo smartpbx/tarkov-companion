@@ -174,8 +174,8 @@ public sealed class BackgroundWorkSupervisorTests
     }
 
     /// <summary>
-    /// With spare slots, a stream of small interactive work could always keep one slot busy, and
-    /// an exclusive item needs every slot free at once.
+    /// With spare slots, an exclusive item must not be delayed by interactive work admitted after
+    /// its original blockers have returned. An already-running reserved-lane item drains first.
     /// </summary>
     [Fact]
     public async Task PendingHeavyExclusiveDrainsConcurrentWorkWithinTheBurstBound()
@@ -190,6 +190,8 @@ public sealed class BackgroundWorkSupervisorTests
         var startedB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseC = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var a = supervisor.Submit(Request(WorkPriority.Interactive, WorkloadClass.Light), async (_, token) =>
         {
             startedA.TrySetResult();
@@ -205,19 +207,33 @@ public sealed class BackgroundWorkSupervisorTests
         var heavy = supervisor.Submit(
             Request(WorkPriority.Background, WorkloadClass.HeavyExclusive),
             (_, _) => Add("heavy"));
-        var c = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("c"));
+        var c = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), async (_, _) =>
+        {
+            lock (gate)
+            {
+                order.Add("c");
+            }
+
+            cStarted.TrySetResult();
+            await releaseC.Task;
+        });
         var d = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("d"));
 
         releaseA.TrySetResult();
         await a.Handle.Completion;
-        // One burst-bounded priority admission (c) runs before B finishes draining.
-        await RuntimeTestTasks.UntilAsync(() => { lock (gate) { return order.Count >= 1; } });
+        await cStarted.Task;
         lock (gate)
         {
             Assert.Equal(["c"], order);
         }
 
         releaseB.TrySetResult();
+        await b.Handle.Completion;
+        Assert.False(c.Handle.Completion.IsCompleted);
+        Assert.False(heavy.Handle.Completion.IsCompleted);
+        Assert.False(d.Handle.Completion.IsCompleted);
+
+        releaseC.TrySetResult();
         await Task.WhenAll(b.Handle.Completion, heavy.Handle.Completion, c.Handle.Completion, d.Handle.Completion);
         lock (gate)
         {
@@ -593,9 +609,9 @@ public sealed class BackgroundWorkSupervisorTests
 
     /// <summary>
     /// A never-ending lower-priority task that ignores cancellation must not indefinitely block
-    /// UserBlocking/Interactive work when a HeavyExclusive is also pending. The drain is bounded
-    /// by MaxPriorityBurst admissions; after the burst the heavy waits, but high-priority callers
-    /// are never starved.
+    /// UserBlocking/Interactive work when a HeavyExclusive is also pending. Reserved work keeps
+    /// progressing beyond MaxPriorityBurst while that original blocker remains; the heavy gets
+    /// the next turn as soon as the blocker really returns.
     /// </summary>
     [Fact]
     public async Task UserBlockingWorkRunsWhileHeavyExclusiveIsPendingAndLowerPriorityTaskIsUncooperative()
@@ -621,25 +637,26 @@ public sealed class BackgroundWorkSupervisorTests
             Request(WorkPriority.Background, WorkloadClass.HeavyExclusive),
             (_, _) => Add("heavy"));
 
-        // UserBlocking should still start, bounded by the burst count.
+        // UserBlocking should keep using the otherwise-idle reserved lane.
         var ub1 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub1"));
         var ub2 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub2"));
-        // Third UserBlocking exceeds burst = 2 during drain; it must wait for the drain.
         var ub3 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub3"));
 
-        // ub1 and ub2 run within the burst bound.
-        await Task.WhenAll(ub1.Handle.Completion, ub2.Handle.Completion);
-        lock (gate) { Assert.Equal(["ub1", "ub2"], order); }
+        await Task.WhenAll(ub1.Handle.Completion, ub2.Handle.Completion, ub3.Handle.Completion);
+        lock (gate) { Assert.Equal(["ub1", "ub2", "ub3"], order); }
 
-        // ub3 and heavy must still be pending (burst exhausted, longRunning still running).
-        Assert.False(ub3.Handle.Completion.IsCompleted);
+        // A later arrival still runs even though the finite priority burst was exhausted.
+        var ub4 = supervisor.Submit(Request(WorkPriority.Interactive, WorkloadClass.Light), (_, _) => Add("ub4"));
+        await ub4.Handle.Completion;
+        lock (gate) { Assert.Equal(["ub1", "ub2", "ub3", "ub4"], order); }
+
         Assert.False(heavy.Handle.Completion.IsCompleted);
         Assert.Equal(1, supervisor.Snapshot.Resources.Running);
         Assert.Equal(1, supervisor.Snapshot.Resources.RunningLight);
 
         release.TrySetResult();
-        await Task.WhenAll(longRunning.Handle.Completion, heavy.Handle.Completion, ub3.Handle.Completion);
-        lock (gate) { Assert.Equal(["ub1", "ub2", "heavy", "ub3"], order); }
+        await Task.WhenAll(longRunning.Handle.Completion, heavy.Handle.Completion);
+        lock (gate) { Assert.Equal(["ub1", "ub2", "ub3", "ub4", "heavy"], order); }
 
         Task Add(string s)
         {

@@ -12,6 +12,7 @@ public sealed class LatestOperationGate : IDisposable
 {
     private readonly object _gate = new();
     private readonly Dictionary<OperationScopeId, Entry> _current = [];
+    private readonly HashSet<CancellationRetirement> _retirements = [];
     private long _nextGeneration;
     private bool _disposed;
 
@@ -34,11 +35,13 @@ public sealed class LatestOperationGate : IDisposable
             lease = new(scope, generation, cancellation.Token);
         }
 
-        // Cancel and dispose outside the lock so that cancellation callbacks cannot re-enter
-        // _gate through IsCurrent or TryCommit, which would deadlock.
+        // Cancellation is advisory and must never hold up admission. A callback belongs to an
+        // arbitrary dependency: it can re-enter this gate, throw, or never return. Retire the
+        // source asynchronously, observe its completion, and keep it alive until every callback
+        // has settled.
         if (previous is not null)
         {
-            TryCancelAndDispose(previous.Cancellation);
+            Retire(previous.Cancellation);
         }
 
         return lease;
@@ -81,7 +84,7 @@ public sealed class LatestOperationGate : IDisposable
 
         if (removed is not null)
         {
-            TryCancelAndDispose(removed.Cancellation);
+            Retire(removed.Cancellation);
         }
     }
 
@@ -102,23 +105,52 @@ public sealed class LatestOperationGate : IDisposable
 
         foreach (var entry in entries)
         {
-            TryCancelAndDispose(entry.Cancellation);
+            Retire(entry.Cancellation);
         }
     }
 
-    private static void TryCancelAndDispose(CancellationTokenSource cancellation)
+    private void Retire(CancellationTokenSource cancellation)
     {
-        try
+        var retirement = new CancellationRetirement(cancellation);
+        lock (_gate)
         {
-            cancellation.Cancel();
+            _retirements.Add(retirement);
         }
-        catch (AggregateException)
+
+        retirement.Completion.GetAwaiter().OnCompleted(() => ForgetRetirement(retirement));
+    }
+
+    private void ForgetRetirement(CancellationRetirement retirement)
+    {
+        // CancellationRetirement converts every callback outcome into successful completion, so
+        // the continuation only has to release the retained owner.
+        lock (_gate)
         {
-            // A registered callback threw; the cancellation still fired.
+            _retirements.Remove(retirement);
         }
-        finally
+    }
+
+    private sealed class CancellationRetirement
+    {
+        public CancellationRetirement(CancellationTokenSource cancellation) =>
+            Completion = CancelAndDisposeAsync(cancellation);
+
+        public Task Completion { get; }
+
+        private static async Task CancelAndDisposeAsync(CancellationTokenSource cancellation)
         {
-            cancellation.Dispose();
+            try
+            {
+                await cancellation.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Cancellation callbacks are dependency code. A fault cannot undo invalidation.
+            }
+            finally
+            {
+                cancellation.Dispose();
+            }
         }
     }
 
