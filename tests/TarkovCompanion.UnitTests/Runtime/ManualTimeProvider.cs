@@ -47,6 +47,14 @@ internal sealed class ManualTimeProvider(DateTimeOffset startUtc) : TimeProvider
         }
     }
 
+    public int ScheduledTimerCountAt(DateTimeOffset dueUtc)
+    {
+        lock (_gate)
+        {
+            return _timers.Count(timer => timer.DueUtc == dueUtc);
+        }
+    }
+
     public long TimerCreationCount => Interlocked.Read(ref _timerCreations);
 
     public override ITimer CreateTimer(

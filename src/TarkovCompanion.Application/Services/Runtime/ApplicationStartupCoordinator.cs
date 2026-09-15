@@ -601,10 +601,13 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             new(
                 new("observation"),
                 FeatureStartupPriority.WorkspaceCritical,
-                // Repair improves the record but observation is the irreplaceable input. A
-                // failed or timed-out repair therefore degrades observation; it must never
-                // prevent the watcher from starting.
-                [new(raidHistoryRepair, FeatureDependencyKind.Optional)],
+                // Observation can proceed without a successful repair, but both services touch
+                // schema-bound history. Database initialization is therefore a hard gate while
+                // repair remains optional and only degrades the watcher if it fails.
+                [
+                    new(database, FeatureDependencyKind.Hard),
+                    new(raidHistoryRepair, FeatureDependencyKind.Optional),
+                ],
                 StartObservationAsync,
                 _ => _observationService.DisposeAsync().AsTask()),
             new(

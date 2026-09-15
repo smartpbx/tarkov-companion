@@ -178,7 +178,7 @@ public sealed class ApplicationStartupCoordinatorTests
     }
 
     [Fact]
-    public async Task RaidHistoryRepairDoesNotRaceDatabaseInitialization()
+    public async Task RaidHistoryRepairAndObservationDoNotRaceDatabaseInitialization()
     {
         var releaseDatabase = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var history = new StubRaidHistoryService();
@@ -194,6 +194,7 @@ public sealed class ApplicationStartupCoordinatorTests
         {
             await RuntimeTestTasks.DrainAsync();
             Assert.Equal(0, history.ListCalls);
+            Assert.Equal(FeatureLifecycleState.NotStarted, State("observation"));
         }
         finally
         {
@@ -202,6 +203,11 @@ public sealed class ApplicationStartupCoordinatorTests
 
         await initializing;
         Assert.Equal(1, history.ListCalls);
+        Assert.Equal(FeatureLifecycleState.Running, State("observation"));
+
+        FeatureLifecycleState State(string id) => Assert.Single(
+            fixture.State.Current.Lifecycle.Features,
+            feature => feature.FeatureId == new RuntimeFeatureId(id)).State;
     }
 
     [Fact]

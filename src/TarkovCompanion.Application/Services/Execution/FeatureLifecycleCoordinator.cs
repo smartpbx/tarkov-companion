@@ -495,13 +495,31 @@ public sealed class FeatureLifecycleCoordinator
                 node.LastFault = fault;
                 if (node.StopCompletion is null)
                 {
-                    node.State = FeatureLifecycleState.Failed;
-                    node.CompletedUtc = _timeProvider.GetUtcNow();
+                    // A thrown start can still have acquired resources in its synchronous
+                    // prefix. Failed is terminal, so do not publish it until the compensating
+                    // stop has proved those resources were released.
+                    node.State = FeatureLifecycleState.Stopping;
+                    node.CompletedUtc = null;
                 }
             }
 
             await DisposeStartCancellationAsync(node).ConfigureAwait(false);
             PublishChanged();
+            var compensation = EnsureStopTask(node, onlyOutsideShutdown: true);
+            if (compensation is not null)
+            {
+                try
+                {
+                    // Match public shutdown's truthful bound. A hostile stop cannot make all
+                    // startup wait forever; the retained stop workflow keeps the node Stopping
+                    // until it really returns.
+                    await compensation.WaitAsync(_options.StopTimeout, _timeProvider).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                }
+            }
+
             if (exception is OperationCanceledException
                 && cancellationToken.IsCancellationRequested
                 && !_startupCancellation.IsCancellationRequested)
@@ -562,7 +580,7 @@ public sealed class FeatureLifecycleCoordinator
         {
             // Outside shutdown nobody else will stop this feature once its start returns.
             // During shutdown the walk owns the stop so dependency order is preserved.
-            EnsureStopTask(node);
+            EnsureStopTask(node, onlyOutsideShutdown: true);
         }
     }
 
@@ -606,7 +624,7 @@ public sealed class FeatureLifecycleCoordinator
     }
 
     /// <summary>Returns the one stop of a node whose start was invoked, launching it once.</summary>
-    private Task? EnsureStopTask(FeatureNode node)
+    private Task? EnsureStopTask(FeatureNode node, bool onlyOutsideShutdown = false)
     {
         TaskCompletionSource? owner = null;
         Task stop;
@@ -614,6 +632,14 @@ public sealed class FeatureLifecycleCoordinator
         {
             if (node.StopCompletion is null)
             {
+                // If shutdown won this race, its reverse-topological walk owns creation of the
+                // stop. Independent failed-start cleanup may create it only before shutdown so
+                // it cannot release a dependency out of order.
+                if (onlyOutsideShutdown && _stopStarted)
+                {
+                    return null;
+                }
+
                 var startedOrStarting = node.State is
                     FeatureLifecycleState.Running or
                     FeatureLifecycleState.Degraded or
@@ -748,8 +774,8 @@ public sealed class FeatureLifecycleCoordinator
             }
             else if (node.StartupFailed && !_stopStarted)
             {
-                // A compensating stop after a timed-out or cancelled start: the feature never
-                // became usable, and the fault that says why is kept.
+                // A compensating stop after any failed start: the feature never became usable,
+                // and the fault that says why is kept.
                 node.State = FeatureLifecycleState.Failed;
                 node.LastFault ??= FeatureFault(node, RuntimeFailureKind.Timeout, "feature-start-timeout");
             }

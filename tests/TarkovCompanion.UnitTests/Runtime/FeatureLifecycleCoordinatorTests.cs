@@ -138,10 +138,11 @@ public sealed class FeatureLifecycleCoordinatorTests
     }
 
     [Fact]
-    public async Task ShutdownCompensatesAStartThatAcquiredResourcesBeforeItFailed()
+    public async Task FailedStartCompensatesBeforePublishingFailureAndShutdownIsIdempotent()
     {
         var resourceAcquired = false;
         var stopCalls = 0;
+        var terminalLeakPublications = 0;
         var lifecycle = Lifecycle(
         [
             new(
@@ -161,19 +162,53 @@ public sealed class FeatureLifecycleCoordinatorTests
                     return Task.CompletedTask;
                 }),
         ]);
+        lifecycle.Changed += (_, _) =>
+        {
+            if (lifecycle.Snapshot.Features[0].State == FeatureLifecycleState.Failed
+                && resourceAcquired)
+            {
+                Interlocked.Increment(ref terminalLeakPublications);
+            }
+        };
 
         var started = await lifecycle.StartAsync();
         var startFault = Assert.Single(started.Features).LastFault;
         Assert.Equal(FeatureLifecycleState.Failed, Assert.Single(started.Features).State);
-        Assert.True(resourceAcquired);
-        Assert.Equal(0, Volatile.Read(ref stopCalls));
+        Assert.False(resourceAcquired);
+        Assert.Equal(1, Volatile.Read(ref stopCalls));
+        Assert.Equal(0, Volatile.Read(ref terminalLeakPublications));
 
         var stopped = await lifecycle.StopAsync();
 
         Assert.False(resourceAcquired);
         Assert.Equal(1, Volatile.Read(ref stopCalls));
-        Assert.Equal(FeatureLifecycleState.Stopped, Assert.Single(stopped.Features).State);
+        Assert.Equal(FeatureLifecycleState.Failed, Assert.Single(stopped.Features).State);
         Assert.Same(startFault, Assert.Single(stopped.Features).LastFault);
+    }
+
+    [Fact]
+    public async Task FailedStartPublishesStopFailureWhenItsCompensationFails()
+    {
+        var stopCalls = 0;
+        var lifecycle = Lifecycle(
+        [
+            new(
+                new("partial-start"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ => Task.FromException(new IOException("failed after acquisition")),
+                _ =>
+                {
+                    Interlocked.Increment(ref stopCalls);
+                    return Task.FromException(new IOException("cleanup failed"));
+                }),
+        ]);
+
+        var started = await lifecycle.StartAsync();
+
+        Assert.Equal(1, Volatile.Read(ref stopCalls));
+        Assert.Equal(FeatureLifecycleState.StopFailed, Assert.Single(started.Features).State);
+        Assert.NotNull(Assert.Single(started.Features).LastFault);
     }
 
     [Fact]
@@ -219,6 +254,84 @@ public sealed class FeatureLifecycleCoordinatorTests
         Assert.Equal(1, stopCalls);
         Assert.Equal(FeatureLifecycleState.Stopped, Assert.Single(stopped.Features).State);
         Assert.True(stopped.IsQuiescent);
+    }
+
+    [Fact]
+    public async Task TimeoutCleanupCannotJumpShutdownDependencyOrder()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var dependency = new RuntimeFeatureId("dependency");
+        var dependencyStartEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependantStartEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependantStopEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependencyStopEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDependencyStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDependantStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<FeatureLifecycleSnapshot>? stopping = null;
+        var requested = 0;
+        var lifecycle = new FeatureLifecycleCoordinator(
+        [
+            new(
+                dependency,
+                FeatureStartupPriority.Normal,
+                [],
+                _ =>
+                {
+                    dependencyStartEntered.TrySetResult();
+                    return releaseDependencyStart.Task;
+                },
+                _ =>
+                {
+                    dependencyStopEntered.TrySetResult();
+                    return Task.CompletedTask;
+                }),
+            new(
+                new("dependant"),
+                FeatureStartupPriority.Normal,
+                [new(dependency, FeatureDependencyKind.Optional)],
+                _ =>
+                {
+                    dependantStartEntered.TrySetResult();
+                    return Task.CompletedTask;
+                },
+                _ =>
+                {
+                    dependantStopEntered.TrySetResult();
+                    return releaseDependantStop.Task;
+                }),
+        ], time, new(2, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5)));
+        lifecycle.Changed += (_, _) =>
+        {
+            if (State(lifecycle.Snapshot, "dependency") == FeatureLifecycleState.StartTimedOut
+                && Interlocked.CompareExchange(ref requested, 1, 0) == 0)
+            {
+                stopping = lifecycle.StopAsync();
+                stopRequested.TrySetResult();
+            }
+        };
+
+        var startup = lifecycle.StartAsync();
+        await Task.WhenAll(dependencyStartEntered.Task, dependantStartEntered.Task);
+        time.Advance(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(
+            stopRequested.Task.WaitAsync(TimeSpan.FromSeconds(5)),
+            dependantStopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        try
+        {
+            releaseDependencyStart.TrySetResult();
+            await RuntimeTestTasks.DrainAsync();
+            Assert.False(dependencyStopEntered.Task.IsCompleted);
+        }
+        finally
+        {
+            releaseDependantStop.TrySetResult();
+            releaseDependencyStart.TrySetResult();
+        }
+
+        await dependencyStopEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(startup, stopping!);
     }
 
     /// <summary>Shutdown used to skip a feature that was still starting and release what it needed.</summary>

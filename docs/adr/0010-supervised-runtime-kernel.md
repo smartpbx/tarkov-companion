@@ -20,8 +20,9 @@ feature faults, and exposes explicit degraded or failed state. Hard dependencies
 dependant starts. Optional dependencies never gate startup, including within one priority phase;
 if one later fails or is degraded, that state propagates through already-running dependants.
 Raid-history repair is hard-ordered after database initialization because it reads schema-bound
-tables, while observation depends on that repair only optionally so a visible repair failure does
-not prevent external, read-only observation from starting.
+tables. Observation has the same hard database gate and an optional repair dependency: it cannot
+touch raid history before migrations, but a visible repair failure does not prevent external,
+read-only observation from starting.
 
 ### Shutdown is bounded and truthful
 
@@ -48,8 +49,9 @@ can observe it, and once stopping has begun no feature may enter `Starting`. The
 therefore cannot pass a feature whose start is in flight: it waits for that start to return,
 stops the feature, and only then continues to that feature's dependencies. A start that exceeds
 its deadline is reported as the non-terminal `StartTimedOut`, and the feature is stopped once the
-callback finally returns before it settles as `Failed`. A start callback that throws is also
-stopped during shutdown: failure does not prove that its synchronous prefix acquired no resource.
+callback finally returns before it settles as `Failed`. A start callback that throws receives the
+same compensating stop immediately and cannot publish terminal `Failed` while resources may still
+be live; failure does not prove that its synchronous prefix acquired no resource.
 
 Feature start and stop callbacks are scheduled before invocation. Their timeout is therefore
 armed even when a callback enters synchronous SQLite or CPU work before it returns a task, and a

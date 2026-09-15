@@ -889,7 +889,13 @@ public sealed class OutboxProcessorTests
         for (var expectedCompleteCalls = 2; expectedCompleteCalls <= 8; expectedCompleteCalls++)
         {
             var nextRetryUtc = time.GetUtcNow().AddMilliseconds(50);
-            await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == nextRetryUtc);
+            // At each 100 ms boundary the retry and heartbeat are both due. CompleteCalls is
+            // incremented before the failed acknowledgement continuation installs its next
+            // timer, so merely seeing the heartbeat at that timestamp raced the retry and could
+            // advance the clock one step too early.
+            var timersDueTogether = expectedCompleteCalls % 2 == 0 ? 1 : 2;
+            await RuntimeTestTasks.UntilAsync(() =>
+                time.ScheduledTimerCountAt(nextRetryUtc) >= timersDueTogether);
             time.Advance(TimeSpan.FromMilliseconds(50));
             await RuntimeTestTasks.UntilAsync(() => store.CompleteCalls >= expectedCompleteCalls);
 
