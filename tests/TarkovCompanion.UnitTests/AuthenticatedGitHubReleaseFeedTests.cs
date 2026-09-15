@@ -1,9 +1,10 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
-using TarkovCompanion.App.Services.Updates;
+using TarkovCompanion.Application.Services.Updates;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Infrastructure.Updates;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -132,6 +133,41 @@ public sealed class AuthenticatedGitHubReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task ACredentialBearingAssetUrlOnANonstandardPortIsRefused()
+    {
+        Directory.CreateDirectory(_root);
+        var bytes = "verified package"u8.ToArray();
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var handler = new QueueHandler(
+            _ => PrivateRepository(),
+            _ => JsonResponse($$"""
+                {
+                  "draft": false,
+                  "immutable": true,
+                  "tag_name": "v2-build-2.0.0",
+                  "assets": [{
+                    "name": "package.nupkg",
+                    "state": "uploaded",
+                    "size": {{bytes.Length}},
+                    "digest": "sha256:{{digest}}",
+                    "url": "https://api.github.com:8443/repos/acme/private-feed/releases/assets/7"
+                  }]
+                }
+                """),
+            _ => throw new InvalidOperationException("The token must not be sent to a nonstandard port."));
+        using var feed = CreateFeed(handler);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => feed.DownloadAssetAsync(
+            "v2-build-2.0.0",
+            "package.nupkg",
+            Path.Combine(_root, "package.nupkg"),
+            ReleaseFeedLimits.MaximumArtifactBytes,
+            default));
+
+        Assert.Equal(2, handler.RequestCount);
+    }
+
+    [Fact]
     public async Task RefusingToOverwriteDoesNotDeleteTheCallersExistingDestination()
     {
         Directory.CreateDirectory(_root);
@@ -192,6 +228,22 @@ public sealed class AuthenticatedGitHubReleaseFeedTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => feed.ListRingAsync("stable", default));
 
         Assert.Equal(1, handler.RequestCount);
+    }
+
+    [Fact]
+    public async Task EveryPreparationListingRechecksThatTheRepositoryRemainsPrivate()
+    {
+        var handler = new QueueHandler(
+            _ => PrivateRepository(),
+            _ => JsonResponse("[]"),
+            _ => JsonResponse("""{"visibility":"public"}"""),
+            _ => throw new InvalidOperationException("A newly public feed's ring must not be read."));
+        using var feed = CreateFeed(handler);
+
+        await feed.ListRingAsync("stable", default);
+        await Assert.ThrowsAsync<InvalidDataException>(() => feed.ListRingAsync("stable", default));
+
+        Assert.Equal(3, handler.RequestCount);
     }
 
     private AuthenticatedGitHubReleaseFeed CreateFeed(HttpMessageHandler handler)

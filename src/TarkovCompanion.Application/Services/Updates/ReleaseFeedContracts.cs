@@ -1,9 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 
-namespace TarkovCompanion.App.Services.Updates;
+namespace TarkovCompanion.Application.Services.Updates;
 
 /// <summary>The bounded inputs accepted by every desktop release-feed stage.</summary>
 public static class ReleaseFeedLimits
@@ -113,6 +114,27 @@ public interface IAuthenticatedReleaseFeed
 public interface IReleaseSignatureVerifier
 {
     Task VerifyAsync(string filePath, string bundlePath, CancellationToken cancellationToken);
+}
+
+/// <summary>Metadata for a bounded, unredirected file in release staging.</summary>
+public sealed record ReleaseStagedFile(string FullPath, long Length);
+
+/// <summary>
+/// Owns filesystem I/O for the application-layer release transaction.
+/// </summary>
+public interface IReleaseStagingStore
+{
+    string Create(string stagingRoot);
+
+    void Delete(string stagingRoot, string stagingDirectory);
+
+    ReleaseStagedFile RequirePlainFile(string path, long maximumBytes, string label);
+
+    Task WriteNewAsync(string path, byte[] bytes, CancellationToken cancellationToken);
+
+    Task<JsonDocument> ReadJsonAsync(string path, int maximumBytes, CancellationToken cancellationToken);
+
+    Task<string> Sha256Async(string path, long maximumBytes, CancellationToken cancellationToken);
 }
 
 public enum ReleasePreparationStatus

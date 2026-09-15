@@ -4,13 +4,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TarkovCompanion.Application.Services.Updates;
 
-namespace TarkovCompanion.App.Services.Updates;
+namespace TarkovCompanion.Infrastructure.Updates;
 
 /// <summary>Verifies only the project's standardized v0.3 bundles with a content-pinned cosign.</summary>
 public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVerifier
 {
     private const string BundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json";
+    private static readonly TimeSpan ProcessCleanupTimeout = TimeSpan.FromSeconds(5);
     private static readonly HashSet<string> PinnedCosignDigests = new(StringComparer.Ordinal)
     {
         // cosign v3.1.3, from its Sigstore-verified checksums.
@@ -20,6 +22,9 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
     };
 
     private readonly SignedReleaseFeedOptions _options;
+    private readonly ICosignProcessFactory _processFactory;
+    private readonly Func<string, CancellationToken, Task<string>> _cosignDigest;
+    private readonly TimeSpan _processCleanupTimeout;
 
     public CosignReleaseSignatureVerifier(SignedReleaseFeedOptions options)
     {
@@ -48,6 +53,33 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
         }
 
         _options = options;
+        _processFactory = SystemCosignProcessFactory.Instance;
+        _cosignDigest = static (path, cancellationToken) => Sha256Async(
+            path,
+            ReleaseFeedLimits.MaximumArtifactBytes,
+            cancellationToken);
+        _processCleanupTimeout = ProcessCleanupTimeout;
+    }
+
+    internal CosignReleaseSignatureVerifier(
+        SignedReleaseFeedOptions options,
+        ICosignProcessFactory processFactory,
+        Func<string, CancellationToken, Task<string>> cosignDigest,
+        TimeSpan processCleanupTimeout)
+        : this(options)
+    {
+        ArgumentNullException.ThrowIfNull(processFactory);
+        ArgumentNullException.ThrowIfNull(cosignDigest);
+        if (processCleanupTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(processCleanupTimeout),
+                "Process cleanup must have a positive bounded duration.");
+        }
+
+        _processFactory = processFactory;
+        _cosignDigest = cosignDigest;
+        _processCleanupTimeout = processCleanupTimeout;
     }
 
     public async Task VerifyAsync(string filePath, string bundlePath, CancellationToken cancellationToken)
@@ -57,10 +89,7 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
         var cosign = RequirePlainFile(_options.CosignPath, ReleaseFeedLimits.MaximumArtifactBytes, "cosign verifier");
         var trustRoot = RequirePlainFile(_options.TrustRootPath, ReleaseFeedLimits.MaximumJsonBytes, "Sigstore trust root");
 
-        var cosignDigest = await Sha256Async(
-            cosign.FullName,
-            ReleaseFeedLimits.MaximumArtifactBytes,
-            cancellationToken).ConfigureAwait(false);
+        var cosignDigest = await _cosignDigest(cosign.FullName, cancellationToken).ConfigureAwait(false);
         if (!cosignDigest.Equals(_options.CosignSha256, StringComparison.Ordinal))
         {
             throw new InvalidDataException("The configured cosign executable does not match its reviewed digest.");
@@ -76,11 +105,11 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
             cancellationToken).ConfigureAwait(false);
         await ValidateBundleAsync(bundleDocument.RootElement, signedFile.FullName, cancellationToken).ConfigureAwait(false);
 
-        using var process = new Process
-        {
-            StartInfo = CreateStartInfo(cosign.FullName, signedFile.FullName, bundle.FullName, trustRoot.FullName),
-        };
+        using var process = _processFactory.Create(
+            CreateStartInfo(cosign.FullName, signedFile.FullName, bundle.FullName, trustRoot.FullName));
         var started = false;
+        Task<(string Text, bool Truncated)>? outputTask = null;
+        Task<(string Text, bool Truncated)>? errorTask = null;
         try
         {
             if (!process.Start())
@@ -89,13 +118,19 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
             }
 
             started = true;
-            process.StandardInput.Close();
+            process.CloseStandardInput();
 
-            var outputTask = ReadBoundedOutputAsync(process.StandardOutput, cancellationToken);
-            var errorTask = ReadBoundedOutputAsync(process.StandardError, cancellationToken);
+            // Caller cancellation stops verification, not pipe drainage. Once cosign starts, its
+            // redirected pipes must keep being consumed until the process tree is gone so a full
+            // buffer cannot strand either the verifier or a child process during cleanup.
+            outputTask = ReadBoundedOutputAsync(process.StandardOutput, CancellationToken.None);
+            errorTask = ReadBoundedOutputAsync(process.StandardError, CancellationToken.None);
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-            var output = await outputTask.ConfigureAwait(false);
-            var error = await errorTask.ConfigureAwait(false);
+            var outputs = await Task.WhenAll(outputTask, errorTask)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var output = outputs[0];
+            var error = outputs[1];
             if (output.Truncated || error.Truncated)
             {
                 throw new InvalidDataException("Cosign exceeded its diagnostic-output limit.");
@@ -107,15 +142,101 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
                 throw new InvalidDataException($"Release signature verification failed: {Sanitize(detail)}");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false);
+            throw;
+        }
         catch
         {
-            if (started && !process.HasExited)
+            await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task TerminateAndDrainAsync(
+        ICosignProcess process,
+        bool started,
+        Task<(string Text, bool Truncated)>? outputTask,
+        Task<(string Text, bool Truncated)>? errorTask)
+    {
+        if (!started)
+        {
+            return;
+        }
+
+        // Cleanup deliberately has its own deadline. Reusing the caller's cancelled token would
+        // abandon cosign and its redirected streams at exactly the point cleanup is required.
+        using var cleanup = new CancellationTokenSource(_processCleanupTimeout);
+        try
+        {
+            if (!process.HasExited)
             {
                 process.Kill(entireProcessTree: true);
             }
-
-            throw;
         }
+        catch
+        {
+            // A racing natural exit or an OS-level kill failure must not replace the original
+            // verification exception. The independent wait below still gets a chance to settle.
+        }
+
+        try
+        {
+            await process.WaitForExitAsync(cleanup.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Preserve the original failure, including its original cancellation token.
+        }
+
+        var outputTasks = new List<Task>(2);
+        if (outputTask is not null)
+        {
+            outputTasks.Add(outputTask);
+        }
+
+        if (errorTask is not null)
+        {
+            outputTasks.Add(errorTask);
+        }
+
+        if (outputTasks.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await Task.WhenAll(outputTasks).WaitAsync(cleanup.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The process wrapper is disposed on return. Observe any late pipe fault as well so
+            // bounded cleanup never creates an unobserved task while preserving the root cause.
+        }
+        finally
+        {
+            foreach (var task in outputTasks)
+            {
+                ObserveEventually(task);
+            }
+        }
+    }
+
+    private static void ObserveEventually(Task task)
+    {
+        if (task.IsCompleted)
+        {
+            _ = task.Exception;
+            return;
+        }
+
+        _ = task.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
     }
 
     private ProcessStartInfo CreateStartInfo(
@@ -318,7 +439,7 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
     }
 
     private static async Task<(string Text, bool Truncated)> ReadBoundedOutputAsync(
-        StreamReader reader,
+        TextReader reader,
         CancellationToken cancellationToken)
     {
         var builder = new StringBuilder();
@@ -363,4 +484,72 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
 
     [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
     private static partial Regex LowerHex64();
+}
+
+internal interface ICosignProcessFactory
+{
+    ICosignProcess Create(ProcessStartInfo startInfo);
+}
+
+internal interface ICosignProcess : IDisposable
+{
+    TextReader StandardOutput { get; }
+
+    TextReader StandardError { get; }
+
+    bool HasExited { get; }
+
+    int ExitCode { get; }
+
+    bool Start();
+
+    void CloseStandardInput();
+
+    Task WaitForExitAsync(CancellationToken cancellationToken);
+
+    void Kill(bool entireProcessTree);
+}
+
+internal sealed class SystemCosignProcessFactory : ICosignProcessFactory
+{
+    public static SystemCosignProcessFactory Instance { get; } = new();
+
+    private SystemCosignProcessFactory()
+    {
+    }
+
+    public ICosignProcess Create(ProcessStartInfo startInfo)
+    {
+        ArgumentNullException.ThrowIfNull(startInfo);
+        return new SystemCosignProcess(startInfo);
+    }
+
+    private sealed class SystemCosignProcess : ICosignProcess
+    {
+        private readonly Process _process;
+
+        public SystemCosignProcess(ProcessStartInfo startInfo)
+        {
+            _process = new Process { StartInfo = startInfo };
+        }
+
+        public TextReader StandardOutput => _process.StandardOutput;
+
+        public TextReader StandardError => _process.StandardError;
+
+        public bool HasExited => _process.HasExited;
+
+        public int ExitCode => _process.ExitCode;
+
+        public bool Start() => _process.Start();
+
+        public void CloseStandardInput() => _process.StandardInput.Close();
+
+        public Task WaitForExitAsync(CancellationToken cancellationToken) =>
+            _process.WaitForExitAsync(cancellationToken);
+
+        public void Kill(bool entireProcessTree) => _process.Kill(entireProcessTree);
+
+        public void Dispose() => _process.Dispose();
+    }
 }

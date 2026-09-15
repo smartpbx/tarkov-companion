@@ -49,8 +49,10 @@ on:
       - 'licenses/**'
       - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
       - 'src/TarkovCompanion.App/Services/Updates/**'
+      - 'src/TarkovCompanion.Application/Services/Updates/**'
+      - 'src/TarkovCompanion.Infrastructure/Updates/**'
       - 'src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs'
-      - 'tests/TarkovCompanion.UnitTests/*ReleaseFeed*.cs'
+      - 'tests/TarkovCompanion.UnitTests/*Release*.cs'
   pull_request:
     branches: [main]
     paths:
@@ -72,8 +74,10 @@ on:
       - 'licenses/**'
       - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
       - 'src/TarkovCompanion.App/Services/Updates/**'
+      - 'src/TarkovCompanion.Application/Services/Updates/**'
+      - 'src/TarkovCompanion.Infrastructure/Updates/**'
       - 'src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs'
-      - 'tests/TarkovCompanion.UnitTests/*ReleaseFeed*.cs'
+      - 'tests/TarkovCompanion.UnitTests/*Release*.cs'
 
 permissions:
   contents: read

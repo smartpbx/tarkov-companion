@@ -425,6 +425,11 @@ manifest and every selected binary/data/model artifact are verified before one p
 Pause advances only authenticated generation state, downgrade needs the carried signed rollback,
 and an applicable data/model delta must name the installed component digest.
 
+The contracts and transaction coordinator live in `Application`; the authenticated GitHub reader
+and cosign process adapter live in `Infrastructure`; only the Velopack presentation gateway remains
+in `App`. Every new preparation listing rechecks that the feed is still private or internal before
+using the transaction's cached visibility decision for its bounded downloads.
+
 That consumer is deliberately **not composed into the UI yet**. #294 owns activation of all three
 components and hands only the verified local `SimpleFileSource` to Velopack; #270 owns the durable
 implementation of `IReleaseConsumerStateStore`. Until both are wired, in-app updates report that
@@ -583,7 +588,7 @@ publish run URL, the approving reviewer shown on that run, and the signed ring g
 | Cosign pins equal everywhere; unpinned cosign refused by every script | `test_cosign_pins.py` |
 | Relay updater: root-owned state and a hostile relay directory; every post-swap failure, SIGTERM and interrupted commit; hostile bundles; pinned cosign; replay, floors, bootstrap, freshness, downgrade, pause, rollback, locale; refusal truthfulness; token scope | `test_relay_updater.py` |
 | Offline verification and the PowerShell installer: private copies, ring decisions, break-glass, hostile bundles, unreadable installed versions | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op and wrong-identity installers, and refuses inconsistent rollback authority |
-| Desktop private-feed transport and one binary/data/model verification transaction; pause, replay, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `SignedReleaseFeedConsumerTests.cs` |
+| Desktop private-feed transport, filesystem staging and one binary/data/model verification transaction; live private-visibility checks, cancellation/process cleanup, real Sigstore verification, pause, replay, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `CosignReleaseSignatureVerifierTests.cs`, `ReleaseStagingStoreTests.cs`, `SignedReleaseFeedConsumerTests.cs`, and `test-real-sigstore.sh` |
 | Control capture | `test_capture_controls.py` |
 | The verification command against real Sigstore material, and a real GHSA-fx35-mq7g-6g98-shaped legacy bundle | `scripts/release/test-real-sigstore.sh` |
 | Panel reports only the root-owned status | `tests/TarkovCompanion.UnitTests/RelayUpdateTests.cs` |

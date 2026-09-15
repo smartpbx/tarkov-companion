@@ -1,11 +1,9 @@
-using System.Buffers;
 using System.Collections.ObjectModel;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace TarkovCompanion.App.Services.Updates;
+namespace TarkovCompanion.Application.Services.Updates;
 
 /// <summary>
 /// Turns one authenticated ring decision into a fully verified binary, data and model plan.
@@ -26,6 +24,7 @@ public sealed partial class SignedReleaseFeedConsumer
     private readonly IAuthenticatedReleaseFeed _feed;
     private readonly IReleaseSignatureVerifier _verifier;
     private readonly IReleaseConsumerStateStore _stateStore;
+    private readonly IReleaseStagingStore _stagingStore;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private VerifiedReleasePlan? _pendingPlan;
@@ -35,12 +34,14 @@ public sealed partial class SignedReleaseFeedConsumer
         IAuthenticatedReleaseFeed feed,
         IReleaseSignatureVerifier verifier,
         IReleaseConsumerStateStore stateStore,
+        IReleaseStagingStore stagingStore,
         TimeProvider? clock = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(feed);
         ArgumentNullException.ThrowIfNull(verifier);
         ArgumentNullException.ThrowIfNull(stateStore);
+        ArgumentNullException.ThrowIfNull(stagingStore);
         if (string.IsNullOrEmpty(options.Repository) || options.Repository.Length > 200 ||
             !Repository().IsMatch(options.Repository) ||
             options.Repository.Equals(SourceRepository, StringComparison.OrdinalIgnoreCase) ||
@@ -55,6 +56,7 @@ public sealed partial class SignedReleaseFeedConsumer
         _feed = feed;
         _verifier = verifier;
         _stateStore = stateStore;
+        _stagingStore = stagingStore;
         _clock = clock ?? TimeProvider.System;
     }
 
@@ -98,7 +100,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 return new ReleasePreparation(ReleasePreparationStatus.UpToDate);
             }
 
-            staging = CreateStagingDirectory();
+            staging = _stagingStore.Create(_options.StagingRoot);
             var envelopePath = Path.Combine(staging, current.Value.Name);
             await _feed.DownloadRingAsync(
                 _options.Ring,
@@ -110,7 +112,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 .ConfigureAwait(false);
             await _verifier.VerifyAsync(indexPath, indexBundlePath, cancellationToken).ConfigureAwait(false);
 
-            using var indexDocument = await ReadJsonAsync(
+            using var indexDocument = await _stagingStore.ReadJsonAsync(
                 indexPath,
                 ReleaseFeedLimits.MaximumJsonBytes,
                 cancellationToken).ConfigureAwait(false);
@@ -125,7 +127,7 @@ public sealed partial class SignedReleaseFeedConsumer
                         LastKnownGood = decision.LastKnownGood,
                     },
                     cancellationToken).ConfigureAwait(false);
-                DeleteStaging(staging);
+                _stagingStore.Delete(_options.StagingRoot, staging);
                 staging = null;
                 return new ReleasePreparation(ReleasePreparationStatus.Paused);
             }
@@ -153,7 +155,7 @@ public sealed partial class SignedReleaseFeedConsumer
                             LastKnownGood = decision.LastKnownGood,
                         },
                         cancellationToken).ConfigureAwait(false);
-                    DeleteStaging(staging);
+                    _stagingStore.Delete(_options.StagingRoot, staging);
                     staging = null;
                     return new ReleasePreparation(ReleasePreparationStatus.UpToDate);
                 }
@@ -174,7 +176,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 ReleaseFeedLimits.MaximumSignatureBytes,
                 cancellationToken).ConfigureAwait(false);
             await _verifier.VerifyAsync(manifestPath, manifestBundlePath, cancellationToken).ConfigureAwait(false);
-            var manifestSha256 = await Sha256Async(
+            var manifestSha256 = await _stagingStore.Sha256Async(
                 manifestPath,
                 ReleaseFeedLimits.MaximumJsonBytes,
                 cancellationToken).ConfigureAwait(false);
@@ -183,7 +185,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 throw new InvalidDataException("The verified manifest does not match the signed ring decision.");
             }
 
-            using var manifestDocument = await ReadJsonAsync(
+            using var manifestDocument = await _stagingStore.ReadJsonAsync(
                 manifestPath,
                 ReleaseFeedLimits.MaximumJsonBytes,
                 cancellationToken).ConfigureAwait(false);
@@ -197,8 +199,18 @@ public sealed partial class SignedReleaseFeedConsumer
 
             var selected = SelectArtifacts(manifest, state.ComponentSha256);
             var stagedArtifacts = new List<VerifiedReleaseArtifact>();
-            long downloaded = new FileInfo(envelopePath).Length + new FileInfo(manifestPath).Length +
-                              new FileInfo(manifestBundlePath).Length;
+            long downloaded = _stagingStore.RequirePlainFile(
+                                  envelopePath,
+                                  ReleaseFeedLimits.MaximumJsonBytes,
+                                  "signed ring envelope").Length +
+                              _stagingStore.RequirePlainFile(
+                                  manifestPath,
+                                  ReleaseFeedLimits.MaximumJsonBytes,
+                                  "release manifest").Length +
+                              _stagingStore.RequirePlainFile(
+                                  manifestBundlePath,
+                                  ReleaseFeedLimits.MaximumSignatureBytes,
+                                  "manifest signature bundle").Length;
             foreach (var artifact in selected)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -217,15 +229,19 @@ public sealed partial class SignedReleaseFeedConsumer
                     ReleaseFeedLimits.MaximumSignatureBytes,
                     cancellationToken).ConfigureAwait(false);
                 await _verifier.VerifyAsync(path, bundlePath, cancellationToken).ConfigureAwait(false);
-                var info = RequirePlainFile(path, artifact.Size, artifact.Name);
-                var artifactSha256 = await Sha256Async(path, artifact.Size, cancellationToken).ConfigureAwait(false);
+                var info = _stagingStore.RequirePlainFile(path, artifact.Size, artifact.Name);
+                var artifactSha256 = await _stagingStore.Sha256Async(path, artifact.Size, cancellationToken)
+                    .ConfigureAwait(false);
                 if (info.Length != artifact.Size ||
                     !artifactSha256.Equals(artifact.Sha256, StringComparison.Ordinal))
                 {
                     throw new InvalidDataException($"Verified artifact {artifact.Name} disagrees with the manifest.");
                 }
 
-                downloaded = checked(downloaded + info.Length + new FileInfo(bundlePath).Length);
+                downloaded = checked(downloaded + info.Length + _stagingStore.RequirePlainFile(
+                    bundlePath,
+                    ReleaseFeedLimits.MaximumSignatureBytes,
+                    $"{artifact.Name} signature bundle").Length);
                 if (downloaded > ReleaseFeedLimits.MaximumReleaseBytes)
                 {
                     throw new InvalidDataException("The staged release exceeds its total byte limit.");
@@ -263,7 +279,7 @@ public sealed partial class SignedReleaseFeedConsumer
         {
             if (staging is not null)
             {
-                DeleteStaging(staging);
+                _stagingStore.Delete(_options.StagingRoot, staging);
             }
 
             throw;
@@ -329,7 +345,7 @@ public sealed partial class SignedReleaseFeedConsumer
                 },
                 cancellationToken).ConfigureAwait(false);
             _pendingPlan = null;
-            DeleteStaging(plan.Directory);
+            _stagingStore.Delete(_options.StagingRoot, plan.Directory);
         }
         finally
         {
@@ -345,7 +361,7 @@ public sealed partial class SignedReleaseFeedConsumer
         try
         {
             RequirePendingPlan(plan);
-            DeleteStaging(plan.Directory);
+            _stagingStore.Delete(_options.StagingRoot, plan.Directory);
             _pendingPlan = null;
         }
         finally
@@ -359,7 +375,7 @@ public sealed partial class SignedReleaseFeedConsumer
         string staging,
         CancellationToken cancellationToken)
     {
-        using var document = await ReadJsonAsync(
+        using var document = await _stagingStore.ReadJsonAsync(
             envelopePath,
             ReleaseFeedLimits.MaximumJsonBytes,
             cancellationToken).ConfigureAwait(false);
@@ -394,8 +410,8 @@ public sealed partial class SignedReleaseFeedConsumer
 
         var payloadPath = Path.Combine(staging, "release-index.json");
         var bundlePath = payloadPath + ".sigstore.json";
-        await WriteNewAsync(payloadPath, payload, cancellationToken).ConfigureAwait(false);
-        await WriteNewAsync(bundlePath, bundleBytes, cancellationToken).ConfigureAwait(false);
+        await _stagingStore.WriteNewAsync(payloadPath, payload, cancellationToken).ConfigureAwait(false);
+        await _stagingStore.WriteNewAsync(bundlePath, bundleBytes, cancellationToken).ConfigureAwait(false);
         return (payloadPath, bundlePath);
     }
 
@@ -865,41 +881,6 @@ public sealed partial class SignedReleaseFeedConsumer
         }
     }
 
-    private string CreateStagingDirectory()
-    {
-        var root = Path.GetFullPath(_options.StagingRoot);
-        Directory.CreateDirectory(root);
-        RequireUnredirectedDirectoryTree(root, "release staging root");
-
-        var staging = Path.Combine(root, $"release-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(staging);
-        RequireUnredirectedDirectoryTree(staging, "release staging directory");
-        return staging;
-    }
-
-    private void DeleteStaging(string path)
-    {
-        if (!IsOwnedStagingDirectory(path))
-        {
-            throw new InvalidOperationException("Refusing to remove a directory outside the release staging root.");
-        }
-
-        var info = new DirectoryInfo(Path.GetFullPath(path));
-        info.Refresh();
-        if (info.Exists && (info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null))
-        {
-            throw new InvalidOperationException("Refusing to follow a redirected release staging directory.");
-        }
-
-        try
-        {
-            Directory.Delete(path, recursive: true);
-        }
-        catch (DirectoryNotFoundException)
-        {
-        }
-    }
-
     private bool IsOwnedStagingDirectory(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -914,126 +895,6 @@ public sealed partial class SignedReleaseFeedConsumer
         return Path.GetDirectoryName(candidate)?.Equals(root, comparison) == true &&
                name.StartsWith("release-", StringComparison.Ordinal) &&
                Guid.TryParseExact(name["release-".Length..], "N", out _);
-    }
-
-    private static void RequireUnredirectedDirectoryTree(string path, string label)
-    {
-        for (var current = new DirectoryInfo(path); current is not null; current = current.Parent)
-        {
-            current.Refresh();
-            if (!current.Exists || current.Attributes.HasFlag(FileAttributes.ReparsePoint) || current.LinkTarget is not null)
-            {
-                throw new InvalidDataException($"The {label} is missing or redirected.");
-            }
-        }
-    }
-
-    private static async Task WriteNewAsync(string path, byte[] bytes, CancellationToken cancellationToken)
-    {
-        await using var stream = new FileStream(
-            path,
-            FileMode.CreateNew,
-            FileAccess.Write,
-            FileShare.None,
-            64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task<JsonDocument> ReadJsonAsync(
-        string path,
-        int maximumBytes,
-        CancellationToken cancellationToken)
-    {
-        var info = RequirePlainFile(path, maximumBytes, "release JSON");
-        var bytes = new byte[checked((int)info.Length)];
-        await using var stream = new FileStream(
-            info.FullName,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            64 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var offset = 0;
-        while (offset < bytes.Length)
-        {
-            var read = await stream.ReadAsync(bytes.AsMemory(offset), cancellationToken).ConfigureAwait(false);
-            if (read == 0)
-            {
-                throw new EndOfStreamException($"{path} changed while it was being read.");
-            }
-
-            offset += read;
-        }
-
-        try
-        {
-            return JsonDocument.Parse(bytes, new JsonDocumentOptions
-            {
-                AllowTrailingCommas = false,
-                CommentHandling = JsonCommentHandling.Disallow,
-                MaxDepth = ReleaseFeedLimits.MaximumJsonDepth,
-            });
-        }
-        catch (JsonException exception)
-        {
-            throw new InvalidDataException($"{path} is not bounded valid JSON.", exception);
-        }
-    }
-
-    private static FileInfo RequirePlainFile(string path, long maximumBytes, string label)
-    {
-        var info = new FileInfo(Path.GetFullPath(path));
-        info.Refresh();
-        if (!info.Exists || info.Length is <= 0 || info.Length > maximumBytes ||
-            info.Attributes.HasFlag(FileAttributes.ReparsePoint) || info.LinkTarget is not null)
-        {
-            throw new InvalidDataException($"{label} is missing, redirected, empty, or outside its byte limit.");
-        }
-
-        return info;
-    }
-
-    private static async Task<string> Sha256Async(
-        string path,
-        long maximumBytes,
-        CancellationToken cancellationToken)
-    {
-        await using var stream = new FileStream(
-            path,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            1024 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var rented = ArrayPool<byte>.Shared.Rent(1024 * 1024);
-        long total = 0;
-        try
-        {
-            while (true)
-            {
-                var read = await stream.ReadAsync(rented.AsMemory(0, rented.Length), cancellationToken)
-                    .ConfigureAwait(false);
-                if (read == 0)
-                {
-                    return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
-                }
-
-                total = checked(total + read);
-                if (total > maximumBytes)
-                {
-                    throw new InvalidDataException("A release file grew beyond its authenticated byte limit.");
-                }
-
-                hash.AppendData(rented, 0, read);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(rented);
-        }
     }
 
     private static (long Generation, string Name)? SelectCurrent(IReadOnlyList<string> names)

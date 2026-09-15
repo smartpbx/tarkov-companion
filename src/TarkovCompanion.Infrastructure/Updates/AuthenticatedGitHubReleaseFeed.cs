@@ -4,8 +4,9 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using TarkovCompanion.Application.Services.Updates;
 
-namespace TarkovCompanion.App.Services.Updates;
+namespace TarkovCompanion.Infrastructure.Updates;
 
 /// <summary>Reads an immutable private GitHub release repository with a protected token.</summary>
 public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedReleaseFeed, IDisposable
@@ -50,7 +51,9 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
     {
         ThrowIfDisposed();
         ValidateRing(ring);
-        await EnsurePrivateRepositoryAsync(cancellationToken).ConfigureAwait(false);
+        // A ring listing starts every preparation transaction, so force a live visibility check
+        // here. The following downloads may reuse it only within that transaction.
+        await EnsurePrivateRepositoryAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
         using var document = await ReadApiJsonAsync(
             $"repos/{_repository}/contents/rings/{ring}",
             ReleaseFeedLimits.MaximumJsonBytes,
@@ -101,7 +104,7 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         ValidateRing(ring);
         ValidateAssetName(name);
         ValidateMaximum(maximumBytes);
-        await EnsurePrivateRepositoryAsync(cancellationToken).ConfigureAwait(false);
+        await EnsurePrivateRepositoryAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
         var token = await _credentials.LoadAsync(cancellationToken).ConfigureAwait(false);
         using var response = await SendAsync(
             new Uri(_client.BaseAddress!, $"repos/{_repository}/contents/rings/{ring}/{Uri.EscapeDataString(name)}"),
@@ -128,7 +131,7 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
 
         ValidateAssetName(name);
         ValidateMaximum(maximumBytes);
-        await EnsurePrivateRepositoryAsync(cancellationToken).ConfigureAwait(false);
+        await EnsurePrivateRepositoryAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
         using var release = await ReadApiJsonAsync(
             $"repos/{_repository}/releases/tags/{Uri.EscapeDataString(buildTag)}",
             ReleaseFeedLimits.MaximumJsonBytes,
@@ -178,7 +181,7 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
             !selectedAsset.TryGetProperty("url", out var urlProperty) ||
             urlProperty.ValueKind != JsonValueKind.String ||
             !Uri.TryCreate(urlProperty.GetString(), UriKind.Absolute, out var assetUrl) ||
-            assetUrl.Scheme != Uri.UriSchemeHttps || assetUrl.Host != "api.github.com")
+            assetUrl.Scheme != Uri.UriSchemeHttps || !assetUrl.IsDefaultPort || assetUrl.Host != "api.github.com")
         {
             throw new InvalidDataException($"Build {buildTag} has no bounded, digest-addressed asset {name}.");
         }
@@ -206,9 +209,9 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         _visibilityGate.Dispose();
     }
 
-    private async Task EnsurePrivateRepositoryAsync(CancellationToken cancellationToken)
+    private async Task EnsurePrivateRepositoryAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
-        if (_privateRepositoryConfirmed)
+        if (!forceRefresh && _privateRepositoryConfirmed)
         {
             return;
         }
@@ -216,10 +219,14 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         await _visibilityGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_privateRepositoryConfirmed)
+            if (!forceRefresh && _privateRepositoryConfirmed)
             {
                 return;
             }
+
+            // A failed refresh must revoke the cached decision. A caller that explicitly starts
+            // another transaction cannot leave an older private verdict usable by later calls.
+            _privateRepositoryConfirmed = false;
 
             using var document = await ReadApiJsonAsync(
                 $"repos/{_repository}",
@@ -277,7 +284,7 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         bool followAuthenticatedRedirect,
         CancellationToken cancellationToken)
     {
-        if (uri.Scheme != Uri.UriSchemeHttps || uri.Host != "api.github.com")
+        if (uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort || uri.Host != "api.github.com")
         {
             throw new InvalidOperationException("Authenticated release-feed requests may target only api.github.com.");
         }
@@ -292,7 +299,8 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
             }
 
             var redirected = location.IsAbsoluteUri ? location : new Uri(uri, location);
-            if (redirected.Scheme != Uri.UriSchemeHttps || !IsGitHubContentHost(redirected.Host))
+            if (redirected.Scheme != Uri.UriSchemeHttps || !redirected.IsDefaultPort ||
+                !IsGitHubContentHost(redirected.Host))
             {
                 response.Dispose();
                 throw new HttpRequestException("The release feed redirected outside GitHub's content hosts.");

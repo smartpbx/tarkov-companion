@@ -268,7 +268,8 @@ class WorkflowPolicyTests(unittest.TestCase):
                          "scripts/release/build_manifest.py", "deploy/group-server/tarkov-group-update.sh",
                          "deploy/group-server/tarkov-group.service", "Directory.Packages.props", "Directory.Build.props",
                          "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj",
-                         "src/TarkovCompanion.App/Services/Updates/SignedReleaseFeedConsumer.cs",
+                         "src/TarkovCompanion.Application/Services/Updates/SignedReleaseFeedConsumer.cs",
+                         "src/TarkovCompanion.Infrastructure/Updates/AuthenticatedGitHubReleaseFeed.cs",
                          "tests/TarkovCompanion.UnitTests/SignedReleaseFeedConsumerTests.cs",
                          "docs/RELEASES.md", "licenses/dependency-license-map.json"):
             with self.subTest(producer=producer):

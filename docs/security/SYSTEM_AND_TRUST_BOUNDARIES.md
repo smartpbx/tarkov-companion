@@ -324,7 +324,7 @@ the durable locator if later edits move them.
 | Full outgoing group-state shape | `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:553-598`; `src/TarkovCompanion.GroupServer/GroupContracts.cs:27-37,145-180` |
 | Log-derived observed-party payload | `src/TarkovCompanion.Application/Services/Group/GroupKitShare.cs:25-35`; `src/TarkovCompanion.Application/Services/Group/GroupKitMirror.cs:38-119`; `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:377-391` |
 | Silent stale catalog fallback | `src/TarkovCompanion.GroupServer/CatalogMirror.cs:151-157,184-206`; `src/TarkovCompanion.GroupServer/Program.cs:484-513` |
-| Desktop update adapter and authenticated-plan handoff (issue #280 source; composition pending) | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs`; `AuthenticatedGitHubReleaseFeed.cs`; `CosignReleaseSignatureVerifier.cs`; `SignedReleaseFeedConsumer.cs`; `ReleaseFeedContracts.cs` |
+| Desktop update adapter and authenticated-plan handoff (issue #280 source; composition pending) | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs`; `src/TarkovCompanion.Application/Services/Updates/`; `src/TarkovCompanion.Infrastructure/Updates/` |
 | Release producer/policy (issue #280 source) | `.github/workflows/windows-verify.yml`; `.github/workflows/publish.yml`; `scripts/release/`; `docs/RELEASES.md`; ADR 0011 |
 | Relay update status versus signed updater (issue #280 source) | `src/TarkovCompanion.GroupServer/RelayUpdate.cs`; `deploy/group-server/tarkov-group-update.sh` |
 | Data-root selection | `src/TarkovCompanion.App/Services/AppDataPaths.cs:12-27`; `src/TarkovCompanion.App/Services/AppComposition.cs:50-72` |

@@ -1,7 +1,8 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text.Json;
-using TarkovCompanion.App.Services.Updates;
+using TarkovCompanion.Application.Services.Updates;
+using TarkovCompanion.Infrastructure.Updates;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -363,7 +364,13 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         }, Json);
 
         return new Fixture(
-            new SignedReleaseFeedConsumer(options, feed, verifier, store, new FixedClock(Now)),
+            new SignedReleaseFeedConsumer(
+                options,
+                feed,
+                verifier,
+                store,
+                new FileSystemReleaseStagingStore(),
+                new FixedClock(Now)),
             feed,
             verifier,
             store);

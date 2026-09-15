@@ -51,6 +51,23 @@ readonly TASK_SUBJECT="${TASK_WORK}/${TASK_SUBJECT_NAME}"
 readonly TASK_BUNDLE="${TASK_WORK}/${TASK_SUBJECT_NAME}-keyless.sigstore.json"
 "${TASK_COSIGN}" trusted-root create --with-default-services --out "${TASK_WORK}/trusted-root.json"
 
+# Exercise the desktop's production C# boundary against the same real bundle, not only its
+# deterministic process double. The exact filtered test also alters the subject and requires the
+# verifier to refuse it before reporting success.
+env TARKOV_REAL_SIGSTORE_CSHARP=1 \
+    TARKOV_REAL_SIGSTORE_SUBJECT="${TASK_SUBJECT}" \
+    TARKOV_REAL_SIGSTORE_BUNDLE="${TASK_BUNDLE}" \
+    TARKOV_REAL_SIGSTORE_COSIGN="${TASK_COSIGN}" \
+    TARKOV_REAL_SIGSTORE_COSIGN_SHA256="$(sha256sum "${TASK_COSIGN}" | awk '{print $1}')" \
+    TARKOV_REAL_SIGSTORE_TRUST_ROOT="${TASK_WORK}/trusted-root.json" \
+    TARKOV_REAL_SIGSTORE_IDENTITY="${TASK_IDENTITY}" \
+    TARKOV_REAL_SIGSTORE_ISSUER="${TASK_ISSUER}" \
+    TARKOV_REAL_SIGSTORE_REPOSITORY="${TASK_REPOSITORY}" \
+    TARKOV_REAL_SIGSTORE_REF="${TASK_REF}" \
+    dotnet test "${TASK_PROJECT_ROOT}/tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj" \
+        --no-restore --filter \
+        'FullyQualifiedName=TarkovCompanion.UnitTests.CosignReleaseSignatureVerifierTests.ARealV03BundleIsAcceptedAndAlteredBytesAreRefusedByTheProductionProcessBoundary'
+
 expect() {
     local expected="$1" label="$2" pattern="$3" status=0 wrong=0
     shift 3
