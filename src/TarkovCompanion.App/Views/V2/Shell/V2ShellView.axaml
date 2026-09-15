@@ -4,10 +4,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell">
   <UserControl.Styles>
+    <!-- Reserve the selected outline in every state. Changing border geometry while a
+         destination moves between rows can make WrapPanel and its Grid parent remeasure each
+         other indefinitely at an exact wrap boundary. -->
+    <Style Selector="Button.v2-destination">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
     <Style Selector="Button.v2-destination.selected">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
-      <Setter Property="BorderThickness" Value="2" />
     </Style>
     <Style Selector="Border.v2-shell-rail">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />

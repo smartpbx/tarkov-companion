@@ -72,6 +72,8 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("V2ShellAdaptation.Classify(effectiveWidth)", model, StringComparison.Ordinal);
         Assert.Contains("v2-shell-navigation-rail", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-navigation-row", shell, StringComparison.Ordinal);
+        Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
+        Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,6 +94,8 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("AutomationProperties.GetAutomationId", window, StringComparison.Ordinal);
         Assert.Contains("_wiredShell.FocusRequested -= FocusRequested", view, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.GetAutomationId(control)", view, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.Name=\"{Binding Name}\"", File.ReadAllText(
+            V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "MainWindow.axaml")), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -158,6 +158,7 @@
                 <Button Classes.nav="True"
                         Classes.selected="{Binding IsSelected}"
                         Command="{Binding SelectCommand}"
+                        AutomationProperties.Name="{Binding Name}"
                         ToolTip.Tip="{Binding Name}">
                   <Grid ColumnDefinitions="26,*,Auto">
                     <Path Grid.Column="0" Classes="navGlyph" Data="{Binding Glyph}" />
