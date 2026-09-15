@@ -5,49 +5,63 @@
 # the right behaviour and it leaves one question, which is how to produce the new copy when
 # nobody may run .NET outside CI. Hence `regenerate`: run it, read the diff, commit the result.
 #
-# `supply-chain` is the other half. A pull request that changes a dependency, the release
-# tooling, the relay updater or a release workflow is reviewed here before it can reach main,
-# and nothing in this workflow can write to the repository, a release or a tag.
+# `supply-chain` is the other half. A pull request that changes a dependency, a workflow, or any
+# script, unit or release tool that produces or checks signed bytes is reviewed here before it can
+# reach main, and nothing in this workflow can write to the repository, a release or a tag.
+# Whether a failure here blocks a merge is a branch-protection setting, not something this file
+# can make true; docs/RELEASES.md records whether it is required.
 name: License lock
 
 # Runs when the dependency graph or the release machinery could have changed, rather than on
 # demand. Dispatch only works from the default branch, and the work that invalidates the lock
 # happens on feature branches.
+#
+# The paths are everything that builds, packages, ships or gates the bytes a release signs: every
+# workflow (verification builds and packs the desktop and relay; CI runs the tests and the
+# vulnerability audit publication waits for), every script (packaging, the sweeps and audits the
+# gates run, the release tooling), the relay's deployment units, and the build and package
+# configuration. Listing only the release workflow left verification free to change what it
+# produced without this review running. The two lists are the same list, written twice; a test
+# holds them equal.
 on:
   workflow_dispatch:
   push:
     paths:
+      - '.github/workflows/**'
+      - 'scripts/**'
+      - 'deploy/group-server/**'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - '**/packages.lock.json'
+      - '**/[Nn]u[Gg]et.[Cc]onfig'
+      - 'global.json'
       - 'TarkovCompanion.sln'
-      - 'Directory.Packages.props'
-      - 'scripts/audit-licenses.sh'
-      - 'scripts/scan-secrets.sh'
-      - 'scripts/release/**'
-      - 'deploy/group-server/tarkov-group-update.*'
       - 'docs/THIRD_PARTY_NOTICES.md'
       - 'docs/THIRD_PARTY_INVENTORY.json'
-      - '.github/workflows/license-lock.yml'
-      - '.github/workflows/publish.yml'
       # The mapping decides how a package is described in the lock, so editing it
       # invalidates the lock just as surely as adding the package did. Leaving this out
       # meant adding a dependency and describing it in two commits regenerated nothing on
       # the second, and the audit then failed on a branch with no way to fix it from there.
-      - 'licenses/dependency-license-map.json'
+      - 'licenses/**'
+      - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
   pull_request:
     branches: [main]
     paths:
+      - '.github/workflows/**'
+      - 'scripts/**'
+      - 'deploy/group-server/**'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - '**/packages.lock.json'
+      - '**/[Nn]u[Gg]et.[Cc]onfig'
+      - 'global.json'
       - 'TarkovCompanion.sln'
-      - 'Directory.Packages.props'
-      - 'scripts/audit-licenses.sh'
-      - 'scripts/scan-secrets.sh'
-      - 'scripts/release/**'
-      - 'deploy/group-server/tarkov-group-update.*'
       - 'docs/THIRD_PARTY_NOTICES.md'
       - 'docs/THIRD_PARTY_INVENTORY.json'
-      - '.github/workflows/license-lock.yml'
-      - '.github/workflows/publish.yml'
-      - 'licenses/dependency-license-map.json'
+      - 'licenses/**'
+      - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
 
 permissions:
   contents: read
@@ -55,7 +69,7 @@ permissions:
 jobs:
   supply-chain:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -96,6 +110,18 @@ jobs:
       - name: Scan for secret patterns
         run: ./scripts/scan-secrets.sh
 
+      # The policy parses workflows as YAML, and the parser is installed by content: wheels only,
+      # each pinned by sha256, into a virtual environment that is then first on PATH for the
+      # fixtures too.
+      - name: Install the workflow policy's YAML parser by content
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/release-python"
+          "${RUNNER_TEMP}/release-python/bin/pip" install --quiet --require-hashes --only-binary=:all: --no-deps \
+            -r scripts/release/policy-requirements.txt
+          echo "${RUNNER_TEMP}/release-python/bin" >> "${GITHUB_PATH}"
+
       - name: Hold release workflows to the pinning and trigger policy
         shell: bash
         env:
@@ -116,24 +142,30 @@ jobs:
           tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
           "${RUNNER_TEMP}/actionlint" -color .github/workflows/publish.yml .github/workflows/license-lock.yml
 
-      - name: Install a pinned cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: v3.1.3
+      # Fetched by version and accepted by digest (scripts/release/cosign.sha256): v3.1.3, the
+      # release with GHSA-fx35-mq7g-6g98 fixed. The installer action this replaced trusted a tag.
+      - name: Install cosign by content
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/release/install-cosign.sh "${RUNNER_TEMP}/tools"
+          echo "${RUNNER_TEMP}/tools" >> "${GITHUB_PATH}"
 
-      - name: Exercise release policy, feed, manifest, offline and relay updater fixtures
+      - name: Exercise release policy, feed, manifest, provenance, offline and relay updater fixtures
         env:
           TARKOV_RELEASE_REQUIRE_TOOLS: '1'
         run: ./scripts/release/test.sh
 
-      - name: Verify real Sigstore bundles with the release verification command
+      - name: Verify real Sigstore bundles, and refuse hostile ones, with the release verification command
         run: ./scripts/release/test-real-sigstore.sh
 
       - name: Require the dependency review to have passed
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.dependency-review.outcome != 'success' }}
         shell: bash
+        env:
+          OUTCOME: ${{ steps.dependency-review.outcome }}
         run: |
-          echo "::error title=Dependency review did not pass::The dependency review step concluded '${{ steps.dependency-review.outcome }}'. If its log says the dependency graph is not enabled, that is a repository setting (Settings > Code security > Dependency graph); see docs/RELEASES.md."
+          echo "::error title=Dependency review did not pass::The dependency review step concluded '${OUTCOME}'. If its log says the dependency graph is not enabled, that is a repository setting (Settings > Code security > Dependency graph); see docs/RELEASES.md."
           exit 1
 
   regenerate:

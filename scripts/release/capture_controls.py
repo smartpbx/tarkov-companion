@@ -70,6 +70,11 @@ def evaluate(api: Api, source: str, feed: str | None) -> list[dict[str, Any]]:
             finding("main: verification checks required",
                     "met" if {"checks", "windows-verify"} <= set(checks) else "gap",
                     {"requiredChecks": sorted(checks)}, "includes checks and windows-verify"),
+            # License lock's job. Until it is required, a pull request that fails the dependency
+            # review, the workflow policy or the release fixtures can still be merged.
+            finding("main: supply-chain gate required",
+                    "met" if "supply-chain" in checks else "gap",
+                    {"requiredChecks": sorted(checks)}, "includes supply-chain"),
         ]
     else:
         findings.append(finding("main: branch protection", "gap" if state == "absent" else "unreadable", protection,

@@ -20,7 +20,7 @@ def configured() -> dict[str, tuple[int, object]]:
         f"repos/{SOURCE}/branches/main/protection": (200, {
             "allow_force_pushes": {"enabled": False}, "allow_deletions": {"enabled": False},
             "enforce_admins": {"enabled": True}, "required_pull_request_reviews": {"required_approving_review_count": 1},
-            "required_status_checks": {"contexts": ["linux", "windows-build", "checks", "windows-verify"]},
+            "required_status_checks": {"contexts": ["linux", "windows-build", "checks", "windows-verify", "supply-chain"]},
         }),
         f"repos/{SOURCE}/rulesets": (200, []),
         f"repos/{SOURCE}/actions/permissions/workflow": (200, {"default_workflow_permissions": "read"}),
@@ -66,6 +66,13 @@ class CaptureControlsTests(unittest.TestCase):
         self.assertEqual("gap", statuses["environment v2-stable-release"])
         self.assertEqual("gap", statuses["private release feed repository"])
         self.assertEqual("gap", statuses["dependency graph enabled, so dependency review can run"])
+
+    def test_a_supply_chain_gate_that_is_not_required_is_a_gap(self) -> None:
+        responses = configured()
+        protection = responses[f"repos/{SOURCE}/branches/main/protection"][1]
+        protection["required_status_checks"]["contexts"].remove("supply-chain")
+
+        self.assertEqual("gap", self.evaluate(responses)["main: supply-chain gate required"])
 
     def test_what_the_token_cannot_read_is_unreadable_never_met(self) -> None:
         responses = configured()
