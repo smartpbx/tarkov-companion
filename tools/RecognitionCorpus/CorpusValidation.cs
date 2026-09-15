@@ -383,6 +383,14 @@ public static class CorpusValidation
             errors.Add("Predictions must match the run and producer identity/version in the run plan.");
         }
 
+        // A run id is chosen by whoever emits the plan and can be reused; the lock commits to the
+        // private graph, membership, context, and truth the producer was actually handed. Output
+        // from a superseded plan under the same run id therefore cannot be scored against a new one.
+        if (!Sha256(document.PlanLock) || !string.Equals(document.PlanLock, plan.PlanLock, StringComparison.Ordinal))
+        {
+            errors.Add("Predictions must be bound to the exact run-plan lock they were produced from.");
+        }
+
         if (document.Predictions is null || document.Predictions.Count == 0)
         {
             return [.. errors, "A prediction document requires at least one explicit result."];

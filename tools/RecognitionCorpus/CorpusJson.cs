@@ -103,6 +103,7 @@ public static class CorpusJson
                 String(root, "runId", "$", errors),
                 String(producer, "id", "$.producer", errors),
                 String(producer, "version", "$.producer", errors),
+                String(root, "planLock", "$", errors),
                 predictions);
             return new(predictionsDocument, errors);
         }

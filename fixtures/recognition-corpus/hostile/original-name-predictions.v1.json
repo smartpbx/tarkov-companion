@@ -5,6 +5,7 @@
     "id": "producer-hostile-0002",
     "version": "1.0"
   },
+  "planLock": "0000000000000000000000000000000000000000000000000000000000000000",
   "predictions": [],
   "futureExtension": {
     "originalName": "invented-original-capture.png"

@@ -174,10 +174,15 @@ public sealed record ProducerPrediction(
     IReadOnlyList<PredictionClaim> Claims,
     decimal ElapsedMilliseconds);
 
+/// <summary>
+/// Producer output is bound to the lock of the exact plan it answered, not only to a reusable
+/// run id, so predictions for a superseded plan cannot be scored against its replacement.
+/// </summary>
 public sealed record PredictionDocument(
     string RunId,
     string ProducerId,
     string ProducerVersion,
+    string PlanLock,
     IReadOnlyList<ProducerPrediction> Predictions);
 
 public sealed record FrozenThresholds(
