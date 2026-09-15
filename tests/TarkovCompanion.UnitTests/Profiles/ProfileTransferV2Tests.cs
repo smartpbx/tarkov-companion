@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TarkovCompanion.Application.Services.Profiles;
@@ -136,9 +139,102 @@ public sealed class ProfileTransferV2Tests
         Assert.Equal(2, read.Profiles.Count);
         Assert.Equal(["ledx"], read.Profiles[0].Progress.WishlistItemIds);
 
-        // Re-exporting what was read reproduces the original bytes: the unknown members were
-        // neither hashed nor carried into the verified copy.
+        // Re-exporting what was read reproduces the original bytes: the unknown members were added
+        // after the checksum was taken, and they were neither hashed nor carried into the copy.
         Assert.Equal(json, codec.Write(read));
+    }
+
+    /// <summary>
+    /// The other half of the test above, and the reason v1 is not additively forward compatible. A
+    /// newer writer that puts a member into its own hash cannot be verified by a reader that drops
+    /// the member before hashing. This pins that limit so no remark can promise otherwise again.
+    /// </summary>
+    [Theory]
+    [InlineData("payload")]
+    [InlineData(FirstProfilePath)]
+    [InlineData(FirstProfilePath + ".context.identity")]
+    [InlineData(FirstProfilePath + ".context.locale")]
+    [InlineData(FirstProfilePath + ".progress")]
+    [InlineData(FirstProfilePath + ".progress.pins.0")]
+    public void Codec_does_not_verify_an_unknown_member_its_writer_hashed(string path)
+    {
+        var codec = new JsonProfileContextTransferCodec();
+        var context = Context(Id(122), "generation-a", ProfileGameMode.Pvp);
+        var pinned = new ProfileProgress(20, wishlistItemIds: ["ledx"], pins: [new ProfilePin("item", "ledx", 0, null)]);
+        var json = codec.Write(new(1, Now, [new ProfileRecord(context, "pinned", pinned, ProfileLifecycle.Active, Now)]));
+
+        // Hashing the payload text the way this test does reproduces the real writer's checksum,
+        // so the rejection below comes from the member and not from a different hash.
+        Assert.Equal(Node(JsonNode.Parse(json)!, "checksum").GetValue<string>(), PayloadChecksum(JsonNode.Parse(json)!));
+
+        var hashedByNewerWriter = Edit(json, root =>
+        {
+            Node(root, path).AsObject()["futureField"] = 42;
+            root["checksum"] = PayloadChecksum(root);
+        });
+        var addedAfterHashing = Edit(json, root => Node(root, path).AsObject()["futureField"] = 42);
+
+        var exception = Assert.Throws<InvalidDataException>(() => codec.Read(hashedByNewerWriter));
+        Assert.Contains("checksum does not match", exception.Message);
+        Assert.Equal(json, codec.Write(codec.Read(addedAfterHashing)));
+    }
+
+    /// <summary>
+    /// A v1 export committed byte for byte. The checksum covers this version's re-serialization of
+    /// typed Core records, so a new, renamed, or reordered record member, or a different date,
+    /// number, enum, or string escaping, would stop every document already exported from verifying
+    /// while every round-trip test written against the current code kept passing. Escaping is not
+    /// even uniform today: the fixture's timestamps carry a raw "+00:00" while its profile name
+    /// carries "co\u002B". The fixture is never regenerated to make this pass; a change that needs
+    /// it regenerated raises the format.
+    /// </summary>
+    [Fact]
+    public void Committed_v1_fixture_decodes_to_exact_values_and_re_exports_byte_for_byte()
+    {
+        var bytes = File.ReadAllBytes(GoldenV1Path);
+
+        // One line, no byte-order mark, no line ending: a checkout that normalizes text files has
+        // nothing to rewrite in the bytes the checksum was taken over.
+        Assert.False(bytes.AsSpan().StartsWith(Encoding.UTF8.Preamble), "The v1 fixture must not carry a byte-order mark.");
+        Assert.DoesNotContain((byte)'\n', bytes);
+        Assert.DoesNotContain((byte)'\r', bytes);
+        var committed = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true).GetString(bytes);
+
+        // Independent of the codec: the envelope is v1 and its checksum is SHA-256 of the payload
+        // text exactly as committed.
+        using (var parsed = JsonDocument.Parse(committed))
+        {
+            var root = parsed.RootElement;
+            Assert.Equal(["formatId", "formatVersion", "checksum", "payload"], root.EnumerateObject().Select(member => member.Name));
+            Assert.Equal("tarkov-companion.profile-context", root.GetProperty("formatId").GetString());
+            Assert.Equal(1, root.GetProperty("formatVersion").GetInt32());
+            Assert.Equal(GoldenV1Checksum, root.GetProperty("checksum").GetString());
+            Assert.Equal(GoldenV1Checksum, Sha256Hex(root.GetProperty("payload").GetRawText()));
+        }
+
+        var codec = new JsonProfileContextTransferCodec();
+        var expected = GoldenV1Document();
+        var read = codec.Read(committed);
+
+        Assert.Equal(1, read.FormatVersion);
+        Assert.Equal(expected.ExportedUtc, read.ExportedUtc);
+        Assert.Equal(TimeSpan.Zero, read.ExportedUtc.Offset);
+        Assert.Equal(
+            [Id(301), Id(302), Id(303), Id(304)],
+            read.Profiles.Select(profile => profile.Context.Identity.ProfileId));
+        Assert.Equal(expected.Profiles.Count, read.Profiles.Count);
+        foreach (var (want, got) in expected.Profiles.Zip(read.Profiles))
+        {
+            AssertSameRecord(want, got);
+        }
+
+        Assert.Equal(committed, codec.Write(read));
+        Assert.Equal(committed, codec.Write(expected));
+
+        // The committed checksum is load-bearing: one changed value in the fixture no longer verifies.
+        Assert.Contains("\"level\":42,", committed);
+        var tampered = Assert.Throws<InvalidDataException>(() => codec.Read(committed.Replace("\"level\":42,", "\"level\":43,", StringComparison.Ordinal)));
+        Assert.Contains("checksum does not match", tampered.Message);
     }
 
     [Theory]
@@ -453,6 +549,109 @@ public sealed class ProfileTransferV2Tests
         Assert.Equal(TimeSpan.Zero, preview.ExpiresUtc.Offset);
         Assert.Equal((instant + ProfileTransferService.PreviewLifetime).UtcDateTime, preview.ExpiresUtc.UtcDateTime);
     }
+
+    private static string GoldenV1Path => Path.Combine(AppContext.BaseDirectory, "fixtures", "profiles", "profile-context-v1.json");
+
+    private const string GoldenV1Checksum = "037b6fb5c94763647eb13802d1ba899b231cacd388dc8fec40a76212a601a66c";
+
+    /// <summary>
+    /// What the committed v1 fixture holds, written out by hand. It is passed unsorted to prove the
+    /// export order is the codec's, and it reaches every hashed member: all four modes, both
+    /// lifecycles, every progress collection, a pin with and without a note, sub-second
+    /// timestamps, and a name that needs escaping.
+    /// </summary>
+    private static ProfileTransferDocument GoldenV1Document()
+    {
+        var full = new ProfileRecord(
+            new ProfileContext(
+                new ProfileIdentity(Id(302), "2026-wipe-a"),
+                ProfileGameMode.Pvp,
+                new WipeSeason("0.16"),
+                new ProfileLocale("en-US", "US", "America/New_York"),
+                new DataSnapshotContext("tarkov-dev-2026-09-14", new DateTimeOffset(2026, 9, 14, 6, 0, 0, 500, TimeSpan.Zero))),
+            "Main \u2014 Prapor's <stash> & co+",
+            new ProfileProgress(
+                42,
+                traderLevels: new Dictionary<string, int> { ["prapor"] = 4, ["mechanic"] = 2, ["peacekeeper"] = 1 },
+                completedTaskIds: ["task-b", "task-a"],
+                objectiveProgress: new Dictionary<string, int> { ["objective-7"] = 3 },
+                hideoutStationLevels: new Dictionary<string, int> { ["workbench"] = 2, ["lavatory"] = 1 },
+                wishlistItemIds: ["ledx", "gpu"],
+                ownedItemCounts: new Dictionary<string, int> { ["gpu"] = 2 },
+                eventItemStates: new Dictionary<string, string> { ["event-item"] = "found" },
+                itemOverrides: new Dictionary<string, string> { ["item-x"] = "ignored" },
+                pins: [new ProfilePin("item", "ledx", 1, null), new ProfilePin("task", "task-a", 0, "Needs keys")]),
+            ProfileLifecycle.Active,
+            new DateTimeOffset(2026, 9, 14, 11, 0, 0, TimeSpan.Zero).AddTicks(1_234_567));
+        var archived = new ProfileRecord(
+            new ProfileContext(
+                new ProfileIdentity(Id(301), "2025-wipe"),
+                ProfileGameMode.Pve,
+                new WipeSeason("0.15"),
+                new ProfileLocale("de-DE", "DE", "Europe/Berlin"),
+                new DataSnapshotContext("tarkov-dev-2025-12-01", new DateTimeOffset(2025, 12, 1, 0, 0, 0, TimeSpan.Zero))),
+            "Old wipe",
+            new ProfileProgress(1),
+            ProfileLifecycle.Archived,
+            new DateTimeOffset(2025, 12, 24, 18, 30, 0, TimeSpan.Zero));
+        var unknownMode = new ProfileRecord(
+            new ProfileContext(
+                new ProfileIdentity(Id(303), "unknown-1"),
+                ProfileGameMode.Unknown,
+                new WipeSeason("unknown"),
+                new ProfileLocale("en", "GB", "Etc/UTC"),
+                new DataSnapshotContext("offline", DateTimeOffset.UnixEpoch)),
+            "Imported",
+            new ProfileProgress(5),
+            ProfileLifecycle.Active,
+            new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero));
+        var seasonal = new ProfileRecord(
+            new ProfileContext(
+                new ProfileIdentity(Id(304), "seasonal-1"),
+                ProfileGameMode.Seasonal,
+                new WipeSeason("hardcore-2026"),
+                new ProfileLocale("ru", "RU", "Europe/Moscow"),
+                new DataSnapshotContext("tarkov-dev-2026-09-01", new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero))),
+            "Seasonal",
+            new ProfileProgress(10, wishlistItemIds: ["key-a"]),
+            ProfileLifecycle.Active,
+            new DateTimeOffset(2026, 9, 10, 20, 15, 0, TimeSpan.Zero));
+
+        return new(1, new DateTimeOffset(2026, 9, 14, 12, 34, 56, TimeSpan.Zero), [seasonal, full, archived, unknownMode]);
+    }
+
+    private static void AssertSameRecord(ProfileRecord expected, ProfileRecord actual)
+    {
+        Assert.Equal(expected.Context, actual.Context);
+        Assert.Equal(TimeSpan.Zero, actual.Context.DataSnapshot.PublishedUtc.Offset);
+        Assert.Equal(expected.Name, actual.Name);
+        Assert.Equal(expected.Lifecycle, actual.Lifecycle);
+        Assert.Equal(expected.UpdatedUtc, actual.UpdatedUtc);
+        Assert.Equal(TimeSpan.Zero, actual.UpdatedUtc.Offset);
+        Assert.Equal(expected.Progress.Level, actual.Progress.Level);
+        Assert.Equal(expected.Progress.TraderLevels, actual.Progress.TraderLevels);
+        Assert.Equal(expected.Progress.CompletedTaskIds, actual.Progress.CompletedTaskIds);
+        Assert.Equal(expected.Progress.ObjectiveProgress, actual.Progress.ObjectiveProgress);
+        Assert.Equal(expected.Progress.HideoutStationLevels, actual.Progress.HideoutStationLevels);
+        Assert.Equal(expected.Progress.WishlistItemIds, actual.Progress.WishlistItemIds);
+        Assert.Equal(expected.Progress.OwnedItemCounts, actual.Progress.OwnedItemCounts);
+        Assert.Equal(expected.Progress.EventItemStates, actual.Progress.EventItemStates);
+        Assert.Equal(expected.Progress.ItemOverrides, actual.Progress.ItemOverrides);
+        Assert.Equal(expected.Progress.Pins, actual.Progress.Pins);
+    }
+
+    /// <summary>
+    /// The codec writes a timestamp's "+00:00" raw but escapes a "+" inside a string (the v1 fixture
+    /// holds both), so a node re-written with default escaping hashes "\u002B00:00" instead of the
+    /// writer's text. The inputs hashed here contain no other character the two modes treat
+    /// differently, which the control assertion that uses this proves rather than assumes.
+    /// </summary>
+    private static readonly JsonSerializerOptions WriterPayloadText = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    private static string PayloadChecksum(JsonNode root) => Sha256Hex(Node(root, "payload").ToJsonString(WriterPayloadText));
+
+    private static string Sha256Hex(string text) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
 
     private static string Edit(string json, Action<JsonNode> edit)
     {

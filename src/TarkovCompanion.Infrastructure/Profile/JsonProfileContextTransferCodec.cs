@@ -13,10 +13,20 @@ namespace TarkovCompanion.Infrastructure.Profile;
 ///
 /// External JSON follows the repository rule: unknown members are tolerated, while a missing
 /// required member, a null where a value is required, or an enum name this version does not know
-/// fails the read. The checksum is computed over the re-serialized known projection rather than
-/// the received text, so an additive member from a newer writer neither breaks verification nor
-/// rides along inside it, and a change to any known value is still detected. The same frozen copy
-/// is hashed, returned, and (on write) emitted, so the verified profiles are the ones handed on.
+/// fails the read. Tolerated is not compatible. The checksum is computed over this version's
+/// re-serialization of the typed Core records it decoded, not over the received text, so a member
+/// this version does not know is dropped before hashing. A document carrying one verifies only if
+/// its writer also left that member out of the hash; a newer writer that hashed it fails here.
+///
+/// An earlier remark promised that an additive member from a newer writer would verify. It only
+/// did in a test that added the member after the checksum was taken. Adding, renaming, or
+/// reordering a member of any hashed record, or changing how a date, number, enum, or string is
+/// written, changes the checksum of every existing v1 document, so it is a format change that
+/// raises <see cref="FormatVersion"/>, never an additive one. The committed v1 fixture in
+/// fixtures/profiles fails the build on any such change, so none can land unnoticed.
+///
+/// The same frozen copy is hashed, returned, and (on write) emitted, so the verified profiles are
+/// the ones handed on.
 /// </summary>
 public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
 {
