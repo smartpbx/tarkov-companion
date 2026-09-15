@@ -704,6 +704,11 @@ public sealed class V2DesignSystemContractTests
         Assert.Equal($"1.234,50{noBreakSpace}RUB", V2PresentationFormatting.Currency(1234.5m, "RUB", 2, suffixed));
         Assert.Equal($"-45.001{noBreakSpace}RUB", V2PresentationFormatting.Currency(-45000.5m, "RUB", 0, suffixed));
 
+        // .NET 10 added pattern 16 ("$ -n"), used by cultures including luy-KE. Keep the full
+        // framework range mapped so formatting a positive amount cannot crash while normalizing it.
+        suffixed.NumberFormat.CurrencyNegativePattern = 16;
+        Assert.Equal($"RUB{noBreakSpace}-45.001", V2PresentationFormatting.Currency(-45000.5m, "RUB", 0, suffixed));
+
         // The host's current culture is never consulted.
         var (hostCulture, hostUiCulture) = (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
         try

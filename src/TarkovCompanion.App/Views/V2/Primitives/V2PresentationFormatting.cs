@@ -27,7 +27,7 @@ public static class V2PresentationFormatting
     // .NET currency patterns, indexed by NumberFormatInfo value, mapped to the same layout without
     // the separating space; the separator is then attached to the code as a no-break space.
     private static readonly int[] UnspacedPositivePattern = [0, 1, 0, 1];
-    private static readonly int[] UnspacedNegativePattern = [0, 1, 2, 3, 4, 5, 6, 7, 5, 1, 7, 3, 2, 6, 0, 4];
+    private static readonly int[] UnspacedNegativePattern = [0, 1, 2, 3, 4, 5, 6, 7, 5, 1, 7, 3, 2, 6, 0, 4, 2];
 
     /// <summary>
     /// Converts <paramref name="instant"/> to <paramref name="timeZone"/> and fills a localized
