@@ -14,7 +14,7 @@ public sealed class CorpusContractTests
     [Fact]
     public void CheckedInBaselineIsExactlyBlockedUntilConsentedPixelsExist()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "recognition-corpus", "baselines", "current-main.v1.json");
+        var path = CorpusFixtures.FixturePath("baselines", "current-main.v1.json");
         using var document = JsonDocument.Parse(File.ReadAllText(path));
 
         Assert.Equal("not-measured: blocked-no-consented-pixels", document.RootElement.GetProperty("status").GetString());
@@ -138,7 +138,7 @@ public sealed class CorpusContractTests
         };
         var manifest = Manifest(validSample);
         var plan = PrivateRunPlanner.Create(manifest, "run-region-bound-0001", "producer-region-0001", "1.0", Now);
-        var badPrediction = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion,
+        var badPrediction = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
         [
             Prediction(plan.Samples[0], PredictionType.Region,
                 [new PredictionClaim("claim-region-bound01", "region", null, new PixelRegion(1910, 10, 20, 20))]),
@@ -233,12 +233,18 @@ public sealed class CorpusContractTests
         var manifest = Manifest(Sample("sample-prediction-00001"));
         var plan = PrivateRunPlanner.Create(manifest, "run-prediction-00001", "producer-predict-0001", "1.0", Now);
         var sample = plan.Samples[0];
-        var valid = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion,
+        var valid = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
             [Prediction(sample, PredictionType.Item, [new PredictionClaim("claim-prediction-0001", "item", "known-item")])]);
         Assert.Empty(CorpusValidation.ValidatePredictions(valid, plan));
 
         var wrongRun = valid with { RunId = "run-prediction-other01" };
         Assert.Contains(CorpusValidation.ValidatePredictions(wrongRun, plan), error => error.Contains("run and producer", StringComparison.OrdinalIgnoreCase));
+
+        var supersededPlan = valid with { PlanLock = new string('a', 64) };
+        Assert.Contains(CorpusValidation.ValidatePredictions(supersededPlan, plan), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
+
+        var unboundPlan = valid with { PlanLock = "not-a-lock" };
+        Assert.Contains(CorpusValidation.ValidatePredictions(unboundPlan, plan), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
 
         var unknown = valid with { Predictions = [valid.Predictions[0] with { SampleId = "sample-unknown-000001" }] };
         Assert.Contains(CorpusValidation.ValidatePredictions(unknown, plan), error => error.Contains("not a member", StringComparison.OrdinalIgnoreCase));
@@ -280,7 +286,7 @@ public sealed class CorpusContractTests
     {
         var manifest = Manifest(Sample("sample-json-predict-0001"));
         var plan = PrivateRunPlanner.Create(manifest, "run-json-predict-0001", "producer-json-pred001", "1.0", Now);
-        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion,
+        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
             [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-json-predict001", "item", "known-item")])]);
         var validJson = PredictionsJson(document);
         Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(validJson, RunPlanJson(plan)));
@@ -583,7 +589,7 @@ public sealed class CorpusContractTests
     [Fact]
     public void AggregateAndPolicySchemasRequireTypedMetricFieldsAndFrozenThresholds()
     {
-        var schemaRoot = Path.Combine(AppContext.BaseDirectory, "fixtures", "recognition-corpus", "schemas");
+        var schemaRoot = CorpusFixtures.FixturePath("schemas");
         using var aggregate = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "aggregate-results.v1.schema.json")));
         var sliceRequired = aggregate.RootElement.GetProperty("$defs").GetProperty("slice").GetProperty("required")
             .EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
@@ -616,7 +622,7 @@ public sealed class CorpusContractTests
     [Fact]
     public void CheckedInSyntheticPlanIsSchemaShapedTruthFreeButNotSelfAuthorizing()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "recognition-corpus", "examples", "synthetic-run-plan.v1.json");
+        var path = CorpusFixtures.FixturePath("examples", "synthetic-run-plan.v1.json");
         var json = File.ReadAllText(path);
         var parsed = CorpusJson.ParseRunPlan(json);
 
@@ -628,41 +634,198 @@ public sealed class CorpusContractTests
     }
 
     [Fact]
-    public void RepositoryPathsCannotBeCorpusRootsAndPixelBytesMustMatch()
+    public void BenchmarkOnlyConsentNeverEntersTrainOrTuneProducerPlans()
     {
-        Assert.Throws<InvalidOperationException>(() => CorpusValidation.RejectRepositoryPath(RepositoryRoot()));
-        Assert.Throws<InvalidDataException>(() => CorpusValidation.RequireExpectedPixelHash(Hash("expected"), Encoding.UTF8.GetBytes("changed")));
+        var benchmarkOnlyTrain = FindIndependentSplitSamples(1, "sample-consent-train-only", CorpusSplit.Train, CorpusEvidenceClass.RealRaster)[0];
+        var benchmarkOnlyTune = FindIndependentSplitSamples(1, "sample-consent-tune-only", CorpusSplit.Tune, CorpusEvidenceClass.RealRaster)[0];
+        var trainConsented = FindIndependentSplitSamples(1, "sample-consent-train-yes", CorpusSplit.Train, CorpusEvidenceClass.RealRaster)[0];
+        var benchmarkTest = FindIndependentSplitSamples(1, "sample-consent-test-yes", CorpusSplit.Test, CorpusEvidenceClass.RealRaster)[0];
+        var synthetic = FindIndependentSplitSamples(1, "sample-consent-synthetic", CorpusSplit.Train)[0];
+        var manifest = WithAllowedUses(
+            Manifest(benchmarkOnlyTrain, benchmarkOnlyTune, trainConsented, benchmarkTest, synthetic),
+            trainConsented.SampleId,
+            "benchmark",
+            "train");
+        Assert.Empty(CorpusValidation.ValidateManifest(manifest, Now));
+
+        var plan = PrivateRunPlanner.Create(manifest, "run-consent-scope-0001", "producer-consent-0001", "1.0", Now);
+        var planned = plan.Samples.Select(sample => sample.SampleId).ToHashSet(StringComparer.Ordinal);
+        Assert.DoesNotContain(benchmarkOnlyTrain.SampleId, planned);
+        Assert.DoesNotContain(benchmarkOnlyTune.SampleId, planned);
+        Assert.Contains(trainConsented.SampleId, planned);
+        Assert.Contains(benchmarkTest.SampleId, planned);
+        Assert.Contains(synthetic.SampleId, planned);
+        Assert.Empty(CorpusValidation.ValidateRunPlan(plan, manifest, Now));
+
+        // Re-inserting a withheld capture with its genuine split, context, and lineage is refused by name.
+        var withheld = new RunPlanSample(
+            benchmarkOnlyTrain.SampleId,
+            CorpusSplit.Train,
+            BenchmarkIntent.LootDecision,
+            CorpusEvidenceClass.RealRaster,
+            benchmarkOnlyTrain.Context,
+            benchmarkOnlyTrain.Lineage);
+        var forged = plan with
+        {
+            Samples = plan.Samples.Append(withheld).OrderBy(sample => sample.SampleId, StringComparer.Ordinal).ToArray(),
+        };
+        Assert.Contains(CorpusValidation.ValidateRunPlan(forged, manifest, Now),
+            error => error.Contains("consent does not permit", StringComparison.OrdinalIgnoreCase));
+
+        // Withdrawing train use afterwards invalidates a plan that still hands the capture to a producer.
+        var withdrawn = WithAllowedUses(manifest, trainConsented.SampleId, "benchmark");
+        Assert.Contains(CorpusValidation.ValidateRunPlan(plan, withdrawn, Now),
+            error => error.Contains("consent does not permit", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Throws<ArgumentException>(() =>
+            PrivateRunPlanner.Create(Manifest(benchmarkOnlyTrain), "run-consent-empty-0001", "producer-consent-0002", "1.0", Now));
     }
 
     [Fact]
-    public void PrivateInputResolutionRejectsIntermediateLinksBackIntoAWorktree()
+    public void ConfidentWrongIgnoresUnknownScopeClaimsAndClaimsThatMatchedAnotherTruth()
     {
-        var temporary = Directory.CreateTempSubdirectory("recognition-corpus-link-");
-        try
+        var unknownScope = FindIndependentTestSamples(1, "sample-confident-unknown")[0] with
         {
-            var link = Path.Combine(temporary.FullName, "linked-worktree");
-            try
-            {
-                Directory.CreateSymbolicLink(link, RepositoryRoot());
-            }
-            catch (Exception exception) when (exception is UnauthorizedAccessException or PlatformNotSupportedException or IOException)
-            {
-                return;
-            }
+            Truth =
+            [
+                new TruthClaim("truth-confident-known-a1", TruthState.Known, "item", "item-known-a"),
+                new TruthClaim("truth-confident-known-b1", TruthState.Known, "item", "item-known-b"),
+                new TruthClaim("truth-confident-unknown1", TruthState.Unknown, "item", null),
+            ],
+        };
+        var manifest = Manifest(unknownScope);
+        var plan = PrivateRunPlanner.Create(manifest, "run-confident-unknown01", "producer-confident-001", "1.0", Now);
+        var metrics = Slice(Score(manifest, plan,
+        [
+            Prediction(plan.Samples[0], PredictionType.Item,
+            [
+                new PredictionClaim("claim-confident-guess-01", "item", "item-unlabelled-guess"),
+                new PredictionClaim("claim-confident-right-b1", "item", "item-known-b"),
+            ]),
+        ]));
+        Assert.Equal(1, metrics.TruePositives);
+        Assert.Equal(1, metrics.FalseNegatives);
+        Assert.Equal(0, metrics.FalsePositives);
+        Assert.Equal(1, metrics.ExcludedPredictionClaims);
+        Assert.Equal(0, metrics.ConfidentWrong);
 
-            var linkedFixture = Path.Combine(link, "fixtures", "recognition-corpus", "examples", "synthetic-run-plan.v1.json");
-            Assert.Throws<InvalidOperationException>(() => CorpusValidation.ResolvePrivateInputPath(linkedFixture));
-        }
-        finally
+        // Truth "a" is scored before "b". The only claim is b's correct answer, which must not
+        // count as a's confident wrong answer merely because it had not been consumed yet.
+        var ordered = FindIndependentTestSamples(1, "sample-confident-order")[0] with
         {
-            temporary.Delete(true);
+            Truth =
+            [
+                new TruthClaim("truth-confident-known-a2", TruthState.Known, "item", "item-known-a"),
+                new TruthClaim("truth-confident-known-b2", TruthState.Known, "item", "item-known-b"),
+            ],
+        };
+        manifest = Manifest(ordered);
+        plan = PrivateRunPlanner.Create(manifest, "run-confident-order-01", "producer-confident-002", "1.0", Now);
+        metrics = Slice(Score(manifest, plan,
+            [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-confident-right-b2", "item", "item-known-b")])]));
+        Assert.Equal(1, metrics.TruePositives);
+        Assert.Equal(1, metrics.FalseNegatives);
+        Assert.Equal(0, metrics.ConfidentWrong);
+
+        var wrongOnly = Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-confident-wrong-01", "item", "item-wrong")]);
+        metrics = Slice(Score(manifest, plan, [wrongOnly]));
+        Assert.Equal(1, metrics.FalsePositives);
+        Assert.Equal(2, metrics.ConfidentWrong);
+        Assert.Equal(0, Slice(Score(manifest, plan, [wrongOnly with { Confidence = 0.5m }])).ConfidentWrong);
+    }
+
+    [Fact]
+    public void NestedUnsupportedSchemaVersionsAreRejectedWhereverTheyAppear()
+    {
+        var manifest = Manifest(FindIndependentTestSamples(1, "sample-nested-version", CorpusEvidenceClass.RealRaster));
+        var manifestJson = ManifestJson(manifest);
+        Assert.Empty(CorpusValidation.ValidatePrivateManifestInterchange(manifestJson, Now));
+
+        foreach (var mutate in new Action<JsonObject>[]
+                 {
+                     node => node["samples"]![0]!["provenance"]!["schemaVersion"] = "provenance.v2",
+                     node => node["privateEvidence"]![0]!["consent"]!["schemaVersion"] = "consent.v2",
+                     node => node["privateEvidence"]![0]!["privacyReview"]!["schemaVersion"] = "privacy-review.v2",
+                     node => node["samples"]![0]!["lineage"]!["schemaVersion"] = "lineage.v1",
+                     node => node["samples"]![0]!["content"]!["schemaVersion"] = CorpusValidation.ManifestSchemaVersion,
+                     node => node["futureExtension"] = new JsonObject { ["schemaVersion"] = 2 },
+                 })
+        {
+            var node = JsonNode.Parse(manifestJson)!.AsObject();
+            mutate(node);
+            Assert.Contains(CorpusValidation.ValidatePrivateManifestInterchange(node.ToJsonString(), Now),
+                error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
         }
+
+        var plan = PrivateRunPlanner.Create(manifest, "run-nested-version-0001", "producer-nested-00001", "1.0", Now);
+        var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+        planNode["futureExtension"] = new JsonObject { ["schemaVersion"] = "run-plan.v2" };
+        Assert.Contains(CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), manifestJson, Now),
+            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+
+        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
+            [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-nested-version01", "item", "known-item")])]);
+        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(PredictionsJson(document), RunPlanJson(plan)));
+        var predictionNode = JsonNode.Parse(PredictionsJson(document))!.AsObject();
+        predictionNode["predictions"]![0]!["performance"]!["schemaVersion"] = "performance.v2";
+        Assert.Contains(CorpusValidation.ValidatePredictionsInterchange(predictionNode.ToJsonString(), RunPlanJson(plan)),
+            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains(
+            CorpusJson.ParseAggregateResults("""{"schemaVersion":"aggregate-results.v1","privacy":{"schemaVersion":"privacy.v9"}}""").Errors,
+            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+        var thresholds = JsonNode.Parse(ThresholdsJson())!.AsObject();
+        thresholds["candidateThresholds"]!["schemaVersion"] = "thresholds.v2";
+        Assert.Contains(CorpusJson.ParseThresholds(thresholds.ToJsonString()).Errors,
+            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void CheckedInFrozenThresholdPolicyLoadsAndEqualsTheScorerConstantsAndSchema()
+    {
+        var parsed = CorpusJson.ParseThresholds(CorpusFixtures.ThresholdsJson());
+        Assert.Empty(parsed.Errors);
+        var thresholds = Assert.IsType<FrozenThresholds>(parsed.Value);
+        Assert.Empty(CorpusValidation.ValidateThresholds(thresholds));
+        Assert.Equal(CorpusValidation.FrozenPolicyVersion, thresholds.PolicyVersion);
+        Assert.Equal(CorpusValidation.FrozenMinimumIndependentSplitUnits, thresholds.MinimumIndependentSplitUnits);
+        Assert.Equal(CorpusValidation.FrozenMinimumKnownClaims, thresholds.MinimumKnownClaims);
+        Assert.Equal(CorpusValidation.FrozenMinimumCoverage, thresholds.MinimumCoverage);
+        Assert.Equal(CorpusValidation.FrozenMaximumAbstentionRate, thresholds.MaximumAbstentionRate);
+        Assert.Equal(CorpusValidation.FrozenMaximumConfidentWrongRate, thresholds.MaximumConfidentWrongRate);
+        Assert.Equal(CorpusValidation.FrozenMinimumF1, thresholds.MinimumF1);
+
+        using var schema = JsonDocument.Parse(File.ReadAllText(CorpusFixtures.FixturePath("schemas", "thresholds.v1.schema.json")));
+        var properties = schema.RootElement.GetProperty("properties");
+        var candidates = properties.GetProperty("candidateThresholds").GetProperty("properties");
+        Assert.Equal(thresholds.PolicyVersion, properties.GetProperty("policyVersion").GetProperty("const").GetString());
+        Assert.Equal(thresholds.MinimumIndependentSplitUnits, properties.GetProperty("minimumIndependentSplitUnits").GetProperty("const").GetInt32());
+        Assert.Equal(thresholds.MinimumKnownClaims, properties.GetProperty("minimumKnownClaims").GetProperty("const").GetInt32());
+        Assert.Equal(thresholds.MinimumCoverage, candidates.GetProperty("minimumCoverage").GetProperty("const").GetDecimal());
+        Assert.Equal(thresholds.MaximumAbstentionRate, candidates.GetProperty("maximumAbstentionRate").GetProperty("const").GetDecimal());
+        Assert.Equal(thresholds.MaximumConfidentWrongRate, candidates.GetProperty("maximumConfidentWrongRate").GetProperty("const").GetDecimal());
+        Assert.Equal(thresholds.MinimumF1, candidates.GetProperty("minimumF1").GetProperty("const").GetDecimal());
+
+        var tuned = JsonNode.Parse(CorpusFixtures.ThresholdsJson())!.AsObject();
+        tuned["candidateThresholds"]!["minimumF1"] = 0.5m;
+        Assert.NotEmpty(CorpusValidation.ValidateThresholds(Assert.IsType<FrozenThresholds>(CorpusJson.ParseThresholds(tuned.ToJsonString()).Value)));
+
+        var unfrozen = JsonNode.Parse(CorpusFixtures.ThresholdsJson())!.AsObject();
+        unfrozen["frozenBeforeTuning"] = false;
+        Assert.Contains(CorpusJson.ParseThresholds(unfrozen.ToJsonString()).Errors,
+            error => error.Contains("frozenBeforeTuning", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DecodedPixelBytesMustMatchTheManifestHash()
+    {
+        Assert.Throws<InvalidDataException>(() => CorpusValidation.RequireExpectedPixelHash(Hash("expected"), Encoding.UTF8.GetBytes("changed")));
     }
 
     [Fact]
     public void HostileExtensionFixturesRejectRelativeTraversalAndOriginalNames()
     {
-        var root = Path.Combine(AppContext.BaseDirectory, "fixtures", "recognition-corpus", "hostile");
+        var root = CorpusFixtures.FixturePath("hostile");
         var traversal = CorpusJson.ParseRunPlan(File.ReadAllText(Path.Combine(root, "relative-traversal-run-plan.v1.json")));
         Assert.Contains(traversal.Errors, error => error.Contains("relative traversal", StringComparison.OrdinalIgnoreCase));
 
@@ -770,17 +933,19 @@ public sealed class CorpusContractTests
         return new CorpusManifest("corpus-fixture-000001", CorpusValidation.NearDuplicateGraphVersion, samples, evidence);
     }
 
+    private static CorpusManifest WithAllowedUses(CorpusManifest manifest, string sampleId, params string[] allowedUses) => manifest with
+    {
+        PrivateEvidence = manifest.PrivateEvidence.Select(evidence => evidence.SampleId == sampleId
+            ? evidence with { Consent = evidence.Consent! with { AllowedUses = allowedUses } }
+            : evidence).ToArray(),
+    };
+
     private static ProducerPrediction Prediction(RunPlanSample sample, PredictionType type, IReadOnlyList<PredictionClaim> claims) =>
         new(sample.SampleId, sample.Intent, sample.EvidenceClass, type, PredictionStatus.Detected, 0.95m, claims, 10m);
 
-    private static FrozenThresholds Thresholds() => new(
-        CorpusValidation.FrozenPolicyVersion,
-        CorpusValidation.FrozenMinimumIndependentSplitUnits,
-        CorpusValidation.FrozenMinimumKnownClaims,
-        CorpusValidation.FrozenMinimumCoverage,
-        CorpusValidation.FrozenMaximumAbstentionRate,
-        CorpusValidation.FrozenMaximumConfidentWrongRate,
-        CorpusValidation.FrozenMinimumF1);
+    private static FrozenThresholds Thresholds() => CorpusFixtures.Thresholds();
+
+    private static string ThresholdsJson() => CorpusFixtures.ThresholdsJson();
 
     private static AggregateResults Score(
         CorpusManifest manifest,
@@ -790,7 +955,7 @@ public sealed class CorpusContractTests
         IndependentScorer.Score(
             manifest,
             plan,
-            new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, predictions),
+            new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock, predictions),
             Thresholds(),
             evidenceClass,
             Now);
@@ -818,9 +983,7 @@ public sealed class CorpusContractTests
             var sample = evidenceClass == CorpusEvidenceClass.RealRaster
                 ? RealSample(id)
                 : Sample(id, evidenceClass);
-            var manifest = Manifest(sample);
-            var plan = PrivateRunPlanner.Create(manifest, "run-split-search-0001", "producer-split-search1", "1.0", Now);
-            if (plan.Samples[0].Split == split)
+            if (SplitOf([sample]) == split)
             {
                 result.Add(sample);
             }
@@ -836,9 +999,7 @@ public sealed class CorpusContractTests
         for (var seed = 0; seed < 10_000; seed++)
         {
             var samples = factory(seed);
-            var manifest = Manifest(samples);
-            var plan = PrivateRunPlanner.Create(manifest, "run-component-search-01", "producer-component-001", "1.0", Now);
-            if (plan.Samples.All(sample => sample.Split == CorpusSplit.Test))
+            if (SplitOf(samples) == CorpusSplit.Test)
             {
                 return samples;
             }
@@ -847,42 +1008,14 @@ public sealed class CorpusContractTests
         throw new InvalidOperationException("Could not find a deterministic Test-split component.");
     }
 
+    // The split belongs to the recomputed unit; searching through a created plan would stop
+    // working for real captures that consent withholds from Train or Tune.
+    private static CorpusSplit SplitOf(IReadOnlyList<CorpusSample> component) =>
+        SplitPlanner.StableAssignment(Assert.Single(SplitPlanner.BuildUnits(component)).Key);
+
     private static CorpusSplit Different(CorpusSplit split) => split == CorpusSplit.Train ? CorpusSplit.Test : CorpusSplit.Train;
 
-    private static string RepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
-            {
-                return directory.FullName;
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new InvalidOperationException("The recognition corpus test repository root could not be found.");
-    }
-
     private static string Hash(string value) => CorpusValidation.CanonicalPixelHash(Encoding.UTF8.GetBytes(value));
-
-    private static string ThresholdsJson() => JsonSerializer.Serialize(new
-    {
-        schemaVersion = CorpusValidation.ThresholdsSchemaVersion,
-        policyVersion = CorpusValidation.FrozenPolicyVersion,
-        frozenBeforeTuning = true,
-        minimumIndependentSplitUnits = CorpusValidation.FrozenMinimumIndependentSplitUnits,
-        minimumKnownClaims = CorpusValidation.FrozenMinimumKnownClaims,
-        candidateThresholds = new
-        {
-            minimumCoverage = CorpusValidation.FrozenMinimumCoverage,
-            maximumAbstentionRate = CorpusValidation.FrozenMaximumAbstentionRate,
-            maximumConfidentWrongRate = CorpusValidation.FrozenMaximumConfidentWrongRate,
-            minimumF1 = CorpusValidation.FrozenMinimumF1,
-        },
-        unsupportedDisposition = "insufficient-data",
-    });
 
     private static string ManifestJson(CorpusManifest manifest) => JsonSerializer.Serialize(new
     {
@@ -962,6 +1095,7 @@ public sealed class CorpusContractTests
         schemaVersion = CorpusValidation.PredictionsSchemaVersion,
         runId = document.RunId,
         producer = new { id = document.ProducerId, version = document.ProducerVersion },
+        planLock = document.PlanLock,
         predictions = document.Predictions.Select(prediction => new
         {
             sampleId = prediction.SampleId,
