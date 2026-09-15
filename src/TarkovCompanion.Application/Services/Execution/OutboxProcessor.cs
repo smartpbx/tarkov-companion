@@ -76,7 +76,7 @@ public sealed class OutboxProcessor(
             }
             catch (TimeoutException exception)
             {
-                attemptCancellation.Cancel();
+                TryCancel(attemptCancellation);
                 fault = RuntimeFault.FromException(
                     exception,
                     _timeProvider,
@@ -84,6 +84,10 @@ public sealed class OutboxProcessor(
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                // Cancelled explicitly before the attempt source is disposed on the way out:
+                // relying on the token link lost the cancellation whenever this wait observed it
+                // first, and a handler still running would never be told to stop.
+                TryCancel(attemptCancellation);
                 throw;
             }
             catch (RuntimeFaultException exception)
@@ -174,6 +178,18 @@ public sealed class OutboxProcessor(
         return jittered > item.AttemptPolicy.MaxRetryDelay
             ? item.AttemptPolicy.MaxRetryDelay
             : jittered;
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (AggregateException)
+        {
+            // A callback registered by the handler threw; the attempt's own fault reports it.
+        }
     }
 
     private static DateTimeOffset AddBounded(DateTimeOffset value, TimeSpan duration)
