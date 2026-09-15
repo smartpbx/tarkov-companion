@@ -440,6 +440,7 @@ secure_managed_directory() {
     resolved="$(readlink -f -- "${path}")" || refuse "${label} ${path} cannot be resolved"
     [[ "${resolved}" == "${path}" ]] || refuse "${label} ${path} resolves somewhere else"
     trusted_owner_and_mode "${path}" "${label}"
+    return 0
 }
 
 secure_managed_file_destination() {
@@ -454,6 +455,7 @@ secure_managed_file_destination() {
         [[ -f "${path}" && ! -L "${path}" ]] || refuse "${label} ${path} is not a plain file"
         trusted_owner_and_mode "${path}" "${label}"
     fi
+    return 0
 }
 
 validate_destructive_roots() {
@@ -521,6 +523,7 @@ validate_destructive_roots() {
                 && refuse "update paths overlap: ${destructive[path_index]} and ${target}"
         done
     done
+    return 0
 }
 
 # A directory only this script's user may change: not a link, owned by the user running this, and
