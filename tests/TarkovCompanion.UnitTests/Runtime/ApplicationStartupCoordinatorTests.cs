@@ -9,6 +9,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Ammo;
 using TarkovCompanion.Core.Domain.Events;
+using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Core.Domain.Profile;
 using TarkovCompanion.Core.Domain.Raids;
 
