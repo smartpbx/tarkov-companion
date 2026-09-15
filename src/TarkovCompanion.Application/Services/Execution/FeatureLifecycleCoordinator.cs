@@ -251,7 +251,10 @@ public sealed class FeatureLifecycleCoordinator
             _startInvoked = true;
         }
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+        // Disposed only once every start has settled. Leaving startup early can leave starts
+        // still waiting on this token, and disposing it then could drop the cancellation they
+        // have not yet received.
+        var linked = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _startupCancellation.Token);
         try
@@ -269,6 +272,7 @@ public sealed class FeatureLifecycleCoordinator
             return Snapshot;
         }
 
+        linked.Dispose();
         lock (_gate)
         {
             _startupCompleted = !_stopStarted;
@@ -453,11 +457,10 @@ public sealed class FeatureLifecycleCoordinator
             // succeeded in the instant after the deadline. Either way something may have
             // started, so it is stopped once the callback returns rather than recorded as a
             // plain failure and left running.
+            // Cancelled explicitly for both reasons: the wait can observe a startup cancellation
+            // before the token link has passed it on to the start itself.
             var timedOut = exception is TimeoutException;
-            if (timedOut)
-            {
-                TryCancelStart(node);
-            }
+            TryCancelStart(node);
 
             SettleUnfinishedStart(
                 node,
