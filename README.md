@@ -100,8 +100,10 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
   on your own, with nobody else sharing anything.
 - **Waypoints** stay until somebody clears them and tick themselves off when you get there.
   **Pings** say "look here" and fade. Right-click to mark, hold shift to ping.
-- One key is both which group you are in and proof you belong. The server holds no secrets and
-  never sees the key, only a hash of it.
+- One reusable key is both which group you are in and proof you belong. The relay receives that
+  key before hashing it for room storage, so transport hardening and scoped credentials remain
+  open v2 work in [#304](https://github.com/smartpbx/tarkov-companion/issues/304) and
+  [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
 - Nothing is sent while it is off, and a member is forgotten three minutes after they stop
   publishing. Positions are held in memory and never written down. What the relay does keep on
   disk is the waypoints a group placed and the list of rooms its operator registered — both so
@@ -132,8 +134,11 @@ room closes it to every other one.
 
 The relay also takes problem reports: **Report a problem** on Settings sends what the companion
 knows about itself, the relay keeps it, and an hourly workflow opens an issue naming it. The
-report never carries game logs, group keys, screenshots or coordinates, and the relay holds no
-GitHub credential — the workflow files the issue with the token Actions already gives it.
+current bundle excludes game logs, group keys, and raw screenshots, but complete filtering of
+paths, screenshot names, and coordinates is still release-blocking work in
+[#281](https://github.com/smartpbx/tarkov-companion/issues/281) and
+[#310](https://github.com/smartpbx/tarkov-companion/issues/310). The relay holds no GitHub
+credential — the workflow files the issue with the token Actions already gives it.
 
 Anything that can make an HTTPS request can join: the protocol is written out in full in
 [docs/GROUP_RELAY.md](docs/GROUP_RELAY.md), and running one is
