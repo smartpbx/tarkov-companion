@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
@@ -94,6 +96,176 @@ public sealed class RaidActivityCoordinatorTests
         Assert.Equal("start", history.Calls[0]);
         Assert.Contains("position", history.Calls);
         Assert.All(history.Calls.Skip(1), call => Assert.NotEqual("start", call));
+    }
+
+    /// <summary>A refused durable transition leaves the raid exactly as it was.</summary>
+    /// <remarks>
+    /// Evidence used to be applied to the live raid state before the outbox was asked to accept
+    /// its record. When the store refused, nothing was published, but the state service already
+    /// held the new raid; the next observation built on it, and its start was never recorded.
+    /// </remarks>
+    [Fact]
+    public async Task ARefusedDurableTransitionLeavesTheRaidStateUntouched()
+    {
+        var store = Store();
+        var state = new RaidStateService();
+        var history = new RecordingRaidHistory();
+        var outboxStore = new FixtureOutboxStore(capacity: 1);
+        await using var outbox = new RaidHistoryOutbox(history, store: outboxStore);
+        var coordinator = new RaidActivityCoordinator(state, outbox, new StubProfileService(), store);
+
+        await Assert.ThrowsAsync<OutboxCapacityException>(() => coordinator.ApplyEvidenceAsync(
+            InRaid(),
+            CancellationToken.None));
+
+        Assert.Null(state.Current.RaidId);
+        Assert.Equal(RaidLifecycleState.Unknown, state.Current.State);
+        Assert.Equal(RaidLifecycleState.Unknown, store.Current.Raid.State);
+        Assert.Empty(await outboxStore.ListAsync(CancellationToken.None));
+
+        await using var roomy = new RaidHistoryOutbox(history, store: new FixtureOutboxStore());
+        var accepted = new RaidActivityCoordinator(state, roomy, new StubProfileService(), store);
+        var current = await accepted.ApplyEvidenceAsync(InRaid(), CancellationToken.None);
+        await roomy.FlushAsync(CancellationToken.None);
+
+        Assert.Equal(RaidLifecycleState.InRaid, state.Current.State);
+        Assert.Equal(current.RaidId, store.Current.Raid.RaidId);
+        Assert.Equal(["start", "state"], history.Calls);
+    }
+
+    [Fact]
+    public async Task ADurableTransitionIsPublishedOnlyAfterItsRecordIsAccepted()
+    {
+        var store = Store();
+        var state = new RaidStateService();
+        var outboxStore = new GatedOutboxStore();
+        await using var outbox = new RaidHistoryOutbox(new RecordingRaidHistory(), store: outboxStore);
+        var coordinator = new RaidActivityCoordinator(state, outbox, new StubProfileService(), store);
+
+        var applying = coordinator.ApplyPositionAsync(Position(), CancellationToken.None);
+        await outboxStore.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Null(state.Current.LastKnownPosition);
+        Assert.Null(store.Current.Raid.LastKnownPosition);
+        Assert.False(applying.IsCompleted);
+
+        outboxStore.Release.TrySetResult();
+        var current = await applying.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.NotNull(current.LastKnownPosition);
+        Assert.Equal(current.RaidId, state.Current.RaidId);
+        Assert.Equal(120.5, store.Current.Raid.LastKnownPosition!.Position.X);
+    }
+
+    [Fact]
+    public async Task DurableHistoryRefusesARaidStateThatCannotStageATransition()
+    {
+        var store = Store();
+        await using var outbox = new RaidHistoryOutbox(new RecordingRaidHistory());
+        var coordinator = new RaidActivityCoordinator(
+            new UnstagedRaidState(),
+            outbox,
+            new StubProfileService(),
+            store);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ApplyEvidenceAsync(
+            InRaid(),
+            CancellationToken.None));
+        Assert.Empty(await outbox.Store.ListAsync(CancellationToken.None));
+    }
+
+    private static RaidEvidence InRaid() => new(
+        RaidEvidenceKind.LogLine,
+        DateTimeOffset.UnixEpoch,
+        "bigmap",
+        RaidLifecycleState.InRaid,
+        Confidence.Certain,
+        "in a raid") { StartsNewRaid = true };
+
+    private sealed class GatedOutboxStore : IOutboxStore
+    {
+        private readonly FixtureOutboxStore _inner = new();
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<OutboxEnqueueReceipt> EnqueueAsync(OutboxItem item, CancellationToken cancellationToken) =>
+            _inner.EnqueueAsync(item, cancellationToken);
+
+        public async Task<ImmutableArray<OutboxEnqueueReceipt>> EnqueueBatchAsync(
+            ImmutableArray<OutboxItem> items,
+            CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            return await _inner.EnqueueBatchAsync(items, cancellationToken);
+        }
+
+        public Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            int maximumCount,
+            CancellationToken cancellationToken) =>
+            _inner.LeaseNextAsync(nowUtc, leaseDuration, maximumCount, cancellationToken);
+
+        public Task<bool> CompleteAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset completedUtc, CancellationToken cancellationToken) =>
+            _inner.CompleteAsync(operationId, leaseToken, completedUtc, cancellationToken);
+
+        public Task<bool> RenewLeaseAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken) =>
+            _inner.RenewLeaseAsync(operationId, leaseToken, nowUtc, leaseDuration, cancellationToken);
+
+        public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset retryingUtc, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken) =>
+            _inner.RetryAsync(operationId, leaseToken, retryingUtc, notBeforeUtc, fault, cancellationToken);
+
+        public Task<bool> DeadLetterAsync(OperationId operationId, OutboxLeaseToken leaseToken, RuntimeFault fault, DateTimeOffset deadLetteredUtc, CancellationToken cancellationToken) =>
+            _inner.DeadLetterAsync(operationId, leaseToken, fault, deadLetteredUtc, cancellationToken);
+
+        public Task<int> RecoverExpiredLeasesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            _inner.RecoverExpiredLeasesAsync(nowUtc, cancellationToken);
+
+        public Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            _inner.ManualRetryAsync(operationId, nowUtc, cancellationToken);
+
+        public Task<bool> ResolveDeadLetterAsync(
+            OperationId operationId,
+            DateTimeOffset resolvedUtc,
+            CancellationToken cancellationToken) =>
+            _inner.ResolveDeadLetterAsync(operationId, resolvedUtc, cancellationToken);
+
+        public Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+            _inner.GetSnapshotAsync(nowUtc, cancellationToken);
+
+        public Task<ImmutableArray<OutboxStoredItem>> ListAsync(CancellationToken cancellationToken) =>
+            _inner.ListAsync(cancellationToken);
+    }
+
+    /// <summary>A raid state with no way to work a transition out before making it current.</summary>
+    private sealed class UnstagedRaidState : IRaidStateService
+    {
+        private readonly RaidStateService _inner = new();
+
+        public RaidSnapshot Current => _inner.Current;
+
+        public RaidSnapshot Apply(RaidEvidence evidence) => _inner.Apply(evidence);
+
+        public RaidSnapshot ApplyPosition(ScreenshotPosition position) => _inner.ApplyPosition(position);
+
+        public RaidSnapshot ApplyExtracts(
+            IReadOnlyList<ActiveExtract> extracts,
+            DateTimeOffset observedUtc,
+            TimeSpan? raidClock = null,
+            IReadOnlyList<string>? linesNotMatched = null,
+            IReadOnlyList<string>? transits = null) =>
+            _inner.ApplyExtracts(extracts, observedUtc, raidClock, linesNotMatched, transits);
+
+        public RaidSnapshot Adopt(Guid raidId, DateTimeOffset? startedUtc, IReadOnlyList<ScreenshotPosition> trail) =>
+            _inner.Adopt(raidId, startedUtc, trail);
     }
 
     private static RuntimeStateStore Store() => new(new(
