@@ -249,7 +249,7 @@ public sealed record PreviousRunRecovery
         }
 
         if (lastUnrecoveredFailure is not null &&
-            (runId is not { } previousRunId || lastUnrecoveredFailure.RunId != previousRunId))
+            (runId is null || lastUnrecoveredFailure.RunId != runId.Value))
         {
             throw new ArgumentException("Failure evidence must belong to the previous run.", nameof(lastUnrecoveredFailure));
         }
