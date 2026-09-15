@@ -158,11 +158,11 @@ public sealed class ApplicationStartupCoordinatorTests
         Assert.Equal(DataAvailability.Cached, fixture.State.Current.Data.Availability);
         Assert.Equal(0, fixture.Sync.Calls);
         Assert.Null(fixture.Coordinator.BackgroundRefresh);
+        Assert.True(fixture.Time.ScheduledTimerCount > 0);
 
         Volatile.Write(ref offline, 0);
-        await RuntimeTestTasks.AdvanceUntilAsync(
-            fixture.Time,
-            TimeSpan.FromSeconds(1),
+        fixture.Time.Advance(TimeSpan.FromSeconds(1));
+        await RuntimeTestTasks.UntilAsync(
             () => fixture.Sync.Calls == 1
                 && fixture.State.Current.Data.Availability == DataAvailability.Current);
 

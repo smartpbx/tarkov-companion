@@ -196,6 +196,29 @@ public sealed class CacheAndHostileInputTests
     }
 
     [Fact]
+    public async Task SqlitePutDoesNotProtectAnAlreadyExpiredResponseFromTheAgeBudget()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(now);
+        var cache = new SqliteTarkovDevResponseCache(database.Factory, new()
+        {
+            MaximumCompressedBytes = 1024 * 1024,
+            MaximumEntries = 2,
+            MaximumAge = TimeSpan.FromHours(1),
+        }, time);
+
+        await cache.PutAsync(
+            new("regular/items", "{\"data\":{}}", now.AddHours(-2), null, null),
+            TestContext.Current.CancellationToken);
+
+        Assert.Null(await cache.GetAsync("regular/items", TestContext.Current.CancellationToken));
+        var inspection = await cache.InspectAsync(now, TestContext.Current.CancellationToken);
+        Assert.Equal(0, inspection.EntryCount);
+        Assert.Equal(0, inspection.UniqueBodyCount);
+    }
+
+    [Fact]
     public async Task RepresentativeSevenEndpointFirstSyncStaysWithinFiftyMiBOnDisk()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -1416,6 +1439,70 @@ public sealed class CacheAndHostileInputTests
         Assert.Contains(dimension, outcome.RefusalReason!, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(lastKnownGood, (await cache.GetAsync(
             cacheKey,
+            TestContext.Current.CancellationToken))!.BodyJson);
+    }
+
+    [Fact]
+    public async Task OneMapsExtractsCannotDisappearBehindAStableAggregateCount()
+    {
+        const string lastKnownGood = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[{"id":"stage"},{"id":"road"},{"id":"train"}]},"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-three"}]}},"lootContainers":{}}}
+            """;
+        const string candidate = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[]},"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-zero"},{"id":"gate-one"},{"id":"gate-two"},{"id":"gate-three"}]}},"lootContainers":{}}}
+            """;
+        var cache = new InMemoryTarkovDevResponseCache();
+        await cache.PutAsync(
+            new("regular/maps", lastKnownGood, DateTimeOffset.UtcNow.AddDays(-1), null, null),
+            TestContext.Current.CancellationToken);
+        await using var client = Client(
+            new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(candidate) }),
+            cache,
+            maximumBytes: 16 * 1024);
+
+        var response = await client.GetMapsAsync(
+            GameMode.Regular,
+            "en",
+            force: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsStale);
+        Assert.Contains("lighthouse", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("extracts", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(lastKnownGood, (await cache.GetAsync(
+            "regular/maps",
+            TestContext.Current.CancellationToken))!.BodyJson);
+    }
+
+    [Fact]
+    public async Task OneMapsLocksCannotDisappearBehindAStableAggregateCount()
+    {
+        const string lastKnownGood = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[{"id":"stage"}],"locks":[{"id":"usec-one"},{"id":"usec-two"},{"id":"usec-three"}]},"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-three"}],"locks":[{"id":"factory-key"}]}},"lootContainers":{}}}
+            """;
+        const string candidate = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[{"id":"stage"}],"locks":[]},"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-three"}],"locks":[{"id":"factory-zero"},{"id":"factory-one"},{"id":"factory-two"},{"id":"factory-three"}]}},"lootContainers":{}}}
+            """;
+        var cache = new InMemoryTarkovDevResponseCache();
+        await cache.PutAsync(
+            new("regular/maps", lastKnownGood, DateTimeOffset.UtcNow.AddDays(-1), null, null),
+            TestContext.Current.CancellationToken);
+        await using var client = Client(
+            new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(candidate) }),
+            cache,
+            maximumBytes: 16 * 1024);
+
+        var response = await client.GetMapsAsync(
+            GameMode.Regular,
+            "en",
+            force: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsStale);
+        Assert.Contains("lighthouse", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("locks", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(lastKnownGood, (await cache.GetAsync(
+            "regular/maps",
             TestContext.Current.CancellationToken))!.BodyJson);
     }
 

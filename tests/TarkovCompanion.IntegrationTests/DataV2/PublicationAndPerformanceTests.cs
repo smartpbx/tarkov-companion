@@ -407,15 +407,16 @@ public sealed class PublicationAndPerformanceTests
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var now = new DateTimeOffset(2026, 9, 15, 5, 0, 0, TimeSpan.Zero);
+        var time = new ManualTimeProvider(now.AddDays(-10));
         var cache = new SqliteTarkovDevResponseCache(database.Factory, new()
         {
             MaximumAge = TimeSpan.FromHours(1),
-        });
+        }, time);
         var state = new SqliteSyncStateRepository(database.Factory);
 
         await cache.PutAsync(new("regular/items", "{\"data\":{\"version\":1}}", now.AddDays(-10), null, null),
             TestContext.Current.CancellationToken);
-        var oldHash = (await cache.InspectAsync(now, TestContext.Current.CancellationToken)).Entries.Single().ContentSha256;
+        var oldHash = (await cache.InspectAsync(time.GetUtcNow(), TestContext.Current.CancellationToken)).Entries.Single().ContentSha256;
         var oldRun = await state.BeginRunAsync(
             "regular", "en", ["items"], now.AddDays(-10), TestContext.Current.CancellationToken);
         await state.RecordAsync(
@@ -426,6 +427,7 @@ public sealed class PublicationAndPerformanceTests
         var oldPublication = await ScalarTextAsync(database.Factory,
             "SELECT visible_publication_id FROM dataset_heads WHERE source_key = 'items';");
 
+        time.Advance(TimeSpan.FromDays(10));
         await cache.PutAsync(new("regular/items", "{\"data\":{\"version\":2}}", now, null, null),
             TestContext.Current.CancellationToken);
         var currentHash = (await cache.InspectAsync(now, TestContext.Current.CancellationToken)).Entries.Single().ContentSha256;
@@ -969,8 +971,6 @@ public sealed class PublicationAndPerformanceTests
                 ("item_metrics_v2", "measured_utc"),
                 ("item_metrics_v2", "source"),
                 ("outbox_target_operations", "applied_utc"),
-                ("outbox_target_operations", "command_kind"),
-                ("outbox_target_operations", "target_id"),
                 ("profile_workspaces", "updated_utc"),
             ],
             baseline.Select(member => (member.Table, member.Column)));

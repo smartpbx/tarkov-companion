@@ -569,9 +569,6 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
-    public async Task<LoadoutPlanRecord?> ReadLoadoutPlanAsync(Guid planId, CancellationToken cancellationToken)
-        => await ReadLoadoutPlanCoreAsync(planId, null, null, null, cancellationToken).ConfigureAwait(false);
-
     public async Task<LoadoutPlanRecord?> ReadLoadoutPlanAsync(
         Guid planId,
         Guid profileId,
@@ -592,9 +589,9 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
 
     private async Task<LoadoutPlanRecord?> ReadLoadoutPlanCoreAsync(
         Guid planId,
-        Guid? profileId,
-        string? generation,
-        string? gameMode,
+        Guid profileId,
+        string generation,
+        string gameMode,
         CancellationToken cancellationToken)
     {
         if (planId == Guid.Empty)
@@ -615,12 +612,12 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
                    CASE WHEN typeof(extension_json) = 'text' THEN length(CAST(extension_json AS BLOB)) ELSE -1 END
             FROM loadout_plans
             WHERE plan_id = $id
-              AND ($profile IS NULL OR (profile_id = $profile AND generation = $generation AND game_mode = $mode));
+              AND profile_id = $profile AND generation = $generation AND game_mode = $mode;
             """;
         command.Parameters.AddWithValue("$id", Id(planId));
-        command.Parameters.AddWithValue("$profile", profileId is { } profile ? Id(profile) : DBNull.Value);
-        command.Parameters.AddWithValue("$generation", (object?)generation ?? DBNull.Value);
-        command.Parameters.AddWithValue("$mode", (object?)gameMode ?? DBNull.Value);
+        command.Parameters.AddWithValue("$profile", Id(profileId));
+        command.Parameters.AddWithValue("$generation", generation);
+        command.Parameters.AddWithValue("$mode", gameMode);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {

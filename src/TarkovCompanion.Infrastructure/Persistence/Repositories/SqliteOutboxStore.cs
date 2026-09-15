@@ -68,8 +68,8 @@ public sealed class SqliteOutboxStore(
         }
 
         var active = await ScalarIntAsync(connection, transaction,
-            "SELECT COUNT(*) FROM durable_outbox WHERE delivery_state IN (1, 2, 3);", cancellationToken).ConfigureAwait(false);
-        if (active + additions.Count > _capacity) throw new OutboxCapacityException();
+            "SELECT COUNT(*) FROM durable_outbox WHERE delivery_state <> 5;", cancellationToken).ConfigureAwait(false);
+        if (additions.Count > 0 && active + additions.Count > _capacity) throw new OutboxCapacityException();
         foreach (var item in additions)
         {
             await InsertAsync(connection, transaction, item, cancellationToken).ConfigureAwait(false);
@@ -272,8 +272,6 @@ public sealed class SqliteOutboxStore(
         nowUtc = nowUtc.ToUniversalTime();
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        if (await ScalarIntAsync(connection, transaction, "SELECT COUNT(*) FROM durable_outbox WHERE delivery_state IN (1, 2, 3);", cancellationToken).ConfigureAwait(false) >= _capacity)
-            return false;
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -326,9 +324,11 @@ public sealed class SqliteOutboxStore(
     {
         nowUtc = nowUtc.ToUniversalTime();
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var counts = new int[5];
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = "SELECT delivery_state, COUNT(*) FROM durable_outbox GROUP BY delivery_state;";
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) counts[reader.GetInt32(0) - 1] = reader.GetInt32(1);
@@ -337,6 +337,7 @@ public sealed class SqliteOutboxStore(
         DateTimeOffset? oldest = null;
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = "SELECT MIN(created_utc) FROM durable_outbox WHERE delivery_state <> 5;";
             var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
             if (value is string text) oldest = Parse(text);
@@ -345,20 +346,31 @@ public sealed class SqliteOutboxStore(
         var dead = ImmutableArray.CreateBuilder<OutboxDeadLetterSnapshot>();
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT operation_id, aggregate_id, aggregate_sequence, command_kind, attempt_count,
-                       last_fault_json, dead_lettered_utc
+                       last_fault_json, dead_lettered_utc, expires_utc
                 FROM durable_outbox WHERE delivery_state = 4
-                ORDER BY dead_lettered_utc, aggregate_id, aggregate_sequence LIMIT $limit;
+                ORDER BY CASE WHEN expires_utc > $now THEN 0 ELSE 1 END,
+                         dead_lettered_utc, aggregate_id, aggregate_sequence
+                LIMIT $limit;
                 """;
+            command.Parameters.AddWithValue("$now", Format(nowUtc));
             command.Parameters.AddWithValue("$limit", OutboxSnapshot.MaxListedDeadLetters);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var expiresUtc = Parse(reader.GetString(7));
                 dead.Add(new(new(Guid.Parse(reader.GetString(0))), new(reader.GetString(1)), reader.GetInt64(2),
-                    (OutboxCommandKind)reader.GetInt32(3), reader.GetInt32(4), Fault(reader, 5), Time(reader, 6)));
+                    (OutboxCommandKind)reader.GetInt32(3), reader.GetInt32(4), Fault(reader, 5), Time(reader, 6))
+                {
+                    CanRetry = expiresUtc > nowUtc,
+                });
+            }
         }
 
         var age = oldest is null ? null : oldest > nowUtc ? TimeSpan.Zero : nowUtc - oldest;
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return new(new(counts[0], counts[1], counts[2], counts[3], counts[4]), age) { DeadLetters = dead.ToImmutable() };
     }
 

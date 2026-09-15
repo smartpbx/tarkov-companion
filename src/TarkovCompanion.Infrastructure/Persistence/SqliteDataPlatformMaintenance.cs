@@ -1222,7 +1222,7 @@ public sealed class SqliteV2UnreadSchemaAuditor
         new("durable_outbox", typeof(SqliteOutboxStore), nameof(SqliteOutboxStore.ListAsync),
             ["operation_id", "idempotency_key", "correlation_id", "feature_id", "command_kind", "version_major", "version_minor", "aggregate_id", "aggregate_sequence", "created_utc", "not_before_utc", "expires_utc", "payload", "max_attempts", "attempt_timeout_ticks", "initial_retry_delay_ticks", "max_retry_delay_ticks", "backoff_factor", "delivery_state", "attempt_count", "next_attempt_utc", "lease_token", "lease_expires_utc", "last_fault_json", "completed_utc", "dead_lettered_utc"]),
         new("outbox_aggregate_sequences", typeof(SqliteOutboxStore), nameof(SqliteOutboxStore.ReadAggregateSequenceHeadsAsync), ["aggregate_id", "next_sequence"]),
-        new("outbox_target_operations", typeof(SqliteRaidHistoryService), nameof(SqliteRaidHistoryService.ApplyOnceAsync), ["operation_id"]),
+        new("outbox_target_operations", typeof(SqliteRaidHistoryService), nameof(SqliteRaidHistoryService.ApplyOnceAsync), ["operation_id", "command_kind", "target_id"]),
         new("observed_inventory_snapshots", typeof(SqliteV2DataStore), nameof(SqliteV2DataStore.ReadCurrentInventoryAsync),
             ["snapshot_id", "profile_id", "generation", "game_mode", "data_snapshot_id", "observed_utc", "recorded_utc", "source", "producer_version", "coverage", "confidence", "is_current", "payload_json", "extension_json"]),
         new("observed_inventory_nodes", typeof(SqliteV2DataStore), nameof(SqliteV2DataStore.ReadCurrentInventoryAsync),

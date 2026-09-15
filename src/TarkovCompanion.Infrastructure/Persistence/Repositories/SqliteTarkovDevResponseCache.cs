@@ -408,7 +408,11 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     {
         foreach (var candidate in await FindCleanupCandidatesAsync(connection, transaction, nowUtc, cancellationToken).ConfigureAwait(false))
         {
-            if (string.Equals(candidate.CacheKey, protectedKey, StringComparison.Ordinal))
+            // Protect the just-published key only from capacity eviction. A caller can replay an
+            // old persisted timestamp, and retaining that key would make SQLite disagree with the
+            // in-memory cache's enforced age ceiling.
+            if (string.Equals(candidate.CacheKey, protectedKey, StringComparison.Ordinal) &&
+                nowUtc - candidate.CachedUtc <= _policy.MaximumAge)
             {
                 continue;
             }

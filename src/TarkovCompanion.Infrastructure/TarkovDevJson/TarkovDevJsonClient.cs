@@ -1041,7 +1041,9 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             return;
         }
 
-        var previous = DatasetCardinalities(DeserializeEnvelope<T>(previousJson).Data)
+        var previousData = DeserializeEnvelope<T>(previousJson).Data;
+        ValidateStableNestedCardinalities(candidate.Data, previousData, cacheKey);
+        var previous = DatasetCardinalities(previousData)
             .ToDictionary(value => value.Name, value => value.Count, StringComparer.Ordinal);
         foreach (var dimension in incoming)
         {
@@ -1053,6 +1055,49 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                     $"json.tarkov.dev response '{cacheKey}' implausibly shrank {dimension.Name} " +
                     $"from {held:N0} to {dimension.Count:N0} records.");
             }
+        }
+    }
+
+    private static void ValidateStableNestedCardinalities<T>(T candidate, T previous, string cacheKey)
+    {
+        if (candidate is not TarkovDevMapsData candidateMaps || previous is not TarkovDevMapsData previousMaps)
+        {
+            return;
+        }
+
+        foreach (var heldPair in previousMaps.Maps)
+        {
+            if (!candidateMaps.Maps.TryGetValue(heldPair.Key, out var incomingMap))
+            {
+                // Maps can legitimately leave rotation. The aggregate guard still rejects a
+                // catalog-wide collapse; per-map guards apply only to a map the source retained.
+                continue;
+            }
+
+            RefuseNestedShrink(
+                cacheKey,
+                $"map '{heldPair.Key}' extracts",
+                heldPair.Value.Extracts.Count,
+                incomingMap.Extracts.Count);
+            RefuseNestedShrink(
+                cacheKey,
+                $"map '{heldPair.Key}' locks",
+                heldPair.Value.Locks.Count,
+                incomingMap.Locks.Count);
+        }
+    }
+
+    private static void RefuseNestedShrink(
+        string cacheKey,
+        string dimension,
+        long held,
+        long incoming)
+    {
+        if (held > 0 && incoming * 2 < held)
+        {
+            throw new JsonException(
+                $"json.tarkov.dev response '{cacheKey}' implausibly shrank {dimension} " +
+                $"from {held:N0} to {incoming:N0} records.");
         }
     }
 

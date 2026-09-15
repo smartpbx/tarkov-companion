@@ -223,6 +223,129 @@ public sealed class DurableStoreTests
     }
 
     [Fact]
+    public async Task DurableDeadLetterConsumesCapacityButCanRetryWithoutNewAdmission()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var item = Item("capacity-dead-letter", "capacity-aggregate", 1, now);
+        var store = new SqliteOutboxStore(database.Factory, capacity: 1);
+        await store.EnqueueAsync(item, TestContext.Current.CancellationToken);
+        var leased = Assert.Single(await store.LeaseNextAsync(
+            now,
+            TimeSpan.FromSeconds(10),
+            1,
+            TestContext.Current.CancellationToken));
+        var fault = new RuntimeFault(
+            RuntimeFailureKind.Validation,
+            new("test-capacity-dead-letter"),
+            RuntimeRecoveryAction.RetryManually,
+            new("test:capacity-dead-letter"),
+            now.AddSeconds(1));
+        Assert.True(await store.DeadLetterAsync(
+            item.OperationId,
+            leased.LeaseToken!.Value,
+            fault,
+            now.AddSeconds(1),
+            TestContext.Current.CancellationToken));
+
+        await Assert.ThrowsAsync<OutboxCapacityException>(() => store.EnqueueAsync(
+            Item("capacity-refused", "other-aggregate", 1, now.AddSeconds(2)),
+            TestContext.Current.CancellationToken));
+        Assert.True(await store.ManualRetryAsync(
+            item.OperationId,
+            now.AddSeconds(2),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(
+            OutboxDeliveryState.Retrying,
+            Assert.Single(await store.ListAsync(TestContext.Current.CancellationToken)).State);
+    }
+
+    [Fact]
+    public async Task DurableSnapshotPrioritizesRetryableDeadLettersAndMarksExpiredRows()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var expired = Enumerable.Range(0, 17)
+            .Select(index => Item($"expired-{index}", $"expired-{index}", 1, now))
+            .ToArray();
+        var retryable = Item(
+            "retryable",
+            "retryable",
+            1,
+            now,
+            now.AddHours(3));
+        var store = new SqliteOutboxStore(database.Factory, capacity: 18);
+        await store.EnqueueBatchAsync([.. expired, retryable], TestContext.Current.CancellationToken);
+        var leased = await store.LeaseNextAsync(
+            now,
+            TimeSpan.FromMinutes(1),
+            18,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(18, leased.Length);
+        foreach (var entry in leased)
+        {
+            Assert.True(await store.DeadLetterAsync(
+                entry.Item.OperationId,
+                entry.LeaseToken!.Value,
+                new(
+                    RuntimeFailureKind.Validation,
+                    new("test-dead-letter-order"),
+                    RuntimeRecoveryAction.RetryManually,
+                    new("test:dead-letter-order"),
+                    now.AddSeconds(1)),
+                now.AddSeconds(1),
+                TestContext.Current.CancellationToken));
+        }
+
+        var snapshot = await store.GetSnapshotAsync(
+            now.AddHours(2),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(18, snapshot.Counts.DeadLetter);
+        Assert.Equal(OutboxSnapshot.MaxListedDeadLetters, snapshot.DeadLetters.Length);
+        Assert.Equal(retryable.OperationId, snapshot.DeadLetters[0].OperationId);
+        Assert.True(snapshot.DeadLetters[0].CanRetry);
+        Assert.All(snapshot.DeadLetters.Skip(1), deadLetter => Assert.False(deadLetter.CanRetry));
+    }
+
+    [Fact]
+    public async Task DuplicateReplayRemainsIdempotentWhenAReopenedStoreHasALowerCapacity()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var first = Item("lower-capacity-first", "lower-capacity-first", 1, now);
+        var second = Item("lower-capacity-second", "lower-capacity-second", 1, now);
+        var original = new SqliteOutboxStore(database.Factory, capacity: 2);
+        await original.EnqueueBatchAsync([first, second], TestContext.Current.CancellationToken);
+        var leased = Assert.Single(await original.LeaseNextAsync(
+            now,
+            TimeSpan.FromMinutes(1),
+            1,
+            TestContext.Current.CancellationToken));
+        Assert.Equal(first.OperationId, leased.Item.OperationId);
+        Assert.True(await original.DeadLetterAsync(
+            first.OperationId,
+            leased.LeaseToken!.Value,
+            new(
+                RuntimeFailureKind.Validation,
+                new("test-lower-capacity"),
+                RuntimeRecoveryAction.RetryManually,
+                new("test:lower-capacity"),
+                now.AddSeconds(1)),
+            now.AddSeconds(1),
+            TestContext.Current.CancellationToken));
+
+        var reopened = new SqliteOutboxStore(database.Factory, capacity: 1);
+        var duplicate = await reopened.EnqueueAsync(
+            Item("lower-capacity-first", "different-aggregate", 1, now.AddSeconds(1)),
+            TestContext.Current.CancellationToken);
+        Assert.False(duplicate.Added);
+        Assert.Equal(first.OperationId, duplicate.OperationId);
+        await Assert.ThrowsAsync<OutboxCapacityException>(() => reopened.EnqueueAsync(
+            Item("lower-capacity-new", "lower-capacity-new", 1, now.AddSeconds(1)),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task TypedStashRecognitionRoundTripsWithEvidenceAndDerivedNodes()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
@@ -495,11 +618,22 @@ public sealed class DurableStoreTests
         Assert.Null(await store.ReadLoadoutPlanAsync(
             planId, Guid.NewGuid(), plan.Generation, plan.GameMode,
             TestContext.Current.CancellationToken));
+        Assert.Null(await store.ReadLoadoutPlanAsync(
+            planId, plan.ProfileId, "different-wipe", plan.GameMode,
+            TestContext.Current.CancellationToken));
+        Assert.Null(await store.ReadLoadoutPlanAsync(
+            planId, plan.ProfileId, plan.Generation, "Pve",
+            TestContext.Current.CancellationToken));
         Assert.True(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
         Assert.False(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
         Assert.Equal(plan.ExtensionJson, (await store.ReadLoadoutPlanAsync(
             planId, plan.ProfileId, plan.Generation, plan.GameMode,
             TestContext.Current.CancellationToken))!.ExtensionJson);
+        var readOverload = Assert.Single(typeof(SqliteV2DataStore).GetMethods()
+            .Where(method => method.Name == nameof(SqliteV2DataStore.ReadLoadoutPlanAsync)));
+        Assert.Equal(
+            [typeof(Guid), typeof(Guid), typeof(string), typeof(string), typeof(CancellationToken)],
+            readOverload.GetParameters().Select(parameter => parameter.ParameterType));
 
         var policy = new DataRetentionPolicy("local", true, 24, false, 90, now, "{\"futureRetention\":true}");
         await store.SaveRetentionPolicyAsync(policy, TestContext.Current.CancellationToken);
@@ -710,6 +844,20 @@ public sealed class DurableStoreTests
         await service.ApplyOnceAsync(operation, OutboxCommandKind.RaidStarted, raidId,
             _ => { replayCalled = true; return Task.CompletedTask; }, TestContext.Current.CancellationToken);
         Assert.False(replayCalled);
+        var conflictCalled = false;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyOnceAsync(
+            operation,
+            OutboxCommandKind.RaidEnded,
+            raidId,
+            _ => { conflictCalled = true; return Task.CompletedTask; },
+            TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyOnceAsync(
+            operation,
+            OutboxCommandKind.RaidStarted,
+            Guid.NewGuid(),
+            _ => { conflictCalled = true; return Task.CompletedTask; },
+            TestContext.Current.CancellationToken));
+        Assert.False(conflictCalled);
         Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory, $"SELECT COUNT(*) FROM raids WHERE id = '{raidId:D}';"));
         Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory, $"SELECT COUNT(*) FROM outbox_target_operations WHERE operation_id = '{operation}';"));
     }
@@ -951,11 +1099,16 @@ public sealed class DurableStoreTests
             failure.ToString());
     }
 
-    private static OutboxItem Item(string key, string aggregate, long sequence, DateTimeOffset now)
+    private static OutboxItem Item(
+        string key,
+        string aggregate,
+        long sequence,
+        DateTimeOffset now,
+        DateTimeOffset? expiresUtc = null)
     {
         var operation = OperationId.New();
         return new(operation, new(key), CorrelationId.New(), new("test"), OutboxCommandKind.RaidEnded,
-            OutboxContractVersion.Current, new(aggregate), sequence, now, now, now.AddHours(1),
+            OutboxContractVersion.Current, new(aggregate), sequence, now, now, expiresUtc ?? now.AddHours(1),
             OutboxPayload.CreateGenericJson("{\"state\":\"queued\"}"), OutboxAttemptPolicy.Default);
     }
 

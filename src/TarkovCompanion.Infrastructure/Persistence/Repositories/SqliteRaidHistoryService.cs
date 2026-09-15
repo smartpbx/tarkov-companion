@@ -49,16 +49,33 @@ public sealed class SqliteRaidHistoryService(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(apply);
+        if (!operationId.IsDefined) throw new ArgumentException("An operation id is required.", nameof(operationId));
+        if (!Enum.IsDefined(commandKind)) throw new ArgumentOutOfRangeException(nameof(commandKind));
+        if (raidId == Guid.Empty) throw new ArgumentException("A raid id is required.", nameof(raidId));
         if (_operation.Value is not null) throw new InvalidOperationException("Nested raid-history operations are not supported.");
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await using (var exists = connection.CreateCommand())
         {
             exists.Transaction = transaction;
-            exists.CommandText = "SELECT EXISTS(SELECT 1 FROM outbox_target_operations WHERE operation_id = $id);";
+            exists.CommandText = "SELECT command_kind, target_id FROM outbox_target_operations WHERE operation_id = $id;";
             exists.Parameters.AddWithValue("$id", operationId.ToString());
-            if (Convert.ToInt32(await exists.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) == 1)
+            await using var reader = await exists.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                if (reader.GetValue(0) is not long storedKind ||
+                    reader.GetValue(1) is not string storedTarget ||
+                    !Guid.TryParseExact(storedTarget, "D", out var storedRaidId))
+                {
+                    throw new InvalidDataException("The raid-history operation ledger contains an invalid ownership tuple.");
+                }
+
+                if (storedKind != (int)commandKind || storedRaidId != raidId)
+                {
+                    throw new InvalidOperationException(
+                        "The outbox operation id is already bound to a different raid-history command.");
+                }
+
                 return;
             }
         }
