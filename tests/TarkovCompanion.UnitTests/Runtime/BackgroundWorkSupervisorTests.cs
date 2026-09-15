@@ -136,6 +136,106 @@ public sealed class BackgroundWorkSupervisorTests
     }
 
     [Fact]
+    public async Task BackgroundHeavyExclusiveCannotBeStarvedByLaterUserBlockingWork()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 6, burst: 2));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var order = new List<string>();
+        var first = supervisor.Submit(Request(WorkPriority.Normal), async (_, token) =>
+        {
+            started.TrySetResult();
+            await release.Task.WaitAsync(token);
+        });
+        await started.Task;
+
+        var heavy = supervisor.Submit(
+            Request(WorkPriority.Background, WorkloadClass.HeavyExclusive),
+            (_, _) => Add("heavy"));
+        var high1 = supervisor.Submit(Request(WorkPriority.UserBlocking), (_, _) => Add("high-1"));
+        var high2 = supervisor.Submit(Request(WorkPriority.UserBlocking), (_, _) => Add("high-2"));
+        var high3 = supervisor.Submit(Request(WorkPriority.UserBlocking), (_, _) => Add("high-3"));
+        release.TrySetResult();
+
+        await Task.WhenAll(
+            first.Handle.Completion,
+            heavy.Handle.Completion,
+            high1.Handle.Completion,
+            high2.Handle.Completion,
+            high3.Handle.Completion);
+        Assert.Equal(["high-1", "high-2", "heavy", "high-3"], order);
+
+        Task Add(string value)
+        {
+            order.Add(value);
+            return Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// With spare slots, a stream of small interactive work could always keep one slot busy, and
+    /// an exclusive item needs every slot free at once.
+    /// </summary>
+    [Fact]
+    public async Task PendingHeavyExclusiveDrainsConcurrentWorkWithinTheBurstBound()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(
+            time,
+            Options(capacity: 8, burst: 1, maxConcurrent: 2, lightLimit: 2));
+        var gate = new object();
+        var order = new List<string>();
+        var startedA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startedB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var a = supervisor.Submit(Request(WorkPriority.Interactive, WorkloadClass.Light), async (_, token) =>
+        {
+            startedA.TrySetResult();
+            await releaseA.Task.WaitAsync(token);
+        });
+        var b = supervisor.Submit(Request(WorkPriority.Interactive, WorkloadClass.Light), async (_, token) =>
+        {
+            startedB.TrySetResult();
+            await releaseB.Task.WaitAsync(token);
+        });
+        await Task.WhenAll(startedA.Task, startedB.Task);
+
+        var heavy = supervisor.Submit(
+            Request(WorkPriority.Background, WorkloadClass.HeavyExclusive),
+            (_, _) => Add("heavy"));
+        var c = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("c"));
+        var d = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("d"));
+
+        releaseA.TrySetResult();
+        await a.Handle.Completion;
+        await RuntimeTestTasks.DrainAsync();
+        lock (gate)
+        {
+            // A slot is free, but the pending exclusive item stops new admissions until B drains.
+            Assert.Empty(order);
+        }
+
+        releaseB.TrySetResult();
+        await Task.WhenAll(b.Handle.Completion, heavy.Handle.Completion, c.Handle.Completion, d.Handle.Completion);
+        lock (gate)
+        {
+            Assert.Equal(["c", "heavy", "d"], order);
+        }
+
+        Task Add(string value)
+        {
+            lock (gate)
+            {
+                order.Add(value);
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public async Task ManualRetryCreatesANewOperationAndKeepsTerminalHistory()
     {
         var time = new ManualTimeProvider(Epoch);
@@ -173,13 +273,40 @@ public sealed class BackgroundWorkSupervisorTests
     }
 
     [Fact]
+    public async Task CallerRetryIsRefusedForWorkTheSupervisorRestartsItself()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 2, burst: 2));
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        var calls = 0;
+
+        // An already-cancelled token runs its registration inline during admission; that must
+        // neither deadlock nor start the work.
+        var admission = supervisor.Submit(
+            Request(WorkPriority.Normal, idempotent: true, restartMode: OperationRestartMode.OnFailure),
+            (_, _) =>
+            {
+                calls++;
+                return Task.CompletedTask;
+            },
+            cancelled.Token);
+
+        Assert.Equal(BackgroundWorkState.Cancelled, (await admission.Handle.Completion).State);
+        Assert.Equal(0, calls);
+        Assert.Throws<InvalidOperationException>(() => supervisor.Retry(
+            admission.Handle.OperationId,
+            OperationId.New()));
+    }
+
+    [Fact]
     public async Task SubscriberFaultDoesNotPreventLaterSubscribersOrTheProducer()
     {
         var time = new ManualTimeProvider(Epoch);
         await using var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 2, burst: 2));
         var observed = 0;
         supervisor.Changed += (_, _) => throw new InvalidOperationException("subscriber detail");
-        supervisor.Changed += (_, _) => observed++;
+        supervisor.Changed += (_, _) => Interlocked.Increment(ref observed);
 
         var admission = supervisor.Submit(Request(WorkPriority.Normal), (_, _) => Task.CompletedTask);
         await admission.Handle.Completion;
@@ -211,6 +338,11 @@ public sealed class BackgroundWorkSupervisorTests
         Assert.Equal(BackgroundWorkState.Cancelled, (await pending.Handle.Completion).State);
     }
 
+    /// <summary>A stop that runs out of time reports the truth rather than a completion.</summary>
+    /// <remarks>
+    /// The earlier version marked the ignoring operation terminal and gave its slot back, so the
+    /// same user work was still running while the scheduler believed the slot was free.
+    /// </remarks>
     [Fact]
     public async Task StopRemainsBoundedWhenADependencyIgnoresCancellation()
     {
@@ -225,23 +357,207 @@ public sealed class BackgroundWorkSupervisorTests
         });
         await started.Task;
 
-        var first = await supervisor.StopAsync(TimeSpan.FromSeconds(1));
-        var second = await supervisor.StopAsync(TimeSpan.FromSeconds(1));
+        var stopping = supervisor.StopAsync(TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromSeconds(1));
+        var first = await stopping;
 
-        Assert.True(first.CompletedWithinDeadline);
-        Assert.True(second.CompletedWithinDeadline);
-        Assert.Equal(0, first.UnfinishedOperations);
-        Assert.Equal(0, second.UnfinishedOperations);
-        Assert.Equal(BackgroundWorkState.Cancelled, (await operation.Handle.Completion).State);
+        Assert.False(first.CompletedWithinDeadline);
+        Assert.Equal(1, first.UnfinishedOperations);
+        Assert.False(operation.Handle.Completion.IsCompleted);
+        Assert.Equal(BackgroundWorkState.Running, Assert.Single(supervisor.Snapshot.Operations).State);
+        Assert.Null(Assert.Single(supervisor.Snapshot.Operations).CompletedUtc);
+        Assert.Equal(1, supervisor.Snapshot.Resources.Running);
         Assert.False(release.Task.IsCompleted);
 
         release.TrySetResult();
+        Assert.Equal(BackgroundWorkState.Cancelled, (await operation.Handle.Completion).State);
+        var second = await supervisor.StopAsync(TimeSpan.FromSeconds(1));
+        Assert.True(second.CompletedWithinDeadline);
+        Assert.Equal(0, second.UnfinishedOperations);
+    }
+
+    [Fact]
+    public async Task StopTimeoutKeepsTheExactResourceClassAndRefusesNewWork()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 4, burst: 2));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ignoring = supervisor.Submit(Request(WorkPriority.Normal), async (_, _) =>
+        {
+            started.TrySetResult();
+            await release.Task;
+        });
+        await started.Task;
+        var queued = supervisor.Submit(Request(WorkPriority.Normal), (_, _) => Task.CompletedTask);
+
+        var stopping = supervisor.StopAsync(TimeSpan.FromSeconds(1));
+        time.Advance(TimeSpan.FromSeconds(1));
+        var stop = await stopping;
+
+        Assert.False(stop.CompletedWithinDeadline);
+        Assert.Equal(1, stop.UnfinishedOperations);
+        Assert.Equal(BackgroundWorkState.Cancelled, (await queued.Handle.Completion).State);
+        var resources = supervisor.Snapshot.Resources;
+        Assert.Equal(1, resources.Running);
+        Assert.Equal(1, resources.RunningCPU);
+        Assert.NotNull(supervisor.Snapshot.Operations.Single(operation =>
+            operation.OperationId == ignoring.Handle.OperationId).LastFault);
+        Assert.False(supervisor.Submit(Request(WorkPriority.UserBlocking), (_, _) => Task.CompletedTask).Accepted);
+
+        release.TrySetResult();
+        Assert.Equal(BackgroundWorkState.Cancelled, (await ignoring.Handle.Completion).State);
+        await RuntimeTestTasks.UntilAsync(() => supervisor.Snapshot.Resources.RunningCPU == 0);
+    }
+
+    [Fact]
+    public async Task DisposeAfterATimedOutStopLeavesTheLateCompletionSafe()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 2, burst: 2));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = supervisor.Submit(Request(WorkPriority.Normal), async (_, _) =>
+        {
+            started.TrySetResult();
+            await release.Task;
+        });
+        await started.Task;
+
+        var disposing = supervisor.DisposeAsync().AsTask();
+        await RuntimeTestTasks.AdvanceUntilAsync(time, TimeSpan.FromSeconds(2), () => disposing.IsCompleted);
+        await disposing;
+
+        Assert.False(operation.Handle.Completion.IsCompleted);
+        Assert.Throws<ObjectDisposedException>(() =>
+            supervisor.Submit(Request(WorkPriority.Normal), (_, _) => Task.CompletedTask));
+
+        release.TrySetResult();
+        var result = await operation.Handle.Completion.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(BackgroundWorkState.Cancelled, result.State);
+        await RuntimeTestTasks.UntilAsync(() => supervisor.Snapshot.Resources.Running == 0);
+    }
+
+    [Fact]
+    public async Task AttemptTimeoutRetainsItsResourceAndCompletionUntilIgnoredWorkExits()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(time, Options(capacity: 2, burst: 2));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operation = supervisor.Submit(Request(WorkPriority.Normal, timeout: TimeSpan.FromSeconds(1)), async (_, _) =>
+        {
+            started.TrySetResult();
+            await release.Task;
+        });
+        await started.Task;
+
+        await RuntimeTestTasks.AdvanceUntilAsync(
+            time,
+            TimeSpan.FromSeconds(1),
+            () => Assert.Single(supervisor.Snapshot.Operations).LastFault is not null);
+
+        Assert.False(operation.Handle.Completion.IsCompleted);
+        Assert.Equal(1, supervisor.Snapshot.Resources.Running);
+        Assert.Equal(BackgroundWorkState.Running, Assert.Single(supervisor.Snapshot.Operations).State);
+
+        release.TrySetResult();
+        Assert.Equal(BackgroundWorkState.TimedOut, (await operation.Handle.Completion).State);
+        Assert.Equal(0, supervisor.Snapshot.Resources.Running);
+    }
+
+    [Fact]
+    public async Task OnFailureRestartsAFailedRunAfterItsInjectedBackoff()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(
+            time,
+            Options(capacity: 4, burst: 2, minimumRestartDelay: TimeSpan.FromSeconds(5)));
+        var calls = 0;
+        var admission = supervisor.Submit(
+            Request(WorkPriority.Normal, idempotent: true, restartMode: OperationRestartMode.OnFailure),
+            (_, _) => Interlocked.Increment(ref calls) == 1
+                ? Task.FromException(new IOException("private"))
+                : Task.CompletedTask);
+
+        await RuntimeTestTasks.UntilAsync(() =>
+            Assert.Single(supervisor.Snapshot.Operations).State == BackgroundWorkState.Restarting);
+        Assert.Equal(1, Volatile.Read(ref calls));
+        Assert.Equal(1, supervisor.Snapshot.Resources.Restarting);
+        Assert.Equal(0, supervisor.Snapshot.Resources.Running);
+        Assert.False(admission.Handle.Completion.IsCompleted);
+
+        await RuntimeTestTasks.AdvanceUntilAsync(
+            time,
+            TimeSpan.FromSeconds(5),
+            () => admission.Handle.Completion.IsCompleted);
+        var result = await admission.Handle.Completion;
+
+        Assert.Equal(BackgroundWorkState.Succeeded, result.State);
+        Assert.Equal(2, Volatile.Read(ref calls));
+        Assert.Equal(1, Assert.Single(supervisor.Snapshot.Operations).Restarts);
+        Assert.Equal(0, supervisor.Snapshot.Resources.Restarting);
+    }
+
+    [Fact]
+    public async Task AlwaysRestartsAfterSuccessUntilTheCallerCancels()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(
+            time,
+            Options(capacity: 4, burst: 2, minimumRestartDelay: TimeSpan.FromSeconds(1)));
+        using var cancellation = new CancellationTokenSource();
+        var calls = 0;
+        var admission = supervisor.Submit(
+            Request(WorkPriority.Normal, idempotent: true, restartMode: OperationRestartMode.Always),
+            (_, _) =>
+            {
+                Interlocked.Increment(ref calls);
+                return Task.CompletedTask;
+            },
+            cancellation.Token);
+
+        await RuntimeTestTasks.AdvanceUntilAsync(time, TimeSpan.FromSeconds(1), () => Volatile.Read(ref calls) >= 3);
+        await cancellation.CancelAsync();
+        await RuntimeTestTasks.AdvanceUntilAsync(
+            time,
+            TimeSpan.FromSeconds(1),
+            () => admission.Handle.Completion.IsCompleted);
+        var result = await admission.Handle.Completion;
+        var callsAtCompletion = Volatile.Read(ref calls);
+
+        Assert.Contains(result.State, new[] { BackgroundWorkState.Cancelled, BackgroundWorkState.Succeeded });
+        Assert.True(Assert.Single(supervisor.Snapshot.Operations).Restarts >= 2);
+        time.Advance(TimeSpan.FromSeconds(10));
+        await RuntimeTestTasks.DrainAsync();
+        Assert.Equal(callsAtCompletion, Volatile.Read(ref calls));
+    }
+
+    [Fact]
+    public void AutomaticRestartRequiresAnIdempotencyGuarantee()
+    {
+        Assert.Throws<ArgumentException>(() => OperationPolicy.Once(
+            TimeSpan.FromSeconds(1),
+            WorkloadClass.Light,
+            OperationRestartMode.OnFailure,
+            IdempotencyRequirement.SingleAttempt));
+        Assert.Throws<ArgumentException>(() => OperationPolicy.Once(
+            TimeSpan.FromSeconds(1),
+            WorkloadClass.Light,
+            OperationRestartMode.Always,
+            IdempotencyRequirement.SingleAttempt));
+        Assert.Throws<ArgumentOutOfRangeException>(() => Options(
+            capacity: 2,
+            burst: 1,
+            minimumRestartDelay: TimeSpan.Zero));
     }
 
     private static BackgroundWorkRequest Request(
         WorkPriority priority,
         WorkloadClass workloadClass = WorkloadClass.CPU,
-        bool idempotent = false)
+        bool idempotent = false,
+        OperationRestartMode restartMode = OperationRestartMode.Manual,
+        TimeSpan? timeout = null)
     {
         var operation = OperationId.New();
         return new(
@@ -251,9 +567,9 @@ public sealed class BackgroundWorkSupervisorTests
                 CorrelationId.New(),
                 new("capture-fixture"),
                 OperationPolicy.Once(
-                    TimeSpan.FromMinutes(1),
+                    timeout ?? TimeSpan.FromMinutes(1),
                     workloadClass,
-                    OperationRestartMode.Manual,
+                    restartMode,
                     idempotent
                         ? IdempotencyRequirement.Guaranteed
                         : IdempotencyRequirement.SingleAttempt)),
@@ -261,14 +577,20 @@ public sealed class BackgroundWorkSupervisorTests
             priority);
     }
 
-    private static BackgroundWorkSupervisorOptions Options(int capacity, int burst) => new(
+    private static BackgroundWorkSupervisorOptions Options(
+        int capacity,
+        int burst,
+        int maxConcurrent = 1,
+        int lightLimit = 1,
+        TimeSpan? minimumRestartDelay = null) => new(
         capacity,
         reservedInteractiveAdmission: 1,
-        maxConcurrent: 1,
-        lightLimit: 1,
+        maxConcurrent: maxConcurrent,
+        lightLimit: lightLimit,
         ioLimit: 1,
         cpuLimit: 1,
         maxPriorityBurst: burst,
         terminalHistoryLimit: 32,
-        defaultStopTimeout: TimeSpan.FromSeconds(2));
+        defaultStopTimeout: TimeSpan.FromSeconds(2),
+        minimumRestartDelay: minimumRestartDelay);
 }

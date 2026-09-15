@@ -436,6 +436,10 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
             {
                 Operations = snapshot.Supervisor.Operations.IsDefault ? [] : [.. snapshot.Supervisor.Operations],
             },
+            Outbox = snapshot.Outbox with
+            {
+                DeadLetters = snapshot.Outbox.DeadLetters.IsDefault ? [] : [.. snapshot.Outbox.DeadLetters],
+            },
         };
     }
 

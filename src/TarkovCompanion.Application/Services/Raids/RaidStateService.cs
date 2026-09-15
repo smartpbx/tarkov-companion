@@ -5,9 +5,49 @@ using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.Application.Services.Raids;
 
-public sealed class RaidStateService(bool developerMode = false) : IRaidStateService
+/// <summary>A raid state whose transitions can be worked out privately and made current later.</summary>
+/// <remarks>
+/// The durable raid-history path must not change the raid everyone reads until the record of
+/// that change has been accepted. Applying evidence to the live state first, and then failing
+/// to store it, left the state service holding a raid the record never heard of — the next
+/// observation built on it, and its start was never written.
+/// </remarks>
+public interface IStagedRaidStateService : IRaidStateService
+{
+    /// <summary>A private working copy that starts from <see cref="IRaidStateService.Current"/>.</summary>
+    IRaidStateService Stage();
+
+    /// <summary>Makes a working copy from <see cref="Stage"/> the current state.</summary>
+    /// <remarks>The caller serializes transitions; a commit replaces whatever is current.</remarks>
+    void Commit(IRaidStateService stage);
+}
+
+public sealed class RaidStateService(bool developerMode = false) : IStagedRaidStateService
 {
     private readonly bool _developerMode = developerMode;
+
+    private readonly RaidStateService? _origin;
+
+    private RaidStateService(RaidStateService origin)
+        : this(origin._developerMode)
+    {
+        Current = origin.Current;
+        _origin = origin;
+    }
+
+    /// <inheritdoc />
+    public IRaidStateService Stage() => new RaidStateService(this);
+
+    /// <inheritdoc />
+    public void Commit(IRaidStateService stage)
+    {
+        if (stage is not RaidStateService staged || !ReferenceEquals(staged._origin, this))
+        {
+            throw new ArgumentException("Only a working copy staged from this raid state can be committed.", nameof(stage));
+        }
+
+        Current = staged.Current;
+    }
 
     public RaidSnapshot Current { get; private set; } = new(
         null,
