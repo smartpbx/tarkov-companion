@@ -181,12 +181,12 @@ public sealed class ProfileTransferV2Tests
 
     /// <summary>
     /// A v1 export committed byte for byte. The checksum covers this version's re-serialization of
-    /// typed Core records, so a new, renamed, or reordered record member, or a different date,
-    /// number, enum, or string escaping, would stop every document already exported from verifying
-    /// while every round-trip test written against the current code kept passing. Escaping is not
-    /// even uniform today: the fixture's timestamps carry a raw "+00:00" while its profile name
-    /// carries "co\u002B". The fixture is never regenerated to make this pass; a change that needs
-    /// it regenerated raises the format.
+    /// typed Core records. It detects changes that alter the canonical bytes for the values and
+    /// record shapes represented here while round-trip tests against only current code could keep
+    /// passing; compatibility-sensitive values not represented here need additional fixtures.
+    /// Escaping is not even uniform today: the fixture's timestamps carry a raw "+00:00" while its
+    /// profile name carries "co\u002B". The fixture is never regenerated to make this pass; a
+    /// change that needs it regenerated raises the format.
     /// </summary>
     [Fact]
     public void Committed_v1_fixture_decodes_to_exact_values_and_re_exports_byte_for_byte()
