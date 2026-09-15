@@ -939,7 +939,7 @@ class RelayUpdaterTests(UpdaterFixture):
                 result = self.run_updater()
 
                 self.assertNotEqual(0, result.returncode)
-                self.assertIn("unsupported version", result.stdout)
+                self.assertIn("unsupported bounded version", result.stdout)
 
     def test_a_signed_rollback_installs_the_older_release(self) -> None:
         self.release("2.0.0", "b" * 40, 1)

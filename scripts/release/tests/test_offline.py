@@ -120,10 +120,11 @@ class OfflineFixture(unittest.TestCase):
             "lastKnownGood": release,
             "highWaterVersion": manifest["version"] if not rollback else "9.9.9",
             "rollback": {"generation": generation, "from": rollback_from} if rollback else None,
-            "authorization": {"action": "rollback" if rollback else "promote", "actor": "operator", "reason": "fixture",
+            "authorization": {"action": "rollback" if rollback else "pause" if paused else "promote",
+                              "actor": "operator", "reason": "fixture",
                               "workflowRunId": "1", "verificationRunId": None,
-                              "sourceRing": None if rollback else "beta",
-                              "sourceGeneration": None if rollback else generation,
+                              "sourceRing": None if rollback or paused else "beta",
+                              "sourceGeneration": None if rollback or paused else generation,
                               "previousGeneration": generation - 1},
         }).encode()
         path = self.bundle / f"release-index-g{generation:010d}.json"
@@ -168,7 +169,7 @@ class VerifyOfflineTests(OfflineFixture):
         (next(self.bundle.glob("release-index-g*.json"))).unlink()
         no_decision = self.verify()
         self.assertNotEqual(0, no_decision.returncode)
-        self.assertIn("no signed ring decision", no_decision.stderr)
+        self.assertIn("bounded plain signed ring decision", no_decision.stderr)
 
         glass = self.verify("--break-glass")
         self.assertEqual(0, glass.returncode, glass.stderr)

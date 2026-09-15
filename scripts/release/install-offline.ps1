@@ -226,6 +226,11 @@ function Read-BoundedJson([string] $Path, [long] $MaximumBytes, [string] $Label)
         }
     }
     if ($Quoted -or $Depth -ne 0) { throw "$Label has unbalanced JSON strings or delimiters." }
+    if (-not $Text.TrimStart([char]0xfeff).StartsWith("{", [StringComparison]::Ordinal)) {
+        # Every signed document this installer consumes is an object. Reject arrays before
+        # ConvertFrom-Json can enumerate a one-element array into an indistinguishable object.
+        throw "$Label must contain a JSON object."
+    }
     try {
         # PowerShell otherwise turns ISO-8601 JSON strings into DateTime values and destroys the
         # original spelling before the release policy can require its canonical UTC form.
@@ -455,6 +460,12 @@ try {
     if ((Get-Sha256 $InstallerPath) -cne [string]$Installer.sha256 -or (Get-Item -LiteralPath $InstallerPath).Length -ne [long]$Installer.size) {
         throw "The installer does not match the signed manifest."
     }
+    # The verified installer normally runs on Windows, where its extension selects the loader.
+    # The Unix recovery fixture is a script with the same signed role, and the private copy must
+    # be executable there for the test to exercise the post-verification install boundary.
+    if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) {
+        [System.IO.File]::SetUnixFileMode($InstallerPath, $UnixUserOnly)
+    }
     Invoke-Verification $InstallerPath
 
     $RollbackAuthorized = $false
@@ -639,6 +650,9 @@ try {
             if (-not $AllowDowngrade) {
                 throw "The installed version under $Current cannot be read; refusing to install over it without -AllowDowngrade."
             }
+            # Explicit downgrade authority permits the install, but an unreadable value still
+            # cannot be handed to the ordering function as though it were a version.
+            $InstalledVersion = ""
         } else {
             try { Assert-ReleaseVersion $InstalledVersion } catch {
                 if (-not $AllowDowngrade) {
