@@ -10,6 +10,7 @@ public readonly record struct PreferenceSchemaVersion
     public const int MaxMajor = 99;
     public const int MaxMinor = 999;
 
+    [JsonConstructor]
     public PreferenceSchemaVersion(int major, int minor)
     {
         Major = major is >= 1 and <= MaxMajor
@@ -32,6 +33,7 @@ public readonly record struct PreferenceSchemaVersion
 
 public readonly record struct PreferenceProfileId
 {
+    [JsonConstructor]
     public PreferenceProfileId(Guid value) => Value = ProtocolGuard.Id(value, nameof(value));
 
     public Guid Value { get; }
@@ -325,7 +327,7 @@ public sealed record ProfilePreferencesDocument
         IReadOnlyList<ProtectedItemRule> protectedItemRules,
         IReadOnlyList<RecommendationOverride> recommendationOverrides,
         IReadOnlyList<FavoriteLoadout> favoriteLoadouts,
-        IReadOnlyList<SharedPersonalization> sharedPersonalization)
+        IReadOnlyList<SharedPersonalization>? sharedPersonalization = null)
     {
         Context = ProtocolGuard.NotNull(context, nameof(context));
         SchemaVersion = schemaVersion;
@@ -346,7 +348,7 @@ public sealed record ProfilePreferencesDocument
             nameof(favoriteLoadouts),
             ProtocolBounds.MaxFavoriteLoadouts);
         var sortedShared = ProtocolGuard.List(
-                sharedPersonalization,
+                sharedPersonalization ?? [],
                 nameof(sharedPersonalization),
                 ProtocolBounds.MaxSharedPersonalization)
             .OrderBy(value => value.Kind)

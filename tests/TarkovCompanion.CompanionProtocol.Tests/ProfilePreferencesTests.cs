@@ -59,6 +59,24 @@ public sealed class ProfilePreferencesTests
     }
 
     [Fact]
+    public void VersionOneZeroWireDocumentMayOmitTheFieldIntroducedByOneOne()
+    {
+        var node = GoldenNode("commands/activate-profile-preferences.json");
+        node["command"]!["preferences"]!.AsObject().Remove("sharedPersonalization");
+
+        Assert.Empty(new SchemaValidator(SchemaNode()).Validate(node));
+        var envelope = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
+            Encoding.UTF8.GetBytes(node.ToJsonString()));
+        var command = Assert.IsType<ActivateProfilePreferencesCommand>(envelope.Command);
+        var applied = DesktopCanonicalStateMachine.Apply(InitialState(), envelope, DesktopContext());
+
+        Assert.Empty(command.Preferences.SharedPersonalization);
+        Assert.Equal(CommandDisposition.Applied, applied.Acknowledgement.Disposition);
+        Assert.Equal(PreferenceSchemaVersion.Current, applied.State.ProfilePreferences.ActiveProfile!.SchemaVersion);
+        Assert.Empty(applied.State.ProfilePreferences.ActiveProfile.SharedPersonalization);
+    }
+
+    [Fact]
     public void EveryClosedMutationChangesOnlyItsNamedPreferenceCollection()
     {
         var state = Activate();
