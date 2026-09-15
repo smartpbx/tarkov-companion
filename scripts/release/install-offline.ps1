@@ -319,6 +319,9 @@ function Invoke-Verification([string] $Path) {
     $Previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
+        # Seed the automatic variable so a host that opens rather than executes the file cannot
+        # reuse a stale success or fail later with an unrelated StrictMode error.
+        $LASTEXITCODE = -1
         & $StagedCosign verify-blob `
             --bundle "$Path.sigstore.json" `
             --trusted-root $StagedTrustRoot `
@@ -404,6 +407,13 @@ try {
         if ($CosignDigest -cne $CosignSha256) { throw "$CosignSource is not the cosign -CosignSha256 names." }
     } elseif ($CosignPins -cnotcontains $CosignDigest) {
         throw "$CosignSource (sha256 $CosignDigest) is not a pinned cosign."
+    }
+    # Copy-BoundedFile deliberately creates a new plain file. Windows executes it by extension;
+    # Unix also requires an execute bit, and without one PowerShell delegates to xdg-open instead
+    # of starting the verifier. The private copy remains user-only and is still the file hashed.
+    if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) {
+        $UnixUserOnly = [System.IO.UnixFileMode]::UserRead -bor [System.IO.UnixFileMode]::UserWrite -bor [System.IO.UnixFileMode]::UserExecute
+        [System.IO.File]::SetUnixFileMode($StagedCosign, $UnixUserOnly)
     }
     $StagedTrustRoot = Join-Path $Staging "trusted-root.json"
     $null = Copy-BoundedFile $TrustedRoot $StagedTrustRoot $MaximumJsonBytes "Sigstore trust root"

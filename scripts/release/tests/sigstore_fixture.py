@@ -119,6 +119,10 @@ log = os.environ.get("FAKE_COSIGN_LOG")
 if log:
     with open(log, "a", encoding="utf-8") as stream:
         stream.write(" ".join(arguments) + "\n")
+executable_log = os.environ.get("FAKE_COSIGN_EXECUTABLE_LOG")
+if executable_log:
+    with open(executable_log, "a", encoding="utf-8") as stream:
+        stream.write(os.path.realpath(sys.argv[0]) + "\n")
 root = os.environ.get("FAKE_ROOT")
 if root and any(name in os.environ for name in ("GH_TOKEN", "GITHUB_TOKEN")):
     with open(os.path.join(root, "leaked-token.log"), "a", encoding="utf-8") as stream:

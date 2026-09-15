@@ -298,6 +298,22 @@ class InstallOfflineTests(OfflineFixture):
         self.assertIn("What if", result.stdout)
         self.assertFalse((self.install_root / "ran-from").exists())
 
+    @unittest.skipIf(os.name == "nt", "Unix executable-mode fixture")
+    def test_linux_executes_the_private_verifier_and_honors_its_native_exit_code(self) -> None:
+        executable_log = self.root / "cosign-executables.log"
+
+        verified = self.install("-WhatIf", FAKE_COSIGN_EXECUTABLE_LOG=str(executable_log))
+        executed = [Path(line) for line in executable_log.read_text(encoding="utf-8").splitlines()]
+        rejected = self.install("-WhatIf", FAKE_COSIGN_REJECT=INSTALLER)
+
+        self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
+        self.assertEqual(3, len(executed))
+        self.assertNotIn((self.bin / "cosign").resolve(), executed)
+        self.assertTrue(all(not path.exists() for path in executed), "a staged verifier survived cleanup")
+        self.assertNotEqual(0, rejected.returncode)
+        self.assertIn("does not verify", plain(rejected))
+        self.assertNotIn("LASTEXITCODE", plain(rejected))
+
     def test_the_installer_runs_the_verified_private_copy_not_the_media(self) -> None:
         result = self.install()
 
