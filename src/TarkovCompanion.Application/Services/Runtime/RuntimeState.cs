@@ -247,9 +247,20 @@ public sealed record RuntimeResourceSnapshot(long StateSubscriberFaults)
     public static RuntimeResourceSnapshot Empty { get; } = new(0);
 }
 
+/// <summary>The single published runtime snapshot, with isolated and serialized subscribers.</summary>
+/// <remarks>
+/// Publications now arrive from the supervisor, the feature lifecycle and the raid-history
+/// delivery pump as well as from observation, each on whatever thread finished its work. Handlers
+/// used to be invoked by every one of those threads at once, and the view model that consumes this
+/// is only safe when calls reach it one at a time; in a host with no dispatcher it lost the edge
+/// from InRaid to PostRaid and never produced a raid summary. Notifications are therefore
+/// serialized. The snapshot is still computed under its own lock, and no handler runs while that
+/// lock is held.
+/// </remarks>
 public sealed class RuntimeStateStore : IRuntimeStateStore
 {
     private readonly object _gate = new();
+    private readonly object _notificationGate = new();
     private ApplicationRuntimeSnapshot _current;
     private EventHandler? _changed;
     private long _subscriberFaults;
@@ -343,15 +354,18 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
         }
 
         var failures = 0;
-        foreach (var handler in handlers)
+        lock (_notificationGate)
         {
-            try
+            foreach (var handler in handlers)
             {
-                handler(this, EventArgs.Empty);
-            }
-            catch (Exception)
-            {
-                failures++;
+                try
+                {
+                    handler(this, EventArgs.Empty);
+                }
+                catch (Exception)
+                {
+                    failures++;
+                }
             }
         }
 

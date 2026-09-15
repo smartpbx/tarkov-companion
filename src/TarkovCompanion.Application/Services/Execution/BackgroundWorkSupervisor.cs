@@ -472,8 +472,10 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         }
 
         // The deadline timer exists before anything is awaited, so a stop is bounded from the
-        // moment it is requested rather than from whenever cancellation callbacks finished.
-        var waiting = Task.WhenAll(runs.Append(_dispatcher).Append(cancelling))
+        // moment it is requested rather than from whenever cancellation callbacks finished. The
+        // dispatcher is observed rather than awaited: one that had not been scheduled yet when
+        // the lifetime was cancelled completes as cancelled, which is not a stop failure.
+        var waiting = Task.WhenAll(runs.Append(ObserveAsync(_dispatcher)).Append(cancelling))
             .WaitAsync(timeout, _timeProvider, cancellationToken);
         if (beganStopping)
         {

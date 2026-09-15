@@ -73,6 +73,45 @@ public sealed class RuntimeStateStoreTests
         Assert.Equal([1L, 2L, 3L], revisions);
     }
 
+    /// <summary>Background publishers never run a subscriber concurrently with another.</summary>
+    [Fact]
+    public async Task SubscribersAreNotifiedOneAtATimeAcrossPublishingThreads()
+    {
+        var store = Store();
+        var active = 0;
+        var overlaps = 0;
+        var notifications = 0;
+        store.Changed += (_, _) =>
+        {
+            if (Interlocked.Increment(ref active) > 1)
+            {
+                Interlocked.Increment(ref overlaps);
+            }
+
+            Thread.SpinWait(2_000);
+            Interlocked.Increment(ref notifications);
+            Interlocked.Decrement(ref active);
+        };
+        var publishers = Enumerable.Range(0, 4)
+            .Select(_ => Task.Factory.StartNew(
+                () =>
+                {
+                    for (var index = 0; index < 100; index++)
+                    {
+                        store.Update(current => current with { Data = current.Data with { ItemCount = index } });
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
+            .ToArray();
+        await Task.WhenAll(publishers).WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.Equal(0, overlaps);
+        Assert.Equal(400, notifications);
+        Assert.Equal(400, store.Current.LocalRevision);
+    }
+
     private static RuntimeStateStore Store() => new(new(
         DemoMode: false,
         Offline: true,
