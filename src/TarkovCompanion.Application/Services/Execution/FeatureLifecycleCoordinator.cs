@@ -258,9 +258,9 @@ public sealed class FeatureLifecycleCoordinator
             _startInvoked = true;
         }
 
-        // Disposed only once every start has settled. Leaving startup early can leave starts
-        // still waiting on this token, and disposing it then could drop the cancellation they
-        // have not yet received.
+        // Disposed only once every started wrapper has settled. StartPhaseAsync drains those
+        // wrappers when cancellation interrupts a phase, so the link always has one exact owner
+        // and is never released while a wrapper can still be registering against it.
         var linked = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _startupCancellation.Token);
@@ -276,10 +276,13 @@ public sealed class FeatureLifecycleCoordinator
         catch (OperationCanceledException) when (
             _startupCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            return Snapshot;
+            // Stop owns the compensating shutdown. Startup still releases its token link below.
+        }
+        finally
+        {
+            linked.Dispose();
         }
 
-        linked.Dispose();
         lock (_gate)
         {
             _startupCompleted = !_stopStarted;
@@ -362,33 +365,43 @@ public sealed class FeatureLifecycleCoordinator
     {
         var remaining = new HashSet<RuntimeFeatureId>(phase);
         var running = new Dictionary<RuntimeFeatureId, Task>();
-        while (remaining.Count > 0 || running.Count > 0)
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var ready = _topologicalOrder
-                .Where(remaining.Contains)
-                .Where(DependenciesReady)
-                .OrderByDescending(featureId => _nodes[featureId].Definition.Priority)
-                .Take(_options.MaxParallelStarts - running.Count)
-                .ToArray();
-
-            foreach (var featureId in ready)
+            while (remaining.Count > 0 || running.Count > 0)
             {
-                remaining.Remove(featureId);
-                running.Add(featureId, StartOneAsync(_nodes[featureId], cancellationToken));
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                var ready = _topologicalOrder
+                    .Where(remaining.Contains)
+                    .Where(DependenciesReady)
+                    .OrderByDescending(featureId => _nodes[featureId].Definition.Priority)
+                    .Take(_options.MaxParallelStarts - running.Count)
+                    .ToArray();
 
-            if (running.Count == 0)
-            {
-                throw new InvalidOperationException("The feature graph stopped making progress.");
-            }
+                foreach (var featureId in ready)
+                {
+                    remaining.Remove(featureId);
+                    running.Add(featureId, StartOneAsync(_nodes[featureId], cancellationToken));
+                }
 
-            await Task.WhenAny(running.Values).ConfigureAwait(false);
-            foreach (var finished in running.Where(pair => pair.Value.IsCompleted).ToArray())
-            {
-                await finished.Value.ConfigureAwait(false);
-                running.Remove(finished.Key);
+                if (running.Count == 0)
+                {
+                    throw new InvalidOperationException("The feature graph stopped making progress.");
+                }
+
+                await Task.WhenAny(running.Values).ConfigureAwait(false);
+                foreach (var finished in running.Where(pair => pair.Value.IsCompleted).ToArray())
+                {
+                    await finished.Value.ConfigureAwait(false);
+                    running.Remove(finished.Key);
+                }
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // A completed wrapper can surface cancellation before its siblings have observed the
+            // same token. Retain and drain every wrapper before StartAsync releases their link.
+            await Task.WhenAll(running.Values.Select(ObserveAsync)).ConfigureAwait(false);
+            throw;
         }
     }
 

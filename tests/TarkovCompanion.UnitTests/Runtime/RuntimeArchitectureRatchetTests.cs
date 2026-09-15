@@ -211,6 +211,23 @@ public sealed partial class RuntimeArchitectureRatchetTests
         Assert.True(invoke > stateGate, "Subscribers are no longer notified inside the publication gate.");
     }
 
+    [Fact]
+    public void LifecycleDrainsStartedWrappersBeforeReleasingTheStartupTokenLink()
+    {
+        var source = File.ReadAllText(Path.Combine(ExecutionDirectory(), "FeatureLifecycleCoordinator.cs"));
+        var phase = source.IndexOf("private async Task StartPhaseAsync", StringComparison.Ordinal);
+        var drain = source.IndexOf("Task.WhenAll(running.Values.Select(ObserveAsync))", phase, StringComparison.Ordinal);
+        var start = source.IndexOf(
+            "public async Task<FeatureLifecycleSnapshot> StartAsync",
+            StringComparison.Ordinal);
+        var finallyBlock = source.IndexOf("finally", start, StringComparison.Ordinal);
+        var dispose = source.IndexOf("linked.Dispose();", finallyBlock, StringComparison.Ordinal);
+
+        Assert.True(drain > phase, "Cancelled startup can abandon sibling feature wrappers.");
+        Assert.True(finallyBlock > 0, "The startup token link has no guaranteed release path.");
+        Assert.True(dispose > finallyBlock, "The startup token link is no longer released by its owner.");
+    }
+
     private static void AssertShape<T>(params string[] expected) =>
         Assert.Equal(
             expected.Order(StringComparer.Ordinal),

@@ -158,6 +158,9 @@ Cancellation of an attempt that is still running is explicit. A wait can observe
 cancellation before a linked token has passed it on, and tearing the link down afterwards used to
 drop it, so the executor, outbox processor, and feature starts cancel an unfinished attempt
 directly and keep its token source alive until the attempt and cancellation callbacks return.
+When lifecycle startup itself is cancelled, its phase drains every already-launched feature-start
+wrapper before the coordinator releases the shared startup token link; raw starts that ignore
+cancellation remain owned by their compensating stop.
 Cancellation delivery is asynchronous: a hostile callback cannot hold a timeout or invalidation
 caller hostage.
 

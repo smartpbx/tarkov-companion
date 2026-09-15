@@ -335,6 +335,54 @@ public sealed class FeatureLifecycleCoordinatorTests
     }
 
     [Fact]
+    public async Task CallerCancellationKeepsAnIgnoringStartOwnedUntilItsCompensatingStop()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopCalls = 0;
+        var lifecycle = Lifecycle(
+        [
+            new(
+                new("cancelled-start"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ =>
+                {
+                    started.TrySetResult();
+                    return releaseStart.Task;
+                },
+                _ =>
+                {
+                    Interlocked.Increment(ref stopCalls);
+                    return Task.CompletedTask;
+                }),
+        ]);
+        using var cancellation = new CancellationTokenSource();
+        var startup = lifecycle.StartAsync(cancellation.Token);
+        await started.Task;
+
+        try
+        {
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => startup);
+
+            var cancelled = Feature(lifecycle.Snapshot, "cancelled-start");
+            Assert.Equal(FeatureLifecycleState.Starting, cancelled.State);
+            Assert.Equal("feature-start-cancelled", cancelled.LastFault?.Code.Value);
+            Assert.Null(cancelled.CompletedUtc);
+            Assert.Equal(0, Volatile.Read(ref stopCalls));
+        }
+        finally
+        {
+            releaseStart.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() =>
+            State(lifecycle.Snapshot, "cancelled-start") == FeatureLifecycleState.Failed);
+        Assert.Equal(1, Volatile.Read(ref stopCalls));
+    }
+
+    [Fact]
     public async Task StopBeforeStartMeansNothingEverStarts()
     {
         var starts = 0;
