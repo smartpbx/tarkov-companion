@@ -8,12 +8,24 @@ public sealed record CorpusParseResult<T>(T? Value, IReadOnlyList<string> Errors
 
 public static class CorpusJson
 {
-    private static readonly HashSet<string> NestedSchemaVersions = new(StringComparer.Ordinal)
-    {
-        CorpusValidation.ProvenanceSchemaVersion,
-        CorpusValidation.ConsentSchemaVersion,
-        CorpusValidation.PrivacyReviewSchemaVersion,
-    };
+    /// <summary>
+    /// The only places each v1 document defines a nested versioned sub-document. A position is the
+    /// chain of member names from the root, with null standing for "any element of this array".
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, NestedVersion[]> NestedVersionPositions =
+        new Dictionary<string, NestedVersion[]>(StringComparer.Ordinal)
+        {
+            [CorpusValidation.ManifestSchemaVersion] =
+            [
+                new(["samples", null, "provenance"], CorpusValidation.ProvenanceSchemaVersion),
+                new(["privateEvidence", null, "consent"], CorpusValidation.ConsentSchemaVersion),
+                new(["privateEvidence", null, "privacyReview"], CorpusValidation.PrivacyReviewSchemaVersion),
+            ],
+            [CorpusValidation.RunPlanSchemaVersion] = [new(["samples", null, "provenance"], CorpusValidation.ProvenanceSchemaVersion)],
+            [CorpusValidation.PredictionsSchemaVersion] = [new(["predictions", null, "provenance"], CorpusValidation.ProvenanceSchemaVersion)],
+            [CorpusValidation.ThresholdsSchemaVersion] = [],
+            [CorpusValidation.AggregateResultsSchemaVersion] = [],
+        };
 
     public static CorpusParseResult<CorpusManifest> ParseManifest(string json)
     {
@@ -87,6 +99,7 @@ public static class CorpusJson
             {
                 var path = $"$.predictions[{index}]";
                 var performance = Object(element, "performance", path, errors);
+                var source = Object(element, "source", path, errors);
                 var claims = Array(element, "claims", path, errors).Select((claim, claimIndex) =>
                 {
                     var claimPath = $"{path}.claims[{claimIndex}]";
@@ -100,6 +113,13 @@ public static class CorpusJson
                     String(element, "sampleId", path, errors),
                     ParseIntent(String(element, "intent", path, errors), path, errors),
                     ParseEvidenceClass(String(element, "evidenceClass", path, errors), path, errors),
+                    ParseContext(Object(element, "provenance", path, errors), path + ".provenance", errors),
+                    ParseLineage(Object(element, "lineage", path, errors), path + ".lineage", errors),
+                    Utc(element, "producedUtc", path, errors),
+                    new PredictionSource(
+                        String(source, "modelId", path + ".source", errors),
+                        String(source, "modelVersion", path + ".source", errors),
+                        ParsePredictionSourceKind(String(source, "kind", path + ".source", errors), path + ".source", errors)),
                     ParsePredictionType(String(element, "type", path, errors), path, errors),
                     ParsePredictionStatus(String(element, "status", path, errors), path, errors),
                     Decimal(element, "confidence", path, errors),
@@ -180,6 +200,8 @@ public static class CorpusJson
                     Integer(element, "falseNegatives", path, errors),
                     Integer(element, "abstentions", path, errors),
                     Integer(element, "confidentWrong", path, errors),
+                    Integer(element, "expectedFrames", path, errors),
+                    Integer(element, "observedFrames", path, errors),
                     Integer(element, "missingFrames", path, errors),
                     Integer(element, "reorderedFrames", path, errors),
                     Integer(element, "overlapDeduplicationErrors", path, errors),
@@ -196,6 +218,7 @@ public static class CorpusJson
                     Decimal(element, "f1", path, errors),
                     Decimal(element, "abstentionRate", path, errors),
                     Decimal(element, "confidentWrongRate", path, errors),
+                    Decimal(element, "sequenceCompleteness", path, errors),
                     Decimal(element, "confidenceIntervalLower", path, errors),
                     Decimal(element, "confidenceIntervalUpper", path, errors),
                     Integer(element, "performanceSampleCount", path, errors),
@@ -511,6 +534,8 @@ public static class CorpusJson
         writer.WriteNumber("falseNegatives", slice.FalseNegatives);
         writer.WriteNumber("abstentions", slice.Abstentions);
         writer.WriteNumber("confidentWrong", slice.ConfidentWrong);
+        writer.WriteNumber("expectedFrames", slice.ExpectedFrames);
+        writer.WriteNumber("observedFrames", slice.ObservedFrames);
         writer.WriteNumber("missingFrames", slice.MissingFrames);
         writer.WriteNumber("reorderedFrames", slice.ReorderedFrames);
         writer.WriteNumber("overlapDeduplicationErrors", slice.OverlapDeduplicationErrors);
@@ -527,6 +552,7 @@ public static class CorpusJson
         writer.WriteNumber("f1", CanonicalDecimal(slice.F1));
         writer.WriteNumber("abstentionRate", CanonicalDecimal(slice.AbstentionRate));
         writer.WriteNumber("confidentWrongRate", CanonicalDecimal(slice.ConfidentWrongRate));
+        writer.WriteNumber("sequenceCompleteness", CanonicalDecimal(slice.SequenceCompleteness));
         writer.WriteNumber("confidenceIntervalLower", CanonicalDecimal(slice.ConfidenceIntervalLower));
         writer.WriteNumber("confidenceIntervalUpper", CanonicalDecimal(slice.ConfidenceIntervalUpper));
         writer.WriteNumber("performanceSampleCount", slice.PerformanceSampleCount);
@@ -556,7 +582,11 @@ public static class CorpusJson
         }
         catch (JsonException exception)
         {
-            errors.Add($"Malformed JSON: {exception.Message}");
+            // The runtime message quotes the JSON path it stopped at, and that path is built from
+            // property names the document chose; only the position is reported.
+            errors.Add(exception.LineNumber is { } line && exception.BytePositionInLine is { } position
+                ? string.Create(CultureInfo.InvariantCulture, $"Malformed JSON at line {line + 1}, byte {position + 1}.")
+                : "Malformed JSON.");
             return false;
         }
 
@@ -569,7 +599,7 @@ public static class CorpusJson
         }
 
         Const(document.RootElement, "schemaVersion", expectedSchemaVersion, "$", errors);
-        RejectUnsupportedNestedSchemaVersions(document.RootElement, "$", errors);
+        RejectMisplacedSchemaVersions(document.RootElement, NestedVersionPositions[expectedSchemaVersion], [], "$", errors);
         RejectDuplicateProperties(document.RootElement, "$", errors);
         errors.AddRange(CorpusValidation.PrivacyErrors(document.RootElement, privateManifest));
         return true;
@@ -577,26 +607,39 @@ public static class CorpusJson
 
     /// <summary>
     /// Unknown properties are tolerated so v1 readers survive compatible additions, but a nested
-    /// object that declares its own schema version is a versioned sub-document, and one this
-    /// reader does not implement cannot be read as if it were v1. The positional checks in the
-    /// consent, privacy-review, and provenance parsers only see the places v1 defines; a
-    /// "provenance.v2" smuggled under an extension, or a "schemaVersion" on an object v1 never
-    /// versioned, would otherwise pass silently. The root's own version is checked by the caller.
+    /// object that declares its own schema version is a versioned sub-document, and v1 defines
+    /// exactly where each one may appear. The previous check accepted any nested declaration whose
+    /// value was one of the known versions, wherever it sat, so an extension object in a
+    /// truth-free plan or in predictions could carry a complete "consent.v1" record, or a second
+    /// "provenance.v1" beside the real one, and pass as an ignorable unknown property. A
+    /// declaration is now valid only at its defined position, spelled exactly, with exactly that
+    /// position's version; a case or separator variant of the name counts as a declaration, since
+    /// a lenient reader would bind it, and so do JSON Schema's own "$schema" and "$id", which no
+    /// nested position defines. The root's own version is checked by the caller, and a root
+    /// "$schema" stays an editor hint.
     /// </summary>
-    private static void RejectUnsupportedNestedSchemaVersions(JsonElement element, string path, ICollection<string> errors)
+    private static void RejectMisplacedSchemaVersions(
+        JsonElement element,
+        NestedVersion[] allowed,
+        List<string?> position,
+        string path,
+        ICollection<string> errors)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
             foreach (var property in element.EnumerateObject())
             {
-                var propertyPath = path + "." + property.Name;
-                if (path != "$" && property.NameEquals("schemaVersion") &&
-                    (property.Value.ValueKind != JsonValueKind.String || !NestedSchemaVersions.Contains(property.Value.GetString()!)))
+                var propertyPath = path + "." + CorpusDiagnostics.PropertySegment(property.Name);
+                if (position.Count != 0 && DeclaresDocumentType(property.Name) &&
+                    !(property.NameEquals("schemaVersion") && property.Value.ValueKind == JsonValueKind.String &&
+                      allowed.Any(entry => entry.Matches(position) && property.Value.ValueEquals(entry.Version))))
                 {
-                    errors.Add($"{propertyPath} names an unsupported nested schema version.");
+                    errors.Add($"{propertyPath} names an unsupported nested schema version for its position.");
                 }
 
-                RejectUnsupportedNestedSchemaVersions(property.Value, propertyPath, errors);
+                position.Add(property.Name);
+                RejectMisplacedSchemaVersions(property.Value, allowed, position, propertyPath, errors);
+                position.RemoveAt(position.Count - 1);
             }
         }
         else if (element.ValueKind == JsonValueKind.Array)
@@ -604,12 +647,22 @@ public static class CorpusJson
             var index = 0;
             foreach (var value in element.EnumerateArray())
             {
-                RejectUnsupportedNestedSchemaVersions(value, $"{path}[{index}]", errors);
+                position.Add(null);
+                RejectMisplacedSchemaVersions(value, allowed, position, $"{path}[{index}]", errors);
+                position.RemoveAt(position.Count - 1);
                 index++;
             }
         }
     }
 
+    private static bool DeclaresDocumentType(string name) =>
+        CorpusValidation.NormalizedPropertyName(name) is "schemaversion" or "schema" || string.Equals(name, "$id", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Names are compared the way the privacy check compares them: "planLock" beside "plan_lock"
+    /// or "PlanLock" is one member to a case-insensitive or convention-mapping reader, and which
+    /// value it binds would depend on that reader rather than on this contract.
+    /// </summary>
     private static void RejectDuplicateProperties(JsonElement element, string path, ICollection<string> errors)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -617,12 +670,13 @@ public static class CorpusJson
             var names = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in element.EnumerateObject())
             {
-                if (!names.Add(property.Name))
+                var propertyPath = path + "." + CorpusDiagnostics.PropertySegment(property.Name);
+                if (!names.Add(CorpusValidation.NormalizedPropertyName(property.Name) ?? property.Name))
                 {
-                    errors.Add($"{path} repeats JSON property {property.Name}.");
+                    errors.Add($"{path} repeats JSON property {CorpusDiagnostics.PropertySegment(property.Name)}.");
                 }
 
-                RejectDuplicateProperties(property.Value, path + "." + property.Name, errors);
+                RejectDuplicateProperties(property.Value, propertyPath, errors);
             }
         }
         else if (element.ValueKind == JsonValueKind.Array)
@@ -868,6 +922,14 @@ public static class CorpusJson
         _ => Invalid(value, path, "prediction status", errors, (PredictionStatus)(-1)),
     };
 
+    private static PredictionSourceKind ParsePredictionSourceKind(string value, string path, ICollection<string> errors) => value switch
+    {
+        "modelled-estimate" => PredictionSourceKind.ModelledEstimate,
+        "deterministic-rule" => PredictionSourceKind.DeterministicRule,
+        "derived-calculation" => PredictionSourceKind.DerivedCalculation,
+        _ => Invalid(value, path, "prediction source kind", errors, (PredictionSourceKind)(-1)),
+    };
+
     private static PredictionType ParsePredictionType(string value, string path, ICollection<string> errors)
     {
         if (PredictionTypeNames.TryParse(value, out var type))
@@ -909,7 +971,12 @@ public static class CorpusJson
 
     private static T Invalid<T>(string value, string path, string kind, ICollection<string> errors, T invalid)
     {
-        errors.Add($"{path} contains unsupported {kind} '{value}'.");
+        errors.Add($"{path} contains unsupported {kind} '{CorpusDiagnostics.Token(value)}'.");
         return invalid;
+    }
+
+    private sealed record NestedVersion(string?[] Position, string Version)
+    {
+        public bool Matches(IEnumerable<string?> position) => position.SequenceEqual(Position, StringComparer.Ordinal);
     }
 }

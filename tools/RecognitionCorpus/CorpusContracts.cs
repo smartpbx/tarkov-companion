@@ -39,6 +39,14 @@ public enum PredictionStatus
     Unavailable,
 }
 
+/// <summary>How a producer arrived at a result. None of these is a live detection.</summary>
+public enum PredictionSourceKind
+{
+    ModelledEstimate,
+    DeterministicRule,
+    DerivedCalculation,
+}
+
 public enum PredictionType
 {
     Context,
@@ -164,10 +172,26 @@ public sealed record PredictionClaim(
     string? Value,
     PixelRegion? Region = null);
 
+/// <summary>The model or rule that produced one result, as the producer declares it.</summary>
+public sealed record PredictionSource(
+    string ModelId,
+    string ModelVersion,
+    PredictionSourceKind Kind);
+
+/// <summary>
+/// One typed result carries its own immutable traceability: the capture intent, session,
+/// correlation, bounded context, and sequence lineage it answers, exactly as the run plan handed
+/// them out, plus when and by what it was produced. A result copied onto a different frame, a
+/// different session, or an edited context therefore no longer matches its plan sample.
+/// </summary>
 public sealed record ProducerPrediction(
     string SampleId,
     BenchmarkIntent Intent,
     CorpusEvidenceClass EvidenceClass,
+    CaptureContext Context,
+    SequenceLineage Lineage,
+    DateTimeOffset ProducedUtc,
+    PredictionSource Source,
     PredictionType Type,
     PredictionStatus Status,
     decimal Confidence,
@@ -209,6 +233,8 @@ public sealed record SliceMetrics(
     int FalseNegatives,
     int Abstentions,
     int ConfidentWrong,
+    int ExpectedFrames,
+    int ObservedFrames,
     int MissingFrames,
     int ReorderedFrames,
     int OverlapDeduplicationErrors,
@@ -225,6 +251,7 @@ public sealed record SliceMetrics(
     decimal F1,
     decimal AbstentionRate,
     decimal ConfidentWrongRate,
+    decimal SequenceCompleteness,
     decimal ConfidenceIntervalLower,
     decimal ConfidenceIntervalUpper,
     int PerformanceSampleCount,

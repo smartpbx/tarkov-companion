@@ -146,6 +146,119 @@ public sealed class CorpusCliTests
         }
     }
 
+    /// <summary>
+    /// A runtime I/O exception names the file it failed on, and the CLI used to print it: a
+    /// manifest locked by another process put its private location on stderr. The same held for
+    /// a document that placed a private path in an id, an enum value, or a property name.
+    /// </summary>
+    [Fact]
+    public async Task FilesystemAndDocumentFailuresNeverEchoPrivatePaths()
+    {
+        var root = CorpusFixtures.PrivateRoot();
+        try
+        {
+            var owner = Directory.CreateDirectory(Path.Join(root.FullName, "private-owner-capture-folder"));
+            var manifest = Path.Join(owner.FullName, "owner-private-manifest.json");
+            await File.WriteAllTextAsync(manifest, CorpusFixtures.Golden("synthetic-manifest.v1.json"));
+            string[] secrets = [root.FullName, owner.Name, "owner-private-manifest"];
+
+            var plan = Path.Join(owner.FullName, "owner-plan.json");
+            using (new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                // The lock is taken inside the runtime's own open, so the exception and its message
+                // come from the runtime, not from this tool.
+                var locked = await Run("validate-manifest", manifest);
+                Assert.Equal(1, locked.Code);
+                Assert.Equal(CorpusDiagnostics.InputOutputMessage, locked.Errors.TrimEnd());
+                AssertOmits(locked, secrets);
+
+                var lockedEmit = await Run("emit-run-plan", manifest, CorpusGoldenTests.RunId, CorpusGoldenTests.ProducerId, CorpusGoldenTests.ProducerVersion, plan);
+                Assert.Equal(1, lockedEmit.Code);
+                Assert.Equal(CorpusDiagnostics.InputOutputMessage, lockedEmit.Errors.TrimEnd());
+                AssertOmits(lockedEmit, secrets);
+                Assert.False(File.Exists(plan));
+            }
+
+            // Refusals this tool writes are fixed text as well.
+            foreach (var args in new[]
+                     {
+                         new[] { "validate-manifest", Path.Join(owner.FullName, "owner-absent-manifest.json") },
+                         new[] { "validate-manifest", owner.FullName },
+                         new[] { "emit-run-plan", manifest, CorpusGoldenTests.RunId, CorpusGoldenTests.ProducerId, CorpusGoldenTests.ProducerVersion, Path.Join(owner.FullName, "absent", "owner-plan.json") },
+                         new[] { "emit-run-plan", manifest, CorpusGoldenTests.RunId, CorpusGoldenTests.ProducerId, CorpusGoldenTests.ProducerVersion, owner.FullName },
+                         new[] { "validate-predictions", Path.Join(owner.FullName, "owner-predictions.json"), plan },
+                     })
+            {
+                var refused = await Run(args);
+                Assert.Equal(1, refused.Code);
+                Assert.NotEmpty(refused.Errors);
+                AssertOmits(refused, secrets);
+            }
+
+            // Document content that looks like a private location is never quoted back.
+            var hostile = JsonNode.Parse(CorpusFixtures.Golden("synthetic-manifest.v1.json"))!.AsObject();
+            hostile["samples"]![0]!["sampleId"] = "/home/private-owner-capture-folder/owner-private-manifest.png";
+            hostile["samples"]![1]!["evidenceClass"] = @"C:\private-owner-capture-folder\owner-private-manifest.png";
+            hostile["samples"]![2]!["truth"]!["claims"]![0]!["truthId"] = "private-owner-capture-folder owner-private-manifest";
+            hostile["samples"]![3]!["lineage"]!["sequenceId"] = "private-owner-capture-folder";
+            hostile["futureExtension"] = new JsonObject { ["/home/private-owner-capture-folder/owner-private-manifest.png"] = true };
+            var hostileManifest = Path.Join(root.FullName, "hostile.json");
+            await File.WriteAllTextAsync(hostileManifest, hostile.ToJsonString());
+            var content = await Run("validate-manifest", hostileManifest);
+            Assert.Equal(1, content.Code);
+            Assert.Contains("filesystem path", content.Errors, StringComparison.Ordinal);
+            Assert.Contains("<non-opaque id>", content.Errors, StringComparison.Ordinal);
+            Assert.Contains("<unrecognized value>", content.Errors, StringComparison.Ordinal);
+            AssertOmits(content, secrets);
+
+            foreach (var malformed in new[]
+                     {
+                         """{"schemaVersion": "manifest.v1", "/home/private-owner-capture-folder/owner-private-manifest.png": """,
+                         """{"schemaVersion": "manifest.v1", "C:\\private-owner-capture-folder": 1, "C:\\private-owner-capture-folder": 2}""",
+                     })
+            {
+                await File.WriteAllTextAsync(hostileManifest, malformed);
+                var result = await Run("validate-manifest", hostileManifest);
+                Assert.Equal(1, result.Code);
+                Assert.NotEmpty(result.Errors);
+                AssertOmits(result, secrets);
+            }
+        }
+        finally
+        {
+            CorpusFixtures.DeletePrivateRoot(root);
+        }
+    }
+
+    [Fact]
+    public void RuntimeExceptionMessagesAreReplacedByFixedText()
+    {
+        const string secret = "/home/private-owner/corpus/manifest.json";
+        foreach (var (exception, expected) in new (Exception, string)[]
+                 {
+                     (new FileNotFoundException($"Could not find file '{secret}'.", secret), CorpusDiagnostics.NotFoundMessage),
+                     (new DirectoryNotFoundException($"Could not find a part of the path '{secret}'."), CorpusDiagnostics.NotFoundMessage),
+                     (new UnauthorizedAccessException($"Access to the path '{secret}' is denied."), CorpusDiagnostics.AccessDeniedMessage),
+                     (new PathTooLongException($"The path '{secret}' is too long."), CorpusDiagnostics.PathTooLongMessage),
+                     (new IOException($"The process cannot access the file '{secret}'."), CorpusDiagnostics.InputOutputMessage),
+                     (new ArgumentException($"Illegal characters in path '{secret}'.", "path"), CorpusDiagnostics.InvalidArgumentMessage),
+                     (new NotSupportedException($"The given path's format is not supported: '{secret}'."), CorpusDiagnostics.InvalidArgumentMessage),
+                     (new InvalidOperationException($"Unexpected state at '{secret}'."), CorpusDiagnostics.UnexpectedMessage),
+                     (new InvalidDataException(secret), CorpusDiagnostics.UnexpectedMessage),
+                 })
+        {
+            Assert.Equal(expected, CorpusDiagnostics.DescribeFailure(exception));
+        }
+    }
+
+    private static void AssertOmits((int Code, string Errors) result, IEnumerable<string> secrets)
+    {
+        foreach (var secret in secrets)
+        {
+            Assert.DoesNotContain(secret, result.Errors, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static async Task<string> CopyGolden(DirectoryInfo root, string fileName, string destinationName)
     {
         var destination = Path.Join(root.FullName, destinationName);

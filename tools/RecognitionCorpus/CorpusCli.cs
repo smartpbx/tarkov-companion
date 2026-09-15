@@ -28,18 +28,18 @@ public static class CorpusCli
                 "validate-manifest" when args.Count == 2 => await ValidateManifest(args[1], error, time, cancellationToken),
                 "emit-run-plan" when args.Count == 6 => await EmitRunPlan(args[1], args[2], args[3], args[4], args[5], error, time, cancellationToken),
                 "validate-run-plan" when args.Count == 3 => await ValidateRunPlan(args[1], args[2], error, time, cancellationToken),
-                "validate-predictions" when args.Count == 3 => await ValidatePredictions(args[1], args[2], error, cancellationToken),
+                "validate-predictions" when args.Count == 3 => await ValidatePredictions(args[1], args[2], error, time, cancellationToken),
                 "validate-aggregate" when args.Count == 3 => await ValidateAggregate(args[1], args[2], error, cancellationToken),
                 "score-and-publish" when args.Count == 7 => await ScoreAndPublish(args[1], args[2], args[3], args[4], args[5], args[6], error, time, cancellationToken),
                 "publish-aggregate" when args.Count == 4 => await PublishAggregate(args[1], args[2], args[3], error, cancellationToken),
                 _ => InvalidUsage(error),
             };
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or
-                                              ArgumentException or NotSupportedException)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            // Messages from the path and validation layers deliberately carry no filesystem path.
-            await error.WriteLineAsync(exception.Message);
+            // Only text this tool wrote and marked path-free is printed as is. A runtime I/O
+            // exception names the file it failed on, so it becomes a fixed message instead.
+            await error.WriteLineAsync(CorpusDiagnostics.DescribeFailure(exception));
             return 1;
         }
     }
@@ -64,7 +64,7 @@ public static class CorpusCli
         var output = CorpusPaths.ResolvePrivateOutput(outputPath);
         if (CorpusPaths.SamePath(output, manifestInput))
         {
-            throw new InvalidOperationException("A run plan cannot overwrite its private manifest.");
+            throw CorpusDiagnostics.PathFree(new InvalidOperationException("A run plan cannot overwrite its private manifest."));
         }
 
         var manifestJson = await File.ReadAllTextAsync(manifestInput, cancellationToken);
@@ -104,11 +104,11 @@ public static class CorpusCli
         return await Report(CorpusValidation.ValidateRunPlanInterchange(runPlan, manifest, time.GetUtcNow()), error);
     }
 
-    private static async Task<int> ValidatePredictions(string predictionsPath, string runPlanPath, TextWriter error, CancellationToken cancellationToken)
+    private static async Task<int> ValidatePredictions(string predictionsPath, string runPlanPath, TextWriter error, TimeProvider time, CancellationToken cancellationToken)
     {
         var predictions = await ReadPrivate(predictionsPath, cancellationToken);
         var runPlan = await ReadPrivate(runPlanPath, cancellationToken);
-        return await Report(CorpusValidation.ValidatePredictionsInterchange(predictions, runPlan), error);
+        return await Report(CorpusValidation.ValidatePredictionsInterchange(predictions, runPlan, time.GetUtcNow()), error);
     }
 
     private static async Task<int> ValidateAggregate(string aggregatePath, string thresholdsPath, TextWriter error, CancellationToken cancellationToken)
@@ -135,7 +135,7 @@ public static class CorpusCli
         var output = CorpusPaths.ResolvePublicationOutput(outputPath);
         if (privateInputs.Append(thresholdsInput).Any(input => CorpusPaths.SamePath(input, output)))
         {
-            throw new InvalidOperationException("Aggregate output cannot overwrite a scorer input.");
+            throw CorpusDiagnostics.PathFree(new InvalidOperationException("Aggregate output cannot overwrite a scorer input."));
         }
 
         var manifest = CorpusJson.ParseManifest(await File.ReadAllTextAsync(privateInputs[0], cancellationToken));
@@ -176,7 +176,7 @@ public static class CorpusCli
         var output = CorpusPaths.ResolvePublicationOutput(outputPath);
         if (CorpusPaths.SamePath(output, aggregateInput) || CorpusPaths.SamePath(output, thresholdsInput))
         {
-            throw new InvalidOperationException("Published output cannot overwrite its aggregate or threshold input.");
+            throw CorpusDiagnostics.PathFree(new InvalidOperationException("Published output cannot overwrite its aggregate or threshold input."));
         }
 
         var aggregate = CorpusJson.ParseAggregateResults(await File.ReadAllTextAsync(aggregateInput, cancellationToken));
@@ -211,7 +211,7 @@ public static class CorpusCli
     /// </summary>
     private static async Task WriteAtomic(string output, string contents, CancellationToken cancellationToken)
     {
-        var directory = Path.GetDirectoryName(output) ?? throw new InvalidOperationException("A recognition corpus output requires a parent directory.");
+        var directory = Path.GetDirectoryName(output) ?? throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus output requires a parent directory."));
         var temporary = Path.Join(directory, $".{Path.GetFileName(output)}.{Guid.NewGuid():N}.tmp");
         try
         {
@@ -236,7 +236,7 @@ public static class CorpusCli
         "real-raster" => CorpusEvidenceClass.RealRaster,
         "synthetic-raster" => CorpusEvidenceClass.SyntheticRaster,
         "post-ocr-evidence" => CorpusEvidenceClass.PostOcrEvidence,
-        _ => throw new ArgumentException("Evidence class must be real-raster, synthetic-raster, or post-ocr-evidence."),
+        _ => throw CorpusDiagnostics.PathFree(new ArgumentException("Evidence class must be real-raster, synthetic-raster, or post-ocr-evidence.")),
     };
 
     private static async Task<int> Report(IEnumerable<string> source, TextWriter error)

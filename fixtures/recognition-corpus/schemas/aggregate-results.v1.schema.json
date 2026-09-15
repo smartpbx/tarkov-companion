@@ -64,6 +64,8 @@
         "falseNegatives",
         "abstentions",
         "confidentWrong",
+        "expectedFrames",
+        "observedFrames",
         "missingFrames",
         "reorderedFrames",
         "overlapDeduplicationErrors",
@@ -80,6 +82,7 @@
         "f1",
         "abstentionRate",
         "confidentWrongRate",
+        "sequenceCompleteness",
         "confidenceIntervalLower",
         "confidenceIntervalUpper",
         "performanceSampleCount",
@@ -101,8 +104,22 @@
         "falseNegatives": { "$ref": "#/$defs/count" },
         "abstentions": { "$ref": "#/$defs/count" },
         "confidentWrong": { "$ref": "#/$defs/count" },
-        "missingFrames": { "$ref": "#/$defs/count" },
-        "reorderedFrames": { "$ref": "#/$defs/count" },
+        "expectedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Planned frames in the slice; the sequence-completeness denominator."
+        },
+        "observedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Planned frames with at least one result of any status; the sequence-completeness numerator."
+        },
+        "missingFrames": {
+          "$ref": "#/$defs/count",
+          "description": "expectedFrames minus observedFrames."
+        },
+        "reorderedFrames": {
+          "$ref": "#/$defs/count",
+          "description": "Observed frames that would have to move to restore frame order within their sequences."
+        },
         "overlapDeduplicationErrors": { "$ref": "#/$defs/count" },
         "accuracyNumerator": { "$ref": "#/$defs/count" },
         "accuracyDenominator": { "$ref": "#/$defs/count" },
@@ -117,6 +134,10 @@
         "f1": { "$ref": "#/$defs/rate" },
         "abstentionRate": { "$ref": "#/$defs/rate" },
         "confidentWrongRate": { "$ref": "#/$defs/rate" },
+        "sequenceCompleteness": {
+          "$ref": "#/$defs/rate",
+          "description": "observedFrames / expectedFrames, or 0 when no frame is expected."
+        },
         "confidenceIntervalLower": { "$ref": "#/$defs/rate" },
         "confidenceIntervalUpper": { "$ref": "#/$defs/rate" },
         "performanceSampleCount": { "$ref": "#/$defs/count" },

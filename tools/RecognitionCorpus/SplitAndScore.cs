@@ -27,7 +27,7 @@ public static class SplitPlanner
             {
                 if (!string.Equals(sample.DeclaredSplitUnitId, unit.Key, StringComparison.Ordinal))
                 {
-                    errors.Add($"Sample {sample.SampleId} does not declare its independently recomputed split unit.");
+                    errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} does not declare its independently recomputed split unit.");
                 }
             }
         }
@@ -158,19 +158,19 @@ public static class PrivateRunPlanner
         ArgumentNullException.ThrowIfNull(privateManifest);
         if (!CorpusValidation.OpaqueId(runId) || !CorpusValidation.OpaqueId(producerId) || !CorpusValidation.BoundedToken(producerVersion))
         {
-            throw new ArgumentException("A run plan requires opaque run/producer ids and a bounded producer version.");
+            throw CorpusDiagnostics.PathFree(new ArgumentException("A run plan requires opaque run/producer ids and a bounded producer version."));
         }
 
         var errors = CorpusValidation.ValidateManifest(privateManifest, nowUtc);
         if (errors.Count != 0)
         {
-            throw new ArgumentException($"Private manifest is ineligible: {string.Join("; ", errors)}", nameof(privateManifest));
+            throw CorpusDiagnostics.PathFree(new ArgumentException($"Private manifest is ineligible: {string.Join("; ", errors)}", nameof(privateManifest)));
         }
 
         var expected = ExpectedSamples(privateManifest);
         if (expected.Count == 0)
         {
-            throw new ArgumentException("No sample in the private manifest has consent for the split it is assigned to.", nameof(privateManifest));
+            throw CorpusDiagnostics.PathFree(new ArgumentException("No sample in the private manifest has consent for the split it is assigned to.", nameof(privateManifest)));
         }
 
         var planSamples = expected.Select(sample => new RunPlanSample(
@@ -393,34 +393,34 @@ public static class IndependentScorer
         var thresholdErrors = CorpusValidation.ValidateThresholds(thresholds);
         if (thresholdErrors.Count > 0)
         {
-            throw new ArgumentException(string.Join("; ", thresholdErrors), nameof(thresholds));
+            throw CorpusDiagnostics.PathFree(new ArgumentException(string.Join("; ", thresholdErrors), nameof(thresholds)));
         }
 
         if (!Enum.IsDefined(evidenceClass) || nowUtc.Offset != TimeSpan.Zero)
         {
-            throw new ArgumentException("Scoring requires a defined evidence class and an explicit UTC score time.");
+            throw CorpusDiagnostics.PathFree(new ArgumentException("Scoring requires a defined evidence class and an explicit UTC score time."));
         }
 
         var manifestErrors = CorpusValidation.ValidateManifest(privateManifest, nowUtc);
         if (manifestErrors.Count > 0)
         {
-            throw new ArgumentException(
+            throw CorpusDiagnostics.PathFree(new ArgumentException(
                 $"Private scoring manifest is no longer eligible: {string.Join("; ", manifestErrors)}",
-                nameof(privateManifest));
+                nameof(privateManifest)));
         }
 
         var planErrors = CorpusValidation.ValidateRunPlan(authorizedPlan, privateManifest, nowUtc);
         if (planErrors.Count > 0)
         {
-            throw new ArgumentException(
+            throw CorpusDiagnostics.PathFree(new ArgumentException(
                 $"Scoring requires the authorized, currently eligible frozen run plan: {string.Join("; ", planErrors)}",
-                nameof(authorizedPlan));
+                nameof(authorizedPlan)));
         }
 
-        var predictionErrors = CorpusValidation.ValidatePredictions(predictionDocument, authorizedPlan);
+        var predictionErrors = CorpusValidation.ValidatePredictions(predictionDocument, authorizedPlan, nowUtc);
         if (predictionErrors.Count > 0)
         {
-            throw new ArgumentException(string.Join("; ", predictionErrors), nameof(predictionDocument));
+            throw CorpusDiagnostics.PathFree(new ArgumentException(string.Join("; ", predictionErrors), nameof(predictionDocument)));
         }
 
         var plannedById = authorizedPlan.Samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
@@ -428,9 +428,9 @@ public static class IndependentScorer
                 !plannedById.TryGetValue(prediction.SampleId, out var planned) ||
                 planned.Split != CorpusSplit.Test || planned.EvidenceClass != evidenceClass))
         {
-            throw new ArgumentException(
+            throw CorpusDiagnostics.PathFree(new ArgumentException(
                 "Independent scoring accepts predictions only for the authorized frozen Test split and one evidence class.",
-                nameof(predictionDocument));
+                nameof(predictionDocument)));
         }
 
         var testPlanSamples = authorizedPlan.Samples
@@ -438,9 +438,9 @@ public static class IndependentScorer
             .ToArray();
         if (testPlanSamples.Length == 0)
         {
-            throw new ArgumentException(
+            throw CorpusDiagnostics.PathFree(new ArgumentException(
                 "Independent scoring requires at least one authorized sample in the frozen Test split for the selected evidence class.",
-                nameof(authorizedPlan));
+                nameof(authorizedPlan)));
         }
 
         var privateById = privateManifest.Samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
@@ -486,7 +486,7 @@ public static class IndependentScorer
             }
         }
 
-        throw new ArgumentException("Capture intent id is not a frozen v1 benchmark intent.", nameof(captureIntentId));
+        throw CorpusDiagnostics.PathFree(new ArgumentException("Capture intent id is not a frozen v1 benchmark intent.", nameof(captureIntentId)));
     }
 
     public static string IntentId(BenchmarkIntent intent) => intent switch
@@ -620,7 +620,9 @@ public static class IndependentScorer
             falseNegatives,
             abstentions,
             confidentWrong,
-            sequence.Missing,
+            sequence.Expected,
+            sequence.Observed,
+            sequence.Expected - sequence.Observed,
             sequence.Reordered,
             sequence.OverlapErrors,
             truePositives,
@@ -636,6 +638,7 @@ public static class IndependentScorer
             f1,
             abstentionRate,
             confidentWrongRate,
+            Rate(sequence.Observed, sequence.Expected),
             interval.Lower,
             interval.Upper,
             elapsed.Length,
@@ -668,27 +671,32 @@ public static class IndependentScorer
         string.Equals(claim.Value, truth.Value, StringComparison.Ordinal) &&
         claim.Region == truth.Region;
 
-    private static (int Missing, int Reordered, int OverlapErrors) SequenceErrors(
+    /// <summary>
+    /// Every planned frame in the slice is expected, and a frame is observed when the producer
+    /// returned any result for it, unavailable included; missing frames are the difference, so
+    /// completeness is recomputable from the two counts. A reordered frame is one that would have
+    /// to move to restore frame order: the observed frames of a sequence, in the order the
+    /// producer answered them, minus the longest run already in frame order. The previous count
+    /// added one per disordered sequence under a name that promised frames.
+    /// </summary>
+    private static (int Expected, int Observed, int Reordered, int OverlapErrors) SequenceErrors(
         IReadOnlyList<CorpusSample> samples,
         IReadOnlyList<ProducerPrediction> predictions)
     {
-        var missing = 0;
+        var observedTotal = 0;
         var reordered = 0;
         var overlapErrors = 0;
         foreach (var sequence in samples.GroupBy(sample => sample.Lineage.SequenceId, StringComparer.Ordinal))
         {
             var expected = sequence.OrderBy(sample => sample.Lineage.FrameOrdinal).ToArray();
-            var expectedIds = expected.Select(sample => sample.SampleId).ToHashSet(StringComparer.Ordinal);
-            var observed = predictions.Where(prediction => expectedIds.Contains(prediction.SampleId))
+            var frameBySample = expected.ToDictionary(sample => sample.SampleId, sample => sample.Lineage.FrameOrdinal, StringComparer.Ordinal);
+            var observedFrames = predictions.Where(prediction => frameBySample.ContainsKey(prediction.SampleId))
                 .Select(prediction => prediction.SampleId)
                 .Distinct(StringComparer.Ordinal)
+                .Select(sampleId => frameBySample[sampleId])
                 .ToArray();
-            missing += expected.Count(sample => !observed.Contains(sample.SampleId, StringComparer.Ordinal));
-            var expectedOrder = expected.Select(sample => sample.SampleId).Where(observed.Contains).ToArray();
-            if (!expectedOrder.SequenceEqual(observed, StringComparer.Ordinal))
-            {
-                reordered++;
-            }
+            observedTotal += observedFrames.Length;
+            reordered += observedFrames.Length - LongestIncreasingRun(observedFrames);
 
             foreach (var truthGroup in expected.SelectMany(sample => sample.Truth.Select(truth => (sample, truth)))
                          .Where(pair => pair.truth.State == TruthState.Known)
@@ -704,7 +712,28 @@ public static class IndependentScorer
             }
         }
 
-        return (missing, reordered, overlapErrors);
+        return (samples.Count, observedTotal, reordered, overlapErrors);
+    }
+
+    /// <summary>Length of the longest strictly increasing subsequence; frame ordinals within a sequence are unique.</summary>
+    private static int LongestIncreasingRun(IReadOnlyList<int> values)
+    {
+        var tails = new List<int>(values.Count);
+        foreach (var value in values)
+        {
+            var index = tails.BinarySearch(value);
+            index = index < 0 ? ~index : index;
+            if (index == tails.Count)
+            {
+                tails.Add(value);
+            }
+            else
+            {
+                tails[index] = value;
+            }
+        }
+
+        return tails.Count;
     }
 
     internal static decimal Rate(int numerator, int denominator) => denominator == 0 ? 0 : (decimal)numerator / denominator;
@@ -727,6 +756,7 @@ public static class IndependentScorer
 
     internal static bool ContainsAggregateEvidence(SliceMetrics slice) =>
         slice.IndependentSplitUnits != 0 || slice.Denominator != 0 || slice.ExcludedUnknowns != 0 ||
+        slice.ExpectedFrames != 0 || slice.ObservedFrames != 0 ||
         slice.ExcludedPredictionClaims != 0 || slice.PerformanceSampleCount != 0 || slice.MissingFrames != 0 ||
         slice.ReorderedFrames != 0 || slice.OverlapDeduplicationErrors != 0;
 }

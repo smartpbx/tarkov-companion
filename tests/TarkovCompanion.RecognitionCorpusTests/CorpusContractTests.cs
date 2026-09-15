@@ -10,6 +10,7 @@ public sealed class CorpusContractTests
 {
     private static readonly DateTimeOffset Now = new(2029, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Future = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly PredictionSource FixtureSource = new("model-fixture-000001", "1.0.0-fixture", PredictionSourceKind.ModelledEstimate);
 
     [Fact]
     public void CheckedInBaselineIsExactlyBlockedUntilConsentedPixelsExist()
@@ -35,7 +36,7 @@ public sealed class CorpusContractTests
         var manifest = Manifest(Sample("sample-json-empty-0001"));
         var plan = PrivateRunPlanner.Create(manifest, "run-json-empty-00001", "producer-json-00001", "1.0", Now);
         Assert.NotEmpty(CorpusValidation.ValidateRunPlanInterchange("""{"schemaVersion":"run-plan.v1"}""", ManifestJson(manifest), Now));
-        Assert.NotEmpty(CorpusValidation.ValidatePredictionsInterchange("""{"schemaVersion":"predictions.v1"}""", RunPlanJson(plan)));
+        Assert.NotEmpty(CorpusValidation.ValidatePredictionsInterchange("""{"schemaVersion":"predictions.v1"}""", RunPlanJson(plan), Now));
     }
 
     [Fact]
@@ -44,6 +45,7 @@ public sealed class CorpusContractTests
         var manifest = Manifest(Sample("sample-json-compatible1"));
         var manifestNode = JsonNode.Parse(ManifestJson(manifest))!.AsObject();
         manifestNode["futureExtension"] = new JsonObject { ["revision"] = 2 };
+        manifestNode["$schema"] = "https://tarkovcompanion.local/schemas/recognition-corpus/manifest.v1.schema.json";
         Assert.Empty(CorpusValidation.ValidatePrivateManifestInterchange(manifestNode.ToJsonString(), Now));
 
         var plan = PrivateRunPlanner.Create(manifest, "run-json-compatible01", "producer-json-00002", "1.0", Now);
@@ -61,6 +63,69 @@ public sealed class CorpusContractTests
         Assert.Contains(errors, error => error.Contains("ocrText", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(errors, error => error.Contains("filename", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(errors, error => error.Contains("filesystem path", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Forbidden names used to be matched ignoring case only, so "original_filename" and
+    /// "source_file_name" passed. Names are now compared without case, separators, compatibility
+    /// forms, or invisible characters, and name fragments stay forbidden inside longer names.
+    /// </summary>
+    [Theory]
+    [InlineData("original_filename", "filename")]
+    [InlineData("source_file_name", "filename")]
+    [InlineData("Original-File-Name", "filename")]
+    [InlineData("ORIGINAL.FILENAME", "filename")]
+    [InlineData("captureOriginalFilename", "filename")]
+    [InlineData("source file path", "filepath")]
+    [InlineData("original_name", "originalname")]
+    [InlineData("absolute_path", "absolutepath")]
+    [InlineData("ocr_text", "ocrtext")]
+    [InlineData("\uFF46\uFF49\uFF4C\uFF45\uFF4E\uFF41\uFF4D\uFF45", "filename")]
+    [InlineData("file\u200Bname", "filename")]
+    [InlineData("PATH", "path")]
+    [InlineData("full_path", "fullpath")]
+    public void ForbiddenFieldAliasesAreRejectedAcrossCaseSeparatorsAndCompatibilityForms(string alias, string matched)
+    {
+        var manifest = Manifest(Sample("sample-json-alias-00001"));
+        var plan = PrivateRunPlanner.Create(manifest, "run-json-alias-000001", "producer-json-alias01", "1.0", Now);
+        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
+            [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-json-alias-00001", "item", "known-item")])]);
+        var expected = $"prohibited field {matched}.";
+
+        var manifestNode = JsonNode.Parse(ManifestJson(manifest))!.AsObject();
+        manifestNode["samples"]![0]!["futureExtension"] = new JsonObject { [alias] = "invented-capture" };
+        AssertRefused(CorpusValidation.ValidatePrivateManifestInterchange(manifestNode.ToJsonString(), Now), expected, "a private manifest");
+
+        var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+        planNode["futureExtension"] = new JsonObject { [alias] = "invented-capture" };
+        AssertRefused(CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), ManifestJson(manifest), Now), expected, "a run plan");
+
+        var predictionNode = JsonNode.Parse(PredictionsJson(document))!.AsObject();
+        predictionNode["predictions"]![0]!["source"]![alias] = "invented-capture";
+        AssertRefused(CorpusValidation.ValidatePredictionsInterchange(predictionNode.ToJsonString(), RunPlanJson(plan), Now), expected, "predictions");
+    }
+
+    [Fact]
+    public void TruthFreeInterchangeRefusesConsentMembersAndPathShapedPropertyNames()
+    {
+        var manifest = Manifest(Sample("sample-json-consent-0001"));
+        var plan = PrivateRunPlanner.Create(manifest, "run-json-consent-00001", "producer-json-consent1", "1.0", Now);
+        foreach (var name in new[] { "consent_hash", "allowedUses", "privacy-review-hash", "Retention", "near_duplicate_ids", "truth_id" })
+        {
+            var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+            planNode["futureExtension"] = new JsonObject { [name] = "invented" };
+            AssertRefused(CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), ManifestJson(manifest), Now), "prohibited field", name);
+        }
+
+        var pathNamed = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+        pathNamed["futureExtension"] = new JsonObject { ["/home/private-owner/capture.png"] = true };
+        var errors = CorpusValidation.ValidateRunPlanInterchange(pathNamed.ToJsonString(), ManifestJson(manifest), Now);
+        Assert.Contains(errors, error => error.Contains("filesystem path", StringComparison.Ordinal));
+        Assert.DoesNotContain(errors, error => error.Contains("private-owner", StringComparison.Ordinal));
+
+        // The ordinary members of every checked-in contract stay allowed after normalization.
+        Assert.Empty(CorpusValidation.ValidateRunPlanInterchange(RunPlanJson(plan), ManifestJson(manifest), Now));
+        Assert.Empty(CorpusValidation.ValidatePrivateManifestInterchange(ManifestJson(manifest), Now));
     }
 
     [Fact]
@@ -144,7 +209,7 @@ public sealed class CorpusContractTests
                 [new PredictionClaim("claim-region-bound01", "region", null, new PixelRegion(1910, 10, 20, 20))]),
         ]);
 
-        Assert.Contains(CorpusValidation.ValidatePredictions(badPrediction, plan), error => error.Contains("out-of-bounds prediction region", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(badPrediction, plan, Now), error => error.Contains("out-of-bounds prediction region", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -235,40 +300,40 @@ public sealed class CorpusContractTests
         var sample = plan.Samples[0];
         var valid = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
             [Prediction(sample, PredictionType.Item, [new PredictionClaim("claim-prediction-0001", "item", "known-item")])]);
-        Assert.Empty(CorpusValidation.ValidatePredictions(valid, plan));
+        Assert.Empty(CorpusValidation.ValidatePredictions(valid, plan, Now));
 
         var wrongRun = valid with { RunId = "run-prediction-other01" };
-        Assert.Contains(CorpusValidation.ValidatePredictions(wrongRun, plan), error => error.Contains("run and producer", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(wrongRun, plan, Now), error => error.Contains("run and producer", StringComparison.OrdinalIgnoreCase));
 
         var supersededPlan = valid with { PlanLock = new string('a', 64) };
-        Assert.Contains(CorpusValidation.ValidatePredictions(supersededPlan, plan), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(supersededPlan, plan, Now), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
 
         var unboundPlan = valid with { PlanLock = "not-a-lock" };
-        Assert.Contains(CorpusValidation.ValidatePredictions(unboundPlan, plan), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(unboundPlan, plan, Now), error => error.Contains("exact run-plan lock", StringComparison.OrdinalIgnoreCase));
 
         var unknown = valid with { Predictions = [valid.Predictions[0] with { SampleId = "sample-unknown-000001" }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(unknown, plan), error => error.Contains("not a member", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(unknown, plan, Now), error => error.Contains("not a member", StringComparison.OrdinalIgnoreCase));
 
         var wrongIntent = valid with { Predictions = [valid.Predictions[0] with { Intent = BenchmarkIntent.HealthCharacter }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(wrongIntent, plan), error => error.Contains("intent", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(wrongIntent, plan, Now), error => error.Contains("intent", StringComparison.OrdinalIgnoreCase));
 
         var wrongEvidence = valid with { Predictions = [valid.Predictions[0] with { EvidenceClass = CorpusEvidenceClass.RealRaster }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(wrongEvidence, plan), error => error.Contains("evidence", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(wrongEvidence, plan, Now), error => error.Contains("evidence", StringComparison.OrdinalIgnoreCase));
 
         var badConfidence = valid with { Predictions = [valid.Predictions[0] with { Confidence = 1.1m }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(badConfidence, plan), error => error.Contains("confidence", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(badConfidence, plan, Now), error => error.Contains("confidence", StringComparison.OrdinalIgnoreCase));
 
         var badStatus = valid with { Predictions = [valid.Predictions[0] with { Status = PredictionStatus.Abstained }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(badStatus, plan), error => error.Contains("inconsistent", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(badStatus, plan, Now), error => error.Contains("inconsistent", StringComparison.OrdinalIgnoreCase));
 
         var badTime = valid with { Predictions = [valid.Predictions[0] with { ElapsedMilliseconds = CorpusValidation.MaximumElapsedMilliseconds + 1 }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(badTime, plan), error => error.Contains("elapsed", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(badTime, plan, Now), error => error.Contains("elapsed", StringComparison.OrdinalIgnoreCase));
 
         var duplicateResult = valid with { Predictions = [valid.Predictions[0], valid.Predictions[0] with
         {
             Claims = [new PredictionClaim("claim-prediction-0002", "item", "known-item")],
         }] };
-        Assert.Contains(CorpusValidation.ValidatePredictions(duplicateResult, plan), error => error.Contains("repeats result type", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(duplicateResult, plan, Now), error => error.Contains("repeats result type", StringComparison.OrdinalIgnoreCase));
 
         var duplicateClaim = valid with
         {
@@ -278,7 +343,131 @@ public sealed class CorpusContractTests
                 Prediction(sample, PredictionType.Attribute, [new PredictionClaim("claim-prediction-0001", "attribute", "value")]),
             ],
         };
-        Assert.Contains(CorpusValidation.ValidatePredictions(duplicateClaim, plan), error => error.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictions(duplicateClaim, plan, Now), error => error.Contains("duplicate", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Each result carries the capture intent, session, correlation, context, and lineage of the
+    /// plan sample it answers. Every member is compared, so a result moved to another frame of the
+    /// same run, or a snapshot edited after the plan was issued, is refused by validation and the
+    /// scorer alike, and so is a result that cannot say when or by what it was produced.
+    /// </summary>
+    [Fact]
+    public void PredictionTraceabilityMustExactlyMatchItsRunPlanSample()
+    {
+        var component = FindTestComponent(seed =>
+        {
+            var sequenceId = $"sequence-trace-{seed:0000}-000";
+            var sessionId = $"session-trace-{seed:0000}-0000";
+            return
+            [
+                Sample($"sample-trace-f0-{seed:0000}-00", sequenceId: sequenceId, sessionId: sessionId, ordinal: 0, frame: 0),
+                Sample($"sample-trace-f1-{seed:0000}-00", sequenceId: sequenceId, sessionId: sessionId, ordinal: 1, frame: 1, overlap: 0.25m),
+            ];
+        });
+        var manifest = Manifest(component);
+        var plan = PrivateRunPlanner.Create(manifest, "run-traceability-0001", "producer-trace-00001", "1.0", Now);
+        var first = plan.Samples[0];
+        var second = plan.Samples[1];
+        var valid = Prediction(first, PredictionType.Item, [new PredictionClaim("claim-traceability-001", "item", "known-item")]);
+        Assert.Empty(CorpusValidation.ValidatePredictions(Document(plan, valid), plan, Now));
+        Assert.Equal(1, Slice(Score(manifest, plan, [valid])).TruePositives);
+
+        var context = first.Context;
+        var lineage = first.Lineage;
+        var mutations = new (string Name, ProducerPrediction Prediction)[]
+        {
+            ("capture intent", valid with { Context = context with { CaptureIntentId = IndependentScorer.IntentId(BenchmarkIntent.AutoDetect) } }),
+            ("session", valid with { Context = context with { SessionId = "session-trace-other-0001" } }),
+            ("correlation", valid with { Context = context with { CorrelationId = "correlation-trace-other1" } }),
+            ("capture ordinal", valid with { Context = context with { CaptureOrdinal = 1 } }),
+            ("map", valid with { Context = context with { MapId = "map-trace-other-00001" } }),
+            ("objectives", valid with { Context = context with { ObjectiveIds = ["objective-trace-0001"] } }),
+            ("selected reference", valid with { Context = context with { SelectedReference = "selected-trace-00001" } }),
+            ("prior scan", valid with { Context = context with { PriorScanReference = "prior-scan-trace-0001" } }),
+            ("device", valid with { Context = context with { DeviceClass = "tablet" } }),
+            ("resolution", valid with { Context = context with { Height = 1440 } }),
+            ("ui scale", valid with { Context = context with { UiScale = 1.25m } }),
+            ("locale", valid with { Context = context with { Locale = "de-DE" } }),
+            ("game version", valid with { Context = context with { GameVersion = "1.1" } }),
+            ("sequence", valid with { Lineage = lineage with { SequenceId = "sequence-trace-other-01" } }),
+            ("frame", valid with { Lineage = lineage with { FrameOrdinal = 1 } }),
+            ("viewport", valid with { Lineage = lineage with { ViewportId = "viewport-trace-other-1" } }),
+            ("container", valid with { Lineage = lineage with { ContainerIdentity = "container-trace-other1" } }),
+            ("overlap", valid with { Lineage = lineage with { OverlapWithPrevious = 0.5m } }),
+            ("parent container", valid with { Lineage = lineage with { ParentContainerIdentity = "container-trace-parent1" } }),
+            ("another frame's snapshot", valid with { Context = second.Context, Lineage = second.Lineage }),
+        };
+        foreach (var (name, mutated) in mutations)
+        {
+            AssertRefused(
+                CorpusValidation.ValidatePredictions(Document(plan, mutated), plan, Now),
+                "exact capture intent, session, correlation, context, and lineage",
+                $"a changed {name} snapshot");
+            Assert.Throws<ArgumentException>(() => Score(manifest, plan, [mutated]));
+        }
+
+        // Every member is compared, including any member a later revision adds to either record.
+        foreach (var member in PrimaryConstructorMembers<CaptureContext>())
+        {
+            AssertRefused(
+                CorpusValidation.ValidatePredictions(Document(plan, valid with { Context = WithChangedMember(context, member) }), plan, Now),
+                "exact capture intent, session, correlation, context, and lineage",
+                $"a changed context member {member}");
+        }
+
+        foreach (var member in PrimaryConstructorMembers<SequenceLineage>())
+        {
+            AssertRefused(
+                CorpusValidation.ValidatePredictions(Document(plan, valid with { Lineage = WithChangedMember(lineage, member) }), plan, Now),
+                "exact capture intent, session, correlation, context, and lineage",
+                $"a changed lineage member {member}");
+        }
+
+        // The snapshot is compared by value: the same decimal spelled with another scale matches.
+        Assert.Empty(CorpusValidation.ValidatePredictions(
+            Document(plan, valid with { Lineage = lineage with { OverlapWithPrevious = 0.00m } }), plan, Now));
+
+        foreach (var (name, mutated, expected) in new (string, ProducerPrediction, string)[]
+                 {
+                     ("future produced time", valid with { ProducedUtc = Now.AddTicks(1) }, "produced time"),
+                     ("offset produced time", valid with { ProducedUtc = Now.AddHours(-1).ToOffset(TimeSpan.FromHours(2)) }, "produced time"),
+                     ("unparsed produced time", valid with { ProducedUtc = DateTimeOffset.MinValue }, "produced time"),
+                     ("model id", valid with { Source = FixtureSource with { ModelId = "short" } }, "model id"),
+                     ("model version", valid with { Source = FixtureSource with { ModelVersion = " " } }, "model id"),
+                     ("source kind", valid with { Source = FixtureSource with { Kind = (PredictionSourceKind)99 } }, "source kind"),
+                     ("missing source", valid with { Source = null! }, "null results or required members"),
+                     ("missing context", valid with { Context = null! }, "null results or required members"),
+                     ("missing lineage", valid with { Lineage = null! }, "null results or required members"),
+                 })
+        {
+            AssertRefused(CorpusValidation.ValidatePredictions(Document(plan, mutated), plan, Now), expected, $"an invalid {name}");
+        }
+
+        Assert.Contains(CorpusValidation.ValidatePredictions(Document(plan, valid), plan, Now.ToOffset(TimeSpan.FromHours(1))),
+            error => error.Contains("explicit UTC validation time", StringComparison.Ordinal));
+
+        // The JSON contract requires every traceability member rather than defaulting a missing one.
+        var json = PredictionsJson(Document(plan, valid));
+        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(json, RunPlanJson(plan), Now));
+        foreach (var (mutate, expected) in new (Action<JsonObject>, string)[]
+                 {
+                     (node => node["predictions"]![0]!.AsObject().Remove("provenance"), "$.predictions[0].provenance is required"),
+                     (node => node["predictions"]![0]!.AsObject().Remove("lineage"), "$.predictions[0].lineage is required"),
+                     (node => node["predictions"]![0]!.AsObject().Remove("producedUtc"), "$.predictions[0].producedUtc is required"),
+                     (node => node["predictions"]![0]!["producedUtc"] = "2028-12-31T23:55:00+00:00", "valid UTC timestamp ending in Z"),
+                     (node => node["predictions"]![0]!.AsObject().Remove("source"), "$.predictions[0].source is required"),
+                     (node => node["predictions"]![0]!["source"]!.AsObject().Remove("modelVersion"), "$.predictions[0].source.modelVersion is required"),
+                     (node => node["predictions"]![0]!["source"]!["kind"] = "live-detection", "unsupported prediction source kind"),
+                     (node => node["predictions"]![0]!["provenance"]!["sessionId"] = "session-trace-json-0001", "exact capture intent"),
+                     (node => node["predictions"]![0]!["lineage"]!["frameOrdinal"] = 1, "exact capture intent"),
+                 })
+        {
+            var node = JsonNode.Parse(json)!.AsObject();
+            mutate(node);
+            Assert.Contains(CorpusValidation.ValidatePredictionsInterchange(node.ToJsonString(), RunPlanJson(plan), Now),
+                error => error.Contains(expected, StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -289,10 +478,10 @@ public sealed class CorpusContractTests
         var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
             [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-json-predict001", "item", "known-item")])]);
         var validJson = PredictionsJson(document);
-        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(validJson, RunPlanJson(plan)));
+        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(validJson, RunPlanJson(plan), Now));
         var json = validJson.Replace("\"type\":\"item\"", "\"type\":\"enemy-position\"", StringComparison.Ordinal);
 
-        Assert.Contains(CorpusValidation.ValidatePredictionsInterchange(json, RunPlanJson(plan)), error => error.Contains("unsupported prediction type", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(CorpusValidation.ValidatePredictionsInterchange(json, RunPlanJson(plan), Now), error => error.Contains("unsupported prediction type", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -326,7 +515,10 @@ public sealed class CorpusContractTests
         var metrics = Slice(Score(manifest, plan, secondOnly));
         Assert.Equal(1, metrics.TruePositives);
         Assert.Equal(0, metrics.FalsePositives);
+        Assert.Equal(2, metrics.ExpectedFrames);
+        Assert.Equal(1, metrics.ObservedFrames);
         Assert.Equal(1, metrics.MissingFrames);
+        Assert.Equal(0.5m, metrics.SequenceCompleteness);
 
         var duplicates = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
             [new PredictionClaim($"claim-overlap-duplicate-{index:0000}", "item", "known-item")])).ToArray();
@@ -365,6 +557,63 @@ public sealed class CorpusContractTests
 
         var reversed = Slice(Score(manifest, plan, predictions.Reverse().ToArray()));
         Assert.Equal(1, reversed.ReorderedFrames);
+    }
+
+    /// <summary>
+    /// Completeness is observed over expected frames, and a reordered frame is one that would have
+    /// to move to restore frame order. The previous reorder count added one per disordered
+    /// sequence, so a fully reversed three-frame answer and a single swap reported the same.
+    /// </summary>
+    [Fact]
+    public void SequenceCompletenessAndReorderedFramesAreCountedPerFrame()
+    {
+        var frames = FindTestComponent(seed =>
+        {
+            var sequenceId = $"sequence-order-{seed:0000}-000";
+            var sessionId = $"session-order-{seed:0000}-0000";
+            return
+            [
+                Sample($"sample-order-f0-{seed:0000}-00", sequenceId: sequenceId, sessionId: sessionId, ordinal: 0, frame: 0),
+                Sample($"sample-order-f1-{seed:0000}-00", sequenceId: sequenceId, sessionId: sessionId, ordinal: 1, frame: 1),
+                Sample($"sample-order-f2-{seed:0000}-00", sequenceId: sequenceId, sessionId: sessionId, ordinal: 2, frame: 2),
+            ];
+        });
+        var manifest = Manifest(frames);
+        var plan = PrivateRunPlanner.Create(manifest, "run-sequence-order-0001", "producer-order-000001", "1.0", Now);
+        ProducerPrediction Answer(int frame) => Prediction(
+            plan.Samples.Single(sample => sample.Lineage.FrameOrdinal == frame),
+            PredictionType.Item,
+            [new PredictionClaim($"claim-order-frame-000{frame}", "item", "known-item")]);
+
+        foreach (var (order, reordered) in new (int[] Order, int Reordered)[]
+                 {
+                     ([0, 1, 2], 0),
+                     ([2, 0, 1], 1),
+                     ([1, 0, 2], 1),
+                     ([2, 1, 0], 2),
+                 })
+        {
+            var metrics = Slice(Score(manifest, plan, order.Select(Answer).ToArray()));
+            Assert.Equal(3, metrics.ExpectedFrames);
+            Assert.Equal(3, metrics.ObservedFrames);
+            Assert.Equal(0, metrics.MissingFrames);
+            Assert.Equal(1m, metrics.SequenceCompleteness);
+            Assert.Equal(reordered, metrics.ReorderedFrames);
+        }
+
+        var partial = Slice(Score(manifest, plan, [Answer(2), Answer(0)]));
+        Assert.Equal(3, partial.ExpectedFrames);
+        Assert.Equal(2, partial.ObservedFrames);
+        Assert.Equal(1, partial.MissingFrames);
+        Assert.Equal(2m / 3m, partial.SequenceCompleteness);
+        Assert.Equal(1, partial.ReorderedFrames);
+
+        // A second result for an already observed frame is not another observed frame.
+        var repeated = Slice(Score(manifest, plan,
+            [Answer(1), Prediction(plan.Samples.Single(sample => sample.Lineage.FrameOrdinal == 1), PredictionType.Attribute, [new PredictionClaim("claim-order-attribute01", "attribute", "value")])]));
+        Assert.Equal(1, repeated.ObservedFrames);
+        Assert.Equal(2, repeated.PerformanceSampleCount);
+        Assert.Equal(0, repeated.ReorderedFrames);
     }
 
     [Fact]
@@ -547,6 +796,29 @@ public sealed class CorpusContractTests
         Assert.Contains(AggregateResultValidation.Validate(badRate, Thresholds()),
             error => error.Contains("rates", StringComparison.OrdinalIgnoreCase));
 
+        // Completeness is recomputed from its counts, and the counts must agree with each other.
+        Assert.Equal(30, loot.ExpectedFrames);
+        Assert.Equal(30, loot.ObservedFrames);
+        foreach (var (name, tampered, expected) in new (string, SliceMetrics, string)[]
+                 {
+                     ("asserted completeness", loot with { SequenceCompleteness = 0.9m }, "rates"),
+                     ("observed beyond expected", loot with { ObservedFrames = 31 }, "sequence completeness arithmetic"),
+                     ("hidden missing frame", loot with { ObservedFrames = 29 }, "sequence completeness arithmetic"),
+                     ("missing without a gap", loot with { MissingFrames = 1 }, "sequence completeness arithmetic"),
+                     ("fewer frames than units", loot with { ExpectedFrames = 29, ObservedFrames = 29 }, "sequence completeness arithmetic"),
+                     ("frames without results", loot with { PerformanceSampleCount = 29 }, "sequence completeness arithmetic"),
+                     ("every frame reordered", loot with { ReorderedFrames = 30 }, "sequence completeness arithmetic"),
+                     ("empty slice with truth", loot with
+                     {
+                         ExpectedFrames = 0, ObservedFrames = 0, MissingFrames = 0, IndependentSplitUnits = 0,
+                         PerformanceSampleCount = 0, MeanElapsedMilliseconds = null, MaximumElapsedMilliseconds = null,
+                     }, "sequence completeness arithmetic"),
+                 })
+        {
+            var document = aggregate with { Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision ? tampered : slice).ToArray() };
+            AssertRefused(AggregateResultValidation.Validate(document, Thresholds()), expected, name);
+        }
+
         var badStatus = aggregate with
         {
             Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision
@@ -593,7 +865,7 @@ public sealed class CorpusContractTests
         using var aggregate = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "aggregate-results.v1.schema.json")));
         var sliceRequired = aggregate.RootElement.GetProperty("$defs").GetProperty("slice").GetProperty("required")
             .EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
-        foreach (var field in new[] { "excludedPredictionClaims", "accuracy", "recall", "falsePositiveRate", "f1", "sequence", "performance" })
+        foreach (var field in new[] { "excludedPredictionClaims", "accuracy", "recall", "falsePositiveRate", "f1", "sequence", "performance", "expectedFrames", "observedFrames", "sequenceCompleteness" })
         {
             var expected = field switch
             {
@@ -609,6 +881,23 @@ public sealed class CorpusContractTests
         Assert.Contains("runId", aggregateRequired);
         Assert.Contains("planLock", aggregateRequired);
         Assert.Contains("scoredUtc", aggregateRequired);
+
+        using var predictions = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "predictions.v1.schema.json")));
+        var prediction = predictions.RootElement.GetProperty("$defs").GetProperty("prediction");
+        var predictionRequired = prediction.GetProperty("required").EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        foreach (var field in new[] { "provenance", "lineage", "producedUtc", "source" })
+        {
+            Assert.Contains(field, predictionRequired);
+        }
+
+        var source = prediction.GetProperty("properties").GetProperty("source");
+        Assert.Equal(
+            ["modelId", "modelVersion", "kind"],
+            source.GetProperty("required").EnumerateArray().Select(item => item.GetString()!).ToArray());
+        Assert.Equal(
+            ["modelled-estimate", "deterministic-rule", "derived-calculation"],
+            source.GetProperty("properties").GetProperty("kind").GetProperty("enum").EnumerateArray().Select(item => item.GetString()!).ToArray());
+        Assert.Equal("provenance.v1.schema.json", prediction.GetProperty("properties").GetProperty("provenance").GetProperty("$ref").GetString());
 
         using var thresholds = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "thresholds.v1.schema.json")));
         var candidateRequired = thresholds.RootElement.GetProperty("properties").GetProperty("candidateThresholds").GetProperty("required")
@@ -741,43 +1030,84 @@ public sealed class CorpusContractTests
         var manifestJson = ManifestJson(manifest);
         Assert.Empty(CorpusValidation.ValidatePrivateManifestInterchange(manifestJson, Now));
 
-        foreach (var mutate in new Action<JsonObject>[]
+        foreach (var (name, mutate) in new (string, Action<JsonObject>)[]
                  {
-                     node => node["samples"]![0]!["provenance"]!["schemaVersion"] = "provenance.v2",
-                     node => node["privateEvidence"]![0]!["consent"]!["schemaVersion"] = "consent.v2",
-                     node => node["privateEvidence"]![0]!["privacyReview"]!["schemaVersion"] = "privacy-review.v2",
-                     node => node["samples"]![0]!["lineage"]!["schemaVersion"] = "lineage.v1",
-                     node => node["samples"]![0]!["content"]!["schemaVersion"] = CorpusValidation.ManifestSchemaVersion,
-                     node => node["futureExtension"] = new JsonObject { ["schemaVersion"] = 2 },
+                     ("unknown provenance version", node => node["samples"]![0]!["provenance"]!["schemaVersion"] = "provenance.v2"),
+                     ("unknown consent version", node => node["privateEvidence"]![0]!["consent"]!["schemaVersion"] = "consent.v2"),
+                     ("unknown review version", node => node["privateEvidence"]![0]!["privacyReview"]!["schemaVersion"] = "privacy-review.v2"),
+                     ("version on lineage", node => node["samples"]![0]!["lineage"]!["schemaVersion"] = "lineage.v1"),
+                     ("root version on content", node => node["samples"]![0]!["content"]!["schemaVersion"] = CorpusValidation.ManifestSchemaVersion),
+                     ("non-string version", node => node["futureExtension"] = new JsonObject { ["schemaVersion"] = 2 }),
+
+                     // Known versions are valid only where v1 defines them.
+                     ("consent version on provenance", node => node["samples"]![0]!["provenance"]!["schemaVersion"] = CorpusValidation.ConsentSchemaVersion),
+                     ("swapped consent and review versions", node => node["privateEvidence"]![0]!["consent"]!["schemaVersion"] = CorpusValidation.PrivacyReviewSchemaVersion),
+                     ("consent record under content", node => node["samples"]![0]!["content"]!["attestation"] = new JsonObject
+                     {
+                         ["schemaVersion"] = CorpusValidation.ConsentSchemaVersion,
+                         ["uses"] = new JsonArray("train"),
+                     }),
+                     ("provenance record in an extension", node => node["futureExtension"] = new JsonObject { ["schemaVersion"] = CorpusValidation.ProvenanceSchemaVersion }),
+                     ("look-alike position under an extension", node => node["futureExtension"] = new JsonObject
+                     {
+                         ["samples"] = new JsonArray(new JsonObject { ["provenance"] = new JsonObject { ["schemaVersion"] = CorpusValidation.ProvenanceSchemaVersion } }),
+                     }),
+                     ("look-alike position in a property name", node => node["samples[].provenance"] = new JsonObject { ["schemaVersion"] = CorpusValidation.ProvenanceSchemaVersion }),
+                     ("case alias beside the real version", node => node["samples"]![0]!["provenance"]!["SchemaVersion"] = CorpusValidation.ProvenanceSchemaVersion),
+                     ("separator alias in an extension", node => node["futureExtension"] = new JsonObject { ["schema_version"] = CorpusValidation.ConsentSchemaVersion }),
+                     ("JSON Schema declaration in an extension", node => node["futureExtension"] = new JsonObject
+                     {
+                         ["$schema"] = "https://tarkovcompanion.local/schemas/recognition-corpus/consent.v1.schema.json",
+                     }),
+                     ("JSON Schema id on provenance", node => node["samples"]![0]!["provenance"]!["$id"] = "https://tarkovcompanion.local/schemas/recognition-corpus/consent.v1.schema.json"),
                  })
         {
             var node = JsonNode.Parse(manifestJson)!.AsObject();
             mutate(node);
-            Assert.Contains(CorpusValidation.ValidatePrivateManifestInterchange(node.ToJsonString(), Now),
-                error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+            AssertRefused(CorpusValidation.ValidatePrivateManifestInterchange(node.ToJsonString(), Now), "unsupported nested schema version", name);
         }
 
         var plan = PrivateRunPlanner.Create(manifest, "run-nested-version-0001", "producer-nested-00001", "1.0", Now);
-        var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
-        planNode["futureExtension"] = new JsonObject { ["schemaVersion"] = "run-plan.v2" };
-        Assert.Contains(CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), manifestJson, Now),
-            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+        foreach (var (name, version) in new[] { ("unknown plan version", "run-plan.v2"), ("consent record", CorpusValidation.ConsentSchemaVersion), ("second provenance", CorpusValidation.ProvenanceSchemaVersion) })
+        {
+            var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+            planNode["samples"]![0]!["futureExtension"] = new JsonObject { ["schemaVersion"] = version };
+            AssertRefused(CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), manifestJson, Now), "unsupported nested schema version", name);
+        }
 
         var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock,
             [Prediction(plan.Samples[0], PredictionType.Item, [new PredictionClaim("claim-nested-version01", "item", "known-item")])]);
-        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(PredictionsJson(document), RunPlanJson(plan)));
-        var predictionNode = JsonNode.Parse(PredictionsJson(document))!.AsObject();
-        predictionNode["predictions"]![0]!["performance"]!["schemaVersion"] = "performance.v2";
-        Assert.Contains(CorpusValidation.ValidatePredictionsInterchange(predictionNode.ToJsonString(), RunPlanJson(plan)),
-            error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(CorpusValidation.ValidatePredictionsInterchange(PredictionsJson(document), RunPlanJson(plan), Now));
+        foreach (var (name, mutate) in new (string, Action<JsonObject>)[]
+                 {
+                     ("unknown performance version", node => node["predictions"]![0]!["performance"]!["schemaVersion"] = "performance.v2"),
+                     ("provenance version on performance", node => node["predictions"]![0]!["performance"]!["schemaVersion"] = CorpusValidation.ProvenanceSchemaVersion),
+                     ("consent record in an extension", node => node["futureExtension"] = new JsonObject
+                     {
+                         ["schemaVersion"] = CorpusValidation.ConsentSchemaVersion,
+                         ["uses"] = new JsonArray("benchmark", "train"),
+                     }),
+                     ("review record on the source", node => node["predictions"]![0]!["source"]!["schemaVersion"] = CorpusValidation.PrivacyReviewSchemaVersion),
+                 })
+        {
+            var predictionNode = JsonNode.Parse(PredictionsJson(document))!.AsObject();
+            mutate(predictionNode);
+            AssertRefused(CorpusValidation.ValidatePredictionsInterchange(predictionNode.ToJsonString(), RunPlanJson(plan), Now), "unsupported nested schema version", name);
+        }
 
         Assert.Contains(
             CorpusJson.ParseAggregateResults("""{"schemaVersion":"aggregate-results.v1","privacy":{"schemaVersion":"privacy.v9"}}""").Errors,
             error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
-        var thresholds = JsonNode.Parse(ThresholdsJson())!.AsObject();
-        thresholds["candidateThresholds"]!["schemaVersion"] = "thresholds.v2";
-        Assert.Contains(CorpusJson.ParseThresholds(thresholds.ToJsonString()).Errors,
+        Assert.Contains(
+            CorpusJson.ParseAggregateResults("""{"schemaVersion":"aggregate-results.v1","futureExtension":{"schemaVersion":"provenance.v1"}}""").Errors,
             error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+        foreach (var version in new[] { "thresholds.v2", CorpusValidation.ConsentSchemaVersion })
+        {
+            var thresholds = JsonNode.Parse(ThresholdsJson())!.AsObject();
+            thresholds["candidateThresholds"]!["schemaVersion"] = version;
+            Assert.Contains(CorpusJson.ParseThresholds(thresholds.ToJsonString()).Errors,
+                error => error.Contains("unsupported nested schema version", StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     [Fact]
@@ -831,6 +1161,16 @@ public sealed class CorpusContractTests
 
         var originalName = CorpusJson.ParsePredictions(File.ReadAllText(Path.Combine(root, "original-name-predictions.v1.json")));
         Assert.Contains(originalName.Errors, error => error.Contains("originalName", StringComparison.OrdinalIgnoreCase));
+
+        // Aliases the case-only comparison let through.
+        var aliased = CorpusJson.ParseRunPlan(File.ReadAllText(Path.Combine(root, "aliased-original-name-run-plan.v1.json")));
+        Assert.Equal(2, aliased.Errors.Count(error => error.Contains("prohibited field filename", StringComparison.Ordinal)));
+
+        // A complete consent document under an extension, with member names that are not forbidden
+        // on their own; only its version declaration at a position v1 never defined gives it away.
+        var consent = CorpusJson.ParsePredictions(File.ReadAllText(Path.Combine(root, "misplaced-consent-predictions.v1.json")));
+        Assert.Contains(consent.Errors, error => error.Contains("$.futureExtension.schemaVersion names an unsupported nested schema version", StringComparison.Ordinal));
+        Assert.DoesNotContain(consent.Errors, error => error.Contains("prohibited field", StringComparison.Ordinal));
     }
 
     private static CorpusSample Repeated(string sampleId, string sequenceId, string sessionId, string truthId, int ordinal, int frame, decimal overlap) =>
@@ -941,7 +1281,49 @@ public sealed class CorpusContractTests
     };
 
     private static ProducerPrediction Prediction(RunPlanSample sample, PredictionType type, IReadOnlyList<PredictionClaim> claims) =>
-        new(sample.SampleId, sample.Intent, sample.EvidenceClass, type, PredictionStatus.Detected, 0.95m, claims, 10m);
+        new(sample.SampleId, sample.Intent, sample.EvidenceClass, sample.Context, sample.Lineage, Now.AddMinutes(-5), FixtureSource,
+            type, PredictionStatus.Detected, 0.95m, claims, 10m);
+
+    /// <summary>Fails naming the case, so one row of a mutation table is identifiable from the output.</summary>
+    private static void AssertRefused(IReadOnlyList<string> errors, string expected, string because)
+    {
+        if (!errors.Any(error => error.Contains(expected, StringComparison.Ordinal)))
+        {
+            Assert.Fail($"Expected an error containing \"{expected}\" for {because}; got: {string.Join(" | ", errors)}");
+        }
+    }
+
+    private static string[] PrimaryConstructorMembers<T>() =>
+        typeof(T).GetConstructors().Single(constructor => constructor.GetParameters().Length > 1)
+            .GetParameters().Select(parameter => parameter.Name!).ToArray();
+
+    /// <summary>Rebuilds a positional record with one member changed, whatever its type.</summary>
+    private static T WithChangedMember<T>(T record, string member)
+    {
+        var constructor = typeof(T).GetConstructors().Single(candidate => candidate.GetParameters().Length > 1);
+        var arguments = constructor.GetParameters().Select(parameter =>
+        {
+            var value = typeof(T).GetProperty(parameter.Name!)!.GetValue(record);
+            if (!string.Equals(parameter.Name, member, StringComparison.Ordinal))
+            {
+                return value;
+            }
+
+            return value switch
+            {
+                string text => text + "-changed",
+                null when parameter.ParameterType == typeof(string) => "changed-member-000001",
+                int number => number + 1,
+                decimal number => number + 0.25m,
+                IReadOnlyList<string> list => list.Append("changed-member-000001").ToArray(),
+                _ => throw new InvalidOperationException($"No change is defined for member {member}."),
+            };
+        }).ToArray();
+        return (T)constructor.Invoke(arguments);
+    }
+
+    private static PredictionDocument Document(RunPlan plan, params ProducerPrediction[] predictions) =>
+        new(plan.RunId, plan.ProducerId, plan.ProducerVersion, plan.PlanLock, predictions);
 
     private static FrozenThresholds Thresholds() => CorpusFixtures.Thresholds();
 
@@ -1101,6 +1483,21 @@ public sealed class CorpusContractTests
             sampleId = prediction.SampleId,
             intent = Intent(prediction.Intent),
             evidenceClass = Evidence(prediction.EvidenceClass),
+            provenance = Context(prediction.Context),
+            lineage = Lineage(prediction.Lineage),
+            producedUtc = Utc(prediction.ProducedUtc),
+            source = new
+            {
+                modelId = prediction.Source.ModelId,
+                modelVersion = prediction.Source.ModelVersion,
+                kind = prediction.Source.Kind switch
+                {
+                    PredictionSourceKind.ModelledEstimate => "modelled-estimate",
+                    PredictionSourceKind.DeterministicRule => "deterministic-rule",
+                    PredictionSourceKind.DerivedCalculation => "derived-calculation",
+                    _ => throw new ArgumentOutOfRangeException(nameof(prediction)),
+                },
+            },
             type = Type(prediction.Type),
             status = prediction.Status == PredictionStatus.Detected ? "detected" : prediction.Status == PredictionStatus.Abstained ? "abstained" : "unavailable",
             confidence = prediction.Confidence,

@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace TarkovCompanion.RecognitionCorpus;
@@ -26,25 +27,41 @@ public static class CorpusValidation
     /// <summary>A detected result at or above this confidence that matches nothing is a confident miss.</summary>
     public const decimal FrozenConfidentWrongMinimumConfidence = 0.9m;
 
-    private static readonly HashSet<string> ForbiddenInterchangeNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "filename", "fileName", "sourceFilename", "sourcePath", "sourceName", "originalName", "originalFileName", "originalFilename",
-        "originalPath", "originalUri", "absolutePath", "path", "pixels", "ocrText", "truth", "labels",
-        "consent", "privacyReview", "privateEvidence", "decodedPixelSha256", "observedDecodedPixelSha256", "nearDuplicateHashes",
-    };
+    /// <summary>
+    /// Fragments that stay forbidden inside any longer name, in normalized form, so
+    /// "captureOriginalFilename" and "source_file_path" fail as well as "fileName".
+    /// </summary>
+    private static readonly string[] OriginalNameFragments =
+    [
+        "filename", "filepath", "originalname", "originalpath", "originaluri", "sourcepath", "absolutepath", "ocrtext",
+    ];
 
-    private static readonly HashSet<string> ForbiddenPrivateManifestNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "filename", "fileName", "sourceFilename", "sourcePath", "sourceName", "originalName", "originalFileName", "originalFilename",
-        "originalPath", "originalUri", "absolutePath", "path", "pixels", "ocrText", "consentRecord",
-    };
+    /// <summary>
+    /// Forbidden names are matched after <see cref="NormalizedPropertyName"/>. The previous sets
+    /// ignored case only, so "original_filename" and "source_file_name" passed although a
+    /// convention-mapping reader binds them exactly like "originalFilename". Whole-word entries
+    /// cover names that are only dangerous as a whole ("path", "truth"); a truth-free interchange
+    /// also refuses every consent and privacy-review member, so a record cannot be rebuilt field by
+    /// field under an extension.
+    /// </summary>
+    private static readonly ForbiddenNames ForbiddenInterchangeNames = new(
+    [
+        "path", "fullpath", "localpath", "sourcename", "pixels", "truth", "truthid", "labels",
+        "consent", "consentrecord", "consentid", "consenthash", "alloweduses", "retention", "revocation",
+        "privacyreview", "privacyreviewhash", "reviewid", "reviewhash",
+        "privateevidence", "decodedpixelsha256", "observeddecodedpixelsha256", "nearduplicatehashes", "nearduplicateids",
+    ], OriginalNameFragments);
 
-    private static readonly HashSet<string> ForbiddenAggregateNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "sampleId", "claimId", "truthId", "claims", "predictions", "perSample", "perSampleResults", "sampleResults",
-        "provenance", "lineage", "privateEvidence",
-        "consent", "privacyReview", "decodedPixelSha256", "observedDecodedPixelSha256",
-    };
+    private static readonly ForbiddenNames ForbiddenPrivateManifestNames = new(
+        ["path", "fullpath", "localpath", "sourcename", "pixels", "consentrecord"],
+        OriginalNameFragments);
+
+    private static readonly ForbiddenNames ForbiddenAggregateNames = new(
+    [
+        "claimid", "truthid", "claims", "predictions", "provenance", "lineage", "privateevidence",
+        "consent", "privacyreview", "decodedpixelsha256", "observeddecodedpixelsha256",
+        "captureintentid", "sessionid", "correlationid", "sequenceid", "persample", "persampleresults", "sampleresults",
+    ], ["sampleid"]);
 
     private static readonly HashSet<string> AllowedUses = new(StringComparer.Ordinal)
     {
@@ -113,7 +130,7 @@ public static class CorpusValidation
 
             if (!Enum.IsDefined(sample.EvidenceClass))
             {
-                errors.Add($"Sample {sample.SampleId} has an undefined evidence class.");
+                errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} has an undefined evidence class.");
             }
 
             var isRaster = sample.EvidenceClass is CorpusEvidenceClass.RealRaster or CorpusEvidenceClass.SyntheticRaster;
@@ -121,7 +138,7 @@ public static class CorpusValidation
             {
                 if (!Sha256(sample.DecodedPixelSha256))
                 {
-                    errors.Add($"Raster sample {sample.SampleId} requires a canonical decoded-pixel SHA-256.");
+                    errors.Add($"Raster sample {CorpusDiagnostics.Id(sample.SampleId)} requires a canonical decoded-pixel SHA-256.");
                 }
                 else
                 {
@@ -130,7 +147,7 @@ public static class CorpusValidation
 
                 if (!evidenceBySample.TryGetValue(sample.SampleId, out var privateEvidence))
                 {
-                    errors.Add($"Raster sample {sample.SampleId} lacks private imported-content evidence.");
+                    errors.Add($"Raster sample {CorpusDiagnostics.Id(sample.SampleId)} lacks private imported-content evidence.");
                 }
                 else
                 {
@@ -141,24 +158,24 @@ public static class CorpusValidation
             {
                 if (sample.DecodedPixelSha256 is not null || sample.NearDuplicateHashes.Count != 0)
                 {
-                    errors.Add($"Post-OCR sample {sample.SampleId} must not claim raster hashes.");
+                    errors.Add($"Post-OCR sample {CorpusDiagnostics.Id(sample.SampleId)} must not claim raster hashes.");
                 }
 
                 if (evidenceBySample.ContainsKey(sample.SampleId))
                 {
-                    errors.Add($"Post-OCR sample {sample.SampleId} must not carry private raster evidence.");
+                    errors.Add($"Post-OCR sample {CorpusDiagnostics.Id(sample.SampleId)} must not carry private raster evidence.");
                 }
 
                 if (sample.ConsentHash is not null || sample.PrivacyReviewHash is not null)
                 {
-                    errors.Add($"Post-OCR sample {sample.SampleId} must not carry consent or privacy summaries.");
+                    errors.Add($"Post-OCR sample {CorpusDiagnostics.Id(sample.SampleId)} must not carry consent or privacy summaries.");
                 }
             }
 
             if (sample.NearDuplicateHashes.Count != sample.NearDuplicateHashes.Distinct(StringComparer.Ordinal).Count() ||
                 sample.NearDuplicateHashes.Any(hash => !Sha256(hash) || string.Equals(hash, sample.DecodedPixelSha256, StringComparison.Ordinal)))
             {
-                errors.Add($"Sample {sample.SampleId} has duplicate, self-referential, or malformed perceptual-near-duplicate hashes.");
+                errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} has duplicate, self-referential, or malformed perceptual-near-duplicate hashes.");
             }
 
             ValidateContext(sample.SampleId, sample.Context, errors);
@@ -172,7 +189,7 @@ public static class CorpusValidation
             frames.Add(sample);
             if (sample.Truth.Count == 0)
             {
-                errors.Add($"Sample {sample.SampleId} requires at least one explicit known or unknown truth claim.");
+                errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} requires at least one explicit known or unknown truth claim.");
             }
 
             var truthIds = new HashSet<string>(StringComparer.Ordinal);
@@ -184,7 +201,7 @@ public static class CorpusValidation
                     (truth.State == TruthState.Unknown && (truth.Value is not null || truth.Region is not null)) ||
                     !Enum.IsDefined(truth.State))
                 {
-                    errors.Add($"Sample {sample.SampleId} has invalid truth-with-unknowns.");
+                    errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} has invalid truth-with-unknowns.");
                     continue;
                 }
 
@@ -196,7 +213,7 @@ public static class CorpusValidation
                 if (truthSequences.TryGetValue(truth.TruthId, out var priorSequence) &&
                     !string.Equals(priorSequence, sample.Lineage.SequenceId, StringComparison.Ordinal))
                 {
-                    errors.Add($"Truth {truth.TruthId} cannot cross capture sequences.");
+                    errors.Add($"Truth {CorpusDiagnostics.Id(truth.TruthId)} cannot cross capture sequences.");
                 }
                 else
                 {
@@ -207,14 +224,14 @@ public static class CorpusValidation
 
         foreach (var evidenceId in evidenceBySample.Keys.Where(id => !sampleIds.Contains(id)))
         {
-            errors.Add($"Private evidence names unknown sample {evidenceId}.");
+            errors.Add($"Private evidence names unknown sample {CorpusDiagnostics.Id(evidenceId)}.");
         }
 
         foreach (var sample in manifest.Samples.Where(sample => sample is not null))
         {
             if (sample.NearDuplicateHashes.Any(hash => !contentHashes.Contains(hash)))
             {
-                errors.Add($"Sample {sample.SampleId} has a near-duplicate edge to content absent from the manifest.");
+                errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} has a near-duplicate edge to content absent from the manifest.");
             }
         }
 
@@ -223,7 +240,7 @@ public static class CorpusValidation
             var ordered = frames.OrderBy(frame => frame.Lineage.FrameOrdinal).ToArray();
             if (!frames.SequenceEqual(ordered))
             {
-                errors.Add($"Sequence {ordered[0].Lineage.SequenceId} frames are reordered in the manifest.");
+                errors.Add($"Sequence {CorpusDiagnostics.Id(ordered[0].Lineage.SequenceId)} frames are reordered in the manifest.");
             }
 
             for (var index = 0; index < ordered.Length; index++)
@@ -231,7 +248,7 @@ public static class CorpusValidation
                 if (ordered[index].Lineage.FrameOrdinal != index ||
                     (index == 0 && ordered[index].Lineage.OverlapWithPrevious != 0))
                 {
-                    errors.Add($"Sequence {ordered[index].Lineage.SequenceId} requires contiguous frames from zero and zero first-frame overlap.");
+                    errors.Add($"Sequence {CorpusDiagnostics.Id(ordered[index].Lineage.SequenceId)} requires contiguous frames from zero and zero first-frame overlap.");
                     break;
                 }
             }
@@ -241,12 +258,12 @@ public static class CorpusValidation
             {
                 if (repeated.Select(pair => (pair.truth.State, pair.truth.Kind, pair.truth.Value, pair.truth.Region)).Distinct().Skip(1).Any())
                 {
-                    errors.Add($"Sequence {ordered[0].Lineage.SequenceId} repeats truth {repeated.Key} with conflicting values.");
+                    errors.Add($"Sequence {CorpusDiagnostics.Id(ordered[0].Lineage.SequenceId)} repeats truth {CorpusDiagnostics.Id(repeated.Key)} with conflicting values.");
                 }
 
                 if (repeated.Skip(1).Any(pair => pair.sample.Lineage.OverlapWithPrevious <= 0))
                 {
-                    errors.Add($"Sequence {ordered[0].Lineage.SequenceId} repeats truth {repeated.Key} outside an overlapping frame.");
+                    errors.Add($"Sequence {CorpusDiagnostics.Id(ordered[0].Lineage.SequenceId)} repeats truth {CorpusDiagnostics.Id(repeated.Key)} outside an overlapping frame.");
                 }
             }
         }
@@ -257,7 +274,7 @@ public static class CorpusValidation
             var ordinals = session.Select(sample => sample.Context.CaptureOrdinal).OrderBy(ordinal => ordinal).ToArray();
             if (ordinals.Where((ordinal, index) => ordinal != index).Any())
             {
-                errors.Add($"Capture session {session.Key} requires unique contiguous capture ordinals from zero.");
+                errors.Add($"Capture session {CorpusDiagnostics.Id(session.Key)} requires unique contiguous capture ordinals from zero.");
             }
         }
 
@@ -320,14 +337,14 @@ public static class CorpusValidation
         var actualOrderedIds = plan.Samples.Where(sample => sample is not null).Select(sample => sample.SampleId).ToArray();
         foreach (var missing in expectedIds.Except(actualOrderedIds, StringComparer.Ordinal))
         {
-            errors.Add($"Run plan is missing authorized sample {missing}.");
+            errors.Add($"Run plan is missing authorized sample {CorpusDiagnostics.Id(missing)}.");
         }
 
         foreach (var extra in actualOrderedIds.Except(expectedIds, StringComparer.Ordinal))
         {
             errors.Add(plannedById.TryGetValue(extra, out var withheld)
-                ? $"Run plan names sample {extra} in split {withheld.Split}, which its private consent does not permit."
-                : $"Run plan names unauthorized sample {extra}.");
+                ? $"Run plan names sample {CorpusDiagnostics.Id(extra)} in split {withheld.Split}, which its private consent does not permit."
+                : $"Run plan names unauthorized sample {CorpusDiagnostics.Id(extra)}.");
         }
 
         if (expectedIds.Length == actualOrderedIds.Length && !expectedIds.SequenceEqual(actualOrderedIds, StringComparer.Ordinal))
@@ -347,7 +364,7 @@ public static class CorpusValidation
                 actual.EvidenceClass != expectedSample.EvidenceClass ||
                 !ContextEquals(actual.Context, expectedSample.Context) || actual.Lineage != expectedSample.Lineage)
             {
-                errors.Add($"Run-plan sample {actual.SampleId} does not match its private context, lineage, intent, evidence class, or content-stable split.");
+                errors.Add($"Run-plan sample {CorpusDiagnostics.Id(actual.SampleId)} does not match its private context, lineage, intent, evidence class, or content-stable split.");
             }
         }
 
@@ -356,7 +373,7 @@ public static class CorpusValidation
         {
             if (splitUnit.Select(sample => sample.Split).Distinct().Skip(1).Any())
             {
-                errors.Add($"Exact, near-duplicate, or sequence split unit {splitUnit.Key} leaks across splits.");
+                errors.Add($"Exact, near-duplicate, or sequence split unit {CorpusDiagnostics.Id(splitUnit.Key)} leaks across splits.");
             }
         }
 
@@ -369,11 +386,16 @@ public static class CorpusValidation
         return errors;
     }
 
-    public static IReadOnlyList<string> ValidatePredictions(PredictionDocument document, RunPlan plan)
+    public static IReadOnlyList<string> ValidatePredictions(PredictionDocument document, RunPlan plan, DateTimeOffset nowUtc)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(plan);
         var errors = new List<string>();
+        if (nowUtc.Offset != TimeSpan.Zero)
+        {
+            errors.Add("Prediction validation requires an explicit UTC validation time.");
+        }
+
         if (!OpaqueId(plan.RunId) || !OpaqueId(plan.ProducerId) || !BoundedToken(plan.ProducerVersion) ||
             !string.Equals(plan.PolicyVersion, FrozenPolicyVersion, StringComparison.Ordinal) ||
             !OpaqueId(plan.CorpusId) || !string.Equals(plan.NearDuplicateGraphVersion, NearDuplicateGraphVersion, StringComparison.Ordinal) ||
@@ -415,7 +437,7 @@ public static class CorpusValidation
             ValidateLineage(sample.SampleId, sample.Lineage, errors);
             if (!Enum.IsDefined(sample.Split) || !Enum.IsDefined(sample.Intent) || !Enum.IsDefined(sample.EvidenceClass))
             {
-                errors.Add($"Prediction run-plan sample {sample.SampleId} has an undefined split, intent, or evidence class.");
+                errors.Add($"Prediction run-plan sample {CorpusDiagnostics.Id(sample.SampleId)} has an undefined split, intent, or evidence class.");
             }
         }
 
@@ -423,7 +445,8 @@ public static class CorpusValidation
         var resultKeys = new HashSet<(string SampleId, PredictionType Type)>();
         foreach (var prediction in document.Predictions)
         {
-            if (prediction is null || !OpaqueId(prediction.SampleId) || prediction.Claims is null)
+            if (prediction is null || !OpaqueId(prediction.SampleId) || prediction.Claims is null ||
+                prediction.Context is null || prediction.Lineage is null || prediction.Source is null)
             {
                 errors.Add("Predictions cannot contain null results or required members.");
                 continue;
@@ -431,31 +454,49 @@ public static class CorpusValidation
 
             if (!planned.TryGetValue(prediction.SampleId, out var sample))
             {
-                errors.Add($"Prediction names sample {prediction.SampleId}, which is not a member of run {plan.RunId}.");
+                errors.Add($"Prediction names sample {CorpusDiagnostics.Id(prediction.SampleId)}, which is not a member of run {CorpusDiagnostics.Id(plan.RunId)}.");
                 continue;
             }
 
             if (!resultKeys.Add((prediction.SampleId, prediction.Type)))
             {
-                errors.Add($"Prediction sample {prediction.SampleId} repeats result type {PredictionTypeNames.Format(prediction.Type)}.");
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} repeats result type {PredictionTypeNames.Format(prediction.Type)}.");
             }
 
             if (prediction.Intent != sample.Intent || prediction.EvidenceClass != sample.EvidenceClass)
             {
-                errors.Add($"Prediction sample {prediction.SampleId} does not match its planned intent and evidence class.");
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} does not match its planned intent and evidence class.");
+            }
+
+            // The lock binds the plan to the private graph; this binds each result to one frame of
+            // that plan. A result carried to another frame, session, or context snapshot, or one
+            // whose snapshot was edited after the plan was issued, no longer matches.
+            if (!ContextEquals(prediction.Context, sample.Context) || prediction.Lineage != sample.Lineage)
+            {
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} does not carry the exact capture intent, session, correlation, context, and lineage of its run-plan sample.");
+            }
+
+            if (prediction.ProducedUtc == DateTimeOffset.MinValue || prediction.ProducedUtc.Offset != TimeSpan.Zero || prediction.ProducedUtc > nowUtc)
+            {
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} requires a UTC produced time that is not after the validation time.");
+            }
+
+            if (!OpaqueId(prediction.Source.ModelId) || !BoundedToken(prediction.Source.ModelVersion) || !Enum.IsDefined(prediction.Source.Kind))
+            {
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} requires a bounded model id, model version, and source kind.");
             }
 
             if (!Enum.IsDefined(prediction.Intent) || !Enum.IsDefined(prediction.EvidenceClass) ||
                 !Enum.IsDefined(prediction.Type) || !Enum.IsDefined(prediction.Status) ||
                 prediction.Confidence is < 0 or > 1 || prediction.ElapsedMilliseconds is < 0 or > MaximumElapsedMilliseconds)
             {
-                errors.Add($"Prediction sample {prediction.SampleId} has an invalid enum, confidence, or elapsed-time bound.");
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} has an invalid enum, confidence, or elapsed-time bound.");
             }
 
             if ((prediction.Status == PredictionStatus.Detected && prediction.Claims.Count == 0) ||
                 (prediction.Status != PredictionStatus.Detected && (prediction.Claims.Count != 0 || prediction.Confidence != 0)))
             {
-                errors.Add($"Prediction sample {prediction.SampleId} has claims or confidence inconsistent with status {prediction.Status}.");
+                errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} has claims or confidence inconsistent with status {prediction.Status}.");
             }
 
             if (!Enum.IsDefined(prediction.Type))
@@ -472,7 +513,7 @@ public static class CorpusValidation
                     (prediction.Type != PredictionType.Region &&
                      (string.IsNullOrWhiteSpace(claim.Value) || claim.Value.Length > 4096)))
                 {
-                    errors.Add($"Prediction sample {prediction.SampleId} has an invalid, duplicate, or type-inconsistent claim.");
+                    errors.Add($"Prediction sample {CorpusDiagnostics.Id(prediction.SampleId)} has an invalid, duplicate, or type-inconsistent claim.");
                     continue;
                 }
 
@@ -531,7 +572,7 @@ public static class CorpusValidation
         return [.. parsedPlan.Errors, .. parsedManifest.Errors.Select(error => $"Private plan context: {error}"), .. ValidateRunPlan(parsedPlan.Value, parsedManifest.Value, nowUtc)];
     }
 
-    public static IReadOnlyList<string> ValidatePredictionsInterchange(string json, string runPlanJson)
+    public static IReadOnlyList<string> ValidatePredictionsInterchange(string json, string runPlanJson, DateTimeOffset nowUtc)
     {
         var parsedPredictions = CorpusJson.ParsePredictions(json);
         var parsedPlan = CorpusJson.ParseRunPlan(runPlanJson);
@@ -540,7 +581,7 @@ public static class CorpusValidation
             return [.. parsedPredictions.Errors, .. parsedPlan.Errors.Select(error => $"Run-plan context: {error}")];
         }
 
-        return [.. parsedPredictions.Errors, .. parsedPlan.Errors.Select(error => $"Run-plan context: {error}"), .. ValidatePredictions(parsedPredictions.Value, parsedPlan.Value)];
+        return [.. parsedPredictions.Errors, .. parsedPlan.Errors.Select(error => $"Run-plan context: {error}"), .. ValidatePredictions(parsedPredictions.Value, parsedPlan.Value, nowUtc)];
     }
 
     public static string CanonicalPixelHash(ReadOnlySpan<byte> decodedPixels) =>
@@ -550,7 +591,7 @@ public static class CorpusValidation
     {
         if (!Sha256(expectedHash) || !string.Equals(expectedHash, CanonicalPixelHash(decodedPixels), StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Decoded pixels changed from the manifest's canonical SHA-256.");
+            throw CorpusDiagnostics.PathFree(new InvalidDataException("Decoded pixels changed from the manifest's canonical SHA-256."));
         }
     }
 
@@ -580,7 +621,7 @@ public static class CorpusValidation
             OptionalIdInvalid(context.MapId) || OptionalIdInvalid(context.FloorId) || OptionalIdInvalid(context.PlanId) ||
             OptionalIdInvalid(context.SelectedReference) || OptionalIdInvalid(context.PriorScanReference))
         {
-            errors.Add($"Sample {sampleId} has an invalid immutable context snapshot.");
+            errors.Add($"Sample {CorpusDiagnostics.Id(sampleId)} has an invalid immutable context snapshot.");
         }
     }
 
@@ -591,7 +632,7 @@ public static class CorpusValidation
             OptionalIdInvalid(lineage.ParentContainerIdentity) ||
             string.Equals(lineage.ParentContainerIdentity, lineage.ContainerIdentity, StringComparison.Ordinal))
         {
-            errors.Add($"Sample {sampleId} has invalid sequence lineage.");
+            errors.Add($"Sample {CorpusDiagnostics.Id(sampleId)} has invalid sequence lineage.");
         }
     }
 
@@ -626,14 +667,14 @@ public static class CorpusValidation
             !Sha256(evidence.ObservedDecodedPixelSha256) ||
             !string.Equals(sample.DecodedPixelSha256, evidence.ObservedDecodedPixelSha256, StringComparison.Ordinal))
         {
-            errors.Add($"Sample {sample.SampleId} decoded pixels changed from the canonical imported-content SHA-256.");
+            errors.Add($"Sample {CorpusDiagnostics.Id(sample.SampleId)} decoded pixels changed from the canonical imported-content SHA-256.");
         }
 
         if (sample.EvidenceClass != CorpusEvidenceClass.RealRaster)
         {
             if (sample.ConsentHash is not null || sample.PrivacyReviewHash is not null || evidence.Consent is not null || evidence.PrivacyReview is not null)
             {
-                errors.Add($"Non-real sample {sample.SampleId} must not carry private consent or privacy evidence.");
+                errors.Add($"Non-real sample {CorpusDiagnostics.Id(sample.SampleId)} must not carry private consent or privacy evidence.");
             }
 
             return;
@@ -643,7 +684,7 @@ public static class CorpusValidation
             !string.Equals(sample.ConsentHash, evidence.Consent?.ConsentHash, StringComparison.Ordinal) ||
             !string.Equals(sample.PrivacyReviewHash, evidence.PrivacyReview?.ReviewHash, StringComparison.Ordinal))
         {
-            errors.Add($"Real sample {sample.SampleId} lacks matching full private consent and privacy evidence; hash-shaped summaries alone are ineligible.");
+            errors.Add($"Real sample {CorpusDiagnostics.Id(sample.SampleId)} lacks matching full private consent and privacy evidence; hash-shaped summaries alone are ineligible.");
         }
 
         var consent = evidence.Consent;
@@ -654,7 +695,7 @@ public static class CorpusValidation
             consent.RetentionExpiresUtc <= nowUtc || consent.RetentionExpiresUtc <= consent.ConsentedUtc ||
             !string.Equals(consent.RevocationState, "active", StringComparison.Ordinal))
         {
-            errors.Add($"Real sample {sample.SampleId} lacks active allowed-use consent, valid UTC retention, or non-revoked authority.");
+            errors.Add($"Real sample {CorpusDiagnostics.Id(sample.SampleId)} lacks active allowed-use consent, valid UTC retention, or non-revoked authority.");
         }
 
         var review = evidence.PrivacyReview;
@@ -662,7 +703,7 @@ public static class CorpusValidation
             review.ReviewedUtc > nowUtc || (consent is not null && review.ReviewedUtc < consent.ConsentedUtc) ||
             !string.Equals(review.State, "approved", StringComparison.Ordinal) || review.RedactionState is not ("not-required" or "applied"))
         {
-            errors.Add($"Real sample {sample.SampleId} lacks an approved matching UTC privacy/redaction review.");
+            errors.Add($"Real sample {CorpusDiagnostics.Id(sample.SampleId)} lacks an approved matching UTC privacy/redaction review.");
         }
     }
 
@@ -671,7 +712,7 @@ public static class CorpusValidation
         if (region.X < 0 || region.Y < 0 || region.Width <= 0 || region.Height <= 0 ||
             (long)region.X + region.Width > context.Width || (long)region.Y + region.Height > context.Height)
         {
-            errors.Add($"Sample {sampleId} has an out-of-bounds {source} region for its capture dimensions.");
+            errors.Add($"Sample {CorpusDiagnostics.Id(sampleId)} has an out-of-bounds {source} region for its capture dimensions.");
         }
     }
 
@@ -685,6 +726,37 @@ public static class CorpusValidation
     private static bool OptionalIdInvalid(string? value) => value is not null && !OpaqueId(value);
 
     internal static bool BoundedToken(string? value) => value is { Length: >= 1 and <= 128 } && !string.IsNullOrWhiteSpace(value);
+
+    /// <summary>
+    /// Folds a JSON property name to the form names are compared in: compatibility-normalized,
+    /// lower-cased, and stripped of everything that is not a letter or digit. "original_filename",
+    /// "Original-File-Name", a full-width FILENAME, and a name split by a zero-width space
+    /// are all one name to a reader that binds leniently. Returns null for a name that is not valid
+    /// Unicode, which callers treat as a match rather than a pass.
+    /// </summary>
+    internal static string? NormalizedPropertyName(string name)
+    {
+        string folded;
+        try
+        {
+            folded = name.Normalize(NormalizationForm.FormKC);
+        }
+        catch (Exception exception) when (exception is ArgumentException or PlatformNotSupportedException)
+        {
+            return null;
+        }
+
+        var builder = new StringBuilder(folded.Length);
+        foreach (var character in folded)
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                builder.Append(char.ToLowerInvariant(character));
+            }
+        }
+
+        return builder.ToString();
+    }
 
     internal static IReadOnlyList<string> PrivacyErrors(JsonElement root, bool privateManifest)
     {
@@ -700,15 +772,21 @@ public static class CorpusValidation
         return errors;
     }
 
-    private static void Visit(JsonElement element, ICollection<string> errors, IReadOnlySet<string> forbiddenNames)
+    private static void Visit(JsonElement element, ICollection<string> errors, ForbiddenNames forbiddenNames)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
             foreach (var property in element.EnumerateObject())
             {
-                if (forbiddenNames.Contains(property.Name))
+                // A name is document content too: it can carry a path, and the error names only
+                // the forbidden form it matched, never the name as written.
+                if (LooksFilesystemPath(property.Name))
                 {
-                    errors.Add($"Interchange cannot contain prohibited field {property.Name}.");
+                    errors.Add("Interchange cannot contain an absolute filesystem path or relative traversal.");
+                }
+                else if (forbiddenNames.Match(property.Name) is { } match)
+                {
+                    errors.Add($"Interchange cannot contain prohibited field {match}.");
                 }
 
                 Visit(property.Value, errors, forbiddenNames);
@@ -734,6 +812,26 @@ public static class CorpusValidation
         value.StartsWith("\\\\", StringComparison.Ordinal) ||
         value.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
         value.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..", StringComparer.Ordinal);
+
+    private sealed class ForbiddenNames(IEnumerable<string> wholeNames, IEnumerable<string> fragments)
+    {
+        private readonly HashSet<string> _wholeNames = new(wholeNames, StringComparer.Ordinal);
+        private readonly string[] _fragments = [.. fragments];
+
+        /// <summary>The normalized forbidden form a property name matches, or null when it is allowed.</summary>
+        public string? Match(string name)
+        {
+            var normalized = NormalizedPropertyName(name);
+            if (normalized is null)
+            {
+                return "<name that is not valid Unicode>";
+            }
+
+            return _wholeNames.Contains(normalized)
+                ? normalized
+                : _fragments.FirstOrDefault(fragment => normalized.Contains(fragment, StringComparison.Ordinal));
+        }
+    }
 }
 
 internal static class PredictionTypeNames

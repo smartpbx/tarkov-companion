@@ -64,11 +64,48 @@
     },
     "prediction": {
       "type": "object",
-      "required": ["sampleId", "intent", "evidenceClass", "type", "status", "confidence", "claims", "performance"],
+      "required": [
+        "sampleId",
+        "intent",
+        "evidenceClass",
+        "provenance",
+        "lineage",
+        "producedUtc",
+        "source",
+        "type",
+        "status",
+        "confidence",
+        "claims",
+        "performance"
+      ],
       "properties": {
         "sampleId": { "$ref": "#/$defs/opaqueId" },
         "intent": { "$ref": "#/$defs/intent" },
         "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+        "provenance": {
+          "$ref": "provenance.v1.schema.json",
+          "description": "The exact provenance snapshot of the run-plan sample this result answers; every member must match."
+        },
+        "lineage": {
+          "$ref": "manifest.v1.schema.json#/$defs/lineage",
+          "description": "The exact sequence lineage of the run-plan sample this result answers; every member must match."
+        },
+        "producedUtc": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$",
+          "description": "When the producer created this result; never after validation or score time."
+        },
+        "source": {
+          "type": "object",
+          "required": ["modelId", "modelVersion", "kind"],
+          "properties": {
+            "modelId": { "$ref": "#/$defs/opaqueId" },
+            "modelVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "kind": { "enum": ["modelled-estimate", "deterministic-rule", "derived-calculation"] }
+          },
+          "additionalProperties": true
+        },
         "type": { "$ref": "#/$defs/predictionType" },
         "status": { "enum": ["detected", "abstained", "unavailable"] },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },

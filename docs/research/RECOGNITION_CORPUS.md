@@ -26,7 +26,8 @@ The checked-in schemas under `fixtures/recognition-corpus/schemas/` are the v1 c
   public; populated manifests and their private-evidence section are not.
 - `run-plan.v1` and `predictions.v1` are the truth-free producer handoff for #299 and #273.
   They contain no labels, truth, filenames, paths, pixels, consent records, OCR strings, or
-  per-sample outputs eligible for GitHub publication.
+  per-sample outputs eligible for GitHub publication. Every prediction repeats the provenance and
+  lineage of the plan sample it answers and states when and by what it was produced.
 - `thresholds.v1` is the frozen scorer-policy ownership point for #272. Recognizers must not
   tune or override its policy version, thresholds, or minimum denominators.
 - `aggregate-results.v1` is the only format which may leave the private scorer, and only after
@@ -38,11 +39,36 @@ original-name fields, absolute paths, relative traversal strings, labels in a tr
 interchange, and every real-raster eligibility failure. These privacy checks recurse into unknown
 extension fields rather than trusting a known-property projection.
 
-An unknown property is tolerated; an unknown *versioned* sub-document is not. Any nested
-`schemaVersion`, at any depth and including inside extension objects, must be one of the nested
-v1 versions (`provenance.v1`, `consent.v1`, `privacy-review.v1`), and the known positions must
-carry exactly their own. A `provenance.v2`, a `schemaVersion` on an object v1 never versioned, or a
-non-string version fails the whole document rather than being read as v1.
+Property names are compared in a normalized form: Unicode compatibility-folded (NFKC),
+lower-cased, and stripped of every character that is not a letter or digit. `original_filename`,
+`source_file_name`, `Original-File-Name`, a full-width `filename`, and a name split by a zero-width
+space are therefore the same name, as they would be to a reader that binds leniently; the earlier
+check ignored case only and let the first two through. Some forbidden names match only whole
+(`path`, `truth`, `consent`); the fragments `filename`, `filepath`, `originalname`, `originalpath`,
+`originaluri`, `sourcepath`, `absolutepath`, and `ocrtext` are refused inside any longer name. A
+truth-free interchange also refuses every consent and privacy-review member name (`consentHash`,
+`allowedUses`, `retention`, `reviewHash`, and so on), so a record cannot be rebuilt field by field
+under an extension. Two members of one object whose names normalize alike are duplicates, and a
+property name shaped like a path is refused like a path-shaped value. Name matching is a tripwire,
+not a content scanner: it cannot recognize a translated or homoglyph name (`nombreDeArchivo`, a
+Cyrillic `а`), a name split across nested objects (`{"original": {"name": ...}}`), or a filename
+carried as an ordinary string value. Values shaped like paths are still refused wherever they
+appear, and nothing publishable carries extensions at all: emitted plans and published aggregates
+are re-serialized from typed members.
+
+An unknown property is tolerated; an unknown or misplaced *versioned* sub-document is not. v1
+defines exactly where a nested `schemaVersion` may appear: `samples[].provenance`
+(`provenance.v1`) in a manifest and a run plan, `predictions[].provenance` (`provenance.v1`) in
+predictions, and `privateEvidence[].consent` (`consent.v1`) and `privateEvidence[].privacyReview`
+(`privacy-review.v1`) in a manifest. Thresholds and aggregates define none. A declaration anywhere
+else fails the whole document even when its value is a known version, as does the wrong known
+version at a defined position, a non-string version, a case or separator variant of the name, or
+a nested JSON Schema `$schema` or `$id` (a root `$schema` remains an editor hint).
+The earlier check accepted any known value at any depth, so an extension in a run plan or in
+predictions could carry a complete `consent.v1` record and pass as an ignorable unknown property.
+Positions are compared as member chains, so an extension that merely imitates the path
+(`futureExtension.samples[0].provenance`, or a member literally named `samples[].provenance`) is
+not a defined position.
 
 ## Consent, privacy, retention, and revocation
 
@@ -130,6 +156,17 @@ positives rather than counting it twice. Truth and prediction rectangles use exp
 a plan and can be reused; the lock cannot, so predictions produced for a superseded plan are
 refused by `validate-predictions` and by the scorer even under the same run and producer.
 
+Each prediction also carries immutable producer traceability. `provenance` and `lineage` repeat
+the plan sample's capture intent id, session and correlation ids, capture ordinal, bounded context
+snapshot, and sequence, frame, viewport, container, overlap, and parent identity; validation and
+the scorer compare every member with the plan sample by value (a decimal's scale does not matter),
+so a result moved to another frame or session, or a snapshot edited after the plan was issued, is
+refused. `producedUtc` is a UTC timestamp ending in `Z` that may not be after the validation or
+score time. `source` names the `modelId` (opaque), `modelVersion` (bounded), and `kind`
+(`modelled-estimate`, `deterministic-rule`, or `derived-calculation`) of what produced the result;
+none of them is a live detection. The lock binds the plan to the private graph; the traceability
+binds each result to one frame of that plan.
+
 The scorer requires the still-eligible private manifest, the run plan recomputed from that exact
 manifest, its truth commitment, the frozen threshold policy, and predictions bound to that plan's
 lock.
@@ -143,9 +180,21 @@ stash, Ammo, Keys, Quest/future-quest items, Map/extracts/timers, Health/charact
 Auto-detect. Each slice includes the original numerator/denominator, excluded unknown truth
 scopes, excluded predictions in those unadjudicable scopes, independent split units, attempted eligible
 truth coverage, accuracy, recall, false-positive rate, F1, each applicable metric numerator and
-denominator, a 95% Wilson recall interval, abstention, confident-wrong, sequence
-missing/reordered-frame and overlap/dedup errors, and available performance. A repeated truth may
-match once from any frame where it remains visible. Every unsupported or underpowered slice is
+denominator, a 95% Wilson recall interval, abstention, confident-wrong, sequence completeness,
+reordered-frame and overlap/dedup errors, and available performance. A repeated truth may match
+once from any frame where it remains visible.
+
+Sequence completeness is recomputable from two counts. `expectedFrames` is every planned frame in
+the slice and `observedFrames` every one with at least one result of any status, unavailable
+included; `missingFrames` is their difference and `sequenceCompleteness` is
+`observedFrames / expectedFrames` (0 when nothing is expected). `reorderedFrames` counts frames, as
+its name says: within each sequence, the observed frames in the order the producer answered them,
+minus the longest run already in frame order, which is the fewest frames that would have to move.
+The earlier count added one per disordered sequence, so a single swap and a full reversal of three
+frames reported the same. Publication rejects an aggregate whose completeness counts disagree:
+observed above expected, missing not equal to the difference, more split units than frames, frames
+without units or without any truth (or the reverse), observed frames without results, or more
+reordered frames than observed frames minus one. Every unsupported or underpowered slice is
 `insufficient-data`; powered slices are explicitly `pass` or `fail` against the frozen candidate
 coverage, abstention, confident-wrong, and F1 thresholds.
 
@@ -171,6 +220,30 @@ contract, rejects per-sample/private material even inside extensions, recomputes
 identity, rate, Wilson interval, and threshold status, requires all eight unique slices, and
 verifies that every slice matches the root evidence class. The `safeToPublish` and
 `containsPerSampleResults` fields are assertions to check, never authority.
+
+## Residual limitations
+
+Two different kinds of limit remain, and they are not the same problem.
+
+**Authenticity.** Nothing in the corpus workflow is signed. The plan lock is an unkeyed SHA-256:
+it proves that a plan is consistent with a private manifest, and anyone holding that manifest can
+recompute it, so it is a binding, not a credential. Prediction traceability proves that a result
+answers a specific frame of a specific plan with the plan's own snapshot; `producedUtc` and
+`source` are what the producer declares, bounded only by the score time and by shape, and nothing
+proves the named model produced the result or when. A consent hash correlates a sample with its
+private record and is not evidence that a person consented; that remains the human review's job.
+`validate-aggregate` and `publish-aggregate` recompute every identity, rate, interval, status, and
+privacy rule from the counts, so a tampered aggregate must at least be internally consistent, but a
+fabricated and consistent aggregate still passes them: an aggregate is authentic only because the
+operator produced it with `score-and-publish` against private material.
+
+**Time of check to time of use.** Path canonicalization, the repository and Git-storage checks, and
+the later read or write are separate system calls. A local process able to replace a path component
+between the check and the open could redirect a read or a write, and the atomic output rename
+replaces whatever is at the destination name at rename time. The tool reads the canonical path it
+checked and writes through a new `CreateNew` temporary, which narrows the window without closing it;
+closing it would need handle-relative opens that .NET does not expose portably. An attacker with
+that access to the private corpus directory is out of scope for this single-user tool.
 
 ## Current baseline
 
@@ -210,6 +283,16 @@ membership, intent, evidence class, dimensions, and timing contract the output m
 writes only a canonical typed projection, dropping benign extension properties after hostile
 privacy fields have failed.
 
+Diagnostics never quote a filesystem path or document content that could hold one. A runtime I/O
+exception names the file it failed on (a manifest locked by another process printed "The process
+cannot access the file '.../manifest.json'"), so the CLI prints an exception's own text only when
+the tool wrote it as fixed, path-free text, and otherwise one of fixed not-found, access-denied,
+path-too-long, read/write, invalid-argument, or unexpected-failure messages. Document values enter
+a message only when already shaped as an opaque id (otherwise `<non-opaque id>`) or a short
+lowercase token (otherwise `<unrecognized value>`), property names only as short ASCII identifiers
+(otherwise `<property>`), and malformed JSON is reported by line and byte, not by the runtime's
+JSON path.
+
 `fixtures/recognition-corpus/golden/` holds a wholly synthetic manifest and predictions with
 invented labels, and the run plan and aggregate they must produce. The golden tests pin every
 split unit and assignment, the plan lock, the run-plan bytes, and the aggregate bytes, with the
@@ -218,8 +301,9 @@ bytes through `emit-run-plan` and `score-and-publish`. Tests load the checked-in
 `thresholds/recognition-release.v1.json` rather than a copy built in code.
 
 The test project covers positive, negative, hostile, privacy, split/leakage, region-bound,
-prediction-mismatch, plan-lock binding, consent-scoped planning, schema-compatible unknown-property
-and nested-version, metric, confident-wrong scope, aggregate-tamper, threshold, symlink/junction
-and two-hop parent-link escape, Git-storage, relative-traversal, original-name, sequence, golden
-byte, and CLI cases. Both projects are registered in the solution so the normal Linux and Windows
+prediction-mismatch, plan-lock binding, prediction traceability mutation, consent-scoped planning,
+schema-compatible unknown-property, positional nested-version, forbidden-name alias, metric,
+sequence completeness and reordering, confident-wrong scope, aggregate-tamper, threshold,
+symlink/junction and two-hop parent-link escape, Git-storage, relative-traversal, original-name,
+golden byte, CLI, and stderr path-omission cases. Both projects are registered in the solution so the normal Linux and Windows
 jobs execute them; GitHub Actions stays the required substantive-change gate.

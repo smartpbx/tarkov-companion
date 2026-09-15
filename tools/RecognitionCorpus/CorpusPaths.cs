@@ -79,7 +79,7 @@ public static class CorpusPaths
     public static string Canonicalize(string path)
     {
         var absolute = Absolute(RequirePath(path));
-        var current = Path.GetPathRoot(absolute) ?? throw new InvalidOperationException("A recognition corpus path has no filesystem root.");
+        var current = Path.GetPathRoot(absolute) ?? throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus path has no filesystem root."));
         var pending = new Stack<string>();
         Push(pending, absolute[current.Length..]);
         var traversals = 0;
@@ -99,13 +99,13 @@ public static class CorpusPaths
 
             var candidate = Path.Join(current, component);
             var attributes = Attributes(candidate) ??
-                             throw new FileNotFoundException("A recognition corpus path component does not exist.");
+                             throw CorpusDiagnostics.PathFree(new FileNotFoundException("A recognition corpus path component does not exist."));
             var target = LinkTarget(candidate, attributes);
             if (target is null)
             {
                 if (attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
-                    throw new InvalidOperationException("A recognition corpus path crosses a reparse point that is not a symlink or junction.");
+                    throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus path crosses a reparse point that is not a symlink or junction."));
                 }
 
                 current = candidate;
@@ -114,7 +114,7 @@ public static class CorpusPaths
 
             if (++traversals > MaximumLinkTraversals)
             {
-                throw new InvalidOperationException("A recognition corpus path traverses too many links or a link loop.");
+                throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus path traverses too many links or a link loop."));
             }
 
             if (Path.IsPathFullyQualified(target))
@@ -129,7 +129,7 @@ public static class CorpusPaths
             }
             else if (Path.IsPathRooted(target))
             {
-                throw new InvalidOperationException("A recognition corpus link has an ambiguous drive-relative target.");
+                throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus link has an ambiguous drive-relative target."));
             }
             else
             {
@@ -147,7 +147,7 @@ public static class CorpusPaths
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (path.Contains('\0', StringComparison.Ordinal))
         {
-            throw new ArgumentException("A recognition corpus path cannot contain a NUL character.", nameof(path));
+            throw CorpusDiagnostics.PathFree(new ArgumentException("A recognition corpus path cannot contain a NUL character.", nameof(path)));
         }
 
         return path;
@@ -162,7 +162,7 @@ public static class CorpusPaths
 
         if (Path.IsPathRooted(path))
         {
-            throw new ArgumentException("A recognition corpus path must be fully qualified or relative to the current directory.", nameof(path));
+            throw CorpusDiagnostics.PathFree(new ArgumentException("A recognition corpus path must be fully qualified or relative to the current directory.", nameof(path)));
         }
 
         return Path.Join(Directory.GetCurrentDirectory(), path);
@@ -212,25 +212,25 @@ public static class CorpusPaths
         var attributes = Attributes(canonical);
         if (attributes is null || attributes.Value.HasFlag(FileAttributes.Directory))
         {
-            throw new FileNotFoundException($"{description} is not an existing regular file.");
+            throw CorpusDiagnostics.PathFree(new FileNotFoundException($"{description} is not an existing regular file."));
         }
     }
 
     private static (string LexicalParent, string CanonicalParent, string Leaf) OutputParts(string path)
     {
         var absolute = Absolute(RequirePath(path));
-        var root = Path.GetPathRoot(absolute) ?? throw new InvalidOperationException("A recognition corpus output has no filesystem root.");
+        var root = Path.GetPathRoot(absolute) ?? throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus output has no filesystem root."));
         var separator = absolute.LastIndexOfAny(Separators);
         var leaf = separator < 0 ? absolute : absolute[(separator + 1)..];
         if (leaf is "" or "." or ".." || separator < root.Length - 1)
         {
-            throw new ArgumentException("A recognition corpus output must name a file inside an existing directory.", nameof(path));
+            throw CorpusDiagnostics.PathFree(new ArgumentException("A recognition corpus output must name a file inside an existing directory.", nameof(path)));
         }
 
         var parent = separator < root.Length ? root : absolute[..separator];
         if (Attributes(parent) is not { } parentAttributes || !parentAttributes.HasFlag(FileAttributes.Directory))
         {
-            throw new DirectoryNotFoundException("A recognition corpus output directory does not exist.");
+            throw CorpusDiagnostics.PathFree(new DirectoryNotFoundException("A recognition corpus output directory does not exist."));
         }
 
         return (Path.GetFullPath(parent), Canonicalize(parent), leaf);
@@ -244,7 +244,7 @@ public static class CorpusPaths
             (attributes.HasFlag(FileAttributes.ReparsePoint) || attributes.HasFlag(FileAttributes.Directory) ||
              LinkTarget(output, attributes) is not null))
         {
-            throw new InvalidOperationException("A recognition corpus output cannot replace a directory, symlink, or reparse point.");
+            throw CorpusDiagnostics.PathFree(new InvalidOperationException("A recognition corpus output cannot replace a directory, symlink, or reparse point."));
         }
 
         return output;
@@ -262,7 +262,7 @@ public static class CorpusPaths
         {
             if (EntryExists(Path.Join(directory, ".git")))
             {
-                throw new InvalidOperationException("Recognition corpus roots and private manifests must be outside every repository or worktree.");
+                throw CorpusDiagnostics.PathFree(new InvalidOperationException("Recognition corpus roots and private manifests must be outside every repository or worktree."));
             }
         }
     }
@@ -276,7 +276,7 @@ public static class CorpusPaths
             var name = OperatingSystem.IsWindows() ? component.TrimEnd('.', ' ') : component;
             if (string.Equals(name, ".git", StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("Recognition corpus material cannot be read from or written into Git storage.");
+                throw CorpusDiagnostics.PathFree(new InvalidOperationException("Recognition corpus material cannot be read from or written into Git storage."));
             }
         }
 
@@ -285,7 +285,7 @@ public static class CorpusPaths
             if (File.Exists(Path.Join(directory, "HEAD")) && Directory.Exists(Path.Join(directory, "objects")) &&
                 Directory.Exists(Path.Join(directory, "refs")))
             {
-                throw new InvalidOperationException("Recognition corpus material cannot be read from or written into Git storage.");
+                throw CorpusDiagnostics.PathFree(new InvalidOperationException("Recognition corpus material cannot be read from or written into Git storage."));
             }
         }
     }

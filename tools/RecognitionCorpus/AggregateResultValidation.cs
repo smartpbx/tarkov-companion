@@ -95,7 +95,7 @@ public static class AggregateResultValidation
         {
             slice.Numerator, slice.Denominator, slice.ExcludedUnknowns, slice.ExcludedPredictionClaims,
             slice.IndependentSplitUnits, slice.AttemptedKnownClaims, slice.TruePositives, slice.FalsePositives,
-            slice.FalseNegatives, slice.Abstentions, slice.ConfidentWrong, slice.MissingFrames,
+            slice.FalseNegatives, slice.Abstentions, slice.ConfidentWrong, slice.ExpectedFrames, slice.ObservedFrames, slice.MissingFrames,
             slice.ReorderedFrames, slice.OverlapDeduplicationErrors, slice.AccuracyNumerator,
             slice.AccuracyDenominator, slice.RecallNumerator, slice.RecallDenominator,
             slice.FalsePositiveNumerator, slice.FalsePositiveDenominator, slice.PerformanceSampleCount,
@@ -127,6 +127,21 @@ public static class AggregateResultValidation
             errors.Add($"Aggregate slice {slice.Intent} count arithmetic is inconsistent.");
         }
 
+        // Every planned frame is expected and belongs to exactly one split unit, and every frame
+        // holds at least one known or unknown truth. An observed frame has at least one result,
+        // and a frame is reordered only relative to another observed frame of its sequence.
+        if (slice.ObservedFrames > slice.ExpectedFrames ||
+            slice.MissingFrames != slice.ExpectedFrames - slice.ObservedFrames ||
+            slice.IndependentSplitUnits > slice.ExpectedFrames ||
+            (slice.ExpectedFrames == 0) != (slice.IndependentSplitUnits == 0) ||
+            (slice.ExpectedFrames == 0) != ((long)slice.Denominator + slice.ExcludedUnknowns == 0) ||
+            slice.ObservedFrames > slice.PerformanceSampleCount ||
+            (slice.ObservedFrames == 0) != (slice.PerformanceSampleCount == 0) ||
+            slice.ReorderedFrames > Math.Max(0, slice.ObservedFrames - 1))
+        {
+            errors.Add($"Aggregate slice {slice.Intent} sequence completeness arithmetic is inconsistent.");
+        }
+
         var expectedCoverage = Rate(slice.AttemptedKnownClaims, denominator);
         var expectedAccuracy = Rate(slice.TruePositives, accuracyDenominator);
         var expectedRecall = Rate(slice.TruePositives, denominator);
@@ -134,11 +149,13 @@ public static class AggregateResultValidation
         var expectedF1 = Rate(2L * slice.TruePositives, f1Denominator);
         var expectedAbstentionRate = Rate(slice.Abstentions, denominator);
         var expectedConfidentWrongRate = Rate(slice.ConfidentWrong, denominator);
+        var expectedSequenceCompleteness = Rate(slice.ObservedFrames, slice.ExpectedFrames);
         var expectedInterval = IndependentScorer.Wilson(slice.TruePositives, (int)denominator);
         if (slice.Coverage != expectedCoverage || slice.Accuracy != expectedAccuracy ||
             slice.Recall != expectedRecall || slice.FalsePositiveRate != expectedFalsePositiveRate ||
             slice.F1 != expectedF1 || slice.AbstentionRate != expectedAbstentionRate ||
             slice.ConfidentWrongRate != expectedConfidentWrongRate ||
+            slice.SequenceCompleteness != expectedSequenceCompleteness ||
             slice.ConfidenceIntervalLower != expectedInterval.Lower ||
             slice.ConfidenceIntervalUpper != expectedInterval.Upper)
         {

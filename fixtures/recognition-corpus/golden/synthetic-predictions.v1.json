@@ -11,6 +11,45 @@
       "sampleId": "sample-golden-ammo-1-0010",
       "intent": "ammo",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-ammo-items",
+        "sessionId": "session-sample-golden-ammo-1-0010",
+        "correlationId": "correlation-sample-golden-ammo-1-0010",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-ammo-1-0010",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.99,
@@ -30,6 +69,45 @@
       "sampleId": "sample-golden-ammo-2-0003",
       "intent": "ammo",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-ammo-items",
+        "sessionId": "session-sample-golden-ammo-2-0003",
+        "correlationId": "correlation-sample-golden-ammo-2-0003",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-ammo-2-0003",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.99,
@@ -49,6 +127,45 @@
       "sampleId": "sample-golden-ammo-3-0002",
       "intent": "ammo",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-ammo-items",
+        "sessionId": "session-sample-golden-ammo-3-0002",
+        "correlationId": "correlation-sample-golden-ammo-3-0002",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-ammo-3-0002",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.99,
@@ -68,6 +185,45 @@
       "sampleId": "sample-golden-ammo-4-0010",
       "intent": "ammo",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-ammo-items",
+        "sessionId": "session-sample-golden-ammo-4-0010",
+        "correlationId": "correlation-sample-golden-ammo-4-0010",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-ammo-4-0010",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.99,
@@ -84,28 +240,48 @@
       }
     },
     {
-      "sampleId": "sample-golden-ammo-5-0005",
-      "intent": "ammo",
-      "evidenceClass": "synthetic-raster",
-      "type": "item",
-      "status": "detected",
-      "confidence": 0.99,
-      "claims": [
-        {
-          "claimId": "claim-golden-ammo-5-item",
-          "kind": "item",
-          "value": "ammo-golden-5",
-          "region": null
-        }
-      ],
-      "performance": {
-        "elapsedMilliseconds": 5
-      }
-    },
-    {
       "sampleId": "sample-golden-loot-seq-f0-0002",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-golden-loot-seq-0002",
+        "correlationId": "correlation-sample-golden-loot-seq-f0-0002",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-golden-loot-seq-0002",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.97,
@@ -131,6 +307,45 @@
       "sampleId": "sample-golden-loot-seq-f0-0002",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-golden-loot-seq-0002",
+        "correlationId": "correlation-sample-golden-loot-seq-f0-0002",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-golden-loot-seq-0002",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "attribute",
       "status": "abstained",
       "confidence": 0,
@@ -143,6 +358,45 @@
       "sampleId": "sample-golden-loot-seq-f1-0002",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-golden-loot-seq-0002",
+        "correlationId": "correlation-sample-golden-loot-seq-f1-0002",
+        "captureOrdinal": 1,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-golden-loot-seq-0002",
+        "frameOrdinal": 1,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0.5,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.97,
@@ -168,6 +422,45 @@
       "sampleId": "sample-golden-loot-orig-0007",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-orig-0007",
+        "correlationId": "correlation-sample-golden-loot-orig-0007",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-orig-0007",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.93,
@@ -187,6 +480,45 @@
       "sampleId": "sample-golden-loot-orig-0007",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-orig-0007",
+        "correlationId": "correlation-sample-golden-loot-orig-0007",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-orig-0007",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "attribute",
       "status": "detected",
       "confidence": 0.95,
@@ -206,6 +538,45 @@
       "sampleId": "sample-golden-loot-crop-0007",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-crop-0007",
+        "correlationId": "correlation-sample-golden-loot-crop-0007",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-crop-0007",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": "container-golden-parent1"
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "unavailable",
       "confidence": 0,
@@ -218,6 +589,48 @@
       "sampleId": "sample-golden-loot-s1-0007",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-s1-0007",
+        "correlationId": "correlation-sample-golden-loot-s1-0007",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": "map-golden-customs01",
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [
+          "objective-golden-00001",
+          "objective-golden-00002"
+        ],
+        "selectedReference": "selection-golden-0001",
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1.25,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-s1-0007",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.96,
@@ -273,6 +686,45 @@
       "sampleId": "sample-golden-loot-s2-0011",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-s2-0011",
+        "correlationId": "correlation-sample-golden-loot-s2-0011",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-s2-0011",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.92,
@@ -322,6 +774,45 @@
       "sampleId": "sample-golden-loot-s3-0008",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-s3-0008",
+        "correlationId": "correlation-sample-golden-loot-s3-0008",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-s3-0008",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.6,
@@ -377,6 +868,45 @@
       "sampleId": "sample-golden-loot-s4-0013",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-s4-0013",
+        "correlationId": "correlation-sample-golden-loot-s4-0013",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-s4-0013",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "item",
       "status": "detected",
       "confidence": 0.85,
@@ -414,6 +944,45 @@
       "sampleId": "sample-golden-loot-s4-0013",
       "intent": "loot-decision",
       "evidenceClass": "synthetic-raster",
+      "provenance": {
+        "schemaVersion": "provenance.v1",
+        "captureIntentId": "intent-v1-loot-decision",
+        "sessionId": "session-sample-golden-loot-s4-0013",
+        "correlationId": "correlation-sample-golden-loot-s4-0013",
+        "captureOrdinal": 0,
+        "workspaceId": null,
+        "profileId": null,
+        "mapId": null,
+        "floorId": null,
+        "planId": null,
+        "objectiveIds": [],
+        "selectedReference": null,
+        "priorScanReference": null,
+        "deviceClass": "desktop",
+        "surface": "user-screenshot",
+        "resolution": {
+          "width": 1920,
+          "height": 1080
+        },
+        "uiScale": 1,
+        "locale": "en-US",
+        "gameVersion": "0.16.9-golden",
+        "companionUiVersion": "2.0.0-golden"
+      },
+      "lineage": {
+        "sequenceId": "sequence-sample-golden-loot-s4-0013",
+        "frameOrdinal": 0,
+        "viewportId": "viewport-golden-00001",
+        "containerIdentity": "container-golden-00001",
+        "overlapWithPrevious": 0,
+        "parentContainerIdentity": null
+      },
+      "producedUtc": "2028-12-31T23:00:00Z",
+      "source": {
+        "modelId": "model-golden-synthetic-0001",
+        "modelVersion": "1.0.0-golden",
+        "kind": "modelled-estimate"
+      },
       "type": "region",
       "status": "detected",
       "confidence": 0.99,

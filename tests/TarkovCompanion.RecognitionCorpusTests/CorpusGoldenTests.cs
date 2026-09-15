@@ -109,7 +109,8 @@ public sealed class CorpusGoldenTests
 
         // Counted by hand from the synthetic predictions: a duplicated overlap claim, a wrong extra
         // claim, a confident wrong-only answer, an abstention, an unavailable result, and two claims
-        // in unknown-truth scopes that are excluded rather than scored.
+        // in unknown-truth scopes that are excluded rather than scored. Every loot frame has a
+        // result, the unavailable one included, so loot is complete.
         var loot = Assert.Single(aggregate.Slices, slice => slice.Intent == BenchmarkIntent.LootDecision);
         Assert.Equal("pass", loot.Status);
         Assert.Equal(30, loot.Denominator);
@@ -123,14 +124,27 @@ public sealed class CorpusGoldenTests
         Assert.Equal(1, loot.Abstentions);
         Assert.Equal(1, loot.ConfidentWrong);
         Assert.Equal(1, loot.OverlapDeduplicationErrors);
+        Assert.Equal(8, loot.ExpectedFrames);
+        Assert.Equal(8, loot.ObservedFrames);
+        Assert.Equal(1m, loot.SequenceCompleteness);
         Assert.Equal(0, loot.MissingFrames);
         Assert.Equal(0, loot.ReorderedFrames);
         Assert.Equal(11, loot.PerformanceSampleCount);
         Assert.Equal(60.125m, loot.MaximumElapsedMilliseconds);
 
+        // The producer never answered the fifth ammo frame: one missing frame, one unattempted
+        // truth, and no confident miss, since there is no claim at all.
         var ammo = Assert.Single(aggregate.Slices, slice => slice.Intent == BenchmarkIntent.Ammo);
         Assert.Equal("insufficient-data", ammo.Status);
-        Assert.Equal(5, ammo.TruePositives);
+        Assert.Equal(4, ammo.TruePositives);
+        Assert.Equal(1, ammo.FalseNegatives);
+        Assert.Equal(0, ammo.ConfidentWrong);
+        Assert.Equal(4, ammo.AttemptedKnownClaims);
+        Assert.Equal(5, ammo.ExpectedFrames);
+        Assert.Equal(4, ammo.ObservedFrames);
+        Assert.Equal(1, ammo.MissingFrames);
+        Assert.Equal(0.8m, ammo.SequenceCompleteness);
+        Assert.Equal(4, ammo.PerformanceSampleCount);
         Assert.Equal(5, ammo.IndependentSplitUnits);
         Assert.Equal(6, aggregate.Slices.Count(slice => slice.Denominator == 0 && slice.IndependentSplitUnits == 0 && slice.Status == "insufficient-data"));
     }
