@@ -116,6 +116,15 @@ public sealed class CacheAndHostileInputTests
         var deepClient = Client(new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(deep) }), cache, maximumBytes: 4096, depth: 8);
         await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() =>
             deepClient.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
+
+        var nestedUnknown = string.Concat(Enumerable.Repeat("{\"child\":", 40)) + "null" + new string('}', 40);
+        var allowed = "{\"data\":{\"items\":{\"item\":{\"id\":\"item\",\"name\":\"Item\",\"width\":1,\"height\":1}},\"itemCategories\":{}},\"future\":" + nestedUnknown + "}";
+        var allowedClient = Client(
+            new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(allowed) }),
+            new InMemoryTarkovDevResponseCache(),
+            maximumBytes: 4096,
+            depth: 64);
+        Assert.Single((await allowedClient.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken)).Data.Items);
     }
 
     [Fact]

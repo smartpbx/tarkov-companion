@@ -17,7 +17,10 @@ public sealed class TarkovDevJsonClient
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
         RespectNullableAnnotations = true,
         RespectRequiredConstructorParameters = true,
-        MaxDepth = 32,
+        // Per-client envelope validation enforces the configured limit first. Keep the typed
+        // serializer at the largest accepted option so a valid 33-64-depth configuration is not
+        // silently tightened during the second parse.
+        MaxDepth = 64,
     };
 
     private readonly HttpClient _httpClient;

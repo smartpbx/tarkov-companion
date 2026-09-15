@@ -12,7 +12,12 @@ public sealed class SqliteOutboxStore(
     int capacity = 10_000,
     int completedRetention = 10_000) : IOutboxStore
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        MaxDepth = 8,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
     private readonly int _capacity = capacity is >= 1 and <= 100_000 ? capacity : throw new ArgumentOutOfRangeException(nameof(capacity));
     private readonly int _completedRetention = completedRetention is >= 0 and <= 100_000 ? completedRetention : throw new ArgumentOutOfRangeException(nameof(completedRetention));
 
@@ -209,7 +214,7 @@ public sealed class SqliteOutboxStore(
         command.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
         command.Parameters.AddWithValue("$retrying", Format(retryingAt));
         command.Parameters.AddWithValue("$notBefore", Format(retryAt));
-        command.Parameters.AddWithValue("$fault", JsonSerializer.Serialize(fault, JsonOptions));
+        command.Parameters.AddWithValue("$fault", SerializeFault(fault));
         var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return changed;
@@ -373,7 +378,7 @@ public sealed class SqliteOutboxStore(
         command.Parameters.AddWithValue("$id", operationId.ToString());
         command.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
         command.Parameters.AddWithValue("$time", Format(time));
-        command.Parameters.AddWithValue("$fault", fault is null ? DBNull.Value : JsonSerializer.Serialize(fault, JsonOptions));
+        command.Parameters.AddWithValue("$fault", fault is null ? DBNull.Value : SerializeFault(fault));
         var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
         if (changed && pruneCompleted) await PruneCompletedAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -406,7 +411,7 @@ public sealed class SqliteOutboxStore(
                 """;
             update.Parameters.AddWithValue("$state", exhausted ? 4 : 3);
             update.Parameters.AddWithValue("$now", Format(nowUtc));
-            update.Parameters.AddWithValue("$fault", JsonSerializer.Serialize(fault, JsonOptions));
+            update.Parameters.AddWithValue("$fault", SerializeFault(fault));
             update.Parameters.AddWithValue("$dead", exhausted ? Format(nowUtc) : DBNull.Value);
             update.Parameters.AddWithValue("$id", row.Id);
             await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -433,7 +438,7 @@ public sealed class SqliteOutboxStore(
             update.Transaction = transaction;
             update.CommandText = "UPDATE durable_outbox SET delivery_state = 4, dead_lettered_utc = $now, last_fault_json = $fault WHERE operation_id = $id;";
             update.Parameters.AddWithValue("$now", Format(nowUtc));
-            update.Parameters.AddWithValue("$fault", JsonSerializer.Serialize(fault, JsonOptions));
+            update.Parameters.AddWithValue("$fault", SerializeFault(fault));
             update.Parameters.AddWithValue("$id", id);
             await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -547,9 +552,36 @@ public sealed class SqliteOutboxStore(
         new(exhausted ? "outbox-lease-attempts-exhausted" : "outbox-lease-expired"),
         exhausted ? RuntimeRecoveryAction.RetryManually : RuntimeRecoveryAction.RetryAutomatically,
         new($"operation:{id}"), now);
-    private static RuntimeFault? Fault(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : JsonSerializer.Deserialize<RuntimeFault>(reader.GetString(ordinal), JsonOptions);
+    private static string SerializeFault(RuntimeFault fault) => JsonSerializer.Serialize(
+        new StoredRuntimeFault(
+            fault.Kind,
+            fault.Code.Value,
+            fault.Recovery,
+            fault.DiagnosticReference.Value,
+            fault.OccurredUtc),
+        JsonOptions);
+
+    private static RuntimeFault? Fault(SqliteDataReader reader, int ordinal)
+    {
+        if (reader.IsDBNull(ordinal)) return null;
+        var stored = JsonSerializer.Deserialize<StoredRuntimeFault>(reader.GetString(ordinal), JsonOptions)
+            ?? throw new JsonException("The stored outbox fault is null.");
+        return new(
+            stored.Kind,
+            new(stored.Code),
+            stored.Recovery,
+            new(stored.DiagnosticReference),
+            stored.OccurredUtc);
+    }
     private static DateTimeOffset? Time(SqliteDataReader reader, int ordinal) => reader.IsDBNull(ordinal) ? null : Parse(reader.GetString(ordinal));
     private static DateTimeOffset Parse(string value) => DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
     private static string Format(DateTimeOffset value) => value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static DateTimeOffset AddBounded(DateTimeOffset value, TimeSpan duration) { try { return value + duration; } catch (ArgumentOutOfRangeException) { return DateTimeOffset.MaxValue; } }
+
+    private sealed record StoredRuntimeFault(
+        RuntimeFailureKind Kind,
+        string Code,
+        RuntimeRecoveryAction Recovery,
+        string DiagnosticReference,
+        DateTimeOffset OccurredUtc);
 }
