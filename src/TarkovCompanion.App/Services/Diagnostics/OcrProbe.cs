@@ -89,8 +89,8 @@ public sealed record OcrProbeCell(
     PixelRect Caption);
 
 /// <summary>
-/// Stable local producer output for OCR diagnostics. It is deliberately independent of the
-/// provisional corpus/scorer schema: in particular, line confidence stays nullable.
+/// Stable local producer output for OCR diagnostics. It is deliberately independent of the #272
+/// corpus interchange, which it is never scored through: in particular, line confidence stays nullable.
 /// </summary>
 public sealed record OcrProbeReport(
     string SchemaVersion,

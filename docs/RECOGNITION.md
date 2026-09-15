@@ -348,8 +348,10 @@ probe at its next bounded check and exits with code 130 without writing a report
 terminates the process normally. Cell reports retain caption OCR text for
 local comparison. They contain no screenshot path, filename, pixels, username field, token,
 world coordinate, benchmark threshold, or claimed accuracy. The schema is a stable producer
-result owned by the OCR path rather than an implementation of #272's provisional corpus/scorer
-schema; its nullable confidence is intentional. Probe reports are local diagnostic material and
+result owned by the OCR path. It is not #272's `run-plan.v1`/`predictions.v1` interchange
+(`docs/research/RECOGNITION_CORPUS.md`), which forbids OCR strings and per-sample output and is
+the only form in which recognition results reach the scorer; a probe report is never scored. Its
+nullable confidence is intentional. Probe reports are local diagnostic material and
 must not be committed or uploaded as CI artifacts.
 
 The anchors and rendered scenes remain synthetic and English-only. Live validation across
