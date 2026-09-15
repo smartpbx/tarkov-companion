@@ -1234,7 +1234,7 @@ public sealed class V2SavedAddressViewModel(string address, string automationId,
 {
     public string Address { get; } = address;
     public string AutomationId { get; } = automationId;
-    public string PaletteAutomationId => $"{automationId}-palette";
+    public string PaletteAutomationId => $"{AutomationId}-palette";
     public ICommand OpenCommand { get; } = new DelegateCommand(open);
 }
 
