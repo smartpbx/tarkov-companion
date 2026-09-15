@@ -44,9 +44,10 @@ focus. The dialog host itself is deferred to #267.
 
 The visible focus indicator on a V2 text box or button is drawn on the Fluent 12.1.2 template part
 (`Border#PART_BorderElement`, `ContentPresenter#PART_ContentPresenter`), because Fluent's
-`:pointerover`, `:pressed`, and `:focus` styles set those parts directly and would otherwise replace a
-border set on the control. A field's error border is declared before its focus border so focus wins
-while both apply; the error sentence and help text keep stating the error.
+TextBox `:pointerover`/`:focus` and Button `:pointerover`/`:pressed` styles set those parts directly
+and would otherwise replace a border set on the control. A field's error border is declared before
+its focus border so focus wins while both apply; the error sentence and help text keep stating the
+error.
 
 `Alt+Shift+C` is only a provisional, remappable companion-local Capture candidate; it must be
 disableable because Windows may reserve it for input-language switching. Bare single-character

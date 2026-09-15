@@ -177,9 +177,10 @@ from its source:
 
 Focus and error borders follow the Fluent 12.1.2 templates rather than the control properties.
 Fluent draws a TextBox border on `Border#PART_BorderElement` and a Button border on
-`ContentPresenter#PART_ContentPresenter`, and sets both parts directly under `:pointerover`,
-`:pressed`, and `:focus`. A triggered setter outranks the template binding from the control, so the
-first V2 styles, which set the border on the TextBox or Button itself, lost to Fluent's hover or
+`ContentPresenter#PART_ContentPresenter`. It sets the TextBox part directly under `:pointerover`
+and `:focus`, and the Button part under `:pointerover` and `:pressed`. A triggered setter outranks
+the template binding from the control, so the first V2 styles, which set the border on the TextBox
+or Button itself, lost to Fluent's hover or
 focus brush exactly while the control was in use; the 3 DIP indicator never drew on a text box. The
 V2 rules now target those parts, which a triggered setter from the V2 style sheet wins over Fluent's
 control theme. The error rule precedes the focus rule, so keyboard focus stays visible on a field in
@@ -235,10 +236,10 @@ reads the host culture:
 
 - **Numbers** use the supplied `CultureInfo`.
 - **Currency** takes the ISO 4217 code from the data and the decimal places from the caller. The
-  culture supplies only separators, grouping, and which side of the digits the code goes on, joined by
-  a no-break space: `RUB 1,234.50` under the invariant culture, `1.234,50 RUB` under a culture that
-  puts the symbol after. The first version used the culture's symbol, so a rouble price read as
-  dollars under en-US.
+  culture supplies separators, grouping, code placement, and the negative-number convention; the
+  code is joined by a no-break space: `RUB 1,234.50` under the invariant culture, `1.234,50 RUB`
+  under a culture that puts the symbol after. The first version used the culture's symbol, so a
+  rouble price read as dollars under en-US.
 - **Date and time** converts to the supplied `TimeZoneInfo` and fills the localized
   `V2.String.Template.ZonedDateTime` template with the culture's date and time and the UTC offset in
   effect, for example `Tuesday, 01 September 2026 14:00 (UTC+02:00)`. The first version printed the

@@ -14,7 +14,11 @@ namespace TarkovCompanion.UnitTests.V2DesignSystem;
 /// </summary>
 public sealed class V2DesignSystemContractTests
 {
-    private static readonly string[] Panels = ["StackPanel", "WrapPanel", "Grid", "Panel", "Border", "DockPanel"];
+    private static readonly string[] Panels =
+    [
+        "StackPanel", "WrapPanel", "Grid", "Panel", "Border", "DockPanel",
+        "Canvas", "Decorator", "ContentPresenter", "Rectangle",
+    ];
 
     [Fact]
     public void ManifestTokensNameResourcesThatExistAndEveryResourceHasAToken()
@@ -571,10 +575,10 @@ public sealed class V2DesignSystemContractTests
             ["Button"] = " /template/ ContentPresenter#PART_ContentPresenter",
         };
 
-        // Fluent 12.1.2 sets these parts' borders under :pointerover, :pressed, and :focus. A
-        // triggered setter outranks the TemplateBinding from the control, so a border set on the
-        // TextBox or Button itself was replaced exactly while the control was in use, and the V2
-        // focus indicator never drew on a text box.
+        // Fluent 12.1.2 sets the TextBox part under :pointerover/:focus and the Button part under
+        // :pointerover/:pressed. A triggered setter outranks the TemplateBinding from the control,
+        // so a border set on the TextBox or Button itself was replaced exactly while the control
+        // was in use, and the V2 focus indicator never drew on a text box.
         var onControl = new List<string>();
         foreach (var style in styles)
         {

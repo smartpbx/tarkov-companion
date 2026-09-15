@@ -53,10 +53,10 @@ public static class V2PresentationFormatting
 
     /// <summary>
     /// Formats <paramref name="amount"/> in the ISO 4217 currency the data names. The culture
-    /// supplies only number shape: its separators, grouping, and which side of the digits its
-    /// currency pattern puts a symbol. The code always replaces the culture's symbol and is joined to
-    /// the digits by a no-break space, and <paramref name="decimalDigits"/> is the caller's choice
-    /// rather than the culture's.
+    /// supplies number shape: its separators, grouping, code placement, and negative-number
+    /// convention. The code always replaces the culture's symbol and is joined to the digits by a
+    /// no-break space, and <paramref name="decimalDigits"/> is the caller's choice rather than the
+    /// culture's.
     /// </summary>
     public static string Currency(decimal amount, string isoCurrencyCode, int decimalDigits, CultureInfo culture)
     {

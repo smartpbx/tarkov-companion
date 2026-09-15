@@ -259,12 +259,12 @@
   </Style>
 
   <!-- Focus and error borders. Fluent 12.1.2 draws a TextBox border on Border#PART_BorderElement and
-       a Button border on ContentPresenter#PART_ContentPresenter, and its :pointerover, :pressed, and
-       :focus styles set those parts directly. A triggered setter outranks the template binding from
-       the control, so a border set on the TextBox or Button itself was replaced by Fluent's hover or
-       focus brush exactly while the field was in use, and the 3 DIP focus indicator never drew on a
-       text box. These rules therefore target the template parts: a triggered setter from this style
-       sheet outranks the same trigger in Fluent's control theme.
+       a Button border on ContentPresenter#PART_ContentPresenter. Its TextBox :pointerover/:focus and
+       Button :pointerover/:pressed styles set those parts directly. A triggered setter outranks the
+       template binding from the control, so a border set on the TextBox or Button itself was
+       replaced by Fluent's hover or focus brush exactly while the field was in use, and the 3 DIP
+       focus indicator never drew on a text box. These rules therefore target the template parts: a
+       triggered setter from this style sheet outranks the same trigger in Fluent's control theme.
 
        The error rule comes before the focus rule so keyboard focus wins while both apply; the error
        sentence under the field and the TextBox help text keep carrying the error in the meantime. -->
