@@ -94,9 +94,11 @@ public sealed class SqliteMigrationRunner
         try
         {
             await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await EnsureMigrationTableAsync(connection, cancellationToken).ConfigureAwait(false);
             await VerifyOpenDatabaseAsync(connection, cancellationToken).ConfigureAwait(false);
-            var applied = await GetAppliedAsync(connection, cancellationToken).ConfigureAwait(false);
+            var hasMigrationTable = await HasMigrationTableAsync(connection, cancellationToken).ConfigureAwait(false);
+            HashSet<string> applied = hasMigrationTable
+                ? await GetAppliedAsync(connection, cancellationToken).ConfigureAwait(false)
+                : [];
             var known = SqliteMigrationLedger.Entries.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
             var pending = SqliteMigrationLedger.Entries.Where(entry => !applied.Contains(entry.Id)).ToArray();
             fromNewerBuild = applied.Where(version => !known.Contains(version)).Order(StringComparer.Ordinal).ToArray();
@@ -110,12 +112,16 @@ public sealed class SqliteMigrationRunner
                 throw new NewerSchemaCompatibilityException();
             }
 
-            if (existedBeforeRun && applied.Count > 0 && pending.Any(entry => entry.IsDestructive))
+            if (existedBeforeRun && pending.Any(entry => entry.IsDestructive))
             {
                 var upcoming = pending.Last(entry => entry.IsDestructive).Id;
                 backupPath = await BackUpAndVerifyAsync(connection, upcoming, cancellationToken).ConfigureAwait(false);
             }
 
+            // Creating the ledger is itself a database mutation. An older or externally-created
+            // database can contain durable user data without this table, so do not create it until
+            // every pending destructive migration has a verified recovery copy.
+            await EnsureMigrationTableAsync(connection, cancellationToken).ConfigureAwait(false);
             foreach (var definition in pending)
             {
                 await ApplyOneAsync(connection, resources[definition.Id].Upgrade, definition.Id, cancellationToken)
@@ -415,6 +421,23 @@ public sealed class SqliteMigrationRunner
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<bool> HasMigrationTableAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS(
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'schema_migrations'
+            );
+            """;
+        return Convert.ToInt64(
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture) == 1;
     }
 
     private static async Task<HashSet<string>> GetAppliedAsync(SqliteConnection connection, CancellationToken cancellationToken)

@@ -129,6 +129,50 @@ public sealed class MigrationRecoveryTests
         }
     }
 
+    [Fact]
+    public async Task LedgerlessExistingDatabaseIsBackedUpBeforeTheLedgerOrMigrationSqlCanMutateIt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"tarkov-companion-ledgerless-{Guid.NewGuid():N}.db");
+        try
+        {
+            var factory = new SqliteConnectionFactory(new(path));
+            await using (var connection = await factory.OpenAsync(TestContext.Current.CancellationToken))
+            await using (var command = connection.CreateCommand())
+            {
+                command.CommandText = """
+                    CREATE TABLE legacy_marker(value TEXT NOT NULL);
+                    INSERT INTO legacy_marker(value) VALUES ('preserve-me');
+                    """;
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+
+            var runner = new SqliteMigrationRunner(
+                factory,
+                new ThrowAtFault(
+                    SqliteMigrationFaultPoint.AfterMigrationSql,
+                    new IOException("ledgerless-migration-failed")));
+            var failure = await Assert.ThrowsAsync<SqliteMigrationException>(() =>
+                runner.ApplyAsync(TestContext.Current.CancellationToken));
+
+            Assert.Equal(MigrationRecoveryState.RestoredVerifiedBackup, failure.RecoveryState);
+            Assert.NotNull(failure.LastRecoverableBackupPath);
+            Assert.Equal(1, await V2TestDatabase.ScalarAsync(factory,
+                "SELECT COUNT(*) FROM legacy_marker WHERE value = 'preserve-me';"));
+            Assert.Equal(0, await V2TestDatabase.ScalarAsync(factory,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations';"));
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            foreach (var file in Directory.GetFiles(
+                         Path.GetDirectoryName(path)!,
+                         $"{Path.GetFileNameWithoutExtension(path)}*"))
+            {
+                File.Delete(file);
+            }
+        }
+    }
+
     [Theory]
     [InlineData(SqliteMigrationFaultPoint.BeforeBackup, "disk-full")]
     [InlineData(SqliteMigrationFaultPoint.BeforeMigration, "database-locked")]
