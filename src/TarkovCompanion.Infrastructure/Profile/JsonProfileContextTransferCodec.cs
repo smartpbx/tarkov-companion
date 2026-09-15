@@ -20,10 +20,11 @@ namespace TarkovCompanion.Infrastructure.Profile;
 ///
 /// An earlier remark promised that an additive member from a newer writer would verify. It only
 /// did in a test that added the member after the checksum was taken. Adding, renaming, or
-/// reordering a member of any hashed record, or changing how a date, number, enum, or string is
-/// written, changes the checksum of every existing v1 document, so it is a format change that
-/// raises <see cref="FormatVersion"/>, never an additive one. The committed v1 fixture in
-/// fixtures/profiles fails the build on any such change, so none can land unnoticed.
+/// reordering a member of a hashed record, or changing how a date, number, enum, or string is
+/// written, can change checksums for existing v1 documents. Any change that alters those canonical
+/// bytes is a format change that raises <see cref="FormatVersion"/>, never an additive one. The
+/// committed v1 fixture detects changes that affect the values and record shapes it contains;
+/// broader compatibility changes need their own representative fixtures.
 ///
 /// The same frozen copy is hashed, returned, and (on write) emitted, so the verified profiles are
 /// the ones handed on.
