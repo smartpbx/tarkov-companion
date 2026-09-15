@@ -1,0 +1,214 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$Root = Join-Path $env:RUNNER_TEMP ("tarkov-offline-windows-" + [guid]::NewGuid().ToString("N"))
+$Bundle = Join-Path $Root "bundle"
+$Install = Join-Path $Root "install"
+$InstallerName = "fixture-installer.cmd"
+$CompanionName = "fixture-data.json"
+$Version = "1.0.608"
+$Commit = "cccccccccccccccccccccccccccccccccccccccc"
+$Feed = "example/tarkov-feed"
+$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
+$InstallerScript = Join-Path $RepositoryRoot "scripts/release/install-offline.ps1"
+$FixtureScript = Join-Path $RepositoryRoot "scripts/release/tests/create_windows_offline_fixture.py"
+$OrphanWorker = Join-Path $Root "orphan-worker.py"
+$OrphanLauncher = Join-Path $Root "orphan-launcher.ps1"
+$OrphanPid = Join-Path $Install "orphan-pid"
+
+New-Item -ItemType Directory -Path $Bundle -Force | Out-Null
+try {
+    @'
+import os
+import pathlib
+import sys
+import time
+
+held_installer = open(sys.argv[1], "rb")
+pathlib.Path(sys.argv[2]).write_text(str(os.getpid()), encoding="ascii")
+time.sleep(120)
+held_installer.close()
+'@ | Set-Content -LiteralPath $OrphanWorker -Encoding ascii
+    @'
+param(
+    [Parameter(Mandatory)] [string] $Worker,
+    [Parameter(Mandatory)] [string] $Installer,
+    [Parameter(Mandatory)] [string] $PidFile
+)
+
+$ErrorActionPreference = "Stop"
+foreach ($Value in @($Worker, $Installer, $PidFile)) {
+    if ($Value.Contains('"')) { throw "The orphan fixture path contains a quote." }
+}
+$Python = (Get-Command python -ErrorAction Stop).Source
+$CommandLine = ('"{0}" "{1}" "{2}" "{3}"' -f $Python, $Worker, $Installer, $PidFile)
+# Win32_Process.Create brokers creation through WMI rather than the installer process. The worker
+# is therefore not in the installer's descendant tree and models the exact handle the platform's
+# tree-kill request cannot prove absent.
+$Created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $CommandLine }
+if ($Created.ReturnValue -ne 0 -or $Created.ProcessId -le 0) {
+    throw "WMI could not create the orphan fixture process (return $($Created.ReturnValue))."
+}
+Set-Content -LiteralPath $PidFile -Value ([string]$Created.ProcessId) -Encoding ascii -NoNewline
+'@ | Set-Content -LiteralPath $OrphanLauncher -Encoding ascii
+    @"
+@echo off
+setlocal
+echo %~f0>"%FAKE_INSTALL_ROOT%\ran-from"
+if /I "%FAKE_INSTALL_MODE%"=="noop" exit /b 0
+if /I "%FAKE_INSTALL_MODE%"=="hang-installer" (
+  ping -n 31 127.0.0.1 >nul
+  exit /b 99
+)
+if /I "%FAKE_INSTALL_MODE%"=="orphan-installer" (
+  pwsh -NoLogo -NoProfile -NonInteractive -File "%FAKE_ORPHAN_LAUNCHER%" -Worker "%FAKE_ORPHAN_WORKER%" -Installer "%~f0" -PidFile "%FAKE_ORPHAN_PID%"
+  if errorlevel 1 exit /b 98
+  ping -n 31 127.0.0.1 >nul
+  exit /b 99
+)
+if not exist "%FAKE_INSTALL_ROOT%\current" mkdir "%FAKE_INSTALL_ROOT%\current"
+type nul >"%FAKE_INSTALL_ROOT%\current\TarkovCompanion.exe"
+if /I "%FAKE_INSTALL_MODE%"=="wrong" (
+  >"%FAKE_INSTALL_ROOT%\current\BUILD_INFO.txt" echo version=0.0.1
+  >>"%FAKE_INSTALL_ROOT%\current\BUILD_INFO.txt" echo commit=dddddddddddddddddddddddddddddddddddddddd
+) else (
+  >"%FAKE_INSTALL_ROOT%\current\BUILD_INFO.txt" echo version=%FAKE_INSTALL_VERSION%
+  >>"%FAKE_INSTALL_ROOT%\current\BUILD_INFO.txt" echo commit=%FAKE_INSTALL_COMMIT%
+)
+exit /b 0
+"@ | Set-Content -LiteralPath (Join-Path $Bundle $InstallerName) -Encoding ascii
+    '{"fixture":"data"}' | Set-Content -LiteralPath (Join-Path $Bundle $CompanionName) -Encoding ascii
+
+    $Cosign = Join-Path $Root "cosign.cmd"
+    @"
+@echo off
+setlocal
+if defined FAKE_COSIGN_EXECUTABLE_LOG echo %~f0>>"%FAKE_COSIGN_EXECUTABLE_LOG%"
+if /I "%FAKE_COSIGN_MODE%"=="hang" (
+  ping -n 31 127.0.0.1 >nul
+  exit /b 99
+)
+if /I "%FAKE_COSIGN_MODE%"=="reject" exit /b 23
+exit /b 0
+"@ | Set-Content -LiteralPath $Cosign -Encoding ascii
+    $Trust = Join-Path $Root "trusted-root.json"
+    '{"mediaType":"fixture-trusted-root"}' | Set-Content -LiteralPath $Trust -Encoding utf8
+    & python $FixtureScript --bundle $Bundle --installer $InstallerName --companion $CompanionName `
+        --version $Version --commit $Commit --feed $Feed
+    if ($LASTEXITCODE -ne 0) { throw "Creating the Windows offline fixture failed." }
+    $CosignDigest = (Get-FileHash -LiteralPath $Cosign -Algorithm SHA256).Hash.ToLowerInvariant()
+    $CosignLog = Join-Path $Root "cosign-executables.log"
+
+    function Invoke-InstallerCase([string] $Mode, [bool] $SeedOldBuild) {
+        if (Test-Path -LiteralPath $Install) { Remove-Item -LiteralPath $Install -Recurse -Force }
+        New-Item -ItemType Directory -Path $Install -Force | Out-Null
+        if ($SeedOldBuild) {
+            New-Item -ItemType Directory -Path (Join-Path $Install "current") -Force | Out-Null
+            New-Item -ItemType File -Path (Join-Path $Install "current/TarkovCompanion.exe") -Force | Out-Null
+            "version=1.0.500`ncommit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`n" |
+                Set-Content -LiteralPath (Join-Path $Install "current/BUILD_INFO.txt") -Encoding utf8
+        }
+        $env:FAKE_INSTALL_ROOT = $Install
+        $env:FAKE_INSTALL_MODE = $Mode
+        $env:FAKE_INSTALL_VERSION = $Version
+        $env:FAKE_INSTALL_COMMIT = $Commit
+        $env:FAKE_COSIGN_EXECUTABLE_LOG = $CosignLog
+        $env:FAKE_COSIGN_MODE = if ($Mode -ceq "reject-signature") { "reject" } elseif ($Mode -ceq "hang-cosign") { "hang" } else { "accept" }
+        $env:FAKE_ORPHAN_LAUNCHER = $OrphanLauncher
+        $env:FAKE_ORPHAN_WORKER = $OrphanWorker
+        $env:FAKE_ORPHAN_PID = $OrphanPid
+        $Stdout = Join-Path $Root "$Mode.out.txt"
+        $Stderr = Join-Path $Root "$Mode.err.txt"
+        $Arguments = @(
+            "-NoLogo", "-NoProfile", "-NonInteractive", "-File", $InstallerScript,
+            "-BundleDirectory", $Bundle, "-TrustedRoot", $Trust, "-CosignPath", $Cosign,
+            "-CosignSha256", $CosignDigest, "-InstallRoot", $Install, "-Headless",
+            "-Ring", "stable", "-FeedRepository", $Feed)
+        if ($Mode -ceq "hang-cosign") { $Arguments += @("-VerifierTimeoutSeconds", "1") }
+        if ($Mode -in @("hang-installer", "orphan-installer")) { $Arguments += @("-InstallerTimeoutSeconds", "1") }
+        $Process = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList $Arguments `
+            -Wait -PassThru -RedirectStandardOutput $Stdout -RedirectStandardError $Stderr
+        return [ordered]@{
+            ExitCode = $Process.ExitCode
+            Output = ((Get-Content -LiteralPath $Stdout -Raw -ErrorAction SilentlyContinue) +
+                      (Get-Content -LiteralPath $Stderr -Raw -ErrorAction SilentlyContinue))
+        }
+    }
+
+    $Installed = Invoke-InstallerCase "install" $false
+    if ($Installed.ExitCode -ne 0) { throw "Windows offline install failed: $($Installed.Output)" }
+    $CosignExecutions = @(Get-Content -LiteralPath $CosignLog)
+    if ($CosignExecutions.Count -ne 4 -or
+        @($CosignExecutions | Where-Object { $_ -ceq $Cosign -or (Test-Path -LiteralPath $_) }).Count -ne 0) {
+        throw "Windows did not execute exactly four cleaned-up private verifier copies: $($CosignExecutions -join ' | ')"
+    }
+    $Identity = Get-Content -LiteralPath (Join-Path $Install "current/BUILD_INFO.txt") -Raw
+    if ($Identity -cnotmatch "version=$Version" -or $Identity -cnotmatch "commit=$Commit") {
+        throw "Windows offline install did not leave the requested identity."
+    }
+    foreach ($Mode in @("noop", "wrong")) {
+        $Refused = Invoke-InstallerCase $Mode $true
+        if ($Refused.ExitCode -eq 0 -or $Refused.Output -notmatch "installed identity") {
+            throw "The Windows offline installer did not refuse the $Mode fixture: $($Refused.Output)"
+        }
+    }
+    $RejectedSignature = Invoke-InstallerCase "reject-signature" $false
+    if ($RejectedSignature.ExitCode -eq 0 -or $RejectedSignature.Output -notmatch "does not verify") {
+        throw "The Windows offline installer ignored the verifier's native failure: $($RejectedSignature.Output)"
+    }
+    $TimedOutCosign = Invoke-InstallerCase "hang-cosign" $false
+    $TimedOutCosignPath = @(Get-Content -LiteralPath $CosignLog)[-1]
+    if ($TimedOutCosign.ExitCode -eq 0 -or $TimedOutCosign.Output -notmatch "did not exit within 1 seconds" -or
+        $TimedOutCosign.Output -notmatch "quarantined" -or -not (Test-Path -LiteralPath $TimedOutCosignPath)) {
+        throw "Windows did not quarantine a timed-out verifier whose descendants were unproved: $($TimedOutCosign.Output)"
+    }
+    Remove-Item -LiteralPath (Split-Path -Parent $TimedOutCosignPath) -Recurse -Force
+    $TimedOutInstaller = Invoke-InstallerCase "hang-installer" $false
+    $TimedOutInstallerPath = Get-Content -LiteralPath (Join-Path $Install "ran-from") -Raw
+    if ($TimedOutInstaller.ExitCode -eq 0 -or $TimedOutInstaller.Output -notmatch "did not exit within 1 seconds" -or
+        $TimedOutInstaller.Output -notmatch "quarantined" -or -not (Test-Path -LiteralPath $TimedOutInstallerPath.Trim())) {
+        throw "Windows did not quarantine a timed-out installer whose descendants were unproved: $($TimedOutInstaller.Output)"
+    }
+    Remove-Item -LiteralPath (Split-Path -Parent $TimedOutInstallerPath.Trim()) -Recurse -Force
+    $OrphanProcessId = $null
+    $OrphanedInstallerPath = $null
+    try {
+        $OrphanedInstaller = Invoke-InstallerCase "orphan-installer" $false
+        $OrphanProcessId = [int](Get-Content -LiteralPath $OrphanPid -Raw)
+        $null = Get-Process -Id $OrphanProcessId -ErrorAction Stop
+        $OrphanedInstallerPath = (Get-Content -LiteralPath (Join-Path $Install "ran-from") -Raw).Trim()
+        if ($OrphanedInstaller.ExitCode -eq 0 -or $OrphanedInstaller.Output -notmatch "quarantined" -or
+            -not (Test-Path -LiteralPath $OrphanedInstallerPath)) {
+            throw "Windows deleted staging while a detached installer child was live: $($OrphanedInstaller.Output)"
+        }
+    }
+    finally {
+        if ($null -ne $OrphanProcessId) {
+            Stop-Process -Id $OrphanProcessId -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $OrphanProcessId -Timeout 10 -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $OrphanedInstallerPath) {
+            Remove-Item -LiteralPath (Split-Path -Parent $OrphanedInstallerPath) -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    'tampered' | Set-Content -LiteralPath (Join-Path $Bundle $CompanionName) -Encoding ascii
+    $TamperedCompanion = Invoke-InstallerCase "tampered-companion" $false
+    if ($TamperedCompanion.ExitCode -eq 0 -or $TamperedCompanion.Output -notmatch "does not match the signed manifest") {
+        throw "The Windows offline installer ignored a tampered non-installer artifact: $($TamperedCompanion.Output)"
+    }
+    '{"fixture":"data"}' | Set-Content -LiteralPath (Join-Path $Bundle $CompanionName) -Encoding ascii
+    & python $FixtureScript --bundle $Bundle --installer $InstallerName --companion $CompanionName `
+        --version $Version --commit $Commit --feed $Feed --inconsistent-rollback
+    if ($LASTEXITCODE -ne 0) { throw "Creating the inconsistent rollback fixture failed." }
+    $InvalidTransition = Invoke-InstallerCase "invalid-transition" $false
+    if ($InvalidTransition.ExitCode -eq 0 -or $InvalidTransition.Output -notmatch "transition authorization") {
+        throw "The Windows offline installer accepted inconsistent rollback authority: $($InvalidTransition.Output)"
+    }
+    Write-Host "Windows offline install, ACL staging, no-op, wrong-version and transition-authority refusals passed."
+}
+finally {
+    if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+}

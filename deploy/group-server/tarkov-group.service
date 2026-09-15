@@ -20,9 +20,9 @@ RestartSec=5
 # reaches 8090 across the LAN, so a loopback bind takes the public hostname down.
 Environment=ASPNETCORE_URLS=http://0.0.0.0:8090
 
-# Waypoints, the room registry, problem reports and update stamps live here. systemd
-# creates and owns /var/lib/tarkov-group, which is outside /opt/tarkov-group and survives the
-# updater's `rm -rf` of the install tree -- which is the whole point of putting them there.
+# Waypoints, the room registry and problem reports live here. Update stamps are root-owned in the
+# updater's separate StateDirectory so the relay cannot forge update state. systemd creates and
+# owns /var/lib/tarkov-group outside the install tree, where application state survives a swap.
 StateDirectory=tarkov-group
 
 # A relay that holds a handful of rooms has no business being able to take the box down. It

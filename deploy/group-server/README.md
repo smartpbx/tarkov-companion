@@ -2,8 +2,9 @@
 
 The relay runs as a systemd service on a small container behind a Cloudflare tunnel. Live member
 positions are memory-only and members re-publish every few seconds. Its state directory does
-persist waypoints, the room registry, problem reports, and updater status, so an operator must
-include that directory in migration, retention, and backup decisions.
+persist waypoints, the room registry, problem reports, and the panel's update request, and the
+updater keeps its install record in two root-owned directories of its own, so an operator must
+include all three in migration, retention, and backup decisions.
 
 ## First install
 
@@ -15,6 +16,7 @@ install -m 0644 tarkov-group-update.path    /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now tarkov-group-update.timer
 systemctl enable --now tarkov-group-update.path
+# first: install a pinned cosign, and configure the feed, ring, token, trust root and floor (docs/RELEASES.md#the-relay-updater)
 systemctl start tarkov-group-update.service   # fetch the current build now
 ```
 
@@ -42,22 +44,62 @@ builds would simply fall behind the desktop client. That matters because the two
 a room and a server-side secret, a client that had updated could not talk to a server that had
 not.
 
+It follows a **signed release ring** in a private feed, not the public `dev` release. Until the
+host has the pinned cosign, feed, ring, token, Sigstore trust root and floor described in
+[`docs/RELEASES.md`](../../docs/RELEASES.md#the-relay-updater), the updater refuses to run and the
+relay stays on the build it has. That page also has the steps for moving an existing relay over.
+
 The update is arranged so a failure leaves the service on the build it was already running:
 
-- the checksum is verified against the published one **before** anything is unpacked
-- a rollback copy is taken **before** anything is replaced
-- the new build has to **answer** `/health`, not merely start, because a process that starts
-  and then fails to serve is exactly the failure worth catching and systemd calls it success
-- if it does not answer, the previous build goes back and the run reports failure
+- the ring decision, the manifest and the archive are each **signature-verified** against the
+  trust root on the host, and against the one workflow allowed to publish, **before** anything is
+  unpacked; a checksum from the same place as the archive proves nothing about who put it there
+- an older build is refused unless the ring's signed decision is a rollback, and an older ring
+  decision is refused outright
+- a rollback copy is taken, and a journal of the units, the updater and the stamps is written,
+  **before** anything is replaced
+- the new build has to **answer** `/health` as the signed version, commit and protocol, not merely
+  start, because a process that starts and then fails to serve is exactly the failure worth
+  catching and systemd calls it success
+- if it does not, or anything after the swap fails, the previous build, units, updater and stamps
+  all go back and the run reports failure; a run that was killed is undone by the next one
 
-A stamp file records the checksum in place, so a timer that fires every half hour does nothing
-at all unless the published build actually changed. Without it every member would disappear and
-reappear twice an hour for no reason.
+The stamps record what is installed only after it has proved itself, so a timer that fires every
+half hour does nothing unless the ring actually moved, and never claims a build that was rolled
+back. Without that, every member would disappear and reappear twice an hour for no reason, and a
+refused build would look installed.
 
-A build that installed, failed its health check and was rolled back is written to
-`REFUSED_SHA256` and not retried until a newer one is published. That is the right behaviour and
-it used to be invisible: a relay stuck behind for that reason looked exactly like one that was
-up to date. The panel reads both files and says which it is.
+A build that installed, failed its check and was rolled back is written to `REFUSED_SHA256` and
+`REFUSED_RELEASE.json` and not retried until the ring publishes a new signed decision. That is the
+right behaviour and it used to be invisible: a relay stuck behind for that reason looked exactly
+like one that was up to date. The panel reads the stamps and says which it is.
+
+A paused ring holds the relay where it is; a signed rollback is applied even while paused.
+
+### Where the updater keeps what it decides from
+
+The relay runs as an unprivileged dynamic user that owns `/var/lib/tarkov-group`. The updater runs
+as root. So nothing root decides from lives in the relay's directory: a journal the relay could
+write would be a journal it could fill with an "updater" for root to install. Three directories,
+three owners:
+
+| Directory | Owner and mode | Holds | Read by |
+| --- | --- | --- | --- |
+| `/var/lib/tarkov-group-update` | root, `0700` (the update unit's `StateDirectory=`) | `update.lock`; `work.*` download and verification directories; the `swap` journal (assembled as `swap.new`, committed by renaming to `swap.committed`); authoritative `INSTALLED_RELEASE.json` and `PUBLISHED_RELEASE.json`; their `INSTALLED_SHA256`, `INSTALLED_VERSION`, `INSTALLED_COMMIT`, `INSTALLED_RING`, `INSTALLED_GENERATION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION`, `PUBLISHED_RING`, `PUBLISHED_GENERATION`, `PUBLISHED_MANIFEST_SHA256` mirrors; `REFUSED_SHA256`, `REFUSED_RELEASE.json` | the updater only |
+| `/var/lib/tarkov-group-update-status` | root, `0755`, files `0644` | copies of `INSTALLED_SHA256`, `INSTALLED_VERSION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION` and `REFUSED_SHA256` | the relay's panel; never read back by the updater |
+| `/var/lib/tarkov-group` | the relay's dynamic user | the relay's own state, below, and `UPDATE_NOW` | the updater unlinks `UPDATE_NOW` and touches nothing else |
+
+The updater refuses to run if its state directory is a link, belongs to anyone else, or cannot be
+made `0700`. Each release record is committed by one rename before its scalar mirrors, so a killed
+run cannot combine a new generation with an old decision digest; the next run repairs any mirrors
+it interrupted. `INSTALLED_SHA256` and `REFUSED_SHA256` files that the checksum updater left in
+`/var/lib/tarkov-group` are no longer read or written by anything and can be deleted.
+Its default install, rollback and updater paths must stay below `/opt`, all state trees below
+`/var/lib`, and units in `/etc/systemd/system`. A custom layout must set
+`TARKOV_UPDATE_PATH_ROOT` to a deeper common ancestor and put every mutable tree, the updater and
+unit directory below it. Those managed destinations must be canonical, root/updater-owned and
+not group/world-writable. Run `tarkov-group-update.sh --validate-paths` for a non-mutating
+containment, ownership and overlap check before enabling the service.
 
 ## Why wget and not curl
 
@@ -70,6 +112,7 @@ failed instantly on the real container, and the runbook had already recorded tha
 ```
 systemctl list-timers tarkov-group-update.timer
 journalctl -u tarkov-group-update.service -n 50
+cat /var/lib/tarkov-group-update-status/INSTALLED_VERSION /var/lib/tarkov-group-update-status/PUBLISHED_VERSION
 wget -qO- https://tarkov.mannerow.net/health
 ```
 
@@ -93,7 +136,8 @@ set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
 - `marks.json`: waypoints, including who placed and who reached each one
 - `rooms.json`: registered room hashes and their labels
 - `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them
-- `UPDATE_NOW`, beside the updater's own `INSTALLED_SHA256` and `REFUSED_SHA256`
+- `UPDATE_NOW`, the panel's request for an update; the updater's stamps are not here but in its
+  own directories, [above](#where-the-updater-keeps-what-it-decides-from)
 
 Pings are not written: they expire in forty-five seconds and mean "now", so one restored from
 disk would be a lie. Live member positions and trails are not written either. A report body can

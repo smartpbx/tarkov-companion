@@ -1,7 +1,8 @@
 # System and trust boundaries
 
-Every current-behavior claim below was checked against source at baseline commit `76b506f`.
-Planned v2 behavior is explicitly labelled planned; it is never blended into the current diagram.
+Most current-behavior claims below were checked against source at baseline commit `76b506f`.
+The release/update portions were refreshed against issue #280's source; desktop composition still
+owned by #294/#270 is explicitly labelled uncomposed rather than presented as deployed behavior.
 
 ## Current system and data flow
 
@@ -24,20 +25,21 @@ flowchart TB
         DB[("SQLite: raid history + quest progress")]
         ProfileConfig[("Config/profile.json\nprofile state")]
         GroupConfig[("Config/group.json\nplaintext group key")]
-        Secrets[("DPAPI CurrentUser store\nTarkovTracker bearer token")]
+        Secrets[("DPAPI CurrentUser store\nTarkovTracker token; typed release-token slot")]
         Retention["Default-enabled screenshot cleanup\n24h + recycle bin + keep newest"]
-        DesktopUpdate["App/Velopack updater"]
+        DesktopUpdate["Signed feed consumer + Velopack gateway\nconsumer not composed yet; gateway fails closed"]
     end
 
     subgraph UserFiles["User-controlled import/export file boundary"]
         Exchange[("profile + quest JSON\nraid-history JSON/CSV")]
     end
 
-    subgraph External["Public HTTPS services — untrusted content, authenticated transport"]
+    subgraph External["External services"]
         TDev["json.tarkov.dev\ncatalog"]
         Hideout["the-hideout maps.json\nmap labels"]
         TTracker["api.tarkovtracker.org\noptional GET /token, GET /progress"]
-        GHRelease["GitHub Releases dev channel\nartifacts, feed metadata, checksum files"]
+        PrivateFeed[("separate private/internal GitHub feed\nimmutable builds + create-once ring decisions")]
+        Sigstore["Sigstore services\nkeyless certificate + transparency log"]
     end
 
     subgraph RelayHost["Group relay trust boundary — separately operated, internet-facing"]
@@ -56,7 +58,8 @@ flowchart TB
     end
 
     subgraph CI["GitHub Actions — build/release trust boundary"]
-        Build["ci.yml / windows-verify.yml\nchecks, tests, packaging"]
+        Build["ci.yml / windows-verify.yml\nchecks, tests, packaging; no publication"]
+        Publish["publish.yml protected ring environment\nreconcile, sign, attest, publish; no build"]
         RelayWatch["relay-watch.yml\nrepo token + relay admin key"]
     end
 
@@ -83,14 +86,17 @@ flowchart TB
     Infra -- "HTTPS GET, cached" --> TDev
     Infra -- "HTTPS GET, cached" --> Hideout
     Infra -- "canonical-host HTTPS GET; redirects disabled" --> TTracker
-    DesktopUpdate -- "Velopack GitHub feed/package flow" --> GHRelease
+    Secrets -. "#294: protected read credential" .-> DesktopUpdate
+    DesktopUpdate -. "after composition: bounded authenticated reads" .-> PrivateFeed
+    DesktopUpdate -. "pinned cosign + separately provisioned trust root" .-> Sigstore
 
     GroupConfig -- "plaintext credential loaded by Application" --> Core
     Core -- "X-Group-Key plaintext\nHTTPS or accepted local/LAN HTTP" --> Relay
     Relay -- "hash plaintext in process to 32-hex room id\nstock process does not persist/log plaintext" --> RelayState
     Relay -- "X-Admin-Key; fixed-time comparison" --> AdminKey
     Relay -- "status files + UPDATE_NOW request marker" --> RelayUpdater
-    RelayUpdater -- "fetch relay artifact + same-channel checksum" --> GHRelease
+    RelayUpdater -- "read-only token; signed decision, manifest + relay artifact" --> PrivateFeed
+    RelayUpdater -- "pinned cosign + separately provisioned trust root" --> Sigstore
     RelayUpdater -- "swap/restart; rollback on failed /health" --> Relay
     Relay <-- "same protocol and reusable group key" --> Squadmate
     TabletStore <--> Tablet
@@ -98,7 +104,9 @@ flowchart TB
     Anonymous -- "public routes, invented rooms/marks on open relay,\nor observe/modify accepted HTTP" --> Relay
     Relay -- "catalog mirror; may serve held stale bytes on fetch failure" --> TDev
 
-    Build --> GHRelease
+    Build -- "recorded artifact-archive digests" --> Publish
+    Publish -- "signed immutable build + signed ring decision" --> PrivateFeed
+    Publish -- "keyless signatures + provenance" --> Sigstore
     Core -- "POST /report; user-submitted SupportBundle body;\ncurrent client redaction incomplete; effective 32 KiB cap;\n3/derived-room/hour counter" --> Relay
     Relay --> RelayState
     RelayWatch -- "X-Admin-Key reads report metadata/references only;\nrepo token opens issues" --> Relay
@@ -199,11 +207,22 @@ invalid shape, `CatalogMirror.GetAsync` returns the held snapshot silently. Only
 held snapshot becomes 503. The payload ETag is a hash of received bytes, proving identity and
 mirror/client consistency—not upstream authenticity or freshness.
 
-The deployed `deploy/group-server/tarkov-group-update.sh` verifies an artifact against a checksum
-fetched from the same GitHub release, swaps files, rolls back on failed `/health`, and records a
-refused build. `RelayUpdate.cs` is the status/request adapter: it reads checksum/status files and
-writes `UPDATE_NOW`; it does not perform the swap. Current source has no independently anchored
-signature or relay-side minimum-version state.
+The issue-#280 `deploy/group-server/tarkov-group-update.sh` refuses the public source repository
+and reads a separate private/internal feed with a root-owned read token. It verifies a create-once
+ring decision, the named manifest, and the exact relay archive against the `publish.yml` workflow
+identity, a separately provisioned Sigstore trust root, and a content-pinned cosign. It also
+enforces bounded schemas/downloads/extraction, monotonic per-ring generations, local
+version/generation floors, pause and signed-rollback policy. Only after those checks does it
+journal the old tree, swap, require `/health` to report the signed version/commit/protocol, and
+commit installed stamps; every post-journal failure restores the prior tree, units, updater and
+stamps. `RelayUpdate.cs` reads only the updater's root-owned status projection and writes
+`UPDATE_NOW`; it never makes an update decision or performs the swap.
+
+The feed can still freeze delivery, and a host with no trusted history needs a separately
+provisioned floor (or an explicit unanchored-bootstrap decision). The source publisher is disabled
+until the private feed and protected environments are configured, and the existing relay host
+still needs the migration/provisioning procedure in `docs/RELEASES.md`; source review is not a
+claim that the first real feed publication or host update has occurred.
 
 ### TB-6: Player ↔ Squadmate via relay
 
@@ -250,18 +269,26 @@ report files have no global count, TTL, or disk quota; RISK-REPORT-RATE-LIMIT is
 
 ### TB-10: Build/release ↔ published and installed artifact
 
-`windows-verify.yml` builds/tests and performs its Windows launch/page-gallery gate before its
-publish job can update the rolling release; pull requests cannot publish. It emits release
-artifacts and checksum files.
+`windows-verify.yml` builds, tests, launches and packages, but has no publishing authority.
+`publish.yml` builds nothing: after a successful push-to-main verification run it fetches the two
+producer artifact archives by the sha256 GitHub recorded at upload, independently rechecks CI,
+vulnerability, license, secret, identity and relay-health evidence, produces an SPDX SBOM, and
+reconciles binary, package, data, model, schema and protocol versions into one manifest. Only its
+ring-environment job can sign/attest and mutate the separate private feed. Builds are uploaded as
+drafts, compared asset-by-asset, and must become immutable before a create-once signed ring
+decision can name them. Every workflow action and downloaded release tool is pinned by content;
+the policy gate rejects future mutable action references.
 
-The two consumers are not the same implementation. The deployed
-`deploy/group-server/tarkov-group-update.sh` downloads the relay checksum/archive, verifies the
-archive, swaps it, and health-checks/rolls back; `RelayUpdate.cs` exposes status and requests that
-external updater. `VelopackUpdateGateway.cs` is in the App project and delegates the desktop's
-GitHub feed, package download, and application to Velopack; current project source does not
-explicitly consume `VELOPACK-SHA256SUMS.txt`. This baseline records the dependency on Velopack and
-the release channel without inventing an independent desktop verification step not observed in
-source. Both consumers still depend on the integrity and freshness of one release channel.
+The relay enforces that chain as described in TB-5. On desktop,
+`AuthenticatedGitHubReleaseFeed`, `CosignReleaseSignatureVerifier`, and
+`SignedReleaseFeedConsumer` implement a bounded read-only transport and produce one verified
+binary/data/model plan with pause, replay, downgrade, rollback and delta-base checks. They do not
+activate it themselves. `VelopackUpdateGateway` no longer has an anonymous public `GithubSource`
+fallback and reports updates unconfigured. #294 must atomically activate the verified plan and
+#270 must persist its trusted history before in-app signed updates are enabled; until then only
+the verified offline installer is usable. Feed freeze, first-consumer anchoring, publisher/main
+authority, missing GitHub environment controls and that uncomposed activation are the remaining
+trust concerns, not a same-channel checksum.
 
 ### TB-11: User-controlled import/export files ↔ Desktop
 
@@ -278,10 +305,10 @@ identity, and profile import does not establish that an otherwise-valid envelope
 current state. Full replay/schema/CSV-formula and export-minimization review remains open as
 RISK-LOCAL-IMPORT-EXPORT-INTEGRITY; #315 is a planned expansion, not the first export boundary.
 
-## Baseline source anchors
+## Source anchors
 
-Line numbers below are for baseline commit `76b506f`; symbols are the durable locator if later
-edits move them.
+Unless a row says issue #280, line numbers below are for baseline commit `76b506f`; symbols are
+the durable locator if later edits move them.
 
 | Behavior | Reviewed source anchor |
 | --- | --- |
@@ -297,8 +324,9 @@ edits move them.
 | Full outgoing group-state shape | `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:553-598`; `src/TarkovCompanion.GroupServer/GroupContracts.cs:27-37,145-180` |
 | Log-derived observed-party payload | `src/TarkovCompanion.Application/Services/Group/GroupKitShare.cs:25-35`; `src/TarkovCompanion.Application/Services/Group/GroupKitMirror.cs:38-119`; `src/TarkovCompanion.Application/Services/Group/GroupSessionService.cs:377-391` |
 | Silent stale catalog fallback | `src/TarkovCompanion.GroupServer/CatalogMirror.cs:151-157,184-206`; `src/TarkovCompanion.GroupServer/Program.cs:484-513` |
-| Desktop update adapter | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs:32-75,95-150` |
-| Relay update status versus deployed updater | `src/TarkovCompanion.GroupServer/RelayUpdate.cs:68-103`; `deploy/group-server/tarkov-group-update.sh:101-179` |
+| Desktop update adapter and authenticated-plan handoff (issue #280 source; composition pending) | `src/TarkovCompanion.App/Services/Updates/VelopackUpdateGateway.cs`; `src/TarkovCompanion.Application/Services/Updates/`; `src/TarkovCompanion.Infrastructure/Updates/` |
+| Release producer/policy (issue #280 source) | `.github/workflows/windows-verify.yml`; `.github/workflows/publish.yml`; `scripts/release/`; `docs/RELEASES.md`; ADR 0011 |
+| Relay update status versus signed updater (issue #280 source) | `src/TarkovCompanion.GroupServer/RelayUpdate.cs`; `deploy/group-server/tarkov-group-update.sh` |
 | Data-root selection | `src/TarkovCompanion.App/Services/AppDataPaths.cs:12-27`; `src/TarkovCompanion.App/Services/AppComposition.cs:50-72` |
 | Report bundle, redaction gap, rate/storage bounds | `src/TarkovCompanion.App/Services/Diagnostics/SupportBundle.cs:48-110`; `src/TarkovCompanion.Application/Services/Raids/RaidObservationService.cs`; `src/TarkovCompanion.App/Services/FileLoggerProvider.cs`; `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193`; `.github/workflows/relay-watch.yml` |
 | Relay member expiry | `src/TarkovCompanion.GroupServer/GroupRooms.cs:29,130-205`; `src/TarkovCompanion.GroupServer/Program.cs:132-148` |
