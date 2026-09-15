@@ -197,6 +197,17 @@ class TransitionTests(unittest.TestCase):
                 self.assertIn("TRANSITION_ATTEMPTS", result.stderr)
                 self.assertEqual({}, self.ring("canary"))
 
+    def test_transition_retry_count_accepts_its_upper_boundary(self) -> None:
+        result = self.transition(
+            "publish",
+            "canary",
+            release=self.signed_release("1.0.608"),
+            TRANSITION_ATTEMPTS="10",
+        )
+
+        self.assertOk(result)
+        self.assertEqual([1], sorted(self.ring("canary")))
+
     # Races and interruptions ------------------------------------------------------------------
 
     def test_a_lost_race_recomputes_from_the_winner_without_overwriting_it(self) -> None:

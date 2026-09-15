@@ -23,7 +23,8 @@ readonly TASK_MAX_MEMBERS=8192
 readonly TASK_MAX_MEMBER_BYTES=$((512 * 1024 * 1024))
 readonly TASK_MAX_EXPANDED_BYTES=$((1024 * 1024 * 1024))
 readonly TASK_FREE_RESERVE_BYTES=$((256 * 1024 * 1024))
-readonly TASK_RESOURCE_LIMITS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resource_limits.py"
+TASK_RESOURCE_LIMITS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resource_limits.py"
+readonly TASK_RESOURCE_LIMITS
 TASK_WORK="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tarkov-relay-package.XXXXXX")"
 readonly TASK_WORK
 TASK_PID=""

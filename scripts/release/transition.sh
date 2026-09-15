@@ -33,8 +33,9 @@ fail() {
     exit 1
 }
 
-[[ "${TASK_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] && ((TASK_ATTEMPTS <= 10)) \
-    || fail "TRANSITION_ATTEMPTS must be a canonical integer from 1 through 10"
+if [[ ! "${TASK_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] || ((TASK_ATTEMPTS > 10)); then
+    fail "TRANSITION_ATTEMPTS must be a canonical integer from 1 through 10"
+fi
 
 summary() {
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then

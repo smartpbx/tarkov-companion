@@ -1153,6 +1153,17 @@ class RelayUpdaterTests(UpdaterFixture):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(name, result.stdout)
 
+    def test_health_configuration_accepts_its_upper_boundaries(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater(
+            TARKOV_UPDATE_HEALTH_ATTEMPTS="60",
+            TARKOV_UPDATE_HEALTH_INTERVAL="60",
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("2.0.0", self.running_version())
+
     # Host configuration and concurrency ---------------------------------------------------------
 
     def test_a_held_lock_leaves_everything_to_the_running_update(self) -> None:

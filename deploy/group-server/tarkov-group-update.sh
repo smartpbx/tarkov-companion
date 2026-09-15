@@ -134,9 +134,12 @@ refuse() {
 }
 
 decimal_at_most() {
-    local value="${1#${1%%[!0]*}}" maximum="$2"
+    local value="${1#"${1%%[!0]*}"}" maximum="$2"
     [[ -n "${value}" ]] || value=0
-    ((${#value} < ${#maximum})) || { ((${#value} == ${#maximum})) && [[ "${value}" < "${maximum}" || "${value}" == "${maximum}" ]]; }
+    ((${#value} < ${#maximum})) && return 0
+    ((${#value} > ${#maximum})) && return 1
+    # Only equal-width values reach arithmetic; every caller bounds that width to ten digits.
+    ((10#${value} <= 10#${maximum}))
 }
 
 valid_generation() {
@@ -857,10 +860,12 @@ validate_json_file "${TRUST_ROOT}" "${MAX_JSON_BYTES}" "Sigstore trust root" \
     || refuse "TARKOV_RELEASE_MINIMUM_GENERATION is not a positive bounded generation"
 [[ -z "${MAX_DECISION_AGE_DAYS}" || "${MAX_DECISION_AGE_DAYS}" =~ ^[1-9][0-9]{0,4}$ ]] || refuse "TARKOV_RELEASE_MAX_DECISION_AGE_DAYS is not a positive number of days"
 [[ "${ALLOW_UNANCHORED_BOOTSTRAP}" =~ ^[01]$ ]] || refuse "TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP must be 0 or 1"
-[[ "${HEALTH_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] && decimal_at_most "${HEALTH_ATTEMPTS}" 60 \
-    || refuse "TARKOV_UPDATE_HEALTH_ATTEMPTS must be a canonical integer from 1 through 60"
-[[ "${HEALTH_INTERVAL}" =~ ^(0|[1-9][0-9]?)$ ]] && decimal_at_most "${HEALTH_INTERVAL}" 60 \
-    || refuse "TARKOV_UPDATE_HEALTH_INTERVAL must be a canonical integer from 0 through 60 seconds"
+if [[ ! "${HEALTH_ATTEMPTS}" =~ ^[1-9][0-9]?$ ]] || ! decimal_at_most "${HEALTH_ATTEMPTS}" 60; then
+    refuse "TARKOV_UPDATE_HEALTH_ATTEMPTS must be a canonical integer from 1 through 60"
+fi
+if [[ ! "${HEALTH_INTERVAL}" =~ ^(0|[1-9][0-9]?)$ ]] || ! decimal_at_most "${HEALTH_INTERVAL}" 60; then
+    refuse "TARKOV_UPDATE_HEALTH_INTERVAL must be a canonical integer from 0 through 60 seconds"
+fi
 [[ -n "${SIGNER_IDENTITY}" && -n "${SIGNER_ISSUER}" && -n "${SIGNER_REPOSITORY}" && -n "${SIGNER_REF}" ]] \
     || refuse "the signer identity, issuer, repository and ref must all be set"
 resolve_cosign
