@@ -11,6 +11,10 @@ on:
     # enough that a normal update window is never mistaken for a fault.
     - cron: '17 * * * *'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/relay-watch.yml'
+      - 'deploy/group-server/monitoring/**'
 
 permissions:
   contents: read
@@ -21,9 +25,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  watch:
+  fixture:
     runs-on: ubuntu-latest
     steps:
+      # The stale-deployment fixture belongs beside the classifier, rather than relying on a
+      # one-off manual workflow run that happens to find an old relay. This checkout also means
+      # every alert has the exact monitoring rule that produced it as evidence.
+      - uses: actions/checkout@v5
+      - name: Prove a stale deployment alerts
+        run: bash deploy/group-server/monitoring/test-relay-watch.sh
+
+  watch:
+    if: github.event_name != 'pull_request'
+    needs: fixture
+    runs-on: ubuntu-latest
+    steps:
+      # Health carries a commit. A shallow checkout cannot tell whether that commit is a real
+      # deployment from this repository, so it used to treat an unknown value as up to date.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Ask the relay what it is
         id: health
         env:
@@ -54,39 +75,39 @@ jobs:
             exit 0
           fi
 
-          body="$(curl -fsS --max-time 20 "$RELAY" 2>/dev/null || true)"
-          if [ -z "$body" ]; then
-            echo "reason=The relay did not answer $RELAY within 20 seconds." >> "$GITHUB_OUTPUT"
+          health_file="$(mktemp)"
+          trap 'rm -f -- "$health_file"' EXIT
+          if ! curl -fsS --max-time 20 "$RELAY" >"$health_file" 2>/dev/null; then
+            # Do not include the relay URL in durable Actions output. It can be an operator's
+            # private hostname, while this fixed sentence still tells the on-call person what
+            # to inspect.
+            echo "reason=The relay did not answer its health request within 20 seconds." >> "$GITHUB_OUTPUT"
             echo "failed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "$body"
-          commit="$(printf '%s' "$body" | jq -r '.commit // empty')"
-          version="$(printf '%s' "$body" | jq -r '.version // "unknown"')"
-          if [ -z "$commit" ]; then
-            echo "reason=The relay answered but named no commit, so it is a build from before /health reported one." >> "$GITHUB_OUTPUT"
+          commit="$(jq -r '.commit // empty' "$health_file")"
+          if ! [[ "$commit" =~ ^[0-9a-fA-F]{7,64}$ ]] || ! git cat-file -e "$commit^{commit}" 2>/dev/null; then
+            echo "reason=The relay health response did not name a known deployment commit." >> "$GITHUB_OUTPUT"
             echo "failed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # Behind is normal for up to an hour; the relay polls every thirty minutes. Days
-          # behind means an update is failing and being refused, over and over.
-          if ! git -C . cat-file -e "$commit" 2>/dev/null; then
-            echo "The relay names a commit this checkout does not have; treating as up to date." >&2
-            exit 0
-          fi
-
-          age="$(git log -1 --format=%ct "$commit")"
-          now="$(date +%s)"
-          hours=$(( (now - age) / 3600 ))
-          echo "Relay is on $version ($commit), built ${hours}h ago."
-          if [ "$hours" -gt 24 ]; then
-            echo "reason=The relay is running a build from ${hours}h ago ($version, $commit). Its updater runs every thirty minutes, so it is refusing something." >> "$GITHUB_OUTPUT"
+          # The helper reads only the constrained health shape and writes an enumerated status
+          # and sentence. It intentionally does not copy the body, route, room counts, or other
+          # unexpected fields to Actions logs.
+          if ! bash deploy/group-server/monitoring/relay-watch.sh \
+              --health-file "$health_file" \
+              --expected-commit "$(git rev-parse HEAD)" \
+              --commit-utc "$(git log -1 --format=%ct "$commit")" \
+              --github-output "$GITHUB_OUTPUT"; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Turn any new problem reports into issues
+        if: steps.health.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELAY: ${{ vars.RELAY_HEALTH_URL }}
