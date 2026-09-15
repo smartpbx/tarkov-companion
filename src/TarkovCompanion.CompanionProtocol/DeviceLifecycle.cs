@@ -66,6 +66,7 @@ public sealed record PairedDevice
         DeviceLifecycleStatus status,
         DateTimeOffset createdUtc,
         DateTimeOffset lastUsedUtc,
+        long lastKeyEpoch,
         DateTimeOffset expiresUtc,
         DateTimeOffset statusChangedUtc,
         CompanionDeviceId? replacedByDeviceId = null,
@@ -84,6 +85,7 @@ public sealed record PairedDevice
         Status = ProtocolGuard.Defined(status, nameof(status));
         CreatedUtc = ProtocolGuard.Utc(createdUtc, nameof(createdUtc));
         LastUsedUtc = ProtocolGuard.Utc(lastUsedUtc, nameof(lastUsedUtc));
+        LastKeyEpoch = ProtocolGuard.KeyEpoch(lastKeyEpoch, nameof(lastKeyEpoch));
         ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         StatusChangedUtc = ProtocolGuard.Utc(statusChangedUtc, nameof(statusChangedUtc));
         ReplacedByDeviceId = replacedByDeviceId;
@@ -130,6 +132,12 @@ public sealed record PairedDevice
     public DateTimeOffset CreatedUtc { get; }
 
     public DateTimeOffset LastUsedUtc { get; }
+
+    /// <summary>
+    /// The key epoch of the device's most recently established session. A pairing or resume
+    /// challenge must assign a greater epoch, so a captured proof can never re-establish a session.
+    /// </summary>
+    public long LastKeyEpoch { get; }
 
     public DateTimeOffset ExpiresUtc { get; }
 
@@ -242,6 +250,90 @@ public static class DeviceLifecycle
                IsLive(device, now);
     }
 
+    /// <summary>
+    /// Creates the paired-device record from a completed pairing. The device key, id, first key
+    /// epoch, and creation time all come from the verified establishment; the display name is the
+    /// one the user approved after <see cref="PairingCryptography.OpenDeviceName"/>.
+    /// </summary>
+    public static PairedDevice Pair(
+        PairingAttempt completed,
+        string approvedDisplayName,
+        DeviceAuthorizationRole role,
+        IReadOnlyList<DeviceCapability> capabilities,
+        DateTimeOffset expiresUtc)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        if (completed.Stage != PairingAttemptStage.Completed || completed.Establishment is not { } establishment)
+        {
+            throw new InvalidOperationException("Only a completed pairing creates a paired device.");
+        }
+
+        var established = establishment.EstablishedUtc;
+        return new PairedDevice(
+            establishment.Assignment.DeviceId,
+            PairingCryptography.ValidateDeviceName(approvedDisplayName),
+            completed.Request!.DeviceKey,
+            role,
+            capabilities,
+            DeviceLifecycleStatus.Active,
+            established,
+            established,
+            establishment.Assignment.KeyEpoch,
+            expiresUtc,
+            established);
+    }
+
+    /// <summary>
+    /// Records a newly established resume session: its key epoch must exceed every epoch
+    /// the device has used, and the establishment counts as authenticated use.
+    /// </summary>
+    public static PairedDevice RecordSession(PairedDevice device, SessionEstablished establishment)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(establishment);
+        if (establishment.Assignment.DeviceId != device.DeviceId || establishment.DeviceKeyId != device.DeviceKey.KeyId)
+        {
+            throw new UnauthorizedAccessException("The session was not established by this device's bound key.");
+        }
+
+        if (establishment.Purpose != HandshakePurpose.SessionResume || establishment.Assignment.KeyEpoch <= device.LastKeyEpoch)
+        {
+            throw new InvalidOperationException("Only a resume with a fresh key epoch records a new session for a paired device.");
+        }
+
+        if (!IsLive(device, establishment.EstablishedUtc))
+        {
+            throw new UnauthorizedAccessException("A device that is not live cannot record a session.");
+        }
+
+        return WithUse(device, Later(device.LastUsedUtc, establishment.EstablishedUtc), establishment.Assignment.KeyEpoch);
+    }
+
+    /// <summary>
+    /// Records an authenticated frame from a live session. Without it, a device that stays connected
+    /// would still reach the inactivity expiry; with it, only real absence ends the device.
+    /// </summary>
+    public static (PairedDevice Device, DeviceSession Session) RecordUse(
+        PairedDevice device,
+        DeviceSession session,
+        DateTimeOffset nowUtc)
+    {
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        if (!IsLive(session, device, now))
+        {
+            throw new UnauthorizedAccessException("Only a live session of a live device records use.");
+        }
+
+        var updatedSession = new DeviceSession(
+            session.Establishment,
+            session.Status,
+            session.Transport,
+            session.Surface,
+            session.Capabilities,
+            Later(session.LastUsedUtc, now));
+        return (WithUse(device, Later(device.LastUsedUtc, now), device.LastKeyEpoch), updatedSession);
+    }
+
     public static PairedDevice Revoke(PairedDevice device, DateTimeOffset nowUtc, string reason) =>
         Transition(device, DeviceLifecycleStatus.Revoked, nowUtc, reason);
 
@@ -310,9 +402,29 @@ public static class DeviceLifecycle
             status,
             device.CreatedUtc,
             device.LastUsedUtc,
+            device.LastKeyEpoch,
             device.ExpiresUtc,
             now,
             replacement,
             reason);
     }
+
+    private static PairedDevice WithUse(PairedDevice device, DateTimeOffset lastUsedUtc, long lastKeyEpoch) =>
+        new(
+            device.DeviceId,
+            device.DisplayName,
+            device.DeviceKey,
+            device.Role,
+            device.Capabilities,
+            device.Status,
+            device.CreatedUtc,
+            lastUsedUtc,
+            lastKeyEpoch,
+            device.ExpiresUtc,
+            device.StatusChangedUtc,
+            device.ReplacedByDeviceId,
+            device.LifecycleReason);
+
+    private static DateTimeOffset Later(DateTimeOffset current, DateTimeOffset candidate) =>
+        candidate > current ? candidate : current;
 }

@@ -46,11 +46,25 @@ public sealed record DevicePublicKey
             cosePublicKeyBase64Url,
             nameof(cosePublicKeyBase64Url),
             maximumDecodedBytes: ProtocolBounds.MaxCosePublicKeyBytes);
+        if (cose.Length != 77 ||
+            !cose.AsSpan(0, 10).SequenceEqual(CoseEs256Prefix) ||
+            !cose.AsSpan(42, 3).SequenceEqual(CoseEs256YLabel) ||
+            !ProtocolGuard.IsOnP256(cose.AsSpan(10, 32), cose.AsSpan(45, 32)))
+        {
+            throw new ArgumentException(
+                "A device key is the CTAP2 canonical COSE_Key for ES256 on P-256 with a point on the curve.",
+                nameof(cosePublicKeyBase64Url));
+        }
+
         CosePublicKeyBase64Url = cosePublicKeyBase64Url;
         KeyId = string.Equals(keyId.Value, ProtocolGuard.Thumbprint(cose), StringComparison.Ordinal)
             ? keyId
             : throw new ArgumentException("A device key id is the SHA-256 thumbprint of its COSE key.", nameof(keyId));
     }
+
+    // {1: 2 (EC2), 3: -7 (ES256), -1: 1 (P-256), -2: bstr(32)} ... {-3: bstr(32)} in CTAP2 canonical order.
+    private static readonly byte[] CoseEs256Prefix = [0xA5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20];
+    private static readonly byte[] CoseEs256YLabel = [0x22, 0x58, 0x20];
 
     public DeviceKeyId KeyId { get; }
 
@@ -151,8 +165,10 @@ public sealed record SessionAssignment
 }
 
 /// <summary>
-/// Returned after the transport consumes the rate-limited one-time code. It commits the desktop's
-/// identity, ephemeral key, and nonce before the tablet reveals its own request.
+/// Returned after the transport consumes the rate-limited one-time code. It publishes the desktop's
+/// identity and ephemeral key but only a commitment to the desktop nonce, so nobody can choose a
+/// pairing request that steers the verification code: the nonce is revealed only after the first
+/// request is bound to the attempt.
 /// </summary>
 public sealed record PairingOffer
 {
@@ -160,7 +176,7 @@ public sealed record PairingOffer
         PairingAttemptId attemptId,
         DesktopIdentityKey desktopIdentityKey,
         EphemeralPublicKey desktopEphemeralKey,
-        string desktopNonceBase64Url,
+        string desktopNonceCommitmentBase64Url,
         DateTimeOffset offeredUtc,
         DateTimeOffset expiresUtc)
     {
@@ -169,10 +185,10 @@ public sealed record PairingOffer
             : attemptId;
         DesktopIdentityKey = ProtocolGuard.NotNull(desktopIdentityKey, nameof(desktopIdentityKey));
         DesktopEphemeralKey = ProtocolGuard.NotNull(desktopEphemeralKey, nameof(desktopEphemeralKey));
-        DesktopNonceBase64Url = ProtocolGuard.Base64Url(
-            desktopNonceBase64Url,
-            nameof(desktopNonceBase64Url),
-            exactDecodedBytes: ProtocolBounds.PairingNonceBytes);
+        DesktopNonceCommitmentBase64Url = ProtocolGuard.Base64Url(
+            desktopNonceCommitmentBase64Url,
+            nameof(desktopNonceCommitmentBase64Url),
+            exactDecodedBytes: ProtocolBounds.TranscriptHashBytes);
         OfferedUtc = ProtocolGuard.Utc(offeredUtc, nameof(offeredUtc));
         ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         if (ExpiresUtc <= OfferedUtc || ExpiresUtc - OfferedUtc > ProtocolBounds.MaximumPairingLifetime)
@@ -187,11 +203,34 @@ public sealed record PairingOffer
 
     public EphemeralPublicKey DesktopEphemeralKey { get; }
 
-    public string DesktopNonceBase64Url { get; }
+    /// <summary>base64url(SHA-256(text(nonce-commitment domain) ‖ bytes(desktop nonce))).</summary>
+    public string DesktopNonceCommitmentBase64Url { get; }
 
     public DateTimeOffset OfferedUtc { get; }
 
     public DateTimeOffset ExpiresUtc { get; }
+}
+
+/// <summary>
+/// The desktop nonce, sent in response to the bound pairing request. The tablet checks it against
+/// the offer's commitment before computing the verification code.
+/// </summary>
+public sealed record PairingNonceReveal
+{
+    public PairingNonceReveal(PairingAttemptId attemptId, string desktopNonceBase64Url)
+    {
+        AttemptId = attemptId.Value == Guid.Empty
+            ? throw new ArgumentException("A pairing attempt id is required.", nameof(attemptId))
+            : attemptId;
+        DesktopNonceBase64Url = ProtocolGuard.Base64Url(
+            desktopNonceBase64Url,
+            nameof(desktopNonceBase64Url),
+            exactDecodedBytes: ProtocolBounds.PairingNonceBytes);
+    }
+
+    public PairingAttemptId AttemptId { get; }
+
+    public string DesktopNonceBase64Url { get; }
 }
 
 /// <summary>
@@ -574,6 +613,22 @@ public sealed record SessionEstablished
 
     [JsonIgnore]
     public DateTimeOffset SessionExpiresUtc => Assignment.SessionExpiresUtc;
+
+    /// <summary>
+    /// True when this establishment names exactly the signed challenge's session: the tablet derives
+    /// traffic keys only after this check, and the desktop never records a session that fails it.
+    /// </summary>
+    public bool Answers(HandshakeChallenge challenge)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        return ChallengeId == challenge.ChallengeId &&
+               Purpose == challenge.Purpose &&
+               DeviceKeyId == challenge.DeviceKeyId &&
+               Assignment == challenge.Assignment &&
+               string.Equals(TranscriptHashBase64Url, challenge.TranscriptHashBase64Url, StringComparison.Ordinal) &&
+               EstablishedUtc >= challenge.IssuedUtc &&
+               EstablishedUtc < challenge.ExpiresUtc;
+    }
 }
 
 /// <summary>Verifies the WebAuthn signature and relying-party checks for a bound device key.</summary>

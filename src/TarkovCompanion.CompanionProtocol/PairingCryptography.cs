@@ -13,6 +13,44 @@ public enum PairingTrafficDirection
 }
 
 /// <summary>
+/// The single root inside a relay frame. It is the first two plaintext bytes, so the relay cannot
+/// see whether a frame carries a command, acknowledgement, update, or reconnect message.
+/// </summary>
+public enum RelayPayloadKind
+{
+    ClientCommandEnvelope = 1,
+    ClientDeliveryAcknowledgement,
+    ReconnectRequest,
+    ServerEnvelope,
+    ReconnectPlan,
+}
+
+/// <summary>An authenticated relay plaintext: its root kind and the exact UTF-8 JSON of that root.</summary>
+public sealed class RelayPayload
+{
+    public RelayPayload(RelayPayloadKind kind, ReadOnlySpan<byte> json)
+    {
+        Kind = ProtocolGuard.Defined(kind, nameof(kind));
+        Json = json.Length is > 0 and <= ProtocolBounds.MaxPayloadBytes
+            ? json.ToArray()
+            : throw new ArgumentOutOfRangeException(nameof(json), "A relay payload root is 1-65536 bytes.");
+    }
+
+    public RelayPayloadKind Kind { get; }
+
+    public ReadOnlyMemory<byte> Json { get; }
+
+    /// <summary>The direction a payload kind may travel; the other direction is refused before parsing.</summary>
+    public static PairingTrafficDirection DirectionOf(RelayPayloadKind kind) => kind switch
+    {
+        RelayPayloadKind.ClientCommandEnvelope or RelayPayloadKind.ClientDeliveryAcknowledgement or RelayPayloadKind.ReconnectRequest =>
+            PairingTrafficDirection.TabletToDesktop,
+        RelayPayloadKind.ServerEnvelope or RelayPayloadKind.ReconnectPlan => PairingTrafficDirection.DesktopToTablet,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+}
+
+/// <summary>
 /// Frozen protocol-2 encodings for the pairing commitment, sealed device name, verification code,
 /// handshake transcript, desktop identity signature, HKDF traffic-key schedule, relay nonce, and
 /// AES-GCM additional authenticated data.
@@ -27,6 +65,7 @@ public enum PairingTrafficDirection
 /// </remarks>
 public static class PairingCryptography
 {
+    public const string DesktopNonceCommitmentDomain = "TarkovCompanion.PairedDevice/v2/desktop-nonce-commitment";
     public const string PairingRequestContextDomain = "TarkovCompanion.PairedDevice/v2/pairing-request-context";
     public const string DeviceNameKeyLabel = "TarkovCompanion.PairedDevice/v2/device-name-key";
     public const string PairingCommitmentDomain = "TarkovCompanion.PairedDevice/v2/pairing-commitment";
@@ -37,6 +76,29 @@ public static class PairingCryptography
     public const string RelayAadDomain = "TarkovCompanion.PairedDevice/v2/relay-aad";
 
     private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    /// <summary>base64url(SHA-256(text(commitment domain) ‖ bytes(desktop nonce))), published in the offer.</summary>
+    public static string ComputeDesktopNonceCommitment(string desktopNonceBase64Url)
+    {
+        var writer = new ProtocolBinaryWriter();
+        writer.Utf8(DesktopNonceCommitmentDomain);
+        writer.Base64Url(ProtocolGuard.Base64Url(
+            desktopNonceBase64Url,
+            nameof(desktopNonceBase64Url),
+            exactDecodedBytes: ProtocolBounds.PairingNonceBytes));
+        return ProtocolGuard.EncodeBase64Url(SHA256.HashData(writer.ToArray()));
+    }
+
+    /// <summary>True when the reveal answers this offer and opens its nonce commitment.</summary>
+    public static bool IsRevealOf(PairingOffer offer, PairingNonceReveal reveal)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(reveal);
+        return reveal.AttemptId == offer.AttemptId &&
+               CryptographicOperations.FixedTimeEquals(
+                   ProtocolGuard.DecodeBase64Url(ComputeDesktopNonceCommitment(reveal.DesktopNonceBase64Url), nameof(reveal)),
+                   ProtocolGuard.DecodeBase64Url(offer.DesktopNonceCommitmentBase64Url, nameof(offer)));
+    }
 
     public static byte[] EncodePairingRequestContext(
         PairingOffer offer,
@@ -54,7 +116,7 @@ public static class PairingCryptography
         writer.Uuid(offer.AttemptId.Value);
         writer.Base64Url(offer.DesktopIdentityKey.KeyId.Value);
         writer.Base64Url(offer.DesktopEphemeralKey.SubjectPublicKeyInfoBase64Url);
-        writer.Base64Url(offer.DesktopNonceBase64Url);
+        writer.Base64Url(offer.DesktopNonceCommitmentBase64Url);
         writer.Base64Url(deviceKey.KeyId.Value);
         writer.Base64Url(deviceKey.CredentialIdBase64Url);
         writer.Base64Url(ephemeralKey.SubjectPublicKeyInfoBase64Url);
@@ -140,13 +202,17 @@ public static class PairingCryptography
         return ValidateDeviceName(name);
     }
 
-    /// <summary>SHA-256 over the request context hash and the exact sealed name.</summary>
-    public static byte[] ComputePairingCommitment(PairingOffer offer, PairingRequest request)
+    /// <summary>
+    /// SHA-256 over the request context hash, the exact sealed name, and the revealed desktop nonce.
+    /// The nonce was committed before the request and revealed after it was bound, so neither side
+    /// nor a relay could choose a request that produces a chosen code.
+    /// </summary>
+    public static byte[] ComputePairingCommitment(PairingOffer offer, PairingRequest request, PairingNonceReveal reveal)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (offer.AttemptId != request.AttemptId)
+        if (offer.AttemptId != request.AttemptId || !IsRevealOf(offer, reveal))
         {
-            throw new ArgumentException("The pairing request answers another offer.", nameof(request));
+            throw new ArgumentException("The request and nonce reveal must answer this offer.", nameof(reveal));
         }
 
         var writer = new ProtocolBinaryWriter();
@@ -159,17 +225,17 @@ public static class PairingCryptography
             request.ClientNonceBase64Url));
         writer.Base64Url(request.RequestedDeviceName.CiphertextBase64Url);
         writer.Base64Url(request.RequestedDeviceName.AuthenticationTagBase64Url);
+        writer.Base64Url(reveal.DesktopNonceBase64Url);
         return SHA256.HashData(writer.ToArray());
     }
 
     /// <summary>
     /// The six-digit code both screens show before desktop approval: the first four commitment
-    /// bytes as an unsigned big-endian integer, modulo one million, zero padded. A relay that
-    /// substitutes either ephemeral key, nonce, device key, or name changes the code.
+    /// bytes as an unsigned big-endian integer, modulo one million, zero padded.
     /// </summary>
-    public static string ComputeVerificationCode(PairingOffer offer, PairingRequest request)
+    public static string ComputeVerificationCode(PairingOffer offer, PairingRequest request, PairingNonceReveal reveal)
     {
-        var commitment = ComputePairingCommitment(offer, request);
+        var commitment = ComputePairingCommitment(offer, request, reveal);
         var value = BinaryPrimitives.ReadUInt32BigEndian(commitment) % 1_000_000u;
         return value.ToString("D6", CultureInfo.InvariantCulture);
     }
@@ -284,7 +350,7 @@ public static class PairingCryptography
     {
         ProtocolGuard.Defined(direction, nameof(direction));
         ProtocolGuard.Defined(cipherSuite, nameof(cipherSuite));
-        if (ciphertextLength is <= 0 or > ProtocolBounds.MaxPayloadBytes)
+        if (ciphertextLength is < ProtocolBounds.MinRelayPlaintextBytes or > ProtocolBounds.MaxRelayPlaintextBytes)
         {
             throw new ArgumentOutOfRangeException(nameof(ciphertextLength));
         }
@@ -305,12 +371,14 @@ public static class PairingCryptography
     }
 
     /// <summary>
-    /// Encrypts one plaintext protocol root into an opaque relay frame using the sender's
-    /// directional key. The sender must never reuse a (key epoch, sender sequence) pair.
+    /// Encrypts one protocol root into an opaque frame using the sender's directional key. The
+    /// plaintext is <c>u16(kind) ‖ UTF-8 JSON</c>. The sender must never reuse a
+    /// (key epoch, sender sequence) pair in its direction.
     /// </summary>
     public static OpaqueRelayFrame SealRelayFrame(
         ReadOnlySpan<byte> trafficKey,
         PairingTrafficDirection direction,
+        RelayPayloadKind kind,
         CompanionProtocolVersion protocolVersion,
         RelayChannelId channelId,
         DeviceSessionId sessionId,
@@ -318,13 +386,23 @@ public static class PairingCryptography
         long senderSequence,
         DateTimeOffset issuedUtc,
         DateTimeOffset expiresUtc,
-        ReadOnlySpan<byte> plaintext)
+        ReadOnlySpan<byte> json)
     {
         RequireTrafficKey(trafficKey);
-        if (plaintext.Length is 0 or > ProtocolBounds.MaxPayloadBytes)
+        ProtocolGuard.Defined(direction, nameof(direction));
+        if (RelayPayload.DirectionOf(ProtocolGuard.Defined(kind, nameof(kind))) != direction)
         {
-            throw new ArgumentOutOfRangeException(nameof(plaintext), "A relay plaintext is 1-65536 bytes.");
+            throw new ArgumentException("That payload kind never travels in this direction.", nameof(kind));
         }
+
+        if (json.Length is 0 or > ProtocolBounds.MaxPayloadBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(json), "A relay payload root is 1-65536 bytes.");
+        }
+
+        var plaintext = new byte[json.Length + 2];
+        BinaryPrimitives.WriteUInt16BigEndian(plaintext, (ushort)kind);
+        json.CopyTo(plaintext.AsSpan(2));
 
         const RelayCipherSuite suite = RelayCipherSuite.P256HkdfSha256Aes256Gcm;
         var nonce = EncodeRelayNonce(keyEpoch, senderSequence);
@@ -369,10 +447,11 @@ public static class PairingCryptography
     }
 
     /// <summary>
-    /// Authenticates and decrypts a relay frame with the receiver's expected direction. Any changed
-    /// routing field, direction, ciphertext byte, or tag throws <see cref="CryptographicException"/>.
+    /// Authenticates and decrypts a frame with the receiver's expected direction. Any changed routing
+    /// field, direction, ciphertext byte, or tag throws <see cref="CryptographicException"/>, as does
+    /// an authenticated payload kind that may not travel in that direction.
     /// </summary>
-    public static byte[] OpenRelayFrame(
+    public static RelayPayload OpenRelayFrame(
         ReadOnlySpan<byte> trafficKey,
         PairingTrafficDirection direction,
         OpaqueRelayFrame frame)
@@ -386,9 +465,18 @@ public static class PairingCryptography
             exactDecodedBytes: ProtocolBounds.RelayAuthenticationTagBytes);
         var nonce = EncodeRelayNonce(frame.KeyEpoch, frame.SenderSequence);
         var plaintext = new byte[ciphertext.Length];
-        using var aes = new AesGcm(trafficKey, ProtocolBounds.RelayAuthenticationTagBytes);
-        aes.Decrypt(nonce, ciphertext, tag, plaintext, frame.EncodeAdditionalAuthenticatedData(direction));
-        return plaintext;
+        using (var aes = new AesGcm(trafficKey, ProtocolBounds.RelayAuthenticationTagBytes))
+        {
+            aes.Decrypt(nonce, ciphertext, tag, plaintext, frame.EncodeAdditionalAuthenticatedData(direction));
+        }
+
+        var kind = (RelayPayloadKind)BinaryPrimitives.ReadUInt16BigEndian(plaintext.Length >= 3 ? plaintext : new byte[2]);
+        if (plaintext.Length < 3 || !Enum.IsDefined(kind) || RelayPayload.DirectionOf(kind) != direction)
+        {
+            throw new CryptographicException("The authenticated relay payload is not a root this direction may carry.");
+        }
+
+        return new RelayPayload(kind, plaintext[2..]);
     }
 
     internal static string ValidateDeviceName(string? deviceName)
@@ -396,12 +484,13 @@ public static class PairingCryptography
         var name = ProtocolGuard.Required(deviceName, nameof(deviceName), ProtocolBounds.MaxDeviceNameBytes);
         foreach (var character in name)
         {
-            // Control and bidirectional-override characters could make the approval prompt show a
-            // different name from the one the tablet requested.
-            if (char.IsControl(character) ||
-                character is >= '\u202A' and <= '\u202E' or >= '\u2066' and <= '\u2069')
+            // Control, format (zero-width, joiner, and bidirectional), separator, and private-use
+            // characters could make the approval prompt show a different name from the one requested.
+            var category = CharUnicodeInfo.GetUnicodeCategory(character);
+            if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.LineSeparator or
+                UnicodeCategory.ParagraphSeparator or UnicodeCategory.PrivateUse)
             {
-                throw new ArgumentException("A device name cannot contain control or bidirectional-override characters.", nameof(deviceName));
+                throw new ArgumentException("A device name cannot contain control, format, separator, or private-use characters.", nameof(deviceName));
             }
         }
 

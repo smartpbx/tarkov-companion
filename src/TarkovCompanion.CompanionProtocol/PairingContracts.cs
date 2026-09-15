@@ -101,6 +101,7 @@ public sealed record HandshakeTranscript
     public static HandshakeTranscript ForPairing(
         PairingOffer offer,
         PairingRequest request,
+        PairingNonceReveal reveal,
         HandshakeChallengeId challengeId,
         SessionAssignment assignment,
         DateTimeOffset issuedUtc,
@@ -117,7 +118,7 @@ public sealed record HandshakeTranscript
         return new HandshakeTranscript(
             HandshakePurpose.Pairing,
             offer.AttemptId,
-            ProtocolGuard.EncodeBase64Url(PairingCryptography.ComputePairingCommitment(offer, request)),
+            ProtocolGuard.EncodeBase64Url(PairingCryptography.ComputePairingCommitment(offer, request, reveal)),
             challengeId,
             request.DeviceKey.KeyId,
             request.DeviceKey.CredentialIdBase64Url,
@@ -126,7 +127,7 @@ public sealed record HandshakeTranscript
             request.EphemeralKey,
             offer.DesktopEphemeralKey,
             request.ClientNonceBase64Url,
-            offer.DesktopNonceBase64Url,
+            reveal.DesktopNonceBase64Url,
             issuedUtc,
             expiresUtc);
     }
@@ -165,32 +166,50 @@ public sealed record HandshakeTranscript
             expiresUtc);
     }
 
-    /// <summary>Rebuilds a pairing transcript from a received challenge and the tablet's own offer and request.</summary>
-    public static HandshakeTranscript FromChallenge(HandshakeChallenge challenge, PairingOffer offer, PairingRequest request)
+    /// <summary>
+    /// Rebuilds a pairing transcript from a received challenge, the offer, the tablet's own request,
+    /// and the nonce reveal that opened the offer's commitment.
+    /// </summary>
+    public static HandshakeTranscript FromChallenge(
+        HandshakeChallenge challenge,
+        PairingOffer offer,
+        PairingRequest request,
+        PairingNonceReveal reveal)
     {
         ArgumentNullException.ThrowIfNull(challenge);
         ArgumentNullException.ThrowIfNull(offer);
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(reveal);
         if (challenge.Purpose != HandshakePurpose.Pairing ||
             challenge.AttemptId != offer.AttemptId ||
+            !PairingCryptography.IsRevealOf(offer, reveal) ||
             challenge.DesktopIdentityKey != offer.DesktopIdentityKey ||
             challenge.DesktopEphemeralKey != offer.DesktopEphemeralKey ||
-            !string.Equals(challenge.DesktopNonceBase64Url, offer.DesktopNonceBase64Url, StringComparison.Ordinal) ||
+            !string.Equals(challenge.DesktopNonceBase64Url, reveal.DesktopNonceBase64Url, StringComparison.Ordinal) ||
             challenge.DeviceKeyId != request.DeviceKey.KeyId ||
             !string.Equals(challenge.CredentialIdBase64Url, request.DeviceKey.CredentialIdBase64Url, StringComparison.Ordinal))
         {
-            throw new ArgumentException("The challenge does not answer this pairing offer and request.", nameof(challenge));
+            throw new ArgumentException("The challenge does not answer this pairing offer, request, and nonce reveal.", nameof(challenge));
         }
 
-        return ForPairing(offer, request, challenge.ChallengeId, challenge.Assignment, challenge.IssuedUtc, challenge.ExpiresUtc);
+        return ForPairing(offer, request, reveal, challenge.ChallengeId, challenge.Assignment, challenge.IssuedUtc, challenge.ExpiresUtc);
     }
 
-    /// <summary>Rebuilds a session-resume transcript from a received challenge and the tablet's own request.</summary>
-    public static HandshakeTranscript FromChallenge(HandshakeChallenge challenge, SessionResumeRequest request)
+    /// <summary>
+    /// Rebuilds a session-resume transcript from a received challenge and the tablet's own request.
+    /// The desktop identity key is the one the tablet pinned at pairing, never the key the challenge
+    /// names, so a relay cannot answer a resume with its own identity.
+    /// </summary>
+    public static HandshakeTranscript FromChallenge(
+        HandshakeChallenge challenge,
+        SessionResumeRequest request,
+        DesktopIdentityKey pinnedDesktopIdentityKey)
     {
         ArgumentNullException.ThrowIfNull(challenge);
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(pinnedDesktopIdentityKey);
         if (challenge.Purpose != HandshakePurpose.SessionResume ||
+            challenge.DesktopIdentityKey != pinnedDesktopIdentityKey ||
             challenge.DeviceKeyId != request.DeviceKeyId ||
             !string.Equals(challenge.CredentialIdBase64Url, request.CredentialIdBase64Url, StringComparison.Ordinal))
         {
@@ -201,7 +220,7 @@ public sealed record HandshakeTranscript
             request,
             challenge.ChallengeId,
             challenge.Assignment,
-            challenge.DesktopIdentityKey,
+            pinnedDesktopIdentityKey,
             challenge.DesktopEphemeralKey,
             challenge.DesktopNonceBase64Url,
             challenge.IssuedUtc,
@@ -307,6 +326,7 @@ public sealed record PairingAttempt
 {
     public PairingAttempt(
         PairingOffer offer,
+        string desktopNonceBase64Url,
         PairingAttemptStage stage,
         DateTimeOffset? codeConsumedUtc = null,
         PairingRequest? request = null,
@@ -315,6 +335,10 @@ public sealed record PairingAttempt
         DateTimeOffset? endedUtc = null)
     {
         Offer = ProtocolGuard.NotNull(offer, nameof(offer));
+        DesktopNonceBase64Url = ProtocolGuard.Base64Url(
+            desktopNonceBase64Url,
+            nameof(desktopNonceBase64Url),
+            exactDecodedBytes: ProtocolBounds.PairingNonceBytes);
         Stage = ProtocolGuard.Defined(stage, nameof(stage));
         CodeConsumedUtc = ProtocolGuard.UtcOptional(codeConsumedUtc, nameof(codeConsumedUtc));
         Request = request;
@@ -322,24 +346,22 @@ public sealed record PairingAttempt
         Establishment = establishment;
         EndedUtc = ProtocolGuard.UtcOptional(endedUtc, nameof(endedUtc));
 
+        if (!PairingCryptography.IsRevealOf(offer, new PairingNonceReveal(offer.AttemptId, DesktopNonceBase64Url)))
+        {
+            throw new ArgumentException("The desktop nonce must open the offer's nonce commitment.", nameof(desktopNonceBase64Url));
+        }
+
         if (request is not null && request.AttemptId != offer.AttemptId)
         {
             throw new ArgumentException("The request belongs to another pairing attempt.", nameof(request));
         }
 
-        if (challenge is not null && (request is null || !ChallengeAnswers(challenge, offer, request)))
+        if (challenge is not null && (request is null || !ChallengeAnswers(challenge, offer, request, RevealFor(offer, DesktopNonceBase64Url))))
         {
-            throw new ArgumentException("The challenge must bind this offer, request, and transcript.", nameof(challenge));
+            throw new ArgumentException("The challenge must bind this offer, request, nonce, and transcript.", nameof(challenge));
         }
 
-        if (establishment is not null &&
-            (challenge is null ||
-             establishment.ChallengeId != challenge.ChallengeId ||
-             establishment.Purpose != HandshakePurpose.Pairing ||
-             establishment.DeviceKeyId != challenge.DeviceKeyId ||
-             establishment.Assignment != challenge.Assignment ||
-             !string.Equals(establishment.TranscriptHashBase64Url, challenge.TranscriptHashBase64Url, StringComparison.Ordinal) ||
-             establishment.EstablishedUtc >= challenge.ExpiresUtc))
+        if (establishment is not null && (challenge is null || !establishment.Answers(challenge)))
         {
             throw new ArgumentException("The session must be established from the approved challenge.", nameof(establishment));
         }
@@ -379,6 +401,12 @@ public sealed record PairingAttempt
 
     public PairingOffer Offer { get; }
 
+    /// <summary>
+    /// The committed desktop nonce. It is desktop-local until a request is bound: only
+    /// <see cref="PairingStateMachine.RevealNonce"/> releases it, and never before binding.
+    /// </summary>
+    public string DesktopNonceBase64Url { get; }
+
     public PairingAttemptId AttemptId => Offer.AttemptId;
 
     public DateTimeOffset OfferedUtc => Offer.OfferedUtc;
@@ -398,11 +426,19 @@ public sealed record PairingAttempt
 
     public DateTimeOffset? EndedUtc { get; }
 
-    private static bool ChallengeAnswers(HandshakeChallenge challenge, PairingOffer offer, PairingRequest request)
+    internal PairingNonceReveal Reveal => RevealFor(Offer, DesktopNonceBase64Url);
+
+    private static PairingNonceReveal RevealFor(PairingOffer offer, string nonce) => new(offer.AttemptId, nonce);
+
+    private static bool ChallengeAnswers(
+        HandshakeChallenge challenge,
+        PairingOffer offer,
+        PairingRequest request,
+        PairingNonceReveal reveal)
     {
         try
         {
-            return HandshakeTranscript.FromChallenge(challenge, offer, request).Matches(challenge);
+            return HandshakeTranscript.FromChallenge(challenge, offer, request, reveal).Matches(challenge);
         }
         catch (ArgumentException)
         {
@@ -415,6 +451,12 @@ public sealed record PairingAttempt
 /// Single-use, desktop-approved, device-key-bound pairing. A short code without local approval,
 /// a matching verification code, and a valid device-key proof cannot complete pairing.
 /// </summary>
+/// <remarks>
+/// The verification code is commit-then-reveal: the offer publishes only a commitment to the
+/// desktop nonce, the first request is bound, and only then is the nonce revealed. Whoever chooses a
+/// request (the tablet or a relay) has fixed it before the nonce is known, so each attempt matches
+/// a chosen code with probability one in a million and a failed attempt consumes the one-time code.
+/// </remarks>
 public static class PairingStateMachine
 {
     public static PairingAttempt Offer(
@@ -430,19 +472,22 @@ public static class PairingStateMachine
                 attemptId,
                 desktopIdentityKey,
                 desktopEphemeralKey,
-                desktopNonceBase64Url,
+                PairingCryptography.ComputeDesktopNonceCommitment(desktopNonceBase64Url),
                 now,
                 now.Add(ProtocolBounds.PairingLifetime)),
+            desktopNonceBase64Url,
             PairingAttemptStage.Offered);
     }
 
     /// <summary>
     /// Binds the first request after the transport has matched and consumed the rate-limited
-    /// one-time code. A second request cannot replace the bound key.
+    /// one-time code. A second request cannot replace the bound key. The request must use the
+    /// version this connection's hello negotiated.
     /// </summary>
     public static PairingAttempt BindResolvedCode(
         PairingAttempt attempt,
         PairingRequest request,
+        CompanionProtocolVersion negotiatedVersion,
         DateTimeOffset nowUtc)
     {
         RequireLiveStage(attempt, PairingAttemptStage.Offered, nowUtc);
@@ -452,12 +497,13 @@ public static class PairingStateMachine
             throw new ArgumentException("The request names another attempt.", nameof(request));
         }
 
-        if (!CompanionProtocolVersion.Current.CanRead(request.NegotiatedVersion))
+        if (!CompanionProtocolVersion.Current.CanRead(request.NegotiatedVersion) ||
+            request.NegotiatedVersion != negotiatedVersion)
         {
-            throw new ArgumentException("The pairing request does not use a supported negotiated version.", nameof(request));
+            throw new ArgumentException("The pairing request does not use this connection's negotiated version.", nameof(request));
         }
 
-        if (string.Equals(request.ClientNonceBase64Url, attempt.Offer.DesktopNonceBase64Url, StringComparison.Ordinal) ||
+        if (string.Equals(request.ClientNonceBase64Url, attempt.DesktopNonceBase64Url, StringComparison.Ordinal) ||
             string.Equals(
                 request.EphemeralKey.SubjectPublicKeyInfoBase64Url,
                 attempt.Offer.DesktopEphemeralKey.SubjectPublicKeyInfoBase64Url,
@@ -468,9 +514,20 @@ public static class PairingStateMachine
 
         return new PairingAttempt(
             attempt.Offer,
+            attempt.DesktopNonceBase64Url,
             PairingAttemptStage.AwaitingDesktopApproval,
             nowUtc,
             request);
+    }
+
+    /// <summary>
+    /// The nonce reveal the desktop returns for the bound request. It is available only once a
+    /// request is bound, so nobody can choose a request after seeing the nonce.
+    /// </summary>
+    public static PairingNonceReveal RevealNonce(PairingAttempt attempt, DateTimeOffset nowUtc)
+    {
+        RequireLiveStage(attempt, PairingAttemptStage.AwaitingDesktopApproval, nowUtc);
+        return attempt.Reveal;
     }
 
     /// <summary>The code the desktop approval prompt and the tablet both display.</summary>
@@ -479,7 +536,8 @@ public static class PairingStateMachine
         ArgumentNullException.ThrowIfNull(attempt);
         return PairingCryptography.ComputeVerificationCode(
             attempt.Offer,
-            attempt.Request ?? throw new InvalidOperationException("No pairing request has been bound."));
+            attempt.Request ?? throw new InvalidOperationException("No pairing request has been bound."),
+            attempt.Reveal);
     }
 
     /// <summary>Allocates the session and signs the transcript once the user approves locally.</summary>
@@ -498,7 +556,7 @@ public static class PairingStateMachine
         }
 
         return HandshakeTranscript
-            .ForPairing(attempt.Offer, attempt.Request!, challengeId, assignment, nowUtc, expiresUtc)
+            .ForPairing(attempt.Offer, attempt.Request!, attempt.Reveal, challengeId, assignment, nowUtc, expiresUtc)
             .Sign(signer);
     }
 
@@ -516,6 +574,7 @@ public static class PairingStateMachine
 
         return new PairingAttempt(
             attempt.Offer,
+            attempt.DesktopNonceBase64Url,
             PairingAttemptStage.AwaitingDeviceProof,
             attempt.CodeConsumedUtc,
             attempt.Request,
@@ -527,6 +586,7 @@ public static class PairingStateMachine
         RequireLiveStage(attempt, PairingAttemptStage.AwaitingDesktopApproval, nowUtc);
         return new PairingAttempt(
             attempt.Offer,
+            attempt.DesktopNonceBase64Url,
             PairingAttemptStage.Denied,
             attempt.CodeConsumedUtc,
             attempt.Request,
@@ -550,6 +610,7 @@ public static class PairingStateMachine
             cancellationToken).ConfigureAwait(false);
         return new PairingAttempt(
             attempt.Offer,
+            attempt.DesktopNonceBase64Url,
             PairingAttemptStage.Completed,
             attempt.CodeConsumedUtc,
             attempt.Request,
@@ -574,6 +635,7 @@ public static class PairingStateMachine
 
         return new PairingAttempt(
             attempt.Offer,
+            attempt.DesktopNonceBase64Url,
             PairingAttemptStage.Expired,
             attempt.CodeConsumedUtc,
             attempt.Request,
@@ -601,15 +663,92 @@ public static class PairingStateMachine
     }
 }
 
+public enum SessionResumeStage
+{
+    AwaitingDeviceProof = 1,
+    Completed,
+    Expired,
+}
+
+/// <summary>
+/// One desktop-issued resume challenge and its single outcome. The desktop persists it by challenge
+/// id: once completed or expired it cannot establish a session again, and a completed resume's key
+/// epoch is recorded on the device so no earlier or equal epoch can ever be established again.
+/// </summary>
+public sealed record SessionResumeAttempt
+{
+    public SessionResumeAttempt(
+        SessionResumeRequest request,
+        HandshakeChallenge challenge,
+        SessionResumeStage stage,
+        SessionEstablished? establishment = null,
+        DateTimeOffset? endedUtc = null)
+    {
+        Request = ProtocolGuard.NotNull(request, nameof(request));
+        Challenge = ProtocolGuard.NotNull(challenge, nameof(challenge));
+        Stage = ProtocolGuard.Defined(stage, nameof(stage));
+        Establishment = establishment;
+        EndedUtc = ProtocolGuard.UtcOptional(endedUtc, nameof(endedUtc));
+
+        bool answers;
+        try
+        {
+            answers = challenge.Assignment.DeviceId == request.DeviceId &&
+                      HandshakeTranscript.FromChallenge(challenge, request, challenge.DesktopIdentityKey).Matches(challenge);
+        }
+        catch (ArgumentException)
+        {
+            answers = false;
+        }
+
+        if (!answers)
+        {
+            throw new ArgumentException("The challenge must bind this resume request and transcript.", nameof(challenge));
+        }
+
+        if (establishment is not null && !establishment.Answers(challenge))
+        {
+            throw new ArgumentException("The session must be established from this challenge.", nameof(establishment));
+        }
+
+        var validShape = stage switch
+        {
+            SessionResumeStage.AwaitingDeviceProof => establishment is null && endedUtc is null,
+            SessionResumeStage.Completed => establishment is not null && endedUtc == establishment.EstablishedUtc,
+            SessionResumeStage.Expired => establishment is null && endedUtc == challenge.ExpiresUtc,
+            _ => false,
+        };
+
+        if (!validShape)
+        {
+            throw new ArgumentException($"The resume fields are inconsistent with stage {stage}.");
+        }
+    }
+
+    public SessionResumeRequest Request { get; }
+
+    public HandshakeChallenge Challenge { get; }
+
+    public HandshakeChallengeId ChallengeId => Challenge.ChallengeId;
+
+    public SessionResumeStage Stage { get; }
+
+    public SessionEstablished? Establishment { get; }
+
+    public DateTimeOffset? EndedUtc { get; }
+}
+
 /// <summary>
 /// Re-proves a paired device key and re-keys the channel for a new session. The desktop ends the
-/// device's previous active session as <see cref="DeviceSessionStatus.Replaced"/> once this succeeds.
+/// device's previous active session as <see cref="DeviceSessionStatus.Replaced"/> once this succeeds
+/// and records the new session with <see cref="DeviceLifecycle.RecordSession"/>.
 /// </summary>
 public static class SessionResumption
 {
-    public static HandshakeChallenge CreateChallenge(
+    public static SessionResumeAttempt Begin(
         PairedDevice device,
         SessionResumeRequest request,
+        CompanionProtocolVersion negotiatedVersion,
         HandshakeChallengeId challengeId,
         SessionAssignment assignment,
         EphemeralPublicKey desktopEphemeralKey,
@@ -621,12 +760,22 @@ public static class SessionResumption
         RequireResumable(device, request, nowUtc);
         ArgumentNullException.ThrowIfNull(assignment);
         ArgumentNullException.ThrowIfNull(signer);
+        if (request.NegotiatedVersion != negotiatedVersion)
+        {
+            throw new ArgumentException("The resume request does not use this connection's negotiated version.", nameof(request));
+        }
+
         if (assignment.DeviceId != device.DeviceId || assignment.SessionExpiresUtc > device.ExpiresUtc)
         {
             throw new ArgumentException("A resumed session belongs to the device and ends before the device expires.", nameof(assignment));
         }
 
-        return HandshakeTranscript
+        if (assignment.KeyEpoch <= device.LastKeyEpoch)
+        {
+            throw new ArgumentException("A resumed session uses a key epoch above every epoch the device has used.", nameof(assignment));
+        }
+
+        var challenge = HandshakeTranscript
             .ForSessionResume(
                 request,
                 challengeId,
@@ -637,32 +786,59 @@ public static class SessionResumption
                 nowUtc,
                 expiresUtc)
             .Sign(signer);
+        return new SessionResumeAttempt(request, challenge, SessionResumeStage.AwaitingDeviceProof);
     }
 
-    public static async ValueTask<SessionEstablished> CompleteAsync(
+    public static async ValueTask<SessionResumeAttempt> CompleteAsync(
+        SessionResumeAttempt attempt,
         PairedDevice device,
-        SessionResumeRequest request,
-        HandshakeChallenge challenge,
         DeviceKeyProof proof,
         IDeviceKeyProofVerifier verifier,
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken = default)
     {
-        RequireResumable(device, request, nowUtc);
-        ArgumentNullException.ThrowIfNull(challenge);
-        if (challenge.Assignment.DeviceId != device.DeviceId ||
-            !HandshakeTranscript.FromChallenge(challenge, request).Matches(challenge))
+        ArgumentNullException.ThrowIfNull(attempt);
+        if (attempt.Stage != SessionResumeStage.AwaitingDeviceProof)
         {
-            throw new UnauthorizedAccessException("The challenge does not bind this device's resume request.");
+            throw new InvalidOperationException("A resume challenge establishes at most one session.");
         }
 
-        return await DeviceKeyHandshake.VerifyProofAsync(
+        RequireResumable(device, attempt.Request, nowUtc);
+        if (attempt.Challenge.Assignment.DeviceId != device.DeviceId ||
+            attempt.Challenge.Assignment.KeyEpoch <= device.LastKeyEpoch)
+        {
+            throw new UnauthorizedAccessException("The challenge does not bind a fresh session for this device.");
+        }
+
+        var establishment = await DeviceKeyHandshake.VerifyProofAsync(
             device.DeviceKey,
-            challenge,
+            attempt.Challenge,
             proof,
             verifier,
             nowUtc,
             cancellationToken).ConfigureAwait(false);
+        return new SessionResumeAttempt(
+            attempt.Request,
+            attempt.Challenge,
+            SessionResumeStage.Completed,
+            establishment,
+            establishment.EstablishedUtc);
+    }
+
+    public static SessionResumeAttempt Expire(SessionResumeAttempt attempt, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        if (attempt.Stage != SessionResumeStage.AwaitingDeviceProof || now < attempt.Challenge.ExpiresUtc)
+        {
+            throw new InvalidOperationException("Only a live resume challenge past its expiry can expire.");
+        }
+
+        return new SessionResumeAttempt(
+            attempt.Request,
+            attempt.Challenge,
+            SessionResumeStage.Expired,
+            endedUtc: attempt.Challenge.ExpiresUtc);
     }
 
     private static void RequireResumable(PairedDevice device, SessionResumeRequest request, DateTimeOffset nowUtc)
@@ -757,7 +933,7 @@ public sealed record PairingRateState
         Observations = ProtocolGuard.List(
             observations,
             nameof(observations),
-            ProtocolBounds.MaxDevices * ProtocolBounds.MaxPairingAttemptsPerWindow);
+            PairingRateLimiter.MaxObservations);
     }
 
     public IReadOnlyList<PairingRateObservation> Observations { get; }
@@ -767,8 +943,16 @@ public sealed record PairingRateState
 
 public sealed record PairingRateDecision(bool Accepted, DateTimeOffset? RetryAfterUtc, PairingRateState State);
 
+/// <summary>
+/// Bounds pairing-code attempts per source within <see cref="ProtocolBounds.PairingRateWindow"/>.
+/// The source hash is the transport's keyed hash of the remote network source; see the transport
+/// binding in docs/PAIRED_DEVICE_PROTOCOL.md.
+/// </summary>
 public static class PairingRateLimiter
 {
+    /// <summary>The most observations the desktop retains; beyond it every new attempt fails closed.</summary>
+    public const int MaxObservations = ProtocolBounds.MaxDevices * ProtocolBounds.MaxPairingAttemptsPerWindow;
+
     public static PairingRateDecision TryConsume(
         PairingRateState state,
         string sourceHash,
@@ -788,10 +972,17 @@ public static class PairingRateLimiter
                 new PairingRateState(live));
         }
 
-        // The observation window is bounded; the oldest distinct sources fall out before a flood
-        // of new sources can grow desktop memory.
+        // A flood of distinct sources must neither grow desktop memory nor evict an attacker's own
+        // history and reset its count, so a full window refuses every attempt until one ages out.
+        if (live.Count >= MaxObservations)
+        {
+            return new PairingRateDecision(
+                false,
+                live.Min(item => item.ObservedUtc).Add(ProtocolBounds.PairingRateWindow),
+                new PairingRateState(live));
+        }
+
         live.Add(new PairingRateObservation(source, now));
-        var bound = ProtocolBounds.MaxDevices * ProtocolBounds.MaxPairingAttemptsPerWindow;
-        return new PairingRateDecision(true, null, new PairingRateState(live.Skip(Math.Max(0, live.Count - bound)).ToArray()));
+        return new PairingRateDecision(true, null, new PairingRateState(live));
     }
 }
