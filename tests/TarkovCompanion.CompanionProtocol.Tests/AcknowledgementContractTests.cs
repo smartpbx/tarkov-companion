@@ -238,7 +238,7 @@ public sealed class AcknowledgementContractTests
             initial.AuthorityEpoch,
             initial.WorkspaceId,
             initial.DesktopInstanceId,
-            new GlobalRevision(3),
+            new GlobalRevision(revision),
             initial.DesktopDeviceId,
             initial.DeviceModes,
             new WorkspaceAggregate(new AggregateCursor(new AggregateRevision(revision), change), Projection()),

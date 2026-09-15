@@ -238,6 +238,16 @@ public sealed class GoldenAndHostileJsonTests
         Assert.IsType<SetInteractionModeCommand>(reordered.Command);
     }
 
+    [Fact]
+    public void CanonicalStateWhoseAggregateVectorDoesNotSumToGlobalRevisionFailsClosed()
+    {
+        var snapshot = GoldenNode("server/canonical-snapshot.json");
+        snapshot["message"]!["state"]!["globalRevision"]!["value"] = 8;
+
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ServerEnvelope>(
+            Encoding.UTF8.GetBytes(snapshot.ToJsonString())));
+    }
+
     [Theory]
     [InlineData("ms-msdt:/id PCWDiagnostic")]
     [InlineData("file:///C:/Windows/System32/calc.exe")]

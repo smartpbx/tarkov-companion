@@ -398,11 +398,6 @@ public static class DesktopCanonicalStateMachine
                 null);
         }
 
-        if (state.ConsumedCommandIds.Contains(command.CommandId))
-        {
-            return Reject(state, command, CommandDisposition.RejectedCommandIdReuse, "command-id-already-consumed");
-        }
-
         if (ProtocolGuard.UuidVersion(command.CommandId.Value) == ReservedChangeIdVersion ||
             OccupiesAnyCursor(state, command.CommandId))
         {
@@ -1372,12 +1367,10 @@ public static class DesktopCanonicalStateMachine
             staged,
             state.RecentCommands.Where(item => item.CommandId != command.CommandId).Append(receipt),
             scope.Now);
-        var consumedCommandIds = state.ConsumedCommandIds.Append(command.CommandId).ToHashSet();
         var next = staged.With(
             global,
             recentCommands: receipts,
-            receiptHorizonUtc: horizon,
-            consumedCommandIds: consumedCommandIds);
+            receiptHorizonUtc: horizon);
         return new CommandReduction(
             next,
             Acknowledge(next, command, CommandDisposition.Applied, code, command.RequestedRevision, command.RequestedRevision, command.CommandId),
@@ -1388,8 +1381,9 @@ public static class DesktopCanonicalStateMachine
     /// A receipt is retained until its command expires, and always while its change still occupies
     /// its aggregate cursor, so the newest change's exact retry is recognized after expiry and a
     /// rejection can never have to name the rejected command as the applied change. When the bound
-    /// drops any receipt, the receipt horizon advances to its issue time. The irreversible consumed
-    /// id set remains the primary replay barrier even if a hostile retry refreshes client timestamps.
+    /// forces an unexpired receipt out, the receipt horizon advances to its issue time. A conforming
+    /// retransmission repeats the original issue time, so an evicted command fails closed instead of
+    /// applying twice.
     /// </summary>
     private static (IReadOnlyList<RecentCommandReceipt> Receipts, DateTimeOffset? Horizon) RetainReceipts(
         CanonicalCompanionState state,
@@ -1397,13 +1391,7 @@ public static class DesktopCanonicalStateMachine
         DateTimeOffset now)
     {
         var horizon = state.ReceiptHorizonUtc;
-        var candidates = receipts.ToList();
-        var retained = candidates.Where(item => IsRetained(state, item, now)).ToList();
-        foreach (var removed in candidates.Where(item => !IsRetained(state, item, now)))
-        {
-            horizon = Later(horizon, removed.IssuedUtc);
-        }
-
+        var retained = receipts.Where(item => IsRetained(state, item, now)).ToList();
         while (retained.Count > ProtocolBounds.MaxRecentCommands)
         {
             var oldestUnpinned = retained.FindIndex(item => !IsPinned(state, item));

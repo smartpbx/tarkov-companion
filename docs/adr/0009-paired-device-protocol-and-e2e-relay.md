@@ -94,11 +94,14 @@ readable but unnegotiated version is an invalid-state peer error. A command jump
 revision, or computed in another authority epoch, is a separate `RequiresSnapshot` instead of a
 conflict. Rejections that return canonical state describe the aggregate cursor; every other
 rejection, identifier reuse included, describes applied revision zero with no applied change. A
-command ID identifies one change for the whole authority lifetime: a retry is a duplicate when the
+command ID is immutable and globally scoped: a retry is a duplicate when the
 same device resends the same action fingerprint, which excludes the requested revision, lifetime,
 and offline preview a re-previewed retry refreshes, and any other reuse is
-`RejectedCommandIdReuse`. Detailed receipts are bounded, while an irreversible consumed-ID set
-prevents the same ID from applying again after receipt expiry even if hostile metadata is refreshed.
+`RejectedCommandIdReuse` while its bounded receipt remains. Evicted conforming retransmissions keep
+their original issue time and fail closed against a bounded receipt horizon; frame sender sequences
+reject network replay. An unbounded consumed-ID set was rejected because it made every reduction
+cumulative and gave an authorized endpoint a direct memory and persistence exhaustion path without
+reducing that endpoint's authority to sign a fresh permitted command.
 The reducer returns a typed rejection for every hostile command instead of
 throwing, and it refuses to commit state that could not be delivered inside the wire bounds with a
 fixed reserve that covers later server-time maintenance.
@@ -113,11 +116,14 @@ coordinator-approved ownership exception rather than as a separate prerequisite 
 **Delivery.** Every envelope to a device consumes one sequence of a single device stream. Each
 device/channel queue is bounded independently; overflow coalesces that channel to a snapshot marker
 without blocking other channels or devices. A tablet never applies a delivery after a sequence gap,
-from another epoch, or with a non-contiguous revision; it asks to reconnect. Replay requires the
+from another epoch, or with a non-contiguous revision; it asks to reconnect. Same-epoch live
+snapshots and acknowledgement state cannot roll an aggregate cursor backward or fork it at an equal
+revision. Replay requires the
 retained stream to cover every sequence and global revision after the client's position without a
 marker and within the replay and payload bounds; otherwise the desktop sends a snapshot. A delivery
 stream belongs to one authority epoch, so a tablet adopts a snapshot from a new epoch whose stream
-restarted, and within an epoch never applies a late reconnect plan behind its position. Offline
+restarted, and within an epoch never applies a late reconnect plan behind its position. The
+authenticated reconnect-response time advances the same rollback fence as a live delivery. Offline
 submission is limited to Show on desktop, mark mutation, and capture-intent request drafts, at most
 64 for fifteen minutes each, and each submission is bound to the epoch and aggregate revision the
 user previewed.
@@ -186,7 +192,7 @@ complete desktop and can keep offline tablet browsing local. Rejected.
 
 Issue #277 must implement DPAPI-protected desktop identity and device material, the WebAuthn
 verifier (signature, RP ID hash, origin, counter), atomic persistence of canonical state with its
-idempotency receipts, receipt horizon, and irreversible consumed-ID set, authenticated context
+bounded idempotency receipts and receipt horizon, authenticated context
 construction from live session records, lifecycle and
 maintenance calls, single-use resume attempts with recorded key epochs, recorded device use, the
 transport binding on both routes, delivery ledger handling, relay receiver checks, and direct/relay

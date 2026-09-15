@@ -315,8 +315,11 @@ public static class CanonicalDeliveryBudget
     private static readonly CommandId ProbeCommand = new(Guid.Parse("7f000000-0000-4000-8000-000000000001"));
     // Probe cursors use the reducer's reserved v8 UUID space, so a client-selected command id
     // cannot collide with a synthetic cursor while the delivery bound is being measured.
-    private static readonly CommandId ProbeChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000002"));
-    private static readonly CommandId ProbePreferenceChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000005"));
+    private static readonly CommandId ProbeDeviceModesChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000010"));
+    private static readonly CommandId ProbeWorkspaceChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000011"));
+    private static readonly CommandId ProbeMarksChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000012"));
+    private static readonly CommandId ProbeCaptureChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000013"));
+    private static readonly CommandId ProbePreferenceChange = new(Guid.Parse("7f000000-0000-8000-8000-000000000014"));
     private static readonly CompanionDeviceId ProbeDevice = new(Guid.Parse("7f000000-0000-4000-8000-000000000003"));
     private static readonly DeviceSessionId ProbeSession = new(Guid.Parse("7f000000-0000-4000-8000-000000000004"));
     private static readonly DateTimeOffset ProbeUtc = new(9999, 12, 31, 23, 59, 59, 999, TimeSpan.Zero);
@@ -331,19 +334,31 @@ public static class CanonicalDeliveryBudget
 
     internal static ServerEnvelope ProbeEnvelope(CanonicalCompanionState state)
     {
-        // The acknowledgement names another change at the widest revision; a real acknowledgement's
-        // values are never wider, its disposition name never longer, and its code never longer.
-        var widest = new AggregateRevision(ProtocolBounds.MaxWireInteger);
+        // Five sixteen-digit aggregate revisions fit under the widest global revision. This keeps
+        // every serialized integer at its maximum width while preserving the canonical invariant
+        // that the aggregate vector sums to the global revision.
+        var widest = new AggregateRevision(ProtocolBounds.MaxWireInteger / 5);
+        var widestGlobal = new GlobalRevision(widest.Value * 5);
         var probeState = new CanonicalCompanionState(
             state.AuthorityEpoch,
             state.WorkspaceId,
             state.DesktopInstanceId,
-            new GlobalRevision(ProtocolBounds.MaxWireInteger),
+            widestGlobal,
             state.DesktopDeviceId,
-            state.DeviceModes,
-            state.Workspace,
-            state.Marks,
-            new CaptureIntentAggregate(new AggregateCursor(widest, ProbeChange), state.CaptureIntent.ActiveIntent),
+            new DeviceModeAggregate(
+                new AggregateCursor(widest, ProbeDeviceModesChange),
+                state.DeviceModes.Devices,
+                state.DeviceModes.PendingControl,
+                state.DeviceModes.ControlLease),
+            new WorkspaceAggregate(
+                new AggregateCursor(widest, ProbeWorkspaceChange),
+                state.Workspace.Projection),
+            new MarkAggregate(
+                new AggregateCursor(widest, ProbeMarksChange),
+                state.Marks.Marks),
+            new CaptureIntentAggregate(
+                new AggregateCursor(widest, ProbeCaptureChange),
+                state.CaptureIntent.ActiveIntent),
             new ProfilePreferencesAggregate(
                 new AggregateCursor(widest, ProbePreferenceChange),
                 state.ProfilePreferences.ActiveProfile,
@@ -364,8 +379,8 @@ public static class CanonicalDeliveryBudget
                 CanonicalAggregateKind.CaptureIntent,
                 widest,
                 widest,
-                ProbeChange,
-                new GlobalRevision(ProtocolBounds.MaxWireInteger),
+                ProbeCaptureChange,
+                widestGlobal,
                 state.AuthorityEpoch,
                 CommandDisposition.RequiresSnapshot,
                 new string('x', ProtocolBounds.MaxShortStringBytes),

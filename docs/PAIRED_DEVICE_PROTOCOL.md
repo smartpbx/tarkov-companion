@@ -450,7 +450,8 @@ Each aggregate cursor holds its revision and the ID of the change occupying it (
 revision zero). Each command names the positive aggregate revision it intends to create: if the
 current revision is `n`, a new command must request `n+1`. An applied change advances its own
 aggregate revision and the global revision exactly once; an unrelated aggregate's revision never
-makes a command stale.
+makes a command stale. Canonical state is valid only when the five aggregate revisions sum exactly
+to the global revision.
 
 **V2 attribution.** Every canonical update repeats the authority epoch and carries the v2 change
 attribution: the Core `WorkspaceOrigin` (workspace, authenticated device, `PairedDevice` or
@@ -520,36 +521,29 @@ Rejection reasons, in reducer order:
 3. A retained receipt exists for the command ID: the same device resending the same action
    fingerprint is an idempotent `Applied` duplicate with code `duplicate-command`; anything else is
    `RejectedCommandIdReuse`.
-4. The ID is in the authority lifetime's irreversible consumed-ID set:
-   `RejectedCommandIdReuse` with code `command-id-already-consumed`.
-5. The ID is a version-8 UUID, reserved for desktop maintenance changes, or already occupies an
+4. The ID is a version-8 UUID, reserved for desktop maintenance changes, or already occupies an
    aggregate cursor: `RejectedCommandIdReuse`.
-6. The command has expired, was issued more than one minute in the desktop's future, or was issued
+5. The command has expired, was issued more than one minute in the desktop's future, or was issued
    at or before the receipt horizon: `RejectedExpired` or `RejectedInvalidState`.
-7. The context lacks the capability: `RejectedUnauthorized`.
-8. The envelope names another authority epoch: `RequiresSnapshot`.
-9. An offline preview is not bound to the current epoch and aggregate revision: `RequiresPreview`.
-10. Revision below, equal to, or beyond the next: `RejectedStale`, `RejectedConflict`, `RequiresSnapshot`.
-11. The transition itself is invalid, unauthorized, or would exceed the delivery budget.
+6. The context lacks the capability: `RejectedUnauthorized`.
+7. The envelope names another authority epoch: `RequiresSnapshot`.
+8. An offline preview is not bound to the current epoch and aggregate revision: `RequiresPreview`.
+9. Revision below, equal to, or beyond the next: `RejectedStale`, `RejectedConflict`, `RequiresSnapshot`.
+10. The transition itself is invalid, unauthorized, or would exceed the delivery budget.
 
-**Idempotency.** A command ID is a change identity for the whole authority lifetime, not per
-device. The desktop irreversibly records every applied ID in `ConsumedCommandIds` for that lifetime
-and keeps a bounded `RecentCommandReceipt` with the command's action fingerprint,
-authenticated device, aggregate, applied revision, and expiry. A receipt is retained until its
-command expires and, regardless of expiry, while its change still occupies its aggregate cursor, up
-to the newest 256; pinned receipts are never evicted. A same-device retry of the same action is
-always the duplicate while its receipt is retained, even when the retry carries a refreshed
-requested revision, lifetime, or offline preview, as a re-previewed offline draft does after a lost
-acknowledgement. The duplicate reports the receipt's revision as both requested and applied
-revision, names the command as the applied change, and reports the current global revision; it never
-changes the landed action, including a lifetime derived from the original command. When expiry or
-the bound removes a receipt, the receipt horizon advances to that command's issue time,
-and any later command without a receipt issued at or before the horizon is `RejectedInvalidState`
-with code `idempotency-window-exceeded`, because a conforming retry repeats its original issue time.
-The consumed-ID set independently rejects a hostile retry that refreshes that metadata after the
-detailed receipt is gone. So a change never applies twice, whatever revision or lifetime its retry
-requests. Same-device reuse of an ID for a different action, and any other device's use of it, is
-`RejectedCommandIdReuse`.
+**Idempotency.** A command ID is immutable and global, not per device. The desktop keeps at most 256
+`RecentCommandReceipt` entries with the command's action fingerprint, authenticated device,
+aggregate, applied revision, issue time, and expiry. A receipt remains until expiry and while its
+change occupies an aggregate cursor; cursor-pinned receipts are never the entries evicted to meet
+the bound. A same-device resend of the same action is the duplicate while its receipt remains, even
+when a re-preview refreshes revision, lifetime, or offline-preview metadata. The duplicate reports
+the landed revision and current global revision without changing state. When the bound evicts an
+unexpired receipt, the receipt horizon advances to its issue time; a conforming retransmission keeps
+that immutable issue time and is rejected fail-closed with `idempotency-window-exceeded`. Relay-frame
+sender sequences independently reject byte-for-byte network replay before decryption. A compromised
+paired endpoint can sign a fresh permitted action under either a new ID or rewritten metadata, so
+an unbounded authority-lifetime tombstone set would add denial-of-service cost without constraining
+that endpoint's effective authority.
 
 The fingerprint is `CanonicalCommandFingerprint`: the command serialized through the closed
 polymorphic model without its delivery metadata (`commandId`, `requestedRevision`, `issuedUtc`,
@@ -557,8 +551,8 @@ polymorphic model without its delivery metadata (`commandId`, `requestedRevision
 sorted by ordinal name, arrays in order, strings as unescaped UTF-8, and numbers as the serializer's
 round-trip text. The discriminator and every action field, including payload revisions such as a
 mark's expected revision, take part. It does not depend on JSON member order or escaping.
-Fingerprints are desktop-local and never cross the wire. Receipts, the receipt horizon, and consumed
-IDs are not part of the serialized snapshot; #277 persists all three beside canonical state.
+Fingerprints are desktop-local and never cross the wire. Receipts and the receipt horizon are not
+part of the serialized snapshot; #277 persists both beside canonical state.
 
 The reducer returns a typed rejection for every hostile or malformed command. An `ArgumentException`,
 `InvalidOperationException`, `UnauthorizedAccessException`, `OverflowException`, `JsonException`, or
@@ -714,13 +708,13 @@ the executable model:
 | Update attribution differs from the envelope's authenticated origin, its change is after server UTC, or server UTC regresses | Resync required; nothing is applied. |
 | Any delivery from another authority epoch | Resync required; only a correlated reconnect plan can adopt the new lifetime. |
 | Sequence at or below the last applied | Duplicate; nothing changes. |
-| Canonical snapshot at any newer sequence | Replaces the cache and becomes the stream position. |
+| Same-epoch canonical snapshot at a newer sequence | Replaces the cache only when every aggregate cursor dominates the held state and equal cursors have equal content; rollback or divergence requires resync. |
 | Any other delivery while awaiting resync | Discarded. |
 | Sequence other than last + 1 | Resync required: a delivery-sequence gap is never applied as a delta. |
 | Update whose global revision is at or below the cache and whose aggregate revision is not newer | Already reflected (a snapshot contained it); the position advances. |
 | Update whose global revision is not exactly the next, or whose aggregate revision is not exactly the next | Resync required. |
 | Next update | Replaces that aggregate and advances the global revision. |
-| Acknowledgement carrying newer same-epoch canonical state | Replaces the cache. |
+| Acknowledgement carrying same-epoch canonical state | Applies only when it dominates the cache; stale state is ignored and divergent state requires resync. |
 | Other acknowledgement or deprecation notice | Advances the position. |
 
 A replica requiring resync sends `ReconnectRequest` on the live session.
@@ -750,7 +744,9 @@ acknowledges delivery or trims history; only the client's later authenticated, e
 `ClientDeliveryAcknowledgement` does that. A snapshot is
 authoritative and atomically replaces the tablet's cache before deltas resume.
 `CanonicalReplica.ApplyReconnectPlan` accepts only the response to the named outstanding request on
-the authenticated session and negotiated version. It adopts a snapshot from another authority epoch
+the authenticated session and negotiated version, plus the server UTC authenticated by that
+desktop-to-tablet frame. The response time advances the replica's rollback fence, and no replay item
+may claim a later time. It adopts a snapshot from another authority epoch
 only while that request still describes the replica. Within an epoch, it refuses a snapshot whose
 global or aggregate cursors would roll back or diverge from state received since the request,
 discards a plan whose resume position is behind the replica, skips replayed deliveries already
@@ -800,7 +796,6 @@ All transports call `CompanionProtocolJson` rather than default serializer optio
 | Paired devices | 32 |
 | Marks | 256 |
 | Recent idempotency receipts | 256 newest; a receipt whose change occupies a cursor is never evicted |
-| Consumed command IDs | Every applied client ID for the authority lifetime; never expired or compacted |
 | Offline actions | 64, each for fifteen minutes |
 | Delivery channel | 64 per device and channel |
 | Replay | 256 deliveries |

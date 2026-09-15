@@ -276,6 +276,110 @@ public sealed class DeliveryAndReconnectTests
     }
 
     [Fact]
+    public void LiveSnapshotsAndAcknowledgementStateCannotRollBackOrForkTheReplica()
+    {
+        var flow = Flow.Create();
+        var advanced = flow.ReplicaThrough(5);
+        var divergent = DivergentStateAtGlobalThree();
+        var equalCursorFork = new CanonicalCompanionState(
+            flow.Final.AuthorityEpoch,
+            flow.Final.WorkspaceId,
+            flow.Final.DesktopInstanceId,
+            flow.Final.GlobalRevision,
+            flow.Final.DesktopDeviceId,
+            flow.Final.DeviceModes,
+            new WorkspaceAggregate(flow.Final.Workspace.Cursor, Projection("woods")),
+            flow.Final.Marks,
+            flow.Final.CaptureIntent,
+            flow.Final.ProfilePreferences);
+        var acknowledgement = new CommandAcknowledgement(
+            Command(800),
+            CanonicalAggregateKind.Workspace,
+            divergent.Workspace.Cursor.Revision,
+            divergent.Workspace.Cursor.Revision,
+            divergent.Workspace.Cursor.LastChangeId,
+            divergent.GlobalRevision,
+            divergent.AuthorityEpoch,
+            CommandDisposition.RejectedConflict,
+            "conflicting-workspace",
+            divergent);
+
+        var staleSnapshot = Observe(
+            advanced,
+            Delivered(6, new CanonicalSnapshotMessage(flow.Initial)));
+        var divergentSnapshot = Observe(
+            advanced,
+            Delivered(6, new CanonicalSnapshotMessage(divergent)));
+        var equalCursorDivergence = Observe(
+            advanced,
+            Delivered(6, new CanonicalSnapshotMessage(equalCursorFork)));
+        var divergentAcknowledgement = Observe(
+            advanced,
+            Delivered(6, new CommandAcknowledgementMessage(acknowledgement), TabletDevice));
+
+        Assert.All(new[] { staleSnapshot, divergentSnapshot, equalCursorDivergence }, observation =>
+        {
+            Assert.Equal(ReplicaDisposition.ResyncRequired, observation.Disposition);
+            Assert.Equal("snapshot-state-regressed", observation.Code);
+            Assert.Same(advanced.State, observation.Replica.State);
+            Assert.Equal(5, observation.Replica.LastDeliverySequence.Value);
+        });
+        Assert.Equal(ReplicaDisposition.ResyncRequired, divergentAcknowledgement.Disposition);
+        Assert.Equal("acknowledgement-state-diverges", divergentAcknowledgement.Code);
+        Assert.Same(advanced.State, divergentAcknowledgement.Replica.State);
+        Assert.Equal(5, divergentAcknowledgement.Replica.LastDeliverySequence.Value);
+    }
+
+    [Fact]
+    public void ReconnectResponseTimeAdvancesTheReplicaRollbackFence()
+    {
+        var flow = Flow.Create();
+        var replica = flow.ReplicaThrough(2);
+        var request = replica.CreateReconnectRequest(
+            CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
+        var plan = ReconnectPlanner.Plan(
+            flow.Final,
+            request,
+            flow.Ledger,
+            TabletDevice,
+            TabletSession,
+            CompanionProtocolVersion.Current).Plan;
+        var responseUtc = Now.AddSeconds(1);
+
+        var reconnected = replica.ApplyReconnectPlan(
+            plan, request, TabletSession, CompanionProtocolVersion.Current, responseUtc);
+        var regressed = Observe(
+            reconnected.Replica,
+            Delivered(6, new CanonicalSnapshotMessage(flow.Final)));
+
+        Assert.Equal(ReplicaDisposition.Applied, reconnected.Disposition);
+        Assert.Equal(responseUtc, reconnected.Replica.LastServerUtc);
+        Assert.True(reconnected.Replica.LastAuthenticatedOriginDeviceId.HasValue);
+        Assert.Equal(DesktopDevice, reconnected.Replica.LastAuthenticatedOriginDeviceId.GetValueOrDefault());
+        Assert.Equal(ReplicaDisposition.ResyncRequired, regressed.Disposition);
+        Assert.Equal("server-time-regressed", regressed.Code);
+        Assert.Equal(5, regressed.Replica.LastDeliverySequence.Value);
+    }
+
+    [Fact]
+    public void CanonicalStateRejectsAGlobalRevisionThatDoesNotEqualItsAggregateVector()
+    {
+        var initial = InitialState();
+
+        Assert.Throws<ArgumentException>(() => new CanonicalCompanionState(
+            initial.AuthorityEpoch,
+            initial.WorkspaceId,
+            initial.DesktopInstanceId,
+            new GlobalRevision(1),
+            initial.DesktopDeviceId,
+            initial.DeviceModes,
+            initial.Workspace,
+            initial.Marks,
+            initial.CaptureIntent,
+            initial.ProfilePreferences));
+    }
+
+    [Fact]
     public void ReconnectReplaysOnlyAProvablyContiguousStream()
     {
         var flow = Flow.Create();
@@ -284,7 +388,7 @@ public sealed class DeliveryAndReconnectTests
 
         var replay = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger, TabletDevice, TabletSession, CompanionProtocolVersion.Current);
         var wirePlan = CompanionProtocolJson.Deserialize<ReconnectPlan>(CompanionProtocolJson.Serialize(replay.Plan));
-        var applied = replica.ApplyReconnectPlan(wirePlan, request, TabletSession, CompanionProtocolVersion.Current);
+        var applied = replica.ApplyReconnectPlan(wirePlan, request, TabletSession, CompanionProtocolVersion.Current, Now);
 
         Assert.Equal(ReconnectDisposition.Replay, replay.Plan.Disposition);
         Assert.Equal(CompanionProtocolVersion.Current, replay.Plan.ProtocolVersion);
@@ -355,7 +459,7 @@ public sealed class DeliveryAndReconnectTests
         Assert.Same(flow.Ledger, unsupported.Ledger);
         Assert.Equal(ReconnectDisposition.FullSnapshot, reloaded.Plan.Disposition);
         var fromEmpty = CanonicalReplica.Empty.ApplyReconnectPlan(
-            reloaded.Plan, reloadRequest, TabletSession, CompanionProtocolVersion.Current);
+            reloaded.Plan, reloadRequest, TabletSession, CompanionProtocolVersion.Current, Now);
         Assert.Equal(5, fromEmpty.Replica.LastDeliverySequence.Value);
         AssertStateEqual(flow.Final, fromEmpty.Replica.State!);
     }
@@ -404,11 +508,11 @@ public sealed class DeliveryAndReconnectTests
             planning.Plan.Reason);
 
         var correlationResult = replica.ApplyReconnectPlan(
-            wrongCorrelation, request, TabletSession, CompanionProtocolVersion.Current);
+            wrongCorrelation, request, TabletSession, CompanionProtocolVersion.Current, Now);
         var sessionResult = replica.ApplyReconnectPlan(
-            wrongSession, request, TabletSession, CompanionProtocolVersion.Current);
+            wrongSession, request, TabletSession, CompanionProtocolVersion.Current, Now);
         var versionResult = replica.ApplyReconnectPlan(
-            wrongVersion, request, TabletSession, CompanionProtocolVersion.Current);
+            wrongVersion, request, TabletSession, CompanionProtocolVersion.Current, Now);
 
         Assert.Equal("reconnect-request-mismatch", correlationResult.Code);
         Assert.Equal("authenticated-session-mismatch", sessionResult.Code);
@@ -466,7 +570,7 @@ public sealed class DeliveryAndReconnectTests
         var advanced = flow.ReplicaThrough(5);
 
         var result = advanced.ApplyReconnectPlan(
-            delayed, request, TabletSession, CompanionProtocolVersion.Current);
+            delayed, request, TabletSession, CompanionProtocolVersion.Current, Now);
 
         Assert.Equal(ReplicaDisposition.Discarded, result.Disposition);
         Assert.Equal("stale-reconnect-plan", result.Code);
@@ -596,14 +700,17 @@ public sealed class DeliveryAndReconnectTests
             new DeliverySequence(5),
             "authority-or-cursor-mismatch");
 
-        var late = advanced.ApplyReconnectPlan(staleSnapshot, request, TabletSession, CompanionProtocolVersion.Current);
+        var late = advanced.ApplyReconnectPlan(staleSnapshot, request, TabletSession, CompanionProtocolVersion.Current, Now);
         var sameEpochRollback = flow.ReplicaThrough(4).ApplyReconnectPlan(
             staleSameEpochSnapshot,
             request,
             TabletSession,
-            CompanionProtocolVersion.Current);
-        var overlapping = flow.ReplicaThrough(4).ApplyReconnectPlan(replay, request, TabletSession, CompanionProtocolVersion.Current);
-        var afterGap = flow.ReplicaThrough(1).ApplyReconnectPlan(replay, request, TabletSession, CompanionProtocolVersion.Current);
+            CompanionProtocolVersion.Current,
+            Now);
+        var overlapping = flow.ReplicaThrough(4).ApplyReconnectPlan(
+            replay, request, TabletSession, CompanionProtocolVersion.Current, Now);
+        var afterGap = flow.ReplicaThrough(1).ApplyReconnectPlan(
+            replay, request, TabletSession, CompanionProtocolVersion.Current, Now);
         var upToDateElsewhere = flow.ReplicaThrough(2).ApplyReconnectPlan(
             new ReconnectPlan(
                 CompanionProtocolVersion.Current,
@@ -616,7 +723,8 @@ public sealed class DeliveryAndReconnectTests
                 "already-current"),
             request,
             TabletSession,
-            CompanionProtocolVersion.Current);
+            CompanionProtocolVersion.Current,
+            Now);
 
         Assert.Equal(ReplicaDisposition.Discarded, late.Disposition);
         Assert.Equal("stale-reconnect-plan", late.Code);
@@ -660,7 +768,8 @@ public sealed class DeliveryAndReconnectTests
             CompanionProtocolVersion.Current).Plan;
         var restartRequest = cached.CreateReconnectRequest(
             CompanionProtocolVersion.Current, TabletSession, DefaultReconnectRequestId, Now);
-        var adopted = cached.ApplyReconnectPlan(plan, restartRequest, TabletSession, CompanionProtocolVersion.Current);
+        var adopted = cached.ApplyReconnectPlan(
+            plan, restartRequest, TabletSession, CompanionProtocolVersion.Current, Now);
         var nextLive = Observe(adopted.Replica, Delivered(1, new CanonicalUpdateMessage(RestartedMarksUpdate(restartedEpoch)), TabletDevice));
         var liveSnapshot = Observe(cached, Delivered(1, new CanonicalSnapshotMessage(restarted)));
         var liveUpdate = Observe(cached, Delivered(1, new CanonicalUpdateMessage(RestartedMarksUpdate(restartedEpoch)), TabletDevice));
@@ -738,6 +847,21 @@ public sealed class DeliveryAndReconnectTests
             new MarkAggregate(new AggregateCursor(new AggregateRevision(revision), Command((int)(100 + revision))), []),
             initial.CaptureIntent,
             initial.ProfilePreferences);
+    }
+
+    private static CanonicalCompanionState DivergentStateAtGlobalThree()
+    {
+        var workspace = Apply(
+            InitialState(),
+            new UpdateDesktopWorkspaceCommand(
+                Command(700),
+                new AggregateRevision(1),
+                Now,
+                Now.AddMinutes(1),
+                Projection("woods")),
+            DesktopContext());
+        var created = Apply(workspace.State, Upsert(701, 1, 0, Now, mark: 9), TabletContext());
+        return Apply(created.State, Upsert(702, 2, 1, Now, mark: 9, x: 5), TabletContext()).State;
     }
 
     /// <summary>

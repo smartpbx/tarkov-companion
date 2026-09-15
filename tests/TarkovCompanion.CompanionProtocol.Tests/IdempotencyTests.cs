@@ -207,7 +207,6 @@ public sealed class IdempotencyTests
             DesktopContext(retryAt));
 
         Assert.Equal(ProtocolBounds.MaxRecentCommands, state.RecentCommands.Count);
-        Assert.Equal(commands.Count, state.ConsumedCommandIds.Count);
         Assert.Equal(commands[43].IssuedUtc, state.ReceiptHorizonUtc);
         Assert.Equal("duplicate-command", newest.Acknowledgement.Code);
         Assert.All(new[] { evicted, redrafted }, reduction =>
@@ -218,51 +217,6 @@ public sealed class IdempotencyTests
             Assert.Same(state, reduction.State);
         });
         Assert.Equal(CommandDisposition.Applied, fresh.Acknowledgement.Disposition);
-    }
-
-    [Fact]
-    public void AnExpiredUnpinnedIdCannotApplyAgainWithRefreshedMetadata()
-    {
-        var original = new UpdateDesktopWorkspaceCommand(
-            Command(30_000),
-            new AggregateRevision(1),
-            Now,
-            Now.AddSeconds(1),
-            Projection("woods"));
-        var applied = DesktopCanonicalStateMachine.Apply(
-            InitialState(),
-            Envelope(original, DesktopSession),
-            DesktopContext(Now));
-        var later = Now.AddSeconds(2);
-        var successor = new UpdateDesktopWorkspaceCommand(
-            Command(30_001),
-            new AggregateRevision(2),
-            later,
-            later.AddMinutes(1),
-            Projection("customs"));
-        var advanced = DesktopCanonicalStateMachine.Apply(
-            applied.State,
-            Envelope(successor, DesktopSession),
-            DesktopContext(later));
-        var hostileRetry = new UpdateDesktopWorkspaceCommand(
-            original.CommandId,
-            new AggregateRevision(3),
-            later.AddSeconds(1),
-            later.AddMinutes(1),
-            original.Projection);
-
-        var replayed = DesktopCanonicalStateMachine.Apply(
-            advanced.State,
-            Envelope(hostileRetry, DesktopSession),
-            DesktopContext(later.AddSeconds(1)));
-
-        Assert.DoesNotContain(advanced.State.RecentCommands, item => item.CommandId == original.CommandId);
-        Assert.Contains(original.CommandId, advanced.State.ConsumedCommandIds);
-        Assert.Equal(CommandDisposition.RejectedCommandIdReuse, replayed.Acknowledgement.Disposition);
-        Assert.Equal("command-id-already-consumed", replayed.Acknowledgement.Code);
-        Assert.Same(advanced.State, replayed.State);
-        Assert.Null(replayed.Update);
-        Assert.Equal("customs", replayed.State.Workspace.Projection.MapId);
     }
 
     private static JsonNode? Reverse(JsonNode? node) => node switch
