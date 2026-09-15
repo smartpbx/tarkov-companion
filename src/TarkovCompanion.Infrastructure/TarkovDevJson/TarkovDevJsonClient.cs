@@ -1076,12 +1076,12 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
 
             RefuseNestedShrink(
                 cacheKey,
-                $"map '{heldPair.Key}' extracts",
+                $"map extracts for map '{heldPair.Key}'",
                 heldPair.Value.Extracts.Count,
                 incomingMap.Extracts.Count);
             RefuseNestedShrink(
                 cacheKey,
-                $"map '{heldPair.Key}' locks",
+                $"map locks for map '{heldPair.Key}'",
                 heldPair.Value.Locks.Count,
                 incomingMap.Locks.Count);
         }
