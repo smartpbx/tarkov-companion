@@ -61,8 +61,9 @@ compressed at rest. The client tries the relay first and falls back to upstream,
 keeps the relay an optimisation rather than a dependency.
 
 **Problem reports.** The client posts what it knows about itself; the relay keeps it and hands
-back a reference; an hourly workflow opens an issue naming that reference. The relay holds no
-GitHub credential — the workflow files the issue with the token Actions already gives it — which
+back a reference. An hourly workflow is designed to open an issue naming only a validated
+reference, but currently fails closed on the list/read reference mismatch assigned to #310. The
+relay holds no GitHub credential—the workflow files issues with the token Actions gives it—which
 matters because the relay is the internet-facing box.
 
 Two access models, deliberately separate. A group key is proof of belonging to one room and

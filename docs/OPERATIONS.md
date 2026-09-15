@@ -3,7 +3,8 @@
 Where things run, where they write, and what to do when one of them stops.
 
 Everything here is about the running system. How it is built is `TESTING.md`; how the Windows
-package is proven is `WINDOWS_VERIFICATION.md`.
+package is proven is `WINDOWS_VERIFICATION.md`. Diagnostic contracts and response procedures are
+in `OBSERVABILITY.md`, `PRIVACY.md`, and `runbooks/relay-operations.md`.
 
 ## The desktop application
 
@@ -46,13 +47,17 @@ are ever published there, so the shortcut does not skip the checks.
 | `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
 | `rooms.json` | The registered room hashes, with their labels and creation times. |
 | `reports/*.md` | Problem reports exactly as sent, with no expiry. |
-| `INSTALLED_SHA256`, `REFUSED_SHA256`, `UPDATE_NOW` | The updater's status stamps and the panel's update request. |
+| `UPDATE_NOW` | The panel's transient request for the root-owned updater to run. |
 
 Live member state (position, recent trail, kit) stays in memory until about three minutes after
 a member stops publishing and is not written to any of those files. Pings expire in forty-five
 seconds and are not persisted, because one restored from disk would be claiming "now". A report
 body can still carry folder paths and screenshot coordinates (`RISK-REPORT-REDACTION`), so
 treat `reports/` as sensitive in backups and migrations.
+
+Authenticated update history and install/refusal state live under root-owned
+`/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
+`/var/lib/tarkov-group-update-status`. Neither belongs to the relay's writable state directory.
 
 **How it updates itself.** The timer fetches the published archive, verifies its checksum
 against what the release says, swaps `/opt/tarkov-group`, and rolls back if the new build does
@@ -62,15 +67,19 @@ change produces the same checksum and no restart happens.
 ## Problem reports
 
 A player presses **Report a problem** on Settings. The report goes to the relay, which keeps it
-in `/var/lib/tarkov-group/reports` and hands back a reference. The hourly `relay-watch.yml`
-lists what is waiting and opens one issue per reference.
+in `/var/lib/tarkov-group/reports` and hands back a 12-hex reference. The hourly
+`relay-watch.yml` is designed to validate the complete bounded listing and open one issue per
+reference without copying the report body.
 
 **The relay holds no GitHub credential.** The workflow files the issues with the token GitHub
 Actions already gives it for its own repository, so the internet-facing box never holds a
 long-lived token with write access to anything.
 
-**The issue names a reference; the body stays on the relay.** This repository is public, and a
-report describes somebody's machine. To read one:
+**Automated pickup currently fails closed.** `/reports` lists the timestamp-prefixed stored
+filename, while `/reports/{reference}` accepts the original 12-hex reference. The workflow
+rejects that mismatched shape before writing any issue. #310 owns aligning those two contracts;
+an issue is not evidence that retrieval works. If the original 12-hex reference is available,
+an authorized operator can read it with:
 
 ```bash
 curl -H "X-Admin-Key: $TARKOV_RELAY_ADMIN_KEY" https://<relay>/reports/<reference>
@@ -111,10 +120,11 @@ for it and runs the same update the timer runs — the relay runs unprivileged a
 unit itself. If that path unit is not installed the button still works, in the sense that the
 next timer tick picks the file up; it is just no longer immediate.
 
-A report intentionally excludes game logs, the group key, and screenshot pixels. It includes
-diagnostic detail, an application-log tail, and the *shape* of recent screenshot names with every
-digit masked. Complete path, filename, and coordinate filtering plus an outbound preview remain
-release-blocking work in #281 and #310.
+A report is untrusted diagnostic content. The current desktop deliberately omits game logs,
+group keys, screenshots, and selected coordinates, masks digits in sampled screenshot names,
+and applies a narrow path/key redactor to its app-log tail. That does not yet prove the complete
+assembled or persisted body lacks raw roots, exact screenshot filenames, or coordinates.
+Treat every report body as restricted until #281/#310's complete-bundle tests pass.
 
 **When the group panel says something is wrong:**
 
@@ -140,7 +150,8 @@ pre-release. If it is gone or behind:
 3. Re-running the failed job republishes; there is nothing to clean up by hand.
 
 `update.json` on the release is the authority on what is actually published: it carries the
-version, the commit, the build time and the checksum.
+version, commit, build time, asset, checksum, source branch, and verification run. Relay watch
+binds those bytes to GitHub's release-asset digest and publication time before using them.
 
 ## The fast loop
 
