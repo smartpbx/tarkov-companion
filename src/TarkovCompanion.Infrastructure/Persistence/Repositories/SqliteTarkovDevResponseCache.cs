@@ -125,7 +125,11 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             INSERT INTO raw_endpoint_bodies(
                 content_sha256, compression, compressed_body, uncompressed_bytes, compressed_bytes, created_utc)
             VALUES ($hash, 'gzip', $body, $plainBytes, $compressedBytes, $createdUtc)
-            ON CONFLICT(content_sha256) DO NOTHING;
+            ON CONFLICT(content_sha256) DO UPDATE SET
+                compression = excluded.compression,
+                compressed_body = excluded.compressed_body,
+                uncompressed_bytes = excluded.uncompressed_bytes,
+                compressed_bytes = excluded.compressed_bytes;
             """,
             cancellationToken,
             ("$hash", hash),
@@ -239,7 +243,10 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
                 .Where(entry => !candidates.Any(candidate => candidate.CacheKey == entry.CacheKey))
                 .Select(entry => entry.ContentSha256)
                 .ToHashSet(StringComparer.Ordinal);
-            var removedHashes = hashes.Where(hash => !stillReferenced.Contains(hash)).ToHashSet(StringComparer.Ordinal);
+            var published = await ReadPublicationBodyHashesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            var removedHashes = hashes
+                .Where(hash => !stillReferenced.Contains(hash) && !published.Contains(hash))
+                .ToHashSet(StringComparer.Ordinal);
             reclaimed = candidates.Where(candidate => removedHashes.Contains(candidate.ContentSha256))
                 .DistinctBy(candidate => candidate.ContentSha256)
                 .Sum(candidate => candidate.CompressedBytes);
@@ -273,7 +280,7 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         }
 
         await RemoveUnreferencedBodiesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        var totals = await BodyTotalsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        var totals = await CacheBodyTotalsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         var entryCount = await EntryCountAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         if (totals.Bytes > _policy.MaximumCompressedBytes || entryCount > _policy.MaximumEntries)
         {
@@ -336,8 +343,21 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     {
         await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, transaction, "DELETE FROM http_response_cache WHERE cache_key = $key;", cancellationToken, ("$key", cacheKey))
-            .ConfigureAwait(false);
+        var removed = await ExecuteAsync(
+            connection,
+            transaction,
+            "DELETE FROM http_response_cache WHERE cache_key = $key AND content_sha256 = $hash;",
+            cancellationToken,
+            ("$key", cacheKey),
+            ("$hash", hash)).ConfigureAwait(false);
+        if (removed == 0)
+        {
+            // A concurrent refresh replaced the corrupt observation after this reader loaded it.
+            // Never let a stale quarantine decision remove or mislabel that newer valid body.
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         await RemoveUnreferencedBodiesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(
             connection,
@@ -379,9 +399,30 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             DELETE FROM raw_endpoint_bodies
             WHERE NOT EXISTS (
                 SELECT 1 FROM http_response_cache
-                WHERE http_response_cache.content_sha256 = raw_endpoint_bodies.content_sha256);
+                WHERE http_response_cache.content_sha256 = raw_endpoint_bodies.content_sha256)
+              AND NOT EXISTS (
+                SELECT 1 FROM dataset_publications
+                WHERE dataset_publications.content_sha256 = raw_endpoint_bodies.content_sha256);
             """,
             cancellationToken).ConfigureAwait(false);
+
+    private static async Task<HashSet<string>> ReadPublicationBodyHashesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var hashes = new HashSet<string>(StringComparer.Ordinal);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT DISTINCT content_sha256 FROM dataset_publications WHERE content_sha256 IS NOT NULL;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            hashes.Add(reader.GetString(0));
+        }
+
+        return hashes;
+    }
 
     private static async Task<(int Count, long Bytes)> BodyTotalsAsync(
         SqliteConnection connection,
@@ -391,6 +432,25 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT COUNT(*), COALESCE(SUM(compressed_bytes), 0) FROM raw_endpoint_bodies;";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        return (reader.GetInt32(0), reader.GetInt64(1));
+    }
+
+    private static async Task<(int Count, long Bytes)> CacheBodyTotalsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*), COALESCE(SUM(compressed_bytes), 0)
+            FROM raw_endpoint_bodies AS body
+            WHERE EXISTS (
+                SELECT 1 FROM http_response_cache AS cache
+                WHERE cache.content_sha256 = body.content_sha256);
+            """;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
         return (reader.GetInt32(0), reader.GetInt64(1));

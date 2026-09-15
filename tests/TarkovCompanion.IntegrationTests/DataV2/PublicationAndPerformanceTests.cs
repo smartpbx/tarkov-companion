@@ -41,6 +41,63 @@ public sealed class PublicationAndPerformanceTests
     }
 
     [Fact]
+    public async Task CacheAndMaintenanceRetainHeadBodiesWhilePruningSupersededHistory()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 5, 0, 0, TimeSpan.Zero);
+        var cache = new SqliteTarkovDevResponseCache(database.Factory, new()
+        {
+            MaximumAge = TimeSpan.FromHours(1),
+        });
+        var state = new SqliteSyncStateRepository(database.Factory);
+
+        await cache.PutAsync(new("regular/items", "{\"data\":{\"version\":1}}", now.AddDays(-10), null, null),
+            TestContext.Current.CancellationToken);
+        var oldHash = (await cache.InspectAsync(now, TestContext.Current.CancellationToken)).Entries.Single().ContentSha256;
+        await state.RecordAsync(
+            new("items", "regular", "en", now.AddDays(-10), now.AddDays(-10), null, null, "current", null),
+            oldHash,
+            TestContext.Current.CancellationToken);
+        var oldPublication = await ScalarTextAsync(database.Factory,
+            "SELECT visible_publication_id FROM dataset_heads WHERE source_key = 'items';");
+
+        await cache.PutAsync(new("regular/items", "{\"data\":{\"version\":2}}", now, null, null),
+            TestContext.Current.CancellationToken);
+        var currentHash = (await cache.InspectAsync(now, TestContext.Current.CancellationToken)).Entries.Single().ContentSha256;
+        await state.RecordAsync(
+            new("items", "regular", "en", now, now, null, null, "current", null),
+            currentHash,
+            TestContext.Current.CancellationToken);
+        var currentPublication = await ScalarTextAsync(database.Factory,
+            "SELECT visible_publication_id FROM dataset_heads WHERE source_key = 'items';");
+
+        var preview = await cache.CleanupAsync(now.AddHours(2), true, TestContext.Current.CancellationToken);
+        Assert.Equal(1, preview.RemovedEntries);
+        Assert.Equal(0, preview.RemovedBodies);
+        var cleanup = await cache.CleanupAsync(now.AddHours(2), false, TestContext.Current.CancellationToken);
+        Assert.Equal(1, cleanup.RemovedEntries);
+        Assert.Equal(0, cleanup.RemovedBodies);
+        Assert.Equal(2, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM raw_endpoint_bodies;"));
+
+        var maintenance = await new SqliteDataPlatformMaintenance(database.Factory).RunAsync(
+            "prune",
+            false,
+            now.AddDays(-1),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(1, maintenance.AffectedRows);
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory,
+            $"SELECT COUNT(*) FROM dataset_publications WHERE publication_id = '{oldPublication}';"));
+        Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory,
+            $"SELECT COUNT(*) FROM dataset_publications WHERE publication_id = '{currentPublication}' AND previous_lkg_publication_id IS NULL;"));
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory,
+            $"SELECT COUNT(*) FROM raw_endpoint_bodies WHERE content_sha256 = '{oldHash}';"));
+        Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory,
+            $"SELECT COUNT(*) FROM raw_endpoint_bodies WHERE content_sha256 = '{currentHash}';"));
+        Assert.Equal(currentPublication, await ScalarTextAsync(database.Factory,
+            "SELECT last_known_good_publication_id FROM dataset_heads WHERE source_key = 'items';"));
+    }
+
+    [Fact]
     public async Task EightyThousandItemCatalogHasBoundedExactLookupAndIndexedQueryPlans()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);

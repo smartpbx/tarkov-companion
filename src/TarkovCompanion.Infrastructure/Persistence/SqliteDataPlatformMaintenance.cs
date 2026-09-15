@@ -156,8 +156,7 @@ public sealed class SqliteDataPlatformMaintenance(
               (SELECT COUNT(*) FROM durable_outbox WHERE delivery_state = 5 AND completed_utc < $cutoff) +
               (SELECT COUNT(*) FROM dataset_publications AS p
                WHERE attempted_utc < $cutoff
-                 AND NOT EXISTS (SELECT 1 FROM dataset_heads AS h WHERE h.visible_publication_id = p.publication_id OR h.last_known_good_publication_id = p.publication_id)
-                 AND NOT EXISTS (SELECT 1 FROM dataset_publications AS child WHERE child.previous_lkg_publication_id = p.publication_id));
+                 AND NOT EXISTS (SELECT 1 FROM dataset_heads AS h WHERE h.visible_publication_id = p.publication_id OR h.last_known_good_publication_id = p.publication_id));
             """;
         command.Parameters.AddWithValue("$cutoff", Format(retainAfterUtc));
         return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
@@ -168,15 +167,27 @@ public sealed class SqliteDataPlatformMaintenance(
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var affected = 0;
         affected += await ExecuteAsync(connection, transaction, "DELETE FROM durable_outbox WHERE delivery_state = 5 AND completed_utc < $cutoff;", cutoff, cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(connection, transaction, """
+            UPDATE dataset_publications
+            SET previous_lkg_publication_id = NULL
+            WHERE previous_lkg_publication_id IN (
+                SELECT publication_id
+                FROM dataset_publications AS previous
+                WHERE previous.attempted_utc < $cutoff
+                  AND NOT EXISTS (
+                    SELECT 1 FROM dataset_heads AS h
+                    WHERE h.visible_publication_id = previous.publication_id
+                       OR h.last_known_good_publication_id = previous.publication_id));
+            """, cutoff, cancellationToken).ConfigureAwait(false);
         affected += await ExecuteAsync(connection, transaction, """
             DELETE FROM dataset_publications
             WHERE attempted_utc < $cutoff
-              AND NOT EXISTS (SELECT 1 FROM dataset_heads AS h WHERE h.visible_publication_id = publication_id OR h.last_known_good_publication_id = publication_id)
-              AND NOT EXISTS (SELECT 1 FROM dataset_publications AS child WHERE child.previous_lkg_publication_id = dataset_publications.publication_id);
+              AND NOT EXISTS (SELECT 1 FROM dataset_heads AS h WHERE h.visible_publication_id = publication_id OR h.last_known_good_publication_id = publication_id);
             """, cutoff, cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(connection, transaction, """
             DELETE FROM raw_endpoint_bodies
-            WHERE NOT EXISTS (SELECT 1 FROM http_response_cache AS c WHERE c.content_sha256 = raw_endpoint_bodies.content_sha256);
+            WHERE NOT EXISTS (SELECT 1 FROM http_response_cache AS c WHERE c.content_sha256 = raw_endpoint_bodies.content_sha256)
+              AND NOT EXISTS (SELECT 1 FROM dataset_publications AS p WHERE p.content_sha256 = raw_endpoint_bodies.content_sha256);
             """, cutoff, cancellationToken).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return affected;

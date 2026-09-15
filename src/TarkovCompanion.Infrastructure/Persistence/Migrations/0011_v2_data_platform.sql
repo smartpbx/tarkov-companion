@@ -64,7 +64,7 @@ CREATE TABLE dataset_publications (
     game_mode TEXT NOT NULL,
     language TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('current', 'stale', 'refused', 'partial', 'last_known_good')),
-    content_sha256 TEXT,
+    content_sha256 TEXT REFERENCES raw_endpoint_bodies(content_sha256),
     record_count INTEGER CHECK (record_count IS NULL OR record_count >= 0),
     attempted_utc TEXT NOT NULL,
     published_utc TEXT,

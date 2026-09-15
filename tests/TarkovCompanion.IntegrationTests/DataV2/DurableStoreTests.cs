@@ -246,12 +246,31 @@ public sealed class DurableStoreTests
             "{\"items\":[]}", "{\"futurePlanner\":true}");
         Assert.True(await store.TrySaveLoadoutPlanAsync(0, plan, TestContext.Current.CancellationToken));
         Assert.False(await store.TrySaveLoadoutPlanAsync(0, plan, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.TrySaveLoadoutPlanAsync(
+            1,
+            plan,
+            TestContext.Current.CancellationToken));
+        var revisedPlan = plan with { Revision = 2, Name = "Factory revised" };
+        Assert.True(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
+        Assert.False(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
         Assert.Equal(plan.ExtensionJson, (await store.ReadLoadoutPlanAsync(planId, TestContext.Current.CancellationToken))!.ExtensionJson);
 
         var model = new ModelSnapshotRecord(Guid.NewGuid(), plan.ProfileId, "wipe", "Pvp", "raid-risk", "predicted",
             "historical-raids", null, now.AddDays(-1), now, .5, null, .7, "risk-1", "{\"risk\":null}", "{\"future\":1}");
         await store.SaveModelSnapshotAsync(model, TestContext.Current.CancellationToken);
-        var restoredModel = Assert.Single(await store.ListModelSnapshotsAsync(plan.ProfileId, "raid-risk", 10, TestContext.Current.CancellationToken));
+        await store.SaveModelSnapshotAsync(model with
+        {
+            ModelSnapshotId = Guid.NewGuid(),
+            Generation = "next-wipe",
+            GeneratedUtc = now.AddMinutes(1),
+        }, TestContext.Current.CancellationToken);
+        var restoredModel = Assert.Single(await store.ListModelSnapshotsAsync(
+            plan.ProfileId,
+            "wipe",
+            "Pvp",
+            "raid-risk",
+            10,
+            TestContext.Current.CancellationToken));
         Assert.Null(restoredModel.Confidence);
         Assert.Equal(model.DataThroughUtc, restoredModel.DataThroughUtc);
 

@@ -171,9 +171,11 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         CancellationToken cancellationToken)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         ObservedInventorySnapshot? snapshot;
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT snapshot_id, data_snapshot_id, observed_utc, recorded_utc, source,
                        producer_version, coverage, confidence, payload_json, extension_json
@@ -195,6 +197,7 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         var nodes = ImmutableArray.CreateBuilder<ObservedInventoryNode>();
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT node_id, parent_node_id, node_kind, item_id, grid_x, grid_y, width, height,
                        item_count, weight_kg, confidence, raw_json
@@ -210,6 +213,7 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
             }
         }
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return snapshot with { Nodes = nodes.ToImmutable() };
     }
 
@@ -289,8 +293,10 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
 
     public async Task<bool> TrySaveLoadoutPlanAsync(long expectedRevision, LoadoutPlanRecord plan, CancellationToken cancellationToken)
     {
-        if (plan.PlanId == Guid.Empty || plan.ProfileId == Guid.Empty || plan.Revision < 0 || string.IsNullOrWhiteSpace(plan.Name))
-            throw new ArgumentException("Loadout plan identity, name, and revision are required.", nameof(plan));
+        if (plan.PlanId == Guid.Empty || plan.ProfileId == Guid.Empty || expectedRevision < 0 ||
+            expectedRevision == long.MaxValue || plan.Revision != expectedRevision + 1 ||
+            string.IsNullOrWhiteSpace(plan.Name))
+            throw new ArgumentException("Loadout plan identity, name, and the next monotonic revision are required.", nameof(plan));
         ValidateJson(plan.PayloadJson, nameof(plan.PayloadJson));
         ValidateJson(plan.ExtensionJson, nameof(plan.ExtensionJson));
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -368,6 +374,8 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
 
     public async Task<ImmutableArray<ModelSnapshotRecord>> ListModelSnapshotsAsync(
         Guid? profileId,
+        string? generation,
+        string? gameMode,
         string modelKind,
         int maximumCount,
         CancellationToken cancellationToken)
@@ -381,11 +389,16 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
                    observed_utc, data_through_utc, generated_utc, coverage, confidence, calibration,
                    model_version, payload_json, extension_json
             FROM model_snapshots
-            WHERE model_kind = $kind AND (($profile IS NULL AND profile_id IS NULL) OR profile_id = $profile)
+            WHERE model_kind = $kind
+              AND (($profile IS NULL AND profile_id IS NULL) OR profile_id = $profile)
+              AND (($generation IS NULL AND generation IS NULL) OR generation = $generation)
+              AND (($mode IS NULL AND game_mode IS NULL) OR game_mode = $mode)
             ORDER BY generated_utc DESC LIMIT $maximum;
             """;
         command.Parameters.AddWithValue("$kind", modelKind);
         command.Parameters.AddWithValue("$profile", profileId is { } profile ? Id(profile) : DBNull.Value);
+        command.Parameters.AddWithValue("$generation", (object?)generation ?? DBNull.Value);
+        command.Parameters.AddWithValue("$mode", (object?)gameMode ?? DBNull.Value);
         command.Parameters.AddWithValue("$maximum", maximumCount);
         var result = ImmutableArray.CreateBuilder<ModelSnapshotRecord>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
