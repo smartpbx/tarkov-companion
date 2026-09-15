@@ -191,8 +191,21 @@ public enum ProfileContextMismatch
     DataSnapshot,
 }
 
-public sealed record ProfileContextCompatibility(IReadOnlyList<ProfileContextMismatch> Mismatches)
+public sealed record ProfileContextCompatibility
 {
+    public ProfileContextCompatibility(IReadOnlyList<ProfileContextMismatch> mismatches)
+    {
+        ArgumentNullException.ThrowIfNull(mismatches);
+
+        // Copied once. An adapter that quarantined on this verdict must not see the caller's list
+        // later emptied into "compatible" behind its back.
+        var copied = mismatches.ToArray();
+        if (copied.Any(mismatch => !Enum.IsDefined(mismatch)) || copied.Distinct().Count() != copied.Length)
+            throw new ArgumentException("Mismatches must be distinct, defined context fields.", nameof(mismatches));
+        Mismatches = Array.AsReadOnly(copied);
+    }
+
+    public IReadOnlyList<ProfileContextMismatch> Mismatches { get; }
     public bool IsCompatible => Mismatches.Count == 0;
 
     public static ProfileContextCompatibility Compare(ProfileContext expected, ProfileContext actual)
@@ -207,7 +220,7 @@ public sealed record ProfileContextCompatibility(IReadOnlyList<ProfileContextMis
         if (!string.Equals(expected.WipeSeason.Value, actual.WipeSeason.Value, StringComparison.Ordinal)) mismatches.Add(ProfileContextMismatch.WipeSeason);
         if (!Equals(expected.Locale, actual.Locale)) mismatches.Add(ProfileContextMismatch.Locale);
         if (!Equals(expected.DataSnapshot, actual.DataSnapshot)) mismatches.Add(ProfileContextMismatch.DataSnapshot);
-        return new(Array.AsReadOnly(mismatches.ToArray()));
+        return new(mismatches);
     }
 }
 
@@ -232,13 +245,36 @@ public sealed record ProfileRecord
     public DateTimeOffset UpdatedUtc { get; }
 }
 
+/// <summary>
+/// The one workspace bound. Service state, transfer documents, previews, and the exchange codec
+/// all enforce this same number, so a workspace the service accepted is never one its own export
+/// refuses for having too many profiles.
+/// </summary>
 public sealed record ProfileWorkspaceSnapshot
 {
+    public const int MaximumProfiles = 64;
+
     public ProfileWorkspaceSnapshot(long revision, Guid? activeProfileId, IReadOnlyList<ProfileRecord>? profiles)
     {
         if (revision < 0) throw new ArgumentOutOfRangeException(nameof(revision));
-        var copied = (profiles ?? []).Select(profile => profile ?? throw new ArgumentException("Profiles cannot contain null.", nameof(profiles)))
-            .OrderBy(profile => profile.Context.Identity.ProfileId).ToArray();
+        var source = profiles ?? [];
+
+        // Count and each entry are read exactly once before sorting or validating. A custom list
+        // can otherwise answer differently between the bound check, the copy, and the uniqueness
+        // checks, and the validated profiles would not be the ones kept.
+        var count = source.Count;
+        if (count is < 0 or > MaximumProfiles)
+        {
+            throw new ArgumentOutOfRangeException(nameof(profiles), $"A workspace contains at most {MaximumProfiles} profiles.");
+        }
+
+        var copied = new ProfileRecord[count];
+        for (var index = 0; index < copied.Length; index++)
+        {
+            copied[index] = source[index] ?? throw new ArgumentException("Profiles cannot contain null.", nameof(profiles));
+        }
+
+        Array.Sort(copied, static (left, right) => left.Context.Identity.ProfileId.CompareTo(right.Context.Identity.ProfileId));
         if (copied.Select(profile => profile.Context.Identity.ProfileId).Distinct().Count() != copied.Length)
             throw new ArgumentException("Profiles must have distinct stable ids; a different generation is a visible conflict, not a second profile.", nameof(profiles));
         if (activeProfileId is { } active && !copied.Any(profile => profile.Context.Identity.ProfileId == active && profile.Lifecycle == ProfileLifecycle.Active))
