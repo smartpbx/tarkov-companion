@@ -175,7 +175,7 @@ public sealed class TarkovDevJsonClientTests
         var time = new ManualTimeProvider(new(2026, 9, 9, 12, 0, 0, TimeSpan.Zero));
         var oldBody = await FixtureJson.ReadAsync("crafts.json");
         const string newBody = """
-            {"data":[{"id":"craft-002","requiredItems":[],"productItem":{"item":"item-001","count":1}}],"translations":[]}
+            {"data":[{"id":"craft-002","requiredItems":[{"item":"item-002","count":1,"attributes":{}}],"productItem":{"item":"item-001","count":1}}],"translations":[]}
             """;
         var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseRefresh = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

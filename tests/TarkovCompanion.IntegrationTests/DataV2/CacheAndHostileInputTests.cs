@@ -552,7 +552,8 @@ public sealed class CacheAndHostileInputTests
         var client = Client(new StaticHandler(new(HttpStatusCode.OK) { Content = content }), cache, maximumBytes: 1024);
         var exception = await Assert.ThrowsAnyAsync<InvalidDataException>(() =>
             client.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
-        Assert.IsType<TarkovDevResponseBudgetException>(exception.InnerException);
+        var refusal = Assert.IsType<TarkovDevDatasetRefusalMarker>(exception.InnerException);
+        Assert.IsType<TarkovDevResponseBudgetException>(refusal.InnerException);
         Assert.Equal(0, (await cache.InspectAsync(DateTimeOffset.UtcNow, TestContext.Current.CancellationToken)).EntryCount);
     }
 
@@ -803,7 +804,7 @@ public sealed class CacheAndHostileInputTests
 
         Assert.All(
             completedObsoleteRun,
-            endpoint => Assert.True(endpoint.Updated, $"{endpoint.Endpoint}: {endpoint.Error}"));
+            endpoint => Assert.StartsWith("Superseded:", endpoint.Error!, StringComparison.Ordinal));
         Assert.Equal("Forced", await ScalarTextAsync(
             database.Factory,
             "SELECT name FROM items WHERE id = 'item';"));
@@ -1361,9 +1362,9 @@ public sealed class CacheAndHostileInputTests
     public async Task HostileTranslationRefreshRetainsTheLastKnownGoodTranslation()
     {
         var cache = new InMemoryTarkovDevResponseCache();
-        const string source = "{\"data\":{\"items\":{\"item\":{\"id\":\"item\",\"name\":\"Item\",\"width\":1,\"height\":1}},\"itemCategories\":{}},\"translations\":[\"$.data.items.*.name\"]}";
-        const string goodTranslation = "{\"data\":{\"item\":\"Localized\"}}";
-        const string hostileTranslation = "{\"data\":{\"item\":null}}";
+        const string source = "{\"data\":{\"items\":{\"item\":{\"id\":\"item\",\"name\":\"ITEM_NAME\",\"width\":1,\"height\":1}},\"itemCategories\":{}},\"translations\":[\"$.data.items.*.name\",\"$.data.items.*.id\"]}";
+        const string goodTranslation = "{\"data\":{\"ITEM_NAME\":\"Localized\",\"item\":\"item\"}}";
+        const string hostileTranslation = "{\"data\":{\"ITEM_NAME\":\"Poisoned\",\"item\":\"different\"}}";
         await cache.PutAsync(
             new("regular/items", source, DateTimeOffset.UtcNow.AddHours(-1), null, null),
             TestContext.Current.CancellationToken);
