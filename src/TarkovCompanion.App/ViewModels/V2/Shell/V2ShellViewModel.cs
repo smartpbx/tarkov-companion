@@ -204,7 +204,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IDisposable
         var route = Registry[change.Current.Location.Route];
         if (route.LegacyPage is { } page) Legacy.Navigate(page);
         CurrentAddress = Router.CurrentAddress;
-        Recents = [CurrentAddress, .. Recents.Where(address => !string.Equals(address, CurrentAddress, StringComparison.Ordinal))].Take(V2ShellPreviewState.MaxRecents).ToArray();
+        Recents = Recents
+            .Where(address => !string.Equals(address, CurrentAddress, StringComparison.Ordinal))
+            .Prepend(CurrentAddress)
+            .Take(V2ShellPreviewState.MaxRecents)
+            .ToArray();
         Refresh();
         Save();
         FocusRequested?.Invoke(this, change.Focus);
