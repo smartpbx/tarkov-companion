@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
@@ -7,6 +9,12 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 
 public sealed class ExtractRecognitionService : IExtractRecognitionService
 {
+    // Kept aligned with GroupMemberState.Validate. A recognised panel is published as group
+    // state, so accepting a larger name or list here would turn one noisy screenshot into a
+    // repeatable 400 response until the raid state changed again.
+    private const int MaximumPublishedExtracts = 16;
+    private const int MaximumExtractNameLength = 64;
+
     private readonly IOcrEngine _ocrEngine;
     private readonly OcrTextNormalizer _normalizer;
     private readonly OcrPipelineOptions _pipeline;
@@ -60,6 +68,8 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         var matched = new Dictionary<string, ObservedExtract>(StringComparer.Ordinal);
         var ambiguous = new List<string>();
         var unmatched = new List<string>();
+        var catalogGaps = new List<string>();
+        var catalogGapIds = new HashSet<string>(StringComparer.Ordinal);
         var transits = new List<string>();
         // Upstream lists an exit both factions can use once per faction, and the refresh stores
         // both rows. Two identical names tie at a similarity difference of exactly zero, which
@@ -154,7 +164,8 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                     continue;
                 }
 
-                var (observed, status) = ParseExtractLine(ExtractLineMatcher.StripTrailingMeasure(text));
+                var (observed, displayName, status) =
+                    ParseExtractLine(ExtractLineMatcher.StripTrailingMeasure(text));
                 if (observed.Length == 0 || IsHeader(observed))
                 {
                     continue;
@@ -175,7 +186,18 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                     .ToArray();
                 if (ranked.Length == 0)
                 {
-                    unmatched.Add(line.Text);
+                    if (kind == ExtractLineMatcher.RowKind.Extract)
+                    {
+                        if (!TryAddCatalogGap(line, observed, displayName, status))
+                        {
+                            unmatched.Add(line.Text);
+                        }
+                    }
+                    else
+                    {
+                        unmatched.Add(line.Text);
+                    }
+
                     continue;
                 }
 
@@ -188,7 +210,18 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                     : best.Similarity;
                 if (best.Similarity < 0.65 || score < RecognitionThresholds.Ambiguous)
                 {
-                    unmatched.Add(line.Text);
+                    if (kind == ExtractLineMatcher.RowKind.Extract)
+                    {
+                        if (!TryAddCatalogGap(line, observed, displayName, status))
+                        {
+                            unmatched.Add(line.Text);
+                        }
+                    }
+                    else
+                    {
+                        unmatched.Add(line.Text);
+                    }
+
                     continue;
                 }
 
@@ -221,11 +254,61 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
             return true;
         }
 
+        // A line with an EXFIL slot label is the game's own evidence that a row exists even when
+        // the current catalog cannot name it. Keep that evidence, but cap it below the ordinary
+        // match threshold: a missing catalog row and a badly read catalog row are deliberately
+        // indistinguishable here. The map can list the offered name immediately and draw it only
+        // when a reviewed coordinate exists.
+        bool TryAddCatalogGap(
+            OcrLine line,
+            string normalizedName,
+            string displayName,
+            ExtractStatus status)
+        {
+            if (!IsPlausibleCatalogGap(line, normalizedName, displayName))
+            {
+                return false;
+            }
+
+            var id = CatalogGapId(currentMap.Id, normalizedName);
+            if (!catalogGapIds.Contains(id) && catalogGapIds.Count >= MaximumPublishedExtracts)
+            {
+                return false;
+            }
+
+            var firstReading = catalogGapIds.Add(id);
+            var recognition = new ObservedExtract(
+                id,
+                displayName,
+                status,
+                new Confidence(Math.Min(line.Confidence?.Value ?? 0.50, 0.60)),
+                $"ocr:{ocr.Engine}; map={currentMap.Id}; status={status}; catalog=missing",
+                image.CapturedUtc.ToUniversalTime());
+            if (!matched.TryGetValue(id, out var existing) ||
+                recognition.Confidence.Value > existing.Confidence.Value)
+            {
+                matched[id] = recognition;
+            }
+
+            if (firstReading)
+            {
+                catalogGaps.Add(line.Text);
+            }
+
+            return true;
+        }
+
         var observations = matched.Values
             .OrderBy(extract => extract.Name, StringComparer.Ordinal)
             .ToArray();
-        var active = observations
+        var activeObservations = observations
             .Where(extract => extract.Status == ExtractStatus.Active)
+            // Trusted catalog matches win the bounded relay payload. A noisy screen cannot use
+            // sixteen speculative rows to evict a real offered extract.
+            .OrderBy(extract => IsCatalogGap(extract.ExtractId) ? 1 : 0)
+            .ThenBy(extract => extract.Name, StringComparer.Ordinal)
+            .Take(MaximumPublishedExtracts);
+        var active = activeObservations
             .Select(extract => new ActiveExtract(
                 extract.ExtractId,
                 extract.Name,
@@ -245,12 +328,17 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
             [.. ambiguous.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             [.. unmatched.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             true,
-            degraded ?? (ambiguous.Count > 0 || unmatched.Count > 0 ? "extracts_partial" : null))
+            degraded ?? (catalogGaps.Count > 0
+                ? "extract_catalog_gap"
+                : ambiguous.Count > 0 || unmatched.Count > 0
+                    ? "extracts_partial"
+                    : null))
         {
             Transits = [.. transits.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             // As read, before StripRowPrefix and StripTrailingMeasure take anything off. What
             // this screen says about the raid clock is on a line that matching throws away.
             RawLines = [.. lines.Select(line => line.Text).Where(text => !string.IsNullOrWhiteSpace(text))],
+            CatalogGapLines = [.. catalogGaps.Distinct(StringComparer.CurrentCultureIgnoreCase)],
         };
     }
 
@@ -276,28 +364,66 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         return new(image.Width - width, 0, width, height);
     }
 
-    private (string Name, ExtractStatus Status) ParseExtractLine(string value)
+    private (string NormalizedName, string DisplayName, ExtractStatus Status) ParseExtractLine(string value)
     {
+        var displayName = value.Trim();
         var normalized = _normalizer.NormalizeForLookup(value);
-        (string Suffix, ExtractStatus Status)[] statuses =
+        (string Word, ExtractStatus Status)[] statuses =
         [
-            (" closed", ExtractStatus.Closed),
-            (" pending", ExtractStatus.Pending),
-            (" waiting", ExtractStatus.Pending),
-            (" available", ExtractStatus.Active),
-            (" active", ExtractStatus.Active),
-            (" open", ExtractStatus.Active),
-            (" unknown", ExtractStatus.Unknown),
+            ("closed", ExtractStatus.Closed),
+            ("pending", ExtractStatus.Pending),
+            ("waiting", ExtractStatus.Pending),
+            ("available", ExtractStatus.Active),
+            ("active", ExtractStatus.Active),
+            ("open", ExtractStatus.Active),
+            ("unknown", ExtractStatus.Unknown),
         ];
-        foreach (var (suffix, status) in statuses)
+        foreach (var (word, status) in statuses)
         {
+            var suffix = " " + word;
             if (normalized.EndsWith(suffix, StringComparison.Ordinal))
             {
-                return (normalized[..^suffix.Length].Trim(), status);
+                var withoutStatus = displayName.EndsWith(word, StringComparison.OrdinalIgnoreCase)
+                    ? displayName[..^word.Length].TrimEnd()
+                    : displayName;
+                return (normalized[..^suffix.Length].Trim(), withoutStatus, status);
             }
         }
 
-        return (normalized, ExtractStatus.Active);
+        return (normalized, displayName, ExtractStatus.Active);
+    }
+
+    /// <summary>
+    /// A structural EXFIL label is useful evidence only when the OCR result beside it still
+    /// resembles a name and is confident enough to be a recognition candidate.
+    /// </summary>
+    private static bool IsPlausibleCatalogGap(
+        OcrLine line,
+        string normalizedName,
+        string displayName)
+    {
+        if (line.Confidence is { Value: < RecognitionThresholds.Candidate } ||
+            string.IsNullOrWhiteSpace(displayName) ||
+            displayName.Length > MaximumExtractNameLength ||
+            IsHeader(normalizedName) ||
+            normalizedName is "closed" or "pending" or "waiting" or "available" or "active" or "open" or "unknown")
+        {
+            return false;
+        }
+
+        var characters = displayName.Where(char.IsLetterOrDigit).ToArray();
+        return characters.Length >= 2 && char.IsLetter(characters[0]);
+    }
+
+    private static bool IsCatalogGap(string extractId) =>
+        extractId.StartsWith("catalog-gap:", StringComparison.Ordinal);
+
+    /// <summary>A stable local identity for the same unknown map/name across repeated scans.</summary>
+    private static string CatalogGapId(string mapId, string normalizedName)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"{mapId}\n{normalizedName}");
+        var digest = Convert.ToHexString(SHA256.HashData(bytes));
+        return $"catalog-gap:{mapId}:{digest[..16].ToLowerInvariant()}";
     }
 
     /// <summary>

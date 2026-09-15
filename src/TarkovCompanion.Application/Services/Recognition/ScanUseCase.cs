@@ -576,6 +576,7 @@ public sealed class ScanUseCase : IScanUseCase
         // only whether any rows had failed.
         var partial = result.AmbiguousLines.Count > 0 ||
                       result.UnmatchedLines.Count > 0 ||
+                      result.CatalogGapLines.Count > 0 ||
                       result.DiagnosticCode is not null;
         return (
             result,
