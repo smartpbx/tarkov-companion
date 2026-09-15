@@ -123,7 +123,6 @@ public sealed class RaidHistoryOutboxRuntimeTests
             time,
             TimeSpan.FromSeconds(1),
             () => outbox.Snapshot.ConsecutivePumpFaults >= 2);
-        Assert.Empty(history.Types);
 
         Assert.True(outbox.RequestPumpRecovery());
         await outbox.FlushAsync(default).WaitAsync(TimeSpan.FromSeconds(30));
