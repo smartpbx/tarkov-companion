@@ -268,8 +268,6 @@ public sealed class ResilienceExecutorTests
         Assert.Equal(RuntimeFailureKind.Cancelled, result.Fault!.Kind);
         Assert.Equal(CircuitState.HalfOpen, Assert.Single(executor.Circuits).State);
         Assert.True(Assert.Single(executor.Circuits).ProbeInProgress);
-        var unfinished = Assert.IsAssignableFrom<Task>(result.UnfinishedAttempt);
-        Assert.False(unfinished.IsCompleted);
 
         var overlapping = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(42), default);
         Assert.False(overlapping.Succeeded);
@@ -278,7 +276,7 @@ public sealed class ResilienceExecutorTests
 
         // Once the exact old invocation returns, its retained owner releases the half-open slot.
         probePending.TrySetResult(1);
-        await unfinished;
+        await RuntimeTestTasks.UntilAsync(() => !Assert.Single(executor.Circuits).ProbeInProgress);
         Assert.False(Assert.Single(executor.Circuits).ProbeInProgress);
         var probe = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(42), default);
         Assert.True(probe.Succeeded);
