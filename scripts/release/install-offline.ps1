@@ -226,7 +226,14 @@ function Read-BoundedJson([string] $Path, [long] $MaximumBytes, [string] $Label)
         }
     }
     if ($Quoted -or $Depth -ne 0) { throw "$Label has unbalanced JSON strings or delimiters." }
-    try { return $Text | ConvertFrom-Json } catch { throw "$Label is not valid bounded JSON." }
+    try {
+        # PowerShell otherwise turns ISO-8601 JSON strings into DateTime values and destroys the
+        # original spelling before the release policy can require its canonical UTC form.
+        if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey("DateKind")) {
+            return ConvertFrom-Json -InputObject $Text -DateKind String
+        }
+        return ConvertFrom-Json -InputObject $Text
+    } catch { throw "$Label is not valid bounded JSON." }
 }
 
 function Copy-BoundedFile([string] $Source, [string] $Target, [long] $MaximumBytes, [string] $Label) {
