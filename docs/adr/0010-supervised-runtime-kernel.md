@@ -147,10 +147,12 @@ seam is `RequestPumpRecovery`, which wakes the pump immediately or restarts one 
 `RetryDeadLetterAsync`, which returns one dead letter to delivery. Health lists a bounded,
 recovery-prioritized window — retryable rows first and oldest-first within each class — and
 explicit resolution is the only way to release an expired or deliberately discarded aggregate
-head; `RaidActivityCoordinator` exposes both recovery actions. Because the supervisor, lifecycle,
-and delivery pump all publish from background
-threads, `RuntimeStateStore` serializes subscriber notification; the snapshot is still computed
-under its own lock, and no subscriber runs while that lock is held.
+head; `RaidActivityCoordinator` exposes both recovery actions. Recovery mutations share the
+acceptance admission gate, so shutdown waits for an admitted operator decision and a queued call
+cannot mutate the store after shutdown has closed its wake signal. Because the supervisor,
+lifecycle, and delivery pump all publish from background threads, `RuntimeStateStore` linearizes
+each state replacement with its subscriber notification; the snapshot is still computed under its
+own lock, and no subscriber runs while that inner lock is held.
 
 Cancellation of an attempt that is still running is explicit. A wait can observe a caller's
 cancellation before a linked token has passed it on, and tearing the link down afterwards used to

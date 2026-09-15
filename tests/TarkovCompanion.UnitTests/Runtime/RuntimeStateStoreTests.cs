@@ -112,6 +112,57 @@ public sealed class RuntimeStateStoreTests
         Assert.Equal(400, store.Current.LocalRevision);
     }
 
+    [Fact]
+    public async Task ANewPublisherCannotReplaceStateBeforeThePreviousRevisionIsAnnounced()
+    {
+        var store = Store();
+        var firstSubscriberEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstSubscriber = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondPublisherStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var revisions = new List<long>();
+        store.Changed += (_, _) =>
+        {
+            revisions.Add(store.Current.LocalRevision);
+            if (revisions.Count == 1)
+            {
+                firstSubscriberEntered.TrySetResult();
+                releaseFirstSubscriber.Task.Wait(TimeSpan.FromSeconds(30));
+            }
+        };
+
+        var first = Task.Factory.StartNew(
+            () => store.Update(current => current with { DatabaseReady = true }),
+            CancellationToken.None,
+            TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        await firstSubscriberEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var second = Task.Factory.StartNew(
+            () =>
+            {
+                secondPublisherStarted.TrySetResult();
+                store.Update(current => current with { Data = current.Data with { ItemCount = 2 } });
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+            TaskScheduler.Default);
+        await secondPublisherStarted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            await Task.Delay(50);
+            Assert.Equal(1, store.Current.LocalRevision);
+            Assert.False(second.IsCompleted);
+        }
+        finally
+        {
+            releaseFirstSubscriber.TrySetResult();
+        }
+
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal([1L, 2L], revisions);
+    }
+
     private static RuntimeStateStore Store() => new(new(
         DemoMode: false,
         Offline: true,

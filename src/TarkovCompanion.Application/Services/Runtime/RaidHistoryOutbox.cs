@@ -342,27 +342,44 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             }
         }
 
-        var retried = await _store.ManualRetryAsync(
-                operationId,
-                _timeProvider.GetUtcNow(),
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!retried)
+        await _enqueueLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return false;
-        }
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_accepting)
+                {
+                    return false;
+                }
+            }
 
-        // Manual retry is an explicit operator decision to replay an acknowledgement-unknown
-        // delivery. Release its local fence only after the store made that decision durable.
-        _processor.NotifyReconciled(operationId);
-        lock (_gate)
+            var retried = await _store.ManualRetryAsync(
+                    operationId,
+                    _timeProvider.GetUtcNow(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!retried)
+            {
+                return false;
+            }
+
+            // Manual retry is an explicit operator decision to replay an acknowledgement-unknown
+            // delivery. Release its local fence only after the store made that decision durable.
+            _processor.NotifyReconciled(operationId);
+            lock (_gate)
+            {
+                _accepted[operationId] = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                WakeUnsafe();
+            }
+
+            PublishChanged();
+            return true;
+        }
+        finally
         {
-            _accepted[operationId] = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            WakeUnsafe();
+            _enqueueLock.Release();
         }
-
-        PublishChanged();
-        return true;
     }
 
     public async Task<bool> ResolveDeadLetterAsync(OperationId operationId, CancellationToken cancellationToken)
@@ -376,24 +393,41 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             }
         }
 
-        var resolved = await _store.ResolveDeadLetterAsync(
-                operationId,
-                _timeProvider.GetUtcNow(),
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!resolved)
+        await _enqueueLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return false;
-        }
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_accepting)
+                {
+                    return false;
+                }
+            }
 
-        _processor.NotifyReconciled(operationId);
-        lock (_gate)
+            var resolved = await _store.ResolveDeadLetterAsync(
+                    operationId,
+                    _timeProvider.GetUtcNow(),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!resolved)
+            {
+                return false;
+            }
+
+            _processor.NotifyReconciled(operationId);
+            lock (_gate)
+            {
+                WakeUnsafe();
+            }
+
+            PublishChanged();
+            return true;
+        }
+        finally
         {
-            WakeUnsafe();
+            _enqueueLock.Release();
         }
-
-        PublishChanged();
-        return true;
     }
 
     public bool RequestPumpRecovery()
@@ -511,7 +545,10 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             }
 
             PublishChanged();
-            _enqueueLock.Dispose();
+            // Keep the admission semaphore alive after terminal disposal. A caller can have passed
+            // the optimistic pre-check just before shutdown closed admission and still be queued;
+            // it must be able to acquire, observe _disposed, and release without racing disposal of
+            // the semaphore itself. SemaphoreSlim owns no unmanaged resource.
             _signal.Dispose();
             _lifetime.Dispose();
         }

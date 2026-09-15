@@ -420,6 +420,29 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task DisposeWaitsForAnAdmittedManualRetryBeforeClosingItsWakeSignal()
+    {
+        var store = new BlockingManualRetryStore();
+        var history = new RecordingHistory { FailuresBeforeSuccess = 1 };
+        var outbox = new RaidHistoryOutbox(history, timeProvider: new ManualTimeProvider(Epoch), store: store);
+        var accepted = await outbox.AcceptAsync([RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())], default);
+        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.DeadLetters.Length == 1);
+
+        var retrying = outbox.RetryDeadLetterAsync(Assert.Single(accepted), default);
+        await store.RetryEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var disposing = outbox.DisposeAsync().AsTask();
+        await RuntimeTestTasks.DrainAsync();
+        Assert.False(disposing.IsCompleted);
+
+        store.ReleaseRetry.TrySetResult();
+        Assert.True(await retrying.WaitAsync(TimeSpan.FromSeconds(30)));
+        await disposing.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(["state"], history.Types);
+        Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
+    }
+
+    [Fact]
     public async Task TimedOutDisposeCancelsItsWaiterAndLaterDisposeCanFinish()
     {
         var time = new ManualTimeProvider(Epoch);
@@ -605,7 +628,7 @@ public sealed class RaidHistoryOutboxRuntimeTests
         public Task<int> RecoverExpiredLeasesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Inner.RecoverExpiredLeasesAsync(nowUtc, cancellationToken);
 
-        public Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+        public virtual Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Inner.ManualRetryAsync(operationId, nowUtc, cancellationToken);
 
         public Task<bool> ResolveDeadLetterAsync(
@@ -691,6 +714,25 @@ public sealed class RaidHistoryOutboxRuntimeTests
             Entered.TrySetResult();
             await Release.Task;
             return await Inner.EnqueueBatchAsync(items, cancellationToken);
+        }
+    }
+
+    private sealed class BlockingManualRetryStore : DelegatingStore
+    {
+        public TaskCompletionSource RetryEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource ReleaseRetry { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async Task<bool> ManualRetryAsync(
+            OperationId operationId,
+            DateTimeOffset nowUtc,
+            CancellationToken cancellationToken)
+        {
+            RetryEntered.TrySetResult();
+            await ReleaseRetry.Task.WaitAsync(cancellationToken);
+            return await base.ManualRetryAsync(operationId, nowUtc, cancellationToken);
         }
     }
 

@@ -254,8 +254,9 @@ public sealed record RuntimeResourceSnapshot(long StateSubscriberFaults)
 /// used to be invoked by every one of those threads at once, and the view model that consumes this
 /// is only safe when calls reach it one at a time; in a host with no dispatcher it lost the edge
 /// from InRaid to PostRaid and never produced a raid summary. Notifications are therefore
-/// serialized. The snapshot is still computed under its own lock, and no handler runs while that
-/// lock is held.
+/// serialized. Publication and notification share one outer linearization gate, so a later writer
+/// cannot replace the snapshot before subscribers have observed the earlier revision. The snapshot
+/// is still computed under its own lock, and no handler runs while that inner lock is held.
 /// </remarks>
 public sealed class RuntimeStateStore : IRuntimeStateStore
 {
@@ -340,22 +341,22 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
     public void Update(Func<ApplicationRuntimeSnapshot, ApplicationRuntimeSnapshot> update)
     {
         ArgumentNullException.ThrowIfNull(update);
-        EventHandler[] handlers;
-        lock (_gate)
-        {
-            var proposed = update(_current)
-                ?? throw new InvalidOperationException("A runtime state update cannot return null.");
-            _current = Freeze(proposed with
-            {
-                LocalRevision = checked(_current.LocalRevision + 1),
-                Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
-            });
-            handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
-        }
-
-        var failures = 0;
         lock (_notificationGate)
         {
+            EventHandler[] handlers;
+            lock (_gate)
+            {
+                var proposed = update(_current)
+                    ?? throw new InvalidOperationException("A runtime state update cannot return null.");
+                _current = Freeze(proposed with
+                {
+                    LocalRevision = checked(_current.LocalRevision + 1),
+                    Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
+                });
+                handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
+            }
+
+            var failures = 0;
             foreach (var handler in handlers)
             {
                 try
@@ -367,21 +368,21 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
                     failures++;
                 }
             }
-        }
 
-        if (failures == 0)
-        {
-            return;
-        }
-
-        lock (_gate)
-        {
-            _subscriberFaults = checked(_subscriberFaults + failures);
-            _current = Freeze(_current with
+            if (failures == 0)
             {
-                LocalRevision = checked(_current.LocalRevision + 1),
-                Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
-            });
+                return;
+            }
+
+            lock (_gate)
+            {
+                _subscriberFaults = checked(_subscriberFaults + failures);
+                _current = Freeze(_current with
+                {
+                    LocalRevision = checked(_current.LocalRevision + 1),
+                    Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
+                });
+            }
         }
     }
 
