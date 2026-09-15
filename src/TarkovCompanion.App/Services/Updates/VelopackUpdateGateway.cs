@@ -31,17 +31,6 @@ public sealed record UpdateProgress(string Status, bool CanDownload = false, boo
 /// </remarks>
 public sealed class VelopackUpdateGateway
 {
-    /// <summary>
-    /// Where builds come from.
-    /// </summary>
-    /// <remarks>
-    /// Public GitHub releases rather than the group server. The server is one self-hosted
-    /// container behind a tunnel, and an update channel that depends on it is a weaker promise
-    /// than a CDN for no gain. Velopack can take any static HTTP source, so moving this later
-    /// is one line if there is ever a reason to.
-    /// </remarks>
-    public const string ReleaseRepository = "https://github.com/smartpbx/tarkov-companion";
-
     private readonly ILogger<VelopackUpdateGateway>? _logger;
     private readonly Lazy<UpdateManager?> _manager;
     private UpdateInfo? _pending;
@@ -70,9 +59,11 @@ public sealed class VelopackUpdateGateway
     {
         try
         {
-            // Pre-releases included: the rolling build is how this reaches the people who use
-            // it, and there has never been a stable channel to hold back for.
-            return new UpdateManager(new GithubSource(ReleaseRepository, null, prerelease: true));
+            // This manager exists only to report whether Velopack installed the running copy.
+            // It is deliberately pointed at a local directory and CheckAsync never asks it for
+            // updates. Issue #294 will compose SignedReleaseFeedConsumer and hand its verified
+            // SimpleFileSource to Velopack together with the data/model activation transaction.
+            return new UpdateManager(new SimpleFileSource(new DirectoryInfo(AppContext.BaseDirectory)));
         }
         catch (Exception exception)
         {
@@ -92,26 +83,19 @@ public sealed class VelopackUpdateGateway
         ? $"Version {version}"
         : "Running from a folder, not installed";
 
-    public async Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
+    public Task<UpdateProgress> CheckAsync(CancellationToken cancellationToken)
     {
-        if (_manager.Value is not { IsInstalled: true } manager)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_manager.Value is not { IsInstalled: true })
         {
-            return new("Run from a folder, so it cannot update itself");
+            return Task.FromResult(new UpdateProgress("Run from a folder, so it cannot update itself"));
         }
 
-        try
-        {
-            _pending = await manager.CheckForUpdatesAsync().ConfigureAwait(true);
-            cancellationToken.ThrowIfCancellationRequested();
-            return _pending is null
-                ? new("On the newest build")
-                : new($"{_pending.TargetFullRelease.Version} is available", CanDownload: true);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            _logger?.LogWarning(exception, "Could not check");
-            return new($"Could not check · {exception.Message}");
-        }
+        // The old path called GithubSource with no token and accepted the public repository's
+        // mutable release metadata. The authenticated consumer is intentionally not composed
+        // here: #294 owns that user-facing transaction and #270 owns its persisted state.
+        _pending = null;
+        return Task.FromResult(new UpdateProgress("Private signed updates are not configured in this build"));
     }
 
     public async Task<UpdateProgress> DownloadAsync(CancellationToken cancellationToken)
