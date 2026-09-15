@@ -72,17 +72,17 @@ public sealed class DiagnosticTokenSet
             var separator = part.LastIndexOf('@');
             var token = separator < 0 ? part : part[..separator];
             DateTimeOffset? expiresUtc = null;
-            if (separator >= 0 &&
-                (!DateTimeOffset.TryParse(
-                    part[(separator + 1)..],
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                    out var parsed) || parsed.Offset != TimeSpan.Zero))
+            if (separator >= 0)
             {
-                return false;
-            }
-            else if (separator >= 0)
-            {
+                if (!DateTimeOffset.TryParse(
+                        part[(separator + 1)..],
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                        out var parsed) || parsed.Offset != TimeSpan.Zero)
+                {
+                    return false;
+                }
+
                 expiresUtc = parsed;
             }
 
