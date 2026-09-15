@@ -308,6 +308,33 @@ expiry, and transport authorization must be supplied by the tablet security work
 remote changes are accepted. An unauthenticated origin is never trusted merely because it names
 a known device.
 
+### Paired-device transport
+
+Paired protocol 2.0 (`docs/PAIRED_DEVICE_PROTOCOL.md`, ADR 0009) is the governed transport and
+desktop-canonical state contract for cross-device changes between the desktop and a paired
+tablet. It carries this contract rather than forking it:
+
+- Every paired canonical update names its workspace, authenticated device, origin kind, and
+  instance with the Core `WorkspaceOrigin`, and its contract version with `V2ContractVersion`.
+- A mark's map, floor, plane coordinates, label, and expiry are exactly one `MapMarkState`, so the
+  mark label cap is the Core 80 characters. A capture intent's scan intent, armed time, and expiry
+  are exactly one `CaptureIntentState`; flea recognition is never a paired intent. Each projects
+  without loss to `RevisionedState<T>` on its own stream, and neither payload is duplicated
+  elsewhere in the paired model.
+- Device modes and the workspace projection are desktop-authoritative paired state carried under
+  the same attribution and revision rules. They are not `RevisionedState` payloads, and the
+  `V2WirePayloads` allowlists do not change.
+- `Applied`, `RejectedStale`, `RejectedConflict`, and `UnsupportedVersion` keep the table's
+  meanings; `UnsupportedVersion` is reserved for a version the receiver cannot read. The paired
+  protocol's narrower rejections have no v2 disposition: those that return canonical state
+  describe the aggregate cursor, and every other rejection describes applied revision zero with
+  no applied change. In every case, only `Applied` may name the acknowledged change as applied.
+- Paired protocol 2.0 supplies the pairing, device-key proof, session expiry, and framed transport
+  authentication this section requires before remote changes are accepted.
+
+Changing a reused Core payload remains a v2 contract change under the ownership rules below. The
+paired-protocol contract tests fail if the paired documents and this section drift apart.
+
 ## Evolution and ownership
 
 The current contract version is 2.0; majors are bounded to 1-99 and minors to 0-999. A reader

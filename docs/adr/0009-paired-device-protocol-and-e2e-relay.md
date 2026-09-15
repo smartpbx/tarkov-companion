@@ -1,6 +1,6 @@
 # ADR 0009: Make the desktop canonical and encrypt paired state through the relay
 
-Status: Accepted — 2026-09-14; amended 2026-09-15 after the independent protocol audit
+Status: Accepted — 2026-09-14; amended 2026-09-15 after the independent protocol audit and its re-audit
 
 ## Context
 
@@ -25,7 +25,10 @@ guessing at the parts that decide interoperability and security: which bytes are
 what order, how the tablet knows it is talking to the real desktop rather than the relay, how a
 reloaded browser gets a new session, what a duplicate command ID with a different payload means,
 how a missing delivery is noticed, and how the paired acknowledgement relates to the v2
-acknowledgement contract. An independent audit blocked the implementation on those gaps.
+acknowledgement contract. An independent audit blocked the implementation on those gaps. Its
+re-audit then found that a relay could grind a pairing request until the verification code
+matched, that direct-LAN traffic had no binding to an authenticated session, that resume proofs
+could be replayed, and that paired updates did not carry the v2 attribution and payload types.
 
 ## Decision
 
@@ -45,22 +48,35 @@ command. Show on desktop is one explicit action, does not leave Independent mode
 or dismiss a sensitive dialog without the administrative capability.
 
 **Handshake.** Pairing uses a five-minute single-use offer with a ten-minute hard maximum and a
-per-source rate limit. The human code is a redacted transport lookup, not an authenticator and not
-JSON. The desktop has a long-lived ECDSA P-256 identity key. Resolving the code returns an offer
-that commits the identity key, a desktop ephemeral key, and a desktop nonce before the tablet
-reveals anything. The tablet binds a WebAuthn ES256 credential, its own ephemeral key and nonce, and
-a display name sealed to the desktop ephemeral key. Both screens show a six-digit code derived from
-all of that, and the user approves only on a match; the QR code additionally pins the identity key.
-The desktop then signs a transcript that binds the purpose, version, attempt, commitment, device,
-key, credential, identity key, both ephemeral keys, both nonces, assigned session, relay channel,
-cipher suite, key epoch, and lifetimes. The tablet verifies that signature and proves the same
-transcript hash with a user-verified WebAuthn assertion. A session resume repeats the signed
-transcript and device proof for an already paired, live device, with fresh ephemeral keys. Every
-byte of these encodings is fixed in `docs/PAIRED_DEVICE_PROTOCOL.md` and pinned by vectors computed
-by an independent implementation.
+per-source rate limit that fails closed when full. The human code is ten Crockford base32 symbols,
+a redacted transport lookup, not an authenticator and not JSON. The desktop has a long-lived ECDSA
+P-256 identity key. Resolving the code returns an offer with the identity key, a desktop ephemeral
+key, and only a commitment to the desktop nonce. The tablet binds a WebAuthn ES256 credential, its
+own ephemeral key and nonce, and a display name sealed to the desktop ephemeral key. The desktop
+binds that first request, and only then reveals the nonce; the tablet checks it against the
+commitment. Both screens show a six-digit code derived from the request and the revealed nonce, and
+the user approves only on a match; the QR payload additionally pins the identity key. Because the
+request is fixed before the nonce is known, nobody can choose a request that produces a chosen
+code. The desktop then signs a transcript that binds the purpose, version, attempt, commitment,
+device, key, credential, identity key, both ephemeral keys, both nonces, assigned session, relay
+channel, cipher suite, key epoch, and lifetimes. The tablet verifies that signature and proves the
+same transcript hash with a user-verified WebAuthn assertion. A session resume repeats the signed
+transcript and device proof for an already paired, live device, with fresh ephemeral keys, the
+identity key pinned at pairing, and a key epoch above every epoch the device has used; each resume
+challenge establishes at most one session. Every byte of these encodings is fixed in
+`docs/PAIRED_DEVICE_PROTOCOL.md` and pinned by vectors computed by an independent implementation.
 
-**Relay.** Relayed paired content is end-to-end encrypted. HKDF-SHA-256 derives distinct
-directional AES-256-GCM keys from the ECDH secret with the transcript hash as salt. The nonce is the
+**Transport binding.** A session is authenticated by its traffic keys, never by a session ID a peer
+presents. After the handshake, the direct LAN gateway and the hosted relay both carry only
+authenticated frames on one WebSocket framing; TLS is an outer layer. The offer endpoint, pairing
+code header and format, QR payload, rate-limit source hash, relay channel registration, pinned
+WebAuthn RP ID and tablet origin, clock guidance, and the residual risk of a compromised tablet
+application origin are normative in the same document.
+
+**Relay.** Paired session content is end-to-end encrypted on every route. HKDF-SHA-256 derives
+distinct directional AES-256-GCM keys from the ECDH secret with the transcript hash as salt. The
+plaintext starts with an authenticated payload kind that names the root and is legal only in its
+direction, so the relay cannot tell a command from an acknowledgement or update. The nonce is the
 key epoch and a strictly increasing sender sequence. The additional data authenticates the
 direction and all routing metadata. Ciphertext chunking is canonical, and a receiver rejects
 replayed, reordered, expired, and foreign frames before decryption. The hosted relay sees only
@@ -69,22 +85,33 @@ expiry/receipt time, unavoidable network metadata, and the public handshake mate
 selection, capture, coordinate, name, and authorization content is not relay-readable.
 
 **Acknowledgements.** The paired acknowledgement keeps the v2 meaning of applied revision and
-applied change ID. `Applied`, `RejectedStale`, `RejectedConflict`, and `UnsupportedVersion` obey the
-v2 revision and change-ID rules and map to the Core dispositions; a command jumping past the next
+applied change ID, and only `Applied` names the acknowledged command as applied. `Applied`,
+`RejectedStale`, `RejectedConflict`, and `UnsupportedVersion` obey the v2 revision and change-ID
+rules and map to the Core dispositions; `UnsupportedVersion` means the version cannot be read, and a
+readable but unnegotiated version is an invalid-state peer error. A command jumping past the next
 revision, or computed in another authority epoch, is a separate `RequiresSnapshot` instead of a
-conflict. The remaining paired rejections leave state untouched and never name the rejected command
-as the applied change. A command ID identifies one change for the whole authority lifetime: a retry
-is a duplicate only when the same device resends a command with the same canonical fingerprint, and
-any other reuse is `RejectedCommandIdReuse`. The reducer returns a typed rejection for every hostile
-command instead of throwing, and it refuses to commit state that could not be delivered inside the
-wire bounds.
+conflict. Rejections that return canonical state describe the aggregate cursor; every other
+rejection, identifier reuse included, describes applied revision zero with no applied change. A
+command ID identifies one change for the whole authority lifetime: a retry is a duplicate when the
+same device resends the same action fingerprint, which excludes the requested revision, lifetime,
+and offline preview a re-previewed retry refreshes, and any other reuse is
+`RejectedCommandIdReuse`. The reducer returns a typed rejection for every hostile command instead of
+throwing, and it refuses to commit state that could not be delivered inside the wire bounds with a
+fixed reserve that covers later server-time maintenance.
+
+**V2 alignment.** `docs/V2_CONTRACT.md` names this protocol as the governed paired-device transport.
+Every paired update carries the Core `WorkspaceOrigin` and `V2ContractVersion`; marks carry the Core
+`MapMarkState` with its 80-character label cap, and capture intents carry the Core
+`CaptureIntentState` without flea recognition. Both project to `RevisionedState<T>`. Contract tests
+keep the two documents from drifting.
 
 **Delivery.** Every envelope to a device consumes one sequence of a single device stream. Each
 device/channel queue is bounded independently; overflow coalesces that channel to a snapshot marker
 without blocking other channels or devices. A tablet never applies a delivery after a sequence gap,
 from another epoch, or with a non-contiguous revision; it asks to reconnect. Replay requires the
 retained stream to cover every sequence and global revision after the client's position without a
-marker and within the replay and payload bounds; otherwise the desktop sends a snapshot. Offline
+marker and within the replay and payload bounds; otherwise the desktop sends a snapshot. A tablet
+never applies a late reconnect plan behind its position. Offline
 submission is limited to Show on desktop, mark mutation, and capture-intent request drafts, at most
 64 for fifteen minutes each, and each submission is bound to the epoch and aggregate revision the
 user previewed.
@@ -100,6 +127,16 @@ and breach boundary to searches, notes, profile context, capture context, and co
 
 **Use only the short pairing code.** This would be easy to type but would not bind later sessions to
 a device key and would turn a low-entropy locator into a bearer credential. Rejected.
+
+**Derive the code from the offer and request alone.** The first version did this, but the offer
+revealed the desktop nonce before any request existed, so a relay holding back the tablet's request
+could try about a million requests of its own in a second until the desktop's code matched the
+tablet's. Committing to the nonce and revealing it only after binding removes the choice. Rejected
+in favor of commit-then-reveal.
+
+**Carry session roots in plaintext over direct TLS.** A LAN envelope names only a session ID, which
+the relay can see, so a gateway would have to invent an authenticator or trust that ID. Framing
+every route with the session's traffic keys needs no second mechanism. Rejected.
 
 **Authenticate only the tablet.** WebAuthn proves the tablet to the desktop, but without a desktop
 signature a relay could answer a tablet's pairing or resume as the desktop, learn its commands, and
@@ -128,8 +165,9 @@ complete desktop and can keep offline tablet browsing local. Rejected.
 Issue #277 must implement DPAPI-protected desktop identity and device material, the WebAuthn
 verifier (signature, RP ID hash, origin, counter), atomic persistence of canonical state with its
 idempotency receipts, authenticated context construction from live session records, lifecycle and
-maintenance calls, delivery ledger handling, relay receiver checks, and direct/relay transport
-adapters. The approval prompt must show the verification code. Issue #290 consumes authoritative
+maintenance calls, single-use resume attempts with recorded key epochs, recorded device use, the
+transport binding on both routes, delivery ledger handling, relay receiver checks, and direct/relay
+transport adapters. The approval prompt must show the verification code. Issue #290 consumes authoritative
 server state, pins the desktop identity key, mirrors the replica and offline-draft rules exactly,
 and may implement local Independent browsing, but it cannot fork reducer semantics. The local
 gateway remains usable when the hosted relay is unavailable after pairing/recovery material exists.
@@ -139,17 +177,20 @@ explicit endpoint-safe metadata and user-reviewed reports; encryption keys and p
 enter relay logs. Metadata such as timing, channel reuse, ciphertext size, handshake public keys,
 and network endpoints is still visible and must not be described as hidden.
 
-A user who pairs by typing the short code and approves without comparing the verification code can
-be attacked by a malicious relay; the approval prompt must make the comparison explicit, and a
-QR-scanned pairing avoids the dependency. Six digits give a one-in-a-million chance per attempt,
-within the five-attempt rate limit.
+A user who pairs by typing the code and approves without comparing the verification code can be
+attacked by a malicious relay; the approval prompt must make the comparison explicit, and a
+QR-scanned pairing avoids the dependency. With commit-then-reveal, a relay that substitutes a
+request matches the tablet's six-digit code with probability one in a million per attempt, and each
+failed attempt consumes the one-time code within the per-source rate limit. End-to-end encryption
+does not protect against a compromised tablet application origin, which is therefore deployed apart
+from the relay and treated as part of the trusted computing base.
 
 Failover cannot silently reuse group protocol v1 credentials or accepted cleartext LAN HTTP. A
 paired route that cannot preserve device authentication and confidentiality fails closed and makes
 its effective transport failure visible.
 
-P-256/HKDF/AES-GCM, ECDSA desktop identity signatures, WebAuthn, and the documented byte encodings
-are compatibility commitments for protocol 2.0. Replacing the key schedule or any encoding, changing
+P-256/HKDF/AES-GCM, ECDSA desktop identity signatures, WebAuthn, the documented byte encodings, and
+the transport binding are compatibility commitments for protocol 2.0. Replacing the key schedule or any encoding, changing
 relay-readable metadata, weakening device or desktop proof, changing acknowledgement dispositions,
 or making a new operation queueable is a security-relevant protocol change requiring an ADR and an
 appropriate version change.
