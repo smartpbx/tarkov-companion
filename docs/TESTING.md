@@ -131,3 +131,5 @@ Run in PowerShell 7 or Windows PowerShell 5.1:
 ```
 
 The harness validates the headless self-test, starts only processes it later stops, launches all ten simulator scenes, asserts generated logs/filename markers and safety flags, sends scan/scenario commands through the file channel, then relaunches the demo with offline mode set. It does not use screen coordinates, pixel assertions, UI automation, or synthetic gameplay input. The report is JSON and the process exits nonzero on the first failed assertion.
+
+Durable state is read from the demo database, read-only, through the `e_sqlite3.dll` in the package directory, which loads under either PowerShell; the managed `Microsoft.Data.Sqlite` assembly in the package is net10.0 and does not load in Windows PowerShell 5.1. The harness waits for a migrated schema and for the raid its launch opened before taking the scan-row baseline, and waits for each scan's committed `raid_events` row before the next scan, because raid history is written behind a queue after the diagnostic response. The simulator's files are not ingested by the packaged app; the scans come from the demo fixture adapter.

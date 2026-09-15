@@ -15,36 +15,49 @@ demand.
 Escape from Tarkov is not installed on the runner and is not required. Nothing in this
 workflow reads game memory, sends input to another process, or inspects network traffic.
 
-Verifying and publishing are separate jobs. `windows-verify` builds, tests, launches and
-photographs, and hands the result to `publish` as an artifact; `publish` is the only job with a
-write token and it does not run for a pull request. So a pull request gets the whole gauntlet
-and has neither a step that could publish nor a token that could.
+This workflow publishes no release. Its release job, `release-handoff-disabled`, is `if: false`
+and holds no write token; release publication belongs to #280. A pull request therefore gets
+the whole gauntlet and has neither a step that could publish nor a token that could.
 
 ## What the workflow does
 
-1. Publishes the self-contained win-x64 archive with `scripts/package-windows.sh`, the same
-   script the release path uses.
+1. Checks the verification scripts parse, runs `scripts/verify-windows-verification-static.ps1`
+   (policy text, the gallery's interface-fault classifier, and the evidence sanitizer against
+   fixtures), and after restore runs it again with `-SqliteLibraryPath` to drive the smoke's
+   SQLite reader against a fixture database through the restored win-x64 `e_sqlite3.dll`.
+   Then publishes the self-contained win-x64 archive with `scripts/package-windows.sh`.
 2. Extracts the archive the way a user would, into a directory that has never held the
    application.
 3. Runs `--self-test` on a machine with no application data.
 4. Runs the headless demo raid replay.
 5. Deletes `%LOCALAPPDATA%\TarkovCompanion` so the next step is a genuine first run.
-6. Checks `BUILD_INFO.txt` from both the extracted package and installed package against the
-   GitHub SHA for the run, then runs `scripts/windows-launch-probe.ps1`: starts
+6. Checks the extracted package's `BUILD_INFO.txt` against the run's version and GitHub SHA
+   (the installed copy is checked in step 9), then runs `scripts/windows-launch-probe.ps1`: starts
    `TarkovCompanion.exe` with no arguments, waits for a real main window, watches it for thirty
-   seconds, screenshots the desktop, requests a window close, and requires the process to exit
-   cleanly after recording the required database observations.
-7. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
-   showing a populated catalog is evidence that the desktop first run produced it.
-8. Runs `scripts/windows-smoke.ps1`, the developer diagnostic surface, against the simulator,
-   and requires the expected committed `raid_events` rows of type `scan` rather than a changed
-   directory timestamp.
-9. Publishes only an allowlisted sanitized summary and bounded sanitized failure excerpts for
+   seconds, captures the cropped companion window, requests a window close, and requires the
+   process to exit cleanly. Success is decided only after the required local-data and database
+   observations are recorded.
+7. Runs `scripts/windows-page-gallery.ps1`: one launch per destination and map view, each with
+   `TARKOV_COMPANION_UI_WARNING_LOG` pointed at its own file (see the gate table below).
+8. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
+   showing a populated catalog is evidence that the desktop launches since then produced it.
+9. Seeds a data-preservation marker, runs the packed installer silently, requires the marker
+   to survive and the installed `BUILD_INFO.txt` to match the run, and self-tests the installed
+   application.
+10. Runs `scripts/windows-smoke.ps1`, the developer diagnostic surface, beside the simulator. It
+   reads the demo database read-only through the package's own `e_sqlite3.dll`, because Windows
+   PowerShell 5.1 cannot load the net10.0 `Microsoft.Data.Sqlite` assembly. It waits for a
+   migrated schema and then for the raid this launch opened, since a scan is recorded only
+   against an open raid; takes the `raid_events` scan-row baseline; and after every fixture scan
+   waits for that scan's committed row before sending the next, because the application writes
+   history behind a queue and answers the scan before the row lands. A SQLite failure other
+   than an initializing database is raised at once rather than retried until a timeout.
+11. Publishes only an allowlisted sanitized summary and bounded sanitized failure excerpts for
    seven days. Raw startup logs, SQLite databases, screenshots, runner usernames, and absolute
    paths are never artifact evidence.
 
-A parallel Linux job builds the solution, runs the full test suite, and runs the safety and
-secret audits.
+A Linux `checks` job builds the solution, runs the full test suite, and runs the safety and
+secret audits; `windows-verify` waits for it.
 
 ## What the gate checks
 
@@ -53,7 +66,10 @@ secret audits.
 | Launch | the main window appears within the deadline and keeps responding for a 30-second watch |
 | Shutdown | exit code 0, inside the deadline, with no hung process left behind |
 | First-run sync | every json.tarkov.dev endpoint records `current` with no error |
-| Page gallery | each requested launch reaches a responsive window with visible variation |
+| Page gallery | each launch reaches a responsive window with visible variation |
+| Interface faults | no launch's toolkit wrote a `[Binding]`, `[Property]`, `[Visual]`, `[Layout]` or `[Control]` line, or a could-not-find/resolve/convert line from any other toolkit area, to its warning log; null-source bindings count |
+| Warning capture | each launch's warning log received the application's own startup line before capture, so "no faults" was said by a listener that was running |
+| Developer smoke | every fixture scan completes from the demo fixture and commits exactly one `scan` row, observed through a read-only SQLite reader |
 
 Deliberately no numbers here. This file used to list the row counts and timings of one
 particular run — items 5,320, map_spawns 3,018, "about eight seconds" — which were true of
@@ -61,8 +77,8 @@ that build and of no other. `map_spawns` has since been dropped entirely, so the
 describing a schema that no longer exists, which is worse than describing nothing.
 
 The gallery does not prove semantic expected-page selection, accessibility readiness, or
-map-tile/data readiness. Those remain at the still-open #279 integration seam owned by #281;
-this workflow does not duplicate Application diagnostics there.
+map-tile/data readiness. That #279 acceptance criterion stays open; it depends on the
+application readiness signal owned by #281, and this workflow does not duplicate that work.
 
 What a given run found is in that run's sanitized summary and failure-excerpt artifact.
 
@@ -72,6 +88,12 @@ What a given run found is in that run's sanitized summary and failure-excerpt ar
   the game window, screenshot and log watching, and OCR accuracy against real game visuals
   are all still unverified. `docs/LIVE_EFT_VALIDATION.md` remains the checklist for those.
 - Behaviour at DPI scales other than the runner's, and on multiple monitors.
+- Simulator file ingestion by the packaged app. The smoke drives demo fixture scans through
+  the authenticated diagnostic channel while the simulator writes its files; nothing yet
+  connects those files to the packaged app's watchers, so #279 stays open on that seam.
+- That the application swallows no exceptions. The gallery gates the toolkit's warnings; the
+  application's own `[Warning]` and `[Error]` log lines are not gated.
+- Semantic page, accessibility, or map tile/data readiness (above).
 - Nothing about a scan hotkey. There is no longer one to prove: `RegisterHotKey` appears
   nowhere in the source, and a scan is driven by the player taking a screenshot with the
   game's own key. `AGENTS.md` rule 8 forbids reintroducing one over a borderless game.
@@ -80,5 +102,10 @@ What a given run found is in that run's sanitized summary and failure-excerpt ar
 
 Download the `windows-verification` artifact from the run. It contains
 `windows-verification-summary.json` and, when something fails,
-`windows-verification-failures.txt`; both are sanitized and retention is seven days. The raw
-images, startup log, and database stay on the ephemeral runner and are not published.
+`windows-verification-failures.txt`; both are sanitized, every excerpt line is bounded, and
+retention is seven days. The summary carries the launch timings (a main-window handle, not
+semantic interactivity), per-launch gallery visual variation, warning-capture and interface-fault
+counts, and the smoke's assertion counts, SQLite engine version and scan-row counts. The job
+summary on the run page is written from that file and says nothing it does not contain. The raw
+images, warning logs, startup log, and database stay on the ephemeral runner and are not
+published.

@@ -221,6 +221,20 @@ jobs:
           dotnet restore src/TarkovCompanion.App/TarkovCompanion.App.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
           dotnet restore src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj --runtime win-x64 --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
 
+      # The developer smoke reads durable rows through the native SQLite library the package
+      # ships, because Windows PowerShell 5.1 cannot load the net10.0 Microsoft.Data.Sqlite
+      # assembly. That reader is exercised here, under the same PowerShell, against a fixture
+      # database and the restored copy of the same library, rather than found broken twenty
+      # minutes into the job.
+      - name: Check the smoke's SQLite reader against a fixture database
+        shell: powershell
+        run: |
+          $Candidates = @(Get-ChildItem -Path (Join-Path $env:NUGET_PACKAGES "sqlitepclraw.lib.e_sqlite3\*\runtimes\win-x64\native\e_sqlite3.dll"))
+          if ($Candidates.Count -ne 1) {
+            throw "Expected exactly one restored win-x64 e_sqlite3.dll, found $($Candidates.Count)."
+          }
+          ./scripts/verify-windows-verification-static.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE -SqliteLibraryPath $Candidates[0].FullName
+
       - name: Package self-contained win-x64
         id: package
         shell: bash
@@ -345,9 +359,11 @@ jobs:
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
-      # This gallery checks responsive visual variation only. Semantic expected-page,
-      # accessibility, and map tile/data readiness remain at the open #279 integration seam
-      # owned by #281; this workflow must not duplicate that Application diagnostic work.
+      # Fails a launch that shows no responsive, visually varied window, whose toolkit reported
+      # an interface fault to TARKOV_COMPANION_UI_WARNING_LOG, or whose warning capture was never
+      # armed. It does not prove semantic expected-page, accessibility, or map tile/data
+      # readiness: that #279 criterion stays open and depends on the application readiness
+      # signal owned by #281, which this workflow does not duplicate.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
@@ -516,16 +532,29 @@ jobs:
             $Lines += "| $Name | $($Steps[$Name]) |"
           }
           $Lines += ""
-          $Lines += "Evidence: [windows-verification artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) · page gallery, cropped launch probe, smoke assertions, timings, and failure diagnostics."
-          $LaunchReport = Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json"
-          if (Test-Path -LiteralPath $LaunchReport) {
-            $Launch = Get-Content -LiteralPath $LaunchReport -Raw | ConvertFrom-Json
-            $Lines += "Time to interactive: $($Launch.window.appearedAfterSeconds)s · shutdown: $($Launch.shutdown.windowClosedAfterSeconds)s."
+
+          # Written from the sanitized evidence rather than the raw reports, so this says only what
+          # the published artifact holds. It used to promise a page gallery and a cropped launch
+          # probe, which were never in it, called a window-handle timing "time to interactive",
+          # and called diagnostic-channel assertions "simulator state assertions".
+          $Lines += "Evidence: the windows-verification artifact on [this run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) holds a sanitized summary and bounded failure excerpts only. Screenshots, raw logs and databases stay on the runner."
+          $EvidencePath = Join-Path $env:GITHUB_WORKSPACE "verification/evidence/windows-verification-summary.json"
+          if (Test-Path -LiteralPath $EvidencePath) {
+            $Evidence = Get-Content -LiteralPath $EvidencePath -Raw | ConvertFrom-Json
+            if ($null -ne $Evidence.launch) {
+              $Lines += "Launch probe: main window handle after $($Evidence.launch.mainWindowAfterSeconds)s; window released $($Evidence.launch.windowReleasedAfterCloseSeconds)s after the close request; exit code $($Evidence.launch.exitCode). Window presence and process health, not semantic interactivity."
+            }
+            if ($null -ne $Evidence.gallery) {
+              $Clean = $Evidence.gallery.launchCount - $Evidence.gallery.failedCount
+              $Lines += "Page gallery: $Clean of $($Evidence.gallery.launchCount) launches responsive, visually varied, with an armed warning capture and no interface faults. Expected-page, accessibility and data/tile readiness are not proven (open #279 criterion; readiness signal owned by #281)."
+            }
+            if ($null -ne $Evidence.smoke) {
+              $Persistence = $Evidence.smoke.persistence
+              $Lines += "Developer diagnostic smoke: $($Evidence.smoke.passedAssertionCount) of $($Evidence.smoke.assertionCount) recorded assertions passed (it stops at the first failure); durable scan rows $($Persistence.scanEventCountBefore) to $($Persistence.scanEventCountAfter), expected +$($Persistence.expectedScanEventDelta). Demo fixture scans sent through the authenticated diagnostic channel; the packaged app does not yet ingest simulator files."
+            }
           }
-          $SmokeReport = Join-Path $env:GITHUB_WORKSPACE "verification/windows-smoke.json"
-          if (Test-Path -LiteralPath $SmokeReport) {
-            $Smoke = Get-Content -LiteralPath $SmokeReport -Raw | ConvertFrom-Json
-            $Lines += "Simulator state assertions: $(@($Smoke.assertions | Where-Object { $_.passed }).Count)/$(@($Smoke.assertions).Count) passed."
+          else {
+            $Lines += "No sanitized evidence summary was produced."
           }
           ($Lines -join [Environment]::NewLine) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
 
