@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -236,6 +237,12 @@ public sealed record CoordinatedOcrResult(
 
     public bool IsPartial { get; init; }
 
+    /// <summary>
+    /// Every pass that ran was available, nothing degraded it, and no text came back. Distinct
+    /// from an unavailable provider and from a partial read that happened to keep no lines.
+    /// </summary>
+    public bool IsEmpty { get; init; }
+
     public string? DiagnosticCode { get; init; }
 }
 
@@ -244,65 +251,105 @@ public sealed class OcrCoordinator
     private readonly IOcrEngine _engine;
     private readonly ScanContextDetector _contextDetector;
     private readonly SupplementalOcrSignalDetector _supplementalDetector;
+    private readonly OcrPipelineOptions _pipeline;
 
     public OcrCoordinator(
         IOcrEngine engine,
         ScanContextDetector contextDetector,
-        SupplementalOcrSignalDetector? supplementalDetector = null)
+        SupplementalOcrSignalDetector? supplementalDetector = null,
+        OcrPipelineOptions? pipelineOptions = null)
     {
         _engine = engine ?? throw new ArgumentNullException(nameof(engine));
         _contextDetector = contextDetector ?? throw new ArgumentNullException(nameof(contextDetector));
         _supplementalDetector = supplementalDetector ?? new SupplementalOcrSignalDetector();
+        _pipeline = OcrPipelineDeadline.Validate(pipelineOptions);
     }
 
+    /// <summary>
+    /// Reads the frame and then its detected context under one deadline linked to the caller.
+    /// </summary>
+    /// <remarks>
+    /// The deadline expiring is a measured outcome, not cancellation: whatever a finished pass
+    /// read is kept and the result says <c>ocr_pipeline_timeout</c>. Caller cancellation still
+    /// throws. A provider that ran out of memory on the frame is not asked for a second pass.
+    /// </remarks>
     public async Task<CoordinatedOcrResult> RecognizeAsync(
         CapturedImage image,
         CancellationToken cancellationToken)
     {
         CapturedImagePixels.Validate(image);
-        var fullFrame = await _engine
-            .RecognizeAsync(image, new OcrRequest(ScanContext.Unknown), cancellationToken)
+        cancellationToken.ThrowIfCancellationRequested();
+        using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
+        var fullFrame = await ReadAsync(image, new OcrRequest(ScanContext.Unknown), null, deadline)
             .ConfigureAwait(false);
         var detection = _contextDetector.Detect(image, fullFrame);
         var supplemental = _supplementalDetector.Detect(fullFrame);
-        if (!fullFrame.IsAvailable || detection.Context == ScanContext.Unknown)
+        if (!fullFrame.IsAvailable ||
+            detection.Context == ScanContext.Unknown ||
+            OcrOutcome.IsMemoryExhausted(fullFrame))
         {
+            var empty = OcrOutcome.IsEmpty(fullFrame);
             return new(detection, fullFrame, fullFrame, fullFrame, false)
             {
                 SupplementalSignals = supplemental,
-                IsPartial = fullFrame.IsAvailable && fullFrame.DiagnosticCode is not null,
-                DiagnosticCode = fullFrame.DiagnosticCode,
+                IsPartial = fullFrame.IsAvailable && OcrOutcome.IsDegraded(fullFrame),
+                IsEmpty = empty,
+                DiagnosticCode = empty ? OcrOutcome.NoText : fullFrame.DiagnosticCode,
             };
         }
 
         var region = ContextRegionPlanner.For(image, detection);
-        var contextual = await _engine
-            .RecognizeAsync(image, new OcrRequest(detection.Context, region), cancellationToken)
+        var contextual = await ReadAsync(
+                image,
+                new OcrRequest(detection.Context, region),
+                fullFrame.Engine,
+                deadline)
             .ConfigureAwait(false);
-        var candidates = Merge(contextual, fullFrame, out var supplemented);
-        return new(detection, fullFrame, contextual, candidates, supplemented)
-        {
-            SupplementalSignals = supplemental,
-            IsPartial =
-                (fullFrame.IsAvailable && fullFrame.DiagnosticCode is not null) ||
-                !contextual.IsAvailable ||
-                contextual.DiagnosticCode is not null,
-            DiagnosticCode = contextual.DiagnosticCode ?? fullFrame.DiagnosticCode,
-        };
-    }
-
-    private static OcrResult Merge(OcrResult contextual, OcrResult fullFrame, out bool supplemented)
-    {
-        var lines = OcrLineDeduplicator.Merge(contextual.Lines, fullFrame.Lines);
-        supplemented = lines.Count > contextual.Lines.Count;
-        return new(
-            lines,
+        var merge = OcrLineDeduplicator.Merge(contextual.Lines, fullFrame.Lines);
+        var candidates = new OcrResult(
+            merge.Lines,
             contextual.Duration + fullFrame.Duration,
             contextual.Engine,
             contextual.IsAvailable || fullFrame.IsAvailable,
-            contextual.IsAvailable ? null : contextual.DiagnosticCode ?? fullFrame.DiagnosticCode);
+            !contextual.IsAvailable
+                ? contextual.DiagnosticCode ?? fullFrame.DiagnosticCode
+                : merge.IsExhaustive ? null : OcrOutcome.DeduplicationBudgetExhausted);
+        return new(detection, fullFrame, contextual, candidates, merge.Lines.Count > contextual.Lines.Count)
+        {
+            SupplementalSignals = supplemental,
+            IsPartial =
+                OcrOutcome.IsDegraded(fullFrame) ||
+                OcrOutcome.IsDegraded(contextual) ||
+                !merge.IsExhaustive,
+            DiagnosticCode = OcrOutcome.IsDegraded(contextual)
+                ? contextual.DiagnosticCode ?? "ocr_provider_unavailable"
+                : OcrOutcome.IsDegraded(fullFrame)
+                    ? fullFrame.DiagnosticCode
+                    : merge.IsExhaustive ? null : OcrOutcome.DeduplicationBudgetExhausted,
+        };
     }
 
+    private async Task<OcrResult> ReadAsync(
+        CapturedImage image,
+        OcrRequest request,
+        string? engineName,
+        OcrPipelineDeadline deadline)
+    {
+        var watch = Stopwatch.StartNew();
+        try
+        {
+            return await _engine.RecognizeAsync(image, request, deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsExpired)
+        {
+            return new OcrResult(
+                [],
+                watch.Elapsed,
+                engineName ?? (_engine as IOcrEngineStatus)?.Availability.Provider ?? _engine.GetType().Name,
+                false,
+                OcrPipelineDeadline.DiagnosticCode);
+        }
+    }
 }
 
 public static class ContextRegionPlanner

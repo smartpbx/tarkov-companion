@@ -24,15 +24,37 @@ a provider reporting numeric zero.
 Both providers enforce a 15-second caller-visible frame timeout, 40-million-source-pixel and
 192-MiB input-buffer ceilings, and a 256-MiB estimated peak-memory ceiling. Tesseract also caps
 its prepared grayscale image at 40 million pixels; Windows caps one request at 64 bounded tiles.
-Caller cancellation remains cancellation. A timeout, rejected input, unavailable provider,
-complete empty read, total provider failure, and a result recovered from only some tiles have
-separate diagnostic outcomes. Tesseract's native call cannot be interrupted safely, so a timed
-out or cancelled native call retains the provider's exclusive gate until it really exits; a
-second call is never allowed to overlap it.
+The Windows estimate counts the caller's source buffer plus both copies of the largest tile, the
+managed BGRA staging buffer and the `SoftwareBitmap` copied from it; Windows' own recognizer
+working memory is not observable and is not included. Each provider accepts at most 4,096
+non-empty lines per request and keeps at most 1,024 characters of any line; exceeding either is a
+partial result (`ocr_line_limit_exceeded`, `ocr_line_text_truncated`), never a silent cut.
 
-The detailed provider results report source region, source and prepared dimensions, scale, tile
-plan and completion counts, duration, provider, estimated peak bytes, line count, and exact
-diagnostic outcome. They contain neither source pixels nor source paths.
+Both providers serialize their native work behind one gate. Caller cancellation remains
+cancellation, but neither a caller-visible timeout nor a cancellation releases the gate while the
+abandoned native read is still running: the gate opens only once that work settles, and the same
+settle path observes a late failure. A later request that cannot obtain the gate within its own
+frame timeout reports `ocr_frame_timeout` with zero attempted tiles. An out-of-memory failure stops
+the request instead of allocating the next tile (`ocr_memory_exhausted`). Preparation checks
+cancellation every 65,536 pixels, including Tesseract's bright-text midpoint scan, so a very wide
+single-row region cannot run to the end before noticing.
+
+A timeout, rejected input, unavailable provider, total provider failure, and a result recovered
+from only some tiles have separate diagnostic outcomes. So does an available read that ran to
+completion and found no text: its status is `Empty` and its diagnostic `ocr_no_text`
+(`ocr_region_empty` when the requested region selected no pixels). It is neither `Complete` nor
+unavailable.
+
+The detailed provider results report source region, source and prepared dimensions, scale,
+planned, attempted and completed tile counts, duration, provider, estimated peak bytes, accepted
+and truncated line counts, and exact diagnostic outcome. A tile skipped because the deadline had
+already passed is planned but not attempted, and only attempted tiles are listed. They contain
+neither source pixels nor source paths.
+
+`SkiaScreenshotImageLoader` checks a screenshot file's length against a 64-MiB ceiling before any
+buffer for it exists, reads no more than that checked length, refuses a picture over 40 million
+pixels before decoding it, and returns only a complete decode. An incomplete PNG, such as one the
+game is still writing, is refused rather than returned with blank rows.
 
 The provider exposes `IOcrEngineStatus`. Unsupported operating systems, architectures,
 missing native dependencies, missing language data, and execution failures return an
@@ -54,8 +76,25 @@ relative to the matched anchor bounds. Every anchor carries provenance that curr
 labels it as simulator-derived and live-unvalidated. Full-frame lines are merged back into
 the candidate set, so a draggable panel or imperfect contextual crop cannot discard text
 that the first pass already observed. Overlapping full/contextual reads use the same
-geometry-aware deterministic deduplication rule as tiled Windows reads. Partial provider
-diagnostics remain attached to the coordinated result rather than being promoted to complete.
+geometry-aware deterministic deduplication rule as tiled Windows reads; the source file is
+compiled into both assemblies. It compares a line only with kept lines sharing a 64-pixel grid
+cell, and every comparison spends from a budget of 64 per input line. Exhausting the budget keeps
+every remaining line and reports `ocr_dedupe_budget_exhausted` rather than dropping evidence or
+going quadratic. Partial provider diagnostics remain attached to the coordinated result rather
+than being promoted to complete, and an available empty full-frame read surfaces as
+`CoordinatedOcrResult.IsEmpty` with `ocr_no_text`, which `RecognitionService` reports instead of
+`context_unknown`. A frame that timed out or was rejected keeps its own diagnostic instead of
+being reported as an unavailable provider.
+
+`OcrCoordinator` starts one 30-second deadline (`OcrPipelineOptions`), linked to the caller's
+token, for the full-frame and contextual passes together. Each provider call's own frame timeout
+remains an inner cap. When the deadline expires, finished passes keep their evidence and the
+result carries `ocr_pipeline_timeout`; caller cancellation still throws. A frame pass that ran out
+of memory is not followed by a contextual pass. `ContainerRecognitionService` spends the same kind
+of single deadline across its whole-grid pass and every cell fallback, and a deadline that expires
+mid-fallback returns the analysis of what was read, marked partial with `ocr_pipeline_timeout`.
+That deadline is the only #299 change in the container recognizer; grid detection, segmentation
+and analysis remain owned by #273.
 
 Character/health menu captions and the game-version strip are supplemental full-frame text
 signals. They are searched across every returned line, with their observed bounds reported only
@@ -154,6 +193,10 @@ Rendered-pixel tests are discovered as explicit skips on non-Windows-x64 hosts, 
 reported by the test runner. The dedicated `TarkovCompanion.Platform.Windows.OcrTests` project
 also renders text beyond the first native Windows tile and calls `WindowsMediaOcrEngine`
 directly; it does not substitute a fixture or Tesseract for the provider that normally ships.
+Its fixture-recognizer tests prove the Windows gate, both-copy memory estimate, out-of-memory
+stop, and line bounds on the Windows runner. The Tesseract gate, deadline, pixel and memory
+ceilings, empty outcome, line bounds and chunked cancellation are proven on every host through an
+internal page-reader seam that production composition cannot reach.
 On Windows x64, provider absence is a failure. Therefore a Linux green run proves compilation,
 post-OCR behavior, persistence, and skip honesty; it does not publish screenshot-recognition
 accuracy. Accuracy remains unmeasured until Windows CI records the provider result, and no
@@ -166,9 +209,16 @@ synthetic result is a benchmark threshold.
 `tarkov-companion.ocr-probe.v1` machine report. Full-frame machine reports omit OCR text; their
 context, timing, bounds, confidence availability, tile, memory, and provider evidence remain.
 
-`--ocr-probe-cells` passes the selected region through `StashGrid.Cells`, reads each returned
-caption with both production providers, prints their local comparison to stderr, and writes one
-machine-readable JSON document to stdout or `--output`. Cell reports retain caption OCR text for
+`--ocr-probe-cells` passes the selected region through `StashGrid.Cells`, reads at most 256 of
+the returned captions with both production providers, prints their local comparison to stderr,
+and writes one machine-readable JSON document to stdout or `--output`. When the grid returned more
+cells, the report says `ocr_probe_cell_limit_exceeded` and carries `detectedCellCount`.
+
+Both probe modes spend one two-minute deadline across every provider pass. When it expires the
+report keeps the finished passes and says `ocr_probe_deadline_exceeded`; each provider entry
+records its planned, attempted and completed pass counts, so skipped work stays visible. Ctrl+C
+cancels the probe at its next bounded check and exits with code 130 without writing a report; a
+second Ctrl+C terminates the process normally. Cell reports retain caption OCR text for
 local comparison. They contain no screenshot path, filename, pixels, username field, token,
 world coordinate, benchmark threshold, or claimed accuracy. The schema is a stable producer
 result owned by the OCR path rather than an implementation of #272's provisional corpus/scorer

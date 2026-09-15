@@ -37,7 +37,7 @@ public sealed record OcrProbePass(
     int PreparedWidth,
     int PreparedHeight,
     int Scale,
-    int TileCount,
+    int PlannedTileCount,
     int AttemptedTileCount,
     int CompletedTileCount,
     long SourcePixelCount,
@@ -51,13 +51,30 @@ public sealed record OcrProbePass(
     bool HealthAndCharacterTextPresent,
     bool VersionStripTextPresent,
     IReadOnlyList<OcrProbeLine> Lines,
-    IReadOnlyList<OcrProbeTile> Tiles);
+    IReadOnlyList<OcrProbeTile> Tiles)
+{
+    /// <summary>Lines whose text the provider cut to its per-line ceiling.</summary>
+    public int TruncatedLineCount { get; init; }
+}
 
+/// <summary>One provider's share of a probe run.</summary>
+/// <remarks>
+/// Planned passes are what the run meant to read with this provider. Attempted passes started;
+/// completed passes finished with a complete or empty read. A deadline or an exhausted provider
+/// leaves the difference visible instead of shrinking the plan to match what happened.
+/// </remarks>
 public sealed record OcrProbeEngine(
     string Provider,
     bool IsAvailable,
     string? UnavailableReason,
-    IReadOnlyList<OcrProbePass> Passes);
+    IReadOnlyList<OcrProbePass> Passes)
+{
+    public int PlannedPassCount { get; init; }
+
+    public int AttemptedPassCount { get; init; }
+
+    public int CompletedPassCount { get; init; }
+}
 
 public sealed record OcrProbeCell(
     int Ordinal,
@@ -79,6 +96,24 @@ public sealed record OcrProbeReport(
     IReadOnlyList<OcrProbeEngine> Engines)
 {
     public const string CurrentSchemaVersion = "tarkov-companion.ocr-probe.v1";
+
+    /// <summary>Cells the stash grid returned, before the run's cell ceiling was applied.</summary>
+    public int? DetectedCellCount { get; init; }
+}
+
+/// <summary>Bounds on one probe run.</summary>
+/// <remarks>
+/// A 7680x2160 stash can return about a thousand cells, and each is read by every production
+/// provider. Without a ceiling and a single deadline, one command could spend an afternoon
+/// holding the OCR gate, and pressing Ctrl+C could not stop it.
+/// </remarks>
+public sealed record OcrProbeLimits
+{
+    /// <summary>One deadline for every provider pass in the run.</summary>
+    public TimeSpan RunTimeout { get; init; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>The most stash-grid captions one run reads with each provider.</summary>
+    public int MaximumCells { get; init; } = 256;
 }
 
 /// <summary>
@@ -88,6 +123,10 @@ public sealed record OcrProbeReport(
 /// </summary>
 public static class OcrProbe
 {
+    public const string DeadlineDiagnostic = "ocr_probe_deadline_exceeded";
+    public const string CellLimitDiagnostic = "ocr_probe_cell_limit_exceeded";
+    private const string MemoryExhaustedDiagnostic = "ocr_memory_exhausted";
+
     private static readonly (string Name, OcrPreparation Preparation)[] Variants =
     [
         ("as captured", OcrPreparation.AsCaptured),
@@ -120,12 +159,6 @@ public static class OcrProbe
         var (services, image, region) = loaded.Value;
         using (services)
         {
-            var detector = services.GetRequiredService<ScanContextDetector>();
-            var supplemental = new SupplementalOcrSignalDetector();
-            var lineCount = options.OcrProbeLines ?? DefaultLines;
-            var engines = Engines(services);
-            var engineReports = new List<OcrProbeEngine>(engines.Count);
-
             // EFT screenshot filenames may carry exact world coordinates. The selected path
             // is deliberately never echoed into diagnostic output.
             Console.WriteLine($"selected screenshot · {image.Width}x{image.Height}");
@@ -137,68 +170,24 @@ public static class OcrProbe
             }
 
             Console.WriteLine();
-            foreach (var (engineName, engine) in engines)
-            {
-                Console.WriteLine($"── {engineName} ──");
-                if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
-                {
-                    Console.WriteLine($"unavailable · {status.Availability.Reason ?? "no reason reported"}");
-                    Console.WriteLine();
-                    engineReports.Add(new(
-                        status.Availability.Provider,
-                        false,
-                        status.Availability.Reason,
-                        []));
-                    continue;
-                }
-
-                var preparations = Preparations(engine);
-                var passes = new List<OcrProbePass>(preparations.Count);
-                foreach (var (name, preparation) in preparations)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var pass = await ExecuteAsync(
-                            engine,
-                            image,
-                            new OcrRequest(ScanContext.Unknown, region) { Preparation = preparation },
-                            name,
-                            includeText: true,
-                            detector,
-                            supplemental,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    passes.Add(pass);
-
-                    var megapixels = pass.PreparedWidth / 1000d * pass.PreparedHeight / 1000d;
-                    Console.WriteLine(string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"{name}: {pass.DetectedContext ?? "Unknown"} {FormatScore(pass.ContextScore)} · " +
-                        $"{pass.LineCount} lines · {pass.PreparedWidth}x{pass.PreparedHeight} " +
-                        $"({megapixels:F1} MP) · {pass.TileCount} tile(s) · " +
-                        $"{pass.DurationMilliseconds / 1000:F1}s · {pass.Status}"));
-                    Console.WriteLine("  " + Sample(pass, lineCount));
-                    Console.WriteLine();
-                }
-
-                var availability = engine as IOcrEngineStatus;
-                engineReports.Add(new(
-                    availability?.Availability.Provider ?? engineName,
-                    true,
-                    null,
-                    passes));
-                Console.WriteLine();
-            }
+            var report = await ProbeFrameAsync(
+                    image,
+                    region,
+                    Engines(services),
+                    services.GetRequiredService<ScanContextDetector>(),
+                    new OcrProbeLimits(),
+                    options.OcrProbeLines ?? DefaultLines,
+                    Console.Out,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(options.OutputPath))
             {
-                var report = Report(
-                    "full-frame",
-                    image,
-                    region,
-                    null,
-                    [],
-                    RedactLineText(engineReports));
-                await WriteReportAsync(options.OutputPath, report, cancellationToken).ConfigureAwait(false);
+                await WriteReportAsync(
+                        options.OutputPath,
+                        report with { Engines = RedactLineText(report.Engines) },
+                        cancellationToken)
+                    .ConfigureAwait(false);
             }
         }
 
@@ -224,70 +213,16 @@ public static class OcrProbe
         var (services, image, region) = loaded.Value;
         using (services)
         {
-            var cells = StashGrid.Cells(image, region)
-                .Select((cell, ordinal) => new OcrProbeCell(ordinal, cell.Bounds, cell.Caption))
-                .ToArray();
-            if (cells.Length == 0)
-            {
-                Console.Error.WriteLine("stash grid not found in the selected source region");
-            }
-            var detector = services.GetRequiredService<ScanContextDetector>();
-            var supplemental = new SupplementalOcrSignalDetector();
-            var engineReports = new List<OcrProbeEngine>();
-
-            foreach (var (engineName, engine) in Engines(services))
-            {
-                var availability = engine as IOcrEngineStatus;
-                if (availability is not null && !availability.Availability.IsAvailable)
-                {
-                    Console.Error.WriteLine(
-                        $"{engineName}: unavailable · {availability.Availability.Reason ?? "no reason reported"}");
-                    engineReports.Add(new(
-                        availability.Availability.Provider,
-                        false,
-                        availability.Availability.Reason,
-                        []));
-                    continue;
-                }
-
-                var passes = new List<OcrProbePass>(cells.Length);
-                foreach (var cell in cells)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var pass = await ExecuteAsync(
-                            engine,
-                            image,
-                            new OcrRequest(ScanContext.Container, cell.Caption),
-                            $"cell-{cell.Ordinal}",
-                            includeText: true,
-                            detector,
-                            supplemental,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    passes.Add(pass);
-                }
-
-                Console.Error.WriteLine(
-                    $"{engineName}: {passes.Count(pass => pass.Status == "complete")}/{cells.Length} cell(s) completed");
-                foreach (var pass in passes)
-                {
-                    Console.Error.WriteLine($"  {pass.Name}: {Sample(pass, DefaultCellLines)}");
-                }
-
-                engineReports.Add(new(
-                    availability?.Availability.Provider ?? engineName,
-                    true,
-                    null,
-                    passes));
-            }
-
-            var report = Report(
-                "cells",
-                image,
-                region,
-                cells.Length == 0 ? "stash_grid_not_found" : null,
-                cells,
-                engineReports);
+            var report = await ProbeCellsAsync(
+                    image,
+                    region,
+                    StashGrid.Cells(image, region),
+                    Engines(services),
+                    services.GetRequiredService<ScanContextDetector>(),
+                    new OcrProbeLimits(),
+                    Console.Error,
+                    cancellationToken)
+                .ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(options.OutputPath))
             {
                 await Console.Out.WriteLineAsync(SerializeReport(report)).ConfigureAwait(false);
@@ -301,12 +236,219 @@ public static class OcrProbe
         return 0;
     }
 
+    /// <summary>
+    /// Reads every supported preparation of one region with each provider, under one run
+    /// deadline. Caller cancellation throws; the deadline ends the run with its evidence kept.
+    /// </summary>
+    public static async Task<OcrProbeReport> ProbeFrameAsync(
+        CapturedImage image,
+        PixelRect region,
+        IReadOnlyList<(string Name, IOcrEngine Engine)> engines,
+        ScanContextDetector detector,
+        OcrProbeLimits limits,
+        int sampleLines,
+        TextWriter log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(region);
+        ArgumentNullException.ThrowIfNull(engines);
+        ArgumentNullException.ThrowIfNull(detector);
+        ArgumentNullException.ThrowIfNull(log);
+        using var run = new ProbeRun(limits, cancellationToken);
+        var supplemental = new SupplementalOcrSignalDetector();
+        var reports = new List<OcrProbeEngine>(engines.Count);
+        foreach (var (engineName, engine) in engines)
+        {
+            var planned = Preparations(engine)
+                .Select(variant => (variant.Name, Request: new OcrRequest(ScanContext.Unknown, region)
+                {
+                    Preparation = variant.Preparation,
+                }))
+                .ToArray();
+            log.WriteLine($"── {engineName} ──");
+            if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
+            {
+                log.WriteLine($"unavailable · {status.Availability.Reason ?? "no reason reported"}");
+                log.WriteLine();
+                reports.Add(Unavailable(status.Availability, planned.Length));
+                continue;
+            }
+
+            reports.Add(await ProbeEngineAsync(
+                    run,
+                    engineName,
+                    engine,
+                    image,
+                    planned,
+                    detector,
+                    supplemental,
+                    pass => DescribeFramePass(log, pass, sampleLines),
+                    cancellationToken)
+                .ConfigureAwait(false));
+            log.WriteLine();
+        }
+
+        if (run.StopDiagnostic is not null)
+        {
+            log.WriteLine($"probe stopped early: {run.StopDiagnostic}");
+        }
+
+        return Report("full-frame", image, region, run.StopDiagnostic, [], reports);
+    }
+
+    /// <summary>
+    /// Reads at most <see cref="OcrProbeLimits.MaximumCells"/> stash captions with each provider
+    /// under one run deadline. Caller cancellation throws; the deadline ends the run with its
+    /// evidence kept and every provider's planned, attempted and completed counts intact.
+    /// </summary>
+    public static async Task<OcrProbeReport> ProbeCellsAsync(
+        CapturedImage image,
+        PixelRect region,
+        IReadOnlyList<StashCell> cells,
+        IReadOnlyList<(string Name, IOcrEngine Engine)> engines,
+        ScanContextDetector detector,
+        OcrProbeLimits limits,
+        TextWriter log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(region);
+        ArgumentNullException.ThrowIfNull(cells);
+        ArgumentNullException.ThrowIfNull(engines);
+        ArgumentNullException.ThrowIfNull(detector);
+        ArgumentNullException.ThrowIfNull(log);
+        using var run = new ProbeRun(limits, cancellationToken);
+        var selected = cells
+            .Take(limits.MaximumCells)
+            .Select((cell, ordinal) => new OcrProbeCell(ordinal, cell.Bounds, cell.Caption))
+            .ToArray();
+        if (cells.Count == 0)
+        {
+            log.WriteLine("stash grid not found in the selected source region");
+        }
+        else if (cells.Count > selected.Length)
+        {
+            log.WriteLine($"stash grid returned {cells.Count} cells; reading the first {selected.Length}");
+        }
+
+        var planned = selected
+            .Select(cell => (Name: $"cell-{cell.Ordinal}", Request: new OcrRequest(ScanContext.Container, cell.Caption)))
+            .ToArray();
+        var supplemental = new SupplementalOcrSignalDetector();
+        var reports = new List<OcrProbeEngine>(engines.Count);
+        foreach (var (engineName, engine) in engines)
+        {
+            if (engine is IOcrEngineStatus status && !status.Availability.IsAvailable)
+            {
+                log.WriteLine($"{engineName}: unavailable · {status.Availability.Reason ?? "no reason reported"}");
+                reports.Add(Unavailable(status.Availability, planned.Length));
+                continue;
+            }
+
+            var report = await ProbeEngineAsync(
+                    run,
+                    engineName,
+                    engine,
+                    image,
+                    planned,
+                    detector,
+                    supplemental,
+                    _ => { },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            log.WriteLine(
+                $"{engineName}: {report.CompletedPassCount}/{report.PlannedPassCount} cell(s) completed, " +
+                $"{report.AttemptedPassCount} attempted");
+            foreach (var pass in report.Passes)
+            {
+                log.WriteLine($"  {pass.Name}: {Sample(pass, DefaultCellLines)}");
+            }
+
+            reports.Add(report);
+        }
+
+        if (run.StopDiagnostic is not null)
+        {
+            log.WriteLine($"probe stopped early: {run.StopDiagnostic}");
+        }
+
+        var diagnostic = run.StopDiagnostic
+            ?? (cells.Count == 0
+                ? "stash_grid_not_found"
+                : cells.Count > selected.Length ? CellLimitDiagnostic : null);
+        return Report("cells", image, region, diagnostic, selected, reports) with
+        {
+            DetectedCellCount = cells.Count,
+        };
+    }
+
+    private static async Task<OcrProbeEngine> ProbeEngineAsync(
+        ProbeRun run,
+        string engineName,
+        IOcrEngine engine,
+        CapturedImage image,
+        IReadOnlyList<(string Name, OcrRequest Request)> planned,
+        ScanContextDetector detector,
+        SupplementalOcrSignalDetector supplemental,
+        Action<OcrProbePass> onPass,
+        CancellationToken cancellationToken)
+    {
+        var passes = new List<OcrProbePass>(planned.Count);
+        var attempted = 0;
+        foreach (var (name, request) in planned)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (run.StopDiagnostic is not null)
+            {
+                break;
+            }
+
+            attempted++;
+            try
+            {
+                var pass = await ExecuteAsync(engine, image, request, name, detector, supplemental, run.Token)
+                    .ConfigureAwait(false);
+                passes.Add(pass);
+                onPass(pass);
+                if (string.Equals(pass.DiagnosticCode, MemoryExhaustedDiagnostic, StringComparison.Ordinal))
+                {
+                    // The next pass would ask for the same memory again.
+                    run.StopDiagnostic = MemoryExhaustedDiagnostic;
+                }
+            }
+            catch (OperationCanceledException) when (run.IsExpired)
+            {
+                run.StopDiagnostic = DeadlineDiagnostic;
+            }
+        }
+
+        return new(
+            (engine as IOcrEngineStatus)?.Availability.Provider ?? engineName,
+            true,
+            null,
+            passes)
+        {
+            PlannedPassCount = planned.Count,
+            AttemptedPassCount = attempted,
+            CompletedPassCount = passes.Count(pass => pass.Status is "complete" or "empty"),
+        };
+    }
+
+    private static OcrProbeEngine Unavailable(OcrEngineAvailability availability, int planned) => new(
+        availability.Provider,
+        false,
+        availability.Reason,
+        [])
+    {
+        PlannedPassCount = planned,
+    };
+
     private static async Task<OcrProbePass> ExecuteAsync(
         IOcrEngine engine,
         CapturedImage image,
         OcrRequest request,
         string name,
-        bool includeText,
         ScanContextDetector detector,
         SupplementalOcrSignalDetector supplementalDetector,
         CancellationToken cancellationToken)
@@ -329,13 +471,12 @@ public static class OcrProbe
                 execution.SourceRegion.Width,
                 execution.SourceRegion.Height,
                 execution.Scale,
-                execution.TileCount,
+                execution.PlannedTileCount,
                 execution.AttemptedTileCount,
                 execution.CompletedTileCount,
                 execution.SourcePixelCount,
                 execution.EstimatedPeakBytes,
                 execution.Duration,
-                includeText,
                 detector,
                 supplementalDetector,
                 execution.Tiles.Select(tile => new OcrProbeTile(
@@ -346,7 +487,10 @@ public static class OcrProbe
                     tile.Scale,
                     tile.Duration.TotalMilliseconds,
                     Status(tile.Status.ToString()),
-                    tile.DiagnosticCode)).ToArray());
+                    tile.DiagnosticCode)).ToArray()) with
+                {
+                    TruncatedLineCount = execution.TruncatedLineCount,
+                };
         }
 #endif
         if (engine is TesseractOcrEngine tesseract)
@@ -354,7 +498,9 @@ public static class OcrProbe
             var execution = await tesseract
                 .RecognizeDetailedAsync(image, request, cancellationToken)
                 .ConfigureAwait(false);
-            var tiles = execution.TileCount == 0
+            // Tesseract reads the region as one tile. It is listed only once native work
+            // actually started, so a rejected or gate-timed-out pass shows no tile that ran.
+            var tiles = execution.AttemptedTileCount == 0
                 ? []
                 : new[]
                 {
@@ -380,25 +526,32 @@ public static class OcrProbe
                 execution.PreparedWidth,
                 execution.PreparedHeight,
                 execution.Scale,
-                execution.TileCount,
-                execution.TileCount,
-                execution.Status == OcrExecutionStatus.Complete ? execution.TileCount : 0,
+                execution.PlannedTileCount,
+                execution.AttemptedTileCount,
+                execution.CompletedTileCount,
                 execution.SourcePixelCount,
                 execution.EstimatedPeakBytes,
                 execution.Duration,
-                includeText,
                 detector,
                 supplementalDetector,
-                tiles);
+                tiles) with
+                {
+                    TruncatedLineCount = execution.TruncatedLineCount,
+                };
         }
 
         var result = await engine.RecognizeAsync(image, request, cancellationToken).ConfigureAwait(false);
         var region = request.Region ?? new PixelRect(0, 0, image.Width, image.Height);
         var scale = request.Preparation.SafeScale;
+        var status = !result.IsAvailable
+            ? "unavailable"
+            : result.DiagnosticCode is not (null or "ocr_no_text" or "ocr_region_empty")
+                ? "partial"
+                : result.Lines.Count == 0 ? "empty" : "complete";
         return Pass(
             name,
             result,
-            result.IsAvailable ? "complete" : "unavailable",
+            status,
             result.DiagnosticCode,
             image,
             region,
@@ -409,11 +562,10 @@ public static class OcrProbe
             scale,
             1,
             1,
-            result.IsAvailable ? 1 : 0,
+            status is "complete" or "empty" ? 1 : 0,
             checked((long)image.Width * image.Height),
             image.Pixels.Length,
             result.Duration,
-            includeText,
             detector,
             supplementalDetector,
             []);
@@ -431,13 +583,12 @@ public static class OcrProbe
         int preparedWidth,
         int preparedHeight,
         int scale,
-        int tileCount,
+        int plannedTileCount,
         int attemptedTileCount,
         int completedTileCount,
         long sourcePixelCount,
         long estimatedPeakBytes,
         TimeSpan duration,
-        bool includeText,
         ScanContextDetector detector,
         SupplementalOcrSignalDetector supplementalDetector,
         IReadOnlyList<OcrProbeTile> tiles)
@@ -445,7 +596,7 @@ public static class OcrProbe
         var context = detector.Detect(image, result);
         var supplemental = supplementalDetector.Detect(result);
         var lines = result.Lines.Select(line => new OcrProbeLine(
-            includeText ? line.Text : null,
+            line.Text,
             line.Bounds,
             line.Confidence?.Value)).ToArray();
         return new(
@@ -459,7 +610,7 @@ public static class OcrProbe
             preparedWidth,
             preparedHeight,
             scale,
-            tileCount,
+            plannedTileCount,
             attemptedTileCount,
             completedTileCount,
             sourcePixelCount,
@@ -632,6 +783,19 @@ public static class OcrProbe
         return new(x, y, width, height);
     }
 
+    private static void DescribeFramePass(TextWriter log, OcrProbePass pass, int sampleLines)
+    {
+        var megapixels = pass.PreparedWidth / 1000d * pass.PreparedHeight / 1000d;
+        log.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{pass.Name}: {pass.DetectedContext ?? "Unknown"} {FormatScore(pass.ContextScore)} · " +
+            $"{pass.LineCount} lines · {pass.PreparedWidth}x{pass.PreparedHeight} " +
+            $"({megapixels:F1} MP) · {pass.CompletedTileCount}/{pass.PlannedTileCount} tile(s) · " +
+            $"{pass.DurationMilliseconds / 1000:F1}s · {pass.Status}"));
+        log.WriteLine("  " + Sample(pass, sampleLines));
+        log.WriteLine();
+    }
+
     private static string Sample(OcrProbePass pass, int count)
     {
         var builder = new StringBuilder();
@@ -672,5 +836,36 @@ public static class OcrProbe
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>One run's deadline, linked to the caller, and the reason it stopped early if it did.</summary>
+    private sealed class ProbeRun : IDisposable
+    {
+        private readonly CancellationTokenSource _deadline;
+        private readonly CancellationToken _caller;
+
+        public ProbeRun(OcrProbeLimits limits, CancellationToken caller)
+        {
+            ArgumentNullException.ThrowIfNull(limits);
+            if (limits.RunTimeout <= TimeSpan.Zero ||
+                limits.RunTimeout > TimeSpan.FromDays(1) ||
+                limits.MaximumCells <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(limits), "OCR probe limits must be positive and bounded.");
+            }
+
+            caller.ThrowIfCancellationRequested();
+            _caller = caller;
+            _deadline = CancellationTokenSource.CreateLinkedTokenSource(caller);
+            _deadline.CancelAfter(limits.RunTimeout);
+        }
+
+        public CancellationToken Token => _deadline.Token;
+
+        public bool IsExpired => _deadline.IsCancellationRequested && !_caller.IsCancellationRequested;
+
+        public string? StopDiagnostic { get; set; }
+
+        public void Dispose() => _deadline.Dispose();
     }
 }

@@ -2,8 +2,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
 using TarkovCompanion.Core.Abstractions;
-using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Recognition;
+using TarkovCompanion.Infrastructure.Recognition;
 using Windows.Globalization;
 using Windows.Graphics.Imaging;
 using PixelFormat = TarkovCompanion.Core.Domain.Recognition.PixelFormat;
@@ -24,6 +24,12 @@ namespace TarkovCompanion.Platform.Windows.Ocr;
 /// the first thing to disappear. This implementation keeps native resolution and divides only
 /// oversized requested regions into deterministic overlapping tiles. Tile bitmaps and native
 /// results live only for the request; neither pixels nor paths are persisted.
+///
+/// Requests are serialized. A caller-visible timeout or cancellation can return before the
+/// native operation observes it, and a second request started in that interval used to run
+/// beside the abandoned one and double the memory the budget had promised. The gate is now held
+/// until the abandoned native work really settles, and that settle path also observes its
+/// late result so a failure cannot go unobserved.
 /// </remarks>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
@@ -36,6 +42,19 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
     // still honoring a smaller limit reported by the installed Windows component.
     private const int CompatibilityMaximumTileDimension = 2_600;
 
+    // A tile exists twice while it is handed over: in the managed BGRA staging buffer and in the
+    // SoftwareBitmap copied from it. The first estimate counted one of them.
+    private const int TileCopies = 2;
+    private const int BytesPerStagedPixel = 4;
+
+    // Pixels copied between cancellation checks. A row is at most one tile edge.
+    private const int CancellationCheckPixels = 1 << 16;
+
+    // E_OUTOFMEMORY, which is also OutOfMemoryException's own HRESULT. WinRT reports exhaustion
+    // while creating a SoftwareBitmap as a COMException carrying it.
+    private const int OutOfMemoryHResult = unchecked((int)0x8007000E);
+
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IWindowsOcrRecognizer? _recognizer;
     private readonly WindowsMediaOcrOptions _options;
 
@@ -98,203 +117,48 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
         cancellationToken.ThrowIfCancellationRequested();
 
         var region = Clamp(image, request.Region);
-        var sourcePixels = checked((long)image.Width * image.Height);
-        var sourceBytes = image.Pixels.Length;
+        var plan = new FramePlan(image, region, checked((long)image.Width * image.Height), image.Pixels.Length);
         if (_recognizer is null)
         {
-            return EmptyExecution(
-                image,
-                region,
-                sourcePixels,
-                sourceBytes,
-                WindowsOcrExecutionStatus.Unavailable,
-                "ocr_provider_unavailable");
+            return plan.Create(WindowsOcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
         }
 
-        if (sourcePixels > _options.MaximumSourcePixels || sourceBytes > _options.MaximumInputBytes)
+        if (plan.SourcePixels > _options.MaximumSourcePixels || plan.SourceBytes > _options.MaximumInputBytes)
         {
-            return EmptyExecution(
-                image,
-                region,
-                sourcePixels,
-                sourceBytes,
-                WindowsOcrExecutionStatus.Rejected,
-                "ocr_input_limit_exceeded");
+            return plan.Create(WindowsOcrExecutionStatus.Rejected, "ocr_input_limit_exceeded");
         }
 
         if (region.Width <= 0 || region.Height <= 0)
         {
-            return EmptyExecution(
-                image,
-                region,
-                sourcePixels,
-                sourceBytes,
-                WindowsOcrExecutionStatus.Complete,
-                null);
+            // Nothing was asked of Windows. Available and empty, and said so, rather than a
+            // complete read that happened to find no text.
+            return plan.Create(WindowsOcrExecutionStatus.Empty, "ocr_region_empty");
         }
 
         var configuredLimit = _options.MaximumTileDimension ?? CompatibilityMaximumTileDimension;
         var nativeLimit = Math.Min(configuredLimit, (int)WindowsOcr.OcrEngine.MaxImageDimension);
         var tiles = PlanTiles(region, nativeLimit, _options.TileOverlap);
+        plan = plan with { Tiles = tiles };
         if (tiles.Count > _options.MaximumTiles)
         {
-            return EmptyExecution(
-                image,
-                region,
-                sourcePixels,
-                sourceBytes,
-                WindowsOcrExecutionStatus.Rejected,
-                "ocr_tile_limit_exceeded",
-                tileCount: tiles.Count);
+            return plan.Create(WindowsOcrExecutionStatus.Rejected, "ocr_tile_limit_exceeded");
         }
 
-        var largestTilePixels = tiles.Max(tile => checked((long)tile.Width * tile.Height));
-        var estimatedPeakBytes = checked(sourceBytes + (largestTilePixels * 4));
-        if (estimatedPeakBytes > _options.MaximumEstimatedPeakBytes)
+        var largestTilePixels = tiles.Max(tile => (long)tile.Width * tile.Height);
+        plan = plan with { EstimatedPeakBytes = EstimatePeakBytes(plan.SourceBytes, largestTilePixels) };
+        if (plan.EstimatedPeakBytes > _options.MaximumEstimatedPeakBytes)
         {
-            return EmptyExecution(
-                image,
-                region,
-                sourcePixels,
-                estimatedPeakBytes,
-                WindowsOcrExecutionStatus.Rejected,
-                "ocr_memory_limit_exceeded",
-                tileCount: tiles.Count);
+            return plan.Create(WindowsOcrExecutionStatus.Rejected, "ocr_memory_limit_exceeded");
         }
 
         var frameWatch = Stopwatch.StartNew();
-        using var frameCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        frameCancellation.CancelAfter(_options.FrameTimeout);
-        var lines = new List<TiledOcrLine>();
-        var tileReports = new List<WindowsOcrTileExecution>(tiles.Count);
-        var completed = 0;
-        var failed = 0;
-        var timedOut = false;
-
-        for (var ordinal = 0; ordinal < tiles.Count; ordinal++)
+        if (!await _gate.WaitAsync(_options.FrameTimeout, cancellationToken).ConfigureAwait(false))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var tile = tiles[ordinal];
-            var tileWatch = Stopwatch.StartNew();
-            var remaining = _options.FrameTimeout - frameWatch.Elapsed;
-            if (remaining <= TimeSpan.Zero)
-            {
-                timedOut = true;
-                tileReports.Add(new(
-                    ordinal,
-                    tile,
-                    tile.Width,
-                    tile.Height,
-                    1,
-                    TimeSpan.Zero,
-                    WindowsOcrExecutionStatus.TimedOut,
-                    "ocr_frame_timeout"));
-                break;
-            }
-
-            Task<IReadOnlyList<OcrLine>>? tileTask = null;
-            try
-            {
-                tileTask = RecognizeTileAsync(image, tile, frameCancellation.Token);
-                var nativeLines = await tileTask
-                    .WaitAsync(remaining, cancellationToken)
-                    .ConfigureAwait(false);
-                tileWatch.Stop();
-                completed++;
-                tileReports.Add(new(
-                    ordinal,
-                    tile,
-                    tile.Width,
-                    tile.Height,
-                    1,
-                    tileWatch.Elapsed,
-                    WindowsOcrExecutionStatus.Complete,
-                    null));
-                lines.AddRange(nativeLines.Select(line => new TiledOcrLine(line, ordinal)));
-            }
-            catch (TimeoutException)
-            {
-                frameCancellation.Cancel();
-                ObserveCompletion(tileTask);
-                tileWatch.Stop();
-                timedOut = true;
-                tileReports.Add(new(
-                    ordinal,
-                    tile,
-                    tile.Width,
-                    tile.Height,
-                    1,
-                    tileWatch.Elapsed,
-                    WindowsOcrExecutionStatus.TimedOut,
-                    "ocr_frame_timeout"));
-                break;
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                ObserveCompletion(tileTask);
-                tileWatch.Stop();
-                timedOut = true;
-                tileReports.Add(new(
-                    ordinal,
-                    tile,
-                    tile.Width,
-                    tile.Height,
-                    1,
-                    tileWatch.Elapsed,
-                    WindowsOcrExecutionStatus.TimedOut,
-                    "ocr_frame_timeout"));
-                break;
-            }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                tileWatch.Stop();
-                failed++;
-                tileReports.Add(new(
-                    ordinal,
-                    tile,
-                    tile.Width,
-                    tile.Height,
-                    1,
-                    tileWatch.Elapsed,
-                    WindowsOcrExecutionStatus.Failed,
-                    "ocr_tile_failed"));
-            }
+            // Another request, or native work one of them had to abandon, still owns Windows OCR.
+            return plan.Create(WindowsOcrExecutionStatus.TimedOut, "ocr_frame_timeout", frameWatch.Elapsed);
         }
 
-        cancellationToken.ThrowIfCancellationRequested();
-        frameWatch.Stop();
-        var deduplicated = Deduplicate(lines);
-        var status = timedOut
-            ? completed > 0 ? WindowsOcrExecutionStatus.Partial : WindowsOcrExecutionStatus.TimedOut
-            : failed > 0
-                ? completed > 0 ? WindowsOcrExecutionStatus.Partial : WindowsOcrExecutionStatus.Failed
-                : WindowsOcrExecutionStatus.Complete;
-        var diagnostic = status switch
-        {
-            WindowsOcrExecutionStatus.Partial when timedOut => "ocr_frame_timeout_partial",
-            WindowsOcrExecutionStatus.Partial => "ocr_partial_tiles",
-            WindowsOcrExecutionStatus.TimedOut => "ocr_frame_timeout",
-            WindowsOcrExecutionStatus.Failed => "ocr_provider_failed",
-            _ => null,
-        };
-        var available = status is WindowsOcrExecutionStatus.Complete or WindowsOcrExecutionStatus.Partial;
-        var result = new OcrResult(deduplicated, frameWatch.Elapsed, ProviderName, available, diagnostic);
-        return new(
-            result,
-            region,
-            image.Width,
-            image.Height,
-            1,
-            tiles.Count,
-            tileReports.Count,
-            completed,
-            sourcePixels,
-            estimatedPeakBytes,
-            frameWatch.Elapsed,
-            ProviderName,
-            status,
-            diagnostic,
-            tileReports);
+        return await RecognizeTilesAsync(plan, largestTilePixels, frameWatch, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -330,184 +194,373 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
             .ToArray();
     }
 
-    private async Task<IReadOnlyList<OcrLine>> RecognizeTileAsync(
+    internal static long EstimatePeakBytes(long sourceBytes, long largestTilePixels) =>
+        checked(sourceBytes + (largestTilePixels * BytesPerStagedPixel * TileCopies));
+
+    /// <summary>
+    /// Runs the planned tiles while holding the provider gate, and hands the gate to the native
+    /// work instead of releasing it whenever that work outlives this request.
+    /// </summary>
+    private async Task<WindowsOcrExecution> RecognizeTilesAsync(
+        FramePlan plan,
+        long largestTilePixels,
+        Stopwatch frameWatch,
+        CancellationToken cancellationToken)
+    {
+        CancellationTokenSource? frameCancellation = null;
+        byte[]? staging = null;
+        Task? unsettled = null;
+        var tiles = plan.Tiles;
+        var lines = new FrameLines(_options.MaximumLines, _options.MaximumLineTextLength);
+        var tileLines = new List<IReadOnlyList<OcrLine>>(tiles.Count);
+        var tileReports = new List<WindowsOcrTileExecution>(tiles.Count);
+        var attempted = 0;
+        var completed = 0;
+        var failed = 0;
+        var timedOut = false;
+        var memoryExhausted = false;
+        try
+        {
+            frameCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var remainingAtStart = _options.FrameTimeout - frameWatch.Elapsed;
+            if (remainingAtStart > TimeSpan.Zero)
+            {
+                frameCancellation.CancelAfter(remainingAtStart);
+            }
+
+            try
+            {
+                // One staging buffer for the request, sized for the largest tile and cleared
+                // before the gate is released, so managed tile copies neither pile up waiting for
+                // a collection nor outlive the request.
+                staging = new byte[checked(largestTilePixels * BytesPerStagedPixel)];
+            }
+            catch (OutOfMemoryException)
+            {
+                memoryExhausted = true;
+            }
+
+            for (var ordinal = 0; staging is not null && ordinal < tiles.Count; ordinal++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var remaining = _options.FrameTimeout - frameWatch.Elapsed;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    // Not attempted, so not reported as a tile that ran.
+                    timedOut = true;
+                    break;
+                }
+
+                var tile = tiles[ordinal];
+                var tileWatch = Stopwatch.StartNew();
+                var tileTask = RecognizeTileAsync(plan.Image, tile, staging, frameCancellation.Token);
+                attempted++;
+                try
+                {
+                    var nativeLines = await tileTask
+                        .WaitAsync(remaining, cancellationToken)
+                        .ConfigureAwait(false);
+                    tileWatch.Stop();
+                    completed++;
+                    tileLines.Add(lines.Accept(tile, nativeLines));
+                    tileReports.Add(TileReport(ordinal, tile, tileWatch.Elapsed, WindowsOcrExecutionStatus.Complete, null));
+                    if (lines.LimitReached)
+                    {
+                        break;
+                    }
+                }
+                catch (TimeoutException)
+                {
+                    tileWatch.Stop();
+                    unsettled = tileTask;
+                    frameCancellation.Cancel();
+                    timedOut = true;
+                    tileReports.Add(TileReport(ordinal, tile, tileWatch.Elapsed, WindowsOcrExecutionStatus.TimedOut, "ocr_frame_timeout"));
+                    break;
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    tileWatch.Stop();
+                    unsettled = tileTask;
+                    timedOut = true;
+                    tileReports.Add(TileReport(ordinal, tile, tileWatch.Elapsed, WindowsOcrExecutionStatus.TimedOut, "ocr_frame_timeout"));
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    // The caller's cancellation still throws, but the native read it abandoned
+                    // keeps the gate until it settles; see the finally below.
+                    unsettled = tileTask;
+                    throw;
+                }
+                catch (Exception exception) when (IsOutOfMemory(exception))
+                {
+                    // Every later tile would allocate the same buffers again. Stop here.
+                    tileWatch.Stop();
+                    Observe(tileTask);
+                    failed++;
+                    memoryExhausted = true;
+                    tileReports.Add(TileReport(ordinal, tile, tileWatch.Elapsed, WindowsOcrExecutionStatus.Failed, "ocr_memory_exhausted"));
+                    break;
+                }
+                catch (Exception)
+                {
+                    tileWatch.Stop();
+                    Observe(tileTask);
+                    failed++;
+                    tileReports.Add(TileReport(ordinal, tile, tileWatch.Elapsed, WindowsOcrExecutionStatus.Failed, "ocr_tile_failed"));
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            frameWatch.Stop();
+            var merge = OcrLineDeduplicator.Merge(tileLines.ToArray());
+            var (status, diagnostic) = Classify(
+                completed,
+                failed,
+                timedOut,
+                memoryExhausted,
+                lines,
+                merge);
+            var available = status is WindowsOcrExecutionStatus.Complete
+                or WindowsOcrExecutionStatus.Empty
+                or WindowsOcrExecutionStatus.Partial;
+            var result = new OcrResult(merge.Lines, frameWatch.Elapsed, ProviderName, available, diagnostic);
+            return new WindowsOcrExecution(
+                result,
+                plan.Region,
+                plan.Image.Width,
+                plan.Image.Height,
+                1,
+                tiles.Count,
+                attempted,
+                completed,
+                plan.SourcePixels,
+                plan.EstimatedPeakBytes,
+                frameWatch.Elapsed,
+                ProviderName,
+                status,
+                diagnostic,
+                tileReports)
+            {
+                ProviderLineCount = lines.Accepted,
+                TruncatedLineCount = lines.Truncated,
+            };
+        }
+        finally
+        {
+            if (unsettled is { IsCompleted: false })
+            {
+                _ = ReleaseWhenSettledAsync(unsettled, frameCancellation, staging);
+            }
+            else
+            {
+                Observe(unsettled);
+                Release(frameCancellation, staging);
+            }
+        }
+    }
+
+    private static (WindowsOcrExecutionStatus Status, string? Diagnostic) Classify(
+        int completed,
+        int failed,
+        bool timedOut,
+        bool memoryExhausted,
+        FrameLines lines,
+        OcrLineMerge merge)
+    {
+        if (timedOut)
+        {
+            return completed > 0
+                ? (WindowsOcrExecutionStatus.Partial, "ocr_frame_timeout_partial")
+                : (WindowsOcrExecutionStatus.TimedOut, "ocr_frame_timeout");
+        }
+
+        if (memoryExhausted)
+        {
+            return completed > 0
+                ? (WindowsOcrExecutionStatus.Partial, "ocr_memory_exhausted")
+                : (WindowsOcrExecutionStatus.Failed, "ocr_memory_exhausted");
+        }
+
+        if (failed > 0)
+        {
+            return completed > 0
+                ? (WindowsOcrExecutionStatus.Partial, "ocr_partial_tiles")
+                : (WindowsOcrExecutionStatus.Failed, "ocr_provider_failed");
+        }
+
+        if (lines.LimitReached)
+        {
+            return (WindowsOcrExecutionStatus.Partial, "ocr_line_limit_exceeded");
+        }
+
+        if (lines.Truncated > 0)
+        {
+            return (WindowsOcrExecutionStatus.Partial, "ocr_line_text_truncated");
+        }
+
+        if (!merge.IsExhaustive)
+        {
+            return (WindowsOcrExecutionStatus.Partial, "ocr_dedupe_budget_exhausted");
+        }
+
+        if (merge.Lines.Count == 0)
+        {
+            return (WindowsOcrExecutionStatus.Empty, "ocr_no_text");
+        }
+
+        return (WindowsOcrExecutionStatus.Complete, null);
+    }
+
+    private async Task<IReadOnlyList<WindowsOcrNativeLine>> RecognizeTileAsync(
         CapturedImage image,
         PixelRect tile,
+        byte[] staging,
         CancellationToken cancellationToken)
     {
         // This method owns the bitmap until the native operation really finishes. A strict
         // caller-side timeout may return before a misbehaving component observes cancellation;
         // disposing its input in that interval would turn a bounded timeout into a use-after-
         // dispose race.
-        using var bitmap = ToSoftwareBitmap(image, tile, cancellationToken);
-        var nativeLines = await _recognizer!.RecognizeAsync(bitmap, cancellationToken).ConfigureAwait(false);
-        return nativeLines
-            .Where(line => !string.IsNullOrWhiteSpace(line.Text))
-            .Select(line => new OcrLine(
-                line.Text.Trim(),
-                new PixelRect(
-                    tile.X + line.Bounds.X,
-                    tile.Y + line.Bounds.Y,
-                    line.Bounds.Width,
-                    line.Bounds.Height),
-                // Windows.Media.Ocr publishes no confidence. Null is the v1 representation of
-                // an unscored reading; numeric zero means a provider actually scored zero.
-                null))
-            .ToArray();
+        using var bitmap = ToSoftwareBitmap(image, tile, staging, cancellationToken);
+        return await _recognizer!
+            .RecognizeAsync(bitmap, _options.MaximumLines, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static SoftwareBitmap ToSoftwareBitmap(
         CapturedImage image,
         PixelRect region,
+        byte[] staging,
         CancellationToken cancellationToken)
     {
-        var pixels = new byte[checked(region.Width * region.Height * 4)];
+        var length = checked(region.Width * region.Height * BytesPerStagedPixel);
         var source = image.Pixels.Span;
         var bytesPerPixel = BytesPerPixel(image.Format);
         var redOffset = image.Format == PixelFormat.Rgba8888 ? 0 : 2;
         var blueOffset = image.Format == PixelFormat.Rgba8888 ? 2 : 0;
+        var sinceCheck = CancellationCheckPixels;
 
         for (var y = 0; y < region.Height; y++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (sinceCheck >= CancellationCheckPixels)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                sinceCheck = 0;
+            }
+
             var sourceRow = checked(((region.Y + y) * image.Stride) + (region.X * bytesPerPixel));
-            var targetRow = y * region.Width * 4;
+            var targetRow = y * region.Width * BytesPerStagedPixel;
             for (var x = 0; x < region.Width; x++)
             {
                 var from = sourceRow + (x * bytesPerPixel);
-                var to = targetRow + (x * 4);
+                var to = targetRow + (x * BytesPerStagedPixel);
                 if (image.Format == PixelFormat.Gray8)
                 {
                     var grey = source[from];
-                    pixels[to] = grey;
-                    pixels[to + 1] = grey;
-                    pixels[to + 2] = grey;
+                    staging[to] = grey;
+                    staging[to + 1] = grey;
+                    staging[to + 2] = grey;
                 }
                 else
                 {
-                    pixels[to] = source[from + blueOffset];
-                    pixels[to + 1] = source[from + 1];
-                    pixels[to + 2] = source[from + redOffset];
+                    staging[to] = source[from + blueOffset];
+                    staging[to + 1] = source[from + 1];
+                    staging[to + 2] = source[from + redOffset];
                 }
 
-                pixels[to + 3] = 255;
+                staging[to + 3] = 255;
             }
+
+            sinceCheck += region.Width;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var bitmap = new SoftwareBitmap(
             BitmapPixelFormat.Bgra8,
             region.Width,
             region.Height,
             BitmapAlphaMode.Premultiplied);
-        bitmap.CopyFromBuffer(pixels.AsBuffer());
-        return bitmap;
+        try
+        {
+            bitmap.CopyFromBuffer(staging.AsBuffer(0, length));
+            return bitmap;
+        }
+        catch
+        {
+            bitmap.Dispose();
+            throw;
+        }
     }
 
-    private static IReadOnlyList<OcrLine> Deduplicate(IReadOnlyList<TiledOcrLine> tiled)
+    private async Task ReleaseWhenSettledAsync(
+        Task nativeWork,
+        CancellationTokenSource? frameCancellation,
+        byte[]? staging)
     {
-        var selected = new List<TiledOcrLine>();
-        foreach (var candidate in tiled
-                     .OrderBy(line => line.Line.Bounds.Y)
-                     .ThenBy(line => line.Line.Bounds.X)
-                     .ThenBy(line => Normalize(line.Line.Text), StringComparer.Ordinal)
-                     .ThenBy(line => line.TileOrdinal))
+        try
         {
-            var duplicateIndex = selected.FindIndex(existing => IsDuplicate(existing.Line, candidate.Line));
-            if (duplicateIndex < 0)
-            {
-                selected.Add(candidate);
-                continue;
-            }
-
-            if (IsBetter(candidate, selected[duplicateIndex]))
-            {
-                selected[duplicateIndex] = candidate;
-            }
+            await nativeWork.ConfigureAwait(false);
         }
-
-        return selected
-            .Select(line => line.Line)
-            .OrderBy(line => line.Bounds.Y)
-            .ThenBy(line => line.Bounds.X)
-            .ThenBy(line => line.Text, StringComparer.Ordinal)
-            .ToArray();
+        catch
+        {
+            // The request that abandoned this work already reported its timeout, failure or
+            // cancellation. Awaiting here observes a late failure; it is not reported twice.
+        }
+        finally
+        {
+            Release(frameCancellation, staging);
+        }
     }
 
-    private static bool IsDuplicate(OcrLine left, OcrLine right)
+    private void Release(CancellationTokenSource? frameCancellation, byte[]? staging)
     {
-        var leftText = Normalize(left.Text);
-        var rightText = Normalize(right.Text);
-        if (leftText.Length == 0 || rightText.Length == 0)
+        if (staging is not null)
         {
-            return false;
+            Array.Clear(staging);
         }
 
-        var textMatches = string.Equals(leftText, rightText, StringComparison.Ordinal) ||
-            (Math.Min(leftText.Length, rightText.Length) * 10 >= Math.Max(leftText.Length, rightText.Length) * 6 &&
-             (leftText.Contains(rightText, StringComparison.Ordinal) ||
-              rightText.Contains(leftText, StringComparison.Ordinal)));
-        if (!textMatches)
-        {
-            return false;
-        }
-
-        var intersectionWidth = Math.Max(
-            0,
-            Math.Min(left.Bounds.X + left.Bounds.Width, right.Bounds.X + right.Bounds.Width) -
-            Math.Max(left.Bounds.X, right.Bounds.X));
-        var intersectionHeight = Math.Max(
-            0,
-            Math.Min(left.Bounds.Y + left.Bounds.Height, right.Bounds.Y + right.Bounds.Height) -
-            Math.Max(left.Bounds.Y, right.Bounds.Y));
-        var intersection = (long)intersectionWidth * intersectionHeight;
-        var smaller = Math.Min(
-            (long)left.Bounds.Width * left.Bounds.Height,
-            (long)right.Bounds.Width * right.Bounds.Height);
-        return smaller > 0 && intersection * 2 >= smaller;
+        frameCancellation?.Dispose();
+        _gate.Release();
     }
 
-    private static bool IsBetter(TiledOcrLine candidate, TiledOcrLine current)
+    private static void Observe(Task? task)
     {
-        var candidateText = Normalize(candidate.Line.Text);
-        var currentText = Normalize(current.Line.Text);
-        if (candidateText.Length != currentText.Length)
+        if (task is { IsFaulted: true })
         {
-            return candidateText.Length > currentText.Length;
+            _ = task.Exception;
         }
-
-        var candidateArea = (long)candidate.Line.Bounds.Width * candidate.Line.Bounds.Height;
-        var currentArea = (long)current.Line.Bounds.Width * current.Line.Bounds.Height;
-        return candidateArea != currentArea
-            ? candidateArea > currentArea
-            : candidate.TileOrdinal < current.TileOrdinal;
     }
 
-    private static string Normalize(string text) => new(
-        text.Where(char.IsLetterOrDigit)
-            .Select(char.ToLowerInvariant)
-            .ToArray());
+    private static bool IsOutOfMemory(Exception exception) =>
+        exception is OutOfMemoryException || exception.HResult == OutOfMemoryHResult;
 
-    private static void ObserveCompletion(Task? task)
+    private static WindowsOcrTileExecution TileReport(
+        int ordinal,
+        PixelRect tile,
+        TimeSpan duration,
+        WindowsOcrExecutionStatus status,
+        string? diagnostic) => new(
+            ordinal,
+            tile,
+            tile.Width,
+            tile.Height,
+            1,
+            duration,
+            status,
+            diagnostic);
+
+    private static PixelRect Translate(PixelRect tile, PixelRect bounds)
     {
-        if (task is null || task.IsCompleted)
-        {
-            return;
-        }
-
-        _ = ObserveAsync(task);
-
-        static async Task ObserveAsync(Task pending)
-        {
-            try
-            {
-                await pending.ConfigureAwait(false);
-            }
-            catch
-            {
-                // The request already reported the timeout. This observer exists only so a
-                // native component that finishes later cannot leave an unobserved exception.
-            }
-        }
+        // Windows reports word boxes inside the bitmap it was given. Clamped anyway, so a
+        // misbehaving component can neither move evidence outside its tile nor overflow the
+        // translation into source coordinates.
+        var left = Math.Clamp(bounds.X, 0, tile.Width);
+        var top = Math.Clamp(bounds.Y, 0, tile.Height);
+        var right = (int)Math.Clamp((long)bounds.X + bounds.Width, left, tile.Width);
+        var bottom = (int)Math.Clamp((long)bounds.Y + bounds.Height, top, tile.Height);
+        return new(tile.X + left, tile.Y + top, right - left, bottom - top);
     }
 
     private static IReadOnlyList<int> AxisStarts(int origin, int length, int maximum, int overlap)
@@ -522,35 +575,6 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
         return Enumerable.Range(0, count)
             .Select(index => checked(origin + (index * step)))
             .ToArray();
-    }
-
-    private WindowsOcrExecution EmptyExecution(
-        CapturedImage image,
-        PixelRect region,
-        long sourcePixels,
-        long estimatedPeakBytes,
-        WindowsOcrExecutionStatus status,
-        string? diagnostic,
-        int tileCount = 0)
-    {
-        var available = status == WindowsOcrExecutionStatus.Complete;
-        var result = new OcrResult([], TimeSpan.Zero, ProviderName, available, diagnostic);
-        return new(
-            result,
-            region,
-            image.Width,
-            image.Height,
-            1,
-            tileCount,
-            0,
-            0,
-            sourcePixels,
-            estimatedPeakBytes,
-            TimeSpan.Zero,
-            ProviderName,
-            status,
-            diagnostic,
-            []);
     }
 
     private static PixelRect Clamp(CapturedImage image, PixelRect? region)
@@ -596,10 +620,13 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
     private static WindowsMediaOcrOptions ValidateOptions(WindowsMediaOcrOptions options)
     {
         if (options.FrameTimeout <= TimeSpan.Zero ||
+            options.FrameTimeout > TimeSpan.FromDays(1) ||
             options.MaximumSourcePixels <= 0 ||
             options.MaximumInputBytes <= 0 ||
             options.MaximumEstimatedPeakBytes <= 0 ||
             options.MaximumTiles <= 0 ||
+            options.MaximumLines <= 0 ||
+            options.MaximumLineTextLength <= 1 ||
             options.TileOverlap < 0 ||
             options.MaximumTileDimension is <= 0 ||
             options.MaximumTileDimension > (int)WindowsOcr.OcrEngine.MaxImageDimension ||
@@ -620,15 +647,100 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
         _ => "Windows could not start its OCR engine: " + exception.Message,
     };
 
-    private sealed record TiledOcrLine(OcrLine Line, int TileOrdinal);
+    /// <summary>What a request measured before any native work, so every exit reports the same facts.</summary>
+    private sealed record FramePlan(CapturedImage Image, PixelRect Region, long SourcePixels, long SourceBytes)
+    {
+        public IReadOnlyList<PixelRect> Tiles { get; init; } = [];
+
+        public long EstimatedPeakBytes { get; init; } = SourceBytes;
+
+        public WindowsOcrExecution Create(
+            WindowsOcrExecutionStatus status,
+            string diagnostic,
+            TimeSpan duration = default)
+        {
+            var available = status == WindowsOcrExecutionStatus.Empty;
+            var result = new OcrResult([], duration, ProviderName, available, diagnostic);
+            return new(
+                result,
+                Region,
+                Image.Width,
+                Image.Height,
+                1,
+                Tiles.Count,
+                0,
+                0,
+                SourcePixels,
+                EstimatedPeakBytes,
+                duration,
+                ProviderName,
+                status,
+                diagnostic,
+                []);
+        }
+    }
+
+    /// <summary>Lines accepted from every tile of one request, under its line and text ceilings.</summary>
+    private sealed class FrameLines(int maximumLines, int maximumTextLength)
+    {
+        public int Accepted { get; private set; }
+
+        public int Truncated { get; private set; }
+
+        public bool LimitReached { get; private set; }
+
+        public IReadOnlyList<OcrLine> Accept(PixelRect tile, IReadOnlyList<WindowsOcrNativeLine> nativeLines)
+        {
+            var lines = new List<OcrLine>(Math.Min(nativeLines.Count, maximumLines));
+            foreach (var native in nativeLines)
+            {
+                if (string.IsNullOrWhiteSpace(native.Text))
+                {
+                    continue;
+                }
+
+                if (Accepted == maximumLines)
+                {
+                    LimitReached = true;
+                    break;
+                }
+
+                var text = native.Text.Trim();
+                if (text.Length > maximumTextLength)
+                {
+                    // Never leave half of a surrogate pair at the cut.
+                    var length = char.IsHighSurrogate(text[maximumTextLength - 1])
+                        ? maximumTextLength - 1
+                        : maximumTextLength;
+                    text = text[..length];
+                    Truncated++;
+                }
+
+                Accepted++;
+                lines.Add(new OcrLine(
+                    text,
+                    Translate(tile, native.Bounds),
+                    // Windows.Media.Ocr publishes no confidence. Null is the v1 representation
+                    // of an unscored reading; numeric zero means a provider actually scored zero.
+                    null));
+            }
+
+            return lines;
+        }
+    }
 }
 
 internal sealed record WindowsOcrNativeLine(string Text, PixelRect Bounds);
 
 internal interface IWindowsOcrRecognizer
 {
+    /// <summary>
+    /// Reads one bitmap, returning at most one line past <paramref name="maximumLines"/> so the
+    /// engine can tell a full page from a cut one.
+    /// </summary>
     Task<IReadOnlyList<WindowsOcrNativeLine>> RecognizeAsync(
         SoftwareBitmap bitmap,
+        int maximumLines,
         CancellationToken cancellationToken);
 }
 
@@ -636,12 +748,20 @@ internal sealed class WindowsOcrRecognizer(WindowsOcr.OcrEngine engine) : IWindo
 {
     public async Task<IReadOnlyList<WindowsOcrNativeLine>> RecognizeAsync(
         SoftwareBitmap bitmap,
+        int maximumLines,
         CancellationToken cancellationToken)
     {
+        // The returned task completes only when Windows reports the operation finished or
+        // cancelled, which is what lets the engine hold its gate until native work settles.
         var result = await engine.RecognizeAsync(bitmap).AsTask(cancellationToken).ConfigureAwait(false);
-        var lines = new List<WindowsOcrNativeLine>(result.Lines.Count);
+        var lines = new List<WindowsOcrNativeLine>();
         foreach (var line in result.Lines)
         {
+            if (lines.Count > maximumLines)
+            {
+                break;
+            }
+
             if (string.IsNullOrWhiteSpace(line.Text))
             {
                 continue;

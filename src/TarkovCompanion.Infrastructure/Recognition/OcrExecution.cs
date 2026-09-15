@@ -6,6 +6,9 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 public enum OcrExecutionStatus
 {
     Complete,
+
+    /// <summary>The provider ran, nothing degraded the read, and it found no text.</summary>
+    Empty,
     Partial,
     TimedOut,
     Rejected,
@@ -17,6 +20,12 @@ public enum OcrExecutionStatus
 /// A machine-readable account of a Tesseract OCR request. It intentionally carries no source
 /// path or pixels and does not claim that a provider quality score is calibrated accuracy.
 /// </summary>
+/// <remarks>
+/// Tesseract reads a region as one tile. Planned is one for any non-empty region; attempted is
+/// one only once native recognition actually started; completed is one only once it returned.
+/// A rejection, a timeout while waiting for the provider, or a failed preparation therefore
+/// reports zero attempted work instead of a tile that never ran.
+/// </remarks>
 public sealed record TesseractOcrExecution(
     OcrResult Result,
     PixelRect SourceRegion,
@@ -25,7 +34,9 @@ public sealed record TesseractOcrExecution(
     int Scale,
     int PreparedWidth,
     int PreparedHeight,
-    int TileCount,
+    int PlannedTileCount,
+    int AttemptedTileCount,
+    int CompletedTileCount,
     long SourcePixelCount,
     long PreparedPixelCount,
     long EstimatedPeakBytes,
@@ -35,6 +46,12 @@ public sealed record TesseractOcrExecution(
     string? DiagnosticCode)
 {
     public const string SchemaVersion = "tarkov-companion.tesseract-ocr-execution.v1";
+
+    /// <summary>Non-empty provider lines accepted under the line ceiling.</summary>
+    public int ProviderLineCount { get; init; }
+
+    /// <summary>Accepted lines whose text was cut to the per-line ceiling.</summary>
+    public int TruncatedLineCount { get; init; }
 }
 
 internal static class OcrExecutionBudget

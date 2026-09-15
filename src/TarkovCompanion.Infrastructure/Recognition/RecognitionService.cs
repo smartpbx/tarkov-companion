@@ -49,7 +49,12 @@ public sealed class RecognitionService : IRecognitionService
         var hud = HudProbe.Read(image);
         if (!coordinated.FullFrame.IsAvailable)
         {
-            return new RecognitionResult(ScanContext.Unknown, [], image.CapturedUtc, "ocr_provider_unavailable")
+            // A timeout or a rejected frame is not a missing provider. Only an actually absent
+            // provider keeps the code the scan use case turns into "unavailable".
+            var unavailable = coordinated.FullFrame.DiagnosticCode is null or "ocr_language_unavailable"
+                ? "ocr_provider_unavailable"
+                : coordinated.FullFrame.DiagnosticCode;
+            return new RecognitionResult(ScanContext.Unknown, [], image.CapturedUtc, unavailable)
             {
                 Detail = detail,
                 Hud = hud,
@@ -59,7 +64,10 @@ public sealed class RecognitionService : IRecognitionService
         var context = coordinated.Detection.Context;
         if (context == ScanContext.Unknown)
         {
-            return new RecognitionResult(context, [], image.CapturedUtc, "context_unknown")
+            // Reading nothing and reading text that matched no context are different failures,
+            // and only the second one is an anchor problem.
+            var unknown = coordinated.IsEmpty ? OcrOutcome.NoText : "context_unknown";
+            return new RecognitionResult(context, [], image.CapturedUtc, unknown)
             {
                 Detail = detail,
                 Hud = hud,
@@ -114,7 +122,8 @@ public sealed class RecognitionService : IRecognitionService
     private static string Describe(CapturedImage image, CoordinatedOcrResult coordinated) =>
         $"{coordinated.FullFrame.Lines.Count} text line(s) read from {image.Width}x{image.Height} " +
         $"by {coordinated.FullFrame.Engine} in {coordinated.FullFrame.Duration.TotalMilliseconds:F0}ms; " +
-        $"partial={coordinated.IsPartial}; diagnostic={coordinated.DiagnosticCode ?? "none"}; " +
+        $"partial={coordinated.IsPartial}; empty={coordinated.IsEmpty}; " +
+        $"diagnostic={coordinated.DiagnosticCode ?? "none"}; " +
         $"health-character={coordinated.SupplementalSignals.HealthAndCharacter.DiagnosticCode}; " +
         $"version-strip={coordinated.SupplementalSignals.VersionStrip.DiagnosticCode}; " +
         coordinated.Detection.Evidence;

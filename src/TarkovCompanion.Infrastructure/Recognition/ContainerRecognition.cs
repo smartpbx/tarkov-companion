@@ -413,6 +413,7 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
     private readonly ContainerGridDetector _gridDetector;
     private readonly ContainerGridSegmenter _segmenter;
     private readonly ContainerScanAnalyzer _analyzer;
+    private readonly OcrPipelineOptions _pipeline;
 
     public ContainerRecognitionService(
         IOcrEngine ocrEngine,
@@ -420,7 +421,8 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         IItemRepository items,
         ContainerGridDetector? gridDetector = null,
         ContainerGridSegmenter? segmenter = null,
-        ContainerScanAnalyzer? analyzer = null)
+        ContainerScanAnalyzer? analyzer = null,
+        OcrPipelineOptions? pipelineOptions = null)
     {
         _ocrEngine = ocrEngine ?? throw new ArgumentNullException(nameof(ocrEngine));
         _resolverCache = resolverCache ?? throw new ArgumentNullException(nameof(resolverCache));
@@ -428,6 +430,7 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         _gridDetector = gridDetector ?? new();
         _segmenter = segmenter ?? new();
         _analyzer = analyzer ?? new();
+        _pipeline = OcrPipelineDeadline.Validate(pipelineOptions);
     }
 
     public async Task<ContainerScanResult> RecognizeAsync(
@@ -442,9 +445,22 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         }
 
         var segments = _segmenter.Segment(image, grid);
-        var ocr = await _ocrEngine
-            .RecognizeAsync(image, new OcrRequest(ScanContext.Container, grid.Bounds), cancellationToken)
-            .ConfigureAwait(false);
+        // Grid detection, segmentation and analysis belong to #273. The only #299 change here is
+        // the shared OCR deadline: the whole-grid pass and every cell fallback spend from one
+        // budget, and running out keeps what was already read as explicit partial evidence.
+        using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
+        OcrResult ocr;
+        try
+        {
+            ocr = await _ocrEngine
+                .RecognizeAsync(image, new OcrRequest(ScanContext.Container, grid.Bounds), deadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsExpired)
+        {
+            return Empty(OcrPipelineDeadline.DiagnosticCode);
+        }
+
         if (!ocr.IsAvailable)
         {
             return Empty(ocr.DiagnosticCode ?? "ocr_provider_unavailable");
@@ -461,14 +477,25 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             .ThenBy(cell => cell.Column)
             .Take(MaximumCellFallbacks)
             .ToArray();
+        var deadlineExpired = false;
         foreach (var cell in fallbackCells)
         {
-            var cellOcr = await _ocrEngine
-                .RecognizeAsync(
-                    image,
-                    new OcrRequest(ScanContext.Container, Inset(cell.Bounds)),
-                    cancellationToken)
-                .ConfigureAwait(false);
+            OcrResult cellOcr;
+            try
+            {
+                cellOcr = await _ocrEngine
+                    .RecognizeAsync(
+                        image,
+                        new OcrRequest(ScanContext.Container, Inset(cell.Bounds)),
+                        deadline.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (deadline.IsExpired)
+            {
+                deadlineExpired = true;
+                break;
+            }
+
             if (cellOcr.IsAvailable)
             {
                 candidates.AddRange(cellOcr.Lines.SelectMany(line => ResolveLine(resolver, line)));
@@ -485,7 +512,11 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             }
         }
 
-        return _analyzer.Analyze(segments, candidates, valuations);
+        var result = _analyzer.Analyze(segments, candidates, valuations);
+        // Cells the deadline never reached stay unresolved in the analysis; the code says why.
+        return deadlineExpired
+            ? result with { IsPartial = true, DiagnosticCode = OcrPipelineDeadline.DiagnosticCode }
+            : result;
     }
 
     private static PixelRect Inset(PixelRect bounds)

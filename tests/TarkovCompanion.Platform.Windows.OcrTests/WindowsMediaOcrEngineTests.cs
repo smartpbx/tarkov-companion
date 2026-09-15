@@ -29,10 +29,12 @@ public sealed class WindowsMediaOcrEngineTests
     [WindowsX64Fact]
     public async Task TiledLinesReturnInOriginalCoordinatesAndOverlapDuplicatesCollapseDeterministically()
     {
+        // Word boxes stay inside the bitmap each tile handed to Windows, as the real component
+        // reports them; the engine clamps anything outside a tile.
         var recognizer = new FakeRecognizer((call, _, _) => Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>(
             call == 0
-                ? [new("Graphics", new(50, 20, 60, 12))]
-                : [new("Graphics Card", new(0, 20, 100, 12))]));
+                ? [new("Graphics", new(60, 20, 40, 12))]
+                : [new("Graphics Card", new(0, 20, 90, 12))]));
         var engine = Engine(recognizer);
 
         var execution = await engine.RecognizeDetailedAsync(
@@ -42,7 +44,8 @@ public sealed class WindowsMediaOcrEngineTests
 
         Assert.Equal(WindowsOcrExecutionStatus.Complete, execution.Status);
         Assert.Equal(1, execution.Scale);
-        Assert.Equal(2, execution.TileCount);
+        Assert.Equal(2, execution.PlannedTileCount);
+        Assert.Equal(2, execution.AttemptedTileCount);
         Assert.Equal(2, execution.CompletedTileCount);
         Assert.Equal(new PixelRect(0, 0, 180, 80), execution.SourceRegion);
         Assert.Equal(180, execution.SourceWidth);
@@ -50,7 +53,7 @@ public sealed class WindowsMediaOcrEngineTests
         Assert.True(execution.EstimatedPeakBytes >= 180 * 80);
         var line = Assert.Single(execution.Result.Lines);
         Assert.Equal("Graphics Card", line.Text);
-        Assert.Equal(new PixelRect(80, 20, 100, 12), line.Bounds);
+        Assert.Equal(new PixelRect(80, 20, 90, 12), line.Bounds);
         Assert.Null(line.Confidence);
     }
 
@@ -75,19 +78,40 @@ public sealed class WindowsMediaOcrEngineTests
     }
 
     [WindowsX64Fact]
-    public async Task EmptyTextIsACompleteEmptyReadRatherThanProviderFailure()
+    public async Task EmptyTextIsAnAvailableEmptyReadRatherThanCompleteOrProviderFailure()
     {
         var recognizer = new FakeRecognizer((_, _, _) =>
-            Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([]));
+            Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([new("   ", new(1, 1, 10, 10))]));
 
         var execution = await Engine(recognizer).RecognizeDetailedAsync(
             Frame(80, 60),
             new OcrRequest(ScanContext.Unknown),
             CancellationToken.None);
 
-        Assert.Equal(WindowsOcrExecutionStatus.Complete, execution.Status);
+        Assert.Equal(WindowsOcrExecutionStatus.Empty, execution.Status);
+        Assert.Equal("ocr_no_text", execution.DiagnosticCode);
+        Assert.Equal("ocr_no_text", execution.Result.DiagnosticCode);
         Assert.True(execution.Result.IsAvailable);
         Assert.Empty(execution.Result.Lines);
+        Assert.Equal(1, execution.CompletedTileCount);
+    }
+
+    [WindowsX64Fact]
+    public async Task EmptyRegionIsAvailableAndEmptyWithoutNativeWork()
+    {
+        var recognizer = new FakeRecognizer((_, _, _) =>
+            Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([]));
+
+        var execution = await Engine(recognizer).RecognizeDetailedAsync(
+            Frame(80, 60),
+            new OcrRequest(ScanContext.Unknown, new PixelRect(90, 10, 20, 20)),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Empty, execution.Status);
+        Assert.Equal("ocr_region_empty", execution.DiagnosticCode);
+        Assert.True(execution.Result.IsAvailable);
+        Assert.Equal(0, execution.PlannedTileCount);
+        Assert.Equal(0, recognizer.CallCount);
     }
 
     [WindowsX64Fact]
@@ -97,7 +121,7 @@ public sealed class WindowsMediaOcrEngineTests
             WaitForeverAsync(token));
         var engine = Engine(recognizer, new WindowsMediaOcrOptions
         {
-            FrameTimeout = TimeSpan.FromMilliseconds(40),
+            FrameTimeout = TimeSpan.FromMilliseconds(250),
             MaximumTileDimension = 100,
             TileOverlap = 20,
         });
@@ -112,6 +136,10 @@ public sealed class WindowsMediaOcrEngineTests
         Assert.Equal("ocr_frame_timeout", execution.DiagnosticCode);
         Assert.False(execution.Result.IsAvailable);
         Assert.Equal(1, recognizer.CallCount);
+        Assert.Equal(2, execution.PlannedTileCount);
+        Assert.Equal(1, execution.AttemptedTileCount);
+        Assert.Equal(0, execution.CompletedTileCount);
+        Assert.Single(execution.Tiles);
         Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2));
     }
 
@@ -123,7 +151,7 @@ public sealed class WindowsMediaOcrEngineTests
             : WaitForeverAsync(token));
         var engine = Engine(recognizer, new WindowsMediaOcrOptions
         {
-            FrameTimeout = TimeSpan.FromMilliseconds(40),
+            FrameTimeout = TimeSpan.FromMilliseconds(250),
             MaximumTileDimension = 100,
             TileOverlap = 20,
         });
@@ -189,6 +217,170 @@ public sealed class WindowsMediaOcrEngineTests
     }
 
     [WindowsX64Fact]
+    public async Task PeakMemoryBudgetCountsManagedAndSoftwareBitmapTileCopies()
+    {
+        // A 20x20 Gray8 frame is 400 source bytes, and its one tile is staged as BGRA twice:
+        // once in the managed buffer and once inside the SoftwareBitmap copied from it.
+        Assert.Equal(400 + (400 * 4 * 2), WindowsMediaOcrEngine.EstimatePeakBytes(400, 400));
+        var recognizer = new FakeRecognizer((_, _, _) =>
+            Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([]));
+        var singleCopyWouldFit = Engine(recognizer, new WindowsMediaOcrOptions
+        {
+            MaximumEstimatedPeakBytes = 400 + (400 * 4) + 1,
+            MaximumTileDimension = 100,
+            TileOverlap = 20,
+        });
+
+        var execution = await singleCopyWouldFit.RecognizeDetailedAsync(
+            Frame(20, 20),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Rejected, execution.Status);
+        Assert.Equal("ocr_memory_limit_exceeded", execution.DiagnosticCode);
+        Assert.Equal(3_600, execution.EstimatedPeakBytes);
+        Assert.Equal(0, execution.AttemptedTileCount);
+        Assert.Equal(0, recognizer.CallCount);
+    }
+
+    [WindowsX64Fact]
+    public async Task TimedOutNativeReadKeepsTheProviderGateUntilItSettles()
+    {
+        // The first read ignores cancellation, like a component that has not noticed it yet.
+        var release = new TaskCompletionSource<IReadOnlyList<WindowsOcrNativeLine>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var recognizer = new FakeRecognizer((call, _, _) => call == 0
+            ? release.Task
+            : Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([new("INSPECT", new(10, 10, 50, 12))]));
+        var engine = Engine(recognizer, new WindowsMediaOcrOptions
+        {
+            FrameTimeout = TimeSpan.FromMilliseconds(200),
+            MaximumTileDimension = 100,
+            TileOverlap = 20,
+        });
+
+        var abandoned = await engine.RecognizeDetailedAsync(
+            Frame(80, 60),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+        var blocked = await engine.RecognizeDetailedAsync(
+            Frame(80, 60),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.TimedOut, abandoned.Status);
+        Assert.Equal(1, abandoned.AttemptedTileCount);
+        Assert.Equal(WindowsOcrExecutionStatus.TimedOut, blocked.Status);
+        Assert.Equal("ocr_frame_timeout", blocked.DiagnosticCode);
+        Assert.Equal(0, blocked.AttemptedTileCount);
+        Assert.Equal(1, recognizer.CallCount);
+
+        release.SetResult([]);
+        var resumed = await ReadWhenGateSettlesAsync(engine);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Complete, resumed.Status);
+        Assert.Equal(2, recognizer.CallCount);
+        Assert.Equal(1, recognizer.MaximumConcurrentReads);
+    }
+
+    [WindowsX64Fact]
+    public async Task CallerCancelledNativeReadIsObservedAndKeepsTheGateUntilItFaults()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var release = new TaskCompletionSource<IReadOnlyList<WindowsOcrNativeLine>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var recognizer = new FakeRecognizer((call, _, _) =>
+        {
+            if (call != 0)
+            {
+                return Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([]);
+            }
+
+            // Cancelled while native work is in flight, deterministically rather than by a timer.
+            cancellation.Cancel();
+            return release.Task;
+        });
+        var engine = Engine(recognizer, new WindowsMediaOcrOptions
+        {
+            FrameTimeout = TimeSpan.FromMilliseconds(200),
+            MaximumTileDimension = 100,
+            TileOverlap = 20,
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            engine.RecognizeDetailedAsync(
+                Frame(80, 60),
+                new OcrRequest(ScanContext.Unknown),
+                cancellation.Token));
+        var blocked = await engine.RecognizeDetailedAsync(
+            Frame(80, 60),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.TimedOut, blocked.Status);
+        Assert.Equal(0, blocked.AttemptedTileCount);
+
+        release.SetException(new InvalidOperationException("synthetic late native failure"));
+        var resumed = await ReadWhenGateSettlesAsync(engine);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Empty, resumed.Status);
+        Assert.Equal(2, recognizer.CallCount);
+        Assert.Equal(1, recognizer.MaximumConcurrentReads);
+    }
+
+    [WindowsX64Fact]
+    public async Task OutOfMemoryStopsTheFrameInsteadOfAllocatingTheNextTile()
+    {
+        var recognizer = new FakeRecognizer((call, _, _) => call == 0
+            ? Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>([new("INSPECT", new(10, 10, 50, 12))])
+            : throw new OutOfMemoryException("synthetic exhaustion"));
+
+        // 260 pixels wide in 100-pixel tiles with 20 pixels of overlap plans three tiles.
+        var execution = await Engine(recognizer).RecognizeDetailedAsync(
+            Frame(260, 80),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Partial, execution.Status);
+        Assert.Equal("ocr_memory_exhausted", execution.DiagnosticCode);
+        Assert.Equal(3, execution.PlannedTileCount);
+        Assert.Equal(2, execution.AttemptedTileCount);
+        Assert.Equal(1, execution.CompletedTileCount);
+        Assert.Equal(2, recognizer.CallCount);
+        Assert.Single(execution.Result.Lines);
+    }
+
+    [WindowsX64Fact]
+    public async Task ProviderLinesAndTextAreBoundedAndReportedAsPartial()
+    {
+        var recognizer = new FakeRecognizer((_, _, _) => Task.FromResult<IReadOnlyList<WindowsOcrNativeLine>>(
+            Enumerable.Range(0, 10)
+                .Select(index => new WindowsOcrNativeLine(
+                    index == 0 ? new string('A', 40) : $"LINE {index}",
+                    new(0, index * 6, 60, 5)))
+                .ToArray()));
+        var engine = Engine(recognizer, new WindowsMediaOcrOptions
+        {
+            MaximumLines = 4,
+            MaximumLineTextLength = 16,
+            MaximumTileDimension = 100,
+            TileOverlap = 20,
+        });
+
+        var execution = await engine.RecognizeDetailedAsync(
+            Frame(80, 80),
+            new OcrRequest(ScanContext.Unknown),
+            CancellationToken.None);
+
+        Assert.Equal(WindowsOcrExecutionStatus.Partial, execution.Status);
+        Assert.Equal("ocr_line_limit_exceeded", execution.DiagnosticCode);
+        Assert.Equal(4, execution.ProviderLineCount);
+        Assert.Equal(1, execution.TruncatedLineCount);
+        Assert.Equal(4, execution.Result.Lines.Count);
+        Assert.All(execution.Result.Lines, line => Assert.InRange(line.Text.Length, 1, 16));
+    }
+
+    [WindowsX64Fact]
     public async Task UnsupportedProviderReportsUnavailableWithoutTouchingPixels()
     {
         var engine = new WindowsMediaOcrEngine(null, unavailableReason: "synthetic unsupported Windows");
@@ -217,7 +409,8 @@ public sealed class WindowsMediaOcrEngineTests
             CancellationToken.None);
 
         Assert.Equal(WindowsOcrExecutionStatus.Complete, execution.Status);
-        Assert.Equal(2, execution.TileCount);
+        Assert.Equal(2, execution.PlannedTileCount);
+        Assert.Equal(2, execution.CompletedTileCount);
         Assert.Contains(execution.Result.Lines, line =>
             Normalize(line.Text).Contains("inspect", StringComparison.Ordinal));
         Assert.All(execution.Result.Lines, line => Assert.Null(line.Confidence));
@@ -232,6 +425,27 @@ public sealed class WindowsMediaOcrEngineTests
                 MaximumTileDimension = 100,
                 TileOverlap = 20,
             });
+
+    /// <summary>
+    /// Reads again until the abandoned native work has released the provider gate. The release
+    /// runs on a continuation, so the first retry can still find the gate held.
+    /// </summary>
+    private static async Task<WindowsOcrExecution> ReadWhenGateSettlesAsync(WindowsMediaOcrEngine engine)
+    {
+        WindowsOcrExecution execution;
+        var attempts = 0;
+        do
+        {
+            execution = await engine.RecognizeDetailedAsync(
+                Frame(80, 60),
+                new OcrRequest(ScanContext.Unknown),
+                CancellationToken.None);
+            attempts++;
+        }
+        while (execution is { Status: WindowsOcrExecutionStatus.TimedOut, AttemptedTileCount: 0 } && attempts < 25);
+
+        return execution;
+    }
 
     private static async Task<IReadOnlyList<WindowsOcrNativeLine>> WaitForeverAsync(CancellationToken token)
     {
@@ -294,15 +508,37 @@ public sealed class WindowsMediaOcrEngineTests
         : IWindowsOcrRecognizer
     {
         private int _callCount;
+        private int _running;
+        private int _maximumRunning;
 
-        public int CallCount => _callCount;
+        public int CallCount => Volatile.Read(ref _callCount);
 
-        public Task<IReadOnlyList<WindowsOcrNativeLine>> RecognizeAsync(
+        /// <summary>The most native reads that were ever in flight at once.</summary>
+        public int MaximumConcurrentReads => Volatile.Read(ref _maximumRunning);
+
+        public async Task<IReadOnlyList<WindowsOcrNativeLine>> RecognizeAsync(
             SoftwareBitmap bitmap,
+            int maximumLines,
             CancellationToken cancellationToken)
         {
-            var call = _callCount++;
-            return read(call, bitmap, cancellationToken);
+            var call = Interlocked.Increment(ref _callCount) - 1;
+            var running = Interlocked.Increment(ref _running);
+            int observed;
+            do
+            {
+                observed = Volatile.Read(ref _maximumRunning);
+            }
+            while (running > observed &&
+                   Interlocked.CompareExchange(ref _maximumRunning, running, observed) != observed);
+
+            try
+            {
+                return await read(call, bitmap, cancellationToken);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _running);
+            }
         }
     }
 }
