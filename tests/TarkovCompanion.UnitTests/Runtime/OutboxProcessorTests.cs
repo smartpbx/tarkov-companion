@@ -881,10 +881,26 @@ public sealed class OutboxProcessorTests
         Assert.Equal(1, first.AcknowledgementsPending);
         Assert.Equal("outbox-acknowledgement-pending", first.LastFault!.Code.Value);
 
-        await RuntimeTestTasks.AdvanceUntilAsync(
-            time,
-            TimeSpan.FromMilliseconds(50),
-            () => processor.InFlightCount == 0);
+        // Acknowledgement retries and lease heartbeats intentionally share this injected clock.
+        // Advance one retry quarter-period at a time, but do not advance past a heartbeat until
+        // its successful renewal has published the next lease window. Jumping the manual clock
+        // again while that continuation is merely queued can manufacture a lease expiry that
+        // cannot occur with the same elapsed time in production.
+        for (var expectedCompleteCalls = 2; expectedCompleteCalls <= 8; expectedCompleteCalls++)
+        {
+            var nextRetryUtc = time.GetUtcNow().AddMilliseconds(50);
+            await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == nextRetryUtc);
+            time.Advance(TimeSpan.FromMilliseconds(50));
+            await RuntimeTestTasks.UntilAsync(() => store.CompleteCalls >= expectedCompleteCalls);
+
+            var expectedRenewals = (expectedCompleteCalls - 1) / 2;
+            if (expectedRenewals > 0)
+            {
+                await RuntimeTestTasks.UntilAsync(() => store.SuccessfulRenewals >= expectedRenewals);
+            }
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
         var settled = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
 
         Assert.True(time.GetUtcNow() > Epoch.AddMilliseconds(200));
