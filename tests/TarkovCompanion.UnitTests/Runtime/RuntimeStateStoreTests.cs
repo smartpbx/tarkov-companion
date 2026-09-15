@@ -73,6 +73,34 @@ public sealed class RuntimeStateStoreTests
         Assert.Equal([1L, 2L, 3L], revisions);
     }
 
+    /// <summary>
+    /// A monitor is reentrant, so the notification gate alone once let a subscriber publish a
+    /// newer revision recursively before the remaining subscribers had observed the first one.
+    /// </summary>
+    [Fact]
+    public void ReentrantSubscriberUpdateIsIsolatedWithoutOvertakingCurrentPublication()
+    {
+        var store = Store();
+        var observedRevisions = new List<long>();
+        var observedItemCounts = new List<int>();
+        store.Changed += (_, _) =>
+            store.Update(current => current with { Data = current.Data with { ItemCount = 42 } });
+        store.Changed += (_, _) =>
+        {
+            observedRevisions.Add(store.Current.LocalRevision);
+            observedItemCounts.Add(store.Current.Data.ItemCount);
+        };
+
+        var exception = Record.Exception(() => store.Update(current => current with { DatabaseReady = true }));
+
+        Assert.Null(exception);
+        Assert.Equal([1L], observedRevisions);
+        Assert.Equal([0], observedItemCounts);
+        Assert.True(store.Current.DatabaseReady);
+        Assert.Equal(0, store.Current.Data.ItemCount);
+        Assert.Equal(1, store.Current.Resources.StateSubscriberFaults);
+    }
+
     /// <summary>Background publishers never run a subscriber concurrently with another.</summary>
     [Fact]
     public async Task SubscribersAreNotifiedOneAtATimeAcrossPublishingThreads()

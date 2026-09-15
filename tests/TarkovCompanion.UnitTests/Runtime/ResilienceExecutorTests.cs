@@ -207,6 +207,69 @@ public sealed class ResilienceExecutorTests
             Task.FromException<int>(new IOException("not exported"));
     }
 
+    /// <summary>
+    /// A caller-side classified fault is not evidence that a dependency recovered. It must not
+    /// erase earlier dependency failures or turn its half-open probe into a successful recovery.
+    /// </summary>
+    [Fact]
+    public async Task NonDependencyFaultPreservesCircuitFailuresAndReleasesItsHalfOpenProbe()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var executor = new ResilienceExecutor(time, new ExactJitter());
+        var policy = new OperationPolicy(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1),
+            1,
+            TimeSpan.Zero,
+            TimeSpan.Zero,
+            1,
+            0,
+            2,
+            TimeSpan.FromSeconds(5),
+            WorkloadClass.IO,
+            OperationRestartMode.Manual,
+            IdempotencyRequirement.Guaranteed);
+
+        await executor.ExecuteAsync<int>(Request(policy), DependencyFailure, default);
+        var firstFailure = Assert.Single(executor.Circuits);
+        Assert.Equal(CircuitState.Closed, firstFailure.State);
+        Assert.Equal(1, firstFailure.ConsecutiveFailures);
+
+        var classified = await executor.ExecuteAsync<int>(Request(policy), ClassifiedFailure, default);
+        Assert.Equal(RuntimeFailureKind.Validation, classified.Fault!.Kind);
+        var afterClassified = Assert.Single(executor.Circuits);
+        Assert.Equal(CircuitState.Closed, afterClassified.State);
+        Assert.Equal(1, afterClassified.ConsecutiveFailures);
+
+        await executor.ExecuteAsync<int>(Request(policy), DependencyFailure, default);
+        Assert.Equal(CircuitState.Open, Assert.Single(executor.Circuits).State);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        var probe = await executor.ExecuteAsync<int>(Request(policy), ClassifiedFailure, default);
+        Assert.Equal(RuntimeFailureKind.Validation, probe.Fault!.Kind);
+        var halfOpen = Assert.Single(executor.Circuits);
+        Assert.Equal(CircuitState.HalfOpen, halfOpen.State);
+        Assert.Equal(2, halfOpen.ConsecutiveFailures);
+        Assert.False(halfOpen.ProbeInProgress);
+
+        var recovery = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(7), default);
+        Assert.True(recovery.Succeeded);
+        var closed = Assert.Single(executor.Circuits);
+        Assert.Equal(CircuitState.Closed, closed.State);
+        Assert.Equal(0, closed.ConsecutiveFailures);
+
+        static Task<int> DependencyFailure(OperationAttemptContext context, CancellationToken token) =>
+            Task.FromException<int>(new IOException("not exported"));
+
+        static Task<int> ClassifiedFailure(OperationAttemptContext context, CancellationToken token) =>
+            Task.FromException<int>(new RuntimeFaultException(new(
+                RuntimeFailureKind.Validation,
+                new("classified-failure"),
+                RuntimeRecoveryAction.None,
+                new("test:classified"),
+                Epoch)));
+    }
+
     [Fact]
     public void DefaultJitterIsStableForTheSameOperationAndAttempt()
     {

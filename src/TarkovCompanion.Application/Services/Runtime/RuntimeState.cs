@@ -265,6 +265,7 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
     private ApplicationRuntimeSnapshot _current;
     private EventHandler? _changed;
     private long _subscriberFaults;
+    private bool _publicationInProgress;
 
     public RuntimeStateStore(RuntimeOptions options, TimeProvider? timeProvider = null)
     {
@@ -343,45 +344,63 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
         ArgumentNullException.ThrowIfNull(update);
         lock (_notificationGate)
         {
-            EventHandler[] handlers;
-            lock (_gate)
+            // Monitor locks are reentrant. Without an explicit guard, a subscriber that calls
+            // Update can replace the snapshot and recursively notify the subscriber list before
+            // later subscribers have observed the original revision. Subscribers are observers;
+            // reject their nested write and let the outer publication's exception isolation count
+            // that callback fault without corrupting notification order.
+            if (_publicationInProgress)
             {
-                var proposed = update(_current)
-                    ?? throw new InvalidOperationException("A runtime state update cannot return null.");
-                _current = Freeze(proposed with
-                {
-                    LocalRevision = checked(_current.LocalRevision + 1),
-                    Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
-                });
-                handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
+                throw new InvalidOperationException("A runtime state update cannot be nested inside another publication.");
             }
 
-            var failures = 0;
-            foreach (var handler in handlers)
+            _publicationInProgress = true;
+            try
             {
-                try
+                EventHandler[] handlers;
+                lock (_gate)
                 {
-                    handler(this, EventArgs.Empty);
+                    var proposed = update(_current)
+                        ?? throw new InvalidOperationException("A runtime state update cannot return null.");
+                    _current = Freeze(proposed with
+                    {
+                        LocalRevision = checked(_current.LocalRevision + 1),
+                        Resources = proposed.Resources with { StateSubscriberFaults = _subscriberFaults },
+                    });
+                    handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
                 }
-                catch (Exception)
+
+                var failures = 0;
+                foreach (var handler in handlers)
                 {
-                    failures++;
+                    try
+                    {
+                        handler(this, EventArgs.Empty);
+                    }
+                    catch (Exception)
+                    {
+                        failures++;
+                    }
+                }
+
+                if (failures == 0)
+                {
+                    return;
+                }
+
+                lock (_gate)
+                {
+                    _subscriberFaults = checked(_subscriberFaults + failures);
+                    _current = Freeze(_current with
+                    {
+                        LocalRevision = checked(_current.LocalRevision + 1),
+                        Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
+                    });
                 }
             }
-
-            if (failures == 0)
+            finally
             {
-                return;
-            }
-
-            lock (_gate)
-            {
-                _subscriberFaults = checked(_subscriberFaults + failures);
-                _current = Freeze(_current with
-                {
-                    LocalRevision = checked(_current.LocalRevision + 1),
-                    Resources = _current.Resources with { StateSubscriberFaults = _subscriberFaults },
-                });
+                _publicationInProgress = false;
             }
         }
     }

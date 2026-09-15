@@ -233,9 +233,12 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 {
                     circuit.RecordFailure(_timeProvider.GetUtcNow());
                 }
-                else
+                else if (ownsHalfOpenProbe)
                 {
-                    circuit.RecordSuccess();
+                    // A validation, authentication, version or other caller-side fault proves
+                    // nothing about dependency health. It may release its own probe, but it must
+                    // neither erase prior failures nor close a half-open circuit as recovered.
+                    circuit.ReleaseProbe();
                 }
             }
             catch (Exception exception)
@@ -264,9 +267,9 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                     {
                         circuit.RecordFailure(_timeProvider.GetUtcNow());
                     }
-                    else
+                    else if (ownsHalfOpenProbe)
                     {
-                        circuit.RecordSuccess();
+                        circuit.ReleaseProbe();
                     }
                 }
             }
