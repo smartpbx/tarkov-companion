@@ -92,7 +92,10 @@ try {
 </configuration>
 "@ | Set-Content -LiteralPath $Config -Encoding utf8
 
-    & dotnet tool install --tool-path $DestinationPath vpk --version $Version --configfile $Config --no-cache
+    # This script's success output is an API: its caller captures the one executable path below.
+    # Keep dotnet's informational output visible without letting it become part of that value.
+    & dotnet tool install --tool-path $DestinationPath vpk --version $Version --configfile $Config --no-cache |
+        Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Installing the content-verified Velopack CLI failed with exit code $LASTEXITCODE."
     }
