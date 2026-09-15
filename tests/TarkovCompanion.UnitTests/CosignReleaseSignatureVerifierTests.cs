@@ -32,7 +32,7 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
         Assert.True(process.StandardOutputReader.EndObserved);
         Assert.True(process.StandardErrorReader.EndObserved);
         Assert.True(process.Disposed);
-        Assert.Equal(1, process.WaitTokens.Count);
+        Assert.Single(process.WaitTokens);
 
         var startInfo = Assert.IsType<ProcessStartInfo>(factory.StartInfo);
         Assert.Equal(Path.GetFullPath(fixture.CosignPath), startInfo.FileName);
@@ -110,12 +110,15 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
         Assert.True(process.StandardErrorReader.EndObserved);
         Assert.True(process.Disposed);
 
-        var waitTokens = process.WaitTokens.ToArray();
-        Assert.Equal(2, waitTokens.Length);
-        Assert.Equal(cancellation.Token, waitTokens[0]);
-        Assert.NotEqual(cancellation.Token, waitTokens[1]);
-        Assert.True(waitTokens[1].CanBeCanceled);
-        Assert.False(waitTokens[1].IsCancellationRequested);
+        Assert.Collection(
+            process.WaitTokens,
+            token => Assert.Equal(cancellation.Token, token),
+            token =>
+            {
+                Assert.NotEqual(cancellation.Token, token);
+                Assert.True(token.CanBeCanceled);
+                Assert.False(token.IsCancellationRequested);
+            });
     }
 
     [Fact]
