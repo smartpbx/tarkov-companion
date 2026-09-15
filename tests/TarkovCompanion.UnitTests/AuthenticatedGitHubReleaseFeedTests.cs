@@ -93,7 +93,7 @@ public sealed class AuthenticatedGitHubReleaseFeedTests : IDisposable
             default);
 
         Assert.Equal(bytes, await File.ReadAllBytesAsync(destination));
-        Assert.Equal(3, handler.RequestCount);
+        Assert.Equal(4, handler.RequestCount);
     }
 
     [Fact]
