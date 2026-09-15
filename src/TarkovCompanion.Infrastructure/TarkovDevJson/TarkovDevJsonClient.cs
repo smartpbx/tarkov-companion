@@ -360,7 +360,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 cached,
                 true,
                 true,
-                exception is TarkovDevDatasetRefusedException refusal ? refusal.Reason : null);
+                DatasetRefusalReason(exception));
         }
     }
 
@@ -704,11 +704,9 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                     }
                     catch (Exception exception) when (
                         (exception is JsonException or InvalidDataException) &&
-                        exception is not TarkovDevDatasetRefusedException)
+                        DatasetRefusalReason(exception) is null)
                     {
-                        throw new TarkovDevDatasetRefusedException(
-                            $"Refused '{cacheKey}': {exception.Message}",
-                            exception);
+                        throw Refused(cacheKey, exception);
                     }
                     var entry = new TarkovDevCacheEntry(
                         cacheKey,
@@ -755,7 +753,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 // normalized input is retried and ultimately reported as a generic outage.
                 if (isUpstream)
                 {
-                    if (exception is TarkovDevDatasetRefusedException)
+                    if (DatasetRefusalReason(exception) is not null)
                     {
                         throw;
                     }
@@ -1138,8 +1136,19 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         IReadOnlyDictionary<string, TarkovDevHideoutStation> hideout) =>
         hideout.Values.SelectMany(station => station.Levels);
 
-    private static TarkovDevDatasetRefusedException Refused(string cacheKey, Exception exception) =>
-        new($"Refused '{cacheKey}': {exception.Message}", exception);
+    private static InvalidDataException Refused(string cacheKey, Exception exception)
+    {
+        var reason = $"Refused '{cacheKey}': {exception.Message}";
+        return new(reason, new TarkovDevDatasetRefusalMarker(reason, exception));
+    }
+
+    private static string? DatasetRefusalReason(Exception exception) =>
+        exception is InvalidDataException
+        {
+            InnerException: TarkovDevDatasetRefusalMarker refusal,
+        }
+            ? refusal.Reason
+            : null;
 
     private long CapturePublicationEpoch(string cacheKey) =>
         _publicationEpochs.GetOrAdd(cacheKey, 0);
@@ -1298,8 +1307,8 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
     private sealed record DatasetCardinality(string Name, long Count);
 }
 
-internal sealed class TarkovDevDatasetRefusedException(string reason, Exception innerException)
-    : InvalidDataException(reason, innerException)
+internal sealed class TarkovDevDatasetRefusalMarker(string reason, Exception innerException)
+    : Exception(reason, innerException)
 {
     public string Reason { get; } = reason;
 }
