@@ -67,6 +67,70 @@ public sealed class DurableStoreTests
     }
 
     [Fact]
+    public async Task DurableRetryFencesAtTransitionTimeAndKeepsLaterEligibility()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var item = Item("retry", "retry-aggregate", 1, now);
+        var store = new SqliteOutboxStore(database.Factory);
+        await store.EnqueueAsync(item, TestContext.Current.CancellationToken);
+        var leased = Assert.Single(await store.LeaseNextAsync(
+            now,
+            TimeSpan.FromSeconds(10),
+            1,
+            TestContext.Current.CancellationToken));
+        var fault = new RuntimeFault(
+            RuntimeFailureKind.Transient,
+            new("test-retry"),
+            RuntimeRecoveryAction.RetryAutomatically,
+            new("test:retry"),
+            now.AddSeconds(1));
+
+        Assert.True(await store.RetryAsync(
+            item.OperationId,
+            leased.LeaseToken!.Value,
+            now.AddSeconds(1),
+            now.AddSeconds(30),
+            fault,
+            TestContext.Current.CancellationToken));
+        var retrying = Assert.Single(await store.ListAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(OutboxDeliveryState.Retrying, retrying.State);
+        Assert.Equal(now.AddSeconds(30), retrying.NextAttemptUtc);
+        Assert.Null(retrying.LeaseToken);
+        Assert.Empty(await store.LeaseNextAsync(now.AddSeconds(29), TimeSpan.FromSeconds(10), 1, TestContext.Current.CancellationToken));
+        Assert.Single(await store.LeaseNextAsync(now.AddSeconds(30), TimeSpan.FromSeconds(10), 1, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ExpiredDurableLeaseCannotBeRenewedOrSettled()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var now = new DateTimeOffset(2026, 9, 15, 2, 0, 0, TimeSpan.Zero);
+        var item = Item("expired", "expired-aggregate", 1, now);
+        var store = new SqliteOutboxStore(database.Factory);
+        await store.EnqueueAsync(item, TestContext.Current.CancellationToken);
+        var leased = Assert.Single(await store.LeaseNextAsync(
+            now,
+            TimeSpan.FromSeconds(5),
+            1,
+            TestContext.Current.CancellationToken));
+        var token = leased.LeaseToken!.Value;
+        var expiredAt = now.AddSeconds(5);
+        var fault = new RuntimeFault(
+            RuntimeFailureKind.Transient,
+            new("expired-lease"),
+            RuntimeRecoveryAction.RetryAutomatically,
+            new("test:expired-lease"),
+            expiredAt);
+
+        Assert.False(await store.RenewLeaseAsync(item.OperationId, token, expiredAt, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.False(await store.CompleteAsync(item.OperationId, token, expiredAt, TestContext.Current.CancellationToken));
+        Assert.False(await store.RetryAsync(item.OperationId, token, expiredAt, expiredAt.AddSeconds(1), fault, TestContext.Current.CancellationToken));
+        Assert.False(await store.DeadLetterAsync(item.OperationId, token, fault, expiredAt, TestContext.Current.CancellationToken));
+        Assert.Equal(OutboxDeliveryState.Processing, Assert.Single(await store.ListAsync(TestContext.Current.CancellationToken)).State);
+    }
+
+    [Fact]
     public async Task LeaseRenewalIsFencedAndExplicitDeadLetterResolutionReleasesAggregate()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);

@@ -133,7 +133,7 @@ public sealed class SqliteOutboxStore(
         return MutateLeaseAsync(operationId, leaseToken, """
             delivery_state = 5, completed_utc = $time, dead_lettered_utc = NULL,
             lease_token = NULL, lease_expires_utc = NULL, last_fault_json = NULL
-            """, completedUtc, null, cancellationToken, pruneCompleted: true, requireBeforeExpiry: false);
+            """, completedUtc, null, cancellationToken, pruneCompleted: true);
     }
 
     /// <summary>Extends only the lease held by the supplied fenced owner token.</summary>
@@ -146,26 +146,73 @@ public sealed class SqliteOutboxStore(
     {
         if (!leaseToken.IsDefined) throw new ArgumentException("A lease token is required.", nameof(leaseToken));
         if (leaseDuration <= TimeSpan.Zero || leaseDuration > OperationPolicy.MaximumDuration) throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+        nowUtc = nowUtc.ToUniversalTime();
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE durable_outbox SET lease_expires_utc = $expires
-            WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease;
+            WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease
+              AND lease_expires_utc > $now;
             """;
-        command.Parameters.AddWithValue("$expires", Format(AddBounded(nowUtc.ToUniversalTime(), leaseDuration)));
+        command.Parameters.AddWithValue("$expires", Format(AddBounded(nowUtc, leaseDuration)));
+        command.Parameters.AddWithValue("$now", Format(nowUtc));
         command.Parameters.AddWithValue("$id", operationId.ToString());
         command.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
-    public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken)
+    /// <summary>
+    /// Returns a lease to retry without confusing the current ownership instant with the later
+    /// eligibility instant. A backoff that extends beyond this lease is valid because ownership
+    /// is surrendered at <paramref name="retryingUtc"/>, not at <paramref name="notBeforeUtc"/>.
+    /// </summary>
+    public async Task<bool> RetryAsync(
+        OperationId operationId,
+        OutboxLeaseToken leaseToken,
+        DateTimeOffset retryingUtc,
+        DateTimeOffset notBeforeUtc,
+        RuntimeFault fault,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fault);
         if (!leaseToken.IsDefined) throw new ArgumentException("A lease token is required.", nameof(leaseToken));
-        return MutateLeaseAsync(operationId, leaseToken, """
-            delivery_state = 3, next_attempt_utc = $time, lease_token = NULL,
-            lease_expires_utc = NULL, last_fault_json = $fault
-            """, notBeforeUtc, fault, cancellationToken, requireBeforeExpiry: true);
+        var retryingAt = retryingUtc.ToUniversalTime();
+        var retryAt = notBeforeUtc.ToUniversalTime();
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using (var bounds = connection.CreateCommand())
+        {
+            bounds.Transaction = transaction;
+            bounds.CommandText = """
+                SELECT created_utc, expires_utc, lease_expires_utc FROM durable_outbox
+                WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease;
+                """;
+            bounds.Parameters.AddWithValue("$id", operationId.ToString());
+            bounds.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
+            await using var reader = await bounds.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return false;
+            if (reader.IsDBNull(2) || Parse(reader.GetString(2)) <= retryingAt) return false;
+            if (retryingAt < Parse(reader.GetString(0))) throw new ArgumentOutOfRangeException(nameof(retryingUtc));
+            if (retryAt < retryingAt || retryAt >= Parse(reader.GetString(1)))
+                throw new ArgumentOutOfRangeException(nameof(notBeforeUtc));
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE durable_outbox SET delivery_state = 3, next_attempt_utc = $notBefore,
+                lease_token = NULL, lease_expires_utc = NULL, last_fault_json = $fault
+            WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease
+              AND lease_expires_utc > $retrying;
+            """;
+        command.Parameters.AddWithValue("$id", operationId.ToString());
+        command.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
+        command.Parameters.AddWithValue("$retrying", Format(retryingAt));
+        command.Parameters.AddWithValue("$notBefore", Format(retryAt));
+        command.Parameters.AddWithValue("$fault", JsonSerializer.Serialize(fault, JsonOptions));
+        var changed = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return changed;
     }
 
     public Task<bool> DeadLetterAsync(OperationId operationId, OutboxLeaseToken leaseToken, RuntimeFault fault, DateTimeOffset deadLetteredUtc, CancellationToken cancellationToken)
@@ -175,7 +222,7 @@ public sealed class SqliteOutboxStore(
         return MutateLeaseAsync(operationId, leaseToken, """
             delivery_state = 4, dead_lettered_utc = $time, completed_utc = NULL,
             lease_token = NULL, lease_expires_utc = NULL, last_fault_json = $fault
-            """, deadLetteredUtc, fault, cancellationToken, requireBeforeExpiry: false);
+            """, deadLetteredUtc, fault, cancellationToken);
     }
 
     public async Task<int> RecoverExpiredLeasesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
@@ -295,8 +342,7 @@ public sealed class SqliteOutboxStore(
         DateTimeOffset time,
         RuntimeFault? fault,
         CancellationToken cancellationToken,
-        bool pruneCompleted = false,
-        bool requireBeforeExpiry = false)
+        bool pruneCompleted = false)
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -305,7 +351,7 @@ public sealed class SqliteOutboxStore(
         {
             bounds.Transaction = transaction;
             bounds.CommandText = """
-                SELECT created_utc, expires_utc FROM durable_outbox
+                SELECT created_utc, lease_expires_utc FROM durable_outbox
                 WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease;
                 """;
             bounds.Parameters.AddWithValue("$id", operationId.ToString());
@@ -313,13 +359,17 @@ public sealed class SqliteOutboxStore(
             await using var reader = await bounds.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return false;
             var created = Parse(reader.GetString(0));
-            var expires = Parse(reader.GetString(1));
-            if (time < created || requireBeforeExpiry && time >= expires) throw new ArgumentOutOfRangeException(nameof(time));
+            if (reader.IsDBNull(1) || Parse(reader.GetString(1)) <= time) return false;
+            if (time < created) throw new ArgumentOutOfRangeException(nameof(time));
         }
 
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = $"UPDATE durable_outbox SET {setSql} WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease;";
+        command.CommandText = $"""
+            UPDATE durable_outbox SET {setSql}
+            WHERE operation_id = $id AND delivery_state = 2 AND lease_token = $lease
+              AND lease_expires_utc > $time;
+            """;
         command.Parameters.AddWithValue("$id", operationId.ToString());
         command.Parameters.AddWithValue("$lease", leaseToken.Value.ToString("D"));
         command.Parameters.AddWithValue("$time", Format(time));
