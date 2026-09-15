@@ -17,7 +17,7 @@ public sealed class TransportBindingTests
         var framed = PairedTransportBinding.FramedRoots.Keys.ToHashSet();
 
         Assert.Empty(plaintext.Intersect(framed));
-        Assert.True(plaintext.Union(framed).SetEquals(CompanionProtocolJson.RootTypes));
+        Assert.True(plaintext.Union(framed).ToHashSet().SetEquals(CompanionProtocolJson.RootTypes));
         Assert.Equal(
             Enum.GetValues<RelayPayloadKind>().Order().ToArray(),
             PairedTransportBinding.FramedRoots.Values.Order().ToArray());
