@@ -109,7 +109,14 @@ the last successful pass, the acceptance fault, and the oldest dead letters by i
 (never payload) into `ApplicationRuntimeSnapshot.Outbox`. The manual recovery seam is
 `RequestPumpRecovery`, which wakes the pump immediately or restarts one that ended, and
 `RetryDeadLetterAsync`, which returns one dead letter to delivery; `RaidActivityCoordinator`
-exposes both.
+exposes both. Because the supervisor, lifecycle, and delivery pump all publish from background
+threads, `RuntimeStateStore` serializes subscriber notification; the snapshot is still computed
+under its own lock, and no subscriber runs while that lock is held.
+
+Cancellation of an attempt that is still running is explicit. A wait can observe a caller's
+cancellation before a linked token has passed it on, and tearing the link down afterwards used to
+drop it, so the executor, outbox processor, and feature starts cancel an unfinished attempt
+directly and keep its token source alive until the attempt returns.
 
 This change includes an in-process bounded fixture store only. Its capacity bounds outstanding
 work; completed rows are retained within a bounded window and dead letters until retried, so
