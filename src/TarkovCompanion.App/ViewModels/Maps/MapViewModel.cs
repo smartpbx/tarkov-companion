@@ -1364,6 +1364,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private readonly MapVariantSelectionService _selectionService;
     private readonly IPlayerProfileService? _profileService;
     private readonly IMapFeatureCatalog? _featureCatalog;
+    private readonly IMapDataService? _mapDataService;
     private readonly IRaidHistoryService? _raidHistory;
     private readonly IItemRepository? _itemRepository;
     private readonly Dictionary<string, string> _itemNames = new(StringComparer.Ordinal);
@@ -1405,6 +1406,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     private bool _isStacked;
     private string _spawnPanelDetail = string.Empty;
     private IReadOnlyList<MapFeature> _mapFeatures = [];
+    private IReadOnlyList<MapExtract> _mapExtracts = [];
     private IReadOnlyList<QuestPanelViewModel> _questPanel = [];
     private IReadOnlyDictionary<string, string> _groupColors =
         new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1452,7 +1454,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         IItemRepository? itemRepository = null,
         // Optional so every composition that builds this by hand keeps working. Without it the
         // Visited layer is simply not offered, which is what the map did before it existed.
-        IRaidHistoryService? raidHistory = null)
+        IRaidHistoryService? raidHistory = null,
+        IMapDataService? mapDataService = null)
         : this(
             null,
             catalogClient,
@@ -1463,7 +1466,8 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
             questProjectionService,
             featureCatalog,
             itemRepository,
-            raidHistory)
+            raidHistory,
+            mapDataService)
     {
     }
 
@@ -1477,13 +1481,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         QuestMapProjectionService? questProjectionService,
         IMapFeatureCatalog? featureCatalog = null,
         IItemRepository? itemRepository = null,
-        IRaidHistoryService? raidHistory = null)
+        IRaidHistoryService? raidHistory = null,
+        IMapDataService? mapDataService = null)
     {
         RemoveMarkCommand = new ParameterCommand<MarkListItemViewModel>(RemoveMark);
         ClearReachedMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: true));
         ClearMarksCommand = new DelegateCommand(() => ClearMarks(reachedOnly: false));
         _ownedHttpClient = ownedHttpClient;
         _featureCatalog = featureCatalog;
+        _mapDataService = mapDataService;
         _raidHistory = raidHistory;
         _itemRepository = itemRepository;
         _catalogClient = catalogClient;
@@ -3889,8 +3895,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     public void ShowActiveExtracts(IReadOnlyList<ActiveExtract> extracts)
     {
         ArgumentNullException.ThrowIfNull(extracts);
-        if (_activeExtracts.Count == extracts.Count &&
-            _activeExtracts.Select(extract => extract.Name).SequenceEqual(extracts.Select(extract => extract.Name), StringComparer.OrdinalIgnoreCase))
+        if (SameMarkerOffers(_activeExtracts, extracts))
         {
             return;
         }
@@ -3898,6 +3903,23 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         _activeExtracts = extracts;
         UpdateOverlayElements();
         UpdateExtractPanel();
+    }
+
+    /// <summary>Whether a refresh is identical for marker-offering purposes.</summary>
+    /// <remarks>
+    /// Identity is material even when the display name is unchanged: a catalog-gap id must not
+    /// inherit the marker highlight from an earlier trusted match, or keep suppressing it after
+    /// the catalog catches up.
+    /// </remarks>
+    internal static bool SameMarkerOffers(
+        IReadOnlyList<ActiveExtract> current,
+        IReadOnlyList<ActiveExtract> incoming)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(incoming);
+        return current.Count == incoming.Count && current.Zip(incoming).All(pair =>
+            string.Equals(pair.First.ExtractId, pair.Second.ExtractId, StringComparison.Ordinal) &&
+            string.Equals(pair.First.Name, pair.Second.Name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Everyone in the group who is on this map, drawn where they last were.</summary>
@@ -4429,7 +4451,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private void UpdateExtractPanel()
     {
-        if (_mapFeatures.Count == 0)
+        if (_mapFeatures.Count == 0 && _mapExtracts.Count == 0 && _activeExtracts.Count == 0)
         {
             ExtractPanel = [];
             return;
@@ -4437,13 +4459,15 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
         var offered = _activeExtracts.Select(extract => extract.Name).ToArray();
         ExtractPanel = ExtractProximity
-            .Near(_mapFeatures, _playerPosition?.Position, _side, offered)
+            .Near(
+                _mapFeatures,
+                _playerPosition?.Position,
+                _side,
+                offered,
+                definitions: _mapExtracts)
             .Select(exit => new ExtractPanelViewModel(
                 exit.Name,
-                // Without a screenshot there is no player position, so there is no distance to
-                // print. The row is still worth having; a made-up distance from the origin of
-                // the map would not be.
-                exit.MetresFromPlayer is { } metres ? $"{SpawnProximity.Describe(metres)} {exit.Bearing}" : string.Empty,
+                ExtractProximity.DescribeLocation(exit),
                 SideWord(exit.Side),
                 exit.WasOffered,
                 exit.IsTransit))
@@ -5520,19 +5544,28 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         MapVariant variant,
         CancellationToken cancellationToken)
     {
-        if (_featureCatalog is null)
+        if (_featureCatalog is null && _mapDataService is null)
         {
             return [];
         }
 
         try
         {
-            var features = await _featureCatalog.GetAsync(location.Id, cancellationToken).ConfigureAwait(true);
+            IReadOnlyList<MapFeature> features = _featureCatalog is null
+                ? []
+                : await _featureCatalog.GetAsync(location.Id, cancellationToken).ConfigureAwait(true);
+            var definition = _mapDataService is null
+                ? null
+                : await _mapDataService.GetAsync(location.Id, cancellationToken).ConfigureAwait(true);
             // Kept unprojected as well as projected. The panel measures distances in metres on
             // the ground, which the picture's own coordinates cannot answer: a projection is
             // pixels, and two maps at different scales would give the same run of pixels
             // different meanings.
             _mapFeatures = features;
+            // Unlike a marker, an extract definition may deliberately have no coordinate. Keep
+            // those definitions beside the plotted features so reviewed positionless exits retain
+            // their faction and can be listed without ever being projected at an invented origin.
+            _mapExtracts = definition?.Extracts ?? [];
             UpdateSpawnPanel();
             UpdateLootPanel();
             UpdateExtractPanel();
@@ -5541,6 +5574,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _mapFeatures = [];
+            _mapExtracts = [];
             UpdateSpawnPanel();
             UpdateLootPanel();
             UpdateExtractPanel();
@@ -5558,15 +5592,26 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
     /// </remarks>
     private bool IsOffered(string label)
     {
-        if (_activeExtracts.Count == 0)
-        {
-            return false;
-        }
+        return IsOfferedMarker(label, _activeExtracts);
+    }
+
+    /// <summary>The marker-offering rule isolated for regression coverage.</summary>
+    internal static bool IsOfferedMarker(
+        string label,
+        IReadOnlyList<ActiveExtract> activeExtracts)
+    {
+        ArgumentNullException.ThrowIfNull(label);
+        ArgumentNullException.ThrowIfNull(activeExtracts);
 
         var name = label.Split('(')[0].Trim();
-        return _activeExtracts.Any(extract =>
-            name.Contains(extract.Name, StringComparison.OrdinalIgnoreCase) ||
-            extract.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+        return activeExtracts
+            // A catalog-gap id means exactly that no trusted static definition was matched.
+            // Its text may be a short OCR fragment such as "Gate"; allowing that fragment to
+            // claim a real marker silently invents a position the recognition path withheld.
+            .Where(extract => !extract.ExtractId.StartsWith("catalog-gap:", StringComparison.Ordinal))
+            .Any(extract =>
+                name.Contains(extract.Name, StringComparison.OrdinalIgnoreCase) ||
+                extract.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
     }
 
     private Func<MapPoint, Point>? CreateCanvasMapper()
