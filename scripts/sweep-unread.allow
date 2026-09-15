@@ -6,10 +6,8 @@
 #
 # Format: <table> <reference> <reason>
 
-# Approved as Next 1 on #139: read the craft and barter data to answer "worth making" per
-# built station and "cheapest route" on every hideout and quest requirement row. The payload
-# already carries station, level, duration, tool inputs, trader and minTraderLevel.
-crafts               #139-Next-1   reader approved, not yet built
+# Approved as Next 1 on #139: read craft inputs and outputs to answer "worth making" per built
+# station. The craft head itself is now covered by the V2 critical-query plan evidence.
 craft_requirements   #139-Next-1   reader approved, not yet built
 craft_outputs        #139-Next-1   reader approved, not yet built
 # barters, barter_requirements and barter_outputs are NOT here any more: SqliteBarterCatalog
