@@ -256,6 +256,56 @@ public sealed class DeliveryAndReconnectTests
     }
 
     [Fact]
+    public void TheReplicaRejectsInvalidCanonicalCompositionAndCrossWorkspaceAttributionWithoutThrowing()
+    {
+        var flow = Flow.Create();
+        var replica = flow.ReplicaThrough(1);
+        var mode = Assert.IsType<DeviceModeCanonicalUpdate>(flow.Updates[0]);
+        var invalidModes = new DeviceModeCanonicalUpdate(
+            mode.AuthorityEpoch,
+            mode.GlobalRevision,
+            mode.ChangeId,
+            mode.ChangedUtc,
+            mode.Origin,
+            mode.ContractVersion,
+            new DeviceModeAggregate(
+                mode.State.Cursor,
+                mode.State.Devices.Append(new DeviceModeEntry(
+                    flow.Initial.DesktopDeviceId,
+                    CompanionInteractionMode.Follow,
+                    Now)).ToArray(),
+                mode.State.PendingControl,
+                mode.State.ControlLease));
+        var wrongWorkspace = new WorkspaceOrigin(
+            new WorkspaceId(Guid.Parse("80000000-0000-4000-8000-000000000099")),
+            TabletDevice,
+            WorkspaceOriginKind.PairedDevice,
+            TabletInstance);
+        var crossWorkspace = new MarksCanonicalUpdate(
+            Epoch,
+            new GlobalRevision(1),
+            Command(199),
+            Now,
+            wrongWorkspace,
+            V2ContractVersion.Current,
+            new MarkAggregate(new AggregateCursor(new AggregateRevision(1), Command(199)), []));
+
+        var invalidComposition = Observe(
+            replica,
+            Delivered(2, new CanonicalUpdateMessage(invalidModes), TabletDevice));
+        var invalidAttribution = Observe(
+            replica,
+            Delivered(2, new CanonicalUpdateMessage(crossWorkspace), TabletDevice));
+
+        Assert.Equal(ReplicaDisposition.ResyncRequired, invalidComposition.Disposition);
+        Assert.Equal("invalid-canonical-update", invalidComposition.Code);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, invalidAttribution.Disposition);
+        Assert.Equal("update-attribution-mismatch", invalidAttribution.Code);
+        Assert.Equal(1, invalidComposition.Replica.LastDeliverySequence.Value);
+        Assert.Equal(1, invalidAttribution.Replica.LastDeliverySequence.Value);
+    }
+
+    [Fact]
     public void TheReplicaRejectsWrongSessionVersionOriginAndRegressedServerTime()
     {
         var flow = Flow.Create();

@@ -368,6 +368,14 @@ public sealed record CanonicalReplica
             return RequireResync("authority-epoch-changed");
         }
 
+        var expectedOriginKind = update.Origin.DeviceId == state.DesktopDeviceId
+            ? WorkspaceOriginKind.DesktopApplication
+            : WorkspaceOriginKind.PairedDevice;
+        if (update.Origin.WorkspaceId != state.WorkspaceId || update.Origin.Kind != expectedOriginKind)
+        {
+            return RequireResync("update-attribution-mismatch");
+        }
+
         var local = state.Cursor(update.Aggregate);
         var incoming = CursorOf(update);
         if (update.GlobalRevision.Value <= state.GlobalRevision.Value)
@@ -395,16 +403,29 @@ public sealed record CanonicalReplica
             return RequireResync("aggregate-revision-gap");
         }
 
-        var next = update switch
+        CanonicalCompanionState next;
+        try
         {
-            DeviceModeCanonicalUpdate modes => state.With(update.GlobalRevision, deviceModes: modes.State),
-            WorkspaceCanonicalUpdate workspace => state.With(update.GlobalRevision, workspace: workspace.State),
-            MarksCanonicalUpdate marks => state.With(update.GlobalRevision, marks: marks.State),
-            CaptureCanonicalUpdate capture => state.With(update.GlobalRevision, captureIntent: capture.State),
-            ProfilePreferencesCanonicalUpdate preferences =>
-                state.With(update.GlobalRevision, profilePreferences: preferences.State),
-            _ => throw new ArgumentOutOfRangeException(nameof(update)),
-        };
+            next = update switch
+            {
+                DeviceModeCanonicalUpdate modes => state.With(update.GlobalRevision, deviceModes: modes.State),
+                WorkspaceCanonicalUpdate workspace => state.With(update.GlobalRevision, workspace: workspace.State),
+                MarksCanonicalUpdate marks => state.With(update.GlobalRevision, marks: marks.State),
+                CaptureCanonicalUpdate capture => state.With(update.GlobalRevision, captureIntent: capture.State),
+                ProfilePreferencesCanonicalUpdate preferences =>
+                    state.With(update.GlobalRevision, profilePreferences: preferences.State),
+                _ => throw new ArgumentOutOfRangeException(nameof(update)),
+            };
+        }
+        catch (ArgumentException)
+        {
+            // Aggregate DTOs cannot see invariants owned by the containing canonical state, such as
+            // the desktop never appearing in the paired mode table or one change ID occupying two
+            // cursors. An authenticated but malformed peer delivery resynchronizes; it never crashes
+            // the tablet's delivery loop.
+            return RequireResync("invalid-canonical-update");
+        }
+
         return new(
             new CanonicalReplica(next, sequence, false, serverUtc, authenticatedOriginDeviceId),
             ReplicaDisposition.Applied,

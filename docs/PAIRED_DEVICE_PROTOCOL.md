@@ -706,7 +706,7 @@ the executable model:
 | Delivery | Replica result |
 | --- | --- |
 | Session or protocol version differs from authenticated negotiated context | Discarded; nothing changes. |
-| Update attribution differs from the envelope's authenticated origin, its change is after server UTC, or server UTC regresses | Resync required; nothing is applied. |
+| Update attribution differs from the envelope's authenticated origin or canonical workspace/kind, its change is after server UTC, server UTC regresses, or its aggregate would violate canonical composition | Resync required; nothing is applied and malformed state never escapes the replica as an exception. |
 | Any delivery from another authority epoch | Resync required; only a correlated reconnect plan can adopt the new lifetime. |
 | Sequence at or below the last applied | Duplicate; nothing changes. |
 | Same-epoch canonical snapshot at a newer sequence | Replaces the cache only when every aggregate cursor dominates the held state and equal cursors have equal content; rollback or divergence requires resync. |
