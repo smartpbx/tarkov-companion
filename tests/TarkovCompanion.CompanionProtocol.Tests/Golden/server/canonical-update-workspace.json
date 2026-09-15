@@ -27,6 +27,21 @@
         "value": "40000000-0000-4000-8000-000000000003"
       },
       "changedUtc": "2026-09-14T20:00:50+00:00",
+      "origin": {
+        "workspaceId": {
+          "value": "80000000-0000-4000-8000-000000000001"
+        },
+        "deviceId": {
+          "value": "10000000-0000-4000-8000-000000000002"
+        },
+        "kind": "PairedDevice",
+        "instanceId": "tablet-install-1"
+      },
+      "contractVersion": {
+        "major": 2,
+        "minor": 0,
+        "isDefined": true
+      },
       "state": {
         "cursor": {
           "revision": {

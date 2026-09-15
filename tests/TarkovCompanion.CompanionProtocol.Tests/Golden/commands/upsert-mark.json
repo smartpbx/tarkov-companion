@@ -28,18 +28,18 @@
     "mark": {
       "kind": "Ping",
       "scope": "PairedDevice",
-      "coordinate": {
+      "state": {
         "mapId": "customs",
         "floorId": "ground",
-        "coordinateSpace": "World",
-        "projectionVersion": "tarkov-dev-1",
         "x": 10.5,
-        "y": 2,
-        "z": -20.25
+        "y": -20.25,
+        "label": null,
+        "expiresUtc": null
       },
-      "label": null,
-      "color": "#FF8800",
-      "expiresUtc": null
+      "coordinateSpace": "World",
+      "projectionVersion": "tarkov-dev-1",
+      "height": 2,
+      "color": "#FF8800"
     }
   }
 }

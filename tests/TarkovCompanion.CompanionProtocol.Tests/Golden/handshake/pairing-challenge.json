@@ -6,7 +6,7 @@
   "attemptId": {
     "value": "5a1d3c2e-7b10-4c00-8a00-000000000001"
   },
-  "pairingCommitmentBase64Url": "fFqQcXKUGyKUs4KuE52pQK43EJfTPidBudmjD0kK_KI",
+  "pairingCommitmentBase64Url": "QBHd7myWuMAzgT3Hof8TvGMOFkH1zEjrT5ZIXaBnlbI",
   "deviceKeyId": {
     "value": "y2YJoMGRv2GSAs5r4sPqGeFymw4LgjbNI5wLCd6IzE0"
   },
@@ -41,8 +41,8 @@
     "subjectPublicKeyInfoBase64Url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv-SFRNYV4t8m-WUciTerg1tEh2uk8A_JGL18Mm8s6S3B6oO7W0s8NaRHEPSk2HQZhPPhe5rKLllDATB2gP-WnQ"
   },
   "desktopNonceBase64Url": "UUCndzNV2znhHosbiYtVpJ6kgZf0OaumtmCb1pICslY",
-  "transcriptHashBase64Url": "vcaE4EHhR-c5fEStZnkQdYrA6mdLcaDpEdd25bqgwCM",
-  "desktopSignatureBase64Url": "4YbJzDMlEt-tYyPCuQ46yMwt41Sb3Y3vXg0KjXPAaj_BWsyFGqtFAtmP1Vi2WyUZNH05z_NYsGJ2EIn7pSoShg",
+  "transcriptHashBase64Url": "QpM0SgYeYlMmlhs4tlAdkJBuyGDLHEKFHPOM1zcRIzQ",
+  "desktopSignatureBase64Url": "CwQktQtEdR_-PrLwGA208fXg4tJ9pe-fsdoDAiJsl-agt2dRQ_0DF9g5ImCNMVLqDDsdguZysnuIW70ISwlz_w",
   "issuedUtc": "2026-09-14T20:00:30+00:00",
   "expiresUtc": "2026-09-14T20:02:30+00:00"
 }

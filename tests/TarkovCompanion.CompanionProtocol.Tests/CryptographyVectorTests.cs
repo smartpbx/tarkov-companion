@@ -15,6 +15,7 @@ public sealed class CryptographyVectorTests
     {
         var offer = GoldenRoot<PairingOffer>("handshake/pairing-offer.json");
         var request = GoldenRoot<PairingRequest>("handshake/pairing-request.json");
+        var reveal = GoldenRoot<PairingNonceReveal>("handshake/pairing-nonce-reveal.json");
         using var tabletEphemeral = CryptoVectors.AgreementKey("tabletEphemeralPairing");
         using var desktopEphemeral = CryptoVectors.AgreementKey("desktopEphemeralPairing");
         var tabletSecret = PairingCryptography.DeriveP256SharedSecret(tabletEphemeral, offer.DesktopEphemeralKey);
@@ -28,8 +29,10 @@ public sealed class CryptographyVectorTests
         Assert.Equal(CryptoVectors.Text("pairing", "requestContextHex"), Convert.ToHexStringLower(context));
         Assert.Equal(CryptoVectors.Text("pairing", "requestContextHashBase64Url"), Base64UrlOf(contextHash));
         Assert.Equal(request.RequestedDeviceName, sealedName);
-        Assert.Equal(CryptoVectors.Text("pairing", "commitmentBase64Url"), Base64UrlOf(PairingCryptography.ComputePairingCommitment(offer, request)));
-        Assert.Equal(CryptoVectors.Text("pairing", "verificationCode"), PairingCryptography.ComputeVerificationCode(offer, request));
+        Assert.Equal(CryptoVectors.Text("pairing", "desktopNonceCommitmentBase64Url"), PairingCryptography.ComputeDesktopNonceCommitment(reveal.DesktopNonceBase64Url));
+        Assert.Equal(CryptoVectors.Text("pairing", "desktopNonceCommitmentBase64Url"), offer.DesktopNonceCommitmentBase64Url);
+        Assert.Equal(CryptoVectors.Text("pairing", "commitmentBase64Url"), Base64UrlOf(PairingCryptography.ComputePairingCommitment(offer, request, reveal)));
+        Assert.Equal(CryptoVectors.Text("pairing", "verificationCode"), PairingCryptography.ComputeVerificationCode(offer, request, reveal));
         Assert.Equal(CryptoVectors.Text("pairing", "deviceName"), PairingCryptography.OpenDeviceName(desktopSecret, offer, request));
         Assert.Equal(CryptoVectors.Text("testOnlyKeys", "tabletDevice", "xHex"), Convert.ToHexStringLower(FromBase64Url(request.DeviceKey.CosePublicKeyBase64Url)[10..42]));
     }
@@ -40,7 +43,7 @@ public sealed class CryptographyVectorTests
         var offer = GoldenRoot<PairingOffer>("handshake/pairing-offer.json");
         var request = GoldenRoot<PairingRequest>("handshake/pairing-request.json");
         var challenge = GoldenRoot<HandshakeChallenge>("handshake/pairing-challenge.json");
-        var transcript = HandshakeTranscript.FromChallenge(challenge, offer, request);
+        var transcript = HandshakeTranscript.FromChallenge(challenge, offer, request, GoldenRoot<PairingNonceReveal>("handshake/pairing-nonce-reveal.json"));
         var hash = transcript.ComputeHash();
         var secret = CryptoVectors.Hex("pairing", "sharedSecretHex");
 
@@ -59,7 +62,10 @@ public sealed class CryptographyVectorTests
             Convert.ToHexStringLower(PairingCryptography.DeriveTrafficKey(secret, challenge.TranscriptHashBase64Url, PairingTrafficDirection.DesktopToTablet)));
 
         var resumeChallenge = GoldenRoot<HandshakeChallenge>("handshake/session-resume-challenge.json");
-        var resumeTranscript = HandshakeTranscript.FromChallenge(resumeChallenge, GoldenRoot<SessionResumeRequest>("handshake/session-resume-request.json"));
+        var resumeTranscript = HandshakeTranscript.FromChallenge(
+            resumeChallenge,
+            GoldenRoot<SessionResumeRequest>("handshake/session-resume-request.json"),
+            CryptoVectors.DesktopIdentity());
         using var tabletResume = CryptoVectors.AgreementKey("tabletEphemeralResume");
 
         Assert.Equal(CryptoVectors.Text("sessionResume", "transcriptHex"), Convert.ToHexStringLower(resumeTranscript.Encode()));
@@ -70,25 +76,33 @@ public sealed class CryptographyVectorTests
     }
 
     [Fact]
-    public void TheGoldenRelayFrameIsReproducedAndDecryptsToTheIndependentPlaintext()
+    public void TheGoldenRelayFrameIsReproducedAndDecryptsToTheIndependentTypedPayload()
     {
         var frame = GoldenRoot<OpaqueRelayFrame>("relay/opaque-relay-frame.json");
         var tabletToDesktop = CryptoVectors.Hex("pairing", "tabletToDesktopKeyHex");
         var desktopToTablet = CryptoVectors.Hex("pairing", "desktopToTabletKeyHex");
-        var plaintext = Encoding.UTF8.GetBytes(CryptoVectors.Text("relayFrame", "plaintextUtf8"));
+        var payload = Encoding.UTF8.GetBytes(CryptoVectors.Text("relayFrame", "payloadUtf8"));
 
         Assert.Equal(CryptoVectors.Text("relayFrame", "nonceHex"), Convert.ToHexStringLower(PairingCryptography.EncodeRelayNonce(frame.KeyEpoch, frame.SenderSequence)));
         Assert.Equal(
             CryptoVectors.Text("relayFrame", "additionalAuthenticatedDataHex"),
             Convert.ToHexStringLower(frame.EncodeAdditionalAuthenticatedData(PairingTrafficDirection.TabletToDesktop)));
-        Assert.Equal(plaintext, PairingCryptography.OpenRelayFrame(tabletToDesktop, PairingTrafficDirection.TabletToDesktop, frame));
+        byte[] typedPlaintext = [0x00, 0x01, .. payload];
+        Assert.Equal(typedPlaintext, CryptoVectors.Hex("relayFrame", "plaintextHex"));
+        Assert.Equal(payload.Length + 2, frame.CiphertextLength);
+
+        var opened = PairingCryptography.OpenRelayFrame(tabletToDesktop, PairingTrafficDirection.TabletToDesktop, frame);
+        Assert.Equal(RelayPayloadKind.ClientCommandEnvelope, opened.Kind);
+        Assert.Equal(CryptoVectors.Text("relayFrame", "payloadKind"), opened.Kind.ToString());
+        Assert.Equal(payload, opened.Json.ToArray());
         Assert.Equal(
             CompanionInteractionMode.Independent,
-            Assert.IsType<SetInteractionModeCommand>(CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(plaintext).Command).Mode);
+            Assert.IsType<SetInteractionModeCommand>(Assert.IsType<ClientCommandEnvelope>(CompanionProtocolJson.DeserializeRelayPayload(opened)).Command).Mode);
 
         var resealed = PairingCryptography.SealRelayFrame(
             tabletToDesktop,
             PairingTrafficDirection.TabletToDesktop,
+            RelayPayloadKind.ClientCommandEnvelope,
             frame.ProtocolVersion,
             frame.ChannelId,
             frame.SessionId,
@@ -96,11 +110,78 @@ public sealed class CryptographyVectorTests
             frame.SenderSequence,
             frame.IssuedUtc,
             frame.ExpiresUtc,
-            plaintext);
+            payload);
         AssertJsonEqual(Golden("relay/opaque-relay-frame.json"), CompanionProtocolJson.Serialize(resealed));
 
         Assert.ThrowsAny<CryptographicException>(() => PairingCryptography.OpenRelayFrame(tabletToDesktop, PairingTrafficDirection.DesktopToTablet, frame));
         Assert.ThrowsAny<CryptographicException>(() => PairingCryptography.OpenRelayFrame(desktopToTablet, PairingTrafficDirection.TabletToDesktop, frame));
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(0)]
+    [InlineData(99)]
+    public void AnAuthenticatedPayloadKindThatCannotTravelInTheFramesDirectionIsRefused(int kind)
+    {
+        var key = CryptoVectors.Hex("pairing", "tabletToDesktopKeyHex");
+        var golden = GoldenRoot<OpaqueRelayFrame>("relay/opaque-relay-frame.json");
+        byte[] plaintext = [(byte)(kind >> 8), (byte)kind, .. "{}"u8];
+        var ciphertext = new byte[plaintext.Length];
+        var tag = new byte[ProtocolBounds.RelayAuthenticationTagBytes];
+        var frame = new OpaqueRelayFrame(
+            golden.ProtocolVersion,
+            golden.ChannelId,
+            golden.SessionId,
+            golden.KeyEpoch,
+            golden.SenderSequence,
+            golden.CipherSuite,
+            golden.NonceBase64Url,
+            plaintext.Length,
+            [Base64UrlOf(new byte[plaintext.Length])],
+            Base64UrlOf(tag),
+            golden.IssuedUtc,
+            golden.ExpiresUtc);
+        using (var aes = new AesGcm(key, ProtocolBounds.RelayAuthenticationTagBytes))
+        {
+            aes.Encrypt(
+                PairingCryptography.EncodeRelayNonce(frame.KeyEpoch, frame.SenderSequence),
+                plaintext,
+                ciphertext,
+                tag,
+                frame.EncodeAdditionalAuthenticatedData(PairingTrafficDirection.TabletToDesktop));
+        }
+
+        var sealedFrame = new OpaqueRelayFrame(
+            frame.ProtocolVersion,
+            frame.ChannelId,
+            frame.SessionId,
+            frame.KeyEpoch,
+            frame.SenderSequence,
+            frame.CipherSuite,
+            frame.NonceBase64Url,
+            frame.CiphertextLength,
+            [Base64UrlOf(ciphertext)],
+            Base64UrlOf(tag),
+            frame.IssuedUtc,
+            frame.ExpiresUtc);
+
+        Assert.ThrowsAny<CryptographicException>(() => PairingCryptography.OpenRelayFrame(key, PairingTrafficDirection.TabletToDesktop, sealedFrame));
+        if (kind is >= 1 and <= 5)
+        {
+            Assert.Throws<ArgumentException>(() => PairingCryptography.SealRelayFrame(
+                key,
+                PairingTrafficDirection.TabletToDesktop,
+                (RelayPayloadKind)kind,
+                frame.ProtocolVersion,
+                frame.ChannelId,
+                frame.SessionId,
+                frame.KeyEpoch,
+                frame.SenderSequence,
+                frame.IssuedUtc,
+                frame.ExpiresUtc,
+                "{}"u8));
+        }
     }
 
     [Fact]
@@ -134,28 +215,30 @@ public sealed class CryptographyVectorTests
     [Fact]
     public void RelayFramesUseCanonicalChunksAndCarryAFullPlaintextPayload()
     {
-        var key = RandomNumberGenerator.GetBytes(32);
+        var key = SHA256.HashData("paired-test/relay-frame-key"u8);
         var session = new DeviceSessionId(Guid.Parse("20000000-0000-4000-8000-000000000002"));
         var channel = new RelayChannelId(Guid.Parse("90000000-0000-4000-8000-000000000001"));
-        var plaintext = RandomNumberGenerator.GetBytes(ProtocolBounds.MaxPayloadBytes);
+        var plaintext = Enumerable.Range(0, ProtocolBounds.MaxPayloadBytes).Select(index => (byte)(index * 31 % 251)).ToArray();
+        const RelayPayloadKind kind = RelayPayloadKind.ServerEnvelope;
 
-        var frame = PairingCryptography.SealRelayFrame(key, PairingTrafficDirection.DesktopToTablet, CompanionProtocolVersion.Current, channel, session, 7, ProtocolBounds.MaxSenderSequence, Now, Now.AddMinutes(1), plaintext);
+        var frame = PairingCryptography.SealRelayFrame(key, PairingTrafficDirection.DesktopToTablet, kind, CompanionProtocolVersion.Current, channel, session, 7, ProtocolBounds.MaxSenderSequence, Now, Now.AddMinutes(1), plaintext);
         var payload = CompanionProtocolJson.Serialize(frame);
         var wire = CompanionProtocolJson.Deserialize<OpaqueRelayFrame>(payload);
 
         Assert.Equal(86, frame.CiphertextChunksBase64Url.Count);
         Assert.All(frame.CiphertextChunksBase64Url.SkipLast(1), item => Assert.Equal(ProtocolBounds.RelayCiphertextChunkCharacters, item.Length));
         Assert.InRange(payload.Length, ProtocolBounds.MaxPayloadBytes, ProtocolBounds.MaxRelayFrameBytes);
-        Assert.Equal(plaintext, PairingCryptography.OpenRelayFrame(key, PairingTrafficDirection.DesktopToTablet, wire));
+        Assert.Equal(ProtocolBounds.MaxRelayPlaintextBytes, wire.CiphertextLength);
+        Assert.Equal(plaintext, PairingCryptography.OpenRelayFrame(key, PairingTrafficDirection.DesktopToTablet, wire).Json.ToArray());
 
         var rechunked = frame.CiphertextChunksBase64Url.ToList();
         rechunked[1] = rechunked[0][^4..] + rechunked[1];
         rechunked[0] = rechunked[0][..^4];
         Assert.Throws<ArgumentException>(() => Rebuild(frame, chunks: rechunked));
         Assert.Throws<ArgumentOutOfRangeException>(() => PairingCryptography.SealRelayFrame(
-            key, PairingTrafficDirection.DesktopToTablet, CompanionProtocolVersion.Current, channel, session, 7, 1, Now, Now.AddMinutes(1), new byte[ProtocolBounds.MaxPayloadBytes + 1]));
+            key, PairingTrafficDirection.DesktopToTablet, kind, CompanionProtocolVersion.Current, channel, session, 7, 1, Now, Now.AddMinutes(1), new byte[ProtocolBounds.MaxPayloadBytes + 1]));
         Assert.Throws<ArgumentOutOfRangeException>(() => PairingCryptography.SealRelayFrame(
-            key, PairingTrafficDirection.DesktopToTablet, CompanionProtocolVersion.Current, channel, session, 7, ProtocolBounds.MaxSenderSequence + 1, Now, Now.AddMinutes(1), plaintext));
+            key, PairingTrafficDirection.DesktopToTablet, kind, CompanionProtocolVersion.Current, channel, session, 7, ProtocolBounds.MaxSenderSequence + 1, Now, Now.AddMinutes(1), plaintext));
     }
 
     [Fact]

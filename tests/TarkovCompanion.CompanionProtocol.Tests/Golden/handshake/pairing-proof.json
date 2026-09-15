@@ -4,8 +4,8 @@
   },
   "assertion": {
     "credentialIdBase64Url": "Op_sQ31_jOPkt4KMBM7XUQ",
-    "authenticatorDataBase64Url": "aO3ZgobjUrVq1-vq2iYzUnMnWASIG6udeOcUKBnNz50FAAAAAQ",
-    "clientDataJsonBase64Url": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoidmNhRTRFSGhSLWM1ZkVTdFpua1FkWXJBNm1kTGNhRHBFZGQyNWJxZ3dDTSIsIm9yaWdpbiI6Imh0dHBzOi8vdGFya292LWNvbXBhbmlvbi5sb2NhbCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
-    "signatureBase64Url": "MEUCIC8k2BI2fCdDiXOK7s7uXsf2kaCox97Ey0_btX8LvvNIAiEAhqrOvLSRSph8UXi2CGyaNfIO_lTnuwe-O12yq_eXHpI"
+    "authenticatorDataBase64Url": "bh06Ke3q6CsFXIIk9S_9eIcb0LnLN4CBphRwTrGf1lwFAAAAAQ",
+    "clientDataJsonBase64Url": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiUXBNMFNnWWVZbE1tbGhzNHRsQWRrSkJ1eUdETEhFS0ZIUE9NMXpjUkl6USIsIm9yaWdpbiI6Imh0dHBzOi8vY29tcGFuaW9uLmV4YW1wbGUiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+    "signatureBase64Url": "MEUCIQDdkoHp_pK7oXzg1PiHyACLGRUs2PcjXcdgN31i1MFKAQIgLIa41aDndHA2ieOc2VBzwGY_7ZKG3TZB3xbzPa0dz34"
   }
 }

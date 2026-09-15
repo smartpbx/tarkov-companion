@@ -9,6 +9,10 @@
     "authorityEpoch": {
       "value": "30000000-0000-0000-0000-000000000001"
     },
+    "workspaceId": {
+      "value": "80000000-0000-4000-8000-000000000001"
+    },
+    "desktopInstanceId": "desktop-install-1",
     "globalRevision": {
       "value": 7
     },
@@ -112,25 +116,28 @@
             "value": "50000000-0000-4000-8000-000000000001"
           },
           "revision": 1,
+          "lastChangeId": {
+            "value": "40000000-0000-4000-8000-000000000004"
+          },
           "kind": "Waypoint",
           "scope": "PairedDevice",
           "authorDeviceId": {
             "value": "10000000-0000-4000-8000-000000000002"
           },
-          "coordinate": {
+          "state": {
             "mapId": "customs",
             "floorId": null,
-            "coordinateSpace": "Normalized",
-            "projectionVersion": "tarkov-dev-1",
             "x": 0.25,
-            "y": null,
-            "z": 0.75
+            "y": 0.75,
+            "label": "Stash spot",
+            "expiresUtc": null
           },
-          "label": "Stash spot",
+          "coordinateSpace": "Normalized",
+          "projectionVersion": "tarkov-dev-1",
+          "height": null,
           "color": "#00AACC",
           "createdUtc": "2026-09-14T20:00:30+00:00",
-          "updatedUtc": "2026-09-14T20:00:30+00:00",
-          "expiresUtc": null
+          "updatedUtc": "2026-09-14T20:00:30+00:00"
         }
       ]
     },
@@ -151,13 +158,15 @@
         "captureSessionId": {
           "value": "70000000-0000-4000-8000-000000000001"
         },
-        "purpose": "LootDecision",
+        "state": {
+          "intent": "Loot",
+          "armedUtc": "2026-09-14T20:00:40+00:00",
+          "expiresUtc": "2026-09-14T20:02:40+00:00"
+        },
         "initiatingDeviceId": {
           "value": "10000000-0000-4000-8000-000000000002"
         },
         "initiatingSurface": "TabletLandscape",
-        "requestedUtc": "2026-09-14T20:00:40+00:00",
-        "expiresUtc": "2026-09-14T20:02:40+00:00",
         "status": "Armed",
         "context": {
           "mapId": "customs",

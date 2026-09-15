@@ -90,6 +90,8 @@ public sealed class OfflineActionQueueTests
         var independent = Apply(InitialState(), SetMode(21, 1, Now, CompanionInteractionMode.Independent), TabletContext()).State;
         var previewedElsewhere = new CanonicalCompanionState(
             new AuthorityEpoch(Guid.Parse("30000000-0000-0000-0000-000000000099")),
+            independent.WorkspaceId,
+            independent.DesktopInstanceId,
             independent.GlobalRevision,
             independent.DesktopDeviceId,
             independent.DeviceModes,

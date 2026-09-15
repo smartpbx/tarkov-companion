@@ -20,6 +20,10 @@ internal static class ProtocolTestData
     public static readonly DeviceKeyId TabletKey = new(Thumbprint("tablet-key"));
     public static readonly DeviceKeyId OtherKey = new(Thumbprint("other-key"));
     public static readonly AuthorityEpoch Epoch = new(Guid.Parse("30000000-0000-0000-0000-000000000001"));
+    public static readonly WorkspaceId Workspace = new(Guid.Parse("80000000-0000-4000-8000-000000000001"));
+    public const string DesktopInstance = "desktop-install-1";
+    public const string TabletInstance = "tablet-install-1";
+    public const string OtherInstance = "tablet-install-2";
 
     public static readonly IReadOnlyList<DeviceCapability> TabletCapabilities =
     [
@@ -33,6 +37,8 @@ internal static class ProtocolTestData
 
     public static CanonicalCompanionState InitialState() => new(
         Epoch,
+        Workspace,
+        DesktopInstance,
         new GlobalRevision(0),
         DesktopDevice,
         new DeviceModeAggregate(
@@ -66,6 +72,7 @@ internal static class ProtocolTestData
         TabletDevice,
         TabletSession,
         TabletKey,
+        TabletInstance,
         CompanionProtocolVersion.Current,
         CompanionSurfaceKind.TabletLandscape,
         capabilities ?? TabletCapabilities,
@@ -76,6 +83,7 @@ internal static class ProtocolTestData
         OtherDevice,
         OtherSession,
         OtherKey,
+        OtherInstance,
         CompanionProtocolVersion.Current,
         CompanionSurfaceKind.TabletPortrait,
         TabletCapabilities,
@@ -86,6 +94,7 @@ internal static class ProtocolTestData
         DesktopDevice,
         DesktopSession,
         DesktopKey,
+        DesktopInstance,
         CompanionProtocolVersion.Current,
         CompanionSurfaceKind.Desktop,
         Enum.GetValues<DeviceCapability>(),
@@ -118,13 +127,19 @@ internal static class ProtocolTestData
 
     public static CaptureSessionId CaptureSession(int number) => new(Guid.Parse($"70000000-0000-0000-0000-{number:000000000000}"));
 
-    public static MapMarkDraft Draft(double x = 1, MapMarkKind kind = MapMarkKind.Waypoint, MapMarkScope scope = MapMarkScope.PairedDevice) => new(
+    public static MapMarkDraft Draft(
+        double x = 1,
+        MapMarkKind kind = MapMarkKind.Waypoint,
+        MapMarkScope scope = MapMarkScope.PairedDevice,
+        string? label = "Mark",
+        DateTimeOffset? expiresUtc = null) => new(
         kind,
         scope,
-        new MapCoordinate("customs", "ground", CoordinateSpaceKind.World, "tarkov-dev-1", x, 2, 3),
-        "Mark",
-        "#00AACC",
-        null);
+        new MapMarkState("customs", "ground", x, 3, label, expiresUtc),
+        CoordinateSpaceKind.World,
+        "tarkov-dev-1",
+        2,
+        "#00AACC");
 
     public static UpsertMarkCommand Upsert(
         int command,
@@ -165,6 +180,7 @@ internal static class ProtocolTestData
             DeviceLifecycleStatus.Active,
             at,
             at,
+            1,
             at.AddDays(30),
             at);
     }
@@ -387,7 +403,7 @@ internal sealed class ReferenceWebAuthnVerifier(string rpId) : IDeviceKeyProofVe
 /// <summary>Produces real WebAuthn-shaped assertions with the test-only tablet device key.</summary>
 internal static class TestAuthenticator
 {
-    public const string RpId = "tarkov-companion.local";
+    public const string RpId = "companion.example";
 
     public static DeviceKeyProof Prove(
         HandshakeChallenge challenge,

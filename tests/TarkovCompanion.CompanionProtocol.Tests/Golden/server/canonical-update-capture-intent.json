@@ -27,6 +27,21 @@
         "value": "40000000-0000-4000-8000-000000000005"
       },
       "changedUtc": "2026-09-14T20:00:50+00:00",
+      "origin": {
+        "workspaceId": {
+          "value": "80000000-0000-4000-8000-000000000001"
+        },
+        "deviceId": {
+          "value": "10000000-0000-4000-8000-000000000002"
+        },
+        "kind": "PairedDevice",
+        "instanceId": "tablet-install-1"
+      },
+      "contractVersion": {
+        "major": 2,
+        "minor": 0,
+        "isDefined": true
+      },
       "state": {
         "cursor": {
           "revision": {
@@ -44,13 +59,15 @@
           "captureSessionId": {
             "value": "70000000-0000-4000-8000-000000000001"
           },
-          "purpose": "LootDecision",
+          "state": {
+            "intent": "Loot",
+            "armedUtc": "2026-09-14T20:00:40+00:00",
+            "expiresUtc": "2026-09-14T20:02:40+00:00"
+          },
           "initiatingDeviceId": {
             "value": "10000000-0000-4000-8000-000000000002"
           },
           "initiatingSurface": "TabletLandscape",
-          "requestedUtc": "2026-09-14T20:00:40+00:00",
-          "expiresUtc": "2026-09-14T20:02:40+00:00",
           "status": "Armed",
           "context": {
             "mapId": "customs",

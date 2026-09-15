@@ -22,34 +22,55 @@ public sealed class IdempotencyTests
     }
 
     [Fact]
-    public void FingerprintChangesWhenAnyCommandFieldChanges()
+    public void FingerprintCoversTheActionButNotTheDeliveryMetadataARetryRefreshes()
     {
         var golden = GoldenNode("commands/upsert-mark.json");
-        var mutations = new Action<JsonObject>[]
+        var original = CanonicalCommandFingerprint.Compute(
+            CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(golden.ToJsonString())).Command);
+        var deliveryOnly = new Action<JsonObject>[]
         {
             command => command["commandId"]!["value"] = "40000000-0000-4000-8000-000000000999",
             command => command["requestedRevision"]!["value"] = 2,
             command => command["issuedUtc"] = "2026-09-14T20:00:01+00:00",
             command => command["expiresUtc"] = "2026-09-14T20:00:59+00:00",
+        };
+        foreach (var mutate in deliveryOnly)
+        {
+            var node = GoldenNode("commands/upsert-mark.json");
+            mutate(node["command"]!.AsObject());
+            var command = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString())).Command;
+            Assert.Equal(original, CanonicalCommandFingerprint.Compute(command));
+        }
+
+        Assert.Equal(
+            new[] { "commandId", "expiresUtc", "issuedUtc", "offlineQueuePreview", "requestedRevision" },
+            CanonicalCommandFingerprint.DeliveryMetadataMembers.Order(StringComparer.Ordinal).ToArray());
+        var mutations = new Action<JsonObject>[]
+        {
+            command => command["type"] = "deleteMark",
             command => command["markId"]!["value"] = "50000000-0000-4000-8000-000000000999",
             command => command["expectedMarkRevision"] = 3,
             command => command["mark"]!["kind"] = "Waypoint",
             command => command["mark"]!["scope"] = "Private",
-            command => command["mark"]!["label"] = "renamed",
+            command => command["mark"]!["state"]!["label"] = "renamed",
             command => command["mark"]!["color"] = "#FF8801",
-            command => command["mark"]!["coordinate"]!["x"] = 10.25,
-            command => command["mark"]!["coordinate"]!["floorId"] = null,
-            command => command["mark"]!["coordinate"]!["projectionVersion"] = "tarkov-dev-2",
+            command => command["mark"]!["state"]!["x"] = 10.25,
+            command => command["mark"]!["state"]!["floorId"] = null,
+            command => command["mark"]!["height"] = 3,
+            command => command["mark"]!["projectionVersion"] = "tarkov-dev-2",
         };
-        var fingerprints = new HashSet<CommandFingerprint>
-        {
-            CanonicalCommandFingerprint.Compute(CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(golden.ToJsonString())).Command),
-        };
+        var fingerprints = new HashSet<CommandFingerprint> { original };
 
         foreach (var mutate in mutations)
         {
             var node = GoldenNode("commands/upsert-mark.json");
             mutate(node["command"]!.AsObject());
+            if (node["command"]!["type"]!.GetValue<string>() == "deleteMark")
+            {
+                node["command"]!.AsObject().Remove("mark");
+                node["command"]!["expectedMarkRevision"] = 1;
+            }
+
             var command = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString())).Command;
             Assert.True(fingerprints.Add(CanonicalCommandFingerprint.Compute(command)), node.ToJsonString());
         }
@@ -65,6 +86,44 @@ public sealed class IdempotencyTests
         Assert.Equal(CommandDisposition.Applied, lateRetry.Acknowledgement.Disposition);
         Assert.Equal("duplicate-command", lateRetry.Acknowledgement.Code);
         Assert.Same(applied.State, lateRetry.State);
+    }
+
+    [Fact]
+    public void ARePreviewedOfflineRetryAfterALostAcknowledgementIsTheDuplicateNotASecondApply()
+    {
+        var state = Apply(InitialState(), SetMode(90, 1, Now, CompanionInteractionMode.Independent), TabletContext()).State;
+        var show = new ShowOnDesktopCommand(
+            Command(91),
+            new AggregateRevision(1),
+            Now,
+            Now.AddMinutes(10),
+            Projection("woods"),
+            new OfflineQueuePreview(Now, Now, Epoch, state.Workspace.Cursor.Revision));
+        var applied = Apply(state, show, TabletContext());
+        var desktopChange = DesktopCanonicalStateMachine.Apply(
+            applied.State,
+            Envelope(new UpdateDesktopWorkspaceCommand(Command(92), new AggregateRevision(2), Now, Now.AddMinutes(1), Projection("customs")), DesktopSession),
+            DesktopContext());
+        var retryAt = Now.AddSeconds(5);
+        var rePreviewed = new ShowOnDesktopCommand(
+            Command(91),
+            new AggregateRevision(3),
+            retryAt,
+            retryAt.AddMinutes(10),
+            Projection("woods"),
+            new OfflineQueuePreview(Now, retryAt, Epoch, desktopChange.State.Workspace.Cursor.Revision));
+
+        var retry = Apply(desktopChange.State, rePreviewed, TabletContext(retryAt));
+
+        Assert.Equal(CommandDisposition.Applied, applied.Acknowledgement.Disposition);
+        Assert.Equal(CommandDisposition.Applied, retry.Acknowledgement.Disposition);
+        Assert.Equal("duplicate-command", retry.Acknowledgement.Code);
+        Assert.Equal(1, retry.Acknowledgement.RequestedRevision.Value);
+        Assert.Equal(1, retry.Acknowledgement.AppliedRevision.Value);
+        Assert.Equal(Command(91), retry.Acknowledgement.AppliedChangeId);
+        Assert.Same(desktopChange.State, retry.State);
+        Assert.Null(retry.Update);
+        Assert.Equal("customs", retry.State.Workspace.Projection.MapId);
     }
 
     [Fact]
@@ -86,8 +145,13 @@ public sealed class IdempotencyTests
             Assert.Equal(CommandDisposition.RejectedCommandIdReuse, reduction.Acknowledgement.Disposition);
             Assert.Same(applied.State, reduction.State);
             Assert.Null(reduction.Update);
-            Assert.Same(applied.State, reduction.Acknowledgement.CanonicalState);
-            Assert.Equal(1, reduction.State.Marks.Marks[0].Coordinate.X);
+
+            // The rejection describes no revision, so it can never be read as naming this command,
+            // or the reused identifier's original change, as the applied change.
+            Assert.Null(reduction.Acknowledgement.CanonicalState);
+            Assert.Equal(0, reduction.Acknowledgement.AppliedRevision.Value);
+            Assert.Null(reduction.Acknowledgement.AppliedChangeId);
+            Assert.Equal(1, reduction.State.Marks.Marks[0].State.X);
         }
     }
 

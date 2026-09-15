@@ -32,9 +32,43 @@ public sealed class AcknowledgementContractTests
         Assert.Equal(CommandDisposition.RejectedStale, Ack(CommandDisposition.RejectedStale, 2, 3, Other, state).Disposition);
         Assert.Equal(CommandDisposition.RejectedConflict, Ack(CommandDisposition.RejectedConflict, 3, 3, Other, state).Disposition);
         Assert.Equal(CommandDisposition.RequiresSnapshot, Ack(CommandDisposition.RequiresSnapshot, 9, 3, Other, state).Disposition);
-        Assert.Equal(
-            CommandDisposition.RejectedCommandIdReuse,
-            Ack(CommandDisposition.RejectedCommandIdReuse, 3, 3, This, StateWithWorkspaceAt(3, This)).Disposition);
+
+        // Only Applied names this command. Every rejection without canonical state, identifier reuse
+        // and unsupported version included, describes no revision at all.
+        Assert.Throws<ArgumentException>(() => Ack(CommandDisposition.RejectedCommandIdReuse, 3, 3, This, StateWithWorkspaceAt(3, This)));
+        Assert.Throws<ArgumentException>(() => Ack(CommandDisposition.RejectedCommandIdReuse, 3, 3, Other, null));
+        Assert.Throws<ArgumentException>(() => Ack(CommandDisposition.UnsupportedVersion, 3, 3, Other, null));
+        Assert.Throws<ArgumentException>(() => Ack(CommandDisposition.RequiresPreview, 3, 3, This, StateWithWorkspaceAt(3, This)));
+        foreach (var disposition in Enum.GetValues<CommandDisposition>().Where(item => !CarriesState(item) && item != CommandDisposition.Applied))
+        {
+            var acknowledgement = Ack(disposition, 3, 0, null, null);
+            Assert.Equal(0, acknowledgement.AppliedRevision.Value);
+            Assert.Null(acknowledgement.AppliedChangeId);
+        }
+    }
+
+    [Fact]
+    public void TheV2ContractDocumentGovernsPairedAcknowledgementsWithoutDrift()
+    {
+        var contract = File.ReadAllText(RepositoryFile("docs", "V2_CONTRACT.md"));
+        var protocol = File.ReadAllText(RepositoryFile("docs", "PAIRED_DEVICE_PROTOCOL.md"));
+
+        Assert.Contains("docs/PAIRED_DEVICE_PROTOCOL.md", contract, StringComparison.Ordinal);
+        Assert.Contains("only `Applied` may name the acknowledged change", contract, StringComparison.Ordinal);
+        Assert.Contains("`MapMarkState`", contract, StringComparison.Ordinal);
+        Assert.Contains("`CaptureIntentState`", contract, StringComparison.Ordinal);
+        Assert.Contains($"{MapMarkState.MaxLabelLength} characters", contract, StringComparison.Ordinal);
+        Assert.Contains($"{MapMarkState.MaxLabelLength} characters", protocol, StringComparison.Ordinal);
+        foreach (var disposition in Enum.GetNames<AcknowledgementDisposition>())
+        {
+            Assert.Contains($"| `{disposition}` |", contract, StringComparison.Ordinal);
+            Assert.Contains($"| `{disposition}` |", protocol, StringComparison.Ordinal);
+        }
+
+        foreach (var disposition in Enum.GetNames<CommandDisposition>())
+        {
+            Assert.Contains($"`{disposition}`", protocol, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -108,12 +142,20 @@ public sealed class AcknowledgementContractTests
             {
                 Assert.Same(state, reduction.State);
                 Assert.Null(reduction.Update);
-                if (acknowledgement.Disposition != CommandDisposition.RejectedCommandIdReuse)
+                Assert.NotEqual(command.CommandId, acknowledgement.AppliedChangeId);
+                if (!CarriesState(acknowledgement.Disposition))
                 {
-                    Assert.NotEqual(command.CommandId, acknowledgement.AppliedChangeId);
+                    Assert.Equal(0, acknowledgement.AppliedRevision.Value);
+                    Assert.Null(acknowledgement.CanonicalState);
                 }
             }
-            else if (acknowledgement.Code != "duplicate-command")
+            else if (acknowledgement.Code == "duplicate-command")
+            {
+                Assert.Equal(command.CommandId, acknowledgement.AppliedChangeId);
+                Assert.Equal(acknowledgement.RequestedRevision, acknowledgement.AppliedRevision);
+                Assert.Same(state, reduction.State);
+            }
+            else
             {
                 Assert.Equal(state.GlobalRevision.Next(), reduction.State.GlobalRevision);
                 Assert.NotNull(reduction.Update);
@@ -128,6 +170,23 @@ public sealed class AcknowledgementContractTests
 
             state = reduction.State;
         }
+    }
+
+    private static bool CarriesState(CommandDisposition disposition) => disposition is
+        CommandDisposition.RejectedStale or CommandDisposition.RejectedConflict or
+        CommandDisposition.RequiresPreview or CommandDisposition.RequiresSnapshot;
+
+    private static string RepositoryFile(params string[] segments)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "TarkovCompanion.sln")))
+            {
+                return Path.Combine(segments.Prepend(directory.FullName).ToArray());
+            }
+        }
+
+        throw new DirectoryNotFoundException("The repository root was not found above the test output.");
     }
 
     private static void AssertCoreAccepts(CommandAcknowledgement acknowledgement)
@@ -177,6 +236,8 @@ public sealed class AcknowledgementContractTests
         var initial = InitialState();
         return new CanonicalCompanionState(
             initial.AuthorityEpoch,
+            initial.WorkspaceId,
+            initial.DesktopInstanceId,
             new GlobalRevision(3),
             initial.DesktopDeviceId,
             initial.DeviceModes,
@@ -229,7 +290,7 @@ public sealed class AcknowledgementContractTests
                 random.Next(0, 3),
                 Draft(random.NextDouble(), random.NextDouble() < 0.3 ? MapMarkKind.Ping : MapMarkKind.Waypoint, random.NextDouble() < 0.1 ? MapMarkScope.Team : MapMarkScope.PairedDevice)),
             8 => new DeleteMarkCommand(id, Revision(CanonicalAggregateKind.Marks), issued, expires, Mark(random.Next(1, 4)), random.Next(1, 3)),
-            9 => new RequestCaptureIntentCommand(id, Revision(CanonicalAggregateKind.CaptureIntent), issued, expires, Capture(random.Next(1, 3)), "fuzz", CaptureSession(1), ContextualCapturePurpose.AutoDetect, new CompanionCaptureContext(null, null, null, null, [], [], [])),
+            9 => new RequestCaptureIntentCommand(id, Revision(CanonicalAggregateKind.CaptureIntent), issued, expires, Capture(random.Next(1, 3)), "fuzz", CaptureSession(1), ScanIntent.Auto, new CompanionCaptureContext(null, null, null, null, [], [], [])),
             10 => new ReportCaptureProgressCommand(id, Revision(CanonicalAggregateKind.CaptureIntent), issued, expires, capture, (ContextualCaptureProgressPhase)random.Next(1, 14), random.Next(0, 101), artifact, artifact is null ? null : 0, null),
             11 => new PublishCaptureResultCommand(
                 id,

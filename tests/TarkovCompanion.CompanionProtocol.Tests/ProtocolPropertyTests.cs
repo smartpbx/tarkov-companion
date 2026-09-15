@@ -28,10 +28,11 @@ public sealed class ProtocolPropertyTests
                 new MapMarkDraft(
                     MapMarkKind.Waypoint,
                     MapMarkScope.PairedDevice,
-                    new MapCoordinate("customs", null, CoordinateSpaceKind.World, "v1", random.NextDouble(), null, random.NextDouble()),
+                    new TarkovCompanion.Core.Abstractions.V2.MapMarkState("customs", null, random.NextDouble(), random.NextDouble(), null, null),
+                    CoordinateSpaceKind.World,
+                    "v1",
                     null,
-                    "#00AACC",
-                    null));
+                    "#00AACC"));
             var reduction = Apply(state, command, TabletContext(now));
 
             Assert.True(reduction.State.GlobalRevision.Value >= state.GlobalRevision.Value);
@@ -118,21 +119,21 @@ public sealed class ProtocolPropertyTests
     }
 
     [Fact]
-    public void CapturePurposeSetIsClosedAndComplete()
+    public void PairedCaptureIntentsAreTheClosedCoreScanIntentSetWithoutFlea()
     {
         Assert.Equal(
             new[]
             {
-                "LootDecision",
-                "FullStash",
+                "Auto",
+                "Loot",
+                "Stash",
                 "Ammo",
                 "Keys",
-                "QuestAndFutureQuestItems",
-                "MapAndExtracts",
+                "QuestItems",
+                "ExtractsAndMap",
                 "HealthAndCharacter",
-                "AutoDetect",
             },
-            Enum.GetNames<ContextualCapturePurpose>());
+            PairedScanIntents.Allowed.Select(intent => intent.ToString()).ToArray());
     }
 
     private static Type[] ConcreteSubtypes<TBase>() =>

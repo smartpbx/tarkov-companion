@@ -6,7 +6,8 @@ layouts. `primitives.py` implements P-256, ECDSA, HKDF, and AES-256-GCM and chec
 RFC 5869, FIPS-197, and the GCM specification test vectors before any vector is written. The
 keys are derived from public labels and are test-only.
 
-- `gen_handshake.py <out>` writes `crypto/`, `handshake/`, and `relay/`.
+- `gen_handshake.py <out>` writes `crypto/` (including the nonce commitment, typed relay plaintext,
+  and transport-binding vectors), `handshake/` (including the nonce reveal), and `relay/`.
 - `gen_wire.py <out>` writes `commands/`, `client/`, `server/`, `hello/`, and `reconnect/`.
 - `validate.py <schema> <golden>` validates every wire vector against the schema, including a
   strict check that no member is undeclared.

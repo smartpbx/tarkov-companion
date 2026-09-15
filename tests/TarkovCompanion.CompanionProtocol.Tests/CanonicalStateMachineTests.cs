@@ -119,6 +119,7 @@ public sealed class CanonicalStateMachineTests
         Assert.Equal(CommandDisposition.Applied, duplicate.Acknowledgement.Disposition);
         Assert.Equal("duplicate-command", duplicate.Acknowledgement.Code);
         Assert.Equal(create.CommandId, duplicate.Acknowledgement.AppliedChangeId);
+        Assert.Equal(duplicate.Acknowledgement.AppliedRevision, duplicate.Acknowledgement.RequestedRevision);
         Assert.Same(applied.State, duplicate.State);
         Assert.Null(duplicate.Update);
 
@@ -242,35 +243,75 @@ public sealed class CanonicalStateMachineTests
         Assert.Equal("mark-not-found", missing.Acknowledgement.Code);
     }
 
-    [Theory]
-    [InlineData(ContextualCapturePurpose.LootDecision, ScanIntent.Loot)]
-    [InlineData(ContextualCapturePurpose.FullStash, ScanIntent.Stash)]
-    [InlineData(ContextualCapturePurpose.Ammo, ScanIntent.Ammo)]
-    [InlineData(ContextualCapturePurpose.Keys, ScanIntent.Keys)]
-    [InlineData(ContextualCapturePurpose.QuestAndFutureQuestItems, ScanIntent.QuestItems)]
-    [InlineData(ContextualCapturePurpose.MapAndExtracts, ScanIntent.ExtractsAndMap)]
-    [InlineData(ContextualCapturePurpose.HealthAndCharacter, ScanIntent.HealthAndCharacter)]
-    [InlineData(ContextualCapturePurpose.AutoDetect, ScanIntent.Auto)]
-    public void CapturePurposesMapToFrozenCoreIntents(ContextualCapturePurpose purpose, ScanIntent expected)
+    [Fact]
+    public void CaptureIntentsReuseTheCoreCaptureIntentStateAndNeverArmFleaRecognition()
     {
-        var intent = new ContextualCaptureIntent(
-            Capture(99),
-            "mapping",
-            CaptureSession(99),
-            purpose,
-            TabletDevice,
-            CompanionSurfaceKind.TabletLandscape,
+        Assert.Equal(
+            Enum.GetValues<ScanIntent>().Where(intent => intent != ScanIntent.Flea).ToArray(),
+            PairedScanIntents.Allowed.ToArray());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RequestCaptureIntentCommand(
+            Command(98),
+            new AggregateRevision(1),
             Now,
             Now.AddMinutes(1),
-            ContextualCaptureStatus.Armed,
-            new CompanionCaptureContext(null, null, null, null, [], [], []),
-            [],
-            null,
-            [],
-            null,
-            []);
+            Capture(98),
+            "flea",
+            CaptureSession(98),
+            ScanIntent.Flea,
+            new CompanionCaptureContext(null, null, null, null, [], [], [])));
 
-        Assert.Equal(expected, intent.CoreIntent);
+        var armed = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext());
+        var intent = armed.State.CaptureIntent.ActiveIntent!;
+        var projected = Assert.IsType<CaptureCanonicalUpdate>(armed.Update).ToRevisionedState();
+
+        Assert.Equal(new CaptureIntentState(ScanIntent.Loot, Now, Now.AddMinutes(1)), intent.State);
+        Assert.NotNull(projected);
+        Assert.Same(intent.State, projected.Value);
+        Assert.Equal(new StateStreamId("paired/CaptureIntent"), projected.StreamId);
+        Assert.Equal(1, projected.Revision.Value);
+        Assert.Equal(new StateChangeId(Command(40).Value), projected.ChangeId);
+        Assert.Equal(V2ContractVersion.Current, projected.ContractVersion);
+        Assert.Equal(new WorkspaceOrigin(Workspace, TabletDevice, WorkspaceOriginKind.PairedDevice, TabletInstance), projected.Origin);
+    }
+
+    [Fact]
+    public void EveryCommittedChangeCarriesV2WorkspaceDeviceInstanceOriginAndContractVersion()
+    {
+        var mode = Apply(InitialState(), SetMode(70, 1, Now, CompanionInteractionMode.Independent), TabletContext());
+        var desktop = DesktopCanonicalStateMachine.Apply(
+            mode.State,
+            Envelope(new UpdateDesktopWorkspaceCommand(Command(71), new AggregateRevision(1), Now, Now.AddMinutes(1), Projection("woods")), DesktopSession),
+            DesktopContext());
+        var first = Apply(desktop.State, Upsert(72, 1, 0, Now), TabletContext());
+        var second = Apply(first.State, Upsert(73, 2, 0, Now, mark: 2, kind: MapMarkKind.Ping), TabletContext());
+        var device = PairedTablet();
+        var maintained = DesktopCanonicalStateMachine.ApplyMaintenance(second.State, Now.AddSeconds(46), [device], [ActiveSession(device, TabletSession)]);
+
+        Assert.Equal(new WorkspaceOrigin(Workspace, TabletDevice, WorkspaceOriginKind.PairedDevice, TabletInstance), mode.Update!.Origin);
+        Assert.Equal(new WorkspaceOrigin(Workspace, DesktopDevice, WorkspaceOriginKind.DesktopApplication, DesktopInstance), desktop.Update!.Origin);
+        Assert.All(
+            new CanonicalUpdate[] { mode.Update!, desktop.Update!, first.Update!, second.Update! }.Concat(maintained.Updates),
+            update => Assert.Equal(V2ContractVersion.Current, update.ContractVersion));
+
+        // A marks change projects only the marks it wrote, each on its own Core stream with its own revision.
+        var projected = Assert.Single(Assert.IsType<MarksCanonicalUpdate>(second.Update).ToRevisionedStates());
+        Assert.Equal(new StateStreamId($"paired/Marks/{Mark(2).Value:D}"), projected.StreamId);
+        Assert.Equal(1, projected.Revision.Value);
+        Assert.Equal(second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(2)).State, projected.Value);
+        Assert.Equal(Command(73), second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(2)).LastChangeId);
+        Assert.Equal(Command(72), second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(1)).LastChangeId);
+
+        var expiry = Assert.IsType<MarksCanonicalUpdate>(Assert.Single(maintained.Updates));
+        Assert.Equal(new WorkspaceOrigin(Workspace, DesktopDevice, WorkspaceOriginKind.DesktopApplication, DesktopInstance), expiry.Origin);
+        Assert.Empty(expiry.ToRevisionedStates());
+    }
+
+    [Fact]
+    public void MarkLabelsUseTheCoreEightyCharacterCap()
+    {
+        Assert.Equal(80, MapMarkState.MaxLabelLength);
+        Assert.Throws<ArgumentOutOfRangeException>(() => Draft(label: new string('x', MapMarkState.MaxLabelLength + 1)));
+        Assert.Equal(CommandDisposition.Applied, Apply(InitialState(), UpsertWith(74, Draft(label: new string('x', MapMarkState.MaxLabelLength))), TabletContext()).Acknowledgement.Disposition);
     }
 
     [Fact]
@@ -413,7 +454,7 @@ public sealed class CanonicalStateMachineTests
     }
 
     [Fact]
-    public void ANewerOrUnnegotiatedVersionIsUnsupportedAndLeavesStateUntouched()
+    public void AnUnreadableVersionIsUnsupportedButAReadableUnnegotiatedVersionIsAPeerError()
     {
         var command = Upsert(53, 1, 0, Now);
         var newer = DesktopCanonicalStateMachine.Apply(
@@ -427,6 +468,7 @@ public sealed class CanonicalStateMachineTests
                 TabletDevice,
                 TabletSession,
                 TabletKey,
+                TabletInstance,
                 new CompanionProtocolVersion(1, 0),
                 CompanionSurfaceKind.TabletLandscape,
                 TabletCapabilities,
@@ -434,9 +476,117 @@ public sealed class CanonicalStateMachineTests
                 false));
 
         Assert.Equal(CommandDisposition.UnsupportedVersion, newer.Acknowledgement.Disposition);
+        Assert.Equal("protocol-version-unreadable", newer.Acknowledgement.Code);
         Assert.Equal(AcknowledgementDisposition.UnsupportedVersion, newer.Acknowledgement.CoreDisposition);
-        Assert.Equal(CommandDisposition.UnsupportedVersion, unnegotiated.Acknowledgement.Disposition);
+        Assert.Equal(0, newer.Acknowledgement.AppliedRevision.Value);
+        Assert.Null(newer.Acknowledgement.AppliedChangeId);
+        Assert.Equal(CommandDisposition.RejectedInvalidState, unnegotiated.Acknowledgement.Disposition);
+        Assert.Equal("version-not-negotiated", unnegotiated.Acknowledgement.Code);
+        Assert.Null(unnegotiated.Acknowledgement.CoreDisposition);
         Assert.Empty(newer.State.Marks.Marks);
+    }
+
+    [Fact]
+    public void AnExpiredPendingRequestOrTheRequestersExpiredLeaseDoesNotBlockANewRequest()
+    {
+        var otherRequest = new RequestControlCommand(Command(80), new AggregateRevision(1), Now, Now.AddMinutes(1), TimeSpan.FromMinutes(1));
+        var pending = Apply(InitialState(), otherRequest, OtherContext()).State;
+        var later = Now.AddMinutes(2);
+        var tabletRequest = new RequestControlCommand(Command(81), new AggregateRevision(2), later, later.AddMinutes(1), TimeSpan.FromMinutes(1));
+
+        var replaced = Apply(pending, tabletRequest, TabletContext(later));
+
+        Assert.Equal(CommandDisposition.Applied, replaced.Acknowledgement.Disposition);
+        Assert.Equal(tabletRequest.CommandId, replaced.State.DeviceModes.PendingControl!.RequestCommandId);
+        Assert.Equal(CompanionInteractionMode.Follow, replaced.State.DeviceModes.ModeOf(OtherDevice));
+
+        var granted = Apply(
+            replaced.State,
+            new ResolveControlCommand(Command(82), new AggregateRevision(3), later, later.AddMinutes(1), tabletRequest.CommandId, true, Lease),
+            DesktopContext(later)).State;
+        var afterLease = later.AddMinutes(2);
+        var again = Apply(
+            granted,
+            new RequestControlCommand(Command(83), new AggregateRevision(4), afterLease, afterLease.AddMinutes(1), TimeSpan.FromMilliseconds(90_500)),
+            TabletContext(afterLease));
+
+        Assert.Equal(CommandDisposition.Applied, again.Acknowledgement.Disposition);
+        Assert.Null(again.State.DeviceModes.ControlLease);
+        Assert.Equal(CompanionInteractionMode.ControlPending, again.State.DeviceModes.ModeOf(TabletDevice));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new RequestControlCommand(
+            Command(84), new AggregateRevision(5), afterLease, afterLease.AddMinutes(1), TimeSpan.FromTicks(1)));
+    }
+
+    [Fact]
+    public void ACancelledOrFailedArtifactEndsOnlyThatCaptureButASessionTerminalEndsTheIntent()
+    {
+        var armed = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext());
+        var at = Now.AddSeconds(1);
+        var failedArtifact = DesktopCanonicalStateMachine.Apply(
+            armed.State,
+            Envelope(
+                new ReportCaptureProgressCommand(Command(85), new AggregateRevision(2), at, at.AddSeconds(30), Capture(1), ContextualCaptureProgressPhase.Failed, null, "artifact-1", 0, "capture-unreadable"),
+                DesktopSession),
+            DesktopContext(at));
+        var cancelledSession = DesktopCanonicalStateMachine.Apply(
+            failedArtifact.State,
+            Envelope(
+                new ReportCaptureProgressCommand(Command(86), new AggregateRevision(3), at, at.AddSeconds(30), Capture(1), ContextualCaptureProgressPhase.Cancelled, null, null, null, "user-cancelled"),
+                DesktopSession),
+            DesktopContext(at));
+        var resultForFailedArtifact = DesktopCanonicalStateMachine.Apply(
+            failedArtifact.State,
+            Envelope(
+                new PublishCaptureResultCommand(
+                    Command(87),
+                    new AggregateRevision(3),
+                    at,
+                    at.AddSeconds(30),
+                    Capture(1),
+                    new ContextualCaptureResult("result-9", "artifact-1", 0, new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current), RecognizedContext.Loot, at, ScreenshotProvenance(at)),
+                    []),
+                DesktopSession),
+            DesktopContext(at));
+
+        Assert.Equal(CommandDisposition.Applied, failedArtifact.Acknowledgement.Disposition);
+        Assert.Equal(ContextualCaptureStatus.AwaitingUserCapture, failedArtifact.State.CaptureIntent.ActiveIntent!.Status);
+        Assert.Equal(ContextualCaptureStatus.Cancelled, cancelledSession.State.CaptureIntent.ActiveIntent!.Status);
+        Assert.Equal("result-artifact-ended", resultForFailedArtifact.Acknowledgement.Code);
+    }
+
+    [Fact]
+    public void MaintenanceOfStateAtTheCommandBudgetStaysDeliverable()
+    {
+        var state = Apply(InitialState(), CaptureCommand(40, 1, Now), TabletContext()).State;
+        string? stopCode = null;
+        for (var index = 0; index < ProtocolBounds.MaxMarks && stopCode is null; index++)
+        {
+            var at = Now.AddMilliseconds(index);
+            var result = Apply(state, UpsertWith(2000 + index, WideDraft(index), revision: index + 1, mark: 2000 + index, now: at), TabletContext(at));
+            if (result.Acknowledgement.Disposition == CommandDisposition.Applied)
+            {
+                state = result.State;
+            }
+            else
+            {
+                stopCode = result.Acknowledgement.Code;
+            }
+        }
+
+        // The armed capture's status name grows when maintenance expires it; the reserve absorbs that.
+        var device = PairedTablet();
+        var maintained = DesktopCanonicalStateMachine.ApplyMaintenance(state, Now.AddMinutes(3), [device], [ActiveSession(device, TabletSession)]);
+
+        Assert.Equal("canonical-state-exceeds-delivery-bound", stopCode);
+        Assert.Equal(ContextualCaptureStatus.Expired, maintained.State.CaptureIntent.ActiveIntent!.Status);
+        Assert.True(CanonicalDeliveryBudget.IsDeliverable(maintained.State));
+        _ = CompanionProtocolJson.Serialize(new ServerEnvelope(
+            CompanionProtocolVersion.Current,
+            TabletSession,
+            DesktopDevice,
+            Now.AddMinutes(3),
+            new DeliverySequence(ProtocolBounds.MaxWireInteger),
+            new CanonicalSnapshotMessage(maintained.State)));
     }
 
     [Fact]
@@ -463,7 +613,6 @@ public sealed class CanonicalStateMachineTests
     public void StateThatCouldNotBeDeliveredIsRejectedBeforeItIsCommitted()
     {
         var state = InitialState();
-        var label = new string('x', 1000);
         CommandReduction? rejected = null;
         for (var index = 0; index < ProtocolBounds.MaxMarks && rejected is null; index++)
         {
@@ -475,13 +624,7 @@ public sealed class CanonicalStateMachineTests
                 at.AddMinutes(1),
                 Mark(1000 + index),
                 0,
-                new MapMarkDraft(
-                    MapMarkKind.Note,
-                    MapMarkScope.PairedDevice,
-                    new MapCoordinate("customs", "ground", CoordinateSpaceKind.World, "tarkov-dev-1", index, 2, 3),
-                    label,
-                    "#00AACC",
-                    null));
+                WideDraft(index));
             var result = Apply(state, command, TabletContext(at));
             if (result.Acknowledgement.Disposition == CommandDisposition.Applied)
             {
@@ -530,7 +673,7 @@ public sealed class CanonicalStateMachineTests
             TabletSession,
             DesktopDevice,
             Now,
-            new DeliverySequence(long.MaxValue),
+            new DeliverySequence(ProtocolBounds.MaxWireInteger),
             new CommandAcknowledgementMessage(new CommandAcknowledgement(
                 Command(999),
                 CanonicalAggregateKind.CaptureIntent,
@@ -585,8 +728,23 @@ public sealed class CanonicalStateMachineTests
         Capture(intent),
         "capture-correlation",
         CaptureSession(intent),
-        ContextualCapturePurpose.LootDecision,
+        ScanIntent.Loot,
         new CompanionCaptureContext("customs", "ground", "profile", null, [], [], []));
+
+    private static MapMarkDraft WideDraft(int index) => new(
+        MapMarkKind.Note,
+        MapMarkScope.PairedDevice,
+        new MapMarkState(new string('m', ProtocolBounds.MaxShortStringBytes), new string('f', ProtocolBounds.MaxShortStringBytes), index, 3, new string('x', MapMarkState.MaxLabelLength), null),
+        CoordinateSpaceKind.World,
+        new string('p', ProtocolBounds.MaxShortStringBytes),
+        2,
+        "#00AACC");
+
+    private static UpsertMarkCommand UpsertWith(int command, MapMarkDraft draft, long revision = 1, int mark = 1, DateTimeOffset? now = null)
+    {
+        var at = now ?? Now;
+        return new UpsertMarkCommand(Command(command), new AggregateRevision(revision), at, at.AddSeconds(30), Mark(mark), 0, draft);
+    }
 
     private static int ProtocolGuardVersion(CommandId id)
     {

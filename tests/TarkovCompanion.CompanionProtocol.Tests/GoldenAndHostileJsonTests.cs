@@ -28,7 +28,7 @@ public sealed class GoldenAndHostileJsonTests
         var covered = WireFilePaths().Select(file => RootFor(file)).ToHashSet();
 
         Assert.True(covered.SetEquals(CompanionProtocolJson.RootTypes), string.Join(", ", covered.Select(type => type.Name)));
-        Assert.Equal(14, CompanionProtocolJson.RootTypes.Distinct().Count());
+        Assert.Equal(15, CompanionProtocolJson.RootTypes.Distinct().Count());
     }
 
     [Theory]
@@ -65,7 +65,15 @@ public sealed class GoldenAndHostileJsonTests
         AssertEnum<CompatibilityDisposition>(definitions["serverHello"]!["properties"]!["disposition"]!);
         AssertEnum<HandshakePurpose>(definitions["handshakeChallenge"]!["properties"]!["purpose"]!);
         AssertEnum<CompanionInteractionMode>(definitions["deviceModeEntry"]!["properties"]!["mode"]!);
-        AssertEnum<ContextualCapturePurpose>(definitions["capturePurpose"]!);
+        Assert.Equal(
+            PairedScanIntents.Allowed.Select(intent => intent.ToString()).Order(StringComparer.Ordinal).ToArray(),
+            definitions["pairedScanIntent"]!["enum"]!.AsArray().Select(item => item!.GetValue<string>()).Order(StringComparer.Ordinal).ToArray());
+        AssertEnum<TarkovCompanion.Core.Abstractions.V2.WorkspaceOriginKind>(definitions["workspaceOrigin"]!["properties"]!["kind"]!);
+        Assert.Equal(
+            TarkovCompanion.Core.Abstractions.V2.MapMarkState.MaxLabelLength,
+            definitions["mapMarkState"]!["properties"]!["label"]!["maxLength"]!.GetValue<int>());
+        Assert.Equal(ProtocolBounds.MaxWireInteger, definitions["positiveRevision"]!["properties"]!["value"]!["maximum"]!.GetValue<long>());
+        Assert.Equal(ProtocolBounds.MaxRelayPlaintextBytes, definitions["opaqueRelayFrame"]!["properties"]!["ciphertextLength"]!["maximum"]!.GetValue<int>());
         AssertEnum<ContextualCaptureProgressPhase>(definitions["captureProgressPhase"]!);
         AssertEnum<CaptureCorrectionKind>(definitions["captureCorrectionKind"]!);
         AssertEnum<CanonicalAggregateKind>(definitions["aggregateAcknowledgement"]!["properties"]!["aggregate"]!);
@@ -91,6 +99,13 @@ public sealed class GoldenAndHostileJsonTests
             TabletContext(reviewAt));
         var marked = Apply(pending.State, Upsert(46, 1, 0, reviewAt, kind: MapMarkKind.Ping), TabletContext(reviewAt));
         var conflict = Apply(marked.State, Upsert(47, 1, 0, reviewAt, mark: 2), TabletContext(reviewAt));
+        var reuse = Apply(marked.State, Upsert(46, 2, 1, reviewAt, kind: MapMarkKind.Ping, x: 9), TabletContext(reviewAt));
+        var unsupported = DesktopCanonicalStateMachine.Apply(
+            marked.State,
+            Envelope(Upsert(48, 2, 1, reviewAt), version: new CompanionProtocolVersion(2, 7)),
+            TabletContext(reviewAt));
+        Assert.Equal(CommandDisposition.RejectedCommandIdReuse, reuse.Acknowledgement.Disposition);
+        Assert.Equal(CommandDisposition.UnsupportedVersion, unsupported.Acknowledgement.Disposition);
 
         var messages = new ServerMessage[]
         {
@@ -98,6 +113,8 @@ public sealed class GoldenAndHostileJsonTests
             new CanonicalUpdateMessage(pending.Update!),
             new CanonicalUpdateMessage(marked.Update!),
             new CommandAcknowledgementMessage(conflict.Acknowledgement),
+            new CommandAcknowledgementMessage(reuse.Acknowledgement),
+            new CommandAcknowledgementMessage(unsupported.Acknowledgement),
             new CanonicalSnapshotMessage(marked.State),
         };
         for (var index = 0; index < messages.Length; index++)
@@ -167,6 +184,31 @@ public sealed class GoldenAndHostileJsonTests
         var reordered = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString()));
 
         Assert.IsType<SetInteractionModeCommand>(reordered.Command);
+    }
+
+    [Theory]
+    [InlineData("ms-msdt:/id PCWDiagnostic")]
+    [InlineData("file:///C:/Windows/System32/calc.exe")]
+    [InlineData("https://companion.example/objective/objective-1")]
+    [InlineData("TARKOV-COMPANION://objective/objective-1")]
+    [InlineData("tarkov-companion://objective")]
+    [InlineData("tarkov-companion://objective/../../settings")]
+    [InlineData("tarkov-companion://objective/objective-1?run=1")]
+    [InlineData("tarkov-companion://objective/objective%201")]
+    public void SelectionDeepLinksAreACompanionGrammarNeverAShellFileOrWebUri(string link)
+    {
+        var node = GoldenNode("commands/update-desktop-workspace.json");
+        node["command"]!["projection"]!["selection"]!["originDeepLink"] = link;
+
+        Assert.Throws<ArgumentException>(() => new WorkspaceSelection(WorkspaceSelectionKind.Objective, "objective-1", link, null));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString())));
+        Assert.NotEmpty(Validator.Value.Validate(node));
+        Assert.Equal(
+            "tarkov-companion://objective/objective-1",
+            new WorkspaceSelection(WorkspaceSelectionKind.Objective, "objective-1", "tarkov-companion://objective/objective-1", null).OriginDeepLink);
+
+        // .NET's "$" also matches before a final newline; the boundary anchors at the absolute end.
+        Assert.Throws<ArgumentException>(() => new WorkspaceSelection(WorkspaceSelectionKind.Objective, "objective-1", "tarkov-companion://objective/objective-1\n", null));
     }
 
     [Fact]
@@ -391,6 +433,7 @@ public sealed class GoldenAndHostileJsonTests
         "hello/client-hello.json" => typeof(ClientHello),
         _ when file.StartsWith("hello/server-hello", StringComparison.Ordinal) => typeof(ServerHello),
         "handshake/pairing-offer.json" => typeof(PairingOffer),
+        "handshake/pairing-nonce-reveal.json" => typeof(PairingNonceReveal),
         "handshake/pairing-request.json" => typeof(PairingRequest),
         "handshake/session-resume-request.json" => typeof(SessionResumeRequest),
         _ when file.EndsWith("-challenge.json", StringComparison.Ordinal) => typeof(HandshakeChallenge),
@@ -410,6 +453,7 @@ public sealed class GoldenAndHostileJsonTests
         nameof(ClientHello) => CompanionProtocolJson.Deserialize<ClientHello>(payload),
         nameof(ServerHello) => CompanionProtocolJson.Deserialize<ServerHello>(payload),
         nameof(PairingOffer) => CompanionProtocolJson.Deserialize<PairingOffer>(payload),
+        nameof(PairingNonceReveal) => CompanionProtocolJson.Deserialize<PairingNonceReveal>(payload),
         nameof(PairingRequest) => CompanionProtocolJson.Deserialize<PairingRequest>(payload),
         nameof(SessionResumeRequest) => CompanionProtocolJson.Deserialize<SessionResumeRequest>(payload),
         nameof(HandshakeChallenge) => CompanionProtocolJson.Deserialize<HandshakeChallenge>(payload),
@@ -429,6 +473,7 @@ public sealed class GoldenAndHostileJsonTests
         ClientHello value => CompanionProtocolJson.Serialize(value),
         ServerHello value => CompanionProtocolJson.Serialize(value),
         PairingOffer value => CompanionProtocolJson.Serialize(value),
+        PairingNonceReveal value => CompanionProtocolJson.Serialize(value),
         PairingRequest value => CompanionProtocolJson.Serialize(value),
         SessionResumeRequest value => CompanionProtocolJson.Serialize(value),
         HandshakeChallenge value => CompanionProtocolJson.Serialize(value),

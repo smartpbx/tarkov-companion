@@ -28,7 +28,7 @@
     "captureSessionId": {
       "value": "70000000-0000-4000-8000-000000000002"
     },
-    "purpose": "AutoDetect",
+    "intent": "Auto",
     "context": {
       "mapId": null,
       "floorId": null,

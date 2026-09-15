@@ -1,5 +1,5 @@
 """Generates paired-protocol handshake, key-schedule, and relay vectors from the normative spec."""
-import datetime, hashlib, json, os, sys
+import datetime, hashlib, hmac, ipaddress, json, os, sys
 from primitives import *
 
 assert self_test()
@@ -63,9 +63,10 @@ def eph_json(point_spki): return {"algorithm": "EcdhP256", "subjectPublicKeyInfo
 identity_json = {"keyId": gid(b64u(identity_key_id)), "algorithm": "EcdsaP256Sha256", "subjectPublicKeyInfoBase64Url": b64u(identity_spki)}
 device_key_json = {"keyId": gid(b64u(device_key_id)), "algorithm": "WebAuthnEs256", "credentialIdBase64Url": b64u(credential_id), "cosePublicKeyBase64Url": b64u(cose)}
 
-# ---------- pairing request context, sealed name, commitment, code ----------
+# ---------- nonce commitment, pairing request context, sealed name, commitment, code ----------
+nonce_commitment = hashlib.sha256(utf8("TarkovCompanion.PairedDevice/v2/desktop-nonce-commitment") + lp(desktop_nonce)).digest()
 context = (utf8("TarkovCompanion.PairedDevice/v2/pairing-request-context") + version(2, 0) + uid(ATTEMPT)
-           + lp(identity_key_id) + lp(de_spki) + lp(desktop_nonce) + lp(device_key_id) + lp(credential_id)
+           + lp(identity_key_id) + lp(de_spki) + lp(nonce_commitment) + lp(device_key_id) + lp(credential_id)
            + lp(te_spki) + lp(client_nonce) + i64(ms(OFFER_EXPIRES)))
 context_hash = hashlib.sha256(context).digest()
 shared = ecdh(d_te, q_de)
@@ -73,7 +74,8 @@ assert shared == ecdh(d_de, q_te)
 name = "Living-room tablet"
 name_key = hkdf(shared, context_hash, b"TarkovCompanion.PairedDevice/v2/device-name-key", 32)
 name_ct, name_tag = aes_gcm_encrypt(name_key, bytes(12), name.encode(), context_hash)
-commitment = hashlib.sha256(utf8("TarkovCompanion.PairedDevice/v2/pairing-commitment") + lp(context_hash) + lp(name_ct) + lp(name_tag)).digest()
+commitment = hashlib.sha256(utf8("TarkovCompanion.PairedDevice/v2/pairing-commitment") + lp(context_hash) + lp(name_ct) + lp(name_tag)
+                            + lp(desktop_nonce)).digest()
 code = "%06d" % (int.from_bytes(commitment[:4], "big") % 1_000_000)
 
 assignment = {"protocolVersion": V, "deviceId": gid(DEVICE), "sessionId": gid(SESSION), "relayChannelId": gid(CHANNEL),
@@ -96,17 +98,18 @@ k_t2d = hkdf(shared, h1, b"TarkovCompanion.PairedDevice/v2/tablet-to-desktop", 3
 k_d2t = hkdf(shared, h1, b"TarkovCompanion.PairedDevice/v2/desktop-to-tablet", 32)
 
 # ---------- WebAuthn assertion ----------
-rp_id = "tarkov-companion.local"
+rp_id = "companion.example"  # RFC 2606 name; a deployment pins its own tablet origin
 def assertion(challenge_hash, counter, label):
     auth = hashlib.sha256(rp_id.encode()).digest() + bytes([0x05]) + u32(counter)
-    client = json.dumps({"type": "webauthn.get", "challenge": b64u(challenge_hash), "origin": "https://tarkov-companion.local", "crossOrigin": False}, separators=(",", ":")).encode()
+    client = json.dumps({"type": "webauthn.get", "challenge": b64u(challenge_hash), "origin": "https://" + rp_id, "crossOrigin": False}, separators=(",", ":")).encode()
     signed = auth + hashlib.sha256(client).digest()
     r, s = ecdsa_sign(d_dev, signed, label)
     assert ecdsa_verify(q_dev, signed, r, s)
     return {"credentialIdBase64Url": b64u(credential_id), "authenticatorDataBase64Url": b64u(auth), "clientDataJsonBase64Url": b64u(client), "signatureBase64Url": b64u(der(r, s))}
 
 offer = {"attemptId": gid(ATTEMPT), "desktopIdentityKey": identity_json, "desktopEphemeralKey": eph_json(de_spki),
-         "desktopNonceBase64Url": b64u(desktop_nonce), "offeredUtc": OFFERED, "expiresUtc": OFFER_EXPIRES}
+         "desktopNonceCommitmentBase64Url": b64u(nonce_commitment), "offeredUtc": OFFERED, "expiresUtc": OFFER_EXPIRES}
+reveal = {"attemptId": gid(ATTEMPT), "desktopNonceBase64Url": b64u(desktop_nonce)}
 request = {"attemptId": gid(ATTEMPT), "negotiatedVersion": V, "deviceKey": device_key_json, "ephemeralKey": eph_json(te_spki),
            "clientNonceBase64Url": b64u(client_nonce), "requestedDeviceName": {"ciphertextBase64Url": b64u(name_ct), "authenticationTagBase64Url": b64u(name_tag)}}
 challenge = {"challengeId": gid(CHALLENGE), "purpose": "Pairing", "attemptId": gid(ATTEMPT), "pairingCommitmentBase64Url": b64u(commitment),
@@ -140,7 +143,8 @@ plaintext_obj = {
     "protocolVersion": V, "sessionId": gid(SESSION), "authorityEpoch": gid(EPOCH), "clientSentUtc": "2026-09-14T20:01:00+00:00",
     "command": {"type": "setInteractionMode", "commandId": gid("40000000-0000-4000-8000-000000000001"), "requestedRevision": {"value": 1},
                 "issuedUtc": "2026-09-14T20:01:00+00:00", "expiresUtc": "2026-09-14T20:02:00+00:00", "offlineQueuePreview": None, "mode": "Independent"}}
-plaintext = json.dumps(plaintext_obj, separators=(",", ":")).encode()
+payload_json = json.dumps(plaintext_obj, separators=(",", ":")).encode()
+plaintext = u16(1) + payload_json  # payload kind 1: ClientCommandEnvelope
 FRAME_ISSUED, FRAME_EXPIRES = "2026-09-14T20:01:00+00:00", "2026-09-14T20:02:00+00:00"
 nonce = u32(1) + u64(1)
 aad = (utf8("TarkovCompanion.PairedDevice/v2/relay-aad") + u16(1) + version(2, 0) + uid(CHANNEL) + uid(SESSION)
@@ -151,6 +155,24 @@ chunks = [text[i:i + 1024] for i in range(0, len(text), 1024)]
 frame = {"protocolVersion": V, "channelId": gid(CHANNEL), "sessionId": gid(SESSION), "keyEpoch": 1, "senderSequence": 1,
          "cipherSuite": "P256HkdfSha256Aes256Gcm", "nonceBase64Url": b64u(nonce), "ciphertextLength": len(frame_ct),
          "ciphertextChunksBase64Url": chunks, "authenticationTagBase64Url": b64u(frame_tag), "issuedUtc": FRAME_ISSUED, "expiresUtc": FRAME_EXPIRES}
+
+# ---------- transport binding ----------
+source_key = hashlib.sha256(b"paired-vector/source-hash-key").digest()
+def source_hash(address):
+    ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    raw = ip.packed if ip.version == 4 else ip.packed[:8]
+    return b64u(hmac.new(source_key, utf8("TarkovCompanion.PairedDevice/v2/pairing-source") + lp(raw), hashlib.sha256).digest())
+PAIRING_CODE = "7K2M9QXR4T"
+transport_binding = {
+    "sourceHashKeyHex": source_key.hex(),
+    "sourceHashes": [{"address": a, "sourceHash": source_hash(a)} for a in ["192.168.1.20", "::ffff:192.168.1.20", "2001:db8:1234:5678::1", "2001:db8:1234:5678:ffff::9"]],
+    "testPairingCode": PAIRING_CODE,
+    "qrPayload": "TARKOV-COMPANION-PAIR/2.0/" + PAIRING_CODE + "/" + b64u(identity_key_id),
+}
+assert transport_binding["sourceHashes"][0]["sourceHash"] == transport_binding["sourceHashes"][1]["sourceHash"]
+assert transport_binding["sourceHashes"][2]["sourceHash"] == transport_binding["sourceHashes"][3]["sourceHash"]
 
 vectors = {
     "comment": "Computed by an independent pure-Python implementation of docs/PAIRED_DEVICE_PROTOCOL.md (not by the C# library). Private keys are test-only.",
@@ -168,6 +190,7 @@ vectors = {
         "sharedSecretHex": shared.hex(),
         "deviceName": name,
         "deviceNameKeyHex": name_key.hex(),
+        "desktopNonceCommitmentBase64Url": b64u(nonce_commitment),
         "commitmentBase64Url": b64u(commitment),
         "verificationCode": code,
         "transcriptHex": t1.hex(),
@@ -183,10 +206,13 @@ vectors = {
     },
     "relayFrame": {
         "direction": "TabletToDesktop",
+        "payloadKind": "ClientCommandEnvelope",
         "nonceHex": nonce.hex(),
         "additionalAuthenticatedDataHex": aad.hex(),
-        "plaintextUtf8": plaintext.decode(),
+        "plaintextHex": plaintext.hex(),
+        "payloadUtf8": payload_json.decode(),
     },
+    "transportBinding": transport_binding,
 }
 
 def write(relative, obj):
@@ -199,6 +225,7 @@ def write(relative, obj):
 write("crypto/paired-handshake-vectors.json", vectors)
 write("handshake/pairing-offer.json", offer)
 write("handshake/pairing-request.json", request)
+write("handshake/pairing-nonce-reveal.json", reveal)
 write("handshake/pairing-challenge.json", challenge)
 write("handshake/pairing-proof.json", proof)
 write("handshake/pairing-established.json", established)

@@ -24,6 +24,6 @@
     "cipherSuite": "P256HkdfSha256Aes256Gcm",
     "sessionExpiresUtc": "2026-09-15T08:00:00+00:00"
   },
-  "transcriptHashBase64Url": "vcaE4EHhR-c5fEStZnkQdYrA6mdLcaDpEdd25bqgwCM",
+  "transcriptHashBase64Url": "QpM0SgYeYlMmlhs4tlAdkJBuyGDLHEKFHPOM1zcRIzQ",
   "establishedUtc": "2026-09-14T20:00:40+00:00"
 }

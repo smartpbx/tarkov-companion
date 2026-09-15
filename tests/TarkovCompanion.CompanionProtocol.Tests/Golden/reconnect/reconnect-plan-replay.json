@@ -24,6 +24,21 @@
             "value": "40000000-0000-4000-8000-000000000004"
           },
           "changedUtc": "2026-09-14T20:00:50+00:00",
+          "origin": {
+            "workspaceId": {
+              "value": "80000000-0000-4000-8000-000000000001"
+            },
+            "deviceId": {
+              "value": "10000000-0000-4000-8000-000000000002"
+            },
+            "kind": "PairedDevice",
+            "instanceId": "tablet-install-1"
+          },
+          "contractVersion": {
+            "major": 2,
+            "minor": 0,
+            "isDefined": true
+          },
           "state": {
             "cursor": {
               "revision": {
@@ -39,25 +54,28 @@
                   "value": "50000000-0000-4000-8000-000000000001"
                 },
                 "revision": 1,
+                "lastChangeId": {
+                  "value": "40000000-0000-4000-8000-000000000004"
+                },
                 "kind": "Waypoint",
                 "scope": "PairedDevice",
                 "authorDeviceId": {
                   "value": "10000000-0000-4000-8000-000000000002"
                 },
-                "coordinate": {
+                "state": {
                   "mapId": "customs",
                   "floorId": null,
-                  "coordinateSpace": "Normalized",
-                  "projectionVersion": "tarkov-dev-1",
                   "x": 0.25,
-                  "y": null,
-                  "z": 0.75
+                  "y": 0.75,
+                  "label": "Stash spot",
+                  "expiresUtc": null
                 },
-                "label": "Stash spot",
+                "coordinateSpace": "Normalized",
+                "projectionVersion": "tarkov-dev-1",
+                "height": null,
                 "color": "#00AACC",
                 "createdUtc": "2026-09-14T20:00:30+00:00",
-                "updatedUtc": "2026-09-14T20:00:30+00:00",
-                "expiresUtc": null
+                "updatedUtc": "2026-09-14T20:00:30+00:00"
               }
             ]
           }

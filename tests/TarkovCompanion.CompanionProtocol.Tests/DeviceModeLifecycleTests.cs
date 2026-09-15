@@ -147,15 +147,17 @@ public sealed class DeviceModeLifecycleTests
             [DeviceCapability.FollowDesktop, DeviceCapability.ManageDevices],
             Now);
 
-        var context = AuthenticatedCommandContext.ForPairedSession(device, session, Now.AddSeconds(1));
+        var context = AuthenticatedCommandContext.ForPairedSession(device, session, TabletInstance, Now.AddSeconds(1));
         var ended = DeviceLifecycle.EndSession(session, DeviceSessionStatus.Closed, Now.AddSeconds(2), "closed");
 
         Assert.Equal(new[] { DeviceCapability.FollowDesktop }, context.Capabilities);
         Assert.False(context.IsDesktop);
-        Assert.Throws<UnauthorizedAccessException>(() => AuthenticatedCommandContext.ForPairedSession(device, ended, Now.AddSeconds(3)));
+        Assert.Equal(TabletInstance, context.InstanceId);
+        Assert.Throws<UnauthorizedAccessException>(() => AuthenticatedCommandContext.ForPairedSession(device, ended, TabletInstance, Now.AddSeconds(3)));
         Assert.Throws<UnauthorizedAccessException>(() => AuthenticatedCommandContext.ForPairedSession(
             DeviceLifecycle.Revoke(device, Now.AddSeconds(3), "user-revoked"),
             session,
+            TabletInstance,
             Now.AddSeconds(3)));
     }
 

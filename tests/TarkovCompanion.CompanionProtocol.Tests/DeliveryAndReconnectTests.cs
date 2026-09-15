@@ -1,10 +1,13 @@
 using System.Text.Json;
+using TarkovCompanion.Core.Abstractions.V2;
 using static TarkovCompanion.CompanionProtocol.Tests.ProtocolTestData;
 
 namespace TarkovCompanion.CompanionProtocol.Tests;
 
 public sealed class DeliveryAndReconnectTests
 {
+    private static readonly WorkspaceOrigin TabletOrigin = new(Workspace, TabletDevice, WorkspaceOriginKind.PairedDevice, TabletInstance);
+
     [Fact]
     public void EveryEnvelopeToADeviceConsumesOneSequenceAcrossChannels()
     {
@@ -135,34 +138,38 @@ public sealed class DeliveryAndReconnectTests
         var replica = flow.ReplicaThrough(2);
         var request = replica.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now);
 
-        var replay = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger, TabletDevice);
+        var replay = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger, TabletDevice, CompanionProtocolVersion.Current);
         var wirePlan = CompanionProtocolJson.Deserialize<ReconnectPlan>(CompanionProtocolJson.Serialize(replay.Plan));
         var applied = replica.ApplyReconnectPlan(wirePlan);
 
         Assert.Equal(ReconnectDisposition.Replay, replay.Plan.Disposition);
+        Assert.Equal(CompanionProtocolVersion.Current, replay.Plan.ProtocolVersion);
         Assert.Equal(new long[] { 3, 4, 5 }, replay.Plan.Replay.Select(item => item.DeliverySequence.Value));
         Assert.Equal(5, replay.Plan.ResumeAfterDeliverySequence.Value);
         Assert.Empty(replay.Ledger.PendingFor(TabletDevice));
         Assert.Equal(ReplicaDisposition.Applied, applied.Disposition);
         AssertStateEqual(flow.Final, applied.Replica.State!);
 
-        var history = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger.Acknowledge(TabletDevice, new DeliverySequence(4)), TabletDevice);
+        var history = ReconnectPlanner.Plan(flow.Final, request, flow.Ledger.Acknowledge(TabletDevice, new DeliverySequence(4)), TabletDevice, CompanionProtocolVersion.Current);
         var epoch = ReconnectPlanner.Plan(
             flow.Final,
             new ReconnectRequest(CompanionProtocolVersion.Current, TabletSession, new AuthorityEpoch(Guid.Parse("30000000-0000-0000-0000-000000000099")), new GlobalRevision(1), new DeliverySequence(2), []),
             flow.Ledger,
-            TabletDevice);
-        var current = ReconnectPlanner.Plan(flow.Final, flow.ReplicaThrough(5).CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now), flow.Ledger, TabletDevice);
+            TabletDevice,
+            CompanionProtocolVersion.Current);
+        var current = ReconnectPlanner.Plan(flow.Final, flow.ReplicaThrough(5).CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now), flow.Ledger, TabletDevice, CompanionProtocolVersion.Current);
         var unsupported = ReconnectPlanner.Plan(
             flow.Final,
             new ReconnectRequest(new CompanionProtocolVersion(3, 0), TabletSession, Epoch, new GlobalRevision(1), new DeliverySequence(2), []),
             flow.Ledger,
-            TabletDevice);
+            TabletDevice,
+            CompanionProtocolVersion.Current);
         var reloaded = ReconnectPlanner.Plan(
             flow.Final,
             CanonicalReplica.Empty.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now),
             flow.Ledger,
-            TabletDevice);
+            TabletDevice,
+            CompanionProtocolVersion.Current);
 
         Assert.Equal("delivery-history-unavailable", history.Plan.Reason);
         Assert.Equal(ReconnectDisposition.FullSnapshot, history.Plan.Disposition);
@@ -191,7 +198,8 @@ public sealed class DeliveryAndReconnectTests
             state,
             new ReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Epoch, new GlobalRevision(0), new DeliverySequence(0), []),
             ledger,
-            TabletDevice);
+            TabletDevice,
+            CompanionProtocolVersion.Current);
 
         Assert.Equal(ReconnectDisposition.FullSnapshot, plan.Plan.Disposition);
         Assert.Equal("delivery-history-unavailable", plan.Plan.Reason);
@@ -202,8 +210,7 @@ public sealed class DeliveryAndReconnectTests
     {
         var state = InitialState();
         var updates = new List<CanonicalUpdate>();
-        var label = new string('y', 1000);
-        for (var index = 0; index < 36; index++)
+        for (var index = 0; index < 40; index++)
         {
             var at = Now.AddMilliseconds(index);
             var command = new UpsertMarkCommand(
@@ -213,7 +220,14 @@ public sealed class DeliveryAndReconnectTests
                 at.AddMinutes(1),
                 Mark(3_000 + index),
                 0,
-                new MapMarkDraft(MapMarkKind.Note, MapMarkScope.PairedDevice, new MapCoordinate("customs", null, CoordinateSpaceKind.World, "v1", index, null, 1), label, "#00AACC", null));
+                new MapMarkDraft(
+                    MapMarkKind.Note,
+                    MapMarkScope.PairedDevice,
+                    new MapMarkState(new string('m', ProtocolBounds.MaxShortStringBytes), new string('f', ProtocolBounds.MaxShortStringBytes), index, 1, new string('y', MapMarkState.MaxLabelLength), null),
+                    CoordinateSpaceKind.World,
+                    new string('v', ProtocolBounds.MaxShortStringBytes),
+                    null,
+                    "#00AACC"));
             var reduction = Apply(state, command, TabletContext(at));
             Assert.Equal(CommandDisposition.Applied, reduction.Acknowledgement.Disposition);
             state = reduction.State;
@@ -230,11 +244,42 @@ public sealed class DeliveryAndReconnectTests
             state,
             new ReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Epoch, new GlobalRevision(state.GlobalRevision.Value - 3), new DeliverySequence(0), []),
             ledger,
-            TabletDevice);
+            TabletDevice,
+            CompanionProtocolVersion.Current);
 
         Assert.Equal(ReconnectDisposition.FullSnapshot, plan.Plan.Disposition);
         Assert.Equal("replay-exceeds-payload-bound", plan.Plan.Reason);
         Assert.InRange(CompanionProtocolJson.Serialize(plan.Plan).Length, 1, ProtocolBounds.MaxPayloadBytes);
+    }
+
+    [Fact]
+    public void ALateOrNonContinuingReconnectPlanIsNeverApplied()
+    {
+        var flow = Flow.Create();
+        var replay = ReconnectPlanner.Plan(
+            flow.Final,
+            flow.ReplicaThrough(2).CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now),
+            flow.Ledger,
+            TabletDevice,
+            CompanionProtocolVersion.Current).Plan;
+        var advanced = flow.ReplicaThrough(5);
+        var staleSnapshot = new ReconnectPlan(CompanionProtocolVersion.Current, ReconnectDisposition.FullSnapshot, [], flow.Initial, new DeliverySequence(2), "authority-or-cursor-mismatch");
+
+        var late = advanced.ApplyReconnectPlan(staleSnapshot);
+        var overlapping = flow.ReplicaThrough(4).ApplyReconnectPlan(replay);
+        var afterGap = flow.ReplicaThrough(1).ApplyReconnectPlan(replay);
+        var upToDateElsewhere = flow.ReplicaThrough(2).ApplyReconnectPlan(
+            new ReconnectPlan(CompanionProtocolVersion.Current, ReconnectDisposition.UpToDate, [], null, new DeliverySequence(5), "already-current"));
+
+        Assert.Equal(ReplicaDisposition.Discarded, late.Disposition);
+        Assert.Equal("stale-reconnect-plan", late.Code);
+        Assert.Same(advanced, late.Replica);
+        Assert.Equal(ReplicaDisposition.Applied, overlapping.Disposition);
+        AssertStateEqual(flow.Final, overlapping.Replica.State!);
+        Assert.Equal(5, overlapping.Replica.LastDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, afterGap.Disposition);
+        Assert.Equal(1, afterGap.Replica.LastDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, upToDateElsewhere.Disposition);
     }
 
     private static void AssertStateEqual(CanonicalCompanionState expected, CanonicalCompanionState actual) =>
@@ -250,6 +295,8 @@ public sealed class DeliveryAndReconnectTests
         new GlobalRevision(global),
         Command((int)(100 + global)),
         Now,
+        TabletOrigin,
+        V2ContractVersion.Current,
         new MarkAggregate(new AggregateCursor(new AggregateRevision(aggregate), Command((int)(100 + global))), []));
 
     private static WorkspaceCanonicalUpdate WorkspaceUpdate(long global, long aggregate) => new(
@@ -257,6 +304,8 @@ public sealed class DeliveryAndReconnectTests
         new GlobalRevision(global),
         Command((int)(200 + global)),
         Now,
+        TabletOrigin,
+        V2ContractVersion.Current,
         new WorkspaceAggregate(new AggregateCursor(new AggregateRevision(aggregate), Command((int)(200 + global))), Projection()));
 
     private static CanonicalCompanionState StateWithMarksAt(long revision)
@@ -264,6 +313,8 @@ public sealed class DeliveryAndReconnectTests
         var initial = InitialState();
         return new CanonicalCompanionState(
             initial.AuthorityEpoch,
+            initial.WorkspaceId,
+            initial.DesktopInstanceId,
             new GlobalRevision(revision),
             initial.DesktopDeviceId,
             initial.DeviceModes,
