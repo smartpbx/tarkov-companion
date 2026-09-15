@@ -8,8 +8,15 @@ using TarkovCompanion.Core.Domain.Profiles;
 namespace TarkovCompanion.Infrastructure.Profile;
 
 /// <summary>
-/// A bounded, checksummed exchange format. The parser rejects unknown members and does not
-/// deserialize an unreviewed document into storage; Application must first create a preview.
+/// A bounded, checksummed exchange format. Application must still create a preview before any
+/// imported profile can change state.
+///
+/// External JSON follows the repository rule: unknown members are tolerated, while a missing
+/// required member, a null where a value is required, or an enum name this version does not know
+/// fails the read. The checksum is computed over the re-serialized known projection rather than
+/// the received text, so an additive member from a newer writer neither breaks verification nor
+/// rides along inside it, and a change to any known value is still detected. The same frozen copy
+/// is hashed, returned, and (on write) emitted, so the verified profiles are the ones handed on.
 /// </summary>
 public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
 {
@@ -22,11 +29,14 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
     {
         ArgumentNullException.ThrowIfNull(document);
         if (document.FormatVersion != FormatVersion) throw new ArgumentOutOfRangeException(nameof(document));
-        if (document.Profiles is null || document.Profiles.Count > 64)
-            throw new ArgumentOutOfRangeException(nameof(document), "Profile exports contain between zero and 64 profiles.");
-        _ = new ProfileWorkspaceSnapshot(0, null, document.Profiles);
-        var payload = CanonicalPayload(document.ExportedUtc, document.Profiles);
-        var envelope = new TransferEnvelope(FormatId, FormatVersion, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant(), JsonSerializer.Deserialize<TransferPayload>(payload, Options)!);
+        var frozen = new ProfileTransferDocument(document.FormatVersion, document.ExportedUtc, document.Profiles);
+        var transferPayload = new TransferPayload(frozen.ExportedUtc, frozen.Profiles);
+        var payload = CanonicalPayload(transferPayload);
+        var envelope = new TransferEnvelope(
+            FormatId,
+            FormatVersion,
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant(),
+            transferPayload);
         var result = JsonSerializer.Serialize(envelope, Options);
         if (Encoding.UTF8.GetByteCount(result) > MaximumBytes) throw new InvalidOperationException("Profile export exceeds the 2 MiB format limit.");
         return result;
@@ -44,15 +54,15 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
                 throw new InvalidDataException("Profile import has an unsupported format or version.");
             if (envelope.Payload is null || envelope.Checksum is null || envelope.Checksum.Length != 64 || envelope.Checksum.Any(character => !Uri.IsHexDigit(character)))
                 throw new InvalidDataException("Profile import has a missing or malformed checksum.");
-            if (envelope.Payload.Profiles is null || envelope.Payload.Profiles.Count is > 64)
-                throw new InvalidDataException("Profile import has an invalid profile count.");
+            if (envelope.Payload.Profiles is null)
+                throw new InvalidDataException("Profile import has no profile list.");
 
-            _ = new ProfileWorkspaceSnapshot(0, null, envelope.Payload.Profiles);
-            var payload = CanonicalPayload(envelope.Payload.ExportedUtc, envelope.Payload.Profiles);
+            var frozen = new ProfileTransferDocument(FormatVersion, envelope.Payload.ExportedUtc, envelope.Payload.Profiles);
+            var payload = CanonicalPayload(new TransferPayload(frozen.ExportedUtc, frozen.Profiles));
             var expected = Convert.FromHexString(envelope.Checksum);
             var actual = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
             if (!CryptographicOperations.FixedTimeEquals(expected, actual)) throw new InvalidDataException("Profile import checksum does not match the reviewed payload.");
-            return new(FormatVersion, envelope.Payload.ExportedUtc.ToUniversalTime(), Array.AsReadOnly(envelope.Payload.Profiles.ToArray()));
+            return frozen;
         }
         catch (JsonException exception)
         {
@@ -68,8 +78,7 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
         }
     }
 
-    private static string CanonicalPayload(DateTimeOffset exportedUtc, IReadOnlyList<ProfileRecord> profiles) => JsonSerializer.Serialize(
-        new TransferPayload(exportedUtc.ToUniversalTime(), profiles.OrderBy(profile => profile.Context.Identity.ProfileId).ToArray()), Options);
+    private static string CanonicalPayload(TransferPayload payload) => JsonSerializer.Serialize(payload, Options);
 
     private static JsonSerializerOptions CreateOptions()
     {
@@ -79,12 +88,15 @@ public sealed class JsonProfileContextTransferCodec : IProfileTransferCodec
             PropertyNameCaseInsensitive = false,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             ReadCommentHandling = JsonCommentHandling.Disallow,
+            RespectNullableAnnotations = true,
             RespectRequiredConstructorParameters = true,
-            UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+            UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
+            NumberHandling = JsonNumberHandling.Strict,
             MaxDepth = 64,
             WriteIndented = false,
         };
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+        options.MakeReadOnly(populateMissingResolver: true);
         return options;
     }
 
