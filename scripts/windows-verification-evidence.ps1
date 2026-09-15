@@ -49,6 +49,15 @@ function Read-JsonOrNull {
     }
 }
 
+function Get-OptionalProperty {
+    param([AllowNull()][object] $Object, [string] $Name)
+
+    if ($null -eq $Object) { return $null }
+    $Property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $Property) { return $null }
+    return $Property.Value
+}
+
 function Get-FailedDetails {
     param([AllowNull()][object[]] $Items, [string] $NameProperty = "name")
 
@@ -118,11 +127,11 @@ if ($null -ne $Smoke) {
         assertionCount = @($Smoke.assertions).Count
         passedAssertionCount = @($Smoke.assertions | Where-Object { $_.passed }).Count
         persistence = [ordered]@{
-            durableTable = if ($null -eq $SmokePersistence) { $null } else { $SmokePersistence.durableTable }
-            durableEventType = if ($null -eq $SmokePersistence) { $null } else { $SmokePersistence.durableEventType }
-            scanEventCountBefore = if ($null -eq $SmokePersistence) { $null } else { $SmokePersistence.scanEventCountBefore }
-            scanEventCountAfter = if ($null -eq $SmokePersistence) { $null } else { $SmokePersistence.scanEventCountAfter }
-            expectedScanEventDelta = if ($null -eq $SmokePersistence) { $null } else { $SmokePersistence.expectedScanEventDelta }
+            durableTable = $(Get-OptionalProperty $SmokePersistence "durableTable")
+            durableEventType = $(Get-OptionalProperty $SmokePersistence "durableEventType")
+            scanEventCountBefore = $(Get-OptionalProperty $SmokePersistence "scanEventCountBefore")
+            scanEventCountAfter = $(Get-OptionalProperty $SmokePersistence "scanEventCountAfter")
+            expectedScanEventDelta = $(Get-OptionalProperty $SmokePersistence "expectedScanEventDelta")
         }
     }
     foreach ($Detail in Get-FailedDetails -Items $Smoke.assertions) { $Excerpts.Add("smoke $Detail") }
