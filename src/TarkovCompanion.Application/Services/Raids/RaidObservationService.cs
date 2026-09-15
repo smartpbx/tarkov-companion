@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -33,6 +34,7 @@ public sealed class RaidObservationService : IAsyncDisposable
     private readonly IScreenshotFilenameParser _filenameParser;
     private readonly IScreenshotImageLoader? _imageLoader;
     private readonly IScanUseCase? _scanUseCase;
+    private readonly ICaptureSessionService? _captureSessions;
     private readonly ScreenshotRetentionService? _retention;
     private readonly IScreenshotRetentionStore? _retentionSettings;
     private readonly RaidActivityCoordinator _coordinator;
@@ -67,7 +69,8 @@ public sealed class RaidObservationService : IAsyncDisposable
         IScreenshotImageLoader? imageLoader = null,
         IScanUseCase? scanUseCase = null,
         ScreenshotRetentionService? retention = null,
-        IScreenshotRetentionStore? retentionSettings = null)
+        IScreenshotRetentionStore? retentionSettings = null,
+        ICaptureSessionService? captureSessions = null)
     {
         _pathLocator = pathLocator;
         _logWatcher = logWatcher;
@@ -76,6 +79,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         _coordinator = coordinator;
         _imageLoader = imageLoader;
         _scanUseCase = scanUseCase;
+        _captureSessions = captureSessions;
         _retention = retention;
         _retentionSettings = retentionSettings;
         _squad = squad;
@@ -371,11 +375,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                 if (_filenameParser.TryParseFile(path, offset, out var position) && position is not null)
                 {
                     _logger.LogInformation(
-                        "Read a position from {Filename}: X {X:F1}, Y {Y:F1}, Z {Z:F1} at {Taken:O}.",
-                        position.Filename,
-                        position.Position.X,
-                        position.Position.Y,
-                        position.Position.Z,
+                        "Read a filename position from a settled screenshot at {Taken:O}; exact coordinates are not logged.",
                         position.Timestamp);
                     await _coordinator.ApplyPositionAsync(position, cancellationToken).ConfigureAwait(false);
                 }
@@ -398,7 +398,7 @@ public sealed class RaidObservationService : IAsyncDisposable
                             "No position in the name of {Filename}. Ordinary for a menu or stash screenshot. " +
                             "If this was taken in a raid, the name is not in the shape this build expects " +
                             "and is worth reporting.",
-                            Path.GetFileName(path));
+                            MaskScreenshotName(Path.GetFileName(path)));
                     }
                 }
 
@@ -444,6 +444,9 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// </remarks>
     private void RememberScreenshotName(string name)
     {
+        // The punctuation and letter shape diagnose a parser mismatch; coordinates and the
+        // timestamp do not. Mask them before the name reaches runtime state or support text.
+        name = MaskScreenshotName(name);
         _stateStore.Update(current =>
         {
             var names = new List<string>(4) { name };
@@ -500,7 +503,42 @@ public sealed class RaidObservationService : IAsyncDisposable
     /// </remarks>
     private async Task ScanScreenshotAsync(string path, CancellationToken cancellationToken)
     {
-        if (_imageLoader is null || _scanUseCase is null)
+        if (_imageLoader is null)
+        {
+            return;
+        }
+
+        if (_captureSessions is not null)
+        {
+            var current = _stateStore.Current;
+            var context = new CaptureContextMetadata(
+                activeWorkspace: null,
+                activeProfile: current.Profile?.Id.ToString("D"),
+                activeMap: current.Raid.MapId,
+                activePlan: null,
+                selectedEntity: null,
+                priorScan: null,
+                initiatingDevice: "desktop");
+            var receipt = await _captureSessions.EnqueueAsync(
+                    new(
+                        CaptureDeliveryKind.WatchedFile,
+                        new ScreenshotFileCaptureSource(path, _imageLoader),
+                        context,
+                        DateTimeOffset.UtcNow,
+                        CaptureCorrelationId.New()),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (receipt.Disposition != CaptureQueueDisposition.Accepted)
+            {
+                _logger.LogWarning(
+                    "A settled screenshot was not admitted to capture intake: {Code}.",
+                    receipt.Code);
+            }
+
+            return;
+        }
+
+        if (_scanUseCase is null)
         {
             return;
         }
@@ -510,14 +548,16 @@ public sealed class RaidObservationService : IAsyncDisposable
             var image = await _imageLoader.LoadAsync(path, cancellationToken).ConfigureAwait(false);
             if (image is null)
             {
-                _logger.LogInformation("The screenshot {Filename} could not be read as a picture.", Path.GetFileName(path));
+                _logger.LogInformation(
+                    "The screenshot {Filename} could not be read as a picture.",
+                    MaskScreenshotName(Path.GetFileName(path)));
                 return;
             }
 
             var outcome = await _scanUseCase.ScanImageAsync(image, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation(
                 "Read {Filename} as {Context} with status {Status}.",
-                Path.GetFileName(path),
+                MaskScreenshotName(Path.GetFileName(path)),
                 outcome.Context,
                 outcome.Status);
 
@@ -544,7 +584,10 @@ public sealed class RaidObservationService : IAsyncDisposable
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(exception, "Could not scan the screenshot {Filename}.", Path.GetFileName(path));
+            _logger.LogWarning(
+                exception,
+                "Could not scan the screenshot {Filename}.",
+                MaskScreenshotName(Path.GetFileName(path)));
         }
     }
 
@@ -655,4 +698,7 @@ public sealed class RaidObservationService : IAsyncDisposable
         {
             Observation = observation with { IsSupported = OperatingSystem.IsWindows() },
         });
+
+    private static string MaskScreenshotName(string name) =>
+        string.Concat(name.Select(character => char.IsAsciiDigit(character) ? '#' : character));
 }
