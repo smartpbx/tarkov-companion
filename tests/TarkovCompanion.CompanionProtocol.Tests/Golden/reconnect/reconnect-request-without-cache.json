@@ -1,0 +1,17 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": null,
+  "lastGlobalRevision": {
+    "value": 0
+  },
+  "lastDeliverySequence": {
+    "value": 0
+  },
+  "aggregateAcknowledgements": []
+}

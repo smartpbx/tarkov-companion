@@ -1,0 +1,26 @@
+{
+  "attemptId": {
+    "value": "5a1d3c2e-7b10-4c00-8a00-000000000001"
+  },
+  "negotiatedVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "deviceKey": {
+    "keyId": {
+      "value": "y2YJoMGRv2GSAs5r4sPqGeFymw4LgjbNI5wLCd6IzE0"
+    },
+    "algorithm": "WebAuthnEs256",
+    "credentialIdBase64Url": "Op_sQ31_jOPkt4KMBM7XUQ",
+    "cosePublicKeyBase64Url": "pQECAyYgASFYIAgu-XElMFlx63Ve_7YiqgTQXa5HNVtODBHeC8t7qXSRIlggzs5zH7iawKb708U_BqHU49LBdQ0UwlgsTw0hZYQSHp0"
+  },
+  "ephemeralKey": {
+    "algorithm": "EcdhP256",
+    "subjectPublicKeyInfoBase64Url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7nQ5MEfcLbzMOHKTYKbPlwbTtNVl_JY0zoWsVvTvu8D2rJSaoXsnNr9EM_E03xyXs4V-4Vmg-_fd3LiLprl44A"
+  },
+  "clientNonceBase64Url": "dZlsrNsJleLLy5bUpY_0LjVNkB-IEw_ic2VdPfxUiIw",
+  "requestedDeviceName": {
+    "ciphertextBase64Url": "39IyeFiZv6fPRBuZp5C2HdGK",
+    "authenticationTagBase64Url": "y76sulmrnKLuBsqfXv2MvA"
+  }
+}

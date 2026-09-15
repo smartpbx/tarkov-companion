@@ -1,0 +1,13 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "disposition": "UpToDate",
+  "replay": [],
+  "snapshot": null,
+  "resumeAfterDeliverySequence": {
+    "value": 12
+  },
+  "reason": "already-current"
+}

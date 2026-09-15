@@ -1,0 +1,32 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authenticatedOriginDeviceId": {
+    "value": "10000000-0000-0000-0000-000000000001"
+  },
+  "serverUtc": "2026-09-14T20:00:00+00:00",
+  "deliverySequence": {
+    "value": 8
+  },
+  "message": {
+    "type": "deprecation",
+    "notice": {
+      "deprecatedVersion": {
+        "major": 2,
+        "minor": 0
+      },
+      "sunsetUtc": "2027-03-01T00:00:00+00:00",
+      "minimumReplacement": {
+        "major": 2,
+        "minor": 1
+      },
+      "recoveryAction": "UpdateTablet",
+      "explanation": "Protocol 2.0 is replaced by 2.1; update the tablet before the sunset."
+    }
+  }
+}

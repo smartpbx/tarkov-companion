@@ -1,0 +1,64 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:00:00+00:00",
+  "command": {
+    "type": "updateDesktopWorkspace",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000005"
+    },
+    "requestedRevision": {
+      "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00+00:00",
+    "expiresUtc": "2026-09-14T20:01:00+00:00",
+    "offlineQueuePreview": null,
+    "projection": {
+      "workspace": "Raid",
+      "mapId": "customs",
+      "floorId": "ground",
+      "viewport": {
+        "center": {
+          "mapId": "customs",
+          "floorId": "ground",
+          "coordinateSpace": "World",
+          "projectionVersion": "tarkov-dev-1",
+          "x": 10.5,
+          "y": 2,
+          "z": -20.25
+        },
+        "zoom": 1.5
+      },
+      "selection": {
+        "kind": "Objective",
+        "referenceId": "objective-1",
+        "originDeepLink": "tarkov-companion://objective/objective-1",
+        "focusToken": "focus-1"
+      },
+      "visibleObjectiveIds": [
+        "objective-1"
+      ],
+      "planIds": [],
+      "searchQuery": "labs keycard",
+      "resultIds": [
+        "item-1"
+      ],
+      "activeLayers": [
+        "extracts",
+        "quests"
+      ],
+      "activeFilters": [
+        "found-in-raid"
+      ],
+      "dialog": null
+    }
+  }
+}

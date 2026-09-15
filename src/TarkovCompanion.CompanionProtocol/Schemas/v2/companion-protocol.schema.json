@@ -2,263 +2,3161 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tarkov-companion.local/schemas/paired-device/2.0/companion-protocol.schema.json",
   "title": "Tarkov Companion paired-device protocol 2.0",
-  "$comment": "String limits are UTF-8 byte limits enforced by CompanionProtocolJson; JSON Schema maxLength is an additional character bound.",
+  "$comment": "String limits are UTF-8 byte limits enforced by CompanionProtocolJson; maxLength is an additional character bound. Object property order is not significant, including the position of polymorphic 'type' discriminators. Unknown optional object fields remain readable within negotiated major 2; unknown discriminators and enum members fail closed. Constructor invariants that JSON Schema cannot express (thumbprints, signatures, transcript hashes, revision/change-id rules, lifetimes, and canonical chunking) are normative in docs/PAIRED_DEVICE_PROTOCOL.md and enforced by the C# boundary.",
   "oneOf": [
-    { "$ref": "#/$defs/clientCommandEnvelope" },
-    { "$ref": "#/$defs/serverEnvelope" },
-    { "$ref": "#/$defs/opaqueRelayFrame" },
-    { "$ref": "#/$defs/clientHello" },
-    { "$ref": "#/$defs/serverHello" },
-    { "$ref": "#/$defs/pairingRequest" },
-    { "$ref": "#/$defs/pairingChallenge" },
-    { "$ref": "#/$defs/pairingProof" },
-    { "$ref": "#/$defs/reconnectRequest" },
-    { "$ref": "#/$defs/reconnectPlan" }
+    {
+      "$ref": "#/$defs/clientCommandEnvelope"
+    },
+    {
+      "$ref": "#/$defs/clientDeliveryAcknowledgement"
+    },
+    {
+      "$ref": "#/$defs/serverEnvelope"
+    },
+    {
+      "$ref": "#/$defs/opaqueRelayFrame"
+    },
+    {
+      "$ref": "#/$defs/clientHello"
+    },
+    {
+      "$ref": "#/$defs/serverHello"
+    },
+    {
+      "$ref": "#/$defs/pairingOffer"
+    },
+    {
+      "$ref": "#/$defs/pairingRequest"
+    },
+    {
+      "$ref": "#/$defs/sessionResumeRequest"
+    },
+    {
+      "$ref": "#/$defs/handshakeChallenge"
+    },
+    {
+      "$ref": "#/$defs/deviceKeyProof"
+    },
+    {
+      "$ref": "#/$defs/sessionEstablished"
+    },
+    {
+      "$ref": "#/$defs/reconnectRequest"
+    },
+    {
+      "$ref": "#/$defs/reconnectPlan"
+    }
   ],
   "$defs": {
     "version": {
       "type": "object",
-      "required": ["major", "minor"],
+      "required": [
+        "major",
+        "minor"
+      ],
       "properties": {
-        "major": { "type": "integer", "minimum": 1, "maximum": 99 },
-        "minor": { "type": "integer", "minimum": 0, "maximum": 999 }
+        "major": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        }
+      }
+    },
+    "versionRange": {
+      "type": "object",
+      "required": [
+        "minimum",
+        "maximum"
+      ],
+      "properties": {
+        "minimum": {
+          "$ref": "#/$defs/version"
+        },
+        "maximum": {
+          "$ref": "#/$defs/version"
+        }
       }
     },
     "guidId": {
       "type": "object",
-      "required": ["value"],
-      "properties": { "value": { "type": "string", "format": "uuid" } }
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        }
+      }
     },
-    "utc": { "type": "string", "format": "date-time", "pattern": "(?:Z|\\+00:00)$" },
+    "nonNegativeRevision": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "positiveRevision": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "base64Url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "sha256Base64Url": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "nonceBase64Url": {
+      "type": "string",
+      "minLength": 43,
+      "maxLength": 43,
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "p256SpkiBase64Url": {
+      "type": "string",
+      "minLength": 122,
+      "maxLength": 122,
+      "pattern": "^[A-Za-z0-9_-]{122}$"
+    },
+    "p1363SignatureBase64Url": {
+      "type": "string",
+      "minLength": 86,
+      "maxLength": 86,
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    },
+    "aesGcmTagBase64Url": {
+      "type": "string",
+      "minLength": 22,
+      "maxLength": 22,
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "keyEpoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|\\+00:00)$"
+    },
+    "shortString": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "string1024": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "nullableShortString": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 128
+    },
+    "nullableString1024": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 1024
+    },
+    "shortStringArray": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/shortString"
+      }
+    },
+    "timeSpan": {
+      "type": "string",
+      "pattern": "^(?:[0-9]+\\.)?[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,7})?$"
+    },
     "clientHello": {
       "type": "object",
-      "required": ["supportedVersions", "clientInstanceId", "optionalFeatures"],
+      "required": [
+        "supportedVersions",
+        "clientInstanceId",
+        "optionalFeatures"
+      ],
       "properties": {
-        "supportedVersions": { "type": "object" },
-        "clientInstanceId": { "type": "string", "maxLength": 128 },
-        "optionalFeatures": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } }
+        "supportedVersions": {
+          "$ref": "#/$defs/versionRange"
+        },
+        "clientInstanceId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "optionalFeatures": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/shortString"
+          }
+        }
+      }
+    },
+    "deprecationNotice": {
+      "type": "object",
+      "required": [
+        "deprecatedVersion",
+        "sunsetUtc",
+        "minimumReplacement",
+        "recoveryAction",
+        "explanation"
+      ],
+      "properties": {
+        "deprecatedVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sunsetUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "minimumReplacement": {
+          "$ref": "#/$defs/version"
+        },
+        "recoveryAction": {
+          "enum": [
+            "UpdateTablet",
+            "UpdateDesktop",
+            "RePairAfterUpdate"
+          ]
+        },
+        "explanation": {
+          "$ref": "#/$defs/string1024"
+        }
       }
     },
     "serverHello": {
       "type": "object",
-      "required": ["disposition", "desktopVersions"],
+      "required": [
+        "disposition",
+        "negotiatedVersion",
+        "desktopVersions",
+        "deprecation",
+        "recoveryAction"
+      ],
       "properties": {
-        "disposition": { "enum": ["Compatible", "UpgradeClient", "UpgradeDesktop", "NoSharedMajor"] },
-        "negotiatedVersion": { "$ref": "#/$defs/version" },
-        "desktopVersions": { "type": "object" }
+        "disposition": {
+          "enum": [
+            "Compatible",
+            "UpgradeClient",
+            "UpgradeDesktop",
+            "NoSharedMajor"
+          ]
+        },
+        "negotiatedVersion": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/version"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "desktopVersions": {
+          "$ref": "#/$defs/versionRange"
+        },
+        "deprecation": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/deprecationNotice"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "recoveryAction": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "UpdateTablet",
+            "UpdateDesktop",
+            "RePairAfterUpdate",
+            null
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "Compatible"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "negotiatedVersion": {
+                "$ref": "#/$defs/version"
+              },
+              "recoveryAction": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "negotiatedVersion": {
+                "type": "null"
+              },
+              "recoveryAction": {
+                "enum": [
+                  "UpdateTablet",
+                  "UpdateDesktop",
+                  "RePairAfterUpdate"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "deviceKeyId": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/sha256Base64Url"
+        }
+      }
+    },
+    "devicePublicKey": {
+      "type": "object",
+      "required": [
+        "keyId",
+        "algorithm",
+        "credentialIdBase64Url",
+        "cosePublicKeyBase64Url"
+      ],
+      "$comment": "keyId is base64url(SHA-256(decoded COSE key)).",
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/deviceKeyId"
+        },
+        "algorithm": {
+          "const": "WebAuthnEs256"
+        },
+        "credentialIdBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "cosePublicKeyBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 342,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "ephemeralPublicKey": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "subjectPublicKeyInfoBase64Url"
+      ],
+      "$comment": "An uncompressed P-256 SubjectPublicKeyInfo of exactly 91 bytes.",
+      "properties": {
+        "algorithm": {
+          "const": "EcdhP256"
+        },
+        "subjectPublicKeyInfoBase64Url": {
+          "$ref": "#/$defs/p256SpkiBase64Url"
+        }
+      }
+    },
+    "desktopIdentityKey": {
+      "type": "object",
+      "required": [
+        "keyId",
+        "algorithm",
+        "subjectPublicKeyInfoBase64Url"
+      ],
+      "$comment": "keyId is base64url(SHA-256(decoded SPKI)).",
+      "properties": {
+        "keyId": {
+          "$ref": "#/$defs/deviceKeyId"
+        },
+        "algorithm": {
+          "const": "EcdsaP256Sha256"
+        },
+        "subjectPublicKeyInfoBase64Url": {
+          "$ref": "#/$defs/p256SpkiBase64Url"
+        }
+      }
+    },
+    "sessionAssignment": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "deviceId",
+        "sessionId",
+        "relayChannelId",
+        "keyEpoch",
+        "cipherSuite",
+        "sessionExpiresUtc"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "relayChannelId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "keyEpoch": {
+          "$ref": "#/$defs/keyEpoch"
+        },
+        "cipherSuite": {
+          "const": "P256HkdfSha256Aes256Gcm"
+        },
+        "sessionExpiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "pairingOffer": {
+      "type": "object",
+      "required": [
+        "attemptId",
+        "desktopIdentityKey",
+        "desktopEphemeralKey",
+        "desktopNonceBase64Url",
+        "offeredUtc",
+        "expiresUtc"
+      ],
+      "properties": {
+        "attemptId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "desktopIdentityKey": {
+          "$ref": "#/$defs/desktopIdentityKey"
+        },
+        "desktopEphemeralKey": {
+          "$ref": "#/$defs/ephemeralPublicKey"
+        },
+        "desktopNonceBase64Url": {
+          "$ref": "#/$defs/nonceBase64Url"
+        },
+        "offeredUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "sealedDeviceName": {
+      "type": "object",
+      "required": [
+        "ciphertextBase64Url",
+        "authenticationTagBase64Url"
+      ],
+      "properties": {
+        "ciphertextBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 171,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "authenticationTagBase64Url": {
+          "$ref": "#/$defs/aesGcmTagBase64Url"
+        }
       }
     },
     "pairingRequest": {
       "type": "object",
-      "required": ["attemptId", "requestedDeviceName", "deviceKey", "ephemeralKey", "clientNonceBase64Url"],
+      "required": [
+        "attemptId",
+        "negotiatedVersion",
+        "deviceKey",
+        "ephemeralKey",
+        "clientNonceBase64Url",
+        "requestedDeviceName"
+      ],
       "properties": {
-        "attemptId": { "$ref": "#/$defs/guidId" },
-        "requestedDeviceName": { "type": "string", "maxLength": 128 },
-        "deviceKey": {
-          "type": "object",
-          "required": ["keyId", "algorithm", "credentialIdBase64Url", "cosePublicKeyBase64Url"],
-          "properties": {
-            "algorithm": { "const": "WebAuthnEs256" },
-            "credentialIdBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
-            "cosePublicKeyBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
-          }
+        "attemptId": {
+          "$ref": "#/$defs/guidId"
         },
-        "ephemeralKey": { "type": "object" },
-        "clientNonceBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+        "negotiatedVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "deviceKey": {
+          "$ref": "#/$defs/devicePublicKey"
+        },
+        "ephemeralKey": {
+          "$ref": "#/$defs/ephemeralPublicKey"
+        },
+        "clientNonceBase64Url": {
+          "$ref": "#/$defs/nonceBase64Url"
+        },
+        "requestedDeviceName": {
+          "$ref": "#/$defs/sealedDeviceName"
+        }
       }
     },
-    "pairingChallenge": {
+    "sessionResumeRequest": {
       "type": "object",
-      "required": ["challengeId", "attemptId", "deviceKeyId", "challengeBase64Url", "desktopEphemeralKey", "approvedUtc", "expiresUtc"],
+      "required": [
+        "negotiatedVersion",
+        "deviceId",
+        "deviceKeyId",
+        "credentialIdBase64Url",
+        "ephemeralKey",
+        "clientNonceBase64Url"
+      ],
       "properties": {
-        "challengeId": { "type": "string", "maxLength": 128 },
-        "attemptId": { "$ref": "#/$defs/guidId" },
-        "deviceKeyId": { "type": "object", "required": ["value"], "properties": { "value": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } } },
-        "challengeBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
-        "desktopEphemeralKey": { "type": "object" },
-        "approvedUtc": { "$ref": "#/$defs/utc" },
-        "expiresUtc": { "$ref": "#/$defs/utc" }
+        "negotiatedVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "deviceKeyId": {
+          "$ref": "#/$defs/deviceKeyId"
+        },
+        "credentialIdBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "ephemeralKey": {
+          "$ref": "#/$defs/ephemeralPublicKey"
+        },
+        "clientNonceBase64Url": {
+          "$ref": "#/$defs/nonceBase64Url"
+        }
       }
     },
-    "pairingProof": {
+    "handshakeChallenge": {
       "type": "object",
-      "required": ["challengeId", "signatureBase64Url"],
+      "required": [
+        "challengeId",
+        "purpose",
+        "attemptId",
+        "pairingCommitmentBase64Url",
+        "deviceKeyId",
+        "credentialIdBase64Url",
+        "assignment",
+        "desktopIdentityKey",
+        "desktopEphemeralKey",
+        "desktopNonceBase64Url",
+        "transcriptHashBase64Url",
+        "desktopSignatureBase64Url",
+        "issuedUtc",
+        "expiresUtc"
+      ],
       "properties": {
-        "challengeId": { "type": "string", "maxLength": 128 },
-        "signatureBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }
+        "challengeId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "purpose": {
+          "enum": [
+            "Pairing",
+            "SessionResume"
+          ]
+        },
+        "attemptId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pairingCommitmentBase64Url": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256Base64Url"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deviceKeyId": {
+          "$ref": "#/$defs/deviceKeyId"
+        },
+        "credentialIdBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "assignment": {
+          "$ref": "#/$defs/sessionAssignment"
+        },
+        "desktopIdentityKey": {
+          "$ref": "#/$defs/desktopIdentityKey"
+        },
+        "desktopEphemeralKey": {
+          "$ref": "#/$defs/ephemeralPublicKey"
+        },
+        "desktopNonceBase64Url": {
+          "$ref": "#/$defs/nonceBase64Url"
+        },
+        "transcriptHashBase64Url": {
+          "$ref": "#/$defs/sha256Base64Url"
+        },
+        "desktopSignatureBase64Url": {
+          "$ref": "#/$defs/p1363SignatureBase64Url"
+        },
+        "issuedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      },
+      "if": {
+        "properties": {
+          "purpose": {
+            "const": "Pairing"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "attemptId": {
+            "$ref": "#/$defs/guidId"
+          },
+          "pairingCommitmentBase64Url": {
+            "$ref": "#/$defs/sha256Base64Url"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "attemptId": {
+            "type": "null"
+          },
+          "pairingCommitmentBase64Url": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    "webAuthnAssertion": {
+      "type": "object",
+      "required": [
+        "credentialIdBase64Url",
+        "authenticatorDataBase64Url",
+        "clientDataJsonBase64Url",
+        "signatureBase64Url"
+      ],
+      "properties": {
+        "credentialIdBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "authenticatorDataBase64Url": {
+          "type": "string",
+          "minLength": 50,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "clientDataJsonBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 683,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "signatureBase64Url": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 107,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "deviceKeyProof": {
+      "type": "object",
+      "required": [
+        "challengeId",
+        "assertion"
+      ],
+      "properties": {
+        "challengeId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "assertion": {
+          "$ref": "#/$defs/webAuthnAssertion"
+        }
+      }
+    },
+    "sessionEstablished": {
+      "type": "object",
+      "required": [
+        "challengeId",
+        "purpose",
+        "deviceKeyId",
+        "assignment",
+        "transcriptHashBase64Url",
+        "establishedUtc"
+      ],
+      "properties": {
+        "challengeId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "purpose": {
+          "enum": [
+            "Pairing",
+            "SessionResume"
+          ]
+        },
+        "deviceKeyId": {
+          "$ref": "#/$defs/deviceKeyId"
+        },
+        "assignment": {
+          "$ref": "#/$defs/sessionAssignment"
+        },
+        "transcriptHashBase64Url": {
+          "$ref": "#/$defs/sha256Base64Url"
+        },
+        "establishedUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "offlineQueuePreview": {
+      "type": "object",
+      "required": [
+        "queuedUtc",
+        "previewedUtc",
+        "previewedAuthorityEpoch",
+        "previewedAggregateRevision"
+      ],
+      "properties": {
+        "queuedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "previewedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "previewedAuthorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "previewedAggregateRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        }
+      }
+    },
+    "commandBase": {
+      "type": "object",
+      "required": [
+        "type",
+        "commandId",
+        "requestedRevision",
+        "issuedUtc",
+        "expiresUtc",
+        "offlineQueuePreview"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "commandId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "requestedRevision": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "issuedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "offlineQueuePreview": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/offlineQueuePreview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "workspaceAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/navigateWorkspaceAction"
+        },
+        {
+          "$ref": "#/$defs/searchWorkspaceAction"
+        },
+        {
+          "$ref": "#/$defs/filterWorkspaceAction"
+        },
+        {
+          "$ref": "#/$defs/selectWorkspaceAction"
+        },
+        {
+          "$ref": "#/$defs/openWorkspaceDialogAction"
+        }
+      ]
+    },
+    "navigateWorkspaceAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "workspace",
+        "mapId",
+        "floorId",
+        "viewport"
+      ],
+      "properties": {
+        "type": {
+          "const": "navigate"
+        },
+        "workspace": {
+          "enum": [
+            "Raid",
+            "Intel",
+            "Plan",
+            "Team",
+            "Debrief"
+          ]
+        },
+        "mapId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "floorId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "viewport": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workspaceViewport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "searchWorkspaceAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "query"
+      ],
+      "properties": {
+        "type": {
+          "const": "search"
+        },
+        "query": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "filterWorkspaceAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "activeLayers",
+        "activeFilters"
+      ],
+      "properties": {
+        "type": {
+          "const": "filter"
+        },
+        "activeLayers": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "activeFilters": {
+          "$ref": "#/$defs/shortStringArray"
+        }
+      }
+    },
+    "selectWorkspaceAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "selection"
+      ],
+      "properties": {
+        "type": {
+          "const": "select"
+        },
+        "selection": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workspaceSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "openWorkspaceDialogAction": {
+      "type": "object",
+      "required": [
+        "type",
+        "dialog"
+      ],
+      "properties": {
+        "type": {
+          "const": "openDialog"
+        },
+        "dialog": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "PairingApproval",
+            "DeviceRevocation",
+            "MultiDeviceConflict",
+            "TeamMemberRemoval",
+            null
+          ]
+        }
       }
     },
     "command": {
       "oneOf": [
-        { "$ref": "#/$defs/setInteractionMode" },
-        { "$ref": "#/$defs/requestControl" },
-        { "$ref": "#/$defs/resolveControl" },
-        { "$ref": "#/$defs/preemptControl" },
-        { "$ref": "#/$defs/controlWorkspace" },
-        { "$ref": "#/$defs/showOnDesktop" },
-        { "$ref": "#/$defs/upsertMark" },
-        { "$ref": "#/$defs/deleteMark" },
-        { "$ref": "#/$defs/requestCaptureIntent" },
-        { "$ref": "#/$defs/reportCaptureProgress" },
-        { "$ref": "#/$defs/publishCaptureResult" },
-        { "$ref": "#/$defs/reviewCaptureResult" },
-        { "$ref": "#/$defs/correctCaptureResult" }
+        {
+          "$ref": "#/$defs/setInteractionMode"
+        },
+        {
+          "$ref": "#/$defs/requestControl"
+        },
+        {
+          "$ref": "#/$defs/resolveControl"
+        },
+        {
+          "$ref": "#/$defs/preemptControl"
+        },
+        {
+          "$ref": "#/$defs/updateDesktopWorkspace"
+        },
+        {
+          "$ref": "#/$defs/controlWorkspace"
+        },
+        {
+          "$ref": "#/$defs/showOnDesktop"
+        },
+        {
+          "$ref": "#/$defs/upsertMark"
+        },
+        {
+          "$ref": "#/$defs/deleteMark"
+        },
+        {
+          "$ref": "#/$defs/requestCaptureIntent"
+        },
+        {
+          "$ref": "#/$defs/reportCaptureProgress"
+        },
+        {
+          "$ref": "#/$defs/publishCaptureResult"
+        },
+        {
+          "$ref": "#/$defs/reviewCaptureResult"
+        },
+        {
+          "$ref": "#/$defs/correctCaptureResult"
+        }
       ]
     },
-    "commandBase": {
-      "type": "object",
-      "required": ["type", "commandId", "requestedRevision", "issuedUtc", "expiresUtc", "offlineQueuePreview"],
+    "setInteractionMode": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "mode"
+      ],
       "properties": {
-        "type": { "type": "string" },
-        "commandId": { "$ref": "#/$defs/guidId" },
-        "requestedRevision": { "type": "object" },
-        "issuedUtc": { "$ref": "#/$defs/utc" },
-        "expiresUtc": { "$ref": "#/$defs/utc" },
-        "offlineQueuePreview": { "type": ["object", "null"] }
+        "type": {
+          "const": "setInteractionMode"
+        },
+        "mode": {
+          "enum": [
+            "Follow",
+            "Independent"
+          ]
+        }
       }
     },
-    "setInteractionMode": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "setInteractionMode" }, "mode": { "enum": ["Follow", "Independent"] } }, "required": ["mode"] }] },
-    "requestControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "requestControl" } }, "required": ["requestedLease"] }] },
-    "resolveControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "resolveControl" } }, "required": ["requestCommandId", "approved", "leaseId"] }] },
-    "preemptControl": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "preemptControl" } }, "required": ["reason"] }] },
-    "controlWorkspace": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "controlWorkspace" } }, "required": ["action"] }] },
-    "showOnDesktop": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "showOnDesktop" } }, "required": ["projection"] }] },
-    "upsertMark": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "upsertMark" } }, "required": ["markId", "expectedMarkRevision", "mark"] }] },
-    "deleteMark": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "deleteMark" } }, "required": ["markId", "expectedMarkRevision"] }] },
-    "requestCaptureIntent": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "requestCaptureIntent" }, "purpose": { "enum": ["LootDecision", "FullStash", "Ammo", "Keys", "QuestAndFutureQuestItems", "MapAndExtracts", "HealthAndCharacter", "AutoDetect"] } }, "required": ["intentId", "correlationId", "captureSessionId", "purpose", "context"] }] },
-    "reportCaptureProgress": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "reportCaptureProgress" } }, "required": ["intentId", "phase", "percent", "artifactId", "captureOrdinal", "detail"] }] },
-    "publishCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "publishCaptureResult" } }, "required": ["intentId", "result", "guidance"] }] },
-    "reviewCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "reviewCaptureResult" } }, "required": ["intentId", "disposition", "note"] }] },
-    "correctCaptureResult": { "allOf": [{ "$ref": "#/$defs/commandBase" }, { "properties": { "type": { "const": "correctCaptureResult" } }, "required": ["intentId", "kind", "fieldId", "correctedValue", "reason"] }] },
-    "clientCommandEnvelope": {
-      "type": "object",
-      "required": ["protocolVersion", "sessionId", "clientSentUtc", "command"],
+    "requestControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "requestedLease"
+      ],
       "properties": {
-        "protocolVersion": { "$ref": "#/$defs/version" },
-        "sessionId": { "$ref": "#/$defs/guidId" },
-        "clientSentUtc": { "$ref": "#/$defs/utc" },
-        "command": { "$ref": "#/$defs/command" }
+        "type": {
+          "const": "requestControl"
+        },
+        "requestedLease": {
+          "$ref": "#/$defs/timeSpan"
+        }
       }
     },
-    "serverEnvelope": {
-      "type": "object",
-      "required": ["protocolVersion", "sessionId", "authenticatedOriginDeviceId", "serverUtc", "deliverySequence", "message"],
+    "resolveControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "requestCommandId",
+        "approved",
+        "leaseId"
+      ],
       "properties": {
-        "protocolVersion": { "$ref": "#/$defs/version" },
-        "sessionId": { "$ref": "#/$defs/guidId" },
-        "authenticatedOriginDeviceId": { "$ref": "#/$defs/guidId" },
-        "serverUtc": { "$ref": "#/$defs/utc" },
-        "deliverySequence": { "type": "object" },
-        "message": { "$ref": "#/$defs/serverMessage" }
+        "type": {
+          "const": "resolveControl"
+        },
+        "requestCommandId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "approved": {
+          "type": "boolean"
+        },
+        "leaseId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "preemptControl": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "const": "preemptControl"
+        },
+        "reason": {
+          "$ref": "#/$defs/string1024"
+        }
+      }
+    },
+    "updateDesktopWorkspace": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "projection"
+      ],
+      "properties": {
+        "type": {
+          "const": "updateDesktopWorkspace"
+        },
+        "projection": {
+          "$ref": "#/$defs/workspaceProjection"
+        }
+      }
+    },
+    "controlWorkspace": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "type": {
+          "const": "controlWorkspace"
+        },
+        "action": {
+          "$ref": "#/$defs/workspaceAction"
+        }
+      }
+    },
+    "showOnDesktop": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "projection"
+      ],
+      "properties": {
+        "type": {
+          "const": "showOnDesktop"
+        },
+        "projection": {
+          "$ref": "#/$defs/workspaceProjection"
+        }
+      }
+    },
+    "upsertMark": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "markId",
+        "expectedMarkRevision",
+        "mark"
+      ],
+      "properties": {
+        "type": {
+          "const": "upsertMark"
+        },
+        "markId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "expectedMarkRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mark": {
+          "$ref": "#/$defs/mapMarkDraft"
+        }
+      }
+    },
+    "deleteMark": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "markId",
+        "expectedMarkRevision"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteMark"
+        },
+        "markId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "expectedMarkRevision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "requestCaptureIntent": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "intentId",
+        "correlationId",
+        "captureSessionId",
+        "purpose",
+        "context"
+      ],
+      "properties": {
+        "type": {
+          "const": "requestCaptureIntent"
+        },
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "captureSessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "purpose": {
+          "$ref": "#/$defs/capturePurpose"
+        },
+        "context": {
+          "$ref": "#/$defs/captureContext"
+        }
+      }
+    },
+    "reportCaptureProgress": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "intentId",
+        "phase",
+        "percent",
+        "artifactId",
+        "captureOrdinal",
+        "detail"
+      ],
+      "properties": {
+        "type": {
+          "const": "reportCaptureProgress"
+        },
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "phase": {
+          "$ref": "#/$defs/captureProgressPhase"
+        },
+        "percent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "artifactId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "captureOrdinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "detail": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "publishCaptureResult": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "intentId",
+        "result",
+        "guidance"
+      ],
+      "properties": {
+        "type": {
+          "const": "publishCaptureResult"
+        },
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "result": {
+          "$ref": "#/$defs/captureResult"
+        },
+        "guidance": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/captureGuidance"
+          }
+        }
+      }
+    },
+    "reviewCaptureResult": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "intentId",
+        "disposition",
+        "note"
+      ],
+      "properties": {
+        "type": {
+          "const": "reviewCaptureResult"
+        },
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "disposition": {
+          "enum": [
+            "Accepted",
+            "NeedsCorrection"
+          ]
+        },
+        "note": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "correctCaptureResult": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "intentId",
+        "kind",
+        "fieldId",
+        "correctedValue",
+        "reason"
+      ],
+      "properties": {
+        "type": {
+          "const": "correctCaptureResult"
+        },
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "kind": {
+          "$ref": "#/$defs/captureCorrectionKind"
+        },
+        "fieldId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "correctedValue": {
+          "$ref": "#/$defs/string1024"
+        },
+        "reason": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "mapCoordinate": {
+      "type": "object",
+      "required": [
+        "mapId",
+        "floorId",
+        "coordinateSpace",
+        "projectionVersion",
+        "x",
+        "y",
+        "z"
+      ],
+      "properties": {
+        "mapId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "floorId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "coordinateSpace": {
+          "enum": [
+            "World",
+            "Normalized"
+          ]
+        },
+        "projectionVersion": {
+          "$ref": "#/$defs/shortString"
+        },
+        "x": {
+          "type": "number",
+          "minimum": -1000000,
+          "maximum": 1000000
+        },
+        "y": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": -1000000,
+          "maximum": 1000000
+        },
+        "z": {
+          "type": "number",
+          "minimum": -1000000,
+          "maximum": 1000000
+        }
+      }
+    },
+    "workspaceViewport": {
+      "type": "object",
+      "required": [
+        "center",
+        "zoom"
+      ],
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/mapCoordinate"
+        },
+        "zoom": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        }
+      }
+    },
+    "workspaceSelection": {
+      "type": "object",
+      "required": [
+        "kind",
+        "referenceId",
+        "originDeepLink",
+        "focusToken"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "MapLocation",
+            "Landmark",
+            "Item",
+            "Objective",
+            "Plan",
+            "Result",
+            "Mark"
+          ]
+        },
+        "referenceId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "originDeepLink": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "focusToken": {
+          "$ref": "#/$defs/nullableShortString"
+        }
+      }
+    },
+    "workspaceProjection": {
+      "type": "object",
+      "required": [
+        "workspace",
+        "mapId",
+        "floorId",
+        "viewport",
+        "selection",
+        "visibleObjectiveIds",
+        "planIds",
+        "searchQuery",
+        "resultIds",
+        "activeLayers",
+        "activeFilters",
+        "dialog"
+      ],
+      "properties": {
+        "workspace": {
+          "enum": [
+            "Raid",
+            "Intel",
+            "Plan",
+            "Team",
+            "Debrief"
+          ]
+        },
+        "mapId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "floorId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "viewport": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workspaceViewport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "selection": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workspaceSelection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "visibleObjectiveIds": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "planIds": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "searchQuery": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "resultIds": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "activeLayers": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "activeFilters": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "dialog": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "PairingApproval",
+            "DeviceRevocation",
+            "MultiDeviceConflict",
+            "TeamMemberRemoval",
+            null
+          ]
+        }
+      }
+    },
+    "mapMarkDraft": {
+      "type": "object",
+      "required": [
+        "kind",
+        "scope",
+        "coordinate",
+        "label",
+        "color",
+        "expiresUtc"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "Ping",
+            "Waypoint",
+            "RoutePoint",
+            "Note"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "Private",
+            "PairedDevice",
+            "Team"
+          ]
+        },
+        "coordinate": {
+          "$ref": "#/$defs/mapCoordinate"
+        },
+        "label": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-F]{6}$"
+        },
+        "expiresUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "mapMark": {
+      "type": "object",
+      "required": [
+        "markId",
+        "revision",
+        "kind",
+        "scope",
+        "authorDeviceId",
+        "coordinate",
+        "label",
+        "color",
+        "createdUtc",
+        "updatedUtc",
+        "expiresUtc"
+      ],
+      "properties": {
+        "markId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "Ping",
+            "Waypoint",
+            "RoutePoint",
+            "Note"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "Private",
+            "PairedDevice",
+            "Team"
+          ]
+        },
+        "authorDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "coordinate": {
+          "$ref": "#/$defs/mapCoordinate"
+        },
+        "label": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-F]{6}$"
+        },
+        "createdUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "updatedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "aggregateCursor": {
+      "type": "object",
+      "required": [
+        "revision",
+        "lastChangeId"
+      ],
+      "properties": {
+        "revision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "lastChangeId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "deviceModeEntry": {
+      "type": "object",
+      "required": [
+        "deviceId",
+        "mode",
+        "changedUtc"
+      ],
+      "properties": {
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "mode": {
+          "enum": [
+            "Follow",
+            "ControlPending",
+            "Control",
+            "Independent"
+          ]
+        },
+        "changedUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "pendingControlRequest": {
+      "type": "object",
+      "required": [
+        "requestCommandId",
+        "deviceId",
+        "sessionId",
+        "requestedUtc",
+        "expiresUtc",
+        "requestedLease"
+      ],
+      "properties": {
+        "requestCommandId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "requestedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "requestedLease": {
+          "$ref": "#/$defs/timeSpan"
+        }
+      }
+    },
+    "controlLease": {
+      "type": "object",
+      "required": [
+        "leaseId",
+        "deviceId",
+        "sessionId",
+        "grantedUtc",
+        "expiresUtc"
+      ],
+      "properties": {
+        "leaseId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "deviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "grantedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "deviceModeAggregate": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "devices",
+        "pendingControl",
+        "controlLease"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/aggregateCursor"
+        },
+        "devices": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/deviceModeEntry"
+          }
+        },
+        "pendingControl": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/pendingControlRequest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "controlLease": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/controlLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "workspaceAggregate": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "projection"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/aggregateCursor"
+        },
+        "projection": {
+          "$ref": "#/$defs/workspaceProjection"
+        }
+      }
+    },
+    "markAggregate": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "marks"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/aggregateCursor"
+        },
+        "marks": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/mapMark"
+          }
+        }
+      }
+    },
+    "capturePurpose": {
+      "enum": [
+        "LootDecision",
+        "FullStash",
+        "Ammo",
+        "Keys",
+        "QuestAndFutureQuestItems",
+        "MapAndExtracts",
+        "HealthAndCharacter",
+        "AutoDetect"
+      ]
+    },
+    "captureProgressPhase": {
+      "enum": [
+        "Armed",
+        "AwaitingUserCapture",
+        "Settling",
+        "Decoding",
+        "DetectingContext",
+        "DetectingRegions",
+        "Matching",
+        "EnrichingProfile",
+        "Recommending",
+        "AwaitingReview",
+        "Complete",
+        "Cancelled",
+        "Failed"
+      ]
+    },
+    "captureCorrectionKind": {
+      "enum": [
+        "DetectedContext",
+        "ItemIdentity",
+        "Quantity",
+        "GridPlacement",
+        "ExtractIdentity",
+        "CharacterRegion"
+      ]
+    },
+    "captureContext": {
+      "type": "object",
+      "required": [
+        "mapId",
+        "floorId",
+        "profileId",
+        "previousResultId",
+        "objectiveIds",
+        "planIds",
+        "markIds"
+      ],
+      "properties": {
+        "mapId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "floorId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "profileId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "previousResultId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "objectiveIds": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "planIds": {
+          "$ref": "#/$defs/shortStringArray"
+        },
+        "markIds": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/guidId"
+          }
+        }
+      }
+    },
+    "captureProgress": {
+      "type": "object",
+      "required": [
+        "sequence",
+        "phase",
+        "changedUtc",
+        "percent",
+        "artifactId",
+        "captureOrdinal",
+        "detail"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "phase": {
+          "$ref": "#/$defs/captureProgressPhase"
+        },
+        "changedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "percent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "artifactId": {
+          "$ref": "#/$defs/nullableShortString"
+        },
+        "captureOrdinal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "detail": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "resultStatus": {
+      "type": "object",
+      "required": [
+        "completeness",
+        "freshness",
+        "code",
+        "detail"
+      ],
+      "properties": {
+        "completeness": {
+          "enum": [
+            "Unknown",
+            "Unavailable",
+            "Partial",
+            "Complete"
+          ]
+        },
+        "freshness": {
+          "enum": [
+            "Unknown",
+            "Current",
+            "Stale"
+          ]
+        },
+        "code": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "detail": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "evidenceConfidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "score",
+        "calibrationReference"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "Unscored",
+            "Deterministic",
+            "ProviderScore",
+            "CalibratedEstimate"
+          ]
+        },
+        "score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "calibrationReference": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "evidenceCoverage": {
+      "type": "object",
+      "required": [
+        "sampleSize",
+        "fraction",
+        "description"
+      ],
+      "properties": {
+        "sampleSize": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "fraction": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "description": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "producerIdentity": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "modelVersion"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/string1024"
+        },
+        "version": {
+          "$ref": "#/$defs/string1024"
+        },
+        "modelVersion": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "evidenceProvenance": {
+      "type": "object",
+      "required": [
+        "sourceClass",
+        "sourceIdentifier",
+        "observedUtc",
+        "dataThroughUtc",
+        "generatedUtc",
+        "confidence",
+        "coverage",
+        "producer",
+        "reference",
+        "inputs",
+        "evidenceThroughUtc"
+      ],
+      "properties": {
+        "sourceClass": {
+          "enum": [
+            "Unknown",
+            "UserEntered",
+            "GameWrittenScreenshot",
+            "ExternalVisiblePixels",
+            "GameWrittenLog",
+            "ScreenshotFilename",
+            "PublicStructuredData",
+            "CuratedData",
+            "HistoricalAggregate",
+            "ModelledEstimate",
+            "PairedDeviceAction",
+            "DerivedCalculation"
+          ]
+        },
+        "sourceIdentifier": {
+          "$ref": "#/$defs/string1024"
+        },
+        "observedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "dataThroughUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "generatedUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confidence": {
+          "$ref": "#/$defs/evidenceConfidence"
+        },
+        "coverage": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/evidenceCoverage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "producer": {
+          "$ref": "#/$defs/producerIdentity"
+        },
+        "reference": {
+          "$ref": "#/$defs/nullableString1024"
+        },
+        "inputs": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/evidenceProvenance"
+          }
+        },
+        "evidenceThroughUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "captureResult": {
+      "type": "object",
+      "required": [
+        "resultId",
+        "artifactId",
+        "captureOrdinal",
+        "status",
+        "detectedContext",
+        "completedUtc",
+        "provenance"
+      ],
+      "properties": {
+        "resultId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "artifactId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "captureOrdinal": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/resultStatus"
+        },
+        "detectedContext": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "Item",
+            "Grid",
+            "Loot",
+            "Stash",
+            "Ammo",
+            "Keys",
+            "QuestItems",
+            "ExtractsAndMap",
+            "HealthAndCharacter",
+            "Flea",
+            null
+          ]
+        },
+        "completedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "provenance": {
+          "$ref": "#/$defs/evidenceProvenance"
+        }
+      }
+    },
+    "captureGuidance": {
+      "type": "object",
+      "required": [
+        "kind",
+        "code",
+        "instruction",
+        "order"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "TakeUserScreenshot",
+            "OpenRelevantPanel",
+            "ScrollForOverlap",
+            "ReviewAmbiguity",
+            "ConfirmResult"
+          ]
+        },
+        "code": {
+          "$ref": "#/$defs/shortString"
+        },
+        "instruction": {
+          "$ref": "#/$defs/string1024"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "captureReview": {
+      "type": "object",
+      "required": [
+        "disposition",
+        "reviewerDeviceId",
+        "reviewedUtc",
+        "note"
+      ],
+      "properties": {
+        "disposition": {
+          "enum": [
+            "Accepted",
+            "NeedsCorrection"
+          ]
+        },
+        "reviewerDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "reviewedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "note": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "captureCorrection": {
+      "type": "object",
+      "required": [
+        "sequence",
+        "kind",
+        "fieldId",
+        "correctedValue",
+        "reviewerDeviceId",
+        "correctedUtc",
+        "reason"
+      ],
+      "properties": {
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/captureCorrectionKind"
+        },
+        "fieldId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "correctedValue": {
+          "$ref": "#/$defs/string1024"
+        },
+        "reviewerDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "correctedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "reason": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "captureIntent": {
+      "type": "object",
+      "required": [
+        "intentId",
+        "correlationId",
+        "captureSessionId",
+        "purpose",
+        "initiatingDeviceId",
+        "initiatingSurface",
+        "requestedUtc",
+        "expiresUtc",
+        "status",
+        "context",
+        "progress",
+        "result",
+        "guidance",
+        "review",
+        "corrections"
+      ],
+      "properties": {
+        "intentId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "correlationId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "captureSessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "purpose": {
+          "$ref": "#/$defs/capturePurpose"
+        },
+        "initiatingDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "initiatingSurface": {
+          "enum": [
+            "Desktop",
+            "TabletPortrait",
+            "TabletLandscape",
+            "NarrowPhone",
+            "DesktopBrowser"
+          ]
+        },
+        "requestedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "status": {
+          "enum": [
+            "Armed",
+            "AwaitingUserCapture",
+            "InProgress",
+            "AwaitingReview",
+            "Complete",
+            "Cancelled",
+            "Failed",
+            "Expired"
+          ]
+        },
+        "context": {
+          "$ref": "#/$defs/captureContext"
+        },
+        "progress": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/captureProgress"
+          }
+        },
+        "result": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/captureResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "guidance": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/captureGuidance"
+          }
+        },
+        "review": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/captureReview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "corrections": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/captureCorrection"
+          }
+        }
+      }
+    },
+    "captureIntentAggregate": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "activeIntent"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/aggregateCursor"
+        },
+        "activeIntent": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/captureIntent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "canonicalState": {
+      "type": "object",
+      "required": [
+        "authorityEpoch",
+        "globalRevision",
+        "desktopDeviceId",
+        "deviceModes",
+        "workspace",
+        "marks",
+        "captureIntent"
+      ],
+      "properties": {
+        "authorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "globalRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "desktopDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "deviceModes": {
+          "$ref": "#/$defs/deviceModeAggregate"
+        },
+        "workspace": {
+          "$ref": "#/$defs/workspaceAggregate"
+        },
+        "marks": {
+          "$ref": "#/$defs/markAggregate"
+        },
+        "captureIntent": {
+          "$ref": "#/$defs/captureIntentAggregate"
+        }
+      }
+    },
+    "commandAcknowledgement": {
+      "type": "object",
+      "required": [
+        "commandId",
+        "aggregate",
+        "requestedRevision",
+        "appliedRevision",
+        "appliedChangeId",
+        "globalRevision",
+        "authorityEpoch",
+        "disposition",
+        "code",
+        "canonicalState"
+      ],
+      "properties": {
+        "commandId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "aggregate": {
+          "enum": [
+            "DeviceModes",
+            "Workspace",
+            "Marks",
+            "CaptureIntent"
+          ]
+        },
+        "requestedRevision": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "appliedRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "appliedChangeId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "globalRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "authorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "disposition": {
+          "enum": [
+            "Applied",
+            "RejectedStale",
+            "RejectedConflict",
+            "UnsupportedVersion",
+            "RejectedExpired",
+            "RejectedUnauthorized",
+            "RejectedInvalidState",
+            "RequiresPreview",
+            "RequiresSnapshot",
+            "RejectedCommandIdReuse"
+          ]
+        },
+        "code": {
+          "$ref": "#/$defs/shortString"
+        },
+        "canonicalState": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/canonicalState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "RejectedStale",
+                  "RejectedConflict",
+                  "RequiresPreview",
+                  "RequiresSnapshot",
+                  "RejectedCommandIdReuse"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "canonicalState": {
+                "$ref": "#/$defs/canonicalState"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "canonicalState": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "appliedRevision": {
+                "properties": {
+                  "value": {
+                    "const": 0
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "appliedChangeId": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "appliedChangeId": {
+                "$ref": "#/$defs/guidId"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "canonicalUpdate": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/deviceModeCanonicalUpdate"
+        },
+        {
+          "$ref": "#/$defs/workspaceCanonicalUpdate"
+        },
+        {
+          "$ref": "#/$defs/marksCanonicalUpdate"
+        },
+        {
+          "$ref": "#/$defs/captureCanonicalUpdate"
+        }
+      ]
+    },
+    "canonicalUpdateBase": {
+      "type": "object",
+      "required": [
+        "type",
+        "authorityEpoch",
+        "globalRevision",
+        "changeId",
+        "changedUtc",
+        "state"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "authorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "globalRevision": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "changeId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "changedUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "deviceModeCanonicalUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalUpdateBase"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "deviceMode"
+        },
+        "state": {
+          "$ref": "#/$defs/deviceModeAggregate"
+        }
+      }
+    },
+    "workspaceCanonicalUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalUpdateBase"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "workspace"
+        },
+        "state": {
+          "$ref": "#/$defs/workspaceAggregate"
+        }
+      }
+    },
+    "marksCanonicalUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalUpdateBase"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "marks"
+        },
+        "state": {
+          "$ref": "#/$defs/markAggregate"
+        }
+      }
+    },
+    "captureCanonicalUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalUpdateBase"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "captureIntent"
+        },
+        "state": {
+          "$ref": "#/$defs/captureIntentAggregate"
+        }
       }
     },
     "serverMessage": {
       "oneOf": [
-        { "$ref": "#/$defs/commandAcknowledgementMessage" },
-        { "$ref": "#/$defs/canonicalSnapshotMessage" },
-        { "$ref": "#/$defs/canonicalUpdateMessage" },
-        { "$ref": "#/$defs/deprecationMessage" }
+        {
+          "$ref": "#/$defs/commandAcknowledgementMessage"
+        },
+        {
+          "$ref": "#/$defs/canonicalSnapshotMessage"
+        },
+        {
+          "$ref": "#/$defs/canonicalUpdateMessage"
+        },
+        {
+          "$ref": "#/$defs/deprecationMessage"
+        }
       ]
     },
     "commandAcknowledgementMessage": {
       "type": "object",
-      "required": ["type", "acknowledgement"],
+      "required": [
+        "type",
+        "acknowledgement"
+      ],
       "properties": {
-        "type": { "const": "commandAcknowledgement" },
-        "acknowledgement": { "type": "object" }
+        "type": {
+          "const": "commandAcknowledgement"
+        },
+        "acknowledgement": {
+          "$ref": "#/$defs/commandAcknowledgement"
+        }
       }
     },
     "canonicalSnapshotMessage": {
       "type": "object",
-      "required": ["type", "state"],
+      "required": [
+        "type",
+        "state"
+      ],
       "properties": {
-        "type": { "const": "canonicalSnapshot" },
-        "state": { "type": "object" }
+        "type": {
+          "const": "canonicalSnapshot"
+        },
+        "state": {
+          "$ref": "#/$defs/canonicalState"
+        }
       }
     },
     "canonicalUpdateMessage": {
       "type": "object",
-      "required": ["type", "update"],
+      "required": [
+        "type",
+        "update"
+      ],
       "properties": {
-        "type": { "const": "canonicalUpdate" },
+        "type": {
+          "const": "canonicalUpdate"
+        },
         "update": {
-          "type": "object",
-          "required": ["type", "authorityEpoch", "globalRevision", "changeId", "changedUtc", "state"],
-          "properties": {
-            "type": { "enum": ["deviceMode", "workspace", "marks", "captureIntent"] },
-            "authorityEpoch": { "$ref": "#/$defs/guidId" },
-            "globalRevision": { "type": "object" },
-            "changeId": { "$ref": "#/$defs/guidId" },
-            "changedUtc": { "$ref": "#/$defs/utc" },
-            "state": { "type": "object" }
-          }
+          "$ref": "#/$defs/canonicalUpdate"
         }
       }
     },
     "deprecationMessage": {
       "type": "object",
-      "required": ["type", "notice"],
+      "required": [
+        "type",
+        "notice"
+      ],
       "properties": {
-        "type": { "const": "deprecation" },
-        "notice": { "type": "object" }
+        "type": {
+          "const": "deprecation"
+        },
+        "notice": {
+          "$ref": "#/$defs/deprecationNotice"
+        }
+      }
+    },
+    "clientCommandEnvelope": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "sessionId",
+        "authorityEpoch",
+        "clientSentUtc",
+        "command"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "authorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "clientSentUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "command": {
+          "$ref": "#/$defs/command"
+        }
+      }
+    },
+    "serverEnvelope": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "sessionId",
+        "authenticatedOriginDeviceId",
+        "serverUtc",
+        "deliverySequence",
+        "message"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "authenticatedOriginDeviceId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "serverUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "deliverySequence": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "message": {
+          "$ref": "#/$defs/serverMessage"
+        }
       }
     },
     "opaqueRelayFrame": {
       "type": "object",
-      "required": ["protocolVersion", "channelId", "sessionId", "keyEpoch", "senderSequence", "cipherSuite", "nonceBase64Url", "ciphertextChunksBase64Url", "authenticationTagBase64Url", "issuedUtc", "expiresUtc"],
+      "required": [
+        "protocolVersion",
+        "channelId",
+        "sessionId",
+        "keyEpoch",
+        "senderSequence",
+        "cipherSuite",
+        "nonceBase64Url",
+        "ciphertextLength",
+        "ciphertextChunksBase64Url",
+        "authenticationTagBase64Url",
+        "issuedUtc",
+        "expiresUtc"
+      ],
       "properties": {
-        "protocolVersion": { "$ref": "#/$defs/version" },
-        "channelId": { "$ref": "#/$defs/guidId" },
-        "sessionId": { "$ref": "#/$defs/guidId" },
-        "keyEpoch": { "type": "integer", "minimum": 1 },
-        "senderSequence": { "type": "integer", "minimum": 1 },
-        "cipherSuite": { "const": "P256HkdfSha256Aes256Gcm" },
-        "nonceBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "channelId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "keyEpoch": {
+          "$ref": "#/$defs/keyEpoch"
+        },
+        "senderSequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "cipherSuite": {
+          "const": "P256HkdfSha256Aes256Gcm"
+        },
+        "nonceBase64Url": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 16,
+          "pattern": "^[A-Za-z0-9_-]{16}$"
+        },
+        "ciphertextLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        },
         "ciphertextChunksBase64Url": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 256,
-          "items": { "type": "string", "maxLength": 1024, "pattern": "^[A-Za-z0-9_-]+$" }
+          "maxItems": 86,
+          "$comment": "base64url(ciphertext) cut into 1024-character chunks; only the last may be shorter.",
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 1024,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
         },
-        "authenticationTagBase64Url": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
-        "issuedUtc": { "$ref": "#/$defs/utc" },
-        "expiresUtc": { "$ref": "#/$defs/utc" }
+        "authenticationTagBase64Url": {
+          "$ref": "#/$defs/aesGcmTagBase64Url"
+        },
+        "issuedUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "expiresUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "aggregateAcknowledgement": {
+      "type": "object",
+      "required": [
+        "aggregate",
+        "revision",
+        "appliedChangeId",
+        "acknowledgedUtc"
+      ],
+      "properties": {
+        "aggregate": {
+          "enum": [
+            "DeviceModes",
+            "Workspace",
+            "Marks",
+            "CaptureIntent"
+          ]
+        },
+        "revision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "appliedChangeId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "acknowledgedUtc": {
+          "$ref": "#/$defs/utc"
+        }
       }
     },
     "reconnectRequest": {
       "type": "object",
-      "required": ["protocolVersion", "sessionId", "authorityEpoch", "lastGlobalRevision", "lastDeliverySequence", "aggregateAcknowledgements"],
+      "required": [
+        "protocolVersion",
+        "sessionId",
+        "authorityEpoch",
+        "lastGlobalRevision",
+        "lastDeliverySequence",
+        "aggregateAcknowledgements"
+      ],
       "properties": {
-        "protocolVersion": { "$ref": "#/$defs/version" },
-        "sessionId": { "$ref": "#/$defs/guidId" },
-        "authorityEpoch": { "$ref": "#/$defs/guidId" },
-        "lastGlobalRevision": { "type": "object" },
-        "lastDeliverySequence": { "type": "object" },
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "authorityEpoch": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/guidId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastGlobalRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "lastDeliverySequence": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
         "aggregateAcknowledgements": {
           "type": "array",
           "maxItems": 4,
           "items": {
-            "type": "object",
-            "required": ["aggregate", "revision", "acknowledgedUtc"],
-            "properties": {
-              "aggregate": { "enum": ["DeviceModes", "Workspace", "Marks", "CaptureIntent"] },
-              "revision": { "type": "object" },
-              "appliedChangeId": { "type": ["object", "null"] },
-              "acknowledgedUtc": { "$ref": "#/$defs/utc" }
-            }
+            "$ref": "#/$defs/aggregateAcknowledgement"
           }
         }
       }
     },
     "reconnectPlan": {
       "type": "object",
-      "required": ["protocolVersion", "disposition", "replay", "reason"],
+      "required": [
+        "protocolVersion",
+        "disposition",
+        "replay",
+        "snapshot",
+        "resumeAfterDeliverySequence",
+        "reason"
+      ],
       "properties": {
-        "protocolVersion": { "$ref": "#/$defs/version" },
-        "disposition": { "enum": ["UpToDate", "Replay", "FullSnapshot", "UnsupportedVersion"] },
-        "replay": { "type": "array", "maxItems": 256, "items": { "type": "object" } },
-        "snapshot": { "type": ["object", "null"] },
-        "reason": { "type": "string", "maxLength": 128 }
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "disposition": {
+          "enum": [
+            "UpToDate",
+            "Replay",
+            "FullSnapshot",
+            "UnsupportedVersion"
+          ]
+        },
+        "replay": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/deliveredServerMessage"
+          }
+        },
+        "snapshot": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/canonicalState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resumeAfterDeliverySequence": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "reason": {
+          "$ref": "#/$defs/shortString"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "FullSnapshot"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "snapshot": {
+                "$ref": "#/$defs/canonicalState"
+              },
+              "replay": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "snapshot": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "Replay"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "replay": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "replay": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "clientDeliveryAcknowledgement": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "sessionId",
+        "authorityEpoch",
+        "throughDeliverySequence",
+        "globalRevision",
+        "aggregateAcknowledgements"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "$ref": "#/$defs/version"
+        },
+        "sessionId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "authorityEpoch": {
+          "$ref": "#/$defs/guidId"
+        },
+        "throughDeliverySequence": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "globalRevision": {
+          "$ref": "#/$defs/nonNegativeRevision"
+        },
+        "aggregateAcknowledgements": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/aggregateAcknowledgement"
+          }
+        }
+      }
+    },
+    "deliveredServerMessage": {
+      "type": "object",
+      "required": [
+        "deliverySequence",
+        "serverUtc",
+        "message"
+      ],
+      "properties": {
+        "deliverySequence": {
+          "$ref": "#/$defs/positiveRevision"
+        },
+        "serverUtc": {
+          "$ref": "#/$defs/utc"
+        },
+        "message": {
+          "$ref": "#/$defs/serverMessage"
+        }
       }
     }
   }

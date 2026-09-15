@@ -1,98 +1,187 @@
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+using static TarkovCompanion.CompanionProtocol.Tests.ProtocolTestData;
 
 namespace TarkovCompanion.CompanionProtocol.Tests;
 
 public sealed class GoldenAndHostileJsonTests
 {
-    [Fact]
-    public void ClientEnvelopeMatchesGoldenVector()
-    {
-        RoundTripGolden<ClientCommandEnvelope>("client-set-mode.json");
-    }
+    private static readonly Lazy<SchemaValidator> Validator = new(() => new SchemaValidator(SchemaNode()));
 
-    [Fact]
-    public void ServerEnvelopeMatchesGoldenVector()
+    public static TheoryData<string> GoldenWireFiles()
     {
-        RoundTripGolden<ServerEnvelope>("server-acknowledgement.json");
-    }
-
-    [Fact]
-    public void RelayFrameMatchesGoldenVectorAndContainsNoPlaintextState()
-    {
-        var payload = Golden("opaque-relay-frame.json");
-        var frame = CompanionProtocolJson.Deserialize<OpaqueRelayFrame>(payload);
-        var roundTrip = Encoding.UTF8.GetString(CompanionProtocolJson.Serialize(frame));
-
-        Assert.DoesNotContain("mapId", roundTrip, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("captureIntent", roundTrip, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("coordinate", roundTrip, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("selection", roundTrip, StringComparison.OrdinalIgnoreCase);
-        AssertJsonEqual(payload, Encoding.UTF8.GetBytes(roundTrip));
-    }
-
-    [Fact]
-    public void SchemaEnumeratesEveryClosedCommandDiscriminator()
-    {
-        var schema = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Schemas", "v2", "companion-protocol.schema.json"));
-        var discriminators = new[]
+        var root = Path.Combine(AppContext.BaseDirectory, "Golden");
+        var data = new TheoryData<string>();
+        foreach (var file in Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
+                     .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+                     .Where(path => !path.StartsWith("crypto/", StringComparison.Ordinal))
+                     .Order(StringComparer.Ordinal))
         {
-            "setInteractionMode",
-            "requestControl",
-            "resolveControl",
-            "preemptControl",
-            "controlWorkspace",
-            "showOnDesktop",
-            "upsertMark",
-            "deleteMark",
-            "requestCaptureIntent",
-            "reportCaptureProgress",
-            "publishCaptureResult",
-            "reviewCaptureResult",
-            "correctCaptureResult",
-        };
+            data.Add(file);
+        }
 
-        Assert.All(discriminators, discriminator => Assert.Contains($"\"{discriminator}\"", schema, StringComparison.Ordinal));
-        Assert.DoesNotContain("GroupProtocol", schema, StringComparison.Ordinal);
+        return data;
     }
 
     [Fact]
-    public void SchemaEnumeratesEveryWireRootAndClosedServerDiscriminator()
+    public void EveryWireRootHasGoldenCoverage()
     {
-        var schema = JsonNode.Parse(File.ReadAllBytes(
-            Path.Combine(AppContext.BaseDirectory, "Schemas", "v2", "companion-protocol.schema.json")))!;
-        var rootReferences = schema["oneOf"]!.AsArray()
-            .Select(item => item!["$ref"]!.GetValue<string>().Split('/')[^1])
-            .ToArray();
-        var serverReferences = schema["$defs"]!["serverMessage"]!["oneOf"]!.AsArray()
-            .Select(item => item!["$ref"]!.GetValue<string>().Split('/')[^1])
-            .ToArray();
+        var covered = GoldenWireFiles().Select(row => RootFor((string)row[0])).ToHashSet();
 
+        Assert.True(covered.SetEquals(CompanionProtocolJson.RootTypes), string.Join(", ", covered.Select(type => type.Name)));
+        Assert.Equal(14, CompanionProtocolJson.RootTypes.Distinct().Count());
+    }
+
+    [Theory]
+    [MemberData(nameof(GoldenWireFiles))]
+    public void GoldenVectorsRoundTripThroughTheirExactRootAndValidateStrictlyAgainstTheSchema(string file)
+    {
+        var root = RootFor(file);
+        var payload = Golden(file);
+        var node = JsonNode.Parse(payload);
+
+        AssertJsonEqual(payload, Reserialize(root, payload));
+        Assert.Empty(Validator.Value.Validate(node));
+        Assert.Empty(Validator.Value.ValidateStrict(Definition(root), node));
+    }
+
+    [Fact]
+    public void SchemaRootsDiscriminatorsAndEnumsMatchTheClosedCSharpModel()
+    {
+        var schema = SchemaNode();
+        var definitions = schema["$defs"]!.AsObject();
+
+        Assert.Empty(Validator.Value.UnresolvedReferences());
         Assert.Equal(
-            new[]
+            CompanionProtocolJson.RootTypes.Select(Definition),
+            schema["oneOf"]!.AsArray().Select(item => item!["$ref"]!.GetValue<string>()["#/$defs/".Length..]));
+
+        AssertDiscriminators<CompanionCommand>(definitions, "command");
+        AssertDiscriminators<ServerMessage>(definitions, "serverMessage");
+        AssertDiscriminators<CanonicalUpdate>(definitions, "canonicalUpdate");
+        AssertDiscriminators<WorkspaceAction>(definitions, "workspaceAction");
+
+        AssertEnum<CommandDisposition>(definitions["commandAcknowledgement"]!["properties"]!["disposition"]!);
+        AssertEnum<ReconnectDisposition>(definitions["reconnectPlan"]!["properties"]!["disposition"]!);
+        AssertEnum<CompatibilityDisposition>(definitions["serverHello"]!["properties"]!["disposition"]!);
+        AssertEnum<HandshakePurpose>(definitions["handshakeChallenge"]!["properties"]!["purpose"]!);
+        AssertEnum<CompanionInteractionMode>(definitions["deviceModeEntry"]!["properties"]!["mode"]!);
+        AssertEnum<ContextualCapturePurpose>(definitions["capturePurpose"]!);
+        AssertEnum<ContextualCaptureProgressPhase>(definitions["captureProgressPhase"]!);
+        AssertEnum<CaptureCorrectionKind>(definitions["captureCorrectionKind"]!);
+        AssertEnum<CanonicalAggregateKind>(definitions["aggregateAcknowledgement"]!["properties"]!["aggregate"]!);
+        Assert.DoesNotContain("GroupProtocol", schema.ToJsonString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReducerOutputsForEveryAggregateValidateStrictlyAgainstTheSchema()
+    {
+        var captured = CanonicalStateMachineTests.PublishedCapture(ScreenshotProvenance(Now.AddSeconds(2)));
+        var reviewAt = Now.AddSeconds(3);
+        var reviewed = Apply(
+            captured.State,
+            new ReviewCaptureResultCommand(Command(43), new AggregateRevision(4), reviewAt, reviewAt.AddSeconds(30), Capture(1), CaptureReviewDisposition.NeedsCorrection, "wrong item"),
+            TabletContext(reviewAt));
+        var corrected = Apply(
+            reviewed.State,
+            new CorrectCaptureResultCommand(Command(44), new AggregateRevision(5), reviewAt, reviewAt.AddSeconds(30), Capture(1), CaptureCorrectionKind.ItemIdentity, "loot.items.0", "item-2", null),
+            TabletContext(reviewAt));
+        var pending = Apply(
+            corrected.State,
+            new RequestControlCommand(Command(45), new AggregateRevision(1), reviewAt, reviewAt.AddMinutes(1), TimeSpan.FromMinutes(2)),
+            TabletContext(reviewAt));
+        var marked = Apply(pending.State, Upsert(46, 1, 0, reviewAt, kind: MapMarkKind.Ping), TabletContext(reviewAt));
+        var conflict = Apply(marked.State, Upsert(47, 1, 0, reviewAt, mark: 2), TabletContext(reviewAt));
+
+        var messages = new ServerMessage[]
+        {
+            new CanonicalUpdateMessage(corrected.Update!),
+            new CanonicalUpdateMessage(pending.Update!),
+            new CanonicalUpdateMessage(marked.Update!),
+            new CommandAcknowledgementMessage(conflict.Acknowledgement),
+            new CanonicalSnapshotMessage(marked.State),
+        };
+        for (var index = 0; index < messages.Length; index++)
+        {
+            var payload = CompanionProtocolJson.Serialize(new ServerEnvelope(
+                CompanionProtocolVersion.Current,
+                TabletSession,
+                TabletDevice,
+                reviewAt,
+                new DeliverySequence(index + 1),
+                messages[index]));
+            Assert.Empty(Validator.Value.ValidateStrict("serverEnvelope", JsonNode.Parse(payload)));
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GoldenWireFiles))]
+    public void StructuredHostileMutationsFailOnlyWithJsonException(string file)
+    {
+        var root = RootFor(file);
+        var rejected = 0;
+        var mutations = 0;
+        foreach (var mutated in Mutations(JsonNode.Parse(Golden(file))!).Take(600))
+        {
+            mutations++;
+            var exception = Record.Exception(() => Parse(root, Encoding.UTF8.GetBytes(mutated)));
+            if (exception is not null)
             {
-                "clientCommandEnvelope",
-                "serverEnvelope",
-                "opaqueRelayFrame",
-                "clientHello",
-                "serverHello",
-                "pairingRequest",
-                "pairingChallenge",
-                "pairingProof",
-                "reconnectRequest",
-                "reconnectPlan",
-            },
-            rootReferences);
-        Assert.Equal(
-            new[]
-            {
-                "commandAcknowledgementMessage",
-                "canonicalSnapshotMessage",
-                "canonicalUpdateMessage",
-                "deprecationMessage",
-            },
-            serverReferences);
+                Assert.True(exception is JsonException, $"{file}: {exception.GetType().Name} for {mutated}");
+                rejected++;
+            }
+        }
+
+        Assert.InRange(rejected, 1, mutations);
+    }
+
+    [Theory]
+    [MemberData(nameof(GoldenWireFiles))]
+    public void UnknownOptionalFieldsFromANewerMinorRemainReadable(string file)
+    {
+        var node = JsonNode.Parse(Golden(file))!.AsObject();
+        node["futureOptionalField"] = new JsonObject { ["addedInMinor"] = 1 };
+
+        Assert.IsType(RootFor(file), Parse(RootFor(file), Encoding.UTF8.GetBytes(node.ToJsonString())));
+    }
+
+    [Fact]
+    public void UnknownDiscriminatorsEnumMembersAndIntegerEnumsFailClosedButPropertyOrderDoesNot()
+    {
+        var golden = Encoding.UTF8.GetString(Golden("commands/set-interaction-mode.json"));
+        var plan = Encoding.UTF8.GetString(Golden("reconnect/reconnect-plan-up-to-date.json"));
+
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
+            Encoding.UTF8.GetBytes(golden.Replace("\"setInteractionMode\"", "\"replayIndependentView\"", StringComparison.Ordinal))));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
+            Encoding.UTF8.GetBytes(golden.Replace("\"Independent\"", "\"Spectate\"", StringComparison.Ordinal))));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
+            Encoding.UTF8.GetBytes(golden.Replace("\"Independent\"", "4", StringComparison.Ordinal))));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ReconnectPlan>(
+            Encoding.UTF8.GetBytes(plan.Replace("\"UpToDate\"", "\"PartialReplay\"", StringComparison.Ordinal))));
+
+        var node = JsonNode.Parse(golden)!.AsObject();
+        var command = node["command"]!.AsObject();
+        var type = command["type"]!.GetValue<string>();
+        command.Remove("type");
+        command["type"] = type;
+        var reordered = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString()));
+
+        Assert.IsType<SetInteractionModeCommand>(reordered.Command);
+    }
+
+    [Fact]
+    public void ANonQueueableCommandCannotSmuggleAnOfflinePreview()
+    {
+        var node = GoldenNode("commands/set-interaction-mode.json");
+        node["command"]!["offlineQueuePreview"] = GoldenNode("commands/show-on-desktop-offline.json")["command"]!["offlineQueuePreview"]!.DeepClone();
+
+        var envelope = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString()));
+
+        Assert.Null(envelope.Command.OfflineQueuePreview);
     }
 
     [Theory]
@@ -100,98 +189,247 @@ public sealed class GoldenAndHostileJsonTests
     [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[],"$type":"System.IO.FileInfo"}""")]
     [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[],"shortCode":"123456"}""")]
     [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[],"privateKey":"abc"}""")]
-    public void DuplicateClrAndCredentialLikePropertiesAreRejected(string json)
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[],"sharedSecret":"abc"}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[],}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":0},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a",/*c*/"optionalFeatures":[]}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":00},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[]}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":NaN},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[]}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":"0"},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[]}""")]
+    [InlineData("""{"supportedVersions":{"minimum":{"major":2,"minor":1},"maximum":{"major":2,"minor":0}},"clientInstanceId":"a","optionalFeatures":[]}""")]
+    [InlineData("null")]
+    public void AmbiguousCredentialLikeOrMalformedPayloadsAreRejected(string json)
     {
-        Assert.Throws<JsonException>(() =>
-            CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(json)));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(json)));
     }
 
     [Fact]
-    public void UnknownDiscriminatorAndIntegerEnumsAreRejected()
-    {
-        var golden = Encoding.UTF8.GetString(Golden("client-set-mode.json"));
-        Assert.Throws<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
-            Encoding.UTF8.GetBytes(golden.Replace("setInteractionMode", "arbitraryMutation", StringComparison.Ordinal))));
-        Assert.Throws<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
-            Encoding.UTF8.GetBytes(golden.Replace("\"Independent\"", "4", StringComparison.Ordinal))));
-    }
-
-    [Fact]
-    public void MissingRequiredFieldsAndNullReferencesAreRejected()
-    {
-        var node = JsonNode.Parse(Golden("client-set-mode.json"))!.AsObject();
-        node.Remove("sessionId");
-        Assert.ThrowsAny<Exception>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
-            Encoding.UTF8.GetBytes(node.ToJsonString())));
-
-        node = JsonNode.Parse(Golden("client-set-mode.json"))!.AsObject();
-        node["command"] = null;
-        Assert.ThrowsAny<Exception>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
-            Encoding.UTF8.GetBytes(node.ToJsonString())));
-    }
-
-    [Fact]
-    public void PayloadStringCollectionAndDepthBoundsAreEnforcedBeforeBinding()
+    public void PayloadStringCollectionDepthAndEncodingBoundsAreEnforcedBeforeBinding()
     {
         const string helloPrefix =
             "{\"supportedVersions\":{\"minimum\":{\"major\":2,\"minor\":0},\"maximum\":{\"major\":2,\"minor\":0}},\"clientInstanceId\":\"";
-        var tooLong = new string('x', ProtocolBounds.MaxStringBytes + 1);
-        var longJson = helloPrefix + tooLong + "\",\"optionalFeatures\":[]}";
-        Assert.Throws<JsonException>(() =>
-            CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(longJson)));
-
-        var items = string.Join(',', Enumerable.Repeat("\"x\"", ProtocolBounds.MaxCollectionItems + 1));
-        var arrayJson = helloPrefix + "a\",\"optionalFeatures\":[" + items + "]}";
-        Assert.Throws<JsonException>(() =>
-            CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(arrayJson)));
-
-        var deep = "{\"supportedVersions\":{\"minimum\":{\"major\":2,\"minor\":0},\"maximum\":{\"major\":2,\"minor\":0}},\"clientInstanceId\":\"a\",\"optionalFeatures\":[],\"extra\":" +
+        var longString = helloPrefix + new string('x', ProtocolBounds.MaxStringBytes + 1) + "\",\"optionalFeatures\":[]}";
+        var longArray = helloPrefix + "a\",\"optionalFeatures\":[" + string.Join(',', Enumerable.Repeat("\"x\"", ProtocolBounds.MaxCollectionItems + 1)) + "]}";
+        var deep = helloPrefix + "a\",\"optionalFeatures\":[],\"extra\":" +
                    string.Concat(Enumerable.Repeat("{\"x\":", ProtocolBounds.MaxJsonDepth + 1)) +
                    "0" + string.Concat(Enumerable.Repeat("}", ProtocolBounds.MaxJsonDepth + 1)) + "}";
-        Assert.ThrowsAny<JsonException>(() =>
-            CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(deep)));
+        byte[] invalidUtf8 = [.. Encoding.UTF8.GetBytes(helloPrefix), 0xC3, 0x28, .. Encoding.UTF8.GetBytes("\",\"optionalFeatures\":[]}")];
+        var oversized = Encoding.UTF8.GetBytes(helloPrefix + "a\",\"optionalFeatures\":[],\"padding\":\"" +
+                                               string.Concat(Enumerable.Repeat(new string('p', 1000) + "\",\"p\":\"", 70)) + "\"}");
+
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(longString)));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(longArray)));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(Encoding.UTF8.GetBytes(deep)));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(invalidUtf8));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientHello>(oversized));
     }
 
     [Fact]
-    public void NonFiniteCoordinatesAndExactRootEscapeAreRejected()
+    public void OnlyExactWireRootsCanBeSerializedOrRead()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new MapCoordinate(
-            "customs",
-            null,
-            CoordinateSpaceKind.World,
-            "v1",
-            double.NaN,
-            null,
-            1));
         Assert.Throws<InvalidOperationException>(() => CompanionProtocolJson.Serialize(new { arbitrary = true }));
+        Assert.Throws<InvalidOperationException>(() => CompanionProtocolJson.Serialize(InitialState()));
+        Assert.Throws<InvalidOperationException>(() => CompanionProtocolJson.Deserialize<CanonicalCompanionState>("{}"u8));
+        Assert.Throws<InvalidOperationException>(() => CompanionProtocolJson.Deserialize<CompanionCommand>("{}"u8));
     }
 
     [Fact]
     public void DeterministicHostileByteFuzzAlwaysFailsClosed()
     {
         var random = new Random(276);
-        for (var iteration = 0; iteration < 2_000; iteration++)
+        foreach (var root in CompanionProtocolJson.RootTypes)
         {
-            var payload = new byte[random.Next(1, 256)];
-            random.NextBytes(payload);
-            var exception = Record.Exception(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(payload));
-            Assert.NotNull(exception);
+            for (var iteration = 0; iteration < 400; iteration++)
+            {
+                var payload = new byte[random.Next(1, 256)];
+                random.NextBytes(payload);
+                var exception = Record.Exception(() => Parse(root, payload));
+                Assert.NotNull(exception);
+                Assert.IsAssignableFrom<JsonException>(exception);
+            }
         }
     }
 
-    private static void RoundTripGolden<T>(string name)
+    private static IEnumerable<string> Mutations(JsonNode document)
     {
-        var payload = Golden(name);
-        var model = CompanionProtocolJson.Deserialize<T>(payload);
-        var serialized = CompanionProtocolJson.Serialize(model);
-        AssertJsonEqual(payload, serialized);
+        var replacements = new Func<JsonNode?>[]
+        {
+            () => null,
+            () => new JsonObject(),
+            () => new JsonArray(),
+            () => JsonValue.Create("hostile"),
+            () => JsonValue.Create(-1),
+            () => JsonValue.Create(9_223_372_036_854_775_807L),
+            () => JsonValue.Create(1.5),
+            () => JsonValue.Create(true),
+            () => JsonValue.Create(new string('z', 900)),
+        };
+
+        foreach (var path in Paths(document, []))
+        {
+            var removed = document.DeepClone();
+            if (Remove(removed, path))
+            {
+                yield return removed.ToJsonString();
+            }
+
+            foreach (var replacement in replacements)
+            {
+                var replaced = document.DeepClone();
+                if (Replace(replaced, path, replacement()))
+                {
+                    yield return replaced.ToJsonString();
+                }
+            }
+        }
     }
 
-    private static byte[] Golden(string name) =>
-        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Golden", name));
+    private static IEnumerable<object[]> Paths(JsonNode? node, object[] prefix)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var property in obj)
+                {
+                    object[] path = [.. prefix, property.Key];
+                    yield return path;
+                    foreach (var child in Paths(property.Value, path))
+                    {
+                        yield return child;
+                    }
+                }
 
-    private static void AssertJsonEqual(byte[] expected, byte[] actual) =>
-        Assert.True(
-            JsonNode.DeepEquals(JsonNode.Parse(expected), JsonNode.Parse(actual)),
-            $"Expected {Encoding.UTF8.GetString(expected)}{Environment.NewLine}Actual {Encoding.UTF8.GetString(actual)}");
+                break;
+            case JsonArray array:
+                for (var index = 0; index < Math.Min(array.Count, 2); index++)
+                {
+                    object[] path = [.. prefix, index];
+                    yield return path;
+                    foreach (var child in Paths(array[index], path))
+                    {
+                        yield return child;
+                    }
+                }
+
+                break;
+        }
+    }
+
+    private static JsonNode? Parent(JsonNode root, object[] path)
+    {
+        JsonNode? current = root;
+        foreach (var segment in path[..^1])
+        {
+            current = segment is string name ? current?[name] : current?[(int)segment];
+        }
+
+        return current;
+    }
+
+    private static bool Remove(JsonNode root, object[] path) => (Parent(root, path), path[^1]) switch
+    {
+        (JsonObject obj, string name) => obj.Remove(name),
+        (JsonArray array, int index) => RemoveAt(array, index),
+        _ => false,
+    };
+
+    private static bool RemoveAt(JsonArray array, int index)
+    {
+        array.RemoveAt(index);
+        return true;
+    }
+
+    private static bool Replace(JsonNode root, object[] path, JsonNode? value)
+    {
+        switch (Parent(root, path), path[^1])
+        {
+            case (JsonObject obj, string name):
+                obj[name] = value;
+                return true;
+            case (JsonArray array, int index):
+                array[index] = value;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static void AssertDiscriminators<TBase>(JsonObject definitions, string union)
+    {
+        var expected = typeof(TBase)
+            .GetCustomAttributes<JsonDerivedTypeAttribute>()
+            .Select(attribute => (string)attribute.TypeDiscriminator!)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var actual = definitions[union]!["oneOf"]!.AsArray()
+            .Select(item => definitions[item!["$ref"]!.GetValue<string>()["#/$defs/".Length..]]!["properties"]!["type"]!["const"]!.GetValue<string>())
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    private static void AssertEnum<TEnum>(JsonNode schemaEnum)
+        where TEnum : struct, Enum =>
+        Assert.Equal(
+            Enum.GetNames<TEnum>().Order(StringComparer.Ordinal),
+            schemaEnum["enum"]!.AsArray().Where(item => item is not null).Select(item => item!.GetValue<string>()).Order(StringComparer.Ordinal));
+
+    private static string Definition(Type root) => char.ToLowerInvariant(root.Name[0]) + root.Name[1..];
+
+    private static Type RootFor(string file) => file switch
+    {
+        _ when file.StartsWith("commands/", StringComparison.Ordinal) => typeof(ClientCommandEnvelope),
+        _ when file.StartsWith("client/", StringComparison.Ordinal) => typeof(ClientDeliveryAcknowledgement),
+        _ when file.StartsWith("server/", StringComparison.Ordinal) => typeof(ServerEnvelope),
+        _ when file.StartsWith("relay/", StringComparison.Ordinal) => typeof(OpaqueRelayFrame),
+        "hello/client-hello.json" => typeof(ClientHello),
+        _ when file.StartsWith("hello/server-hello", StringComparison.Ordinal) => typeof(ServerHello),
+        "handshake/pairing-offer.json" => typeof(PairingOffer),
+        "handshake/pairing-request.json" => typeof(PairingRequest),
+        "handshake/session-resume-request.json" => typeof(SessionResumeRequest),
+        _ when file.EndsWith("-challenge.json", StringComparison.Ordinal) => typeof(HandshakeChallenge),
+        _ when file.EndsWith("-proof.json", StringComparison.Ordinal) => typeof(DeviceKeyProof),
+        _ when file.EndsWith("-established.json", StringComparison.Ordinal) => typeof(SessionEstablished),
+        _ when file.StartsWith("reconnect/reconnect-request", StringComparison.Ordinal) => typeof(ReconnectRequest),
+        _ when file.StartsWith("reconnect/reconnect-plan", StringComparison.Ordinal) => typeof(ReconnectPlan),
+        _ => throw new ArgumentOutOfRangeException(nameof(file), file, "A golden file must map to one wire root."),
+    };
+
+    private static object Parse(Type root, byte[] payload) => root.Name switch
+    {
+        nameof(ClientCommandEnvelope) => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(payload),
+        nameof(ClientDeliveryAcknowledgement) => CompanionProtocolJson.Deserialize<ClientDeliveryAcknowledgement>(payload),
+        nameof(ServerEnvelope) => CompanionProtocolJson.Deserialize<ServerEnvelope>(payload),
+        nameof(OpaqueRelayFrame) => CompanionProtocolJson.Deserialize<OpaqueRelayFrame>(payload),
+        nameof(ClientHello) => CompanionProtocolJson.Deserialize<ClientHello>(payload),
+        nameof(ServerHello) => CompanionProtocolJson.Deserialize<ServerHello>(payload),
+        nameof(PairingOffer) => CompanionProtocolJson.Deserialize<PairingOffer>(payload),
+        nameof(PairingRequest) => CompanionProtocolJson.Deserialize<PairingRequest>(payload),
+        nameof(SessionResumeRequest) => CompanionProtocolJson.Deserialize<SessionResumeRequest>(payload),
+        nameof(HandshakeChallenge) => CompanionProtocolJson.Deserialize<HandshakeChallenge>(payload),
+        nameof(DeviceKeyProof) => CompanionProtocolJson.Deserialize<DeviceKeyProof>(payload),
+        nameof(SessionEstablished) => CompanionProtocolJson.Deserialize<SessionEstablished>(payload),
+        nameof(ReconnectRequest) => CompanionProtocolJson.Deserialize<ReconnectRequest>(payload),
+        nameof(ReconnectPlan) => CompanionProtocolJson.Deserialize<ReconnectPlan>(payload),
+        _ => throw new ArgumentOutOfRangeException(nameof(root)),
+    };
+
+    private static byte[] Reserialize(Type root, byte[] payload) => Parse(root, payload) switch
+    {
+        ClientCommandEnvelope value => CompanionProtocolJson.Serialize(value),
+        ClientDeliveryAcknowledgement value => CompanionProtocolJson.Serialize(value),
+        ServerEnvelope value => CompanionProtocolJson.Serialize(value),
+        OpaqueRelayFrame value => CompanionProtocolJson.Serialize(value),
+        ClientHello value => CompanionProtocolJson.Serialize(value),
+        ServerHello value => CompanionProtocolJson.Serialize(value),
+        PairingOffer value => CompanionProtocolJson.Serialize(value),
+        PairingRequest value => CompanionProtocolJson.Serialize(value),
+        SessionResumeRequest value => CompanionProtocolJson.Serialize(value),
+        HandshakeChallenge value => CompanionProtocolJson.Serialize(value),
+        DeviceKeyProof value => CompanionProtocolJson.Serialize(value),
+        SessionEstablished value => CompanionProtocolJson.Serialize(value),
+        ReconnectRequest value => CompanionProtocolJson.Serialize(value),
+        ReconnectPlan value => CompanionProtocolJson.Serialize(value),
+        _ => throw new ArgumentOutOfRangeException(nameof(root)),
+    };
 }

@@ -1,0 +1,45 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:00:00+00:00",
+  "command": {
+    "type": "upsertMark",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000012"
+    },
+    "requestedRevision": {
+      "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00+00:00",
+    "expiresUtc": "2026-09-14T20:01:00+00:00",
+    "offlineQueuePreview": null,
+    "markId": {
+      "value": "50000000-0000-4000-8000-000000000002"
+    },
+    "expectedMarkRevision": 0,
+    "mark": {
+      "kind": "Ping",
+      "scope": "PairedDevice",
+      "coordinate": {
+        "mapId": "customs",
+        "floorId": "ground",
+        "coordinateSpace": "World",
+        "projectionVersion": "tarkov-dev-1",
+        "x": 10.5,
+        "y": 2,
+        "z": -20.25
+      },
+      "label": null,
+      "color": "#FF8800",
+      "expiresUtc": null
+    }
+  }
+}

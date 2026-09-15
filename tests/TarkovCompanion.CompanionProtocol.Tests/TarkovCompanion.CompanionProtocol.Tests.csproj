@@ -13,7 +13,7 @@
     <PackageReference Include="coverlet.collector" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Golden/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Golden/**/*.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../src/TarkovCompanion.CompanionProtocol/Schemas/v2/*.json"
           Link="Schemas/v2/%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />

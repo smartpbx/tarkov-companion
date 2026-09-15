@@ -1,0 +1,81 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authenticatedOriginDeviceId": {
+    "value": "10000000-0000-4000-8000-000000000002"
+  },
+  "serverUtc": "2026-09-14T20:00:00+00:00",
+  "deliverySequence": {
+    "value": 5
+  },
+  "message": {
+    "type": "canonicalUpdate",
+    "update": {
+      "type": "workspace",
+      "authorityEpoch": {
+        "value": "30000000-0000-0000-0000-000000000001"
+      },
+      "globalRevision": {
+        "value": 5
+      },
+      "changeId": {
+        "value": "40000000-0000-4000-8000-000000000003"
+      },
+      "changedUtc": "2026-09-14T20:00:50+00:00",
+      "state": {
+        "cursor": {
+          "revision": {
+            "value": 3
+          },
+          "lastChangeId": {
+            "value": "40000000-0000-4000-8000-000000000003"
+          }
+        },
+        "projection": {
+          "workspace": "Raid",
+          "mapId": "customs",
+          "floorId": "ground",
+          "viewport": {
+            "center": {
+              "mapId": "customs",
+              "floorId": "ground",
+              "coordinateSpace": "World",
+              "projectionVersion": "tarkov-dev-1",
+              "x": 10.5,
+              "y": 2,
+              "z": -20.25
+            },
+            "zoom": 1.5
+          },
+          "selection": {
+            "kind": "Objective",
+            "referenceId": "objective-1",
+            "originDeepLink": "tarkov-companion://objective/objective-1",
+            "focusToken": "focus-1"
+          },
+          "visibleObjectiveIds": [
+            "objective-1"
+          ],
+          "planIds": [],
+          "searchQuery": "labs keycard",
+          "resultIds": [
+            "item-1"
+          ],
+          "activeLayers": [
+            "extracts",
+            "quests"
+          ],
+          "activeFilters": [
+            "found-in-raid"
+          ],
+          "dialog": null
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "disposition": "Compatible",
+  "negotiatedVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "desktopVersions": {
+    "minimum": {
+      "major": 2,
+      "minor": 0
+    },
+    "maximum": {
+      "major": 2,
+      "minor": 0
+    }
+  },
+  "deprecation": null,
+  "recoveryAction": null
+}

@@ -1,0 +1,65 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authenticatedOriginDeviceId": {
+    "value": "10000000-0000-4000-8000-000000000002"
+  },
+  "serverUtc": "2026-09-14T20:00:00+00:00",
+  "deliverySequence": {
+    "value": 4
+  },
+  "message": {
+    "type": "canonicalUpdate",
+    "update": {
+      "type": "deviceMode",
+      "authorityEpoch": {
+        "value": "30000000-0000-0000-0000-000000000001"
+      },
+      "globalRevision": {
+        "value": 2
+      },
+      "changeId": {
+        "value": "40000000-0000-4000-8000-000000000002"
+      },
+      "changedUtc": "2026-09-14T20:00:50+00:00",
+      "state": {
+        "cursor": {
+          "revision": {
+            "value": 2
+          },
+          "lastChangeId": {
+            "value": "40000000-0000-4000-8000-000000000002"
+          }
+        },
+        "devices": [
+          {
+            "deviceId": {
+              "value": "10000000-0000-4000-8000-000000000002"
+            },
+            "mode": "Control",
+            "changedUtc": "2026-09-14T20:00:20+00:00"
+          }
+        ],
+        "pendingControl": null,
+        "controlLease": {
+          "leaseId": {
+            "value": "41000000-0000-4000-8000-000000000001"
+          },
+          "deviceId": {
+            "value": "10000000-0000-4000-8000-000000000002"
+          },
+          "sessionId": {
+            "value": "20000000-0000-4000-8000-000000000002"
+          },
+          "grantedUtc": "2026-09-14T20:00:20+00:00",
+          "expiresUtc": "2026-09-14T20:02:20+00:00"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "disposition": "UnsupportedVersion",
+  "replay": [],
+  "snapshot": null,
+  "resumeAfterDeliverySequence": {
+    "value": 9
+  },
+  "reason": "unsupported-version"
+}
