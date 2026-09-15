@@ -1,38 +1,28 @@
 # Privacy
 
-This companion is external and read-only toward Escape from Tarkov. It never accesses game memory, injects or hooks code, inspects EFT network traffic, creates gameplay input, automates gameplay, detects enemies, renders ESP/radar, or draws an in-game overlay. Diagnostics have the same limits.
+This companion is external and read-only toward Escape from Tarkov. It never accesses game memory, injects or hooks code, inspects EFT network traffic, creates gameplay input, automates gameplay, detects enemies, renders ESP/radar, or draws an in-game overlay. Diagnostics have the same boundary.
 
-## Data handling
+## Current data paths
 
-| Material | Normal location | Diagnostic rule |
+| Material | Current handling | Privacy fact |
 | --- | --- | --- |
-| User-selected screenshots | Game screenshot folder | Never copied into diagnostics; pixels/crops are absent. |
-| Feature-required game logs | Local game log folder | Never uploaded or attached to diagnostics. |
-| Settings, profile, cached public data | Local application data | Diagnostics hold category-level operational state only. |
-| Relay marks | Relay state directory | Backups never include live positions or pings. |
-| Problem report | Relay reports directory | A public issue names a reference only; the body stays off GitHub. |
-| Diagnostic event | #270-owned local store when wired | Closed, sanitized operational record only. |
+| `SanitizedDiagnosticEvent` | In-memory primitive only | Closed typed record with no string properties; not persisted or exported yet. |
+| Crash recovery primitive | In-memory only | At most 12 copied sanitized events; #270 owns any durable recovery storage. |
+| Existing support bundle | Created on demand by the desktop | Can include a redacted tail of the companion log and masked screenshot-name shapes; it is not the closed event record. |
+| Problem report | Relay reports directory | The body remains on the relay; a public issue can contain its reference, size, and received UTC. |
+| Public relay `/health` | Public endpoint | Includes aggregate room/member counts and start time today, in addition to status/build fields. |
+| `RelayReadiness` | No route or consumer | The model exists but does not expose an authenticated endpoint yet. |
 
-Exact coordinates, names, credentials, screenshot names, full paths, OCR text/crops, report bodies, and raw log lines are prohibited diagnostic fields.
+The closed event model deliberately excludes free text, paths, screenshots, credentials, names, coordinates, raw log lines, and report bodies. That promise applies to that new type—not to the pre-existing support bundle or report transport. Those older paths remain subject to their own redaction rules and must not be copied into public issues.
 
-## Choice and control
+## Controls that are not wired yet
 
-Diagnostics work with central telemetry disabled. `TARKOV_COMPANION_INTERNAL_TELEMETRY=enabled` is a separate, explicit, revocable choice; it is never inferred from developer mode, a relay address, or a debug build. The user must be able to inspect destination, closed schema, retention preview, and export/delete controls before it transmits.
+`DiagnosticRuntimeControls` can parse `TARKOV_COMPANION_DIAGNOSTIC_LOG_LEVEL` and the exact opt-in value `TARKOV_COMPANION_INTERNAL_TELEMETRY=enabled`, but composition does not read either value yet. No telemetry collector is wired by this branch.
 
-`TARKOV_COMPANION_DIAGNOSTIC_LOG_LEVEL` accepts `Trace`, `Debug`, `Information`, `Warning`, or `Error`; absent/invalid values use `Information`. More verbosity never permits raw evidence.
+`DiagnosticTokenSet` can validate one current token and up to two previous tokens with a strict UTC timestamp and a maximum 24-hour overlap. The live developer command channel does not use that validator and accepts the environment value as one literal token. Consequently, setting `TARKOV_COMPANION_DIAGNOSTIC_TOKEN` to `new,old@...` would not rotate the live channel; do not do so until #294 changes that consumer.
 
-`TARKOV_COMPANION_DIAGNOSTIC_TOKEN` supports one current token and up to two expiring previous tokens:
+## Monitoring and public issues
 
-```text
-current-token,previous-token@2026-09-16T00:00:00Z
-```
+The relay-watch classifier and workflow avoid printing the relay URL and health-response body. For a report, the public issue intentionally includes its safe reference, byte count, and received UTC, but not the relay address, report endpoint, authorization command, or report body. The issue helper deduplicates by an open exact-title search: health incidents are commented and report issues are skipped. Its fixture verifies those branches and creation; that is not evidence of a live issue or a guarantee about unrelated titles.
 
-Tokens are at least 32 characters, use constant-time comparison, and never appear in an event, log, export, or report. A previous token must have a UTC expiry and is refused immediately after it. See [key rotation](runbooks/relay-operations.md#key-rotation).
-
-Public relay health excludes readiness detail, room/member activity, report references, names, positions, and operator configuration. Detailed readiness is authenticated. The monitoring workflow prints neither relay URL nor health body.
-
-Diagnostic export is local and reviewed; its preview shows scope before it writes. Delete confirms success/failure rather than claiming deletion after a storage error. Retention, preview, export, and delete use #270's persistence interfaces so there is one recoverable store and migration history.
-
-The primitives in this branch await the repaired #268 runtime transplant and #294 composition.
-They are not permission to add a second store or to wire telemetry before #270 supplies the single
-durable adapter.
+The foundation awaits final runtime/main integration, #270 persistence, and #294 composition. It does not authorize a second store, automatic telemetry, token rotation, or a readiness endpoint.
