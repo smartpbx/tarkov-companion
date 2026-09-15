@@ -15,9 +15,10 @@ demand.
 Escape from Tarkov is not installed on the runner and is not required. Nothing in this
 workflow reads game memory, sends input to another process, or inspects network traffic.
 
-This workflow publishes no release. Its release job, `release-handoff-disabled`, is `if: false`
-and holds no write token; release publication belongs to #280. A pull request therefore gets
-the whole gauntlet and has neither a step that could publish nor a token that could.
+Verifying and publishing are separate jobs. `windows-verify` builds, tests, launches and
+photographs, and hands the result to `publish` as an artifact; `publish` is the only job with a
+write token and it does not run for a pull request. So a pull request gets the whole gauntlet
+and has neither a step that could publish nor a token that could.
 
 ## What the workflow does
 
@@ -25,7 +26,8 @@ the whole gauntlet and has neither a step that could publish nor a token that co
    (policy text, the gallery's interface-fault classifier, and the evidence sanitizer against
    fixtures), and after restore runs it again with `-SqliteLibraryPath` to drive the smoke's
    SQLite reader against a fixture database through the restored win-x64 `e_sqlite3.dll`.
-   Then publishes the self-contained win-x64 archive with `scripts/package-windows.sh`.
+   Then publishes the self-contained win-x64 archive with `scripts/package-windows.sh`, the
+   same script the release path uses.
 2. Extracts the archive the way a user would, into a directory that has never held the
    application.
 3. Runs `--self-test` on a machine with no application data.
@@ -52,9 +54,12 @@ the whole gauntlet and has neither a step that could publish nor a token that co
    waits for that scan's committed row before sending the next, because the application writes
    history behind a queue and answers the scan before the row lands. A SQLite failure other
    than an initializing database is raised at once rather than retried until a timeout.
-11. Publishes only an allowlisted sanitized summary and bounded sanitized failure excerpts for
-   seven days. Raw startup logs, SQLite databases, screenshots, runner usernames, and absolute
-   paths are never artifact evidence.
+11. Uploads, as the `windows-verification` artifact, only an allowlisted sanitized summary and
+   bounded sanitized failure excerpts, kept for seven days. Raw startup logs, SQLite databases,
+   screenshots, runner usernames, and absolute paths are never artifact evidence.
+12. Fails the job on any unverified step. Only a run that passed uploads the package and, outside
+   a pull request, the release payload; `publish` then runs only for `main` or a `v*` tag, and
+   updates the rolling `dev` pre-release or cuts the tagged release.
 
 A Linux `checks` job builds the solution, runs the full test suite, and runs the safety and
 secret audits; `windows-verify` waits for it.

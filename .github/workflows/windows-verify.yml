@@ -330,9 +330,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/demo-replay.out.txt" `
             -RedirectStandardError "verification/demo-replay.err.txt"
+          # DemoRaidReplayReport has no success field; complete is the one its exit code follows.
           if (Test-Path -LiteralPath $Report) {
             $DemoReplay = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
-            "Demo replay success: $($DemoReplay.success)"
+            "Demo replay complete: $($DemoReplay.complete)"
           }
           exit $Process.ExitCode
 
@@ -504,8 +505,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # The gate is deliberately after evidence upload. This workflow contains no release
-      # publication: release ownership lives in its dedicated child workflow.
+      # The gate, and deliberately ahead of every publish step.
       #
       # Each verification above is continue-on-error, so it records its result and lets the
       # job carry on. That meant the job's own success() was still true when the release was
@@ -598,8 +598,7 @@ jobs:
           if-no-files-found: error
 
 
-  # Kept disabled temporarily so the release child can take over without a gap in reviewable
-  # history. It has no write token and cannot run; #279 never publishes a package or a feed.
+  # Publishing, and nothing else. It needs the write token, so it is the only job that has one
   # and it does not run for a pull request — a PR run therefore has no step that could publish
   # and no token that could, which is what "structurally cannot" means here.
   #
@@ -609,13 +608,13 @@ jobs:
   # A failure here leaves the previous dev release whole. Nothing is deleted before the new
   # assets are uploaded and the two feed files are written last, so the worst case is that dev
   # does not advance — visible, and fixed by re-running.
-  release-handoff-disabled:
+  publish:
     needs: windows-verify
-    if: false
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: read
+      contents: write
     steps:
       # Velopack turns the verified publish directory into an installer plus a delta feed.
       #

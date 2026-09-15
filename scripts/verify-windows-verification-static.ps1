@@ -104,6 +104,9 @@ Forbid-Text $Workflow 'page gallery, cropped launch probe' 'job summary promisin
 Forbid-Text $Workflow 'Time to interactive' 'time-to-interactive claim for a window-handle timing'
 Forbid-Text $Workflow 'Simulator state assertions' 'job summary presenting diagnostic-channel assertions as simulator ingestion'
 Require-Text $Workflow '-SqliteLibraryPath' 'SQLite reader fixture check'
+# DemoRaidReplayReport has no success property, so reading one printed a blank on every run.
+Forbid-Text $Workflow '$DemoReplay.success' 'demo-replay line reading a field the report does not have'
+Require-Text $Workflow '$DemoReplay.complete' 'demo-replay line reading the field its exit code follows'
 
 # The page gallery's interface-fault gate.
 Require-Text $Gallery '$env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog' 'per-launch UI warning capture'
