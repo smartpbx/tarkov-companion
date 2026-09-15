@@ -38,7 +38,7 @@ RINGS = ("canary", "beta", "stable")
 ACTIONS = ("publish", "promote", "pause", "resume", "mark-lkg", "rollback")
 PROMOTION_SOURCE = {"beta": "canary", "stable": "beta"}
 SEMVER = re.compile(
-    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?=.{1,128}\Z)^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?$"
 )
 INDEX_NAME = re.compile(r"^release-index-g([0-9]{10})\.json$")
@@ -46,6 +46,7 @@ REPOSITORY = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 MAX_VERSION_NUMBER = 2_147_483_647
+MAX_VERSION_LENGTH = 128
 MAX_GENERATION = 9_999_999_999
 MAX_ACTOR_LENGTH = 256
 MAX_REASON_LENGTH = 2048
@@ -91,7 +92,9 @@ def utc_text(value: datetime) -> str:
 
 def semver_key(value: str) -> tuple[int, int, int, tuple[tuple[int, int, Any], ...]]:
     """Order versions by SemVer 2.0 precedence, where a prerelease sorts before its release."""
-    match = SEMVER.fullmatch(value) if isinstance(value, str) else None
+    # Bound before applying the expression. Besides keeping every consumer's accepted language
+    # identical, this prevents a hostile signed field from making regex work scale without limit.
+    match = SEMVER.fullmatch(value) if isinstance(value, str) and 0 < len(value) <= MAX_VERSION_LENGTH else None
     if match is None:
         raise PolicyError(f"version is not a supported semantic version: {value!r}")
     major, minor, patch = (int(match.group(index)) for index in range(1, 4))

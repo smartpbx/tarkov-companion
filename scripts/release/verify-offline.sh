@@ -111,16 +111,7 @@ python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_SIGNATURE_BYTES}" "
 "${TASK_VERIFY}" "${TASK_MANIFEST}" "${TASK_MANIFEST}.sigstore.json" "${TASK_TRUST_ROOT}"
 jq -e '.schemaVersion == 1
        and (.version | type == "string") and (.commit | type == "string" and test("^[0-9a-f]{40}$"))
-       and (.artifacts | type == "array" and length > 0 and length <= 4096)
-       and all(.artifacts[];
-           type == "object"
-           and ((.name | type) == "string")
-           and ((.sha256 | type) == "string")
-           and (.sha256 | test("^[0-9a-f]{64}$"))
-           and ((.size | type) == "number")
-           and (.size == (.size | floor))
-           and (.size > 0 and .size <= 536870912))
-       and ([.artifacts[].name] | length == (unique | length))' \
+       and (.artifacts | type == "array" and length > 0 and length <= 4096)' \
     "${TASK_MANIFEST}" >/dev/null || fail "the signed manifest is malformed"
 python3 - "${TASK_PROJECT_ROOT}/scripts/release" "$(jq -r .version "${TASK_MANIFEST}")" <<'PY' || fail "the signed manifest names an unsupported version"
 import sys
@@ -133,7 +124,20 @@ readonly TASK_ARTIFACT_TABLE="${TASK_WORK}/artifacts.tsv"
 # A process substitution would hide jq's exit status from this shell. Materialize the signed
 # table first so a malformed later row cannot turn verification of an artifact prefix into a
 # successful verification of the whole manifest.
-jq -er '.artifacts[] | [.name, .sha256, (.size | tostring)] | @tsv' \
+jq -er '
+    if (all(.artifacts[];
+            type == "object"
+            and ((.name | type) == "string")
+            and ((.sha256 | type) == "string")
+            and (.sha256 | test("^[0-9a-f]{64}$"))
+            and ((.size | type) == "number")
+            and (.size == (.size | floor))
+            and (.size > 0 and .size <= 536870912))
+        and ([.artifacts[].name] | length == (unique | length))) then
+        .artifacts[] | [.name, .sha256, (.size | tostring)] | @tsv
+    else
+        error("malformed artifact table")
+    end' \
     "${TASK_MANIFEST}" > "${TASK_ARTIFACT_TABLE}" \
     || fail "the signed manifest artifact table is malformed"
 

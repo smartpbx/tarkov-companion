@@ -27,11 +27,15 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         Assert.Equal(new[] { "binary", "data", "model" }, plan.Components.Keys.Order(StringComparer.Ordinal));
         Assert.All(plan.Artifacts, artifact => Assert.True(File.Exists(artifact.Path)));
         Assert.Equal(7, fixture.Verifier.Verified.Count); // index, manifest, and five feed artifacts
-        Assert.Equal(0, fixture.State.Value.SeenGeneration);
+        Assert.Empty(fixture.State.Value.ReplayStates!);
 
         await fixture.Consumer.CommitAsync(plan, default);
 
-        Assert.Equal(1, fixture.State.Value.SeenGeneration);
+        var replay = Assert.Single(fixture.State.Value.ReplayStates!);
+        Assert.Equal(1, replay.SeenGeneration);
+        Assert.Equal("smartpbx/tarkov-companion-private-feed", replay.FeedRepository);
+        Assert.Equal("stable", replay.Ring);
+        Assert.Matches("^[0-9a-f]{64}$", replay.DecisionSha256);
         Assert.Equal("2.0.0", fixture.State.Value.Current?.Version);
         Assert.Equal(
             plan.Components.OrderBy(item => item.Key, StringComparer.Ordinal),
@@ -47,13 +51,13 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Consumer.CommitAsync(plan with { }, default));
-        Assert.Equal(0, fixture.State.Value.SeenGeneration);
+        Assert.Empty(fixture.State.Value.ReplayStates!);
 
         await fixture.Consumer.CommitAsync(plan, default);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             fixture.Consumer.CommitAsync(plan, default));
-        Assert.Equal(1, fixture.State.Value.SeenGeneration);
+        Assert.Equal(1, Assert.Single(fixture.State.Value.ReplayStates!).SeenGeneration);
     }
 
     [Fact]
@@ -79,7 +83,7 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
 
         Assert.Equal(ReleasePreparationStatus.Paused, prepared.Status);
         Assert.Null(prepared.Plan);
-        Assert.Equal(1, fixture.State.Value.SeenGeneration);
+        Assert.Equal(1, Assert.Single(fixture.State.Value.ReplayStates!).SeenGeneration);
         Assert.Empty(fixture.Feed.AssetDownloads);
         Assert.Single(fixture.Verifier.Verified);
         Assert.Empty(Directory.EnumerateDirectories(_root));
@@ -166,19 +170,152 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Consumer.PrepareAsync(default));
 
         Assert.Empty(fixture.Feed.AssetDownloads);
-        Assert.Equal(0, fixture.State.Value.SeenGeneration);
+        Assert.Empty(fixture.State.Value.ReplayStates!);
     }
 
     [Fact]
     public async Task AFeedReplayBelowThePersistedGenerationIsRefused()
     {
-        var initial = ReleaseConsumerState.Empty with { SeenGeneration = 2 };
+        var initial = ReleaseConsumerState.Empty with
+        {
+            ReplayStates = ReplayHistory(
+                "smartpbx/tarkov-companion-private-feed", "stable", 2, new string('d', 64)),
+        };
         var fixture = CreateFixture("2.0.0", state: initial);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Consumer.PrepareAsync(default));
 
         Assert.Empty(fixture.Verifier.Verified);
         Assert.Equal(initial, fixture.State.Value);
+    }
+
+    [Fact]
+    public async Task AnEqualGenerationIsAuthenticatedAndMustMatchItsPersistedDecision()
+    {
+        var fixture = CreateFixture("2.0.0");
+        var first = await fixture.Consumer.PrepareAsync(default);
+        await fixture.Consumer.CommitAsync(Assert.IsType<VerifiedReleasePlan>(first.Plan), default);
+        var verifiedBeforeReplay = fixture.Verifier.Verified.Count;
+
+        var replay = await fixture.Consumer.PrepareAsync(default);
+
+        Assert.Equal(ReleasePreparationStatus.UpToDate, replay.Status);
+        Assert.Equal(verifiedBeforeReplay + 1, fixture.Verifier.Verified.Count);
+
+        var name = Assert.Single(fixture.Feed.RingFiles.Keys);
+        using var envelope = JsonDocument.Parse(fixture.Feed.RingFiles[name]);
+        var payload = Convert.FromBase64String(envelope.RootElement.GetProperty("payloadBase64").GetString()!);
+        using var decision = JsonDocument.Parse(payload);
+        var changed = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            schemaVersion = decision.RootElement.GetProperty("schemaVersion").GetInt32(),
+            mediaType = decision.RootElement.GetProperty("mediaType").GetString(),
+            feedRepository = decision.RootElement.GetProperty("feedRepository").GetString(),
+            ring = decision.RootElement.GetProperty("ring").GetString(),
+            generation = decision.RootElement.GetProperty("generation").GetInt64(),
+            updatedUtc = "2026-09-15T12:00:01Z",
+            paused = decision.RootElement.GetProperty("paused").GetBoolean(),
+            release = decision.RootElement.GetProperty("release"),
+            previous = decision.RootElement.GetProperty("previous"),
+            lastKnownGood = decision.RootElement.GetProperty("lastKnownGood"),
+            highWaterVersion = decision.RootElement.GetProperty("highWaterVersion").GetString(),
+            rollback = decision.RootElement.GetProperty("rollback"),
+            authorization = decision.RootElement.GetProperty("authorization"),
+        }, Json);
+        fixture.Feed.RingFiles[name] = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            schemaVersion = 1,
+            mediaType = "application/vnd.tarkov-companion.signed-release-index.v1+json",
+            payloadBase64 = Convert.ToBase64String(changed),
+            sigstoreBundle = new { fixture = true },
+        }, Json);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => fixture.Consumer.PrepareAsync(default));
+
+        Assert.Contains("same generation", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(verifiedBeforeReplay + 2, fixture.Verifier.Verified.Count);
+    }
+
+    [Fact]
+    public async Task ChangingRingStartsThatRingsAuthenticatedHistoryWithoutLosingInstalledFacts()
+    {
+        var installed = Identity("1.0.0", '1');
+        var initial = ReleaseConsumerState.Empty with
+        {
+            Current = installed,
+            ReplayStates = ReplayHistory(
+                "smartpbx/tarkov-companion-private-feed", "stable", 41, new string('d', 64)),
+        };
+        var fixture = CreateFixture("2.0.0", state: initial, ring: "beta");
+
+        var prepared = await fixture.Consumer.PrepareAsync(default);
+        var plan = Assert.IsType<VerifiedReleasePlan>(prepared.Plan);
+        await fixture.Consumer.CommitAsync(plan, default);
+
+        Assert.Equal(1, ReplayFor(fixture.State.Value, "smartpbx/tarkov-companion-private-feed", "beta").SeenGeneration);
+        Assert.Equal(41, ReplayFor(fixture.State.Value, "smartpbx/tarkov-companion-private-feed", "stable").SeenGeneration);
+        Assert.Equal("2.0.0", fixture.State.Value.Current?.Version);
+
+        var switchedBack = CreateFixture("2.5.0", state: fixture.State.Value);
+        await Assert.ThrowsAsync<InvalidDataException>(() => switchedBack.Consumer.PrepareAsync(default));
+        Assert.Empty(switchedBack.Verifier.Verified);
+    }
+
+    [Fact]
+    public async Task ChangingFeedStartsThatFeedsAuthenticatedHistoryWithoutSharingRefusals()
+    {
+        var initial = ReleaseConsumerState.Empty with
+        {
+            Refused = Identity("1.5.0", '1'),
+            ReplayStates = ReplayHistory("example/old-private-feed", "stable", 41, new string('d', 64)),
+        };
+        var fixture = CreateFixture(
+            "2.0.0",
+            state: initial,
+            repository: "example/new-private-feed");
+
+        var prepared = await fixture.Consumer.PrepareAsync(default);
+        var plan = Assert.IsType<VerifiedReleasePlan>(prepared.Plan);
+        await fixture.Consumer.RefuseAsync(plan, default);
+
+        Assert.Equal(1, ReplayFor(fixture.State.Value, "example/new-private-feed", "stable").SeenGeneration);
+        Assert.Equal(41, ReplayFor(fixture.State.Value, "example/old-private-feed", "stable").SeenGeneration);
+        Assert.Equal("2.0.0", fixture.State.Value.Refused?.Version);
+
+        var switchedBack = CreateFixture(
+            "2.5.0",
+            state: fixture.State.Value,
+            repository: "example/old-private-feed");
+        await Assert.ThrowsAsync<InvalidDataException>(() => switchedBack.Consumer.PrepareAsync(default));
+        Assert.Empty(switchedBack.Verifier.Verified);
+    }
+
+    public static IEnumerable<object[]> ValidReleaseVersions() =>
+        LoadVersionVectors().Valid.Select(static version => new object[] { version });
+
+    public static IEnumerable<object[]> InvalidReleaseVersions() =>
+        LoadVersionVectors().Invalid.Select(static version => new object[] { version });
+
+    [Theory]
+    [MemberData(nameof(ValidReleaseVersions))]
+    public async Task DesktopConsumerAcceptsEverySharedBoundedVersion(string version)
+    {
+        var fixture = CreateFixture(version);
+
+        var prepared = await fixture.Consumer.PrepareAsync(default);
+
+        var plan = Assert.IsType<VerifiedReleasePlan>(prepared.Plan);
+        fixture.Consumer.Abandon(plan);
+    }
+
+    [Theory]
+    [MemberData(nameof(InvalidReleaseVersions))]
+    public async Task DesktopConsumerRefusesEverySharedInvalidOrOversizedVersion(string version)
+    {
+        var fixture = CreateFixture(version);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Consumer.PrepareAsync(default));
     }
 
     [Fact]
@@ -204,7 +341,7 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         Assert.IsAssignableFrom<IReleaseStagingQuarantineRequired>(exception);
         var staging = Assert.Single(Directory.EnumerateDirectories(_root));
         Assert.NotEmpty(Directory.EnumerateFiles(staging));
-        Assert.Equal(0, fixture.State.Value.SeenGeneration);
+        Assert.Empty(fixture.State.Value.ReplayStates!);
     }
 
     private Fixture CreateFixture(
@@ -216,13 +353,16 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         ReleaseIdentity? rollbackFrom = null,
         string? action = null,
         string? dataDeltaBase = null,
-        DateTimeOffset? updatedUtc = null)
+        DateTimeOffset? updatedUtc = null,
+        string repository = "smartpbx/tarkov-companion-private-feed",
+        string ring = "stable")
     {
         Directory.CreateDirectory(_root);
+        var commitMarker = VersionCommitMarker(version);
         var options = new SignedReleaseFeedOptions
         {
-            Repository = "smartpbx/tarkov-companion-private-feed",
-            Ring = "stable",
+            Repository = repository,
+            Ring = ring,
             StagingRoot = _root,
             CosignPath = Path.Combine(_root, "cosign.exe"),
             CosignSha256 = "9fe59be0eca1271873ce019061335eb1ac419b7059202e797828467ddabe33be",
@@ -264,7 +404,7 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         {
             schemaVersion = 1,
             version,
-            commit = new string(version[0], 40),
+            commit = new string(commitMarker, 40),
             builtUtc = "2026-09-15T00:00:00Z",
             source = new
             {
@@ -292,9 +432,9 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
             versions = new
             {
                 package = version,
-                assemblyInformational = $"{version}+{new string(version[0], 40)}",
+                assemblyInformational = $"{version}+{new string(commitMarker, 40)}",
                 manifest = version,
-                commit = new string(version[0], 40),
+                commit = new string(commitMarker, 40),
                 databaseSchema = "0001",
                 relayProtocol = 1,
                 v2Contract = "2.0",
@@ -340,7 +480,7 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         }, Json);
         var identityTemplate = release ?? new ReleaseIdentity(
             version,
-            new string(version[0], 40),
+            new string(commitMarker, 40),
             $"v2-build-{version}",
             "release-manifest.json",
             string.Empty);
@@ -376,7 +516,9 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
                 reason = "fixture",
                 workflowRunId = "43",
                 verificationRunId = effectiveAction == "publish" ? "42" : null,
-                sourceRing = effectiveAction == "promote" ? "beta" : null,
+                sourceRing = effectiveAction == "promote"
+                    ? (options.Ring == "beta" ? "canary" : "beta")
+                    : null,
                 sourceGeneration = effectiveAction == "promote" ? 1L : (long?)null,
                 previousGeneration = 0,
             },
@@ -425,6 +567,34 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
     private static string Sha256(byte[] bytes) =>
         Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
+    private static IReadOnlyList<AuthenticatedReleaseReplayState> ReplayHistory(
+        string repository,
+        string ring,
+        long generation,
+        string decisionSha256) =>
+        Array.AsReadOnly(new[]
+        {
+            new AuthenticatedReleaseReplayState(repository, ring, generation, decisionSha256),
+        });
+
+    private static AuthenticatedReleaseReplayState ReplayFor(
+        ReleaseConsumerState state,
+        string repository,
+        string ring) =>
+        Assert.Single(state.ReplayStates!, replay => replay.FeedRepository == repository && replay.Ring == ring);
+
+    private static char VersionCommitMarker(string version) =>
+        version.Length > 0 && "0123456789abcdef".Contains(version[0])
+            ? version[0]
+            : 'e';
+
+    private static VersionVectorFixture LoadVersionVectors()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "fixtures", "release", "version-grammar.json");
+        return JsonSerializer.Deserialize<VersionVectorFixture>(File.ReadAllText(path), Json)
+               ?? throw new InvalidDataException($"Release version fixture {path} is empty.");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -438,6 +608,11 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         FakeFeed Feed,
         FakeVerifier Verifier,
         FakeStateStore State);
+
+    private sealed record VersionVectorFixture(
+        IReadOnlyList<string> Valid,
+        IReadOnlyList<string> Invalid,
+        IReadOnlyList<string> Precedence);
 
     private sealed class FakeFeed : IAuthenticatedReleaseFeed
     {

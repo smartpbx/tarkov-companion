@@ -10,6 +10,7 @@ disagreed about which build was newer. The same vectors go through all three her
 from __future__ import annotations
 
 import functools
+import json
 import os
 import re
 import shutil
@@ -27,20 +28,18 @@ import build_manifest  # noqa: E402
 import release_policy  # noqa: E402
 
 
-VALID = ["0.0.0", "1.0.608", "10.20.30", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-0.3.7", "1.0.0-x.7.z.92",
-         "1.0.0-x-y-z.--", "1.0.0-rc.1", "1.0.0-B", "1.0.0-a"]
-INVALID = ["1.0", "01.0.0", "1.00.0", "1.0.0-01", "1.0.0-rc..1", "1.0.0-", "1.0.0+build", "v1.0.0", "1.0.0 ", "",
-           "1.0.0-rc.01"]
+VECTORS = json.loads((ROOT / "fixtures/release/version-grammar.json").read_text(encoding="utf-8"))
+VALID = VECTORS["valid"]
+INVALID = VECTORS["invalid"]
 # Pairs in ascending precedence, per SemVer 2.0 section 11, plus the ordinal "B" before "a".
-ORDER = ["1.0.0-0", "1.0.0-B", "1.0.0-a", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
-         "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0", "10.0.0"]
+ORDER = VECTORS["precedence"]
 
 
 @functools.lru_cache(maxsize=None)
 def updater_functions() -> str:
     source = (ROOT / "deploy/group-server/tarkov-group-update.sh").read_text(encoding="utf-8")
     pattern = "\n".join(line for line in source.splitlines()
-                        if line.startswith(("readonly MAX_SEMVER_NUMBER=", "readonly PRERELEASE_IDENTIFIER=",
+                        if line.startswith(("readonly MAX_VERSION_LENGTH=", "readonly MAX_SEMVER_NUMBER=", "readonly PRERELEASE_IDENTIFIER=",
                                             "readonly VERSION_PATTERN=")))
     functions = "\n".join(
         re.search(rf"^{name}\(\) \{{.*?^\}}\n", source, re.S | re.M).group(0)
@@ -58,15 +57,18 @@ class VersionGrammarTests(unittest.TestCase):
     def test_python_accepts_exactly_the_grammar(self) -> None:
         for version in VALID:
             self.assertIsNotNone(release_policy.SEMVER.fullmatch(version), version)
+            release_policy.semver_key(version)
         for version in INVALID:
             self.assertIsNone(release_policy.SEMVER.fullmatch(version), version)
+            with self.assertRaises(release_policy.PolicyError, msg=version):
+                release_policy.semver_key(version)
         self.assertIs(release_policy.SEMVER, build_manifest.SEMVER)
 
     def test_the_relay_updater_accepts_exactly_the_same_versions(self) -> None:
         for version in VALID + INVALID:
             with self.subTest(version=version):
-                result = bash('[[ "$1" =~ ${VERSION_PATTERN} ]]', version)
-                self.assertEqual(release_policy.SEMVER.fullmatch(version) is not None, result.returncode == 0)
+                result = bash('valid_semver "$1"', version)
+                self.assertEqual(version in VALID, result.returncode == 0)
 
     def test_the_relay_updater_orders_versions_as_the_policy_does_in_any_locale(self) -> None:
         for index, left in enumerate(ORDER):
@@ -81,14 +83,19 @@ class VersionGrammarTests(unittest.TestCase):
         pwsh = shutil.which("pwsh")
         self.assertIsNotNone(pwsh, "pwsh is required by the release gate")
         source = (RELEASE_DIRECTORY / "install-offline.ps1").read_text(encoding="utf-8")
-        declarations = "\n".join(line for line in source.splitlines() if line.startswith(("$Identifier =", "$VersionPattern =")))
-        function = re.search(r"^function Compare-ReleaseVersion.*?^\}\n", source, re.S | re.M).group(0)
+        declarations = "\n".join(line for line in source.splitlines()
+                                 if line.startswith(("$Identifier =", "$VersionPattern =", "$MaximumVersionLength =",
+                                                     "$MaximumVersionNumber =")))
+        functions = "\n".join(re.search(rf"^function {name}.*?^\}}\n", source, re.S | re.M).group(0)
+                              for name in ("Assert-ReleaseVersion", "Compare-ReleaseVersion"))
         vectors = "@(" + ",".join(f"'{version}'" for version in VALID + INVALID) + ")"
         order = "@(" + ",".join(f"'{version}'" for version in ORDER) + ")"
         script = f"""
 {declarations}
-{function}
-foreach ($Version in {vectors}) {{ "$Version|$($Version -cmatch $VersionPattern)" }}
+{functions}
+foreach ($Version in {vectors}) {{
+  try {{ Assert-ReleaseVersion $Version; "$Version|True" }} catch {{ "$Version|False" }}
+}}
 $Order = {order}
 for ($i = 0; $i -lt $Order.Count; $i++) {{
   for ($j = $i + 1; $j -lt $Order.Count; $j++) {{
@@ -103,7 +110,7 @@ for ($i = 0; $i -lt $Order.Count; $i++) {{
         matches = dict(line.rsplit("|", 1) for line in lines if not line.startswith("order|"))
         for version in VALID + INVALID:
             with self.subTest(version=version):
-                self.assertEqual(str(release_policy.SEMVER.fullmatch(version) is not None), matches[version])
+                self.assertEqual(str(version in VALID), matches[version])
         for line in (line for line in lines if line.startswith("order|")):
             _, left, right, forward, backward = line.split("|")
             with self.subTest(left=left, right=right):

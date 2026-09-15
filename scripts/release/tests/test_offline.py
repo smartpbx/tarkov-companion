@@ -39,6 +39,7 @@ printf '%s\\n' "$0" > "${FAKE_INSTALL_ROOT}/ran-from"
 case "${FAKE_INSTALL_MODE:-install}" in
   noop) exit 0 ;;
   wrong) version=0.0.1; commit=dddddddddddddddddddddddddddddddddddddddd ;;
+  hang) sleep 30; exit 99 ;;
   install) version="${FAKE_INSTALL_VERSION}"; commit="${FAKE_INSTALL_COMMIT}" ;;
   *) exit 9 ;;
 esac
@@ -282,7 +283,7 @@ class VerifyOfflineTests(OfflineFixture):
         result = self.verify("--break-glass")
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("signed manifest is malformed", result.stderr)
+        self.assertIn("artifact table is malformed", result.stderr)
 
     def test_a_string_artifact_size_is_not_coerced_to_a_number(self) -> None:
         manifest = json.loads((self.bundle / "release-manifest.json").read_text())
@@ -294,7 +295,7 @@ class VerifyOfflineTests(OfflineFixture):
         result = self.verify("--break-glass")
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("signed manifest is malformed", result.stderr)
+        self.assertIn("artifact table is malformed", result.stderr)
 
     def test_the_output_is_the_verified_copy_not_the_media(self) -> None:
         output = self.root / "verified"
@@ -350,7 +351,7 @@ class InstallOfflineTests(OfflineFixture):
         rejected = self.install("-WhatIf", FAKE_COSIGN_REJECT=INSTALLER)
 
         self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
-        self.assertEqual(3, len(executed))
+        self.assertEqual(4, len(executed))
         self.assertNotIn((self.bin / "cosign").resolve(), executed)
         self.assertTrue(all(not path.exists() for path in executed), "a staged verifier survived cleanup")
         self.assertNotEqual(0, rejected.returncode)
@@ -415,6 +416,22 @@ class InstallOfflineTests(OfflineFixture):
         self.assertNotEqual(0, rejected.returncode)
         self.assertIn("does not verify", plain(rejected))
 
+    def test_the_installer_verifies_non_installer_artifacts_with_ring_or_break_glass(self) -> None:
+        for label, arguments, ring in (
+            ("ring", ("-WhatIf",), True),
+            ("break-glass", ("-WhatIf", "-BreakGlass"), False),
+        ):
+            with self.subTest(authority=label):
+                self.write_bundle("1.0.608")
+                self.write_index()
+                (self.bundle / RELAY).write_bytes(b"tampered relay")
+
+                result = self.install(*arguments, ring=ring)
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("does not match the signed manifest", plain(result))
+                self.assertFalse((self.install_root / "ran-from").exists())
+
     def test_the_installer_refuses_every_hostile_bundle(self) -> None:
         for label in hostile_bundles(b"").keys():
             with self.subTest(bundle=label):
@@ -433,6 +450,29 @@ class InstallOfflineTests(OfflineFixture):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("is not the cosign -CosignSha256 names", plain(result))
+
+    def test_verifier_timeout_kills_and_drains_before_staging_cleanup(self) -> None:
+        executable_log = self.root / "timed-out-cosign.log"
+
+        result = self.install(
+            "-WhatIf", "-VerifierTimeoutSeconds", "1",
+            FAKE_COSIGN_HANG="release-manifest.json",
+            FAKE_COSIGN_EXECUTABLE_LOG=str(executable_log),
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("did not exit within 1 seconds", plain(result))
+        staged = [Path(line) for line in executable_log.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(staged)
+        self.assertTrue(all(not path.exists() for path in staged), "timed-out verifier survived staging cleanup")
+
+    def test_installer_timeout_kills_and_drains_before_staging_cleanup(self) -> None:
+        result = self.install("-InstallerTimeoutSeconds", "1", FAKE_INSTALL_MODE="hang")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("did not exit within 1 seconds", plain(result))
+        staged_installer = Path((self.install_root / "ran-from").read_text(encoding="utf-8").strip())
+        self.assertFalse(staged_installer.exists(), "timed-out installer survived staging cleanup")
 
     def test_the_installer_refuses_a_downgrade_without_a_signed_rollback_or_permission(self) -> None:
         self.installed("1.0.700")

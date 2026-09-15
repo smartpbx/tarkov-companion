@@ -490,7 +490,7 @@ def reconcile(payload: Path, source_root: Path, commit: str, verification_run_id
     if not isinstance(update, dict):
         raise ManifestError("update.json must be an object")
     version = update.get("version")
-    if not isinstance(version, str) or SEMVER.fullmatch(version) is None:
+    if not isinstance(version, str):
         raise ManifestError(f"update.json has an invalid version: {version!r}")
     try:
         semver_key(version)

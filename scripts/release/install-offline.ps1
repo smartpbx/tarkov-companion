@@ -52,7 +52,13 @@ param(
 
     [switch] $AllowDowngrade,
 
-    [switch] $BreakGlass
+    [switch] $BreakGlass,
+
+    [ValidateRange(1, 600)]
+    [int] $VerifierTimeoutSeconds = 120,
+
+    [ValidateRange(1, 7200)]
+    [int] $InstallerTimeoutSeconds = 1800
 )
 
 Set-StrictMode -Version Latest
@@ -66,6 +72,7 @@ $BundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json"
 # SemVer 2.0 exactly as the publisher's release_policy.py accepts it.
 $Identifier = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 $VersionPattern = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$Identifier(\.$Identifier)*)?$"
+$MaximumVersionLength = 128
 $MaximumVersionNumber = 2147483647
 $MaximumJsonBytes = 16MB
 $MaximumSignatureBytes = 2MB
@@ -74,6 +81,8 @@ $MaximumCopiedBytes = 1GB
 $MaximumArtifacts = 4096
 $MaximumDecisionFiles = 8192
 $MaximumDirectoryEntries = 16384
+$MaximumCommandOutputBytes = 64KB
+$ProcessCleanupTimeoutMilliseconds = 10000
 $CopiedBytes = [long]0
 $CopiedFiles = 0
 # cosign v3.1.3, the first v3 release with GHSA-fx35-mq7g-6g98 fixed, from cosign's own signed
@@ -176,6 +185,9 @@ function Read-BoundedText([string] $Path, [long] $MaximumBytes, [string] $Label)
 }
 
 function Assert-ReleaseVersion([string] $Value) {
+    if ([string]::IsNullOrEmpty($Value) -or $Value.Length -gt $MaximumVersionLength) {
+        throw "Unsupported release version '$Value'."
+    }
     $Match = [regex]::Match($Value, $VersionPattern)
     if (-not $Match.Success) { throw "Unsupported release version '$Value'." }
     foreach ($Index in 1..3) {
@@ -286,6 +298,166 @@ function Copy-FromMedia([string] $Name, [string] $Label, [long] $MaximumBytes) {
     return Copy-BoundedFile $Source $Target $MaximumBytes $Label
 }
 
+function ConvertTo-NativeQuotedArgument([string] $Value) {
+    if ($Value.Length -gt 0 -and $Value -cnotmatch '[\s"]') { return $Value }
+
+    # Start-Process accepts one native command line, not an argv array. Apply the Windows/.NET
+    # quoting rule explicitly so a trusted-root or staging path containing spaces cannot split
+    # into a different verifier argument. The same representation is accepted by pwsh on Unix.
+    $Builder = [System.Text.StringBuilder]::new()
+    $null = $Builder.Append('"')
+    $Backslashes = 0
+    foreach ($Character in $Value.ToCharArray()) {
+        if ($Character -ceq '\') {
+            $Backslashes++
+            continue
+        }
+        if ($Character -ceq '"') {
+            $null = $Builder.Append(('\' * ($Backslashes * 2 + 1)))
+            $null = $Builder.Append('"')
+            $Backslashes = 0
+            continue
+        }
+        if ($Backslashes -gt 0) {
+            $null = $Builder.Append(('\' * $Backslashes))
+            $Backslashes = 0
+        }
+        $null = $Builder.Append($Character)
+    }
+    if ($Backslashes -gt 0) { $null = $Builder.Append(('\' * ($Backslashes * 2))) }
+    $null = $Builder.Append('"')
+    return $Builder.ToString()
+}
+
+function Complete-ChildProcess($Process, [bool] $Terminate) {
+    $TreeTerminationProven = -not $Terminate
+    try {
+        $Process.Refresh()
+        if ($Terminate -and -not $Process.HasExited) {
+            try {
+                # pwsh runs on modern .NET, whose tree-aware kill is the cancellation boundary.
+                $Process.Kill($true)
+                $TreeTerminationProven = $true
+            }
+            catch {
+                # Windows PowerShell 5.1 runs on a framework that has no Kill(entireProcessTree).
+                # taskkill /T is its tree-aware equivalent; only a successful command lets this
+                # path remove staging. A failed taskkill falls through to killing the immediate
+                # process, but keeps staging quarantined because a descendant could still have a
+                # verifier, installer, or redirected-output file open.
+                if (Test-Windows) {
+                    try {
+                        & taskkill.exe /PID "$($Process.Id)" /T /F *> $null
+                        $TreeTerminationProven = $LASTEXITCODE -eq 0
+                    }
+                    catch { $TreeTerminationProven = $false }
+                }
+                if (-not $TreeTerminationProven) {
+                    try { $Process.Kill() } catch { }
+                }
+            }
+        }
+        if (-not $Process.HasExited -and
+            -not $Process.WaitForExit($ProcessCleanupTimeoutMilliseconds)) {
+            return $false
+        }
+        # The parameterless wait is intentional after the timed wait: it drains the async
+        # redirection workers before their files can be read or staging can be removed.
+        $Process.WaitForExit()
+        return $Process.HasExited -and $TreeTerminationProven
+    }
+    catch {
+        return $false
+    }
+}
+
+function Read-ChildOutput([string] $Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return [string]::Empty }
+    $Item = Get-Item -LiteralPath $Path -Force
+    if ($Item.Length -gt $MaximumCommandOutputBytes) {
+        throw "A release child process exceeded its diagnostic-output limit."
+    }
+    # Opening only after Complete-ChildProcess has drained redirection makes this a proof rather
+    # than a best-effort read. A sharing violation here means cleanup must quarantine staging.
+    $Stream = [System.IO.File]::Open($Item.FullName, [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+    try {
+        $Bytes = [byte[]]::new([int]$Stream.Length)
+        $Offset = 0
+        while ($Offset -lt $Bytes.Length) {
+            $Read = $Stream.Read($Bytes, $Offset, $Bytes.Length - $Offset)
+            if ($Read -eq 0) { throw "A release child-process output ended before it was drained." }
+            $Offset += $Read
+        }
+        return [System.Text.Encoding]::UTF8.GetString($Bytes)
+    }
+    finally {
+        $Stream.Dispose()
+    }
+}
+
+function Invoke-BoundedChildProcess(
+    [string] $FilePath,
+    [string[]] $ArgumentList,
+    [string] $Label,
+    [int] $TimeoutSeconds) {
+    $Nonce = [guid]::NewGuid().ToString("N")
+    $Stdout = Join-Path $Staging "child-$Nonce.stdout"
+    $Stderr = Join-Path $Staging "child-$Nonce.stderr"
+    $ArgumentLine = (($ArgumentList | ForEach-Object { ConvertTo-NativeQuotedArgument $_ }) -join " ")
+    $Process = $null
+    $Completed = $false
+    $Quiescent = $false
+    $ExitCode = -1
+    try {
+        $Start = @{
+            FilePath = $FilePath
+            PassThru = $true
+            RedirectStandardOutput = $Stdout
+            RedirectStandardError = $Stderr
+            # -WhatIf describes the installer activation, not the verification that must happen
+            # before that decision. Do not let the caller's preference turn this into a null
+            # Start-Process result and falsely claim that the signed bytes were checked.
+            WhatIf = $false
+        }
+        if ($ArgumentLine.Length -gt 0) { $Start.ArgumentList = $ArgumentLine }
+        $Process = Start-Process @Start
+        if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
+            throw "$Label did not exit within $TimeoutSeconds seconds."
+        }
+        $Process.WaitForExit()
+        $ExitCode = $Process.ExitCode
+        $Completed = $true
+    }
+    finally {
+        if ($null -ne $Process) {
+            $Quiescent = Complete-ChildProcess $Process (-not $Completed)
+            $Process.Dispose()
+        }
+        if (-not $Quiescent -and $null -ne $Process) {
+            $script:StagingCleanupSafe = $false
+        }
+    }
+    if (-not $Quiescent) {
+        throw "$Label cleanup could not prove that its process tree exited and drained; staging was quarantined."
+    }
+
+    try {
+        $Output = Read-ChildOutput $Stdout
+        $ErrorOutput = Read-ChildOutput $Stderr
+    }
+    catch [System.IO.IOException] {
+        $script:StagingCleanupSafe = $false
+        throw "$Label output was not quiescent; staging was quarantined."
+    }
+    finally {
+        if ($script:StagingCleanupSafe) {
+            Remove-Item -LiteralPath $Stdout, $Stderr -Force -ErrorAction SilentlyContinue -WhatIf:$false
+        }
+    }
+    return [ordered]@{ ExitCode = $ExitCode; Output = $Output; Error = $ErrorOutput }
+}
+
 # Refuses any bundle but a standardized v0.3 message-signature bundle over exactly these bytes.
 function Assert-StandardBundle([string] $Path) {
     $Label = Split-Path -Leaf $Path
@@ -319,32 +491,17 @@ function Invoke-Verification([string] $Path) {
         throw "The offline bundle is missing the signature bundle for $Label."
     }
     Assert-StandardBundle $Path
-    # cosign reports success on stderr. Windows PowerShell 5.1 turns redirected native stderr into
-    # a terminating error under "Stop", so the exit code is the only verdict read here.
-    $Previous = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    $ExitCode = -1
-    try {
-        try {
-            & $StagedCosign verify-blob `
-                --bundle "$Path.sigstore.json" `
-                --trusted-root $StagedTrustRoot `
-                --certificate-identity $Identity `
-                --certificate-oidc-issuer $Issuer `
-                --certificate-github-workflow-repository $SignerRepository `
-                --certificate-github-workflow-ref $SignerRef `
-                $Path *> $null
-            # LASTEXITCODE is an automatic variable in the caller's scope. Assigning it in this
-            # function shadows the value PowerShell updates after a native .cmd or executable.
-            $ExitCode = $LASTEXITCODE
-        } catch {
-            # A verifier that cannot be launched is indistinguishable from a failed signature.
-            $ExitCode = -1
-        }
-    } finally {
-        $ErrorActionPreference = $Previous
-    }
-    if ($ExitCode -ne 0) {
+    $Result = Invoke-BoundedChildProcess $StagedCosign @(
+        "verify-blob",
+        "--bundle", "$Path.sigstore.json",
+        "--trusted-root", $StagedTrustRoot,
+        "--certificate-identity", $Identity,
+        "--certificate-oidc-issuer", $Issuer,
+        "--certificate-github-workflow-repository", $SignerRepository,
+        "--certificate-github-workflow-ref", $SignerRef,
+        $Path
+    ) "cosign verifier" $VerifierTimeoutSeconds
+    if ($Result.ExitCode -ne 0) {
         throw "The signature on $Label does not verify for the release publisher."
     }
 }
@@ -406,6 +563,7 @@ if (-not (Test-Path -LiteralPath $TrustedRoot -PathType Leaf) -or
 }
 $Staging = Join-Path ([System.IO.Path]::GetTempPath()) ("tarkov-offline-" + [guid]::NewGuid().ToString("N"))
 New-PrivateDirectory $Staging
+$StagingCleanupSafe = $true
 try {
     # The verifier is copied and hashed too, so the cosign that is checked is the one that runs.
     $CosignSource = (Get-Command -Name $CosignPath -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
@@ -443,31 +601,61 @@ try {
     if ($Artifacts.Count -le 0 -or $Artifacts.Count -gt $MaximumArtifacts) {
         throw "The signed manifest artifact count is outside the supported range."
     }
-    $Installers = @($Manifest.artifacts | Where-Object { $_.component -eq "desktop" -and $_.role -eq "installer" })
+    $ArtifactNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $VerifiedArtifacts = [System.Collections.Generic.Dictionary[string,string]]::new([System.StringComparer]::Ordinal)
+    foreach ($Artifact in $Artifacts) {
+        if (-not (Test-ExactProperties $Artifact @("name", "component", "role", "sha256", "size")) -or
+            (Get-Property $Artifact "name") -isnot [string] -or
+            (Get-Property $Artifact "component") -isnot [string] -or
+            [string](Get-Property $Artifact "component") -cnotmatch '^[a-z][a-z0-9-]{0,63}$' -or
+            (Get-Property $Artifact "role") -isnot [string] -or
+            [string](Get-Property $Artifact "role") -cnotmatch '^[a-z][a-z0-9-]{0,63}$' -or
+            (Get-Property $Artifact "sha256") -isnot [string] -or
+            [string](Get-Property $Artifact "sha256") -cnotmatch '^[0-9a-f]{64}$' -or
+            -not (Test-BoundedInteger (Get-Property $Artifact "size") 1 $MaximumArtifactBytes)) {
+            throw "The signed manifest artifact table is malformed."
+        }
+
+        $ArtifactName = [string](Get-Property $Artifact "name")
+        if ($ArtifactName.Length -gt 200 -or
+            $ArtifactName -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$' -or
+            $ArtifactName.Contains("..") -or
+            -not $ArtifactNames.Add($ArtifactName)) {
+            throw "The signed manifest names an unsafe or repeated artifact: $ArtifactName."
+        }
+    }
+
+    # The signed manifest is one transaction, not merely a way to locate an installer. Copy,
+    # digest-check and signature-check every row before ring or break-glass authority can run any
+    # byte. A tampered relay/data/model/SBOM therefore blocks Windows installation too.
+    foreach ($Artifact in $Artifacts) {
+        $ArtifactName = [string](Get-Property $Artifact "name")
+        $ArtifactSize = [long](Get-Property $Artifact "size")
+        $ArtifactPath = Copy-FromMedia $ArtifactName $ArtifactName $MaximumArtifactBytes
+        $null = Copy-FromMedia "$ArtifactName.sigstore.json" "the signature bundle for $ArtifactName" $MaximumSignatureBytes
+        if ((Get-Sha256 $ArtifactPath) -cne [string](Get-Property $Artifact "sha256") -or
+            (Get-Item -LiteralPath $ArtifactPath).Length -ne $ArtifactSize) {
+            throw "$ArtifactName does not match the signed manifest."
+        }
+        Invoke-Verification $ArtifactPath
+        $VerifiedArtifacts.Add($ArtifactName, $ArtifactPath)
+    }
+
+    $Installers = @($Artifacts | Where-Object {
+        (Get-Property $_ "component") -ceq "desktop" -and (Get-Property $_ "role") -ceq "installer"
+    })
     if ($Installers.Count -ne 1) {
         throw "The signed manifest must name exactly one desktop installer."
     }
     $Installer = $Installers[0]
-    $InstallerName = [string]$Installer.name
-    if ($Installer.sha256 -isnot [string] -or [string]$Installer.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
-        $Installer.size -is [bool] -or $Installer.size -isnot [ValueType] -or
-        [decimal]$Installer.size -ne [math]::Truncate([decimal]$Installer.size) -or
-        [decimal]$Installer.size -le 0 -or [decimal]$Installer.size -gt $MaximumArtifactBytes) {
-        throw "The signed manifest gives the desktop installer an unsafe digest or size."
-    }
-    $InstallerPath = Copy-FromMedia $InstallerName $InstallerName $MaximumArtifactBytes
-    $null = Copy-FromMedia "$InstallerName.sigstore.json" "the signature bundle for $InstallerName" $MaximumSignatureBytes
-    if ((Get-Sha256 $InstallerPath) -cne [string]$Installer.sha256 -or (Get-Item -LiteralPath $InstallerPath).Length -ne [long]$Installer.size) {
-        throw "The installer does not match the signed manifest."
-    }
+    $InstallerName = [string](Get-Property $Installer "name")
+    $InstallerPath = [string]$VerifiedArtifacts[$InstallerName]
     # The verified installer normally runs on Windows, where its extension selects the loader.
     # The Unix recovery fixture is a script with the same signed role, and the private copy must
     # be executable there for the test to exercise the post-verification install boundary.
     if ($PSVersionTable.PSEdition -eq "Core" -and -not $IsWindows) {
         [System.IO.File]::SetUnixFileMode($InstallerPath, $UnixUserOnly)
     }
-    Invoke-Verification $InstallerPath
-
     $RollbackAuthorized = $false
     $Selection = "BREAK-GLASS: no ring decision was checked"
     if ($BreakGlass) {
@@ -672,9 +860,9 @@ try {
     }
 
     $Arguments = if ($Headless) { @("--silent") } else { @() }
-    $Process = Start-Process -FilePath $InstallerPath -ArgumentList $Arguments -Wait -PassThru
-    if ($Process.ExitCode -ne 0) {
-        throw "The verified installer exited with code $($Process.ExitCode)."
+    $InstallResult = Invoke-BoundedChildProcess $InstallerPath $Arguments "verified installer" $InstallerTimeoutSeconds
+    if ($InstallResult.ExitCode -ne 0) {
+        throw "The verified installer exited with code $($InstallResult.ExitCode)."
     }
     $Installed = Join-Path $InstallRoot "current/TarkovCompanion.exe"
     if (-not (Test-Path -LiteralPath $Installed -PathType Leaf) -or
@@ -707,5 +895,10 @@ try {
     }
     Write-Host "Installed signed Tarkov Companion $($Manifest.version)."
 } finally {
-    Remove-Item -LiteralPath $Staging -Recurse -Force -ErrorAction SilentlyContinue -WhatIf:$false
+    if ($StagingCleanupSafe) {
+        Remove-Item -LiteralPath $Staging -Recurse -Force -ErrorAction SilentlyContinue -WhatIf:$false
+    }
+    else {
+        Write-Warning "Release staging could not be proven quiescent and was quarantined at $Staging. Remove it only after the child process is confirmed absent or the machine restarts."
+    }
 }

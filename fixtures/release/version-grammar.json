@@ -1,0 +1,47 @@
+{
+  "valid": [
+    "0.0.0",
+    "1.0.608",
+    "10.20.30",
+    "1.0.0-alpha",
+    "1.0.0-alpha.1",
+    "1.0.0-0.3.7",
+    "1.0.0-x.7.z.92",
+    "1.0.0-x-y-z.--",
+    "1.0.0-rc.1",
+    "1.0.0-B",
+    "1.0.0-a",
+    "1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "invalid": [
+    "1.0",
+    "01.0.0",
+    "1.00.0",
+    "1.0.0-01",
+    "1.0.0-rc..1",
+    "1.0.0-",
+    "1.0.0+build",
+    "v1.0.0",
+    "1.0.0 ",
+    "",
+    "1.0.0-rc.01",
+    "1.0.0-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "precedence": [
+    "1.0.0-0",
+    "1.0.0-B",
+    "1.0.0-a",
+    "1.0.0-alpha",
+    "1.0.0-alpha.1",
+    "1.0.0-alpha.beta",
+    "1.0.0-beta",
+    "1.0.0-beta.2",
+    "1.0.0-beta.11",
+    "1.0.0-rc.1",
+    "1.0.0",
+    "1.0.1",
+    "1.1.0",
+    "2.0.0",
+    "10.0.0"
+  ]
+}

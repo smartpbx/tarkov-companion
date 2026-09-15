@@ -73,6 +73,7 @@ public sealed partial class SignedReleaseFeedConsumer
             }
 
             var state = ValidateState(await _stateStore.LoadAsync(cancellationToken).ConfigureAwait(false));
+            var replayState = ReplayStateFor(state);
             var names = await _feed.ListRingAsync(_options.Ring, cancellationToken).ConfigureAwait(false);
             if (names.Count > ReleaseFeedLimits.MaximumRingEntries)
             {
@@ -82,7 +83,7 @@ public sealed partial class SignedReleaseFeedConsumer
             var current = SelectCurrent(names);
             if (current is null)
             {
-                if (state.SeenGeneration > 0 || names.Count > 0)
+                if (replayState.SeenGeneration > 0 || names.Count > 0)
                 {
                     throw new InvalidDataException("The release ring is empty after previously carrying state.");
                 }
@@ -90,14 +91,9 @@ public sealed partial class SignedReleaseFeedConsumer
                 return new ReleasePreparation(ReleasePreparationStatus.UpToDate);
             }
 
-            if (current.Value.Generation < state.SeenGeneration)
+            if (current.Value.Generation < replayState.SeenGeneration)
             {
                 throw new InvalidDataException("The release ring moved behind this installation's authenticated generation.");
-            }
-
-            if (current.Value.Generation == state.SeenGeneration)
-            {
-                return new ReleasePreparation(ReleasePreparationStatus.UpToDate);
             }
 
             staging = _stagingStore.Create(_options.StagingRoot);
@@ -111,6 +107,10 @@ public sealed partial class SignedReleaseFeedConsumer
             var (indexPath, indexBundlePath) = await UnpackEnvelopeAsync(envelopePath, staging, cancellationToken)
                 .ConfigureAwait(false);
             await _verifier.VerifyAsync(indexPath, indexBundlePath, cancellationToken).ConfigureAwait(false);
+            var decisionSha256 = await _stagingStore.Sha256Async(
+                indexPath,
+                ReleaseFeedLimits.MaximumJsonBytes,
+                cancellationToken).ConfigureAwait(false);
 
             using var indexDocument = await _stagingStore.ReadJsonAsync(
                 indexPath,
@@ -118,14 +118,33 @@ public sealed partial class SignedReleaseFeedConsumer
                 cancellationToken).ConfigureAwait(false);
             var decision = ParseDecision(indexDocument.RootElement, current.Value.Generation);
 
+            // A generation filename is only transport metadata. Even when it equals the replay
+            // floor, authenticate its payload and bind it to the digest persisted for this exact
+            // feed and ring. Otherwise replacing one equal-generation file could be hidden by the
+            // early "already seen" return that used to happen before signature verification.
+            if (decision.Generation == replayState.SeenGeneration)
+            {
+                if (!decisionSha256.Equals(replayState.DecisionSha256, StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException(
+                        "Two different authenticated release decisions claim the same generation.");
+                }
+
+                _stagingStore.Delete(_options.StagingRoot, staging);
+                staging = null;
+                return new ReleasePreparation(
+                    decision.Paused && !decision.IsRollback
+                        ? ReleasePreparationStatus.Paused
+                        : ReleasePreparationStatus.UpToDate);
+            }
+
             if (decision.Paused && !decision.IsRollback)
             {
                 await _stateStore.SaveAsync(
-                    state with
-                    {
-                        SeenGeneration = decision.Generation,
-                        LastKnownGood = decision.LastKnownGood,
-                    },
+                    RecordReplay(
+                        state with { LastKnownGood = decision.LastKnownGood },
+                        decision.Generation,
+                        decisionSha256),
                     cancellationToken).ConfigureAwait(false);
                 _stagingStore.Delete(_options.StagingRoot, staging);
                 staging = null;
@@ -149,11 +168,10 @@ public sealed partial class SignedReleaseFeedConsumer
                 if (decision.Release == installed)
                 {
                     await _stateStore.SaveAsync(
-                        state with
-                        {
-                            SeenGeneration = decision.Generation,
-                            LastKnownGood = decision.LastKnownGood,
-                        },
+                        RecordReplay(
+                            state with { LastKnownGood = decision.LastKnownGood },
+                            decision.Generation,
+                            decisionSha256),
                         cancellationToken).ConfigureAwait(false);
                     _stagingStore.Delete(_options.StagingRoot, staging);
                     staging = null;
@@ -265,7 +283,9 @@ public sealed partial class SignedReleaseFeedConsumer
                 decision.Release,
                 decision.LastKnownGood,
                 decision.Generation,
+                _options.Repository,
                 _options.Ring,
+                decisionSha256,
                 staging,
                 Array.AsReadOnly(stagedArtifacts.ToArray()),
                 new ReadOnlyDictionary<string, string>(componentDigests),
@@ -308,18 +328,22 @@ public sealed partial class SignedReleaseFeedConsumer
         {
             RequirePendingPlan(plan);
             var state = ValidateState(await _stateStore.LoadAsync(cancellationToken).ConfigureAwait(false));
-            if (state.SeenGeneration >= plan.Generation)
+            if (ReplayStateFor(state).SeenGeneration >= plan.Generation)
             {
                 throw new InvalidOperationException("This authenticated release decision is already resolved.");
             }
 
             await _stateStore.SaveAsync(
-                new ReleaseConsumerState(
+                RecordReplay(
+                    state with
+                    {
+                        Current = plan.Release,
+                        LastKnownGood = plan.LastKnownGood,
+                        ComponentSha256 = new Dictionary<string, string>(plan.Components, StringComparer.Ordinal),
+                        Refused = null,
+                    },
                     plan.Generation,
-                    plan.Release,
-                    plan.LastKnownGood,
-                    new Dictionary<string, string>(plan.Components, StringComparer.Ordinal),
-                    Refused: null),
+                    plan.DecisionSha256),
                 cancellationToken).ConfigureAwait(false);
             _pendingPlan = null;
         }
@@ -339,18 +363,20 @@ public sealed partial class SignedReleaseFeedConsumer
         {
             RequirePendingPlan(plan);
             var state = ValidateState(await _stateStore.LoadAsync(cancellationToken).ConfigureAwait(false));
-            if (state.SeenGeneration >= plan.Generation)
+            if (ReplayStateFor(state).SeenGeneration >= plan.Generation)
             {
                 throw new InvalidOperationException("This authenticated release decision is already resolved.");
             }
 
             await _stateStore.SaveAsync(
-                state with
-                {
-                    SeenGeneration = plan.Generation,
-                    LastKnownGood = plan.LastKnownGood,
-                    Refused = plan.Release,
-                },
+                RecordReplay(
+                    state with
+                    {
+                        LastKnownGood = plan.LastKnownGood,
+                        Refused = plan.Release,
+                    },
+                    plan.Generation,
+                    plan.DecisionSha256),
                 cancellationToken).ConfigureAwait(false);
             _pendingPlan = null;
             _stagingStore.Delete(_options.StagingRoot, plan.Directory);
@@ -770,7 +796,18 @@ public sealed partial class SignedReleaseFeedConsumer
 
     private static ReleaseConsumerState ValidateState(ReleaseConsumerState? state)
     {
-        if (state is null || state.SeenGeneration is < 0 or > ReleaseFeedLimits.MaximumGeneration ||
+        if (state is null || state.ReplayStates is null ||
+            state.ReplayStates.Count > ReleaseFeedLimits.MaximumReplayScopes ||
+            state.ReplayStates.Any(replay => replay is null ||
+                string.IsNullOrEmpty(replay.FeedRepository) || replay.FeedRepository.Length > 200 ||
+                !Repository().IsMatch(replay.FeedRepository) ||
+                replay.Ring is not ("canary" or "beta" or "stable") ||
+                replay.SeenGeneration is <= 0 or > ReleaseFeedLimits.MaximumGeneration ||
+                !LowerHex64().IsMatch(replay.DecisionSha256 ?? string.Empty)) ||
+            state.ReplayStates
+                .Select(replay => (replay.FeedRepository, replay.Ring))
+                .Distinct()
+                .Count() != state.ReplayStates.Count ||
             state.ComponentSha256 is null ||
             state.ComponentSha256.Any(item => !FeedNames.Contains(item.Key, StringComparer.Ordinal) ||
                                                !LowerHex64().IsMatch(item.Value ?? string.Empty)))
@@ -789,6 +826,35 @@ public sealed partial class SignedReleaseFeedConsumer
         return state;
     }
 
+    private AuthenticatedReleaseReplayState ReplayStateFor(ReleaseConsumerState state)
+    {
+        return state.ReplayStates!.SingleOrDefault(replay =>
+                   replay.FeedRepository == _options.Repository && replay.Ring == _options.Ring)
+               ?? new AuthenticatedReleaseReplayState(_options.Repository, _options.Ring, 0, string.Empty);
+    }
+
+    private ReleaseConsumerState RecordReplay(ReleaseConsumerState state, long generation, string decisionSha256)
+    {
+        var otherScopes = state.ReplayStates!
+            .Where(replay => replay.FeedRepository != _options.Repository || replay.Ring != _options.Ring)
+            .ToList();
+        if (otherScopes.Count >= ReleaseFeedLimits.MaximumReplayScopes)
+        {
+            // Silently pruning an old scope would make switching back accept its deleted history.
+            throw new InvalidDataException("The persisted release replay-scope limit is exhausted.");
+        }
+
+        otherScopes.Add(new AuthenticatedReleaseReplayState(
+            _options.Repository,
+            _options.Ring,
+            generation,
+            decisionSha256));
+        return state with
+        {
+            ReplayStates = Array.AsReadOnly(otherScopes.ToArray()),
+        };
+    }
+
     private void ValidatePlan(VerifiedReleasePlan plan)
     {
         if (plan.Release is null)
@@ -802,7 +868,9 @@ public sealed partial class SignedReleaseFeedConsumer
             ValidateIdentityRecord(plan.LastKnownGood);
         }
 
-        if (plan.Generation is <= 0 or > ReleaseFeedLimits.MaximumGeneration || plan.Ring != _options.Ring ||
+        if (plan.Generation is <= 0 or > ReleaseFeedLimits.MaximumGeneration ||
+            plan.FeedRepository != _options.Repository || plan.Ring != _options.Ring ||
+            !LowerHex64().IsMatch(plan.DecisionSha256 ?? string.Empty) ||
             plan.Artifacts is null || plan.Artifacts.Count is <= 0 or > ReleaseFeedLimits.MaximumArtifacts ||
             plan.Artifacts.Any(artifact => artifact is null) ||
             plan.Artifacts.Select(artifact => artifact.Name).Distinct(StringComparer.Ordinal).Count() !=

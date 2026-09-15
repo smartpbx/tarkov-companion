@@ -55,6 +55,7 @@ readonly MAX_MEMBER_BYTES=$((512 * 1024 * 1024))
 readonly MAX_EXPANDED_BYTES=$((1024 * 1024 * 1024))
 readonly MIN_FREE_RESERVE_BYTES=$((256 * 1024 * 1024))
 readonly MAX_COMMAND_OUTPUT_BYTES=$((64 * 1024))
+readonly MAX_VERSION_LENGTH=128
 readonly MAX_SEMVER_NUMBER=2147483647
 readonly MAX_GENERATION=9999999999
 readonly MAX_OFFLINE_DIRECTORY_ENTRIES=16384
@@ -97,6 +98,7 @@ readonly HEALTH_INTERVAL="${TARKOV_UPDATE_HEALTH_INTERVAL:-2}"
 readonly INCOMING="${INSTALL}.incoming"
 readonly PREVIOUS="${INSTALL}.previous"
 readonly LKG_INCOMING="${LKG}.incoming"
+readonly LKG_PREVIOUS="${LKG}.previous"
 readonly SELF_INCOMING="${SELF}.incoming"
 readonly SHIPPED="${INSTALL}/deploy"
 # Written by the relay's admin panel and watched by tarkov-group-update.path. The relay runs
@@ -163,6 +165,7 @@ valid_generation() {
 
 valid_semver() {
     local version="$1" part prerelease identifier parts=()
+    ((${#version} > 0 && ${#version} <= MAX_VERSION_LENGTH)) || return 1
     [[ "${version}" =~ ${VERSION_PATTERN} ]] || return 1
     for part in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"; do
         decimal_at_most "${part}" "${MAX_SEMVER_NUMBER}" || return 1
@@ -507,7 +510,7 @@ validate_destructive_roots() {
     # SELF is replaced by renaming SELF_INCOMING; the installation and rollback directories are
     # recursively removed or renamed. None may claim another managed output or one of its parents.
     local destructive=(
-        "${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${LKG_INCOMING}"
+        "${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${LKG_INCOMING}" "${LKG_PREVIOUS}"
         "${STATE}" "${STATUS}" "${RELAY_STATE}" "${SELF}" "${SELF_INCOMING}"
     )
     for ((path_index = 0; path_index < ${#destructive[@]}; path_index++)); do
@@ -605,16 +608,40 @@ rollback_failed_swap() {
         || log "could not record the refusal; continuing the rollback"
     systemctl stop "${SERVICE}" >/dev/null 2>&1
 
-    local restored=0 nothing_to_restore=0 units_restored=0 unit stamp
+    local restored=0 nothing_to_restore=0 lkg_restored=0 units_restored=0 unit stamp
     if [[ -d "${PREVIOUS}" ]]; then
         rm -rf -- "${INSTALL}" && mv -T -- "${PREVIOUS}" "${INSTALL}" && restored=1
+    elif [[ -d "${INSTALL}" ]]; then
+        # The journal is durable before either tree is renamed. An interruption immediately
+        # after that commit therefore leaves the original install exactly where it was. Copying
+        # the older LKG over it here would turn recovery itself into an unintended downgrade.
+        restored=1
     elif [[ -d "${LKG}" ]]; then
-        rm -rf -- "${INSTALL}" && cp -a -- "${LKG}" "${INSTALL}" && restored=1
+        cp -a -- "${LKG}" "${INSTALL}" && restored=1
     else
         # A first install has no previous relay. The failed one is left stopped, not deleted:
         # it is the only copy there is, and somebody may need to look at it.
         nothing_to_restore=1
     fi
+
+    # The pre-update LKG is never unlinked. If replacement began it was atomically renamed to
+    # LKG_PREVIOUS, and the journal says whether such a tree existed before the update. These
+    # states make every kill point idempotent: before the rename LKG is already the old value;
+    # after it LKG_PREVIOUS is the old value; after a prior recovery moved it back, LKG is old
+    # again and the missing LKG_PREVIOUS proves there is nothing left to do.
+    if [[ -f "${SWAP}/lkg.present" ]]; then
+        if [[ -d "${LKG_PREVIOUS}" ]]; then
+            rm -rf -- "${LKG}" && mv -T -- "${LKG_PREVIOUS}" "${LKG}" && lkg_restored=1
+        elif [[ -d "${LKG}" ]]; then
+            lkg_restored=1
+        fi
+    elif [[ -f "${SWAP}/lkg.absent" ]]; then
+        rm -rf -- "${LKG}" "${LKG_PREVIOUS}"
+        lkg_restored=1
+    else
+        log "the swap journal does not describe the previous last-known-good tree"
+    fi
+    rm -rf -- "${LKG_INCOMING}"
 
     for unit in "${DEPLOYMENT_UNITS[@]}"; do
         if [[ -f "${SWAP}/deployment/${unit}" ]]; then
@@ -642,12 +669,12 @@ rollback_failed_swap() {
         fi
     done
 
-    if ((nothing_to_restore)); then
+    if ((nothing_to_restore && lkg_restored)); then
         rm -rf -- "${SWAP}"
         log "there was no previous relay to restore; ${TARGET_VERSION} stays stopped and is recorded as refused"
         return 0
     fi
-    if ((restored)) && systemctl start "${SERVICE}"; then
+    if ((restored && lkg_restored)) && systemctl start "${SERVICE}"; then
         rm -rf -- "${SWAP}"
         log "restored the previous relay; ${TARGET_VERSION} at ${TARGET_RING} generation ${TARGET_GENERATION} is recorded as refused"
         return 0
@@ -667,7 +694,7 @@ cleanup() {
     fi
     if ((TASK_LOCKED)); then
         # Never the live tree: either it was renamed into place, or the run stopped before that.
-        rm -rf -- "${INCOMING}"
+        rm -rf -- "${INCOMING}" "${LKG_INCOMING}" "${SELF_INCOMING}"
         sync_status || log "could not publish the updater's status for the panel"
     fi
     if [[ -n "${TASK_WORK}" && -d "${TASK_WORK}" ]]; then
@@ -884,6 +911,11 @@ write_swap_journal() {
             cp -p -- "${STATE}/${stamp}" "${SWAP}.new/stamps/${stamp}"
         fi
     done
+    if [[ -d "${LKG}" ]]; then
+        : > "${SWAP}.new/lkg.present"
+    else
+        : > "${SWAP}.new/lkg.absent"
+    fi
     jq -n \
         --arg sha256 "${TARGET_SHA}" --arg version "${TARGET_VERSION}" --arg commit "${TARGET_COMMIT}" \
         --arg ring "${TARGET_RING}" --argjson generation "${TARGET_GENERATION}" \
@@ -898,7 +930,12 @@ write_swap_journal() {
 recover_interrupted_swap() {
     # Assembled but never renamed into place, so nothing it describes happened. Or committed and
     # not yet deleted, so everything it describes did.
-    rm -rf -- "${SWAP}.new" "${SWAP}.committed"
+    rm -rf -- "${SWAP}.new"
+    if [[ -d "${SWAP}.committed" ]]; then
+        # The commit rename means the new install and its new LKG are authoritative. A power loss
+        # before ordinary cleanup may leave only the preserved, older LKG beside them.
+        rm -rf -- "${SWAP}.committed" "${LKG_PREVIOUS}"
+    fi
     [[ -d "${SWAP}" ]] || return 0
     log "a previous update was interrupted during its swap; undoing it"
     if [[ -f "${SWAP}/target.json" ]]; then
@@ -972,9 +1009,10 @@ fi
 # Holding the lock means no other run is using these. A killed run leaves them behind.
 find "${STATE}" -mindepth 1 -maxdepth 1 -type d -name 'work.*' -exec rm -rf -- {} +
 recover_interrupted_swap
-if [[ -d "${PREVIOUS}" ]]; then
+rm -rf -- "${INCOMING}" "${LKG_INCOMING}" "${SELF_INCOMING}"
+if [[ -d "${PREVIOUS}" || -d "${LKG_PREVIOUS}" ]]; then
     # Only left when the final cleanup of a committed update did not finish.
-    rm -rf -- "${PREVIOUS}"
+    rm -rf -- "${PREVIOUS}" "${LKG_PREVIOUS}"
 fi
 
 [[ "${RELEASE_RING}" =~ ^(canary|beta|stable)$ ]] || refuse "unknown release ring: ${RELEASE_RING}"
@@ -1307,17 +1345,22 @@ extract_bounded_archive "${TASK_WORK}/${archive_name}" "${INCOMING}" \
 [[ -f "${INCOMING}/TarkovCompanion.GroupServer" ]] || refuse "the archive has no relay executable"
 chmod 0755 "${INCOMING}/TarkovCompanion.GroupServer"
 
-# The rollback copy is complete before it replaces the old one, so a copy that fails halfway
-# leaves the previous last-known-good in place rather than none.
+# The replacement copy is complete before the journal. After the journal exists, the old LKG is
+# preserved by rename before the replacement is published. There is consequently no kill point
+# at which both the old LKG and its preserved name are absent.
 if [[ -d "${INSTALL}" ]]; then
     rm -rf -- "${LKG_INCOMING}"
     cp -a -- "${INSTALL}" "${LKG_INCOMING}"
-    rm -rf -- "${LKG}"
+fi
+# From the journal rename inside this call, any failure - including an interruption while
+# publishing LKG - restores rather than leaving a stopped service or losing the recovery tree.
+write_swap_journal
+if [[ -d "${INSTALL}" ]]; then
+    if [[ -d "${LKG}" ]]; then
+        mv -T -- "${LKG}" "${LKG_PREVIOUS}"
+    fi
     mv -T -- "${LKG_INCOMING}" "${LKG}"
 fi
-# From the rename inside this call, any failure - a stop that fails, a rename that fails, a
-# SIGTERM from the unit's timeout - restores rather than leaving a stopped service.
-write_swap_journal
 
 log "installing ${TARGET_VERSION} (${TARGET_COMMIT:0:12}) from ${RELEASE_RING} generation ${TARGET_GENERATION}"
 systemctl stop "${SERVICE}"
@@ -1337,5 +1380,6 @@ clear_refusal
 mv -T -- "${SWAP}" "${SWAP}.committed"
 rm -rf -- "${SWAP}.committed" || log "could not remove the committed journal; the next run removes it"
 
-rm -rf -- "${PREVIOUS}" || log "could not remove ${PREVIOUS}; it is unused and can be deleted"
+rm -rf -- "${PREVIOUS}" "${LKG_PREVIOUS}" \
+    || log "could not remove preserved update trees; they are unused and can be deleted"
 log "installed ${TARGET_VERSION} (${TARGET_COMMIT:0:12}); last-known-good copy kept at ${LKG}"

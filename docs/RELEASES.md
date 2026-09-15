@@ -90,7 +90,7 @@ artifacts of one verification run, and refuses unless all of these agree:
 | Database schema, relay protocol, v2 contract, quest exchange | recorded from that commit's source |
 | Versioned data component | the release identity and the same four contracts from that commit |
 | Versioned OCR model component | the reviewed `eng.traineddata` in that commit, byte for byte |
-| The version itself | one SemVer grammar, shared by the manifest builder, ring policy, feed tags, the relay updater and the offline installer |
+| The version itself | one at-most-128-character SemVer grammar, shared by the manifest builder, ring policy, feed tags, relay updater, offline installer and desktop consumer |
 
 Any file in the payload that no checksum file or publisher step accounts for is refused, so
 nothing is signed into a release without having been named. The manifest's `source` records the
@@ -347,10 +347,10 @@ rules and makes no filesystem changes.
 
 ### Installing
 
-- copies the running tree to `/opt/tarkov-group.lkg` (complete before it replaces the previous
-  copy);
-- assembles a **swap journal** holding the current units, updater and `INSTALLED_*` stamps, and
-  renames it into place, so a journal that exists is complete;
+- copies the running tree to an unpublished LKG incoming directory;
+- assembles a **swap journal** holding the current units, updater, `INSTALLED_*` stamps and whether
+  an LKG existed, and renames it into place, so a journal that exists is complete;
+- preserves the prior LKG by rename, then publishes the incoming LKG by rename;
 - stops the service, renames the tree aside, renames the new one in, starts the service;
 - requires `/health` to report the signed version, commit and protocol;
 - installs any changed units and the updater itself from the new build;
@@ -360,9 +360,10 @@ rules and makes no filesystem changes.
 
 Any failure while the journal exists is undone from it: a stop, a rename, the health check, a unit
 install, a stamp rename, the commit rename, or `SIGTERM` from the unit's 20-minute timeout. The
-updater restores the previous tree, units, updater and stamps, records the refusal with its ring
-and generation, and starts the previous relay. A run killed outright is undone by the next run
-from the same journal. A `swap.committed` left behind is simply deleted. So the stamps never name
+updater restores the previous tree, LKG, units, updater and stamps, records the refusal with its
+ring and generation, and starts the previous relay. A run killed outright at any journal, LKG or
+install rename is undone by the next run from the same journal; orphaned incoming trees are
+removed only while holding the updater lock. A `swap.committed` left behind is simply deleted. So the stamps never name
 a build that did not prove itself, and the tick after a refusal reports the refusal rather than
 "already on" (`RISK-RELAY-UPDATE-STATE`).
 
@@ -431,7 +432,10 @@ fails closed and never asks the public repository for updates. `SignedReleaseFee
 the protected integration-secret store; redirects never receive it; the newest bounded decision,
 manifest and every selected binary/data/model artifact are verified before one plan is returned.
 Pause advances only authenticated generation state, downgrade needs the carried signed rollback,
-and an applicable data/model delta must name the installed component digest.
+and an applicable data/model delta must name the installed component digest. Replay floors are
+retained independently for every feed repository and ring, including after switching away and
+back. An equal-generation file is still downloaded and signature-checked, then its payload digest
+must equal the authenticated digest already stored for that scope.
 
 The contracts and transaction coordinator live in `Application`; the authenticated GitHub reader
 and cosign process adapter live in `Infrastructure`; only the Velopack presentation gateway remains
@@ -475,6 +479,11 @@ Both copy what they use off the media into a private directory first and verify 
 installer runs its private copy of the installer, never the file on the media. So media that
 changes between the check and the use changes nothing that was checked. `verify-offline.sh
 --output` keeps its verified copy for whatever installs from it.
+
+The PowerShell path runs cosign and the installer with bounded waits and redirected-output
+drainage. Cancellation or timeout kills the process tree and waits independently before deleting
+the private copy. If it cannot prove that exit and drainage completed, it leaves that directory as
+a private quarantine and prints its path instead of racing cleanup against a live child.
 
 Both require, before anything is used:
 - a pinned cosign;
@@ -539,8 +548,8 @@ longer falls back from an unparsable certificate to a key.
 | Decision write | conflict or error | the previous decision, whole; a conflict is retried |
 | Pending operator dispatch | cancelled in the Actions UI | nothing changed; dispatch again |
 | Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | its private staging directory is removed after verifier exit and pipe drainage are confirmed; if bounded verifier cleanup cannot prove quiescence, that directory is quarantined for operator cleanup; installed/LKG state is unchanged until the caller atomically activates all components and commits |
-| Relay updater | any step | pre-swap: nothing changed; after the journal exists: previous build, units, updater and stamps restored |
-| Offline scripts | any check | nothing installed; the private copy removed |
+| Relay updater | any step | pre-journal: only unpublished incoming copies; after the journal exists: previous build, LKG, units, updater and stamps restored |
+| Offline scripts | any check, cancellation or child timeout | nothing installed; the private copy is removed only after child exit/output drainage, otherwise retained as a private quarantine |
 
 Re-running a failed publish is always safe: every write is either create-once or checked against
 what already exists.
@@ -594,9 +603,9 @@ publish run URL, the approving reviewer shown on that run, and the signed ring g
 | Release gates | `test_gates.py` |
 | Workflow policy, including YAML forms the line matcher missed; all-workflow coverage; pins resolved against GitHub in CI | `test_workflow_policy.py`, `check_workflow_policy.py --enforce-all --verify-tags` |
 | Cosign pins equal everywhere; unpinned cosign refused by every script | `test_cosign_pins.py` |
-| Relay updater: root-owned state and a hostile relay directory; every post-swap failure, SIGTERM and interrupted commit; hostile bundles; pinned cosign; replay, floors, bootstrap, freshness, downgrade, pause, rollback, locale; refusal truthfulness; token scope | `test_relay_updater.py` |
-| Offline verification and the PowerShell installer: private copies, ring decisions, break-glass, hostile bundles, unreadable installed versions | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op and wrong-identity installers, and refuses inconsistent rollback authority |
-| Desktop private-feed transport, filesystem staging and one binary/data/model verification transaction; live private-visibility checks, cancellation/process cleanup, real Sigstore verification, pause, replay, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `CosignReleaseSignatureVerifierTests.cs`, `ReleaseStagingStoreTests.cs`, `SignedReleaseFeedConsumerTests.cs`, and `test-real-sigstore.sh` |
+| Relay updater: root-owned state and a hostile relay directory; kill points around journal/LKG publication, every post-swap failure, SIGTERM and interrupted commit; hostile bundles; pinned cosign; replay, floors, bootstrap, freshness, downgrade, pause, rollback, locale; refusal truthfulness; token scope | `test_relay_updater.py` |
+| Offline verification and the PowerShell installer: every manifest artifact under ring and break-glass, private copies, ring decisions, hostile bundles, unreadable installed versions, and verifier/installer timeout quiescence | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op, wrong-identity, non-installer tamper and child-timeout cases, and refuses inconsistent rollback authority |
+| Desktop private-feed transport, filesystem staging and one binary/data/model verification transaction; live private-visibility checks, cancellation/process cleanup, real Sigstore verification, feed-and-ring-scoped replay including equal-generation authentication, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `CosignReleaseSignatureVerifierTests.cs`, `ReleaseStagingStoreTests.cs`, `SignedReleaseFeedConsumerTests.cs`, and `test-real-sigstore.sh` |
 | Control capture | `test_capture_controls.py` |
 | The verification command against real Sigstore material, and a real GHSA-fx35-mq7g-6g98-shaped legacy bundle | `scripts/release/test-real-sigstore.sh` |
 | Panel reports only the root-owned status | `tests/TarkovCompanion.UnitTests/RelayUpdateTests.cs` |

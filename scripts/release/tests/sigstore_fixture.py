@@ -112,7 +112,7 @@ _REMOVE = object()
 
 
 FAKE_COSIGN = r'''#!/usr/bin/env python3
-import base64, hashlib, json, os, sys
+import base64, hashlib, json, os, sys, time
 
 arguments = sys.argv[1:]
 log = os.environ.get("FAKE_COSIGN_LOG")
@@ -132,6 +132,9 @@ def option(name):
     return arguments[arguments.index(name) + 1] if name in arguments else None
 
 subject = arguments[-1]
+hang = os.environ.get("FAKE_COSIGN_HANG")
+if hang and hang in os.path.basename(subject):
+    time.sleep(30)
 data = open(subject, "rb").read()
 digest = base64.b64encode(hashlib.sha256(data).digest()).decode()
 claims = {

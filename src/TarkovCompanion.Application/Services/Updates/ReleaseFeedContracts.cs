@@ -15,6 +15,7 @@ public static class ReleaseFeedLimits
     public const long MaximumReleaseBytes = 1024L * 1024 * 1024;
     public const int MaximumArtifacts = 4096;
     public const int MaximumRingEntries = 8192;
+    public const int MaximumReplayScopes = 64;
     public const int MaximumJsonDepth = 32;
     public const int MaximumCommandOutputCharacters = 64 * 1024;
     public const int MaximumVersionNumber = int.MaxValue;
@@ -60,23 +61,30 @@ public sealed record ReleaseIdentity(
     string ManifestName,
     string ManifestSha256);
 
+/// <summary>One independently numbered, authenticated feed-and-ring replay floor.</summary>
+public sealed record AuthenticatedReleaseReplayState(
+    string FeedRepository,
+    string Ring,
+    long SeenGeneration,
+    string DecisionSha256);
+
 /// <summary>The locally remembered, authenticated release state owned by #270's persistence layer.</summary>
 public sealed record ReleaseConsumerState(
-    long SeenGeneration,
     ReleaseIdentity? Current,
     ReleaseIdentity? LastKnownGood,
     IReadOnlyDictionary<string, string> ComponentSha256,
-    ReleaseIdentity? Refused = null)
+    ReleaseIdentity? Refused = null,
+    IReadOnlyList<AuthenticatedReleaseReplayState>? ReplayStates = null)
 {
     public static ReleaseConsumerState Empty { get; } = new(
-        0,
         null,
         null,
-        new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)));
+        new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)),
+        ReplayStates: Array.AsReadOnly(Array.Empty<AuthenticatedReleaseReplayState>()));
 }
 
 /// <summary>
-/// Persists the authenticated generation, installed release, refusal and recovery point.
+/// Persists authenticated per-feed replay floors, the installed release, refusal and recovery point.
 /// </summary>
 /// <remarks>
 /// Issue #270 owns the implementation. Keeping the interface here lets its store be wired by
@@ -170,7 +178,9 @@ public sealed record VerifiedReleasePlan(
     ReleaseIdentity Release,
     ReleaseIdentity? LastKnownGood,
     long Generation,
+    string FeedRepository,
     string Ring,
+    string DecisionSha256,
     string Directory,
     IReadOnlyList<VerifiedReleaseArtifact> Artifacts,
     IReadOnlyDictionary<string, string> Components,

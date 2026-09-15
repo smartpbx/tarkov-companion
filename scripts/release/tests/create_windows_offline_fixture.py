@@ -23,6 +23,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--installer", required=True)
+    parser.add_argument("--companion", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--feed", required=True)
@@ -32,17 +33,29 @@ def main() -> int:
     installer_path = args.bundle / args.installer
     installer = installer_path.read_bytes()
     (args.bundle / f"{args.installer}.sigstore.json").write_text(bundle_text(installer), encoding="utf-8")
+    companion_path = args.bundle / args.companion
+    companion = companion_path.read_bytes()
+    (args.bundle / f"{args.companion}.sigstore.json").write_text(bundle_text(companion), encoding="utf-8")
     manifest = json.dumps({
         "schemaVersion": 1,
         "version": args.version,
         "commit": args.commit,
-        "artifacts": [{
-            "name": args.installer,
-            "component": "desktop",
-            "role": "installer",
-            "sha256": digest(installer),
-            "size": len(installer),
-        }],
+        "artifacts": [
+            {
+                "name": args.installer,
+                "component": "desktop",
+                "role": "installer",
+                "sha256": digest(installer),
+                "size": len(installer),
+            },
+            {
+                "name": args.companion,
+                "component": "data",
+                "role": "full",
+                "sha256": digest(companion),
+                "size": len(companion),
+            },
+        ],
     }, separators=(",", ":")).encode()
     (args.bundle / "release-manifest.json").write_bytes(manifest)
     (args.bundle / "release-manifest.json.sigstore.json").write_text(bundle_text(manifest), encoding="utf-8")

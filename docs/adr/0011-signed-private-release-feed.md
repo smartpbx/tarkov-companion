@@ -82,7 +82,9 @@ is reported as exactly that.
 
 The desktop has the same bounded authenticated reader and signature rule. It stages binary, data
 and model artifacts as one verified plan, applies pause and rollback from the signed decision,
-and records state only after a caller activates the plan. The existing UI gateway is fail-closed;
+retains replay floors per feed repository and ring, and authenticates an equal-generation payload
+against its stored digest instead of trusting the filename. It records state only after a caller
+activates the plan. The existing UI gateway is fail-closed;
 #294 owns composition and activation, and #270 owns the state-store implementation.
 
 ## Alternatives considered

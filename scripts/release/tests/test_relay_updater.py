@@ -77,16 +77,25 @@ done
 cp "${TARKOV_UPDATE_INSTALL}/health.json" "${output}"
 """
 
-# Delegates to the real mv, except for the one rename a test names, which fails.
+# Delegates to the real mv, except for the rename a test fails or the exact destination after
+# which a test kills the updater. SIGKILL models power loss: no EXIT trap gets a chance to make
+# the filesystem prettier before the next invocation has to recover it.
 FAKE_MV = """#!/usr/bin/env bash
+set -euo pipefail
+kill_after=0
+destination="${!#}"
 for argument in "$@"; do
     if [[ -n "${FAKE_MV_FAIL:-}" && "${argument}" == *"${FAKE_MV_FAIL}" ]]; then
         echo "fake mv: refused ${argument}" >&2
         exit 1
     fi
 done
+[[ -n "${FAKE_MV_KILL_AFTER:-}" && "${destination}" == "${FAKE_MV_KILL_AFTER}" ]] && kill_after=1
 export PATH="${FAKE_REAL_PATH}"
-exec mv "$@"
+mv "$@"
+if ((kill_after)); then
+    kill -KILL "${PPID}"
+fi
 """
 
 FAKE_GH = """#!/usr/bin/env bash
@@ -385,7 +394,9 @@ class UpdaterFixture(unittest.TestCase):
 
     def assert_no_leftovers(self) -> None:
         for path in (self.state / "swap", self.state / "swap.new", self.state / "swap.committed",
-                     Path(f"{self.install}.incoming"), Path(f"{self.install}.previous")):
+                     Path(f"{self.install}.incoming"), Path(f"{self.install}.previous"),
+                     Path(f"{self.lkg}.incoming"), Path(f"{self.lkg}.previous"),
+                     Path(f"{self.updater_copy}.incoming")):
             self.assertFalse(path.exists(), f"{path} was left behind")
         self.assertEqual([], list(self.state.glob("work.*")))
 
@@ -679,6 +690,7 @@ class RelayUpdaterTests(UpdaterFixture):
         journal = self.state / "swap"
         (journal / "stamps").mkdir(parents=True)
         (journal / "deployment").mkdir()
+        (journal / "lkg.absent").touch()
         for name in STAMPS:
             shutil.copy2(self.state / name, journal / "stamps" / name)
         (journal / "deployment" / "tarkov-group-update.service").write_text("original service\n")
@@ -695,6 +707,67 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertIn("was refused here before", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
         self.assertEqual(before, self.stamps())
+        self.assert_no_leftovers()
+
+    def test_power_loss_immediately_after_journaling_keeps_current_and_prior_lkg(self) -> None:
+        prior_lkg = self.root / "prior-lkg"
+        shutil.copytree(self.install, prior_lkg)
+        self.write_health(prior_lkg, "0.9.0", "9" * 40)
+        shutil.copytree(prior_lkg, self.lkg)
+        before = self.stamps()
+        self.release("3.0.0", "c" * 40, 1)
+
+        killed = self.run_updater(FAKE_MV_KILL_AFTER=str(self.state / "swap"))
+
+        self.assertEqual(-9, killed.returncode, killed.stdout + killed.stderr)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual("0.9.0", json.loads((self.lkg / "health.json").read_text())["version"])
+        self.assertTrue((self.state / "swap").is_dir())
+
+        recovered = self.run_updater()
+
+        self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+        self.assertIn("interrupted during its swap", recovered.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual("0.9.0", json.loads((self.lkg / "health.json").read_text())["version"])
+        self.assertEqual(before, self.stamps())
+        self.assert_no_leftovers()
+
+    def test_power_loss_after_preserving_lkg_restores_it_on_the_next_run(self) -> None:
+        shutil.copytree(self.install, self.lkg)
+        self.write_health(self.lkg, "0.9.0", "9" * 40)
+        self.release("3.0.0", "c" * 40, 1)
+
+        killed = self.run_updater(FAKE_MV_KILL_AFTER=str(Path(f"{self.lkg}.previous")))
+
+        self.assertEqual(-9, killed.returncode, killed.stdout + killed.stderr)
+        self.assertFalse(self.lkg.exists())
+        self.assertTrue(Path(f"{self.lkg}.previous").is_dir())
+        self.assertTrue(Path(f"{self.lkg}.incoming").is_dir())
+
+        recovered = self.run_updater()
+
+        self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual("0.9.0", json.loads((self.lkg / "health.json").read_text())["version"])
+        self.assert_no_leftovers()
+
+    def test_power_loss_after_publishing_replacement_lkg_restores_the_prior_one(self) -> None:
+        shutil.copytree(self.install, self.lkg)
+        self.write_health(self.lkg, "0.9.0", "9" * 40)
+        self.release("3.0.0", "c" * 40, 1)
+
+        killed = self.run_updater(FAKE_MV_KILL_AFTER=str(self.lkg))
+
+        self.assertEqual(-9, killed.returncode, killed.stdout + killed.stderr)
+        self.assertEqual("1.0.0", json.loads((self.lkg / "health.json").read_text())["version"])
+        self.assertTrue(Path(f"{self.lkg}.previous").is_dir())
+
+        recovered = self.run_updater()
+
+        self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual("0.9.0", json.loads((self.lkg / "health.json").read_text())["version"])
         self.assert_no_leftovers()
 
     def test_a_journal_that_was_never_renamed_into_place_changes_nothing(self) -> None:
@@ -823,7 +896,7 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertIn("safe absolute directories", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
 
-    def test_default_paths_pass_the_non_mutating_preflight(self) -> None:
+    def test_default_path_preflight_reflects_the_hosts_real_ownership_and_mode(self) -> None:
         result = self.run_updater(
             validate_paths=True,
             TARKOV_UPDATE_PATH_ROOT="",
@@ -836,8 +909,16 @@ class RelayUpdaterTests(UpdaterFixture):
             TARKOV_UPDATE_UNITS="/etc/systemd/system",
         )
 
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("path preflight passed", result.stdout)
+        opt = Path("/opt").stat()
+        etc_systemd = Path("/etc/systemd/system").stat()
+        trusted = (opt.st_uid in (0, os.getuid()) and stat.S_IMODE(opt.st_mode) & 0o022 == 0 and
+                   etc_systemd.st_uid in (0, os.getuid()) and stat.S_IMODE(etc_systemd.st_mode) & 0o022 == 0)
+        if trusted:
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("path preflight passed", result.stdout)
+        else:
+            self.assertNotEqual(0, result.returncode)
+            self.assertRegex(result.stdout, "belongs to uid|writable by other users")
 
     def test_broad_install_roots_are_refused_without_mutating_them(self) -> None:
         safe_defaults = {
