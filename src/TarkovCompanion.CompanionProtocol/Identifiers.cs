@@ -10,6 +10,15 @@ public readonly record struct PairingAttemptId
     public Guid Value { get; }
 }
 
+/// <summary>One desktop-issued pairing or session-resume challenge; it is bound into the transcript.</summary>
+public readonly record struct HandshakeChallengeId
+{
+    [JsonConstructor]
+    public HandshakeChallengeId(Guid value) => Value = ProtocolGuard.Id(value, nameof(value));
+
+    public Guid Value { get; }
+}
+
 public readonly record struct DeviceSessionId
 {
     [JsonConstructor]
@@ -96,14 +105,18 @@ public readonly record struct DeliverySequence
     public DeliverySequence Next() => new(checked(Value + 1));
 }
 
-/// <summary>A public-key thumbprint; it identifies a key and is not private key material.</summary>
+/// <summary>
+/// A public-key thumbprint: base64url(SHA-256(exact public key bytes)). It identifies a device
+/// or desktop identity key and is not private key material.
+/// </summary>
 public readonly record struct DeviceKeyId
 {
     [JsonConstructor]
     public DeviceKeyId(string value) => Value = ProtocolGuard.Base64Url(
         value,
         nameof(value),
-        ProtocolBounds.MaxShortStringBytes);
+        ProtocolBounds.MaxShortStringBytes,
+        exactDecodedBytes: 32);
 
     public string Value { get; }
 

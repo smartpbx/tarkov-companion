@@ -1,49 +1,6 @@
-using TarkovCompanion.Core.Abstractions.V2;
+using System.Security.Cryptography;
 
 namespace TarkovCompanion.CompanionProtocol;
-
-public enum DeviceKeyAlgorithm
-{
-    WebAuthnEs256 = 1,
-}
-
-public enum EphemeralKeyAlgorithm
-{
-    EcdhP256 = 1,
-}
-
-public sealed record DevicePublicKey(
-    DeviceKeyId KeyId,
-    DeviceKeyAlgorithm Algorithm,
-    string CredentialIdBase64Url,
-    string CosePublicKeyBase64Url)
-{
-    public DeviceKeyId KeyId { get; } = string.IsNullOrWhiteSpace(KeyId.Value)
-        ? throw new ArgumentException("A device key id is required.", nameof(KeyId))
-        : KeyId;
-
-    public DeviceKeyAlgorithm Algorithm { get; } = ProtocolGuard.Defined(Algorithm, nameof(Algorithm));
-
-    public string CredentialIdBase64Url { get; } = ProtocolGuard.Base64Url(
-        CredentialIdBase64Url,
-        nameof(CredentialIdBase64Url),
-        512);
-
-    public string CosePublicKeyBase64Url { get; } = ProtocolGuard.Base64Url(
-        CosePublicKeyBase64Url,
-        nameof(CosePublicKeyBase64Url),
-        1024);
-}
-
-public sealed record EphemeralPublicKey(EphemeralKeyAlgorithm Algorithm, string SubjectPublicKeyInfoBase64Url)
-{
-    public EphemeralKeyAlgorithm Algorithm { get; } = ProtocolGuard.Defined(Algorithm, nameof(Algorithm));
-
-    public string SubjectPublicKeyInfoBase64Url { get; } = ProtocolGuard.Base64Url(
-        SubjectPublicKeyInfoBase64Url,
-        nameof(SubjectPublicKeyInfoBase64Url),
-        512);
-}
 
 public enum PairingAttemptStage
 {
@@ -56,130 +13,341 @@ public enum PairingAttemptStage
 }
 
 /// <summary>
-/// The JSON pairing body deliberately omits the human short code. A transport resolves that
-/// one-time code from a redacted header, rate limits it, and then binds this public key to the
-/// attempt. Desktop approval and proof of the bound device key are still required.
+/// Every input to one handshake transcript, in the frozen field order documented in
+/// docs/PAIRED_DEVICE_PROTOCOL.md. The desktop signs its SHA-256 hash and the tablet's WebAuthn
+/// credential signs the same 32 bytes as its challenge, so both keys authenticate one ECDH exchange.
 /// </summary>
-public sealed record PairingRequest(
-    PairingAttemptId AttemptId,
-    string RequestedDeviceName,
-    DevicePublicKey DeviceKey,
-    EphemeralPublicKey EphemeralKey,
-    string ClientNonceBase64Url)
+public sealed record HandshakeTranscript
 {
-    public PairingAttemptId AttemptId { get; } = AttemptId.Value == Guid.Empty
-        ? throw new ArgumentException("A pairing attempt id is required.", nameof(AttemptId))
-        : AttemptId;
+    private HandshakeTranscript(
+        HandshakePurpose purpose,
+        PairingAttemptId? attemptId,
+        string? pairingCommitmentBase64Url,
+        HandshakeChallengeId challengeId,
+        DeviceKeyId deviceKeyId,
+        string credentialIdBase64Url,
+        SessionAssignment assignment,
+        DesktopIdentityKey desktopIdentityKey,
+        EphemeralPublicKey tabletEphemeralKey,
+        EphemeralPublicKey desktopEphemeralKey,
+        string clientNonceBase64Url,
+        string desktopNonceBase64Url,
+        DateTimeOffset issuedUtc,
+        DateTimeOffset expiresUtc)
+    {
+        Purpose = ProtocolGuard.Defined(purpose, nameof(purpose));
+        AttemptId = attemptId;
+        PairingCommitmentBase64Url = pairingCommitmentBase64Url;
+        ChallengeId = challengeId.Value == Guid.Empty
+            ? throw new ArgumentException("A challenge id is required.", nameof(challengeId))
+            : challengeId;
+        DeviceKeyId = deviceKeyId;
+        CredentialIdBase64Url = credentialIdBase64Url;
+        Assignment = ProtocolGuard.NotNull(assignment, nameof(assignment));
+        DesktopIdentityKey = ProtocolGuard.NotNull(desktopIdentityKey, nameof(desktopIdentityKey));
+        TabletEphemeralKey = ProtocolGuard.NotNull(tabletEphemeralKey, nameof(tabletEphemeralKey));
+        DesktopEphemeralKey = ProtocolGuard.NotNull(desktopEphemeralKey, nameof(desktopEphemeralKey));
+        ClientNonceBase64Url = ProtocolGuard.Base64Url(
+            clientNonceBase64Url,
+            nameof(clientNonceBase64Url),
+            exactDecodedBytes: ProtocolBounds.PairingNonceBytes);
+        DesktopNonceBase64Url = ProtocolGuard.Base64Url(
+            desktopNonceBase64Url,
+            nameof(desktopNonceBase64Url),
+            exactDecodedBytes: ProtocolBounds.PairingNonceBytes);
+        IssuedUtc = ProtocolGuard.Utc(issuedUtc, nameof(issuedUtc));
+        ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
 
-    public string RequestedDeviceName { get; } = ProtocolGuard.Required(
-        RequestedDeviceName,
-        nameof(RequestedDeviceName),
-        ProtocolBounds.MaxShortStringBytes);
+        // A reflected nonce or ephemeral key would let one side's contribution stand in for the
+        // other's, so both must be fresh and distinct.
+        if (string.Equals(ClientNonceBase64Url, DesktopNonceBase64Url, StringComparison.Ordinal) ||
+            string.Equals(
+                TabletEphemeralKey.SubjectPublicKeyInfoBase64Url,
+                DesktopEphemeralKey.SubjectPublicKeyInfoBase64Url,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Tablet and desktop nonces and ephemeral keys are distinct.");
+        }
+    }
 
-    public DevicePublicKey DeviceKey { get; } = ProtocolGuard.NotNull(DeviceKey, nameof(DeviceKey));
+    public HandshakePurpose Purpose { get; }
 
-    public EphemeralPublicKey EphemeralKey { get; } = ProtocolGuard.NotNull(EphemeralKey, nameof(EphemeralKey));
+    public PairingAttemptId? AttemptId { get; }
 
-    public string ClientNonceBase64Url { get; } = ProtocolGuard.Base64Url(
-        ClientNonceBase64Url,
-        nameof(ClientNonceBase64Url),
-        128);
-}
+    public string? PairingCommitmentBase64Url { get; }
 
-public sealed record PairingChallenge(
-    string ChallengeId,
-    PairingAttemptId AttemptId,
-    DeviceKeyId DeviceKeyId,
-    string ChallengeBase64Url,
-    EphemeralPublicKey DesktopEphemeralKey,
-    DateTimeOffset ApprovedUtc,
-    DateTimeOffset ExpiresUtc)
-{
-    public string ChallengeId { get; } = ProtocolGuard.Required(
-        ChallengeId,
-        nameof(ChallengeId),
-        ProtocolBounds.MaxShortStringBytes);
+    public HandshakeChallengeId ChallengeId { get; }
 
-    public PairingAttemptId AttemptId { get; } = AttemptId.Value == Guid.Empty
-        ? throw new ArgumentException("A pairing attempt id is required.", nameof(AttemptId))
-        : AttemptId;
+    public DeviceKeyId DeviceKeyId { get; }
 
-    public DeviceKeyId DeviceKeyId { get; } = string.IsNullOrWhiteSpace(DeviceKeyId.Value)
-        ? throw new ArgumentException("A device key id is required.", nameof(DeviceKeyId))
-        : DeviceKeyId;
+    public string CredentialIdBase64Url { get; }
 
-    public string ChallengeBase64Url { get; } = ProtocolGuard.Base64Url(
-        ChallengeBase64Url,
-        nameof(ChallengeBase64Url),
-        256);
+    public SessionAssignment Assignment { get; }
 
-    public EphemeralPublicKey DesktopEphemeralKey { get; } =
-        ProtocolGuard.NotNull(DesktopEphemeralKey, nameof(DesktopEphemeralKey));
+    public DesktopIdentityKey DesktopIdentityKey { get; }
 
-    public DateTimeOffset ApprovedUtc { get; } = ProtocolGuard.Utc(ApprovedUtc, nameof(ApprovedUtc));
+    public EphemeralPublicKey TabletEphemeralKey { get; }
 
-    public DateTimeOffset ExpiresUtc { get; } =
-        ProtocolGuard.Utc(ExpiresUtc, nameof(ExpiresUtc)) <= ApprovedUtc ||
-        ExpiresUtc - ApprovedUtc > ProtocolBounds.MaximumPairingLifetime
-        ? throw new ArgumentOutOfRangeException(nameof(ExpiresUtc))
-        : ExpiresUtc;
-}
+    public EphemeralPublicKey DesktopEphemeralKey { get; }
 
-public sealed record PairingProof(string ChallengeId, string SignatureBase64Url)
-{
-    public string ChallengeId { get; } = ProtocolGuard.Required(
-        ChallengeId,
-        nameof(ChallengeId),
-        ProtocolBounds.MaxShortStringBytes);
+    public string ClientNonceBase64Url { get; }
 
-    public string SignatureBase64Url { get; } = ProtocolGuard.Base64Url(
-        SignatureBase64Url,
-        nameof(SignatureBase64Url),
-        512);
+    public string DesktopNonceBase64Url { get; }
+
+    public DateTimeOffset IssuedUtc { get; }
+
+    public DateTimeOffset ExpiresUtc { get; }
+
+    public static HandshakeTranscript ForPairing(
+        PairingOffer offer,
+        PairingRequest request,
+        HandshakeChallengeId challengeId,
+        SessionAssignment assignment,
+        DateTimeOffset issuedUtc,
+        DateTimeOffset expiresUtc)
+    {
+        ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(assignment);
+        if (assignment.ProtocolVersion != request.NegotiatedVersion)
+        {
+            throw new ArgumentException("The assigned session uses the negotiated pairing version.", nameof(assignment));
+        }
+
+        return new HandshakeTranscript(
+            HandshakePurpose.Pairing,
+            offer.AttemptId,
+            ProtocolGuard.EncodeBase64Url(PairingCryptography.ComputePairingCommitment(offer, request)),
+            challengeId,
+            request.DeviceKey.KeyId,
+            request.DeviceKey.CredentialIdBase64Url,
+            assignment,
+            offer.DesktopIdentityKey,
+            request.EphemeralKey,
+            offer.DesktopEphemeralKey,
+            request.ClientNonceBase64Url,
+            offer.DesktopNonceBase64Url,
+            issuedUtc,
+            expiresUtc);
+    }
+
+    public static HandshakeTranscript ForSessionResume(
+        SessionResumeRequest request,
+        HandshakeChallengeId challengeId,
+        SessionAssignment assignment,
+        DesktopIdentityKey desktopIdentityKey,
+        EphemeralPublicKey desktopEphemeralKey,
+        string desktopNonceBase64Url,
+        DateTimeOffset issuedUtc,
+        DateTimeOffset expiresUtc)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(assignment);
+        if (assignment.ProtocolVersion != request.NegotiatedVersion || assignment.DeviceId != request.DeviceId)
+        {
+            throw new ArgumentException("The assigned session belongs to the resuming device and negotiated version.", nameof(assignment));
+        }
+
+        return new HandshakeTranscript(
+            HandshakePurpose.SessionResume,
+            null,
+            null,
+            challengeId,
+            request.DeviceKeyId,
+            request.CredentialIdBase64Url,
+            assignment,
+            desktopIdentityKey,
+            request.EphemeralKey,
+            desktopEphemeralKey,
+            request.ClientNonceBase64Url,
+            desktopNonceBase64Url,
+            issuedUtc,
+            expiresUtc);
+    }
+
+    /// <summary>Rebuilds a pairing transcript from a received challenge and the tablet's own offer and request.</summary>
+    public static HandshakeTranscript FromChallenge(HandshakeChallenge challenge, PairingOffer offer, PairingRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(request);
+        if (challenge.Purpose != HandshakePurpose.Pairing ||
+            challenge.AttemptId != offer.AttemptId ||
+            challenge.DesktopIdentityKey != offer.DesktopIdentityKey ||
+            challenge.DesktopEphemeralKey != offer.DesktopEphemeralKey ||
+            !string.Equals(challenge.DesktopNonceBase64Url, offer.DesktopNonceBase64Url, StringComparison.Ordinal) ||
+            challenge.DeviceKeyId != request.DeviceKey.KeyId ||
+            !string.Equals(challenge.CredentialIdBase64Url, request.DeviceKey.CredentialIdBase64Url, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The challenge does not answer this pairing offer and request.", nameof(challenge));
+        }
+
+        return ForPairing(offer, request, challenge.ChallengeId, challenge.Assignment, challenge.IssuedUtc, challenge.ExpiresUtc);
+    }
+
+    /// <summary>Rebuilds a session-resume transcript from a received challenge and the tablet's own request.</summary>
+    public static HandshakeTranscript FromChallenge(HandshakeChallenge challenge, SessionResumeRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        ArgumentNullException.ThrowIfNull(request);
+        if (challenge.Purpose != HandshakePurpose.SessionResume ||
+            challenge.DeviceKeyId != request.DeviceKeyId ||
+            !string.Equals(challenge.CredentialIdBase64Url, request.CredentialIdBase64Url, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The challenge does not answer this session resume request.", nameof(challenge));
+        }
+
+        return ForSessionResume(
+            request,
+            challenge.ChallengeId,
+            challenge.Assignment,
+            challenge.DesktopIdentityKey,
+            challenge.DesktopEphemeralKey,
+            challenge.DesktopNonceBase64Url,
+            challenge.IssuedUtc,
+            challenge.ExpiresUtc);
+    }
+
+    public byte[] Encode()
+    {
+        var writer = new ProtocolBinaryWriter();
+        writer.Utf8(PairingCryptography.TranscriptDomain);
+        writer.UInt16((ushort)Purpose);
+        writer.Version(Assignment.ProtocolVersion);
+        writer.Uuid(ChallengeId.Value);
+        writer.Uuid(AttemptId?.Value ?? Guid.Empty);
+        if (PairingCommitmentBase64Url is null)
+        {
+            writer.Bytes([]);
+        }
+        else
+        {
+            writer.Base64Url(PairingCommitmentBase64Url);
+        }
+
+        writer.Uuid(Assignment.DeviceId.Value);
+        writer.Base64Url(DeviceKeyId.Value);
+        writer.Base64Url(CredentialIdBase64Url);
+        writer.Base64Url(DesktopIdentityKey.KeyId.Value);
+        writer.UInt16((ushort)TabletEphemeralKey.Algorithm);
+        writer.Base64Url(TabletEphemeralKey.SubjectPublicKeyInfoBase64Url);
+        writer.UInt16((ushort)DesktopEphemeralKey.Algorithm);
+        writer.Base64Url(DesktopEphemeralKey.SubjectPublicKeyInfoBase64Url);
+        writer.Base64Url(ClientNonceBase64Url);
+        writer.Base64Url(DesktopNonceBase64Url);
+        writer.Uuid(Assignment.SessionId.Value);
+        writer.Uuid(Assignment.RelayChannelId.Value);
+        writer.UInt16((ushort)Assignment.CipherSuite);
+        writer.UInt32((uint)Assignment.KeyEpoch);
+        writer.Instant(Assignment.SessionExpiresUtc);
+        writer.Instant(IssuedUtc);
+        writer.Instant(ExpiresUtc);
+        return writer.ToArray();
+    }
+
+    public byte[] ComputeHash() => SHA256.HashData(Encode());
+
+    public string ComputeHashBase64Url() => ProtocolGuard.EncodeBase64Url(ComputeHash());
+
+    /// <summary>True when the challenge carries exactly this transcript's inputs and hash.</summary>
+    public bool Matches(HandshakeChallenge challenge)
+    {
+        ArgumentNullException.ThrowIfNull(challenge);
+        var fieldsMatch =
+            challenge.ChallengeId == ChallengeId &&
+            challenge.Purpose == Purpose &&
+            challenge.AttemptId == AttemptId &&
+            string.Equals(challenge.PairingCommitmentBase64Url, PairingCommitmentBase64Url, StringComparison.Ordinal) &&
+            challenge.DeviceKeyId == DeviceKeyId &&
+            string.Equals(challenge.CredentialIdBase64Url, CredentialIdBase64Url, StringComparison.Ordinal) &&
+            challenge.Assignment == Assignment &&
+            challenge.DesktopIdentityKey == DesktopIdentityKey &&
+            challenge.DesktopEphemeralKey == DesktopEphemeralKey &&
+            string.Equals(challenge.DesktopNonceBase64Url, DesktopNonceBase64Url, StringComparison.Ordinal) &&
+            challenge.IssuedUtc == IssuedUtc &&
+            challenge.ExpiresUtc == ExpiresUtc;
+        var expected = ComputeHash();
+        var actual = ProtocolGuard.DecodeBase64Url(
+            challenge.TranscriptHashBase64Url,
+            nameof(challenge),
+            exactDecodedBytes: ProtocolBounds.TranscriptHashBytes);
+        return CryptographicOperations.FixedTimeEquals(expected, actual) && fieldsMatch;
+    }
+
+    /// <summary>Hashes and signs the transcript with the desktop identity key it names.</summary>
+    public HandshakeChallenge Sign(IDesktopIdentitySigner signer)
+    {
+        ArgumentNullException.ThrowIfNull(signer);
+        if (signer.PublicKey != DesktopIdentityKey)
+        {
+            throw new ArgumentException("The signer holds another desktop identity key.", nameof(signer));
+        }
+
+        var hash = ComputeHash();
+        var signature = signer.Sign(PairingCryptography.EncodeDesktopSignatureInput(hash));
+        return new HandshakeChallenge(
+            ChallengeId,
+            Purpose,
+            AttemptId,
+            PairingCommitmentBase64Url,
+            DeviceKeyId,
+            CredentialIdBase64Url,
+            Assignment,
+            DesktopIdentityKey,
+            DesktopEphemeralKey,
+            DesktopNonceBase64Url,
+            ProtocolGuard.EncodeBase64Url(hash),
+            ProtocolGuard.EncodeBase64Url(signature),
+            IssuedUtc,
+            ExpiresUtc);
+    }
 }
 
 public sealed record PairingAttempt
 {
     public PairingAttempt(
-        PairingAttemptId attemptId,
+        PairingOffer offer,
         PairingAttemptStage stage,
-        DateTimeOffset offeredUtc,
-        DateTimeOffset expiresUtc,
         DateTimeOffset? codeConsumedUtc = null,
         PairingRequest? request = null,
-        PairingChallenge? challenge = null,
+        HandshakeChallenge? challenge = null,
+        SessionEstablished? establishment = null,
         DateTimeOffset? endedUtc = null)
     {
-        AttemptId = attemptId.Value == Guid.Empty
-            ? throw new ArgumentException("A pairing attempt id is required.", nameof(attemptId))
-            : attemptId;
+        Offer = ProtocolGuard.NotNull(offer, nameof(offer));
         Stage = ProtocolGuard.Defined(stage, nameof(stage));
-        OfferedUtc = ProtocolGuard.Utc(offeredUtc, nameof(offeredUtc));
-        ExpiresUtc = ProtocolGuard.Utc(expiresUtc, nameof(expiresUtc));
         CodeConsumedUtc = ProtocolGuard.UtcOptional(codeConsumedUtc, nameof(codeConsumedUtc));
         Request = request;
         Challenge = challenge;
+        Establishment = establishment;
         EndedUtc = ProtocolGuard.UtcOptional(endedUtc, nameof(endedUtc));
 
-        if (ExpiresUtc <= OfferedUtc || ExpiresUtc - OfferedUtc > ProtocolBounds.MaximumPairingLifetime)
-        {
-            throw new ArgumentOutOfRangeException(nameof(expiresUtc), "A pairing offer expires within ten minutes.");
-        }
-
-        if (request is not null && request.AttemptId != attemptId)
+        if (request is not null && request.AttemptId != offer.AttemptId)
         {
             throw new ArgumentException("The request belongs to another pairing attempt.", nameof(request));
         }
 
-        if (challenge is not null &&
-            (challenge.AttemptId != attemptId || request is null || challenge.DeviceKeyId != request.DeviceKey.KeyId))
+        if (challenge is not null && (request is null || !ChallengeAnswers(challenge, offer, request)))
         {
-            throw new ArgumentException("The challenge must bind this attempt and requested device key.", nameof(challenge));
+            throw new ArgumentException("The challenge must bind this offer, request, and transcript.", nameof(challenge));
         }
 
-        if (new[] { CodeConsumedUtc, challenge?.ApprovedUtc, EndedUtc }
+        if (establishment is not null &&
+            (challenge is null ||
+             establishment.ChallengeId != challenge.ChallengeId ||
+             establishment.Purpose != HandshakePurpose.Pairing ||
+             establishment.DeviceKeyId != challenge.DeviceKeyId ||
+             establishment.Assignment != challenge.Assignment ||
+             !string.Equals(establishment.TranscriptHashBase64Url, challenge.TranscriptHashBase64Url, StringComparison.Ordinal) ||
+             establishment.EstablishedUtc >= challenge.ExpiresUtc))
+        {
+            throw new ArgumentException("The session must be established from the approved challenge.", nameof(establishment));
+        }
+
+        if (new[] { CodeConsumedUtc, challenge?.IssuedUtc, EndedUtc }
             .OfType<DateTimeOffset>()
-            .Any(value => value < OfferedUtc || value > ExpiresUtc))
+            .Any(value => value < offer.OfferedUtc || value > offer.ExpiresUtc) ||
+            (challenge is not null && challenge.ExpiresUtc > offer.ExpiresUtc))
         {
             throw new ArgumentException("Pairing transition times must stay inside the offer lifetime.");
         }
@@ -187,19 +355,19 @@ public sealed record PairingAttempt
         var validShape = stage switch
         {
             PairingAttemptStage.Offered =>
-                request is null && codeConsumedUtc is null && challenge is null && endedUtc is null,
+                request is null && codeConsumedUtc is null && challenge is null && establishment is null && endedUtc is null,
             PairingAttemptStage.AwaitingDesktopApproval =>
-                request is not null && codeConsumedUtc is not null && challenge is null && endedUtc is null,
+                request is not null && codeConsumedUtc is not null && challenge is null && establishment is null && endedUtc is null,
             PairingAttemptStage.AwaitingDeviceProof =>
-                request is not null && codeConsumedUtc is not null && challenge is not null && endedUtc is null,
+                request is not null && codeConsumedUtc is not null && challenge is not null && establishment is null && endedUtc is null,
             PairingAttemptStage.Completed =>
-                request is not null && codeConsumedUtc is not null && challenge is not null && endedUtc is not null,
+                request is not null && codeConsumedUtc is not null && challenge is not null && establishment is not null &&
+                endedUtc == establishment.EstablishedUtc,
             PairingAttemptStage.Denied =>
-                request is not null && codeConsumedUtc is not null && challenge is null && endedUtc is not null,
-            PairingAttemptStage.Expired => endedUtc is not null &&
+                request is not null && codeConsumedUtc is not null && challenge is null && establishment is null && endedUtc is not null,
+            PairingAttemptStage.Expired => establishment is null && endedUtc is not null &&
                 ((request is null && codeConsumedUtc is null && challenge is null) ||
-                 (request is not null && codeConsumedUtc is not null &&
-                  (challenge is null || challenge.DeviceKeyId == request.DeviceKey.KeyId))),
+                 (request is not null && codeConsumedUtc is not null)),
             _ => false,
         };
 
@@ -209,41 +377,64 @@ public sealed record PairingAttempt
         }
     }
 
-    public PairingAttemptId AttemptId { get; }
+    public PairingOffer Offer { get; }
+
+    public PairingAttemptId AttemptId => Offer.AttemptId;
+
+    public DateTimeOffset OfferedUtc => Offer.OfferedUtc;
+
+    public DateTimeOffset ExpiresUtc => Offer.ExpiresUtc;
 
     public PairingAttemptStage Stage { get; }
-
-    public DateTimeOffset OfferedUtc { get; }
-
-    public DateTimeOffset ExpiresUtc { get; }
 
     /// <summary>The one-time lookup code ceased to be usable at this instant; the code is never stored here.</summary>
     public DateTimeOffset? CodeConsumedUtc { get; }
 
     public PairingRequest? Request { get; }
 
-    public PairingChallenge? Challenge { get; }
+    public HandshakeChallenge? Challenge { get; }
+
+    public SessionEstablished? Establishment { get; }
 
     public DateTimeOffset? EndedUtc { get; }
+
+    private static bool ChallengeAnswers(HandshakeChallenge challenge, PairingOffer offer, PairingRequest request)
+    {
+        try
+        {
+            return HandshakeTranscript.FromChallenge(challenge, offer, request).Matches(challenge);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
 }
 
-public interface IDeviceKeyProofVerifier
-{
-    ValueTask<bool> VerifyAsync(
-        DevicePublicKey deviceKey,
-        PairingChallenge challenge,
-        PairingProof proof,
-        CancellationToken cancellationToken);
-}
-
+/// <summary>
+/// Single-use, desktop-approved, device-key-bound pairing. A short code without local approval,
+/// a matching verification code, and a valid device-key proof cannot complete pairing.
+/// </summary>
 public static class PairingStateMachine
 {
-    public static PairingAttempt Offer(PairingAttemptId attemptId, DateTimeOffset nowUtc) =>
-        new(
-            attemptId,
-            PairingAttemptStage.Offered,
-            ProtocolGuard.Utc(nowUtc, nameof(nowUtc)),
-            nowUtc.Add(ProtocolBounds.PairingLifetime));
+    public static PairingAttempt Offer(
+        PairingAttemptId attemptId,
+        DesktopIdentityKey desktopIdentityKey,
+        EphemeralPublicKey desktopEphemeralKey,
+        string desktopNonceBase64Url,
+        DateTimeOffset nowUtc)
+    {
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        return new PairingAttempt(
+            new PairingOffer(
+                attemptId,
+                desktopIdentityKey,
+                desktopEphemeralKey,
+                desktopNonceBase64Url,
+                now,
+                now.Add(ProtocolBounds.PairingLifetime)),
+            PairingAttemptStage.Offered);
+    }
 
     /// <summary>
     /// Binds the first request after the transport has matched and consumed the rate-limited
@@ -255,39 +446,77 @@ public static class PairingStateMachine
         DateTimeOffset nowUtc)
     {
         RequireLiveStage(attempt, PairingAttemptStage.Offered, nowUtc);
+        ArgumentNullException.ThrowIfNull(request);
         if (request.AttemptId != attempt.AttemptId)
         {
             throw new ArgumentException("The request names another attempt.", nameof(request));
         }
 
+        if (!CompanionProtocolVersion.Current.CanRead(request.NegotiatedVersion))
+        {
+            throw new ArgumentException("The pairing request does not use a supported negotiated version.", nameof(request));
+        }
+
+        if (string.Equals(request.ClientNonceBase64Url, attempt.Offer.DesktopNonceBase64Url, StringComparison.Ordinal) ||
+            string.Equals(
+                request.EphemeralKey.SubjectPublicKeyInfoBase64Url,
+                attempt.Offer.DesktopEphemeralKey.SubjectPublicKeyInfoBase64Url,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException("A pairing request cannot reflect the desktop nonce or ephemeral key.", nameof(request));
+        }
+
         return new PairingAttempt(
-            attempt.AttemptId,
+            attempt.Offer,
             PairingAttemptStage.AwaitingDesktopApproval,
-            attempt.OfferedUtc,
-            attempt.ExpiresUtc,
             nowUtc,
             request);
     }
 
+    /// <summary>The code the desktop approval prompt and the tablet both display.</summary>
+    public static string VerificationCode(PairingAttempt attempt)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        return PairingCryptography.ComputeVerificationCode(
+            attempt.Offer,
+            attempt.Request ?? throw new InvalidOperationException("No pairing request has been bound."));
+    }
+
+    /// <summary>Allocates the session and signs the transcript once the user approves locally.</summary>
+    public static HandshakeChallenge CreateChallenge(
+        PairingAttempt attempt,
+        HandshakeChallengeId challengeId,
+        SessionAssignment assignment,
+        IDesktopIdentitySigner signer,
+        DateTimeOffset nowUtc,
+        DateTimeOffset expiresUtc)
+    {
+        RequireLiveStage(attempt, PairingAttemptStage.AwaitingDesktopApproval, nowUtc);
+        if (expiresUtc > attempt.ExpiresUtc)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expiresUtc), "A pairing challenge cannot outlive its offer.");
+        }
+
+        return HandshakeTranscript
+            .ForPairing(attempt.Offer, attempt.Request!, challengeId, assignment, nowUtc, expiresUtc)
+            .Sign(signer);
+    }
+
     public static PairingAttempt Approve(
         PairingAttempt attempt,
-        PairingChallenge challenge,
+        HandshakeChallenge challenge,
         DateTimeOffset nowUtc)
     {
         RequireLiveStage(attempt, PairingAttemptStage.AwaitingDesktopApproval, nowUtc);
-        if (challenge.AttemptId != attempt.AttemptId ||
-            challenge.DeviceKeyId != attempt.Request!.DeviceKey.KeyId ||
-            challenge.ApprovedUtc != nowUtc ||
-            challenge.ExpiresUtc > attempt.ExpiresUtc)
+        ArgumentNullException.ThrowIfNull(challenge);
+        if (challenge.IssuedUtc > nowUtc || challenge.ExpiresUtc <= nowUtc)
         {
-            throw new ArgumentException("The approval challenge is not bound to this request and instant.", nameof(challenge));
+            throw new ArgumentException("The approval challenge is not live at this instant.", nameof(challenge));
         }
 
         return new PairingAttempt(
-            attempt.AttemptId,
+            attempt.Offer,
             PairingAttemptStage.AwaitingDeviceProof,
-            attempt.OfferedUtc,
-            attempt.ExpiresUtc,
             attempt.CodeConsumedUtc,
             attempt.Request,
             challenge);
@@ -297,10 +526,8 @@ public static class PairingStateMachine
     {
         RequireLiveStage(attempt, PairingAttemptStage.AwaitingDesktopApproval, nowUtc);
         return new PairingAttempt(
-            attempt.AttemptId,
+            attempt.Offer,
             PairingAttemptStage.Denied,
-            attempt.OfferedUtc,
-            attempt.ExpiresUtc,
             attempt.CodeConsumedUtc,
             attempt.Request,
             endedUtc: nowUtc);
@@ -308,45 +535,32 @@ public static class PairingStateMachine
 
     public static async ValueTask<PairingAttempt> CompleteAsync(
         PairingAttempt attempt,
-        PairingProof proof,
+        DeviceKeyProof proof,
         IDeviceKeyProofVerifier verifier,
         DateTimeOffset nowUtc,
         CancellationToken cancellationToken = default)
     {
         RequireLiveStage(attempt, PairingAttemptStage.AwaitingDeviceProof, nowUtc);
-        ArgumentNullException.ThrowIfNull(verifier);
-        if (nowUtc >= attempt.Challenge!.ExpiresUtc)
-        {
-            throw new InvalidOperationException("The approved device proof challenge has expired.");
-        }
-
-        if (!string.Equals(proof.ChallengeId, attempt.Challenge!.ChallengeId, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException("The proof names another challenge.");
-        }
-
-        if (!await verifier.VerifyAsync(
-                attempt.Request!.DeviceKey,
-                attempt.Challenge,
-                proof,
-                cancellationToken).ConfigureAwait(false))
-        {
-            throw new UnauthorizedAccessException("The bound device key did not prove the approved challenge.");
-        }
-
+        var establishment = await DeviceKeyHandshake.VerifyProofAsync(
+            attempt.Request!.DeviceKey,
+            attempt.Challenge!,
+            proof,
+            verifier,
+            nowUtc,
+            cancellationToken).ConfigureAwait(false);
         return new PairingAttempt(
-            attempt.AttemptId,
+            attempt.Offer,
             PairingAttemptStage.Completed,
-            attempt.OfferedUtc,
-            attempt.ExpiresUtc,
             attempt.CodeConsumedUtc,
             attempt.Request,
             attempt.Challenge,
+            establishment,
             nowUtc);
     }
 
     public static PairingAttempt Expire(PairingAttempt attempt, DateTimeOffset nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(attempt);
         ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
         if (nowUtc < attempt.ExpiresUtc)
         {
@@ -359,14 +573,13 @@ public static class PairingStateMachine
         }
 
         return new PairingAttempt(
-            attempt.AttemptId,
+            attempt.Offer,
             PairingAttemptStage.Expired,
-            attempt.OfferedUtc,
-            attempt.ExpiresUtc,
             attempt.CodeConsumedUtc,
             attempt.Request,
             attempt.Challenge,
-            attempt.ExpiresUtc);
+            establishment: null,
+            endedUtc: attempt.ExpiresUtc);
     }
 
     private static void RequireLiveStage(
@@ -385,6 +598,145 @@ public static class PairingStateMachine
         {
             throw new InvalidOperationException("The pairing attempt has expired.");
         }
+    }
+}
+
+/// <summary>
+/// Re-proves a paired device key and re-keys the channel for a new session. The desktop ends the
+/// device's previous active session as <see cref="DeviceSessionStatus.Replaced"/> once this succeeds.
+/// </summary>
+public static class SessionResumption
+{
+    public static HandshakeChallenge CreateChallenge(
+        PairedDevice device,
+        SessionResumeRequest request,
+        HandshakeChallengeId challengeId,
+        SessionAssignment assignment,
+        EphemeralPublicKey desktopEphemeralKey,
+        string desktopNonceBase64Url,
+        IDesktopIdentitySigner signer,
+        DateTimeOffset nowUtc,
+        DateTimeOffset expiresUtc)
+    {
+        RequireResumable(device, request, nowUtc);
+        ArgumentNullException.ThrowIfNull(assignment);
+        ArgumentNullException.ThrowIfNull(signer);
+        if (assignment.DeviceId != device.DeviceId || assignment.SessionExpiresUtc > device.ExpiresUtc)
+        {
+            throw new ArgumentException("A resumed session belongs to the device and ends before the device expires.", nameof(assignment));
+        }
+
+        return HandshakeTranscript
+            .ForSessionResume(
+                request,
+                challengeId,
+                assignment,
+                signer.PublicKey,
+                desktopEphemeralKey,
+                desktopNonceBase64Url,
+                nowUtc,
+                expiresUtc)
+            .Sign(signer);
+    }
+
+    public static async ValueTask<SessionEstablished> CompleteAsync(
+        PairedDevice device,
+        SessionResumeRequest request,
+        HandshakeChallenge challenge,
+        DeviceKeyProof proof,
+        IDeviceKeyProofVerifier verifier,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken = default)
+    {
+        RequireResumable(device, request, nowUtc);
+        ArgumentNullException.ThrowIfNull(challenge);
+        if (challenge.Assignment.DeviceId != device.DeviceId ||
+            !HandshakeTranscript.FromChallenge(challenge, request).Matches(challenge))
+        {
+            throw new UnauthorizedAccessException("The challenge does not bind this device's resume request.");
+        }
+
+        return await DeviceKeyHandshake.VerifyProofAsync(
+            device.DeviceKey,
+            challenge,
+            proof,
+            verifier,
+            nowUtc,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static void RequireResumable(PairedDevice device, SessionResumeRequest request, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        ArgumentNullException.ThrowIfNull(request);
+        if (!DeviceLifecycle.IsLive(device, nowUtc))
+        {
+            throw new UnauthorizedAccessException("A revoked, replaced, or expired device cannot resume a session.");
+        }
+
+        if (request.DeviceId != device.DeviceId ||
+            request.DeviceKeyId != device.DeviceKey.KeyId ||
+            !string.Equals(request.CredentialIdBase64Url, device.DeviceKey.CredentialIdBase64Url, StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException("The resume request does not name this device's bound key.");
+        }
+
+        if (!CompanionProtocolVersion.Current.CanRead(request.NegotiatedVersion))
+        {
+            throw new ArgumentException("The resume request does not use a supported negotiated version.", nameof(request));
+        }
+    }
+}
+
+internal static class DeviceKeyHandshake
+{
+    public static async ValueTask<SessionEstablished> VerifyProofAsync(
+        DevicePublicKey deviceKey,
+        HandshakeChallenge challenge,
+        DeviceKeyProof proof,
+        IDeviceKeyProofVerifier verifier,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(deviceKey);
+        ArgumentNullException.ThrowIfNull(challenge);
+        ArgumentNullException.ThrowIfNull(proof);
+        ArgumentNullException.ThrowIfNull(verifier);
+        var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));
+        if (now < challenge.IssuedUtc || now >= challenge.ExpiresUtc)
+        {
+            throw new InvalidOperationException("The device proof challenge is not live.");
+        }
+
+        if (proof.ChallengeId != challenge.ChallengeId)
+        {
+            throw new InvalidOperationException("The proof names another challenge.");
+        }
+
+        if (challenge.DeviceKeyId != deviceKey.KeyId ||
+            !string.Equals(challenge.CredentialIdBase64Url, deviceKey.CredentialIdBase64Url, StringComparison.Ordinal) ||
+            !string.Equals(proof.Assertion.CredentialIdBase64Url, deviceKey.CredentialIdBase64Url, StringComparison.Ordinal))
+        {
+            throw new UnauthorizedAccessException("The proof does not use the bound credential.");
+        }
+
+        if (!proof.Assertion.ClientDataMatches(challenge.TranscriptHashBase64Url))
+        {
+            throw new UnauthorizedAccessException("The WebAuthn client data does not answer this challenge.");
+        }
+
+        if (!await verifier.VerifyAsync(deviceKey, challenge, proof, cancellationToken).ConfigureAwait(false))
+        {
+            throw new UnauthorizedAccessException("The bound device key did not prove the challenge.");
+        }
+
+        return new SessionEstablished(
+            challenge.ChallengeId,
+            challenge.Purpose,
+            deviceKey.KeyId,
+            challenge.Assignment,
+            challenge.TranscriptHashBase64Url,
+            now);
     }
 }
 
@@ -436,7 +788,10 @@ public static class PairingRateLimiter
                 new PairingRateState(live));
         }
 
+        // The observation window is bounded; the oldest distinct sources fall out before a flood
+        // of new sources can grow desktop memory.
         live.Add(new PairingRateObservation(source, now));
-        return new PairingRateDecision(true, null, new PairingRateState(live));
+        var bound = ProtocolBounds.MaxDevices * ProtocolBounds.MaxPairingAttemptsPerWindow;
+        return new PairingRateDecision(true, null, new PairingRateState(live.Skip(Math.Max(0, live.Count - bound)).ToArray()));
     }
 }
