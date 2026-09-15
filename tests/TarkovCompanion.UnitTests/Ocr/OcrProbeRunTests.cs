@@ -1,3 +1,4 @@
+using System.Buffers;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Recognition;
@@ -112,6 +113,118 @@ public sealed class OcrProbeRunTests
         });
     }
 
+    [Fact]
+    public async Task AProviderThatFailsStopsItsOwnPassesAndReportsItsAvailabilityAfterward()
+    {
+        var failing = new FailingEngine();
+        var healthy = new CaptionEngine("healthy-fixture");
+
+        var report = await OcrProbe.ProbeFrameAsync(
+            Frame(640, 120),
+            new PixelRect(0, 0, 640, 120),
+            [("failing", failing), ("healthy", healthy)],
+            new ScanContextDetector(),
+            new OcrProbeLimits(),
+            3,
+            TextWriter.Null,
+            CancellationToken.None);
+
+        var failed = report.Engines[0];
+        Assert.Equal(1, failing.Calls);
+        Assert.False(failed.IsAvailable);
+        Assert.Equal("synthetic native failure", failed.UnavailableReason);
+        Assert.Equal("ocr_provider_failed", failed.DiagnosticCode);
+        Assert.Equal(6, failed.PlannedPassCount);
+        Assert.Equal(1, failed.AttemptedPassCount);
+        Assert.Equal(0, failed.CompletedPassCount);
+        Assert.Single(failed.Passes);
+        // One provider failing is that provider's result, not the run's.
+        Assert.Null(report.DiagnosticCode);
+        var other = report.Engines[1];
+        Assert.True(other.IsAvailable);
+        Assert.Null(other.DiagnosticCode);
+        Assert.Equal(6, other.CompletedPassCount);
+    }
+
+    [Fact]
+    public async Task AFailedPassStopsAProviderEvenWhenItStillReportsItselfAvailable()
+    {
+        var engine = new CaptionEngine("failed-pass-fixture", failedRead: true);
+
+        var report = await OcrProbe.ProbeCellsAsync(
+            Frame(640, 120),
+            new PixelRect(0, 0, 640, 120),
+            Cells(5),
+            [("failed", engine)],
+            new ScanContextDetector(),
+            new OcrProbeLimits(),
+            TextWriter.Null,
+            CancellationToken.None);
+
+        var engineReport = Assert.Single(report.Engines);
+        Assert.Equal(1, engine.Calls);
+        Assert.Equal("ocr_provider_failed", engineReport.DiagnosticCode);
+        Assert.Equal(5, engineReport.PlannedPassCount);
+        Assert.Equal(1, engineReport.AttemptedPassCount);
+    }
+
+    [Fact]
+    public async Task CellDiscoveryWithAPreCancelledTokenReadsNoPixels()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var pixels = new ObservedPixels(new byte[640 * 120]);
+        var engine = new CaptionEngine("unused-fixture");
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => OcrProbe.ProbeCellsAsync(
+            Frame(pixels, 640, 120),
+            new PixelRect(0, 0, 640, 120),
+            [("unused", engine)],
+            new ScanContextDetector(),
+            new OcrProbeLimits(),
+            TextWriter.Null,
+            cancellation.Token));
+
+        Assert.Equal(0, pixels.Reads);
+        Assert.Equal(0, engine.Calls);
+    }
+
+    [Fact]
+    public async Task TheRunDeadlineCoversStashGridDiscoveryAndStopsItPartway()
+    {
+        // Discovery reads 640 x 120 pixels on its first axis. The deadline expires while one of
+        // the first reads is stalled; only a deadline that started before discovery can stop it.
+        var pixels = new ObservedPixels(new byte[640 * 120], atRead: 10, () => Thread.Sleep(400));
+        var engine = new CaptionEngine("unreached-fixture");
+
+        var report = await OcrProbe.ProbeCellsAsync(
+            Frame(pixels, 640, 120),
+            new PixelRect(0, 0, 640, 120),
+            [("unreached", engine)],
+            new ScanContextDetector(),
+            new OcrProbeLimits { RunTimeout = TimeSpan.FromMilliseconds(100) },
+            TextWriter.Null,
+            CancellationToken.None);
+
+        Assert.Equal(OcrProbe.DeadlineDiagnostic, report.DiagnosticCode);
+        Assert.Empty(report.Cells);
+        Assert.Null(report.DetectedCellCount);
+        Assert.InRange(pixels.Reads, 10, (1 << 16) + 10);
+        Assert.Equal(0, engine.Calls);
+        var engineReport = Assert.Single(report.Engines);
+        Assert.Equal(0, engineReport.PlannedPassCount);
+        Assert.Equal(0, engineReport.AttemptedPassCount);
+    }
+
+    private static CapturedImage Frame(ObservedPixels pixels, int width, int height) => new(
+        pixels.Memory,
+        width,
+        height,
+        width,
+        PixelFormat.Gray8,
+        new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero),
+        "fixture://ocr-probe-discovery");
+
     private static StashCell[] Cells(int count) => Enumerable.Range(0, count)
         .Select(index => new StashCell(
             new PixelRect(index * 60, 0, 60, 60),
@@ -131,7 +244,8 @@ public sealed class OcrProbeRunTests
         string name,
         int blockFromCall = int.MaxValue,
         Action? onCall = null,
-        bool emptyRead = false) : IOcrEngine
+        bool emptyRead = false,
+        bool failedRead = false) : IOcrEngine
     {
         private int _calls;
 
@@ -151,9 +265,63 @@ public sealed class OcrProbeRunTests
 
             cancellationToken.ThrowIfCancellationRequested();
             var region = request.Region ?? new PixelRect(0, 0, image.Width, image.Height);
+            if (failedRead)
+            {
+                return new OcrResult([], TimeSpan.Zero, name, false, "ocr_provider_failed");
+            }
+
             return emptyRead
                 ? new OcrResult([], TimeSpan.Zero, name, true, "ocr_no_text")
                 : new OcrResult([new OcrLine("Wires", region, null)], TimeSpan.Zero, name);
+        }
+    }
+
+    /// <summary>Fails its first read and marks itself unavailable, as the Tesseract provider does.</summary>
+    private sealed class FailingEngine : IOcrEngine, IOcrEngineStatus
+    {
+        public int Calls { get; private set; }
+
+        public OcrEngineAvailability Availability { get; private set; } = new(true, "failing-fixture");
+
+        public Task<OcrResult> RecognizeAsync(
+            CapturedImage image,
+            OcrRequest request,
+            CancellationToken cancellationToken)
+        {
+            Calls++;
+            Availability = new(false, "failing-fixture", "synthetic native failure");
+            return Task.FromResult(new OcrResult([], TimeSpan.Zero, "failing-fixture", false, "ocr_provider_failed"));
+        }
+    }
+
+    /// <summary>Pixels that count their reads and run an action at one chosen read.</summary>
+    private sealed class ObservedPixels(byte[] pixels, int atRead = 0, Action? action = null) : MemoryManager<byte>
+    {
+        private int _reads;
+
+        public int Reads => Volatile.Read(ref _reads);
+
+        // The base property takes the span to learn the length, which would count as a pixel read.
+        public override Memory<byte> Memory => CreateMemory(pixels.Length);
+
+        public override Span<byte> GetSpan()
+        {
+            if (Interlocked.Increment(ref _reads) == atRead)
+            {
+                action?.Invoke();
+            }
+
+            return pixels;
+        }
+
+        public override MemoryHandle Pin(int elementIndex = 0) => throw new NotSupportedException();
+
+        public override void Unpin()
+        {
+        }
+
+        protected override void Dispose(bool disposing)
+        {
         }
     }
 }

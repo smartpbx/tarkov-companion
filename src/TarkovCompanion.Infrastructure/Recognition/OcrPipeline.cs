@@ -83,4 +83,8 @@ internal static class OcrOutcome
 
     public static bool IsMemoryExhausted(OcrResult result) =>
         string.Equals(result.DiagnosticCode, MemoryExhausted, StringComparison.Ordinal);
+
+    /// <summary>The code a degraded read carries forward, or null when nothing degraded it.</summary>
+    public static string? Degradation(OcrResult result) =>
+        IsDegraded(result) ? result.DiagnosticCode ?? "ocr_provider_unavailable" : null;
 }

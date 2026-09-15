@@ -62,6 +62,10 @@ public sealed record OcrProbePass(
 /// Planned passes are what the run meant to read with this provider. Attempted passes started;
 /// completed passes finished with a complete or empty read. A deadline or an exhausted provider
 /// leaves the difference visible instead of shrinking the plan to match what happened.
+///
+/// Availability is read again after the passes. It used to be written as available whatever
+/// happened, so a provider that failed on its first pass and marked itself unavailable was
+/// reported as a healthy provider with five unexplained missing passes.
 /// </remarks>
 public sealed record OcrProbeEngine(
     string Provider,
@@ -74,6 +78,9 @@ public sealed record OcrProbeEngine(
     public int AttemptedPassCount { get; init; }
 
     public int CompletedPassCount { get; init; }
+
+    /// <summary>Why this provider's remaining passes were not attempted, when a provider failure stopped them.</summary>
+    public string? DiagnosticCode { get; init; }
 }
 
 public sealed record OcrProbeCell(
@@ -126,6 +133,8 @@ public static class OcrProbe
     public const string DeadlineDiagnostic = "ocr_probe_deadline_exceeded";
     public const string CellLimitDiagnostic = "ocr_probe_cell_limit_exceeded";
     private const string MemoryExhaustedDiagnostic = "ocr_memory_exhausted";
+    private const string ProviderFailedDiagnostic = "ocr_provider_failed";
+    private const string ProviderUnavailableDiagnostic = "ocr_provider_unavailable";
 
     private static readonly (string Name, OcrPreparation Preparation)[] Variants =
     [
@@ -216,7 +225,6 @@ public static class OcrProbe
             var report = await ProbeCellsAsync(
                     image,
                     region,
-                    StashGrid.Cells(image, region),
                     Engines(services),
                     services.GetRequiredService<ScanContextDetector>(),
                     new OcrProbeLimits(),
@@ -275,7 +283,7 @@ public static class OcrProbe
                 continue;
             }
 
-            reports.Add(await ProbeEngineAsync(
+            var report = await ProbeEngineAsync(
                     run,
                     engineName,
                     engine,
@@ -285,7 +293,13 @@ public static class OcrProbe
                     supplemental,
                     pass => DescribeFramePass(log, pass, sampleLines),
                     cancellationToken)
-                .ConfigureAwait(false));
+                .ConfigureAwait(false);
+            if (report.DiagnosticCode is not null)
+            {
+                log.WriteLine($"stopped after provider failure: {report.DiagnosticCode}");
+            }
+
+            reports.Add(report);
             log.WriteLine();
         }
 
@@ -295,6 +309,55 @@ public static class OcrProbe
         }
 
         return Report("full-frame", image, region, run.StopDiagnostic, [], reports);
+    }
+
+    /// <summary>
+    /// Finds the stash grid in the region and reads its captions, with the search spending from
+    /// the same run deadline as every provider pass.
+    /// </summary>
+    /// <remarks>
+    /// The search reads every pixel of the region once per axis. It used to run before the run's
+    /// deadline started, so on a large region the slowest step of the command was the only one the
+    /// deadline did not cover. A deadline that expires during the search reports
+    /// <see cref="DeadlineDiagnostic"/> with no cells and no passes; caller cancellation throws.
+    /// </remarks>
+    public static async Task<OcrProbeReport> ProbeCellsAsync(
+        CapturedImage image,
+        PixelRect region,
+        IReadOnlyList<(string Name, IOcrEngine Engine)> engines,
+        ScanContextDetector detector,
+        OcrProbeLimits limits,
+        TextWriter log,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(region);
+        ArgumentNullException.ThrowIfNull(engines);
+        ArgumentNullException.ThrowIfNull(detector);
+        ArgumentNullException.ThrowIfNull(log);
+        using var run = new ProbeRun(limits, cancellationToken);
+        IReadOnlyList<StashCell> cells;
+        try
+        {
+            cells = StashGrid.Cells(image, region, run.Token);
+        }
+        catch (OperationCanceledException) when (run.IsExpired)
+        {
+            log.WriteLine($"probe stopped early: {DeadlineDiagnostic}");
+            var notStarted = engines
+                .Select(entry => (entry.Engine as IOcrEngineStatus)?.Availability is { } availability
+                    ? new OcrProbeEngine(
+                        availability.Provider,
+                        availability.IsAvailable,
+                        availability.IsAvailable ? null : availability.Reason,
+                        [])
+                    : new OcrProbeEngine(entry.Name, true, null, []))
+                .ToArray();
+            return Report("cells", image, region, DeadlineDiagnostic, [], notStarted);
+        }
+
+        return await ReadCellsAsync(run, image, region, cells, engines, detector, limits, log, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -319,6 +382,21 @@ public static class OcrProbe
         ArgumentNullException.ThrowIfNull(detector);
         ArgumentNullException.ThrowIfNull(log);
         using var run = new ProbeRun(limits, cancellationToken);
+        return await ReadCellsAsync(run, image, region, cells, engines, detector, limits, log, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<OcrProbeReport> ReadCellsAsync(
+        ProbeRun run,
+        CapturedImage image,
+        PixelRect region,
+        IReadOnlyList<StashCell> cells,
+        IReadOnlyList<(string Name, IOcrEngine Engine)> engines,
+        ScanContextDetector detector,
+        OcrProbeLimits limits,
+        TextWriter log,
+        CancellationToken cancellationToken)
+    {
         var selected = cells
             .Take(limits.MaximumCells)
             .Select((cell, ordinal) => new OcrProbeCell(ordinal, cell.Bounds, cell.Caption))
@@ -359,7 +437,8 @@ public static class OcrProbe
                 .ConfigureAwait(false);
             log.WriteLine(
                 $"{engineName}: {report.CompletedPassCount}/{report.PlannedPassCount} cell(s) completed, " +
-                $"{report.AttemptedPassCount} attempted");
+                $"{report.AttemptedPassCount} attempted" +
+                (report.DiagnosticCode is null ? string.Empty : $"; stopped after {report.DiagnosticCode}"));
             foreach (var pass in report.Passes)
             {
                 log.WriteLine($"  {pass.Name}: {Sample(pass, DefaultCellLines)}");
@@ -396,10 +475,11 @@ public static class OcrProbe
     {
         var passes = new List<OcrProbePass>(planned.Count);
         var attempted = 0;
+        string? providerFailure = null;
         foreach (var (name, request) in planned)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (run.StopDiagnostic is not null)
+            if (run.StopDiagnostic is not null || providerFailure is not null)
             {
                 break;
             }
@@ -416,6 +496,12 @@ public static class OcrProbe
                     // The next pass would ask for the same memory again.
                     run.StopDiagnostic = MemoryExhaustedDiagnostic;
                 }
+                else
+                {
+                    // Only this provider stops; the next one has its own native state. Every
+                    // later pass used to ask the failed provider again and record the same failure.
+                    providerFailure = ProviderFailure(engine, pass);
+                }
             }
             catch (OperationCanceledException) when (run.IsExpired)
             {
@@ -423,16 +509,31 @@ public static class OcrProbe
             }
         }
 
+        var availability = (engine as IOcrEngineStatus)?.Availability;
         return new(
-            (engine as IOcrEngineStatus)?.Availability.Provider ?? engineName,
-            true,
-            null,
+            availability?.Provider ?? engineName,
+            availability?.IsAvailable ?? true,
+            availability is { IsAvailable: false } ? availability.Reason : null,
             passes)
         {
             PlannedPassCount = planned.Count,
             AttemptedPassCount = attempted,
             CompletedPassCount = passes.Count(pass => pass.Status is "complete" or "empty"),
+            DiagnosticCode = providerFailure,
         };
+    }
+
+    /// <summary>The failure that ends a provider's passes, or null while it is still answering.</summary>
+    private static string? ProviderFailure(IOcrEngine engine, OcrProbePass pass)
+    {
+        if (pass.DiagnosticCode is ProviderFailedDiagnostic or ProviderUnavailableDiagnostic)
+        {
+            return pass.DiagnosticCode;
+        }
+
+        // A provider can mark itself unavailable from a late failure of work an earlier pass
+        // abandoned, while the pass that just finished reported only its own timeout.
+        return engine is IOcrEngineStatus { Availability.IsAvailable: false } ? ProviderFailedDiagnostic : null;
     }
 
     private static OcrProbeEngine Unavailable(OcrEngineAvailability availability, int planned) => new(
@@ -698,13 +799,65 @@ public static class OcrProbe
             }).ToArray(),
         }).ToArray();
 
-    private static async Task WriteReportAsync(
+    internal static Task WriteReportAsync(
         string outputPath,
         OcrProbeReport report,
         CancellationToken cancellationToken)
     {
-        var json = SerializeReport(report);
-        await File.WriteAllTextAsync(outputPath, json + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+        var json = Encoding.UTF8.GetBytes(SerializeReport(report) + Environment.NewLine);
+        return WriteAtomicallyAsync(
+            outputPath,
+            (stream, token) => stream.WriteAsync(json, token).AsTask(),
+            cancellationToken);
+    }
+
+    /// <summary>Writes a whole file at the destination, or leaves the destination as it was.</summary>
+    /// <remarks>
+    /// The report used to be written in place, so Ctrl+C partway through left a truncated JSON
+    /// document where the report belonged, which reads as a report until something parses it, and
+    /// the probe said no report was written. It is now written beside the destination and moved
+    /// over it only once complete. Cancellation is honoured up to the move and not after it, and the
+    /// partial file is removed either way.
+    /// </remarks>
+    internal static async Task WriteAtomicallyAsync(
+        string destination,
+        Func<Stream, CancellationToken, Task> write,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+        ArgumentNullException.ThrowIfNull(write);
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = Path.GetFullPath(destination);
+        var temporary = $"{target}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var stream = new FileStream(
+                             temporary,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             bufferSize: 4096,
+                             FileOptions.Asynchronous))
+            {
+                await write(stream, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                stream.Flush(flushToDisk: true);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporary, target, overwrite: true);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(temporary);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // Removing the partial file is best effort; the destination is already correct.
+            }
+        }
     }
 
     public static string SerializeReport(OcrProbeReport report)

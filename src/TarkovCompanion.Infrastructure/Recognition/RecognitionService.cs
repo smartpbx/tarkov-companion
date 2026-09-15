@@ -61,12 +61,17 @@ public sealed class RecognitionService : IRecognitionService
             };
         }
 
+        // A degraded read's code wins over every code derived from that read. "context_unknown",
+        // "no_match" or no code at all, said of evidence that is missing tiles, a timed-out pass
+        // or truncated lines, is a conclusion the evidence cannot support; the partial read used to
+        // reach only the detail line, so an auto-selected item from half a frame looked complete.
+        var degraded = coordinated.IsPartial ? coordinated.DiagnosticCode : null;
         var context = coordinated.Detection.Context;
         if (context == ScanContext.Unknown)
         {
             // Reading nothing and reading text that matched no context are different failures,
             // and only the second one is an anchor problem.
-            var unknown = coordinated.IsEmpty ? OcrOutcome.NoText : "context_unknown";
+            var unknown = degraded ?? (coordinated.IsEmpty ? OcrOutcome.NoText : "context_unknown");
             return new RecognitionResult(context, [], image.CapturedUtc, unknown)
             {
                 Detail = detail,
@@ -76,7 +81,7 @@ public sealed class RecognitionService : IRecognitionService
 
         if (context == ScanContext.ExtractList)
         {
-            return new RecognitionResult(context, [], image.CapturedUtc, "extract_context")
+            return new RecognitionResult(context, [], image.CapturedUtc, degraded ?? "extract_context")
             {
                 Detail = detail,
                 Hud = hud,
@@ -93,7 +98,7 @@ public sealed class RecognitionService : IRecognitionService
             .ToList();
 
         var result = new RecognitionResult(context, candidates, image.CapturedUtc) { Detail = detail, Hud = hud };
-        var diagnostic = candidates.Count == 0
+        var diagnostic = degraded ?? (candidates.Count == 0
             ? "no_match"
             : result.Selected is not null
                 ? null
@@ -103,7 +108,7 @@ public sealed class RecognitionService : IRecognitionService
                     RecognitionDecision.Ambiguous => "ambiguous",
                     RecognitionDecision.Candidate => "low_confidence_candidates",
                     _ => "no_match",
-                };
+                });
         return result with { DiagnosticCode = diagnostic };
     }
 

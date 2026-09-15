@@ -306,26 +306,24 @@ public sealed class OcrCoordinator
                 deadline)
             .ConfigureAwait(false);
         var merge = OcrLineDeduplicator.Merge(contextual.Lines, fullFrame.Lines);
+        // The candidates are what the recogniser resolves items from, so they carry the
+        // degradation of every pass that fed them. A partial pass that was still available used
+        // to keep its lines here and lose its code, and the merged set then read as complete.
+        var degradation =
+            OcrOutcome.Degradation(contextual) ??
+            OcrOutcome.Degradation(fullFrame) ??
+            (merge.IsExhaustive ? null : OcrOutcome.DeduplicationBudgetExhausted);
         var candidates = new OcrResult(
             merge.Lines,
             contextual.Duration + fullFrame.Duration,
             contextual.Engine,
             contextual.IsAvailable || fullFrame.IsAvailable,
-            !contextual.IsAvailable
-                ? contextual.DiagnosticCode ?? fullFrame.DiagnosticCode
-                : merge.IsExhaustive ? null : OcrOutcome.DeduplicationBudgetExhausted);
+            degradation);
         return new(detection, fullFrame, contextual, candidates, merge.Lines.Count > contextual.Lines.Count)
         {
             SupplementalSignals = supplemental,
-            IsPartial =
-                OcrOutcome.IsDegraded(fullFrame) ||
-                OcrOutcome.IsDegraded(contextual) ||
-                !merge.IsExhaustive,
-            DiagnosticCode = OcrOutcome.IsDegraded(contextual)
-                ? contextual.DiagnosticCode ?? "ocr_provider_unavailable"
-                : OcrOutcome.IsDegraded(fullFrame)
-                    ? fullFrame.DiagnosticCode
-                    : merge.IsExhaustive ? null : OcrOutcome.DeduplicationBudgetExhausted,
+            IsPartial = degradation is not null,
+            DiagnosticCode = degradation,
         };
     }
 

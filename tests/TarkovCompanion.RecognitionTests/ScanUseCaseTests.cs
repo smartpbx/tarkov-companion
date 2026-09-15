@@ -38,6 +38,41 @@ public sealed class ScanUseCaseTests
     }
 
     [Fact]
+    public async Task APartialOcrReadReachesTheFinalScanThroughTheRealRecogniser()
+    {
+        // The provider's contextual pass lost tiles. The item still resolves and is still advised
+        // on, but the scan used to publish Complete over that evidence.
+        var engine = new SequencedOcrEngine(
+            new OcrResult(
+            [
+                new OcrLine("INSPECT", new(100, 80, 150, 24), null),
+                new OcrLine("WEIGHT", new(100, 500, 150, 24), null),
+                new OcrLine("Graphics Card", new(300, 280, 250, 30), null),
+            ], TimeSpan.FromMilliseconds(5), "partial-fixture"),
+            new OcrResult(
+                [new OcrLine("Graphics Card", new(300, 280, 250, 30), null)],
+                TimeSpan.FromMilliseconds(5),
+                "partial-fixture",
+                true,
+                "ocr_partial_tiles"));
+        await using var cache = new Infrastructure.Recognition.CanonicalItemResolverCache(
+            new InMemoryRecognitionCatalogRepository([new CanonicalItemReference("item-1", "Graphics Card")]));
+        var harness = new Harness(recognizer: new Infrastructure.Recognition.RecognitionService(
+            new Infrastructure.Recognition.OcrCoordinator(engine, new Infrastructure.Recognition.ScanContextDetector()),
+            cache));
+
+        var outcome = await harness.UseCase.ScanAsync(harness.Request, CancellationToken.None);
+
+        Assert.Equal(ScanCompletionStatus.Partial, outcome.Status);
+        Assert.Equal("ocr_partial_tiles", outcome.DiagnosticCode);
+        Assert.Equal("item-1", outcome.Recognition.Selected?.CanonicalId);
+        Assert.Equal("ocr_partial_tiles", outcome.Recognition.DiagnosticCode);
+        Assert.NotNull(outcome.Recommendation);
+        Assert.Equal("ocr_partial_tiles", Assert.Single(harness.Events.Saved).DiagnosticCode);
+        Assert.Contains(outcome.Evidence, evidence => evidence is { Code: "diagnostic", Detail: "ocr_partial_tiles" });
+    }
+
+    [Fact]
     public async Task ExtractScanUsesCurrentMapAndPublishesOnlyActiveObservationsToRaidState()
     {
         var harness = new Harness(new(ScanContext.ExtractList, [], ObservedUtc, "extract_context"));
@@ -124,7 +159,9 @@ public sealed class ScanUseCaseTests
         private readonly ItemDefinition _item;
         private readonly ItemPriceSnapshot _price;
 
-        public Harness(RecognitionResult recognition)
+        /// <param name="recognition">A fixed answer from a stand-in recogniser.</param>
+        /// <param name="recognizer">A real recogniser instead, so the scan runs through it end to end.</param>
+        public Harness(RecognitionResult? recognition = null, IRecognitionService? recognizer = null)
         {
             var provenance = new DataProvenance("fixture", ObservedUtc);
             _item = new(
@@ -158,7 +195,8 @@ public sealed class ScanUseCaseTests
                 ObservedUtc,
                 "fixture://scan-use-case");
             Capture = new(image);
-            Recognition = new(recognition);
+            Recognition = recognizer ?? new StaticRecognition(
+                recognition ?? throw new ArgumentNullException(nameof(recognition)));
             Extracts = new();
             Containers = new();
             Flea = new();
@@ -190,7 +228,7 @@ public sealed class ScanUseCaseTests
 
         public StaticCapture Capture { get; }
 
-        public StaticRecognition Recognition { get; }
+        public IRecognitionService Recognition { get; }
 
         public TrackingExtractService Extracts { get; }
 
@@ -223,6 +261,17 @@ public sealed class ScanUseCaseTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(image);
+        }
+    }
+
+    private sealed class SequencedOcrEngine(params OcrResult[] results) : IOcrEngine
+    {
+        private int _calls;
+
+        public Task<OcrResult> RecognizeAsync(CapturedImage image, OcrRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(results[Math.Min(_calls++, results.Length - 1)]);
         }
     }
 

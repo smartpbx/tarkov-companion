@@ -56,6 +56,8 @@ public sealed record TesseractOcrExecution(
 
 internal static class OcrExecutionBudget
 {
+    public const string InputLimitExceeded = "ocr_input_limit_exceeded";
+
     public static string? Check(
         CapturedImage image,
         PixelRect region,
@@ -76,7 +78,7 @@ internal static class OcrExecutionBudget
 
         if (sourcePixels > maximumSourcePixels || image.Pixels.Length > maximumInputBytes)
         {
-            return "ocr_input_limit_exceeded";
+            return InputLimitExceeded;
         }
 
         if (preparedPixels > maximumPreparedPixels)

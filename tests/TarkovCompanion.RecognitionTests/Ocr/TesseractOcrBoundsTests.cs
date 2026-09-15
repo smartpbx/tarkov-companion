@@ -103,6 +103,167 @@ public sealed class TesseractOcrBoundsTests
         Assert.Equal(1, reader.MaximumConcurrentReads);
     }
 
+    [Fact]
+    public async Task DisposeCannotLandBetweenTakingTheReaderAndRegisteringItsRead()
+    {
+        using var readEntered = new ManualResetEventSlim();
+        using var releaseRead = new ManualResetEventSlim();
+        var reader = new FakePageReader(_ =>
+        {
+            readEntered.Set();
+            releaseRead.Wait();
+            return [new OcrLine("INSPECT", new(1, 1, 20, 8), new Confidence(0.9))];
+        });
+        var engine = new TesseractOcrEngine(new TesseractOcrOptions(), reader);
+        Task? dispose = null;
+        var disposeFinishedInsideTheLock = true;
+        engine.NativeWorkRegistering = () =>
+        {
+            // The reader is taken and its read not yet registered. A Dispose started now is
+            // exactly the one that used to free the reader under a read about to begin.
+            engine.NativeWorkRegistering = null;
+            dispose = Task.Run(engine.Dispose);
+            disposeFinishedInsideTheLock = dispose.Wait(TimeSpan.FromMilliseconds(250));
+        };
+
+        Task<TesseractOcrExecution> request;
+        try
+        {
+            request = engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None);
+            Assert.True(readEntered.Wait(TimeSpan.FromSeconds(10)), "the native read never started");
+            await dispose!.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.False(disposeFinishedInsideTheLock, "Dispose completed between taking the reader and registering its read");
+            // Dispose ran once the read was registered, so it left freeing the reader to the read.
+            Assert.Equal(0, reader.Disposals);
+        }
+        finally
+        {
+            releaseRead.Set();
+        }
+
+        var execution = await request;
+
+        Assert.Equal(OcrExecutionStatus.Complete, execution.Status);
+        Assert.Equal(1, reader.Calls);
+        Assert.Equal(1, reader.Disposals);
+        Assert.Equal(0, reader.DisposalsDuringRead);
+        Assert.Equal(0, reader.ReadsOnDisposedReader);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task DisposeDuringPreparationEndsTheRequestBeforeAnyNativeReadStarts()
+    {
+        var reader = new FakePageReader(_ => []);
+        TesseractOcrEngine? engine = null;
+        var pixels = new ObservedPixels(new byte[64 * 32], atRead: 10, () => engine!.Dispose());
+        var image = new CapturedImage(
+            pixels.Memory,
+            64,
+            32,
+            64,
+            PixelFormat.Gray8,
+            new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero),
+            "fixture://dispose-during-preparation");
+        engine = new TesseractOcrEngine(new TesseractOcrOptions(), reader);
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            engine.RecognizeDetailedAsync(image, AsCaptured(), CancellationToken.None));
+
+        Assert.True(pixels.Reads >= 10);
+        Assert.Equal(0, reader.Calls);
+        Assert.Equal(1, reader.Disposals);
+    }
+
+    [Fact]
+    public async Task ConcurrentStartAndDisposeNeverReadsAFreedReaderOrFreesItTwice()
+    {
+        // Every interleaving must satisfy the same invariant. The two tests above force the
+        // orderings on either side of the lock; this one lets the scheduler choose.
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var reader = new FakePageReader(_ => [new OcrLine("INSPECT", new(1, 1, 20, 8), null)]);
+            var engine = new TesseractOcrEngine(new TesseractOcrOptions(), reader);
+            using var start = new Barrier(2);
+            var request = Task.Run(async () =>
+            {
+                start.SignalAndWait();
+                try
+                {
+                    return (await engine.RecognizeDetailedAsync(Frame(64, 32), AsCaptured(), CancellationToken.None)).Status;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return (OcrExecutionStatus?)null;
+                }
+            });
+            var dispose = Task.Run(() =>
+            {
+                start.SignalAndWait();
+                engine.Dispose();
+            });
+
+            await dispose.WaitAsync(TimeSpan.FromSeconds(10));
+            var status = await request.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.True(status is null or OcrExecutionStatus.Complete, $"iteration {iteration}: {status}");
+            Assert.Equal(1, reader.Disposals);
+            Assert.Equal(0, reader.ReadsOnDisposedReader);
+            Assert.Equal(0, reader.DisposalsDuringRead);
+        }
+    }
+
+    [Theory]
+    [InlineData(1_000, 0, 20, 20)]
+    [InlineData(-50, -50, 20, 20)]
+    [InlineData(10, 10, 0, 8)]
+    [InlineData(10, 40, 8, 8)]
+    public async Task ARegionThatSelectsNoPixelsIsAnAvailableEmptyReadAsInTheWindowsProvider(
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        var reader = new FakePageReader(_ => throw new InvalidOperationException("no native read was expected"));
+        using var engine = new TesseractOcrEngine(new TesseractOcrOptions(), reader);
+
+        var execution = await engine.RecognizeDetailedAsync(
+            Frame(64, 32),
+            new OcrRequest(ScanContext.Unknown, new PixelRect(x, y, width, height))
+            {
+                Preparation = OcrPreparation.AsCaptured,
+            },
+            CancellationToken.None);
+
+        Assert.Equal(OcrExecutionStatus.Empty, execution.Status);
+        Assert.Equal("ocr_region_empty", execution.DiagnosticCode);
+        Assert.True(execution.Result.IsAvailable);
+        Assert.Equal("ocr_region_empty", execution.Result.DiagnosticCode);
+        Assert.Empty(execution.Result.Lines);
+        Assert.Equal(0, execution.PlannedTileCount);
+        Assert.Equal(0, execution.AttemptedTileCount);
+        Assert.Equal(0, execution.CompletedTileCount);
+        Assert.Equal(0, reader.Calls);
+        Assert.True(engine.Availability.IsAvailable);
+    }
+
+    [Fact]
+    public async Task AnOversizedInputIsStillRejectedBeforeItsEmptyRegionIsConsidered()
+    {
+        var reader = new FakePageReader(_ => []);
+        using var engine = new TesseractOcrEngine(new TesseractOcrOptions { MaximumSourcePixels = 15 }, reader);
+
+        var execution = await engine.RecognizeDetailedAsync(
+            Frame(4, 4),
+            new OcrRequest(ScanContext.Unknown, new PixelRect(100, 100, 4, 4)),
+            CancellationToken.None);
+
+        Assert.Equal(OcrExecutionStatus.Rejected, execution.Status);
+        Assert.Equal("ocr_input_limit_exceeded", execution.DiagnosticCode);
+    }
+
     [Theory]
     [InlineData(15L, 1_000_000L, 1_000_000L, "ocr_input_limit_exceeded")]
     [InlineData(1_000_000L, 15L, 1_000_000L, "ocr_prepared_pixel_limit_exceeded")]
@@ -276,13 +437,29 @@ public sealed class TesseractOcrBoundsTests
         private int _calls;
         private int _running;
         private int _maximumRunning;
+        private int _disposals;
+        private int _readsOnDisposedReader;
+        private int _disposalsDuringRead;
 
         public int Calls => Volatile.Read(ref _calls);
 
         public int MaximumConcurrentReads => Volatile.Read(ref _maximumRunning);
 
+        public int Disposals => Volatile.Read(ref _disposals);
+
+        /// <summary>Reads that began after the reader was freed: native use-after-free, in production.</summary>
+        public int ReadsOnDisposedReader => Volatile.Read(ref _readsOnDisposedReader);
+
+        /// <summary>Frees that happened while a read was still inside native code.</summary>
+        public int DisposalsDuringRead => Volatile.Read(ref _disposalsDuringRead);
+
         public IReadOnlyList<OcrLine> Read(byte[] portableGraymap, PixelRect region, int scale, int maximumLines)
         {
+            if (Disposals > 0)
+            {
+                Interlocked.Increment(ref _readsOnDisposedReader);
+            }
+
             var call = Interlocked.Increment(ref _calls) - 1;
             var running = Interlocked.Increment(ref _running);
             int observed;
@@ -305,6 +482,12 @@ public sealed class TesseractOcrBoundsTests
 
         public void Dispose()
         {
+            if (Volatile.Read(ref _running) > 0)
+            {
+                Interlocked.Increment(ref _disposalsDuringRead);
+            }
+
+            Interlocked.Increment(ref _disposals);
         }
     }
 

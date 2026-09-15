@@ -39,11 +39,19 @@ the request instead of allocating the next tile (`ocr_memory_exhausted`). Prepar
 cancellation every 65,536 pixels, including Tesseract's bright-text midpoint scan, so a very wide
 single-row region cannot run to the end before noticing.
 
+Tesseract takes its page reader, checks for disposal and registers the native read as one step
+under its lifetime lock. `Dispose` frees the reader only when it finds no registered read under
+that lock, and otherwise leaves freeing it to the read's completion, so a read can neither start on
+a freed reader nor have its reader freed underneath it. A request that a concurrent `Dispose`
+overtakes before its read is registered throws `ObjectDisposedException`, as a request on an
+already-disposed provider does, rather than reporting an unavailable provider.
+
 A timeout, rejected input, unavailable provider, total provider failure, and a result recovered
 from only some tiles have separate diagnostic outcomes. So does an available read that ran to
-completion and found no text: its status is `Empty` and its diagnostic `ocr_no_text`
-(`ocr_region_empty` when the requested region selected no pixels). It is neither `Complete` nor
-unavailable.
+completion and found no text: its status is `Empty` and its diagnostic `ocr_no_text`. A requested
+region that clamps to no pixels is also an available `Empty` read, with `ocr_region_empty`, in both
+providers and after the same unavailable and input-limit checks; Tesseract used to throw for it,
+so a contextual crop clamped to nothing ended the scan. Neither is `Complete` or unavailable.
 
 The detailed provider results report source region, source and prepared dimensions, scale,
 planned, attempted and completed tile counts, duration, provider, estimated peak bytes, accepted
@@ -55,6 +63,20 @@ neither source pixels nor source paths.
 buffer for it exists, reads no more than that checked length, refuses a picture over 40 million
 pixels before decoding it, and returns only a complete decode. An incomplete PNG, such as one the
 game is still writing, is refused rather than returned with blank rows.
+
+One 15-second load deadline (`ScreenshotImageLoaderOptions.Timeout`), linked to the caller's token,
+starts before the file is opened and covers the read, the pixel buffer and the decode. A token that
+is already cancelled throws before the file is opened. Expiry returns no frame, the same answer as
+a file that would not decode; caller cancellation throws. The decode runs on its own thread, which
+owns the codec and the pinned pixel buffer until native code returns: a caller that gives up
+returns at once while the buffer native code writes into stays alive, and the pixels of a decode
+that finishes after its caller left are cleared. Decodes are serialized, and an abandoned decode
+keeps the gate until it settles. Cancellation is checked between bounded decode chunks where the
+codec allows it, measured against SkiaSharp 3.119 rather than assumed: JPEG decodes top-down
+scanlines at most 65,536 pixels (or one wider row) per call; PNG decodes incrementally while its input is handed over
+64 KiB at a time, so a call inflates at most one input chunk; WebP offers neither and decodes in
+one native call that the deadline still bounds for the caller. The chunked decodes reproduce Skia's
+one-call decode byte for byte in the tests.
 
 The provider exposes `IOcrEngineStatus`. Unsupported operating systems, architectures,
 missing native dependencies, missing language data, and execution failures return an
@@ -80,21 +102,37 @@ geometry-aware deterministic deduplication rule as tiled Windows reads; the sour
 compiled into both assemblies. It compares a line only with kept lines sharing a 64-pixel grid
 cell, and every comparison spends from a budget of 64 per input line. Exhausting the budget keeps
 every remaining line and reports `ocr_dedupe_budget_exhausted` rather than dropping evidence or
-going quadratic. Partial provider diagnostics remain attached to the coordinated result rather
-than being promoted to complete, and an available empty full-frame read surfaces as
-`CoordinatedOcrResult.IsEmpty` with `ocr_no_text`, which `RecognitionService` reports instead of
-`context_unknown`. A frame that timed out or was rejected keeps its own diagnostic instead of
-being reported as an unavailable provider.
+going quadratic. An available empty full-frame read surfaces as `CoordinatedOcrResult.IsEmpty`
+with `ocr_no_text`, which `RecognitionService` reports instead of `context_unknown`. A frame that
+timed out or was rejected keeps its own diagnostic instead of being reported as an unavailable
+provider.
+
+A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan. The
+merged candidate set carries the degradation of whichever pass fed it (the contextual pass first,
+then the full frame, then an exhausted dedupe budget), where a partial pass that was still
+available used to contribute its lines and lose its code. `RecognitionService` gives that code
+precedence over every code derived from the same read, including `context_unknown`, `no_match`,
+`extract_context` and the absent code of an auto-selected item, whose partial evidence used to reach
+only the detail line. `ScanUseCase` still prices and advises on an auto-selected item, but a
+recognition that carries a code marks the scan `Partial` with it instead of `Complete`.
 
 `OcrCoordinator` starts one 30-second deadline (`OcrPipelineOptions`), linked to the caller's
 token, for the full-frame and contextual passes together. Each provider call's own frame timeout
 remains an inner cap. When the deadline expires, finished passes keep their evidence and the
 result carries `ocr_pipeline_timeout`; caller cancellation still throws. A frame pass that ran out
-of memory is not followed by a contextual pass. `ContainerRecognitionService` spends the same kind
-of single deadline across its whole-grid pass and every cell fallback, and a deadline that expires
-mid-fallback returns the analysis of what was read, marked partial with `ocr_pipeline_timeout`.
-That deadline is the only #299 change in the container recognizer; grid detection, segmentation
-and analysis remain owned by #273.
+of memory is not followed by a contextual pass. `ContainerRecognitionService` starts the same kind
+of single deadline before the first pixel is read and spends it across grid detection,
+segmentation, the whole-grid pass and every cell fallback. Grid detection walks the whole frame
+and used to run before the deadline existed; it and segmentation now check cancellation in bounded
+chunks, and a deadline that expires during them returns an empty partial result with
+`ocr_pipeline_timeout`. A deadline that expires mid-fallback returns the analysis of what was read,
+marked partial with `ocr_pipeline_timeout`. A degraded whole-grid pass or cell read marks the scan
+partial and names it: the deadline first, then the whole-grid pass, then cells in reading order.
+Each unread cell issue whose own read was degraded, or whose planned read the deadline or an
+out-of-memory cell read left unattempted, keeps its reason and gains `; ocr=<code>`. A whole-grid pass or cell read
+that ran out of memory is not followed by further cell reads. These deadline, cancellation and
+diagnostic changes are #299's; the grid detection, segmentation and analysis algorithms remain
+owned by #273.
 
 Character/health menu captions and the game-version strip are supplemental full-frame text
 signals. They are searched across every returned line, with their observed bounds reported only
@@ -195,8 +233,13 @@ also renders text beyond the first native Windows tile and calls `WindowsMediaOc
 directly; it does not substitute a fixture or Tesseract for the provider that normally ships.
 Its fixture-recognizer tests prove the Windows gate, both-copy memory estimate, out-of-memory
 stop, and line bounds on the Windows runner. The Tesseract gate, deadline, pixel and memory
-ceilings, empty outcome, line bounds and chunked cancellation are proven on every host through an
-internal page-reader seam that production composition cannot reach.
+ceilings, empty and empty-region outcomes, line bounds, chunked cancellation, and start/dispose
+atomicity (a `Dispose` forced into the window between taking the reader and registering its read,
+one forced during preparation, and 200 scheduler-chosen interleavings) are proven on every host
+through an internal page-reader seam that production composition cannot reach. Partial-provider
+tests run fixture engines through the real coordinator, recognizer, container recognizer and
+`ScanUseCase`; the loader's chunked decode, its cancellation and its abandoned-decode ownership
+run against Skia's Linux native assets in `TarkovCompanion.UnitTests`.
 On Windows x64, provider absence is a failure. Therefore a Linux green run proves compilation,
 post-OCR behavior, persistence, and skip honesty; it does not publish screenshot-recognition
 accuracy. Accuracy remains unmeasured until Windows CI records the provider result, and no
@@ -214,11 +257,19 @@ the returned captions with both production providers, prints their local compari
 and writes one machine-readable JSON document to stdout or `--output`. When the grid returned more
 cells, the report says `ocr_probe_cell_limit_exceeded` and carries `detectedCellCount`.
 
-Both probe modes spend one two-minute deadline across every provider pass. When it expires the
-report keeps the finished passes and says `ocr_probe_deadline_exceeded`; each provider entry
-records its planned, attempted and completed pass counts, so skipped work stays visible. Ctrl+C
-cancels the probe at its next bounded check and exits with code 130 without writing a report; a
-second Ctrl+C terminates the process normally. Cell reports retain caption OCR text for
+Both probe modes spend one two-minute deadline across every provider pass, and the cell mode also
+spends it on the stash-grid search, which reads the whole region once per axis and used to run
+before the deadline started. When it expires the report keeps the finished passes and says
+`ocr_probe_deadline_exceeded`; expiry during the grid search reports no cells, no
+`detectedCellCount` and no passes. Each provider entry records its planned, attempted and
+completed pass counts, so skipped work stays visible. A provider whose pass reports
+`ocr_provider_failed` or `ocr_provider_unavailable` stops its own remaining passes and records that
+code as the entry's `diagnosticCode`; one that marks itself unavailable stops the same way with
+`ocr_provider_failed`. Other providers still run. Each entry's availability and reason are read again after its passes rather than assumed.
+A report is written beside its destination and moved over it only once complete, so cancellation
+at any point leaves the previous file, or no file, rather than a truncated one. Ctrl+C cancels the
+probe at its next bounded check and exits with code 130 without writing a report; a second Ctrl+C
+terminates the process normally. Cell reports retain caption OCR text for
 local comparison. They contain no screenshot path, filename, pixels, username field, token,
 world coordinate, benchmark threshold, or claimed accuracy. The schema is a stable producer
 result owned by the OCR path rather than an implementation of #272's provisional corpus/scorer

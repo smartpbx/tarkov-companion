@@ -87,6 +87,14 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
     public OcrEngineAvailability Availability { get; private set; }
 
+    /// <summary>
+    /// Runs inside the lifetime lock after the reader is taken and before its read is registered.
+    /// </summary>
+    /// <remarks>
+    /// A test stands a concurrent Dispose here to prove it cannot land between the two.
+    /// </remarks>
+    internal Action? NativeWorkRegistering { get; set; }
+
     public async Task<OcrResult> RecognizeAsync(
         CapturedImage image,
         OcrRequest request,
@@ -130,7 +138,9 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             preparedPixels,
             estimatedPeakBytes);
 
-        if (!Availability.IsAvailable || _reader is null)
+        // The reader itself is looked at only under the lifetime lock below. Read here, a Dispose
+        // racing this request made it report an unavailable provider instead of a disposed one.
+        if (!Availability.IsAvailable)
         {
             return plan.Create(TimeSpan.Zero, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
         }
@@ -138,6 +148,19 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
         if (!string.Equals(request.Language, _language, StringComparison.OrdinalIgnoreCase))
         {
             return plan.Create(TimeSpan.Zero, OcrExecutionStatus.Unavailable, "ocr_language_unavailable");
+        }
+
+        if (budgetDiagnostic == OcrExecutionBudget.InputLimitExceeded)
+        {
+            return plan.Create(TimeSpan.Zero, OcrExecutionStatus.Rejected, budgetDiagnostic);
+        }
+
+        if (region.Width == 0 || region.Height == 0)
+        {
+            // The same answer the Windows provider gives, in the same order. This used to throw,
+            // so a contextual crop clamped to nothing ended the whole scan instead of reading as
+            // an available, empty pass.
+            return plan.Create(TimeSpan.Zero, OcrExecutionStatus.Empty, OcrOutcome.RegionEmpty);
         }
 
         if (budgetDiagnostic is not null)
@@ -178,12 +201,6 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
                 return plan.Create(stopwatch.Elapsed, OcrExecutionStatus.Failed, OcrOutcome.MemoryExhausted);
             }
 
-            var reader = _reader;
-            if (reader is null)
-            {
-                return plan.Create(stopwatch.Elapsed, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
-            }
-
             remaining = _options.FrameTimeout - stopwatch.Elapsed;
             if (remaining <= TimeSpan.Zero)
             {
@@ -192,14 +209,27 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
             var scale = plan.Scale;
             var maximumLines = _options.MaximumLines;
-            var nativeWork = Task.Run(
-                () => reader.Read(encoded, region, scale, maximumLines),
-                CancellationToken.None);
-            attempted = 1;
+            Task<IReadOnlyList<OcrLine>> nativeWork;
             lock (_lifetimeGate)
             {
+                // Taking the reader, checking for disposal and registering the native work are one
+                // step. Dispose frees the reader only when it finds no registered work under this
+                // lock, and they used to be three: a Dispose landing between taking the reader and
+                // registering the read freed it, and the read then started on a freed engine.
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (_reader is not { } reader)
+                {
+                    return plan.Create(stopwatch.Elapsed, OcrExecutionStatus.Unavailable, "ocr_provider_unavailable");
+                }
+
+                NativeWorkRegistering?.Invoke();
+                nativeWork = Task.Run(
+                    () => reader.Read(encoded, region, scale, maximumLines),
+                    CancellationToken.None);
                 _nativeWork = nativeWork;
             }
+
+            attempted = 1;
 
             IReadOnlyList<OcrLine> nativeLines;
             try
@@ -305,14 +335,14 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
 
     public void Dispose()
     {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
         lock (_lifetimeGate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
             if (_nativeWork is null)
             {
                 _reader?.Dispose();
@@ -409,15 +439,11 @@ public sealed class TesseractOcrEngine : IOcrEngine, IOcrEngineStatus, IDisposab
             return new(0, 0, image.Width, image.Height);
         }
 
+        // A region that misses the frame clamps to zero area; the caller reports it as empty.
         var left = Math.Clamp(requested.X, 0, image.Width);
         var top = Math.Clamp(requested.Y, 0, image.Height);
         var right = (int)Math.Clamp((long)requested.X + requested.Width, left, image.Width);
         var bottom = (int)Math.Clamp((long)requested.Y + requested.Height, top, image.Height);
-        if (right == left || bottom == top)
-        {
-            throw new ArgumentOutOfRangeException(nameof(requested), "OCR region must intersect the captured image.");
-        }
-
         return new(left, top, right - left, bottom - top);
     }
 

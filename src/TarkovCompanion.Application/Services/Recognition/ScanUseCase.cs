@@ -298,7 +298,12 @@ public sealed class ScanUseCase : IScanUseCase
             recommendation.Action + ": " + recommendation.Explanation,
             recommendation.Confidence,
             recognition.ObservedUtc.ToUniversalTime()));
-        return (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
+        // The recogniser gives a selected item a code only when the text it was read from was
+        // degraded: a timed-out pass, missing tiles, truncated lines. The advice still stands, but
+        // the scan used to call itself complete on that evidence, and now says what was missing.
+        return recognition.DiagnosticCode is { } degraded
+            ? (recommendation, ScanCompletionStatus.Partial, degraded, value, perSlot)
+            : (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
     }
 
     private async Task<(ExtractRecognitionResult? Result, ScanCompletionStatus Status, string? Diagnostic)> RecognizeExtractsAsync(

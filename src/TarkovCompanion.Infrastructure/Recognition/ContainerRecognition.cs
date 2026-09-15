@@ -29,11 +29,19 @@ public sealed record ContainerSegment(
 
 public sealed class ContainerGridDetector
 {
-    public ContainerGridSpec? Detect(CapturedImage image)
+    /// <summary>Finds a regular grid, checking cancellation in bounded chunks of work.</summary>
+    /// <remarks>
+    /// The algorithm is #273's. The token is #299's: this walks every column and every row of the
+    /// frame and then searches every pair of line positions, and it used to run before any OCR
+    /// deadline existed and without a way to stop it.
+    /// </remarks>
+    public ContainerGridSpec? Detect(CapturedImage image, CancellationToken cancellationToken = default)
     {
         CapturedImagePixels.Validate(image);
-        var vertical = SelectRegularRun(FindLinePositions(image, vertical: true));
-        var horizontal = SelectRegularRun(FindLinePositions(image, vertical: false));
+        cancellationToken.ThrowIfCancellationRequested();
+        var check = new PixelCancellationCheck(cancellationToken);
+        var vertical = SelectRegularRun(FindLinePositions(image, vertical: true, ref check), cancellationToken);
+        var horizontal = SelectRegularRun(FindLinePositions(image, vertical: false, ref check), cancellationToken);
         if (vertical.Count < 3 || horizontal.Count < 3)
         {
             return null;
@@ -49,7 +57,10 @@ public sealed class ContainerGridDetector
             horizontal.Count - 1);
     }
 
-    private static IReadOnlyList<int> FindLinePositions(CapturedImage image, bool vertical)
+    private static IReadOnlyList<int> FindLinePositions(
+        CapturedImage image,
+        bool vertical,
+        ref PixelCancellationCheck check)
     {
         var axisLength = vertical ? image.Width : image.Height;
         var crossLength = vertical ? image.Height : image.Width;
@@ -61,6 +72,7 @@ public sealed class ContainerGridDetector
             var count = 0;
             for (var cross = 0; cross < crossLength; cross += step)
             {
+                check.Read(2);
                 var x = vertical ? axis : cross;
                 var y = vertical ? cross : axis;
                 var neighborAxis = Math.Clamp(
@@ -103,13 +115,18 @@ public sealed class ContainerGridDetector
         return positions;
     }
 
-    private static IReadOnlyList<int> SelectRegularRun(IReadOnlyList<int> positions)
+    private static IReadOnlyList<int> SelectRegularRun(
+        IReadOnlyList<int> positions,
+        CancellationToken cancellationToken)
     {
         IReadOnlyList<int> best = [];
         for (var first = 0; first < positions.Count; first++)
         {
             for (var second = first + 1; second < positions.Count; second++)
             {
+                // No pixels here, but a noisy frame yields hundreds of positions and every pair
+                // extends a run by scanning all of them again.
+                cancellationToken.ThrowIfCancellationRequested();
                 var spacing = positions[second] - positions[first];
                 if (spacing < 12)
                 {
@@ -121,6 +138,7 @@ public sealed class ContainerGridDetector
                 var expected = positions[first] + spacing;
                 while (TryFindClosest(positions, run[^1], expected, tolerance, out var match))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     run.Add(match);
                     expected += spacing;
                 }
@@ -163,10 +181,14 @@ public sealed class ContainerGridDetector
 
 public sealed class ContainerGridSegmenter
 {
-    public IReadOnlyList<ContainerSegment> Segment(CapturedImage image, ContainerGridSpec grid)
+    public IReadOnlyList<ContainerSegment> Segment(
+        CapturedImage image,
+        ContainerGridSpec grid,
+        CancellationToken cancellationToken = default)
     {
         CapturedImagePixels.Validate(image);
         ArgumentNullException.ThrowIfNull(grid);
+        cancellationToken.ThrowIfCancellationRequested();
         if (grid.Columns <= 0 || grid.Rows <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(grid), "Grid dimensions must be positive.");
@@ -189,6 +211,9 @@ public sealed class ContainerGridSegmenter
         {
             for (var column = 0; column < grid.Columns; column++)
             {
+                // A cell samples at most thirteen by thirteen pixels; a detected grid can still
+                // have a thousand columns.
+                cancellationToken.ThrowIfCancellationRequested();
                 var bounds = GetCellBounds(image, grid, row, column);
                 measurements.Add(Measure(image, row, column, bounds));
             }
@@ -438,20 +463,26 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         CancellationToken cancellationToken)
     {
         CapturedImagePixels.Validate(image);
-        var grid = _gridDetector.Detect(image);
-        if (grid is null)
-        {
-            return Empty("container_grid_not_detected");
-        }
-
-        var segments = _segmenter.Segment(image, grid);
-        // Grid detection, segmentation and analysis belong to #273. The only #299 change here is
-        // the shared OCR deadline: the whole-grid pass and every cell fallback spend from one
-        // budget, and running out keeps what was already read as explicit partial evidence.
+        cancellationToken.ThrowIfCancellationRequested();
+        // Grid detection, segmentation and analysis belong to #273. The #299 changes here are the
+        // shared deadline and the diagnostics. The deadline starts before the first pixel is read:
+        // grid detection walks the whole frame, and it used to run before the budget existed, so
+        // the most expensive pixel work in a container scan was the one part nothing bounded. The
+        // whole-grid pass and every cell fallback then spend from the same budget, and running out
+        // keeps what was already read as explicit partial evidence.
         using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
+        ContainerGridSpec? grid;
+        IReadOnlyList<ContainerSegment> segments;
         OcrResult ocr;
         try
         {
+            grid = _gridDetector.Detect(image, deadline.Token);
+            if (grid is null)
+            {
+                return Empty("container_grid_not_detected");
+            }
+
+            segments = _segmenter.Segment(image, grid, deadline.Token);
             ocr = await _ocrEngine
                 .RecognizeAsync(image, new OcrRequest(ScanContext.Container, grid.Bounds), deadline.Token)
                 .ConfigureAwait(false);
@@ -471,15 +502,27 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             .SelectMany(line => ResolveLine(resolver, line))
             .ToList();
         var preliminary = _analyzer.Analyze(segments, candidates, []);
-        var fallbackCells = preliminary.UnresolvedCells
-            .Concat(preliminary.AmbiguousCells)
-            .OrderBy(cell => cell.Row)
-            .ThenBy(cell => cell.Column)
-            .Take(MaximumCellFallbacks)
-            .ToArray();
-        var deadlineExpired = false;
+        // A grid pass that ran out of memory is not followed by more passes, as in the coordinator.
+        var fallbackCells = OcrOutcome.IsMemoryExhausted(ocr)
+            ? Array.Empty<ContainerCellIssue>()
+            : preliminary.UnresolvedCells
+                .Concat(preliminary.AmbiguousCells)
+                .OrderBy(cell => cell.Row)
+                .ThenBy(cell => cell.Column)
+                .Take(MaximumCellFallbacks)
+                .ToArray();
+        // What degraded each cell's own read, in reading order, so the cell that stayed unresolved
+        // says why instead of looking like a cell OCR read and found nothing in.
+        var cellDegradations = new List<((int Row, int Column) Cell, string Code)>();
+        string? stopped = null;
         foreach (var cell in fallbackCells)
         {
+            if (stopped is not null)
+            {
+                cellDegradations.Add(((cell.Row, cell.Column), stopped));
+                continue;
+            }
+
             OcrResult cellOcr;
             try
             {
@@ -492,8 +535,19 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             }
             catch (OperationCanceledException) when (deadline.IsExpired)
             {
-                deadlineExpired = true;
-                break;
+                stopped = OcrPipelineDeadline.DiagnosticCode;
+                cellDegradations.Add(((cell.Row, cell.Column), stopped));
+                continue;
+            }
+
+            if (OcrOutcome.Degradation(cellOcr) is { } degradation)
+            {
+                cellDegradations.Add(((cell.Row, cell.Column), degradation));
+                if (OcrOutcome.IsMemoryExhausted(cellOcr))
+                {
+                    // The next cell would ask for the same memory again.
+                    stopped = degradation;
+                }
             }
 
             if (cellOcr.IsAvailable)
@@ -513,11 +567,37 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
         }
 
         var result = _analyzer.Analyze(segments, candidates, valuations);
-        // Cells the deadline never reached stay unresolved in the analysis; the code says why.
-        return deadlineExpired
-            ? result with { IsPartial = true, DiagnosticCode = OcrPipelineDeadline.DiagnosticCode }
-            : result;
+        // The deadline explains every cell it cut off, so it names the scan. Otherwise the first
+        // degraded read does: the whole-grid pass, then cells in reading order. A partial grid
+        // pass that was still available used to be analyzed as though it were complete.
+        var diagnostic = stopped == OcrPipelineDeadline.DiagnosticCode
+            ? stopped
+            : OcrOutcome.Degradation(ocr) ?? cellDegradations.Select(entry => entry.Code).FirstOrDefault();
+        if (diagnostic is null)
+        {
+            return result;
+        }
+
+        var byCell = cellDegradations
+            .GroupBy(entry => entry.Cell)
+            .ToDictionary(group => group.Key, group => group.First().Code);
+        return result with
+        {
+            UnresolvedCells = Annotate(result.UnresolvedCells, byCell),
+            AmbiguousCells = Annotate(result.AmbiguousCells, byCell),
+            IsPartial = true,
+            DiagnosticCode = diagnostic,
+        };
     }
+
+    private static IReadOnlyList<ContainerCellIssue> Annotate(
+        IReadOnlyList<ContainerCellIssue> issues,
+        IReadOnlyDictionary<(int Row, int Column), string> degradations) =>
+        issues
+            .Select(issue => degradations.TryGetValue((issue.Row, issue.Column), out var code)
+                ? issue with { Reason = issue.Reason + "; ocr=" + code }
+                : issue)
+            .ToArray();
 
     private static PixelRect Inset(PixelRect bounds)
     {
