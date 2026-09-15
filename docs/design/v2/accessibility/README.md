@@ -1,13 +1,16 @@
 # V2 native accessibility evidence
 
-This directory records the implementation contract and deterministic fixtures for #266. It does
-not claim a Narrator, NVDA, screen-magnifier, Windows contrast, RTL, or human touch session; those
-need packaged Windows evidence in #279, while real-participant navigation decisions remain open in
-#265.
+This directory records the implementation contract for #266 and what its automated checks do and do
+not prove. It does not claim a Narrator, NVDA, screen-magnifier, Windows contrast, RTL, colour-vision,
+or human touch session. Those need packaged Windows evidence in #279, and real-participant
+navigation decisions remain open in #265.
 
-The CI-safe gallery is synthetic and resource-backed. Its tree and structural visual matrix are
-checked at 100%, 125%, 150%, and 200% text and at narrow effective widths. It has no current clock,
-network result, animation frame, host font fallback, real player data, or generated screenshot.
+The gallery (`Views/V2/Primitives/V2PrimitiveGallery.axaml`) is synthetic and resource-backed. CI
+reads its source as XML and loads the compiled V2 dictionaries, but nothing instantiates, lays out,
+renders, or captures the gallery at any text scale or width. It has no current clock, network result,
+animation frame, host font fallback, or real player data.
 
-See [contracts.md](contracts.md) for implementation conventions and [baselines.md](baselines.md) for
-what each fixture is and is not evidence of.
+- [contracts.md](contracts.md): implementation conventions, and the Avalonia 12.1.2 automation facts
+  they rest on.
+- [render-matrix.md](render-matrix.md): the scale, width, and variant cases the gallery still has to
+  be rendered at, and what would count as evidence.

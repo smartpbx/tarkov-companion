@@ -4,20 +4,40 @@
 
 Every primitive receives a stable automation ID, a localized automation name, and localized help
 text when its visible label is insufficient. A page provides one H1 and a named `Main` landmark;
-header, navigation, search, and complementary regions are named only when present. Decorative
-glyphs are not focusable or separately named.
+header, navigation, search, and complementary regions are named only when present. A toolbar is a
+ToolBar control, not a Navigation landmark. Decorative glyphs and swatches are not focusable and are
+kept out of the control view.
 
-Semantic tables expose a caption, column headers, row headers, and reading order that agrees with
-the visual order. A chart or map has a text legend with word/pattern/series identity and an ordered
-data alternative. No state or action depends solely on colour, position, hover, or motion.
+A table exposes a caption and header-to-cell relationships. Where the platform cannot, each row is
+also exposed as one complete localized sentence. A chart or map has a text legend with a word and a
+pattern for each series or evidence class, plus an ordered data alternative. No state or action
+depends solely on colour, position, hover, or motion.
+
+## What Avalonia 12.1.2 actually maps
+
+These were read from the Avalonia 12.1.2 source (`AutomationProperties.cs`, `ControlAutomationPeer.cs`,
+`NoneAutomationPeer.cs`, and the Windows `AutomationNode.cs`). They explain choices that would
+otherwise look arbitrary:
+
+| Property or control | Behaviour | Consequence in V2 |
+| --- | --- | --- |
+| `IsColumnHeader`, `IsRowHeader` | documented "currently has no effect"; no UIA table or grid pattern exists | not used; rows are named groups; a test rejects the properties |
+| Panels (`StackPanel`, `WrapPanel`, `Grid`, `Border`) | `NoneAutomationPeer`, excluded from the control view | landmark, name, or control type on a panel also sets `AccessibilityView="Control"` |
+| `HeadingLevel`, `LandmarkType` | mapped to UIA; Banner, Complementary, and Region become custom landmarks | headings on TextBlocks; one Main landmark |
+| `ControlTypeOverride` | honoured by every control peer | toolbar uses `ToolBar` |
+| TextBlock name | always its text; `AutomationProperties.Name` is ignored | fuller names go on the containing group |
+| `LabeledBy` | not mapped to UIA LabeledBy; only a name fallback | a text box's name is set from the visible label's resource |
+| Expander | ExpandCollapse pattern; name not taken from `Header` | the Why disclosure sets its name |
+| `LiveSetting` | not inherited; LiveRegionChanged fires only when that element's name changes | set on the TextBlock whose `Text` a host rewrites |
 
 ## Keyboard and focus
 
 Source order is keyboard order. The first focus stop of a full page is its skip link when one is
-present; navigation ends at the H1. A dialog focuses its title, then first interactive control;
-Escape closes without discarding; closing restores the invoking control or the H1. Before a
-re-render replaces navigation or header, preserve the active control and unsubmitted text/selection
-where possible. Background updates never move focus.
+present. Navigation focuses the H1. A dialog focuses its title, then its first interactive control.
+Escape closes a dialog without discarding input. Closing restores focus to the invoking control, or
+to the H1 if that control is gone. Before a re-render replaces navigation or a header, preserve the
+active control and any unsubmitted text or selection where possible. Background updates never move
+focus. The dialog host itself is deferred to #267.
 
 `Alt+Shift+C` is only a provisional, remappable companion-local Capture candidate; it must be
 disableable because Windows may reserve it for input-language switching. Bare single-character
@@ -27,14 +47,28 @@ shortcuts are not part of V2.
 
 One polite region announces coalesced background completion, queue arrival, or confirmation. One
 assertive region announces a refused action, failed user action, or revision conflict. Routine
-freshness/provenance is a compact badge or legend; escalate it to an inline recovery message or a
-banner when it changes the decision, blocks an action, reflects active sharing, a security failure,
-or a destructive consequence. Why/details holds complete evidence without reserving policy panels
-on routine surfaces.
+freshness/provenance is a compact badge or legend. Escalate it to an inline recovery message or a
+banner when it:
+
+- changes the decision;
+- blocks an action;
+- reflects active sharing;
+- reports a security failure;
+- carries a destructive consequence.
+
+Why/details holds the complete evidence, so routine surfaces need no standing policy panels.
 
 ## Pending native gates
 
-Automated assertions prove only the fixture's declared tree, strings, manifest, and baseline
-coverage. #279 must verify UIA tree output, full keyboard operation, focus restoration, Narrator,
-NVDA, Windows high contrast, 200%/320-effective-DIP reflow, native DataGrid behavior, actual touch
-targets, colour-vision redundancy, and expected/actual/diff visual artifacts on packaged Windows.
+The automated assertions prove the gallery's declared structure, the compiled resources and their
+measured contrast, and parity between strings, manifest, and render matrix. #279 must verify on
+packaged Windows:
+
+- the UIA tree output and full keyboard operation;
+- focus restoration;
+- Narrator and NVDA, including whether they announce the row groups and live regions as intended;
+- the Windows contrast-theme result and 200%/320-effective-DIP reflow;
+- the native DataGrid alternative;
+- actual touch targets;
+- human colour-vision review;
+- expected, actual, and diff visual artifacts.

@@ -1,38 +1,69 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <ResourceDictionary.MergedDictionaries>
-    <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2ThemeVariants.axaml" />
-  </ResourceDictionary.MergedDictionaries>
-  <!-- A V2 consumer uses role names only. Values are intentionally private to this Avalonia adapter. -->
-  <SolidColorBrush x:Key="V2.Brush.Canvas" Color="{DynamicResource V2.Color.Canvas}" />
-  <SolidColorBrush x:Key="V2.Brush.Surface" Color="{DynamicResource V2.Color.Surface}" />
-  <SolidColorBrush x:Key="V2.Brush.SurfaceRaised" Color="{DynamicResource V2.Color.SurfaceRaised}" />
-  <SolidColorBrush x:Key="V2.Brush.TextPrimary" Color="{DynamicResource V2.Color.TextPrimary}" />
-  <SolidColorBrush x:Key="V2.Brush.TextSecondary" Color="{DynamicResource V2.Color.TextSecondary}" />
-  <SolidColorBrush x:Key="V2.Brush.Border" Color="{DynamicResource V2.Color.Border}" />
-  <SolidColorBrush x:Key="V2.Brush.Action" Color="{DynamicResource V2.Color.Action}" />
-  <SolidColorBrush x:Key="V2.Brush.Focus" Color="{DynamicResource V2.Color.Focus}" />
-  <SolidColorBrush x:Key="V2.Brush.Success" Color="{DynamicResource V2.Color.Success}" />
-  <SolidColorBrush x:Key="V2.Brush.Warning" Color="{DynamicResource V2.Color.Warning}" />
-  <SolidColorBrush x:Key="V2.Brush.Danger" Color="{DynamicResource V2.Color.Danger}" />
-  <SolidColorBrush x:Key="V2.Brush.Info" Color="{DynamicResource V2.Color.Info}" />
-  <SolidColorBrush x:Key="V2.Brush.Unknown" Color="{DynamicResource V2.Color.Unknown}" />
-  <x:Double x:Key="V2.Type.Display">28</x:Double>
-  <x:Double x:Key="V2.Type.Heading">22</x:Double>
-  <x:Double x:Key="V2.Type.Subheading">18</x:Double>
-  <x:Double x:Key="V2.Type.Body">16</x:Double>
-  <x:Double x:Key="V2.Type.Label">14</x:Double>
-  <Thickness x:Key="V2.Space.Xs">4</Thickness>
-  <Thickness x:Key="V2.Space.Sm">8</Thickness>
-  <Thickness x:Key="V2.Space.Md">12</Thickness>
-  <Thickness x:Key="V2.Space.Lg">16</Thickness>
-  <Thickness x:Key="V2.Space.Xl">24</Thickness>
+  <!-- Theme-independent V2 values. A V2 consumer uses these role names only; the numbers are private
+       to this Avalonia adapter and the semantic manifest names the roles without their values.
+       Colours and shadows vary by theme and live in V2ThemeVariants.axaml. Nothing here merges
+       another dictionary, so a test can load and read this file on its own. -->
+
+  <!-- Readable floors: nothing below 14 DIP, and every size carries its line height. -->
+  <x:Double x:Key="V2.Type.Heading1.Size">28</x:Double>
+  <x:Double x:Key="V2.Type.Heading1.LineHeight">36</x:Double>
+  <x:Double x:Key="V2.Type.Heading2.Size">22</x:Double>
+  <x:Double x:Key="V2.Type.Heading2.LineHeight">28</x:Double>
+  <x:Double x:Key="V2.Type.Heading3.Size">18</x:Double>
+  <x:Double x:Key="V2.Type.Heading3.LineHeight">24</x:Double>
+  <x:Double x:Key="V2.Type.Body.Size">16</x:Double>
+  <x:Double x:Key="V2.Type.Body.LineHeight">24</x:Double>
+  <x:Double x:Key="V2.Type.Label.Size">14</x:Double>
+  <x:Double x:Key="V2.Type.Label.LineHeight">20</x:Double>
+
+  <!-- Each step exists as a gap (StackPanel.Spacing is a double) and an inset (Padding and Margin
+       are Thickness). A DynamicResource of the wrong type is not converted, so one value cannot
+       serve both. -->
+  <x:Double x:Key="V2.Space.Xs.Gap">4</x:Double>
+  <Thickness x:Key="V2.Space.Xs.Inset">4</Thickness>
+  <x:Double x:Key="V2.Space.Sm.Gap">8</x:Double>
+  <Thickness x:Key="V2.Space.Sm.Inset">8</Thickness>
+  <x:Double x:Key="V2.Space.Md.Gap">12</x:Double>
+  <Thickness x:Key="V2.Space.Md.Inset">12</Thickness>
+  <x:Double x:Key="V2.Space.Lg.Gap">16</x:Double>
+  <Thickness x:Key="V2.Space.Lg.Inset">16</Thickness>
+  <x:Double x:Key="V2.Space.Xl.Gap">24</x:Double>
+  <Thickness x:Key="V2.Space.Xl.Inset">24</Thickness>
+
   <CornerRadius x:Key="V2.Shape.Control">6</CornerRadius>
   <CornerRadius x:Key="V2.Shape.Card">10</CornerRadius>
+
+  <!-- Density changes whitespace only. Type sizes and target minimums are deliberately absent. -->
+  <x:Double x:Key="V2.Density.Compact.Gap">8</x:Double>
+  <Thickness x:Key="V2.Density.Compact.Inset">8</Thickness>
+  <x:Double x:Key="V2.Density.Standard.Gap">12</x:Double>
+  <Thickness x:Key="V2.Density.Standard.Inset">16</Thickness>
+  <x:Double x:Key="V2.Density.Comfortable.Gap">16</x:Double>
+  <Thickness x:Key="V2.Density.Comfortable.Inset">20</Thickness>
+
   <x:Double x:Key="V2.Target.Desktop">44</x:Double>
   <x:Double x:Key="V2.Target.Touch">48</x:Double>
-  <x:Double x:Key="V2.Focus.Thickness">3</x:Double>
-  <!-- Adapters select these semantic durations when a control actually animates. -->
-  <x:String x:Key="V2.Motion.Full">0:0:0.16</x:String>
-  <x:String x:Key="V2.Motion.Reduced">0:0:0</x:String>
+
+  <Thickness x:Key="V2.Focus.Indicator.Thickness">3</Thickness>
+
+  <!-- Adapters pick one of these when a control actually animates; reduced motion keeps the state
+       change and drops the transition. -->
+  <x:TimeSpan x:Key="V2.Motion.Full.Duration">00:00:00.16</x:TimeSpan>
+  <x:TimeSpan x:Key="V2.Motion.Reduced.Duration">00:00:00</x:TimeSpan>
+
+  <!-- Shape cues named by the manifest's status glyph ids. They are decorative beside the state
+       word, so views mark them AccessibilityView="Raw" and never translate them. -->
+  <x:String x:Key="V2.Glyph.Check">✓</x:String>
+  <x:String x:Key="V2.Glyph.Question">?</x:String>
+  <x:String x:Key="V2.Glyph.Minus">−</x:String>
+  <x:String x:Key="V2.Glyph.SlashedCircle">⊘</x:String>
+  <x:String x:Key="V2.Glyph.CircledMinus">⊖</x:String>
+  <x:String x:Key="V2.Glyph.Cross">✕</x:String>
+  <x:String x:Key="V2.Glyph.FilledSquare">■</x:String>
+  <x:String x:Key="V2.Glyph.HalfSquare">◧</x:String>
+  <x:String x:Key="V2.Glyph.EmptySquare">□</x:String>
+  <x:String x:Key="V2.Glyph.FilledDiamond">◆</x:String>
+  <x:String x:Key="V2.Glyph.EmptyDiamond">◇</x:String>
+  <x:String x:Key="V2.Glyph.InsetDiamond">◈</x:String>
 </ResourceDictionary>

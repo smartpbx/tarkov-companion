@@ -1,5 +1,4 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "manifest": "tarkov-companion.v2.semantic-ui",
   "version": "1.0.0",
   "purpose": "Platform-neutral meaning and accessibility contract. Platform adapters supply pixels, controls, and operating-system integration.",
@@ -8,16 +7,17 @@
     "excluded": ["Avalonia classes", "CSS", "breakpoints", "focus-ring pixels", "screenshots", "game interaction"]
   },
   "tokens": {
-    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown", "mapSeries", "chartSeries"],
-    "type": ["display", "heading", "body", "label", "numeric"],
+    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
+    "chart": ["series1", "series2", "series3", "series4"],
+    "map": ["historical", "modelled", "manual", "unavailable"],
+    "type": ["heading1", "heading2", "heading3", "body", "label"],
     "space": ["xs", "sm", "md", "lg", "xl"],
-    "shape": ["control", "card", "pill"],
+    "shape": ["control", "card"],
     "elevation": ["flat", "raised", "dialog"],
-    "focus": ["visible", "error", "restore"],
-    "motion": ["system", "reduced", "full"],
+    "focus": ["indicator"],
+    "motion": ["full", "reduced"],
     "density": ["compact", "standard", "comfortable"],
-    "target": ["desktop", "touch"],
-    "mapAndChart": ["historical", "modelled", "manual", "unavailable"]
+    "target": ["desktop", "touch"]
   },
   "variants": {
     "appearance": ["system", "light", "dark", "highContrast"],
@@ -25,20 +25,62 @@
     "motion": ["system", "reduced", "full"],
     "density": ["compact", "standard", "comfortable"]
   },
-  "states": [
-    { "id": "ready", "wordingKey": "V2.String.State.Ready", "glyph": "check", "border": "solid", "automationTemplate": "{state}: {detail}" },
-    { "id": "unknown", "wordingKey": "V2.String.State.Unknown", "glyph": "question", "border": "dotted", "automationTemplate": "{state}: {detail}" },
-    { "id": "unavailable", "wordingKey": "V2.String.State.Unavailable", "glyph": "minus", "border": "dashed", "automationTemplate": "{state}: {detail}" },
-    { "id": "offline", "wordingKey": "V2.String.State.Offline", "glyph": "link-off", "border": "dashed", "automationTemplate": "{state}: {detail}" },
-    { "id": "stale", "wordingKey": "V2.String.State.Stale", "glyph": "clock", "border": "dotted", "automationTemplate": "{state}: {detail}" },
-    { "id": "partial", "wordingKey": "V2.String.State.Partial", "glyph": "half-circle", "border": "double", "automationTemplate": "{state}: {detail}" },
-    { "id": "denied", "wordingKey": "V2.String.State.Denied", "glyph": "lock", "border": "solid", "automationTemplate": "{state}: {detail}" },
-    { "id": "failed", "wordingKey": "V2.String.State.Failed", "glyph": "cross", "border": "solid", "automationTemplate": "{state}: {detail}" }
-  ],
+  "status": {
+    "axes": {
+      "availability": {
+        "default": null,
+        "values": [
+          { "id": "ready", "wordingKey": "V2.String.Availability.Ready", "glyph": "check", "border": "solid" },
+          { "id": "unknown", "wordingKey": "V2.String.Availability.Unknown", "glyph": "question", "border": "dotted" },
+          { "id": "unavailable", "wordingKey": "V2.String.Availability.Unavailable", "glyph": "minus", "border": "dashed" },
+          { "id": "offline", "wordingKey": "V2.String.Availability.Offline", "glyph": "slashedCircle", "border": "dashed" },
+          { "id": "denied", "wordingKey": "V2.String.Availability.Denied", "glyph": "circledMinus", "border": "solid" },
+          { "id": "failed", "wordingKey": "V2.String.Availability.Failed", "glyph": "cross", "border": "solid" }
+        ]
+      },
+      "completeness": {
+        "default": "complete",
+        "values": [
+          { "id": "complete", "wordingKey": "V2.String.Completeness.Complete", "glyph": "filledSquare" },
+          { "id": "partial", "wordingKey": "V2.String.Completeness.Partial", "glyph": "halfSquare" },
+          { "id": "unknown", "wordingKey": "V2.String.Completeness.Unknown", "glyph": "emptySquare" }
+        ]
+      },
+      "freshness": {
+        "default": "current",
+        "values": [
+          { "id": "current", "wordingKey": "V2.String.Freshness.Current", "glyph": "filledDiamond" },
+          { "id": "stale", "wordingKey": "V2.String.Freshness.Stale", "glyph": "emptyDiamond" },
+          { "id": "unknown", "wordingKey": "V2.String.Freshness.Unknown", "glyph": "insetDiamond" }
+        ]
+      }
+    },
+    "composition": {
+      "order": ["availability", "completeness", "freshness"],
+      "rule": "Every status names one availability value. Completeness and freshness are independent axes: a result can be partial and stale at once, and each shows its own word and glyph. A default may be left unstated only when the feature has evidence for it; without evidence, show that axis's unknown value.",
+      "automationTemplate": "{availability}, {completeness}, {freshness}: {detail}"
+    }
+  },
   "evidence": {
     "classes": ["observed", "inferred", "manual", "estimated", "historical", "modelled", "potential"],
     "requiredWhenMaterial": ["source", "observedOrDataThroughUtc", "generatedUtc", "coverage", "confidence", "modelVersion"],
     "disclosure": "Show compact identity and decision-changing freshness or confidence inline. Put complete evidence in Why/details; never imply a live detection."
+  },
+  "mapEvidence": [
+    { "id": "historical", "wordingKey": "V2.String.Map.Historical", "pattern": "dashed" },
+    { "id": "modelled", "wordingKey": "V2.String.Map.Modelled", "pattern": "dotted" },
+    { "id": "manual", "wordingKey": "V2.String.Map.Manual", "pattern": "solid" },
+    { "id": "unavailable", "wordingKey": "V2.String.Map.Unavailable", "pattern": "dashDot" }
+  ],
+  "chartSeries": [
+    { "id": "series1", "pattern": "solid" },
+    { "id": "series2", "pattern": "dashed" },
+    { "id": "series3", "pattern": "dotted" },
+    { "id": "series4", "pattern": "dashDot" }
+  ],
+  "operations": {
+    "captureStages": ["armed", "queued", "processing", "review", "corrected", "failed"],
+    "pairedDeviceStates": ["follow", "control", "independent", "leasePending", "offline", "reconnecting", "acknowledgementLag", "conflict"]
   },
   "primitives": [
     "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary", "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable", "chartLegend", "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "captureQueue"
@@ -47,6 +89,7 @@
     "landmarks": ["banner", "navigation", "main", "complementary", "search"],
     "focus": "Navigation focuses the page heading; dialogs focus their title then restore their invoker or the page heading; background work never moves focus.",
     "liveRegions": { "background": "polite", "refusalFailureConflict": "assertive" },
+    "tables": "A table exposes its caption and header-to-cell relationships to assistive technology; where the platform cannot, each row is also exposed as one complete, localized sentence.",
     "colorAlone": false,
     "mapAlternative": "Every map or chart has an ordered data alternative."
   },

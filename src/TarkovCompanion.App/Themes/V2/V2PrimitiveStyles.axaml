@@ -1,68 +1,237 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Native V2 primitive styles. Every colour, type size, spacing step, radius, target minimum, and
+       shadow comes from a V2 resource; the numbers left here are layout details private to one
+       primitive (a swatch size, a dash length). Rendering at each text scale, the focus visuals
+       against the Fluent templates, and the high-contrast result still need the packaged Windows
+       evidence #279 owns. -->
   <Styles.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Tokens.axaml" />
-        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Strings.axaml" />
+        <ResourceInclude Source="avares://TarkovCompanion/Themes/V2/V2Resources.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Styles.Resources>
-  <Style Selector="TextBlock.v2-page-heading">
-    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Display}" />
-    <Setter Property="FontWeight" Value="SemiBold" />
-    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+
+  <!-- Page rhythm. Density swaps gaps and insets only. -->
+  <Style Selector="StackPanel.v2-page">
+    <Setter Property="Margin" Value="{DynamicResource V2.Space.Xl.Inset}" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Lg.Gap}" />
   </Style>
-  <Style Selector="TextBlock.v2-section-heading">
-    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Subheading}" />
+  <Style Selector="StackPanel.v2-stack">
+    <Setter Property="Spacing" Value="{DynamicResource V2.Density.Standard.Gap}" />
+  </Style>
+  <Style Selector=".v2-density-compact StackPanel.v2-stack">
+    <Setter Property="Spacing" Value="{DynamicResource V2.Density.Compact.Gap}" />
+  </Style>
+  <Style Selector=".v2-density-comfortable StackPanel.v2-stack">
+    <Setter Property="Spacing" Value="{DynamicResource V2.Density.Comfortable.Gap}" />
+  </Style>
+
+  <!-- Type. A heading class is named for its level so the visual size cannot drift from the
+       AutomationProperties.HeadingLevel beside it; the contract test pairs the two. -->
+  <Style Selector="TextBlock.v2-heading-1">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading1.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading1.LineHeight}" />
     <Setter Property="FontWeight" Value="SemiBold" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.v2-heading-2">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading2.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading2.LineHeight}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style Selector="TextBlock.v2-heading-3">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Heading3.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Heading3.LineHeight}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
   <Style Selector="TextBlock.v2-body">
-    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body}" />
-    <Setter Property="LineHeight" Value="24" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Body.LineHeight}" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
   <Style Selector="TextBlock.v2-label">
-    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label}" />
-    <Setter Property="LineHeight" Value="20" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
     <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextSecondary}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
+  <Style Selector="TextBlock.v2-glyph">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+  </Style>
+
+  <!-- Surfaces. Elevation adds a shadow but never replaces the border, so a raised surface keeps a
+       visible boundary in high contrast, where every shadow is empty. -->
   <Style Selector="Border.v2-card">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-    <Setter Property="Padding" Value="{DynamicResource V2.Space.Lg}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Density.Standard.Inset}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource V2.Elevation.Flat.Shadow}" />
+  </Style>
+  <Style Selector=".v2-density-compact Border.v2-card">
+    <Setter Property="Padding" Value="{DynamicResource V2.Density.Compact.Inset}" />
+  </Style>
+  <Style Selector=".v2-density-comfortable Border.v2-card">
+    <Setter Property="Padding" Value="{DynamicResource V2.Density.Comfortable.Inset}" />
   </Style>
   <Style Selector="Border.v2-banner">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
-    <Setter Property="BorderThickness" Value="3,1,1,1" />
-    <Setter Property="Padding" Value="{DynamicResource V2.Space.Md}" />
+    <Setter Property="BorderThickness" Value="4,1,1,1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
+    <Setter Property="Padding" Value="{DynamicResource V2.Space.Md.Inset}" />
+    <Setter Property="BoxShadow" Value="{DynamicResource V2.Elevation.Raised.Shadow}" />
   </Style>
-  <Style Selector="Border.v2-state-error">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
-  </Style>
-  <Style Selector="Border.v2-state-warning">
+  <Style Selector="Border.v2-banner.v2-tone-warning">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
   </Style>
-  <Style Selector="Border.v2-state-unknown">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Unknown}" />
+  <Style Selector="Border.v2-banner.v2-tone-danger">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
   </Style>
-  <Style Selector="Border.v2-state-offline">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.TextSecondary}" />
+
+  <!-- Status badge: word, glyph, role colour, and an outline pattern from the manifest. A Border
+       cannot dash its outline, so the outline is a Rectangle behind the content. -->
+  <Style Selector="Panel.v2-badge">
+    <Setter Property="Margin" Value="0,0,8,8" />
   </Style>
-  <Style Selector="Border.v2-badge">
+  <Style Selector="Panel.v2-badge > Rectangle.v2-badge-outline">
+    <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Border}" />
+    <Setter Property="StrokeThickness" Value="2" />
+    <Setter Property="RadiusX" Value="6" />
+    <Setter Property="RadiusY" Value="6" />
+  </Style>
+  <Style Selector="Panel.v2-badge > StackPanel.v2-badge-content">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
+    <Setter Property="Margin" Value="10,4" />
+  </Style>
+  <Style Selector="Panel.v2-availability-ready > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-unknown > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Unknown}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-unavailable > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-offline > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.TextSecondary}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-denied > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-failed > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
+  </Style>
+
+  <!-- Outline patterns named by the manifest (solid needs no class). Dash lengths are multiples of
+       the stroke thickness. -->
+  <Style Selector="Rectangle.v2-pattern-dashed">
+    <Setter Property="StrokeDashArray" Value="3,2" />
+  </Style>
+  <Style Selector="Rectangle.v2-pattern-dotted">
+    <Setter Property="StrokeDashArray" Value="1,1.5" />
+  </Style>
+  <Style Selector="Rectangle.v2-pattern-dash-dot">
+    <Setter Property="StrokeDashArray" Value="4,2,1,2" />
+  </Style>
+
+  <!-- Legends. The swatch is decorative; the word beside it is the identity. -->
+  <Style Selector="StackPanel.v2-legend-entry">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
+  </Style>
+  <Style Selector="Rectangle.v2-legend-swatch">
+    <Setter Property="Width" Value="32" />
+    <Setter Property="Height" Value="16" />
+    <Setter Property="StrokeThickness" Value="3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="Rectangle.v2-map-historical">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Map.Historical}" />
+  </Style>
+  <Style Selector="Rectangle.v2-map-modelled">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Map.Modelled}" />
+  </Style>
+  <Style Selector="Rectangle.v2-map-manual">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Map.Manual}" />
+  </Style>
+  <Style Selector="Rectangle.v2-map-unavailable">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Map.Unavailable}" />
+  </Style>
+  <Style Selector="Rectangle.v2-chart-series1">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Chart.Series1}" />
+  </Style>
+  <Style Selector="Rectangle.v2-chart-series2">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Chart.Series2}" />
+  </Style>
+  <Style Selector="Rectangle.v2-chart-series3">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Chart.Series3}" />
+  </Style>
+  <Style Selector="Rectangle.v2-chart-series4">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Chart.Series4}" />
+  </Style>
+
+  <!-- Tabular layout. Avalonia 12.1.2 exposes no UIA table or grid pattern (IsColumnHeader and
+       IsRowHeader are documented as having no effect), so each row is also a named group whose
+       name is the whole localized row sentence. -->
+  <Style Selector="StackPanel.v2-table">
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
+  </Style>
+  <Style Selector="Grid.v2-table-header">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
-    <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Control}" />
-    <Setter Property="Padding" Value="8,4" />
+  </Style>
+  <Style Selector="Grid.v2-table-row">
+    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+  </Style>
+  <Style Selector="Grid.v2-table-header > TextBlock">
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.TextPrimary}" />
+    <Setter Property="Margin" Value="{DynamicResource V2.Space.Sm.Inset}" />
+  </Style>
+  <Style Selector="Grid.v2-table-row > TextBlock">
+    <Setter Property="Margin" Value="{DynamicResource V2.Space.Sm.Inset}" />
+  </Style>
+
+  <!-- Fields. The error is a sentence in its own right, not a colour. -->
+  <Style Selector="StackPanel.v2-field">
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
+  </Style>
+  <Style Selector="TextBox.v2-field-input">
+    <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
+  </Style>
+  <Style Selector="TextBox.v2-field-input.v2-field-error">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="TextBlock.v2-field-message">
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
+    <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
+    <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Danger}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- Actions. Wrapping panels keep a toolbar reachable at 200% text instead of clipping it. -->
+  <Style Selector="WrapPanel.v2-toolbar > Button">
+    <Setter Property="Margin" Value="0,0,8,8" />
   </Style>
   <Style Selector="Button.v2-target">
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Desktop}" />
+    <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
     <Setter Property="Padding" Value="12,8" />
   </Style>
   <Style Selector="Button.v2-touch-target">
@@ -71,21 +240,13 @@
   </Style>
   <Style Selector="Button.v2-target:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
-    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
   </Style>
-  <Style Selector="TextBox:focus-visible">
+  <Style Selector="TextBox.v2-field-input:focus-visible">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
-    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
+    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
   </Style>
-  <Style Selector="ToggleButton:focus-visible">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
-    <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Thickness}" />
-  </Style>
-  <Style Selector="TextBox.v2-field-error">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
-    <Setter Property="BorderThickness" Value="2" />
-  </Style>
-  <Style Selector="Grid.v2-semantic-table">
-    <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+  <Style Selector="Expander.v2-why">
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
   </Style>
 </Styles>

@@ -1,0 +1,24 @@
+{
+  "matrix": "v2-primitive-gallery",
+  "version": 1,
+  "status": "unrendered",
+  "evidenceOwner": "#279",
+  "purpose": "The cases the native primitive gallery must be rendered, inspected, and approved at. Nothing in CI renders, lays out, or captures these cases; this file is the checklist that evidence has to cover, not the evidence.",
+  "determinism": "Synthetic resource-backed strings only; no clock, network data, animation frame, font fallback, or OS-specific capture is accepted.",
+  "variants": ["dark", "light", "highContrast", "redGreenSafe", "blueYellowSafe", "monochrome"],
+  "cases": [
+    { "id": "desktop-100-expanded", "textScale": 100, "effectiveWidth": "expanded", "mustShow": ["heading", "toolbar", "card", "table", "legend", "why"] },
+    { "id": "desktop-125-standard", "textScale": 125, "effectiveWidth": "standard", "mustShow": ["heading", "status", "capture", "pairedDevice"] },
+    { "id": "desktop-150-compact", "textScale": 150, "effectiveWidth": "compact", "mustShow": ["stackedCards", "tableOverflowAffordance", "liveRegion"] },
+    { "id": "desktop-200-narrow", "textScale": 200, "effectiveWidth": "narrow", "mustShow": ["singleColumn", "touchTargets", "orderedDataAlternative", "focusRing"] },
+    { "id": "tablet-100-narrow", "textScale": 100, "effectiveWidth": "narrow", "mustShow": ["touchTargets", "pairedDevice", "captureQueue"] }
+  ],
+  "treeExpectations": [
+    "one level-1 heading",
+    "a named Main landmark in the control view",
+    "polite and assertive live-region text elements",
+    "each table row exposed as a named group",
+    "the toolbar exposed as a ToolBar",
+    "no decorative glyph in the control view"
+  ]
+}
