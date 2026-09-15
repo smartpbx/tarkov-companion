@@ -11,12 +11,15 @@ The package build target copies the x64 native libraries into publish output. Th
 atomically materialized under the user's local application-data cache only after its hash is
 verified; no runtime download occurs.
 
-Windows Media OCR accepts no image with a side above its native limit. Oversized 4K and
-ultrawide source regions therefore use deterministic 128-pixel-overlap tiles at native
-resolution; no source pixel is dropped to make the frame fit. Every tile result is translated
-back to source-image coordinates, and equal or contained text over the same source geometry is
-deduplicated deterministically. The provider publishes no confidence score. Its lines carry
-`null`, which is unscored evidence and remains distinct from a provider reporting numeric zero.
+Windows Media OCR uses a 2,600-pixel compatibility tile edge, or the installed component's
+reported native limit when that is smaller. The compatibility edge is fixed because Windows
+versions report different maxima, while the 4K seam and diagnostic contract must not change
+with the runner image. Oversized 4K and ultrawide source regions therefore use deterministic
+128-pixel-overlap tiles at native resolution; no source pixel is dropped to make the frame fit.
+Every tile result is translated back to source-image coordinates, and equal or contained text
+over the same source geometry is deduplicated deterministically. The provider publishes no
+confidence score. Its lines carry `null`, which is unscored evidence and remains distinct from
+a provider reporting numeric zero.
 
 Both providers enforce a 15-second caller-visible frame timeout, 40-million-source-pixel and
 192-MiB input-buffer ceilings, and a 256-MiB estimated peak-memory ceiling. Tesseract also caps

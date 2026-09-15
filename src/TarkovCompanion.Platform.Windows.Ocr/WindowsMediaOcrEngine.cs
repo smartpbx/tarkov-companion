@@ -30,6 +30,12 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
 {
     public const string ProviderName = "windows-media-ocr";
 
+    // OcrEngine.MaxImageDimension is not stable across Windows runner images. A hosted image
+    // first exposed this by advertising a limit above 4K, which silently bypassed the tile path
+    // that 4K diagnostics and seam handling rely on. Keep the compatibility edge fixed while
+    // still honoring a smaller limit reported by the installed Windows component.
+    private const int CompatibilityMaximumTileDimension = 2_600;
+
     private readonly IWindowsOcrRecognizer? _recognizer;
     private readonly WindowsMediaOcrOptions _options;
 
@@ -127,7 +133,8 @@ public sealed class WindowsMediaOcrEngine : IOcrEngine, IOcrEngineStatus
                 null);
         }
 
-        var nativeLimit = _options.MaximumTileDimension ?? (int)WindowsOcr.OcrEngine.MaxImageDimension;
+        var configuredLimit = _options.MaximumTileDimension ?? CompatibilityMaximumTileDimension;
+        var nativeLimit = Math.Min(configuredLimit, (int)WindowsOcr.OcrEngine.MaxImageDimension);
         var tiles = PlanTiles(region, nativeLimit, _options.TileOverlap);
         if (tiles.Count > _options.MaximumTiles)
         {
