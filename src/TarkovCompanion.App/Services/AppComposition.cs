@@ -17,6 +17,7 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.App.Services.Updates;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Strategy;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
@@ -442,6 +443,7 @@ public static class AppComposition
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
         services.AddSingleton<MainWindowViewModel>();
+        services.AddSingleton<V2ShellViewModel>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

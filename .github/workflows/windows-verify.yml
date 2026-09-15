@@ -361,10 +361,12 @@ jobs:
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
       # Fails a launch that shows no responsive, visually varied window, whose toolkit reported
-      # an interface fault to TARKOV_COMPANION_UI_WARNING_LOG, or whose warning capture was never
-      # armed. It does not prove semantic expected-page, accessibility, or map tile/data
-      # readiness: that #279 criterion stays open and depends on the application readiness
-      # signal owned by #281, which this workflow does not duplicate.
+      # an interface fault, whose warning capture was never armed, or whose required packaged-shell
+      # UI Automation interaction failed. Legacy, V2 A and V2 B are launched and captured; both V2
+      # variants are also exercised at narrow width. V2 additionally traverses every retained route
+      # and asserts selected focus, dialog, title and deep-link behavior. It does not prove full
+      # usability/accessibility or map tile/data readiness: those #279 criteria stay open and depend
+      # on the application readiness signal owned by #281, which this workflow does not duplicate.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
@@ -549,7 +551,7 @@ jobs:
             }
             if ($null -ne $Evidence.gallery) {
               $Clean = $Evidence.gallery.launchCount - $Evidence.gallery.failedCount
-              $Lines += "Page gallery: $Clean of $($Evidence.gallery.launchCount) launches responsive, visually varied, with an armed warning capture and no interface faults. Expected-page, accessibility and data/tile readiness are not proven (open #279 criterion; readiness signal owned by #281)."
+              $Lines += "Page gallery: $Clean of $($Evidence.gallery.launchCount) launches responsive, visually varied, and gracefully shut down; $($Evidence.gallery.interactionPassedLaunchCount) of $($Evidence.gallery.interactionRequiredLaunchCount) required packaged-shell UI Automation interactions passed, with armed warning capture and no interface faults. Full usability and data/tile readiness are not proven (open #279 criterion; readiness signal owned by #281)."
             }
             if ($null -ne $Evidence.smoke) {
               $Persistence = $Evidence.smoke.persistence

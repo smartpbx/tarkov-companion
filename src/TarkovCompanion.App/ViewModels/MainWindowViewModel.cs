@@ -8,6 +8,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
@@ -2422,6 +2423,7 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     private string? _followedMapId;
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private PageViewModel _currentPage;
+    private V2ShellViewModel? _previewShell;
     private IReadOnlyList<StatusChip> _status = [];
     private string _modeLabel = string.Empty;
     private string _lastScanName = "No item scanned";
@@ -2713,6 +2715,50 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     {
         get => _modeLabel;
         private set => SetProperty(ref _modeLabel, value);
+    }
+
+    /// <summary>The optional process-start preview shell; V1 remains the default when this is null.</summary>
+    public V2ShellViewModel? PreviewShell
+    {
+        get => _previewShell;
+        set
+        {
+            if (ReferenceEquals(_previewShell, value))
+            {
+                return;
+            }
+
+            if (_previewShell is not null)
+            {
+                _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+            }
+
+            if (SetProperty(ref _previewShell, value))
+            {
+                if (_previewShell is not null)
+                {
+                    _previewShell.PropertyChanged += PreviewShellPropertyChanged;
+                }
+
+                OnPropertyChanged(nameof(IsLegacyShell));
+                OnPropertyChanged(nameof(IsPreviewShell));
+                OnPropertyChanged(nameof(WindowTitle));
+            }
+        }
+    }
+
+    public bool IsLegacyShell => PreviewShell is null;
+
+    public bool IsPreviewShell => PreviewShell is not null;
+
+    public string WindowTitle => PreviewShell?.Title ?? "Tarkov Companion";
+
+    private void PreviewShellPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is null or nameof(V2ShellViewModel.Title))
+        {
+            OnPropertyChanged(nameof(WindowTitle));
+        }
     }
 
     public string LastScanName
@@ -3041,6 +3087,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _disposed = true;
         _clock?.Stop();
         _clock = null;
+        if (_previewShell is not null)
+        {
+            _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+        }
         _stateStore.Changed -= RuntimeStateChanged;
         // Stops the update watcher, which otherwise outlives the window it reports to and
         // keeps making network calls for a process on its way out.

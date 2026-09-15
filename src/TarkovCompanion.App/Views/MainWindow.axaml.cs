@@ -1,9 +1,12 @@
+using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.VisualTree;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.Application.Services.Shell;
 
 namespace TarkovCompanion.App.Views;
@@ -64,35 +67,53 @@ public sealed partial class MainWindow : Window
                 screen.WorkingArea.Y + screen.WorkingArea.Height))
             .ToArray();
 
-        var layout = await viewModel.LoadLayoutAsync(screens);
-        Width = layout.Width;
-        Height = layout.Height;
-        if (layout is { Left: { } left, Top: { } top })
+        if (viewModel.PreviewShell is { } previewShell)
         {
-            Position = new((int)left, (int)top);
+            MinWidth = V2ShellWindowPlacement.MinimumWidth;
+            MinHeight = V2ShellWindowPlacement.MinimumHeight;
+            if (previewShell.RestoreWindow(screens) is { } preview)
+            {
+                Width = preview.Width;
+                Height = preview.Height;
+                if (preview is { Left: { } left, Top: { } top }) Position = new((int)left, (int)top);
+                if (preview.IsMaximized) WindowState = WindowState.Maximized;
+            }
         }
-
-        if (layout.IsMaximized)
+        else
         {
-            WindowState = WindowState.Maximized;
+            var layout = await viewModel.LoadLayoutAsync(screens);
+            Width = layout.Width;
+            Height = layout.Height;
+            if (layout is { Left: { } left, Top: { } top }) Position = new((int)left, (int)top);
+            if (layout.IsMaximized) WindowState = WindowState.Maximized;
         }
 
         // Only once the window is where it belongs. Subscribing earlier would record the
         // operating system's own opening position over the one being restored.
         PositionChanged += BoundsChanged;
         SizeChanged += BoundsChanged;
+        if (viewModel.PreviewShell is not null)
+        {
+            // Seed a normal restore rectangle even when this is the first launch and the next
+            // window event is a maximize. Otherwise the only remembered bounds are the screen.
+            Remember();
+        }
     }
 
     private void BoundsChanged(object? sender, EventArgs eventArgs) => Remember();
 
     private void RememberLayout(object? sender, WindowClosingEventArgs eventArgs) => Remember();
 
-    private void Remember() => (DataContext as MainWindowViewModel)?.RecordBounds(
-        Width,
-        Height,
-        Position.X,
-        Position.Y,
-        WindowState == WindowState.Maximized);
+    private void Remember()
+    {
+        if (DataContext is not MainWindowViewModel viewModel) return;
+        if (viewModel.PreviewShell is { } preview)
+        {
+            preview.RecordWindow(Width, Height, Position.X, Position.Y, WindowState == WindowState.Maximized);
+            return;
+        }
+        viewModel.RecordBounds(Width, Height, Position.X, Position.Y, WindowState == WindowState.Maximized);
+    }
 
     private void RailToggleClick(object? sender, RoutedEventArgs eventArgs) =>
         (DataContext as MainWindowViewModel)?.ToggleRail();
@@ -101,6 +122,21 @@ public sealed partial class MainWindow : Window
     {
         if (DataContext is not MainWindowViewModel viewModel)
         {
+            return;
+        }
+
+        if (viewModel.PreviewShell is { } preview)
+        {
+            if (TryV2Chord(eventArgs, out var chord))
+            {
+                var focusedId = FocusManager?.GetFocusedElement() is StyledElement focused
+                    ? AutomationProperties.GetAutomationId(focused)
+                    : null;
+                eventArgs.Handled = preview.HandleKey(chord, focusedId);
+            }
+
+            // A V2 key not claimed by chrome still reaches the focused V2 control, but it never
+            // drops into the hidden V1 shortcut table below.
             return;
         }
 
@@ -181,6 +217,20 @@ public sealed partial class MainWindow : Window
         }
 
         eventArgs.Handled = true;
+    }
+
+    private static bool TryV2Chord(KeyEventArgs eventArgs, out V2KeyChord chord)
+    {
+        var key = eventArgs.Key switch
+        {
+            Key.D0 or Key.NumPad0 => "0", Key.D1 or Key.NumPad1 => "1", Key.D2 or Key.NumPad2 => "2",
+            Key.D3 or Key.NumPad3 => "3", Key.D4 or Key.NumPad4 => "4", Key.D5 or Key.NumPad5 => "5",
+            Key.D6 or Key.NumPad6 => "6", Key.D7 or Key.NumPad7 => "7", Key.D8 or Key.NumPad8 => "8",
+            Key.D9 or Key.NumPad9 => "9", Key.Left => "Left", Key.Right => "Right", Key.Escape => "Escape",
+            Key.F6 => "F6", Key.OemComma => ",", _ => eventArgs.Key.ToString(),
+        };
+        chord = new(key, eventArgs.KeyModifiers.HasFlag(KeyModifiers.Control), eventArgs.KeyModifiers.HasFlag(KeyModifiers.Alt), eventArgs.KeyModifiers.HasFlag(KeyModifiers.Shift));
+        return true;
     }
 
     /// <summary>
