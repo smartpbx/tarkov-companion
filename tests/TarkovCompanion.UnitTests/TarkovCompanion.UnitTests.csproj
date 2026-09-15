@@ -21,6 +21,5 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../fixtures/api/tasks-contract.json" Link="fixtures/api/tasks-contract.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
