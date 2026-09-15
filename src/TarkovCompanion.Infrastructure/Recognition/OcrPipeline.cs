@@ -19,6 +19,14 @@ public sealed record OcrPipelineOptions
 {
     /// <summary>Wall-clock budget for one frame read outside a scan.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The clock the budget runs on: the system's, unless a test measures on its own.</summary>
+    /// <remarks>
+    /// A system timer fires on a thread-pool thread, and a test that stalls pixel work for longer
+    /// than the budget and expects the deadline to have fired meanwhile was measuring the pool's
+    /// latency under a parallel test run, not the deadline. It failed on both CI hosts at once.
+    /// </remarks>
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }
 
 /// <summary>The frame deadline a recognizer reads under: the scan's, or one it started itself.</summary>
@@ -62,6 +70,7 @@ internal sealed class OcrPipelineDeadline : IDisposable
     public static OcrPipelineOptions Validate(OcrPipelineOptions? options)
     {
         options ??= new OcrPipelineOptions();
+        ArgumentNullException.ThrowIfNull(options.TimeProvider, nameof(options));
         if (options.Timeout <= TimeSpan.Zero || options.Timeout > MaximumTimeout)
         {
             throw new ArgumentOutOfRangeException(nameof(options), "The OCR pipeline deadline must be positive and bounded.");
@@ -77,7 +86,7 @@ internal sealed class OcrPipelineDeadline : IDisposable
     public static OcrPipelineDeadline Start(OcrPipelineOptions options, CancellationToken cancellationToken) =>
         ScanFrameDeadline.Joining(cancellationToken) is { } frame
             ? new(frame, owned: false)
-            : new(ScanFrameDeadline.Start(options.Timeout, cancellationToken), owned: true);
+            : new(ScanFrameDeadline.Start(options.Timeout, cancellationToken, options.TimeProvider), owned: true);
 
     /// <summary>
     /// True when the token is a frame deadline's and that deadline, rather than a caller, ended

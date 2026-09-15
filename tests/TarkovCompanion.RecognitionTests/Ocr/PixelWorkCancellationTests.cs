@@ -87,9 +87,14 @@ public sealed class PixelWorkCancellationTests
     [Fact]
     public async Task TheContainerDeadlineCoversGridDetectionAndEndsItAsAPipelineTimeout()
     {
-        // Grid detection over this frame is nearly a million reads. The deadline expires while
-        // the tenth one is stalled, so only a deadline that had already started can stop it.
-        var pixels = new ObservedPixels(GridPixels(), atRead: 10, () => Thread.Sleep(400));
+        // Grid detection over this frame is nearly a million reads. The deadline's clock passes it
+        // at the tenth, so only a deadline that had already started can stop the rest.
+        //
+        // On a manual clock: this used to stall the read for 400 ms of wall time and trust a
+        // 100 ms system timer to have fired meanwhile. The timer fires on a pool thread, and with
+        // the pool busy under a parallel run it had not, so the test failed on both CI hosts at once.
+        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
+        var pixels = new ObservedPixels(GridPixels(), atRead: 10, () => clock.Advance(TimeSpan.FromMilliseconds(400)));
         var image = Image(pixels, Width, Height);
         var engine = new CountingEngine();
         await using var cache = Cache();
@@ -97,7 +102,7 @@ public sealed class PixelWorkCancellationTests
             engine,
             cache,
             new NoPriceItemRepository(),
-            pipelineOptions: new OcrPipelineOptions { Timeout = TimeSpan.FromMilliseconds(100) });
+            pipelineOptions: new OcrPipelineOptions { Timeout = TimeSpan.FromMilliseconds(100), TimeProvider = clock });
 
         var result = await service.RecognizeAsync(image, CancellationToken.None);
 

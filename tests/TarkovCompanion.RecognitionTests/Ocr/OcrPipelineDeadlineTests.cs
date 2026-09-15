@@ -16,8 +16,11 @@ public sealed class OcrPipelineDeadlineTests
     public async Task SlowPassesThatEachFitTheirOwnTimeoutStillShareOneFrameDeadline()
     {
         // Each pass takes 500 ms. Given its own 800 ms budget each would finish; sharing one
-        // 800 ms deadline, the contextual pass cannot.
+        // 800 ms deadline, the contextual pass cannot. Measured on a manual clock, so the deadline
+        // fires inside the pass that crosses it rather than whenever the pool runs its timer.
+        var clock = new ManualTimeProvider(new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero));
         var engine = new SlowPassEngine(
+            clock,
             TimeSpan.FromMilliseconds(500),
             new OcrResult(
             [
@@ -32,7 +35,7 @@ public sealed class OcrPipelineDeadlineTests
         var coordinator = new OcrCoordinator(
             engine,
             new ScanContextDetector(),
-            pipelineOptions: new OcrPipelineOptions { Timeout = TimeSpan.FromMilliseconds(800) });
+            pipelineOptions: new OcrPipelineOptions { Timeout = TimeSpan.FromMilliseconds(800), TimeProvider = clock });
 
         var result = await coordinator.RecognizeAsync(Frame(1920, 1080), CancellationToken.None);
 
@@ -54,6 +57,7 @@ public sealed class OcrPipelineDeadlineTests
     {
         using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         var engine = new SlowPassEngine(
+            null,
             Timeout.InfiniteTimeSpan,
             new OcrResult([], TimeSpan.Zero, "fixture"));
 
@@ -207,7 +211,11 @@ public sealed class OcrPipelineDeadlineTests
         }
     }
 
-    private sealed class SlowPassEngine(TimeSpan delay, params OcrResult[] results) : IOcrEngine
+    /// <summary>
+    /// Takes <paramref name="delay"/> per pass: on the manual clock when one is given, so the
+    /// deadline fires inside the pass, and as a real wait on the token otherwise.
+    /// </summary>
+    private sealed class SlowPassEngine(ManualTimeProvider? clock, TimeSpan delay, params OcrResult[] results) : IOcrEngine
     {
         public List<CancellationToken> Tokens { get; } = [];
 
@@ -218,7 +226,16 @@ public sealed class OcrPipelineDeadlineTests
         {
             var call = Tokens.Count;
             Tokens.Add(cancellationToken);
-            await Task.Delay(delay, cancellationToken);
+            if (clock is null)
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
+            else
+            {
+                clock.Advance(delay);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
             return results[Math.Min(call, results.Length - 1)];
         }
     }

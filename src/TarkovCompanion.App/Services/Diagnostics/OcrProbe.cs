@@ -132,6 +132,13 @@ public sealed record OcrProbeLimits
     /// than as a provider that is known to be available.
     /// </remarks>
     public TimeSpan SettleTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The clock the run deadline is measured on: the system's, unless a test supplies one.</summary>
+    /// <remarks>
+    /// A system timer fires on a pool thread. A test that stalls discovery past the deadline and
+    /// expects it to have fired meanwhile measures the pool's latency under a parallel run.
+    /// </remarks>
+    public TimeProvider TimeProvider { get; init; } = TimeProvider.System;
 }
 
 /// <summary>
@@ -1022,12 +1029,14 @@ public static class OcrProbe
     /// <summary>One run's deadline, linked to the caller, and the reason it stopped early if it did.</summary>
     private sealed class ProbeRun : IDisposable
     {
+        private readonly CancellationTokenSource _timer;
         private readonly CancellationTokenSource _deadline;
         private readonly CancellationToken _caller;
 
         public ProbeRun(OcrProbeLimits limits, CancellationToken caller)
         {
             ArgumentNullException.ThrowIfNull(limits);
+            ArgumentNullException.ThrowIfNull(limits.TimeProvider, nameof(limits));
             if (limits.RunTimeout <= TimeSpan.Zero ||
                 limits.RunTimeout > TimeSpan.FromDays(1) ||
                 limits.MaximumCells <= 0 ||
@@ -1040,18 +1049,22 @@ public static class OcrProbe
             caller.ThrowIfCancellationRequested();
             _caller = caller;
             SettleTimeout = limits.SettleTimeout;
-            _deadline = CancellationTokenSource.CreateLinkedTokenSource(caller);
-            _deadline.CancelAfter(limits.RunTimeout);
+            _timer = new CancellationTokenSource(limits.RunTimeout, limits.TimeProvider);
+            _deadline = CancellationTokenSource.CreateLinkedTokenSource(caller, _timer.Token);
         }
 
         public CancellationToken Token => _deadline.Token;
 
         public TimeSpan SettleTimeout { get; }
 
-        public bool IsExpired => _deadline.IsCancellationRequested && !_caller.IsCancellationRequested;
+        public bool IsExpired => _timer.IsCancellationRequested && !_caller.IsCancellationRequested;
 
         public string? StopDiagnostic { get; set; }
 
-        public void Dispose() => _deadline.Dispose();
+        public void Dispose()
+        {
+            _deadline.Dispose();
+            _timer.Dispose();
+        }
     }
 }

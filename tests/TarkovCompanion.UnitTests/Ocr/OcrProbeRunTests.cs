@@ -192,9 +192,13 @@ public sealed class OcrProbeRunTests
     [Fact]
     public async Task TheRunDeadlineCoversStashGridDiscoveryAndStopsItPartway()
     {
-        // Discovery reads 640 x 120 pixels on its first axis. The deadline expires while one of
-        // the first reads is stalled; only a deadline that started before discovery can stop it.
-        var pixels = new ObservedPixels(new byte[640 * 120], atRead: 10, () => Thread.Sleep(400));
+        // Discovery reads 640 x 120 pixels on its first axis. The deadline's clock passes it at one
+        // of the first reads; only a deadline that started before discovery can stop the rest.
+        //
+        // On a manual clock, so the deadline fires inside that read. A 400 ms stall against a
+        // 100 ms system timer measured how soon a busy pool ran the timer, not the deadline.
+        var clock = new ManualClock();
+        var pixels = new ObservedPixels(new byte[640 * 120], atRead: 10, () => clock.Advance(TimeSpan.FromMilliseconds(400)));
         var engine = new CaptionEngine("unreached-fixture");
 
         var report = await OcrProbe.ProbeCellsAsync(
@@ -202,7 +206,7 @@ public sealed class OcrProbeRunTests
             new PixelRect(0, 0, 640, 120),
             [("unreached", engine)],
             new ScanContextDetector(),
-            new OcrProbeLimits { RunTimeout = TimeSpan.FromMilliseconds(100) },
+            new OcrProbeLimits { RunTimeout = TimeSpan.FromMilliseconds(100), TimeProvider = clock },
             TextWriter.Null,
             CancellationToken.None);
 
@@ -291,6 +295,84 @@ public sealed class OcrProbeRunTests
             Calls++;
             Availability = new(false, "failing-fixture", "synthetic native failure");
             return Task.FromResult(new OcrResult([], TimeSpan.Zero, "failing-fixture", false, "ocr_provider_failed"));
+        }
+    }
+
+    /// <summary>A clock that moves only when told to and fires the timers it created as it passes them.</summary>
+    private sealed class ManualClock : TimeProvider
+    {
+        private readonly object _gate = new();
+        private readonly List<ManualTimer> _timers = [];
+        private TimeSpan _elapsed;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_gate)
+            {
+                return new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero) + _elapsed;
+            }
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        public void Advance(TimeSpan by)
+        {
+            ManualTimer[] due;
+            lock (_gate)
+            {
+                _elapsed += by;
+                due = [.. _timers.Where(timer => timer.DueAt <= _elapsed)];
+                foreach (var timer in due)
+                {
+                    _timers.Remove(timer);
+                }
+            }
+
+            foreach (var timer in due)
+            {
+                timer.Fire();
+            }
+        }
+
+        private sealed class ManualTimer(ManualClock clock, TimerCallback callback, object? state) : ITimer
+        {
+            public TimeSpan DueAt { get; private set; }
+
+            public void Fire() => callback(state);
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (clock._gate)
+                {
+                    clock._timers.Remove(this);
+                    if (dueTime != Timeout.InfiniteTimeSpan)
+                    {
+                        DueAt = clock._elapsed + dueTime;
+                        clock._timers.Add(this);
+                    }
+                }
+
+                return true;
+            }
+
+            public void Dispose()
+            {
+                lock (clock._gate)
+                {
+                    clock._timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
         }
     }
 
