@@ -1,14 +1,21 @@
 # Recognition corpus fixtures
 
 This directory contains only versioned policy, schemas, synthetic contract examples, hostile
-parser fixtures, and privacy-safe aggregate status. It deliberately contains no pixels, real
-capture names, absolute paths, private manifests, consent records, OCR strings, per-sample truth,
-or per-sample predictions. The invented traversal/name strings under `hostile/` exist only to
-prove that extension fields cannot smuggle those classes of data through validation.
+parser fixtures, synthetic golden fixtures, and privacy-safe aggregate status. It deliberately
+contains no pixels, real capture names, absolute paths, private manifests, consent or privacy
+records, OCR strings, or real per-sample truth or predictions. The invented traversal/name strings
+under `hostile/` exist only to prove that extension fields cannot smuggle those classes of data
+through validation.
 
-The corpus itself lives outside every repository and worktree. `RecognitionCorpus` resolves the
-canonical target of every private input and refuses lexical or symlink/junction paths that enter
-a Git repository/worktree. It also forbids original-name fields, absolute paths, and relative
+`golden/` is the one place with per-sample labels, and every one is invented: a synthetic-raster
+manifest with no consent or privacy records, predictions for it, and the run plan and aggregate
+they must produce byte for byte. They pin the split, plan lock, and serializer output. Two decimals
+in the manifest are deliberately spelled `1.250` and `0.50` to prove canonicalization. Regenerate
+them only for a deliberate, versioned contract change.
+
+The corpus itself lives outside every repository and worktree. `RecognitionCorpus` resolves
+every private path one component at a time, including the parents inside each link target, and
+refuses lexical or symlink/junction paths that enter a Git repository, worktree, or Git storage. It also forbids original-name fields, absolute paths, and relative
 traversal strings at any nesting depth before it validates an interchange. Real raster material
 remains ineligible until its independently observed decoded-pixel
 hash, full private consent record, full privacy review, permitted uses, UTC
