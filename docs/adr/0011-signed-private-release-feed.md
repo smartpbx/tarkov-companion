@@ -22,25 +22,41 @@ check, so a refused build was later reported as installed (`RISK-RELAY-UPDATE-ST
 **Authority is a signature.** Every artifact, the release manifest naming them, and every ring
 decision is signed keylessly with Sigstore by `.github/workflows/publish.yml` running on
 `refs/heads/main` in `smartpbx/tarkov-companion`. Consumers accept exactly that certificate
-identity and issuer, verified against a Sigstore trust root they hold as a file. The trust root is
-provisioned separately from the feed and never fetched from it. A workflow dispatched from any
-other branch gets a certificate naming that branch, and consumers refuse it.
+identity and issuer, and require the certificate's GitHub repository and ref claims to match. They
+verify against a Sigstore trust root they hold as a file, provisioned separately from the feed
+and never fetched from it. A workflow dispatched from any other branch gets a certificate naming
+that branch, and consumers refuse it.
+
+**Verification is by content, in one format.** Signing and verification use cosign v3.1.3,
+accepted only by sha256; earlier versions skipped the identity check for a legacy bundle carrying
+a bare public key (GHSA-fx35-mq7g-6g98). Every consumer accepts only a standardized v0.3 Sigstore
+message-signature bundle over exactly the file's bytes, and refuses every other bundle shape
+before cosign runs. Syft, actionlint and the workflow policy's YAML parser are likewise installed
+by digest, and actions by commit.
 
 **The feed is a private GitHub repository**, named per release environment, and must be private
 or internal; the publisher and the relay updater both refuse the public source repository.
 
 - An immutable build is a release tagged `v2-build-<version>`. It is uploaded as a draft, and
   GitHub's own sha256 for each asset must match the signed manifest before and after the draft is
-  published. Immutable releases should be enabled on the feed.
-- A ring (canary, beta, stable) is a chain of signed decisions,
+  published. The publisher requires the feed to enforce immutable releases, read live before it
+  writes, and requires GitHub to report each published build immutable.
+- A ring (canary, beta, stable) is a sequence of signed decisions with monotonic generation numbers,
   `rings/<ring>/release-index-g<generation>.json`, each created once through the contents API
   without a parent blob. A second writer for the same generation is refused by GitHub rather than
   overwriting the first. Readers take the newest generation.
 
 **Verification and publication are separate workflows**, and publication is split by
-authority. A job that checks holds read scopes, a job that runs the built relay holds nothing,
-and only the job in the ring's protected environment can sign, attest and write the feed. It
-re-derives every digest from the verification run's artifacts itself.
+authority. Each job's authority:
+- a job that checks holds read scopes;
+- the job that generates the SBOM runs no .NET;
+- a job that runs the built relay holds nothing;
+- only the job in the ring's protected environment can sign, attest and write the feed.
+
+Every job fetches the verification run's artifact archives by the sha256 GitHub recorded at
+upload, and the manifest names those digests. Provenance is an explicit predicate. It names the
+verification workflow as builder, its run as invocation, the commit it built as source, and the
+archives as inputs. It does not describe the publishing run, which built nothing.
 
 **Ring policy** is code (`scripts/release/release_policy.py`):
 
@@ -48,12 +64,21 @@ re-derives every digest from the verification run's artifacts itself.
 - Each ring has a high-water mark that forward moves must exceed, and a rollback does not lower.
 - Pause holds consumers. Rollback selects the marked last-known-good and is the only decision
   that authorizes a consumer to install an older version.
-- Every decision records its predecessor's generation, the action, actor, reason and workflow run.
+- Every decision records its predecessor's generation number, the action, actor, reason and
+  workflow run. It carries no digest of its predecessor; generations are monotonic, not chained.
 
-**Consumers enforce, not just publishers.** The relay updater verifies before touching the
-host, refuses older or conflicting generations and unauthorized downgrades, and changes its
-stamps only after the new relay proves the signed identity. It undoes any failure from a swap
-journal. Offline media are verified by the same rules.
+**Consumers enforce, not just publishers.** The relay updater:
+- verifies everything before touching the host;
+- refuses older or conflicting generations and unauthorized downgrades;
+- changes its stamps only after the new relay proves the signed identity;
+- undoes any failure from a swap journal.
+
+Everything it decides from is in a root-owned `0700` directory. The unprivileged relay can write
+only the request marker, and the panel reads a root-owned status directory. A host with no history
+needs an anchor: its running relay's version, a provisioned version or generation floor, or an
+explicit unanchored bootstrap. Offline media are copied privately before verification. They must
+carry a signed ring decision for the named ring and feed, unless an operator breaks glass, which
+is reported as exactly that.
 
 ## Alternatives considered
 
@@ -75,12 +100,16 @@ journal. Offline media are verified by the same rules.
 
 ## Consequences
 
-- **Trust.** Feed compromise can withhold or delete releases but cannot make a consumer install
-  something. Compromise of `publish.yml` on main, or of an environment approver, can; protection
-  of main and of the environments is therefore release-critical. When this ADR was accepted
+- **Trust.** Feed compromise cannot make a consumer accept bytes the publisher did not sign. It can
+  withhold releases, and it can delete newer decisions so that an older signed one is the newest a
+  consumer sees. A consumer's own history refuses that; a host with no history is protected only
+  by a provisioned floor. A break-glass offline install applies no ring policy at all.
+  Compromise of `publish.yml` on main, or of an environment approver, can sign anything, so
+  protection of main and of the environments is release-critical. When this ADR was accepted
   neither was configured, as `docs/RELEASES.md` records.
 - **Availability and freeze.** GitHub and public-good Sigstore are dependencies. Decisions carry
-  no expiry, so a withheld update is not refused automatically. A consumer whose trust root
+  no expiry. A relay can be told to refuse decisions older than a number of days, but rings are not
+  re-signed on a schedule, so a withheld update is otherwise not refused automatically. A consumer whose trust root
   predates a Sigstore key rotation refuses new signatures and stays on its build until the root
   is refreshed out of band.
 - **Rollback.** Downgrade becomes an explicit, signed, audited decision instead of something any
@@ -89,8 +118,11 @@ journal. Offline media are verified by the same rules.
   refusal belongs to #270 (`RISK-PERSISTENCE-SCHEMA-COMPATIBILITY`).
 - **Operations.**
   - Releases stay off until the environments, the feed and `V2_RELEASES_ENABLED` exist.
-  - Each relay needs `gh`, `cosign`, a read-only token and a trust root before its updater will
-    run; an existing relay stays on its build until it has them.
+  - Each relay needs `gh`, the pinned `cosign`, a read-only token, a trust root, and (for a new
+    host) a floor before its updater will run. An existing relay stays on its build until it has
+    them.
+  - The feed token needs Administration read on the feed, so the publisher can confirm immutable
+    releases.
   - The desktop's in-app updater does not follow this feed until #294 moves it. Until then signed
     desktop builds are installed from verified offline bundles.
   - The legacy `dev` publication in the verification workflow (#279) remains until it is retired.

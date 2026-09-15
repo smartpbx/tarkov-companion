@@ -16,7 +16,7 @@ install -m 0644 tarkov-group-update.path    /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now tarkov-group-update.timer
 systemctl enable --now tarkov-group-update.path
-# configure the feed, ring, token and trust root first: docs/RELEASES.md#the-relay-updater
+# first: install a pinned cosign, and configure the feed, ring, token, trust root and floor (docs/RELEASES.md#the-relay-updater)
 systemctl start tarkov-group-update.service   # fetch the current build now
 ```
 
@@ -45,7 +45,7 @@ a room and a server-side secret, a client that had updated could not talk to a s
 not.
 
 It follows a **signed release ring** in a private feed, not the public `dev` release. Until the
-host has the feed, ring, token and Sigstore trust root described in
+host has the pinned cosign, feed, ring, token, Sigstore trust root and floor described in
 [`docs/RELEASES.md`](../../docs/RELEASES.md#the-relay-updater), the updater refuses to run and the
 relay stays on the build it has. That page also has the steps for moving an existing relay over.
 

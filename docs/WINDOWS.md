@@ -62,7 +62,19 @@ Two things are not true yet, and are recorded rather than implied:
   signs deltas if verification starts producing them.
 
 Signed desktop builds reach a machine without the in-app updater, or without any network, through
-`scripts/release/install-offline.ps1`. It verifies the manifest and installer with cosign against
-a trust root provisioned separately from the media, refuses a version older than the installed one
-unless `-AllowDowngrade` is given, installs silently with `-Headless`, and performs every check
-without installing under `-WhatIf`.
+`scripts/release/install-offline.ps1`:
+
+- It copies what it uses off the media into a directory only the current user can read, verifies
+  that copy, and runs the copied installer, never the file on the media.
+- It verifies with a pinned cosign (v3.1.3, by sha256), against a trust root provisioned separately
+  from the media. It accepts only standardized Sigstore bundles, and only the publish workflow on
+  main in this repository.
+- It requires the ring decision on the media, for `-Ring` in `-FeedRepository`, to select exactly
+  this manifest, not to be paused, and to be at or above `-MinimumGeneration`.
+- It refuses a version older than the installed one unless the decision is a signed rollback or
+  `-AllowDowngrade` is given, and treats an installed version it cannot read the same way.
+- `-Headless` installs silently, and `-WhatIf` performs every check without installing.
+- `-BreakGlass` installs a publisher-signed build without a ring decision and warns that no ring
+  policy was applied.
+
+It has been exercised by the release fixtures under PowerShell 7 on Linux, not yet on Windows.
