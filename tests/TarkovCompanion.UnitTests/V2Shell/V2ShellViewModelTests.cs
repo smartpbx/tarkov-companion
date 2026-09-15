@@ -282,6 +282,13 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Contains("objective-b", shell.PlanContextLabel, StringComparison.Ordinal);
         Assert.Contains("paired-tablet", shell.DeviceContextLabel, StringComparison.Ordinal);
         Assert.Contains("item-c", shell.CapturePrior, StringComparison.Ordinal);
+
+        runtime.Update(snapshot => snapshot with
+        {
+            Raid = snapshot.Raid with { State = RaidLifecycleState.PostRaid },
+        });
+        Assert.Contains("Post-raid", shell.RaidContextLabel, StringComparison.Ordinal);
+        Assert.DoesNotContain("left", shell.RaidContextLabel, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

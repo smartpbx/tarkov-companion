@@ -1629,7 +1629,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     {
         var map = raid.MapId ?? Router.Context.MapId ?? V2ShellText.Get("V2.Shell.Context.NoMap");
         var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
-        if (raid.RaidClock is { } observedRemaining && raid.RaidClockReadUtc is { } readUtc)
+        if (raid.State == RaidLifecycleState.InRaid &&
+            raid.RaidClock is { } observedRemaining &&
+            raid.RaidClockReadUtc is { } readUtc)
         {
             // A clock read from a screenshot is a reading at that instant. Showing the original
             // value forever is the full-raid-time defect #267's context strip must not repeat.
