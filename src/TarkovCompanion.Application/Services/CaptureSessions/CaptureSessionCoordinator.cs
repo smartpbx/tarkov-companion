@@ -877,9 +877,16 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
         finally
         {
-            if (pixels is not null && reserved && !transferred)
+            if (pixels is not null && !transferred)
             {
-                ReleasePixels(pixels, session.Request.SessionId, artifact?.ArtifactId, "capture_cleanup");
+                if (reserved)
+                {
+                    ReleasePixels(pixels, session.Request.SessionId, artifact?.ArtifactId, "capture_cleanup");
+                }
+                else
+                {
+                    pixels.Dispose();
+                }
             }
         }
     }
@@ -1467,6 +1474,17 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         if (session.ActiveCaptureCount > 0)
         {
             session.ActiveCaptureCount--;
+        }
+
+        if (session.CancellationRequested)
+        {
+            if (session.ActiveCaptureCount == 0 && !session.IsTerminal)
+            {
+                session.AppendSession(CaptureSessionStage.Cancelled, now, "session_cancelled");
+                PruneSessionsUnsafe();
+            }
+
+            return false;
         }
 
         if (queued.CreatedSession && session.ActiveCaptureCount == 0 && session.Artifacts.Count == 0)

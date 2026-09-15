@@ -93,6 +93,7 @@ public sealed class StableScreenshotIntakeTests
             Directory.CreateDirectory(root);
             var newPath = Path.Combine(root, "new.png");
             await File.WriteAllBytesAsync(newPath, Png, stopping.Token);
+            File.SetLastWriteTimeUtc(newPath, DateTime.UtcNow.AddSeconds(1));
 
             Assert.True(await next.WaitAsync(TimeSpan.FromSeconds(2), stopping.Token));
             Assert.Equal(newPath, enumerator.Current);
@@ -193,6 +194,56 @@ public sealed class StableScreenshotIntakeTests
         }
     }
 
+    [Fact]
+    public async Task EncodedSizeLimitPreventsWatcherDelivery()
+    {
+        var root = NewDirectory();
+        try
+        {
+            using var stopping = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var path = Path.Combine(root, "oversize.png");
+            await File.WriteAllBytesAsync(path, Png, stopping.Token);
+            await using var enumerator = new WindowsScreenshotWatcher(
+                    pollInterval: TimeSpan.FromMilliseconds(10),
+                    maximumEncodedBytes: 32)
+                .WatchAsync(root, stopping.Token)
+                .GetAsyncEnumerator(stopping.Token);
+            var next = enumerator.MoveNextAsync().AsTask();
+
+            await Task.Delay(80, stopping.Token);
+            Assert.False(next.IsCompleted);
+            stopping.Cancel();
+            Assert.False(await next);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task FileSourceDoesNotMultiplyTheAuthoritativeLoaderRetryPolicy()
+    {
+        var loader = new NullLoader();
+        await using var coordinator = new CaptureSessionCoordinator(
+            new InlineCaptureWorkScheduler(),
+            new CountingPipeline(),
+            Origin,
+            options: new(maximumDecodeAttempts: 4, decodeRetryDelay: TimeSpan.FromMilliseconds(1)));
+
+        await coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.WatchedFile,
+                new ScreenshotFileCaptureSource("fixture.png", loader),
+                CaptureContextMetadata.Empty,
+                DateTimeOffset.UtcNow,
+                CaptureCorrelationId.New()),
+            CancellationToken.None);
+        await UntilAsync(() => coordinator.Snapshot.Sessions.Any(item => item.IsTerminal));
+
+        Assert.Equal(1, loader.Calls);
+    }
+
     private static readonly WorkspaceOrigin Origin = new(
         new(Guid.Parse("06cc9a72-7714-47bf-bb34-e51578710f36")),
         new(Guid.Parse("9dc8d96c-8c4f-4f65-bb20-ad63ec10bdf6")),
@@ -225,6 +276,17 @@ public sealed class StableScreenshotIntakeTests
                 true,
                 null,
                 Confidence.Certain));
+        }
+    }
+
+    private sealed class NullLoader : TarkovCompanion.Core.Abstractions.IScreenshotImageLoader
+    {
+        public int Calls { get; private set; }
+
+        public Task<CapturedImage?> LoadAsync(string path, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult<CapturedImage?>(null);
         }
     }
 

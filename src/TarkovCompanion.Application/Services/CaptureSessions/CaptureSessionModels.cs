@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Application.Services.CaptureSessions;
@@ -76,7 +77,8 @@ public sealed record CaptureContextMetadata
         string? activePlan,
         string? selectedEntity,
         string? priorScan,
-        string? initiatingDevice)
+        string? initiatingDevice,
+        ProfileContext? profileContext = null)
     {
         ActiveWorkspace = Optional(activeWorkspace, nameof(activeWorkspace));
         ActiveProfile = Optional(activeProfile, nameof(activeProfile));
@@ -85,6 +87,18 @@ public sealed record CaptureContextMetadata
         SelectedEntity = Optional(selectedEntity, nameof(selectedEntity));
         PriorScan = Optional(priorScan, nameof(priorScan));
         InitiatingDevice = Optional(initiatingDevice, nameof(initiatingDevice));
+        ProfileContext = profileContext;
+        if (profileContext is not null
+            && ActiveProfile is not null
+            && !string.Equals(
+                ActiveProfile,
+                profileContext.Identity.ProfileId.ToString("D"),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                "The profile label must agree with the canonical profile context.",
+                nameof(activeProfile));
+        }
     }
 
     public string? ActiveWorkspace { get; }
@@ -100,6 +114,12 @@ public sealed record CaptureContextMetadata
     public string? PriorScan { get; }
 
     public string? InitiatingDevice { get; }
+
+    /// <summary>
+    /// Canonical v2 profile identity and data-snapshot provenance. A legacy display id may be
+    /// present without this value during composition migration, but no substitute DTO is made.
+    /// </summary>
+    public ProfileContext? ProfileContext { get; }
 
     public static CaptureContextMetadata Empty { get; } = new(null, null, null, null, null, null, null);
 

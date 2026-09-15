@@ -525,7 +525,10 @@ public sealed class RaidObservationService : IAsyncDisposable
                 var current = _stateStore.Current;
                 var context = new CaptureContextMetadata(
                     activeWorkspace: null,
-                    activeProfile: current.Profile?.Id.ToString("D"),
+                    // The legacy runtime profile is not a canonical v2 ProfileContext. The
+                    // composition owner must supply that contract when capture sessions are
+                    // registered; do not mislabel this intake with the legacy identifier.
+                    activeProfile: null,
                     activeMap: current.Raid.MapId,
                     activePlan: null,
                     selectedEntity: null,
