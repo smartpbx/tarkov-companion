@@ -521,6 +521,7 @@ public static class IndependentScorer
             .Select(pair => (pair.sample.SampleId, pair.truth.Kind))
             .ToHashSet();
         var consumedClaims = new HashSet<string>(StringComparer.Ordinal);
+        var unmatched = new List<IGrouping<string, (CorpusSample sample, TruthClaim truth)>>();
         var truePositives = 0;
         var falseNegatives = 0;
         var attempted = 0;
@@ -529,11 +530,8 @@ public static class IndependentScorer
 
         foreach (var truthGroup in knownGroups)
         {
-            var visibleSampleIds = truthGroup.Select(pair => pair.sample.SampleId).ToHashSet(StringComparer.Ordinal);
             var truth = truthGroup.First().truth;
-            var relevantPredictions = predictions.Where(prediction =>
-                visibleSampleIds.Contains(prediction.SampleId) &&
-                string.Equals(PredictionTypeNames.Format(prediction.Type), truth.Kind, StringComparison.Ordinal)).ToArray();
+            var relevantPredictions = RelevantPredictions(truthGroup, predictions);
             if (relevantPredictions.Any(prediction => prediction.Status != PredictionStatus.Unavailable))
             {
                 attempted++;
@@ -545,12 +543,8 @@ public static class IndependentScorer
                 abstentions++;
             }
 
-            var candidates = relevantPredictions
-                .SelectMany(prediction => prediction.Claims.Select(claim => (prediction, claim)))
-                .Where(pair => string.Equals(pair.claim.Kind, truth.Kind, StringComparison.Ordinal) &&
-                               !consumedClaims.Contains(pair.claim.ClaimId))
-                .ToArray();
-            var match = candidates.FirstOrDefault(pair => ClaimMatches(pair.claim, truth));
+            var match = UnconsumedClaims(relevantPredictions, truth, consumedClaims)
+                .FirstOrDefault(pair => ClaimMatches(pair.claim, truth));
             if (match.claim is not null)
             {
                 consumedClaims.Add(match.claim.ClaimId);
@@ -559,11 +553,22 @@ public static class IndependentScorer
             else
             {
                 falseNegatives++;
+                unmatched.Add(truthGroup);
             }
+        }
 
-            // A detected result containing both a right and a wrong claim is not a confident
-            // miss for this truth. The extra wrong claim is still adjudicated below as an FP.
-            if (match.claim is null && candidates.Any(pair => pair.prediction.Confidence >= 0.9m))
+        // Confident-wrong is decided only after every truth has had its chance to match. Deciding
+        // it inside the loop let a claim that correctly matched a later truth count as the wrong
+        // answer for an earlier one. A claim in an unknown-truth scope of the same kind is also not
+        // evidence of a wrong answer: it may be a claim about the unlabelled object, exactly why it
+        // is excluded from the false positives below. A correct claim plus an extra wrong claim is
+        // therefore one TP and one FP, never a confident miss.
+        foreach (var truthGroup in unmatched)
+        {
+            var truth = truthGroup.First().truth;
+            if (UnconsumedClaims(RelevantPredictions(truthGroup, predictions), truth, consumedClaims).Any(pair =>
+                    !unknownScopes.Contains((pair.prediction.SampleId, pair.claim.Kind)) &&
+                    pair.prediction.Confidence >= CorpusValidation.FrozenConfidentWrongMinimumConfidence))
             {
                 confidentWrong++;
             }
@@ -634,6 +639,26 @@ public static class IndependentScorer
             elapsed.Length == 0 ? null : elapsed.Average(),
             elapsed.Length == 0 ? null : elapsed.Max());
     }
+
+    private static ProducerPrediction[] RelevantPredictions(
+        IEnumerable<(CorpusSample sample, TruthClaim truth)> truthGroup,
+        IReadOnlyList<ProducerPrediction> predictions)
+    {
+        var visible = truthGroup.Select(pair => pair.sample.SampleId).ToHashSet(StringComparer.Ordinal);
+        var kind = truthGroup.First().truth.Kind;
+        return predictions.Where(prediction =>
+            visible.Contains(prediction.SampleId) &&
+            string.Equals(PredictionTypeNames.Format(prediction.Type), kind, StringComparison.Ordinal)).ToArray();
+    }
+
+    private static IEnumerable<(ProducerPrediction prediction, PredictionClaim claim)> UnconsumedClaims(
+        IEnumerable<ProducerPrediction> predictions,
+        TruthClaim truth,
+        IReadOnlySet<string> consumedClaims) =>
+        predictions
+            .SelectMany(prediction => prediction.Claims.Select(claim => (prediction, claim)))
+            .Where(pair => string.Equals(pair.claim.Kind, truth.Kind, StringComparison.Ordinal) &&
+                           !consumedClaims.Contains(pair.claim.ClaimId));
 
     private static bool ClaimMatches(PredictionClaim claim, TruthClaim truth) =>
         string.Equals(claim.Kind, truth.Kind, StringComparison.Ordinal) &&

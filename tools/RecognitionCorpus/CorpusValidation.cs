@@ -20,6 +20,9 @@ public static class CorpusValidation
     public const decimal FrozenMaximumConfidentWrongRate = 0.05m;
     public const decimal FrozenMinimumF1 = 0.85m;
 
+    /// <summary>A detected result at or above this confidence that matches nothing is a confident miss.</summary>
+    public const decimal FrozenConfidentWrongMinimumConfidence = 0.9m;
+
     private static readonly HashSet<string> ForbiddenInterchangeNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "filename", "fileName", "sourceFilename", "sourcePath", "sourceName", "originalName", "originalFileName", "originalFilename",
