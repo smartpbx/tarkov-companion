@@ -275,7 +275,9 @@ public sealed class KeysPageViewModel : PageViewModel
             // Ranked before any row is built, because a key's verdict is a statement about
             // where it sits among the others and there is no such thing as the first one's
             // rank on its own.
-            var ranks = KeyValue.Rank(facts.Select(fact => (fact.ItemId, fact.AcquisitionCostRoubles)));
+            var ranks = KeyValue.Rank(facts
+                .Where(fact => fact.AcquisitionCostRoubles is > 0)
+                .Select(fact => (fact.ItemId, fact.AcquisitionCostRoubles!.Value)));
             var rows = new List<KeyRowViewModel>(facts.Count);
             foreach (var fact in facts)
             {
@@ -335,8 +337,8 @@ public sealed class KeysPageViewModel : PageViewModel
             // A key with no stated use count is not the same as a key with unlimited uses; the
             // source simply does not say, so neither does the page.
             facts.MaximumUses is { } uses ? $"{Count(uses)} use(s)" : "No use limit is stated",
-            facts.AcquisitionCostRoubles > 0
-                ? Roubles(facts.AcquisitionCostRoubles)
+            facts.AcquisitionCostRoubles is { } acquisitionCost && acquisitionCost > 0
+                ? Roubles(acquisitionCost)
                 : "No price is cached",
             $"json.tarkov.dev · {Describe(facts.Provenance.SourceUpdatedUtc)}",
             facts.Locks.Select(lockId => new KeyLockViewModel(lockId)).ToArray())

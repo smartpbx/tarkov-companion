@@ -142,6 +142,61 @@ public sealed class ApplicationStartupCoordinatorTests
     }
 
     [Fact]
+    public async Task OfflineToOnlineEdgeRunsTheFullCoordinatorRefreshAndPublishesTheNewMode()
+    {
+        var offline = 1;
+        await using var fixture = new RefreshFixture(
+            RefreshDependency.None,
+            TimeSpan.FromSeconds(5),
+            offline: true,
+            offlineProbe: () => Volatile.Read(ref offline) == 1);
+
+        await fixture.Coordinator.InitializeAsync(default);
+        fixture.Coordinator.BeginBackgroundRefresh();
+
+        Assert.True(fixture.State.Current.IsOffline);
+        Assert.Equal(DataAvailability.Cached, fixture.State.Current.Data.Availability);
+        Assert.Equal(0, fixture.Sync.Calls);
+        Assert.Null(fixture.Coordinator.BackgroundRefresh);
+
+        Volatile.Write(ref offline, 0);
+        await RuntimeTestTasks.AdvanceUntilAsync(
+            fixture.Time,
+            TimeSpan.FromSeconds(1),
+            () => fixture.Sync.Calls == 1
+                && fixture.State.Current.Data.Availability == DataAvailability.Current);
+
+        var snapshot = fixture.State.Current;
+        Assert.False(snapshot.IsOffline);
+        Assert.Equal(3, snapshot.Data.ItemCount);
+        Assert.Equal(2, fixture.DataStore.SnapshotCalls);
+        Assert.Equal(1, fixture.ItemFacts.Invalidations);
+        Assert.Equal(1, fixture.Projection.Invalidations);
+    }
+
+    [Fact]
+    public async Task FixedOfflineModeDoesNotStartSyncWhileItsMonitorRemainsCleanlyDisposable()
+    {
+        var fixture = new RefreshFixture(
+            RefreshDependency.None,
+            TimeSpan.FromSeconds(5),
+            offline: true,
+            offlineProbe: static () => true);
+
+        await fixture.Coordinator.InitializeAsync(default);
+        fixture.Coordinator.BeginBackgroundRefresh();
+        fixture.Time.Advance(TimeSpan.FromMinutes(1));
+        await RuntimeTestTasks.DrainAsync();
+
+        Assert.True(fixture.State.Current.IsOffline);
+        Assert.Equal(DataAvailability.Cached, fixture.State.Current.Data.Availability);
+        Assert.Equal(0, fixture.Sync.Calls);
+        Assert.Null(fixture.Coordinator.BackgroundRefresh);
+
+        await fixture.DisposeAsync();
+    }
+
+    [Fact]
     public async Task CancellingOneManualWaitDoesNotOrphanOrCancelTheSharedRefresh()
     {
         await using var fixture = new RefreshFixture(
@@ -264,17 +319,23 @@ public sealed class ApplicationStartupCoordinatorTests
             RefreshDependency dependency,
             TimeSpan refreshTimeout,
             IRaidHistoryService? raidHistory = null,
-            TaskCompletionSource? databaseRelease = null)
+            TaskCompletionSource? databaseRelease = null,
+            bool offline = false,
+            Func<bool>? offlineProbe = null)
         {
             Time = new(Epoch);
             Control = new(dependency);
             var options = new RuntimeOptions(
                 false,
-                false,
+                offline,
                 GameMode.Regular,
                 "en",
                 TimeSpan.FromHours(1),
-                refreshTimeout);
+                refreshTimeout)
+            {
+                OfflineProbe = offlineProbe,
+                OfflineTransitionPollInterval = TimeSpan.FromSeconds(1),
+            };
             State = new(options, Time);
             DataStore = new(Control, databaseRelease);
             Sync = new(Control);

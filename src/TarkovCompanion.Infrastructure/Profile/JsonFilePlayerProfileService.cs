@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -5,6 +7,7 @@ using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Events;
 using TarkovCompanion.Core.Domain.Profile;
+using TarkovCompanion.Infrastructure.Persistence;
 
 namespace TarkovCompanion.Infrastructure.Profile;
 
@@ -20,12 +23,35 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
     public const int CurrentSchemaVersion = 2;
 
     private static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+    private static readonly Encoding StrictUtf16LittleEndian = new UnicodeEncoding(
+        bigEndian: false,
+        byteOrderMark: false,
+        throwOnInvalidBytes: true);
+    private static readonly Encoding StrictUtf16BigEndian = new UnicodeEncoding(
+        bigEndian: true,
+        byteOrderMark: false,
+        throwOnInvalidBytes: true);
+    private static readonly Encoding StrictUtf32LittleEndian = new UTF32Encoding(
+        bigEndian: false,
+        byteOrderMark: false,
+        throwOnInvalidCharacters: true);
+    private static readonly Encoding StrictUtf32BigEndian = new UTF32Encoding(
+        bigEndian: true,
+        byteOrderMark: false,
+        throwOnInvalidCharacters: true);
     private readonly string _filePath;
     private readonly int _maximumImportBytes;
     private readonly TimeProvider _timeProvider;
+    private readonly SqliteConnectionFactory? _recoveryDatabase;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
-    public JsonFilePlayerProfileService(JsonProfileOptions options, TimeProvider? timeProvider = null)
+    public JsonFilePlayerProfileService(
+        JsonProfileOptions options,
+        TimeProvider? timeProvider = null,
+        SqliteConnectionFactory? recoveryDatabase = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (options.MaximumImportBytes <= 0)
@@ -36,6 +62,7 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         _filePath = options.ValidatedFilePath;
         _maximumImportBytes = options.MaximumImportBytes;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _recoveryDatabase = recoveryDatabase;
     }
 
     public async Task<PlayerProfile> GetActiveAsync(CancellationToken cancellationToken)
@@ -50,13 +77,24 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
                 return profile;
             }
 
-            if (new FileInfo(_filePath).Length > _maximumImportBytes)
+            ProfileExport export;
+            try
             {
-                throw new InvalidDataException($"Stored profile exceeds the {_maximumImportBytes}-byte limit.");
+                var stored = await ReadStoredProfileAsync(cancellationToken).ConfigureAwait(false);
+                if (stored.OversizedBytes is { } storedBytes)
+                {
+                    return await RecoverOversizedProfileAsync(storedBytes, cancellationToken).ConfigureAwait(false);
+                }
+
+                export = ParseAndValidate(stored.Json!);
+            }
+            catch (InvalidDataException exception)
+            {
+                return await RecoverMalformedProfileAsync(exception, cancellationToken).ConfigureAwait(false);
             }
 
-            var json = await File.ReadAllTextAsync(_filePath, cancellationToken).ConfigureAwait(false);
-            var export = ParseAndValidate(json);
+            // A valid legacy profile can serialize larger after migration. Keep a write-budget
+            // failure distinct from malformed-input recovery so the valid original remains live.
             if (export.SchemaVersion < CurrentSchemaVersion)
             {
                 await WriteProfileAsync(export.Profile, cancellationToken).ConfigureAwait(false);
@@ -120,7 +158,7 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         var temporaryPath = _filePath + $".{Guid.NewGuid():N}.tmp";
         try
         {
-            await using (var stream = new FileStream(
+            await using (var file = new FileStream(
                              temporaryPath,
                              FileMode.CreateNew,
                              FileAccess.Write,
@@ -128,8 +166,19 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
                              bufferSize: 16_384,
                              FileOptions.Asynchronous | FileOptions.WriteThrough))
             {
+                await using var stream = new BoundedProfileWriteStream(file, _maximumImportBytes);
                 await JsonSerializer.SerializeAsync(stream, export, SerializerOptions, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            // The same limit guards both directions. Without checking our own serialization, a
+            // valid large profile could be published successfully and then classified as hostile
+            // on the next startup, where recovery would replace it with a default profile.
+            var serializedBytes = new FileInfo(temporaryPath).Length;
+            if (serializedBytes > _maximumImportBytes)
+            {
+                throw new InvalidDataException(
+                    $"Serialized profile exceeds the {_maximumImportBytes}-byte limit.");
             }
 
             File.Move(temporaryPath, _filePath, overwrite: true);
@@ -138,6 +187,205 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         {
             File.Delete(temporaryPath);
         }
+    }
+
+    /// <summary>Reads at most one configured profile document, including while the file grows.</summary>
+    /// <remarks>
+    /// Checking <see cref="FileInfo.Length"/> before <c>ReadAllTextAsync</c> left a time-of-check
+    /// gap and still trusted the text helper to allocate the entire file. The bounded byte loop
+    /// observes at most one buffer beyond the limit and decodes only after the complete body is
+    /// known to fit. Invalid Unicode is malformed profile evidence, not replacement characters.
+    /// </remarks>
+    private async Task<StoredProfileRead> ReadStoredProfileAsync(CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            _filePath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 16_384,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
+        if (stream.Length > _maximumImportBytes)
+        {
+            return new(null, stream.Length);
+        }
+
+        using var output = new MemoryStream(capacity: Math.Min(_maximumImportBytes, 16_384));
+        var buffer = new byte[16_384];
+        while (true)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            if (output.Length > _maximumImportBytes - read)
+            {
+                return new(null, Math.Max(stream.Length, output.Length + read));
+            }
+
+            output.Write(buffer, 0, read);
+        }
+
+        try
+        {
+            return new(
+                DecodeProfileText(output.GetBuffer().AsSpan(0, checked((int)output.Length))),
+                null);
+        }
+        catch (DecoderFallbackException exception)
+        {
+            throw new InvalidDataException("Profile import is not valid Unicode text.", exception);
+        }
+    }
+
+    private static string DecodeProfileText(ReadOnlySpan<byte> bytes)
+    {
+        // File.ReadAllText historically accepted the standard Unicode BOMs. Preserve that
+        // compatibility while making each decoder reject malformed byte sequences explicitly.
+        if (bytes.StartsWith([0x00, 0x00, 0xFE, 0xFF]))
+        {
+            return StrictUtf32BigEndian.GetString(bytes[4..]);
+        }
+
+        if (bytes.StartsWith([0xFF, 0xFE, 0x00, 0x00]))
+        {
+            return StrictUtf32LittleEndian.GetString(bytes[4..]);
+        }
+
+        if (bytes.StartsWith([0xEF, 0xBB, 0xBF]))
+        {
+            return StrictUtf8.GetString(bytes[3..]);
+        }
+
+        if (bytes.StartsWith([0xFE, 0xFF]))
+        {
+            return StrictUtf16BigEndian.GetString(bytes[2..]);
+        }
+
+        if (bytes.StartsWith([0xFF, 0xFE]))
+        {
+            return StrictUtf16LittleEndian.GetString(bytes[2..]);
+        }
+
+        return StrictUtf8.GetString(bytes);
+    }
+
+    /// <summary>
+    /// Preserves an unreadable profile byte-for-byte, records explicit recovery state, and opens
+    /// a fresh local profile so one malformed optional document cannot abort the whole app.
+    /// </summary>
+    /// <remarks>
+    /// The backup is completed before the live file is replaced. If backup or recovery-state
+    /// persistence fails, the exception escapes and the malformed original remains untouched.
+    /// </remarks>
+    private async Task<PlayerProfile> RecoverMalformedProfileAsync(
+        InvalidDataException failure,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string hash;
+        await using (var source = new FileStream(
+                         _filePath,
+                         FileMode.Open,
+                         FileAccess.Read,
+                         FileShare.Read,
+                         bufferSize: 16_384,
+                         FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            hash = Convert.ToHexStringLower(
+                await SHA256.HashDataAsync(source, cancellationToken).ConfigureAwait(false));
+        }
+        var backupPath = RecoveryPath(
+            // Recovery can be retried after the database write fails. A content hash and a
+            // fixed/injected clock are not enough to make that second preservation attempt
+            // unique, so keep every exact malformed artifact instead of failing on its name.
+            $"{hash[..12]}.{Guid.NewGuid():N}.invalid");
+        File.Copy(_filePath, backupPath, overwrite: false);
+
+        await RecordRecoveryAsync(hash, "profile-json-invalid", cancellationToken).ConfigureAwait(false);
+
+        var recovered = CreateDefaultProfile();
+        await WriteProfileAsync(recovered, cancellationToken).ConfigureAwait(false);
+        _ = failure; // The stable diagnostic code is persisted; raw parse details stay local.
+        return recovered;
+    }
+
+    /// <summary>
+    /// Quarantines an oversized profile without reading, hashing, or copying its untrusted length.
+    /// </summary>
+    /// <remarks>
+    /// The recovery directory is beside the live file, so the move is a same-volume metadata
+    /// operation. If recording recovery or writing the default fails, the exact original is moved
+    /// back before the error escapes. This keeps the size limit from becoming a CPU/disk-amplifier
+    /// while retaining the user's bytes for deliberate recovery.
+    /// </remarks>
+    private async Task<PlayerProfile> RecoverOversizedProfileAsync(
+        long storedBytes,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var backupPath = RecoveryPath($"{storedBytes}.oversize.{Guid.NewGuid():N}.invalid");
+        File.Move(_filePath, backupPath);
+        try
+        {
+            await RecordRecoveryAsync(null, "profile-json-oversize", cancellationToken).ConfigureAwait(false);
+            var recovered = CreateDefaultProfile();
+            await WriteProfileAsync(recovered, cancellationToken).ConfigureAwait(false);
+            return recovered;
+        }
+        catch
+        {
+            // WriteProfileAsync replaces only after its temporary file is complete. If it did not
+            // publish, restore the quarantined bytes to their original location in constant time.
+            if (!File.Exists(_filePath) && File.Exists(backupPath))
+            {
+                File.Move(backupPath, _filePath);
+            }
+
+            throw;
+        }
+    }
+
+    private async Task RecordRecoveryAsync(
+        string? contentHash,
+        string diagnosticCode,
+        CancellationToken cancellationToken)
+    {
+        if (_recoveryDatabase is not null)
+        {
+            await using var connection = await _recoveryDatabase.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO local_json_recovery(
+                    document_key, state, detected_utc, content_sha256, diagnostic_code)
+                VALUES ('profile:active', 'malformed', $detected, $hash, $diagnostic)
+                ON CONFLICT(document_key) DO UPDATE SET
+                    state = excluded.state,
+                    detected_utc = excluded.detected_utc,
+                    content_sha256 = excluded.content_sha256,
+                    diagnostic_code = excluded.diagnostic_code;
+                """;
+            command.Parameters.AddWithValue(
+                "$detected",
+                _timeProvider.GetUtcNow().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$hash", (object?)contentHash ?? DBNull.Value);
+            command.Parameters.AddWithValue("$diagnostic", diagnosticCode);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private string RecoveryPath(string qualifier)
+    {
+        var directory = Path.GetDirectoryName(_filePath) ?? Directory.GetCurrentDirectory();
+        var recoveryDirectory = Path.Combine(directory, "Recovery");
+        Directory.CreateDirectory(recoveryDirectory);
+        var stem = Path.GetFileNameWithoutExtension(_filePath);
+        var extension = Path.GetExtension(_filePath);
+        var stamp = _timeProvider.GetUtcNow().ToUniversalTime()
+            .ToString("yyyyMMdd'T'HHmmssfff'Z'", CultureInfo.InvariantCulture);
+        return Path.Combine(recoveryDirectory, $"{stem}.{stamp}.{qualifier}{extension}");
     }
 
     private ProfileExport ParseAndValidate(string json)
@@ -299,6 +547,74 @@ public sealed class JsonFilePlayerProfileService : IPlayerProfileService, IDispo
         options.Converters.Add(new StringSetJsonConverter());
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         return options;
+    }
+
+    private readonly record struct StoredProfileRead(string? Json, long? OversizedBytes);
+
+    /// <summary>Rejects the write that would first cross the durable profile byte budget.</summary>
+    private sealed class BoundedProfileWriteStream(Stream inner, long maximumBytes) : Stream
+    {
+        private long _written;
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            EnsureFits(count);
+            inner.Write(buffer, offset, count);
+            _written += count;
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            EnsureFits(buffer.Length);
+            inner.Write(buffer);
+            _written += buffer.Length;
+        }
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            EnsureFits(buffer.Length);
+            await inner.WriteAsync(buffer, cancellationToken).ConfigureAwait(false);
+            _written += buffer.Length;
+        }
+
+        public override async Task WriteAsync(
+            byte[] buffer,
+            int offset,
+            int count,
+            CancellationToken cancellationToken)
+        {
+            EnsureFits(count);
+            await inner.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+            _written += count;
+        }
+
+        private void EnsureFits(int count)
+        {
+            if (count < 0 || _written > maximumBytes - count)
+            {
+                throw new InvalidDataException(
+                    $"Serialized profile exceeds the {maximumBytes}-byte limit.");
+            }
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => _written;
+        public override long Position
+        {
+            get => _written;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush() => inner.Flush();
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            inner.FlushAsync(cancellationToken);
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     private sealed class StringSetJsonConverter : JsonConverter<IReadOnlySet<string>>

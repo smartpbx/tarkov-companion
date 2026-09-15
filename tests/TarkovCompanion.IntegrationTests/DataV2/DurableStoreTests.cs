@@ -1,7 +1,10 @@
-using System.Collections.Immutable;
-using Microsoft.Data.Sqlite;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Raids;
+using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Profiles;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
@@ -31,7 +34,8 @@ public sealed class DurableStoreTests
                     new Dictionary<string, string> { ["item-a"] = "keep" },
                     [new("quest", "quest-a", 0, "next")]),
                 ProfileLifecycle.Active,
-                new(2026, 9, 15, 1, 0, 0, TimeSpan.Zero)),
+                new(2026, 9, 15, 1, 0, 0, TimeSpan.Zero),
+                "{\"futureProfileField\":true}"),
         ]);
 
         Assert.True(await store.TryReplaceAsync(0, snapshot, TestContext.Current.CancellationToken));
@@ -41,6 +45,39 @@ public sealed class DurableStoreTests
         Assert.Equal(profileId, restored.ActiveProfileId);
         Assert.Equal(7, restored.ActiveProfile.Progress.OwnedItemCounts["item-a"]);
         Assert.Equal("next", restored.ActiveProfile.Progress.Pins.Single().Note);
+        Assert.Equal("{\"futureProfileField\":true}", restored.ActiveProfile.ExtensionJson);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => store.TryReplaceAsync(
+            1,
+            RevisedWorkspace(snapshot, 1, "Same revision"),
+            TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() => store.TryReplaceAsync(
+            1,
+            RevisedWorkspace(snapshot, 3, "Skipped revision"),
+            TestContext.Current.CancellationToken));
+
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<bool> ReplaceConcurrentlyAsync(string name)
+        {
+            await release.Task;
+            return await new SqliteProfileWorkspaceStore(database.Factory).TryReplaceAsync(
+                1,
+                RevisedWorkspace(snapshot, 2, name),
+                TestContext.Current.CancellationToken);
+        }
+
+        var writers = new[]
+        {
+            ReplaceConcurrentlyAsync("Writer A"),
+            ReplaceConcurrentlyAsync("Writer B"),
+        };
+        release.SetResult(true);
+        var results = await Task.WhenAll(writers);
+        Assert.Single(results, result => result);
+        Assert.Single(results, result => !result);
+        var afterRace = await store.ReadAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(2, afterRace.Revision);
+        Assert.Contains(afterRace.ActiveProfile.Name, new[] { "Writer A", "Writer B" });
     }
 
     [Fact]
@@ -186,49 +223,244 @@ public sealed class DurableStoreTests
     }
 
     [Fact]
-    public async Task NestedInventoryKeepsNullableUnknownsAndUnknownJsonFieldsExactly()
+    public async Task TypedStashRecognitionRoundTripsWithEvidenceAndDerivedNodes()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var store = new SqliteV2DataStore(database.Factory);
         var profile = Guid.NewGuid();
-        const string payload = "{\"known\":1,\"futureField\":{\"shape\":\"v3\"}}";
+        var provenance = ScreenshotProvenance();
+        var bag = RecognizedItem("bag-item", provenance);
+        var rootGrid = UnreadGrid(
+            new GridCellRecognition(
+                new GridCellAddress(2, 1),
+                Complete("stash.item", bag, provenance),
+                "stash/bag-a"));
+        var regions = new[]
+        {
+            Region("root-region", 0, "stash", rootGrid, provenance),
+            Region("bag-region", 2, "stash/bag-a", UnreadGrid(), provenance),
+        };
+        var coverage = new[]
+        {
+            Coverage("stash", 70, 680, provenance),
+            Coverage("stash/bag-a", 20, 20, provenance),
+        };
+        var recognition = StashEnvelope("stash-contract-1", regions, coverage, provenance);
         var snapshot = new ObservedInventorySnapshot(
-            Guid.NewGuid(), profile, "wipe-a", "Pvp", null, null,
-            new(2026, 9, 15, 3, 0, 0, TimeSpan.Zero), "manual-import", "2.0.0",
-            null, null, true, payload, "{\"futureTop\":true}",
-            [
-                new("stash", null, "stash", null, null, null, null, null, null, null, null, "{\"layout\":\"unknown\"}"),
-                new("bag", "stash", "container", "bag-item", 1, 2, 4, 5, null, null, .8, "{\"futureNode\":17}"),
-                new("item", "bag", "item", "item-a", 0, 0, 1, 1, 2, null, null, "{\"unknownWeightReason\":\"not-published\"}"),
-            ]);
+            Guid.NewGuid(), profile, "wipe-a", "Pvp", RecordedUtc, true, recognition);
+
         await store.SaveInventorySnapshotAsync(snapshot, TestContext.Current.CancellationToken);
         var restored = await store.ReadCurrentInventoryAsync(profile, "wipe-a", "Pvp", TestContext.Current.CancellationToken);
         Assert.NotNull(restored);
-        Assert.Equal(payload, restored.PayloadJson);
-        Assert.Null(restored.Coverage);
-        Assert.Null(restored.Nodes.Single(node => node.NodeId == "item").WeightKg);
-        Assert.Equal("{\"futureNode\":17}", restored.Nodes.Single(node => node.NodeId == "bag").RawJson);
+        Assert.Equal(
+            JsonSerializer.Serialize(recognition, V2ContractJson.Options),
+            JsonSerializer.Serialize(restored.Recognition, V2ContractJson.Options));
+        Assert.Equal(EvidenceSourceClass.GameWrittenScreenshot, restored.Recognition.Result.Provenance.SourceClass);
+        Assert.Null(restored.Recognition.Result.Value!.TotalKnownValueRoubles.Value);
+        Assert.Equal("stash/bag-a", restored.Recognition.Result.Value.CapturedRegions[1].ContainerPath);
+        Assert.Equal(3, await V2TestDatabase.ScalarAsync(
+            database.Factory,
+            $"SELECT COUNT(*) FROM observed_inventory_nodes WHERE snapshot_id = '{snapshot.SnapshotId:D}';"));
     }
 
     [Fact]
-    public async Task NonFiniteEvidenceAndLivePredictionClaimsAreRefused()
+    public async Task InventoryRegionAndContainerBoundsAcceptTheLimitAndRejectLimitPlusOne()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var store = new SqliteV2DataStore(database.Factory);
-        var inventory = new ObservedInventorySnapshot(
-            Guid.NewGuid(), Guid.NewGuid(), "wipe", "Pvp", null, null, DateTimeOffset.UtcNow,
-            "manual", "2", null, double.NaN, true, "{}", "{}", []);
-        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveInventorySnapshotAsync(inventory, TestContext.Current.CancellationToken));
+        var provenance = ScreenshotProvenance();
+        var exactRegions = Enumerable.Range(0, SqliteV2DataStore.MaximumInventoryRegions)
+            .Select(index => Region($"region-{index}", index, "stash", UnreadGrid(), provenance))
+            .ToArray();
+        var oneCoverage = new[] { Coverage("stash", 0, GridGeometry.MaxCells, provenance) };
+        await store.SaveInventorySnapshotAsync(
+            InventorySnapshot(StashEnvelope("region-limit", exactRegions, oneCoverage, provenance), isCurrent: false),
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveInventorySnapshotAsync(
+            InventorySnapshot(
+                StashEnvelope(
+                    "region-limit-plus-one",
+                    exactRegions.Append(Region("region-over", exactRegions.Length, "stash", UnreadGrid(), provenance)).ToArray(),
+                    oneCoverage,
+                    provenance),
+                isCurrent: false),
+            TestContext.Current.CancellationToken));
 
-        var model = new ModelSnapshotRecord(
-            Guid.NewGuid(), null, null, null, "raid-risk", "predicted", "live-detector", null,
-            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, .5, .7, .6, "model-1", "{}", "{}");
-        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveModelSnapshotAsync(model, TestContext.Current.CancellationToken));
-        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM model_snapshots;"));
+        var exactCoverage = Enumerable.Range(0, SqliteV2DataStore.MaximumInventoryContainers)
+            .Select(index => Coverage($"stash-{index}", 0, 1, provenance))
+            .ToArray();
+        await store.SaveInventorySnapshotAsync(
+            InventorySnapshot(StashEnvelope("container-limit", [], exactCoverage, provenance), isCurrent: false),
+            TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveInventorySnapshotAsync(
+            InventorySnapshot(
+                StashEnvelope(
+                    "container-limit-plus-one",
+                    [],
+                    exactCoverage.Append(Coverage("stash-over", 0, 1, provenance)).ToArray(),
+                    provenance),
+                isCurrent: false),
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
-    public async Task CraftPlanningModelAndRetentionStoresRoundTripNullableProvenance()
+    public async Task InventoryNodeBoundAcceptsTheLimitAndRejectsLimitPlusOne()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteV2DataStore(database.Factory);
+        var provenance = ScreenshotProvenance();
+        var unknownItem = Unknown<RecognizedItem>("stash.unknown-item", provenance);
+        GridCellRecognition[] Cells(int count) => Enumerable.Range(0, count)
+            .Select(index => new GridCellRecognition(
+                new GridCellAddress(index / GridGeometry.MaxColumns, index % GridGeometry.MaxColumns),
+                unknownItem))
+            .ToArray();
+
+        var exactCellCount = SqliteV2DataStore.MaximumInventoryNodes - 1;
+        var exact = StashEnvelope(
+            "node-limit",
+            [Region("region", 0, "stash", UnreadGrid(Cells(exactCellCount)), provenance)],
+            [Coverage("stash", exactCellCount, GridGeometry.MaxCells, provenance)],
+            provenance);
+        var exactSnapshot = InventorySnapshot(exact, isCurrent: false);
+        await store.SaveInventorySnapshotAsync(exactSnapshot, TestContext.Current.CancellationToken);
+        Assert.Equal(SqliteV2DataStore.MaximumInventoryNodes, await V2TestDatabase.ScalarAsync(
+            database.Factory,
+            $"SELECT COUNT(*) FROM observed_inventory_nodes WHERE snapshot_id = '{exactSnapshot.SnapshotId:D}';"));
+
+        var over = StashEnvelope(
+            "node-limit-plus-one",
+            [Region("region", 0, "stash", UnreadGrid(Cells(exactCellCount + 1)), provenance)],
+            [Coverage("stash", exactCellCount + 1, GridGeometry.MaxCells, provenance)],
+            provenance);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveInventorySnapshotAsync(
+            InventorySnapshot(over, isCurrent: false),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task InventoryStringGridAndJsonBoundsAcceptTheLimitAndRejectLimitPlusOne()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteV2DataStore(database.Factory);
+        var provenance = ScreenshotProvenance();
+        var exactString = new string('s', SqliteV2DataStore.MaximumContractStringUtf8Bytes);
+        var exactStringSnapshot = InventorySnapshot(StashEnvelope(exactString, [], [], provenance));
+        await store.SaveInventorySnapshotAsync(exactStringSnapshot, TestContext.Current.CancellationToken);
+        Assert.Equal(exactString, (await store.ReadCurrentInventoryAsync(
+            exactStringSnapshot.ProfileId,
+            exactStringSnapshot.Generation,
+            exactStringSnapshot.GameMode,
+            TestContext.Current.CancellationToken))!.Recognition.Result.Value!.SnapshotId);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.SaveInventorySnapshotAsync(
+            InventorySnapshot(StashEnvelope(exactString + "s", [], [], provenance), isCurrent: false),
+            TestContext.Current.CancellationToken));
+
+        var boundaryCell = new GridCellRecognition(
+            new GridCellAddress(GridGeometry.MaxRows - 1, GridGeometry.MaxColumns - 1),
+            Unknown<RecognizedItem>("stash.boundary-item", provenance));
+        var gridRecognition = StashEnvelope(
+            "grid-boundary",
+            [Region("grid-region", 0, "stash", UnreadGrid(boundaryCell), provenance)],
+            [Coverage("stash", 1, GridGeometry.MaxCells, provenance)],
+            provenance);
+        var gridSnapshot = InventorySnapshot(gridRecognition);
+        await store.SaveInventorySnapshotAsync(gridSnapshot, TestContext.Current.CancellationToken);
+        var hostileGrid = JsonSerializer.SerializeToNode(gridRecognition, V2ContractJson.Options)!;
+        hostileGrid["result"]!["value"]!["capturedRegions"]![0]!["grid"]!["cells"]![0]!["anchor"]!["row"] =
+            GridGeometry.MaxRows;
+        await SetInventoryPayloadAsync(database.Factory, gridSnapshot.SnapshotId, hostileGrid.ToJsonString());
+        await AssertContractReadRejectedAsync(() => store.ReadCurrentInventoryAsync(
+            gridSnapshot.ProfileId,
+            gridSnapshot.Generation,
+            gridSnapshot.GameMode,
+            TestContext.Current.CancellationToken));
+
+        var jsonRecognition = StashEnvelope("json-boundary", [], [], provenance);
+        var jsonSnapshot = InventorySnapshot(jsonRecognition);
+        await store.SaveInventorySnapshotAsync(jsonSnapshot, TestContext.Current.CancellationToken);
+        var canonical = JsonSerializer.Serialize(jsonRecognition, V2ContractJson.Options);
+        var canonicalBytes = Encoding.UTF8.GetByteCount(canonical);
+        Assert.True(canonicalBytes < SqliteV2DataStore.MaximumContractJsonBytes);
+        var exactJson = canonical + new string(' ', SqliteV2DataStore.MaximumContractJsonBytes - canonicalBytes);
+        Assert.Equal(SqliteV2DataStore.MaximumContractJsonBytes, Encoding.UTF8.GetByteCount(exactJson));
+        await SetInventoryPayloadAsync(database.Factory, jsonSnapshot.SnapshotId, exactJson);
+        Assert.NotNull(await store.ReadCurrentInventoryAsync(
+            jsonSnapshot.ProfileId,
+            jsonSnapshot.Generation,
+            jsonSnapshot.GameMode,
+            TestContext.Current.CancellationToken));
+
+        await SetInventoryPayloadAsync(database.Factory, jsonSnapshot.SnapshotId, exactJson + " ");
+        await AssertContractReadRejectedAsync(() => store.ReadCurrentInventoryAsync(
+            jsonSnapshot.ProfileId,
+            jsonSnapshot.Generation,
+            jsonSnapshot.GameMode,
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task HistoricalAndModelledContractsRoundTripFullTypedLineage()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteV2DataStore(database.Factory);
+        var profileId = Guid.NewGuid();
+        var historical = HistoricalTraffic();
+        var modelled = ModelledEncounter();
+        var historicalSnapshot = new HistoricalIntelligenceSnapshot<ZoneTrafficIntensity>(
+            Guid.NewGuid(), profileId, "wipe", "Pvp", historical);
+        var modelledSnapshot = new ModelledIntelligenceSnapshot<EncounterLikelihood>(
+            Guid.NewGuid(), profileId, "wipe", "Pvp", modelled);
+
+        await store.SaveModelSnapshotAsync(historicalSnapshot, TestContext.Current.CancellationToken);
+        await store.SaveModelSnapshotAsync(modelledSnapshot, TestContext.Current.CancellationToken);
+
+        var restoredHistorical = Assert.Single(await store.ListHistoricalModelSnapshotsAsync<ZoneTrafficIntensity>(
+            profileId, "wipe", "Pvp", 10, TestContext.Current.CancellationToken));
+        var restoredModelled = Assert.Single(await store.ListModelledModelSnapshotsAsync<EncounterLikelihood>(
+            profileId, "wipe", "Pvp", 10, TestContext.Current.CancellationToken));
+        Assert.Equal(historical.Value.Provenance, restoredHistorical.Intelligence.Value.Provenance);
+        Assert.Equal(historical.Inputs.Single().Provenance, restoredHistorical.Intelligence.Inputs.Single().Provenance);
+        Assert.Equal(IntelligenceInputKind.PrivateLocalFeedback, restoredHistorical.Intelligence.Inputs.Single().Kind);
+        Assert.Equal(modelled.Estimate.Provenance, restoredModelled.Intelligence.Estimate.Provenance);
+        Assert.Equal(modelled.Inputs.Single().Provenance, restoredModelled.Intelligence.Estimate.Provenance.Inputs.Single());
+        Assert.Equal(
+            "fixture-calibration",
+            restoredModelled.Intelligence.Estimate.Provenance.Confidence.CalibrationReference);
+        Assert.Equal("Historical route estimate", restoredModelled.Intelligence.Explanation);
+        Assert.Equal(2, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM model_snapshots;"));
+        Assert.Equal(2, await V2TestDatabase.ScalarAsync(
+            database.Factory,
+            "SELECT COUNT(*) FROM model_snapshots WHERE calibration IS NULL;"));
+    }
+
+    [Fact]
+    public async Task IntelligencePersistenceRejectsLiveClaimsAndFreeFormRows()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteV2DataStore(database.Factory);
+        var live = ModelledEncounter("fixture://live-detector");
+        await Assert.ThrowsAsync<ArgumentException>(() => store.SaveModelSnapshotAsync(
+            new ModelledIntelligenceSnapshot<EncounterLikelihood>(Guid.NewGuid(), null, null, null, live),
+            TestContext.Current.CancellationToken));
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory, "SELECT COUNT(*) FROM model_snapshots;"));
+
+        var valid = new ModelledIntelligenceSnapshot<EncounterLikelihood>(
+            Guid.NewGuid(), null, null, null, ModelledEncounter());
+        await store.SaveModelSnapshotAsync(valid, TestContext.Current.CancellationToken);
+        await SetModelPayloadAsync(database.Factory, valid.ModelSnapshotId, "{}");
+        await AssertContractReadRejectedAsync(() => store.ListModelledModelSnapshotsAsync<EncounterLikelihood>(
+            null, null, null, 10, TestContext.Current.CancellationToken));
+
+        var missingEvidence = JsonSerializer.SerializeToNode(valid.Intelligence, V2ContractJson.Options)!;
+        missingEvidence["estimate"]!["provenance"] = null;
+        await SetModelPayloadAsync(database.Factory, valid.ModelSnapshotId, missingEvidence.ToJsonString());
+        await AssertContractReadRejectedAsync(() => store.ListModelledModelSnapshotsAsync<EncounterLikelihood>(
+            null, null, null, 10, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CraftPlanningAndRetentionStoresRoundTripNullableProvenance()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
         var store = new SqliteV2DataStore(database.Factory);
@@ -236,7 +468,8 @@ public sealed class DurableStoreTests
         var craft = new CraftHistoryRecord(Guid.NewGuid(), "craft-a", "workbench", 2, null, now,
             "item-a", null, null, 45000, "json.tarkov.dev/crafts", "{\"futureCostModel\":\"unknown\"}");
         await store.AppendCraftHistoryAsync(craft, TestContext.Current.CancellationToken);
-        var restoredCraft = Assert.Single(await store.ListCraftHistoryAsync("craft-a", TestContext.Current.CancellationToken));
+        var restoredCraft = Assert.Single(await store.ListCraftHistoryAsync(
+            "craft-a", 10, TestContext.Current.CancellationToken));
         Assert.Null(restoredCraft.ObservedUtc);
         Assert.Null(restoredCraft.EstimatedCostRoubles);
         Assert.Equal(craft.PayloadJson, restoredCraft.PayloadJson);
@@ -251,28 +484,22 @@ public sealed class DurableStoreTests
             plan,
             TestContext.Current.CancellationToken));
         var revisedPlan = plan with { Revision = 2, Name = "Factory revised" };
+        Assert.False(await store.TrySaveLoadoutPlanAsync(
+            1,
+            revisedPlan with { ProfileId = Guid.NewGuid() },
+            TestContext.Current.CancellationToken));
+        Assert.False(await store.TrySaveLoadoutPlanAsync(
+            1,
+            revisedPlan with { Generation = "different-wipe" },
+            TestContext.Current.CancellationToken));
+        Assert.Null(await store.ReadLoadoutPlanAsync(
+            planId, Guid.NewGuid(), plan.Generation, plan.GameMode,
+            TestContext.Current.CancellationToken));
         Assert.True(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
         Assert.False(await store.TrySaveLoadoutPlanAsync(1, revisedPlan, TestContext.Current.CancellationToken));
-        Assert.Equal(plan.ExtensionJson, (await store.ReadLoadoutPlanAsync(planId, TestContext.Current.CancellationToken))!.ExtensionJson);
-
-        var model = new ModelSnapshotRecord(Guid.NewGuid(), plan.ProfileId, "wipe", "Pvp", "raid-risk", "predicted",
-            "historical-raids", null, now.AddDays(-1), now, .5, null, .7, "risk-1", "{\"risk\":null}", "{\"future\":1}");
-        await store.SaveModelSnapshotAsync(model, TestContext.Current.CancellationToken);
-        await store.SaveModelSnapshotAsync(model with
-        {
-            ModelSnapshotId = Guid.NewGuid(),
-            Generation = "next-wipe",
-            GeneratedUtc = now.AddMinutes(1),
-        }, TestContext.Current.CancellationToken);
-        var restoredModel = Assert.Single(await store.ListModelSnapshotsAsync(
-            plan.ProfileId,
-            "wipe",
-            "Pvp",
-            "raid-risk",
-            10,
-            TestContext.Current.CancellationToken));
-        Assert.Null(restoredModel.Confidence);
-        Assert.Equal(model.DataThroughUtc, restoredModel.DataThroughUtc);
+        Assert.Equal(plan.ExtensionJson, (await store.ReadLoadoutPlanAsync(
+            planId, plan.ProfileId, plan.Generation, plan.GameMode,
+            TestContext.Current.CancellationToken))!.ExtensionJson);
 
         var policy = new DataRetentionPolicy("local", true, 24, false, 90, now, "{\"futureRetention\":true}");
         await store.SaveRetentionPolicyAsync(policy, TestContext.Current.CancellationToken);
@@ -292,10 +519,180 @@ public sealed class DurableStoreTests
         var recorded = new DateTimeOffset(2026, 9, 15, 4, 0, 0, TimeSpan.Zero);
         await store.AppendRaidFieldAsync(new(0, raidId, "outcome", "{\"value\":\"survived\"}", "manual", "player", null, recorded, null), TestContext.Current.CancellationToken);
         await store.AppendRaidFieldAsync(new(0, raidId, "outcome", "{\"value\":\"unknown\"}", "observed", "eft-log", recorded.AddMinutes(-1), recorded, .6), TestContext.Current.CancellationToken);
-        var fields = await store.ListRaidFieldsAsync(raidId, TestContext.Current.CancellationToken);
+        var fields = await store.ListRaidFieldsAsync(raidId, 10, TestContext.Current.CancellationToken);
         Assert.Equal(["manual", "observed"], fields.Select(field => field.ProvenanceKind));
         Assert.Null(fields[0].ObservedUtc);
         Assert.Null(fields[0].Confidence);
+    }
+
+    [Fact]
+    public async Task HistoryReadsReturnOnlyBoundedNewestWindows()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var raidId = await SeedRaidAsync(database.Factory);
+        var store = new SqliteV2DataStore(database.Factory);
+        var now = new DateTimeOffset(2026, 9, 15, 5, 0, 0, TimeSpan.Zero);
+        for (var sequence = 1; sequence <= 3; sequence++)
+        {
+            var recorded = now.AddMinutes(sequence);
+            await store.AppendRaidFieldAsync(
+                new(0, raidId, "sequence", $"{{\"value\":{sequence}}}", "manual", "fixture", null, recorded, null),
+                TestContext.Current.CancellationToken);
+            await store.AppendCraftHistoryAsync(
+                new(Guid.NewGuid(), "bounded-craft", null, null, null, recorded, null, null, null, null,
+                    "fixture", $"{{\"value\":{sequence}}}"),
+                TestContext.Current.CancellationToken);
+        }
+
+        var raidWindow = await store.ListRaidFieldsAsync(raidId, 2, TestContext.Current.CancellationToken);
+        Assert.Equal(["{\"value\":2}", "{\"value\":3}"], raidWindow.Select(row => row.ValueJson));
+        var craftWindow = await store.ListCraftHistoryAsync(
+            "bounded-craft", 2, TestContext.Current.CancellationToken);
+        Assert.Equal(["{\"value\":3}", "{\"value\":2}"], craftWindow.Select(row => row.PayloadJson));
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.ListRaidFieldsAsync(raidId, 0, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.ListCraftHistoryAsync(
+                "bounded-craft",
+                SqliteV2DataStore.MaximumCraftHistoryReadCount + 1,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CorruptDurableRowsFailAsInvalidDataInsteadOfBeingCoerced()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var store = new SqliteV2DataStore(database.Factory);
+        var now = new DateTimeOffset(2026, 9, 15, 6, 0, 0, TimeSpan.Zero);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.AppendCraftHistoryAsync(
+                new(Guid.NewGuid(), "invalid-craft", null, null, null, default, null, null, null, null,
+                    "fixture", "{}"),
+                TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            store.AppendCraftHistoryAsync(
+                new(Guid.NewGuid(), "invalid-craft", null, null, null, now, null, null, -1, null,
+                    "fixture", "{}"),
+                TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.RecordLocalJsonRecoveryAsync(
+                new("invalid", "current", now, new string('A', 64), "fixture"),
+                TestContext.Current.CancellationToken));
+        var raidId = await SeedRaidAsync(database.Factory);
+        await store.AppendRaidFieldAsync(
+            new(0, raidId, "state", "{}", "manual", "fixture", null, now, null),
+            TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "UPDATE raid_field_history SET recorded_utc = 'not-a-time' WHERE raid_id = $id;",
+            ("$id", raidId.ToString("D")));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ListRaidFieldsAsync(raidId, 1, TestContext.Current.CancellationToken));
+
+        await store.AppendCraftHistoryAsync(
+            new(Guid.NewGuid(), "poisoned-craft", null, 1, null, now, null, 1, 1, 1, "fixture", "{}"),
+            TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "PRAGMA ignore_check_constraints = ON; UPDATE craft_history SET station_level = 1.5 WHERE craft_id = 'poisoned-craft'; PRAGMA ignore_check_constraints = OFF;");
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ListCraftHistoryAsync("poisoned-craft", 1, TestContext.Current.CancellationToken));
+
+        await store.SaveRetentionPolicyAsync(
+            new("poisoned-policy", true, 24, false, 30, now, "{}"),
+            TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "PRAGMA ignore_check_constraints = ON; UPDATE retention_policies SET debug_capture_enabled = 2 WHERE policy_key = 'poisoned-policy'; PRAGMA ignore_check_constraints = OFF;");
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ReadRetentionPolicyAsync("poisoned-policy", TestContext.Current.CancellationToken));
+
+        await store.RecordLocalJsonRecoveryAsync(
+            new("profile", "current", now, new string('a', 64), "fixture"),
+            TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "PRAGMA ignore_check_constraints = ON; UPDATE local_json_recovery SET content_sha256 = 'not-a-hash' WHERE document_key = 'profile'; PRAGMA ignore_check_constraints = OFF;");
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ReadLocalJsonRecoveryAsync("profile", TestContext.Current.CancellationToken));
+
+        var inventory = InventorySnapshot(StashEnvelope(
+            "poisoned-inventory-metadata",
+            [],
+            [],
+            ScreenshotProvenance()));
+        await store.SaveInventorySnapshotAsync(inventory, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "UPDATE observed_inventory_snapshots SET source = x'37' WHERE snapshot_id = $id;",
+            ("$id", inventory.SnapshotId.ToString("D")));
+        await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadCurrentInventoryAsync(
+            inventory.ProfileId,
+            inventory.Generation,
+            inventory.GameMode,
+            TestContext.Current.CancellationToken));
+
+        var intelligence = new ModelledIntelligenceSnapshot<EncounterLikelihood>(
+            Guid.NewGuid(),
+            null,
+            null,
+            null,
+            ModelledEncounter());
+        await store.SaveModelSnapshotAsync(intelligence, TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            "UPDATE model_snapshots SET source = x'37' WHERE model_snapshot_id = $id;",
+            ("$id", intelligence.ModelSnapshotId.ToString("D")));
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ListModelledModelSnapshotsAsync<EncounterLikelihood>(
+                null,
+                null,
+                null,
+                1,
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ProfileWorkspaceRejectsSentinelOverflowAndNumericEnumText()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await ExecuteSqlAsync(
+            database.Factory,
+            """
+            INSERT INTO profile_workspaces(workspace_key, revision, active_profile_id, updated_utc)
+            VALUES (1, 0, NULL, '2026-09-15T00:00:00.0000000+00:00');
+            WITH RECURSIVE sequence(value) AS (
+                SELECT 1 UNION ALL SELECT value + 1 FROM sequence WHERE value < 65
+            )
+            INSERT INTO profile_contexts(
+                profile_id, generation, name, game_mode, wipe_season, language, region, time_zone,
+                data_snapshot_id, data_snapshot_published_utc, level, lifecycle, updated_utc, extension_json)
+            SELECT printf('00000000-0000-0000-0000-%012x', value), 'wipe', 'Profile ' || value,
+                   'Pvp', '2026.2', 'en-US', 'US', 'UTC', 'snapshot',
+                   '2026-09-15T00:00:00.0000000+00:00', 1, 'Active',
+                   '2026-09-15T00:00:00.0000000+00:00', '{}'
+            FROM sequence;
+            """);
+        var store = new SqliteProfileWorkspaceStore(database.Factory);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ReadAsync(TestContext.Current.CancellationToken));
+
+        await ExecuteSqlAsync(
+            database.Factory,
+            """
+            DELETE FROM profile_contexts;
+            PRAGMA ignore_check_constraints = ON;
+            INSERT INTO profile_contexts(
+                profile_id, generation, name, game_mode, wipe_season, language, region, time_zone,
+                data_snapshot_id, data_snapshot_published_utc, level, lifecycle, updated_utc, extension_json)
+            VALUES ('00000000-0000-0000-0000-000000000001', 'wipe', 'Poisoned', '1', '2026.2',
+                    'en-US', 'US', 'UTC', 'snapshot', '2026-09-15T00:00:00.0000000+00:00',
+                    1, 'Active', '2026-09-15T00:00:00.0000000+00:00', '{}');
+            PRAGMA ignore_check_constraints = OFF;
+            """);
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            store.ReadAsync(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -315,6 +712,243 @@ public sealed class DurableStoreTests
         Assert.False(replayCalled);
         Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory, $"SELECT COUNT(*) FROM raids WHERE id = '{raidId:D}';"));
         Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory, $"SELECT COUNT(*) FROM outbox_target_operations WHERE operation_id = '{operation}';"));
+    }
+
+    private static readonly DateTimeOffset CapturedUtc =
+        new(2026, 9, 15, 3, 0, 0, TimeSpan.Zero);
+
+    private static readonly DateTimeOffset ObservedUtc = CapturedUtc.AddMinutes(1);
+
+    private static readonly DateTimeOffset RecordedUtc = ObservedUtc.AddMinutes(1);
+
+    private static ProfileWorkspaceSnapshot RevisedWorkspace(
+        ProfileWorkspaceSnapshot original,
+        long revision,
+        string profileName) => new(
+        revision,
+        original.ActiveProfileId,
+        original.Profiles.Select(profile => new ProfileRecord(
+            profile.Context,
+            profileName,
+            profile.Progress,
+            profile.Lifecycle,
+            profile.UpdatedUtc,
+            profile.ExtensionJson)).ToArray());
+
+    private static ObservedInventorySnapshot InventorySnapshot(
+        RecognitionResultEnvelope<StashRecognition> recognition,
+        bool isCurrent = true) => new(
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        "wipe",
+        "Pvp",
+        RecordedUtc,
+        isCurrent,
+        recognition);
+
+    private static RecognitionResultEnvelope<StashRecognition> StashEnvelope(
+        string snapshotId,
+        IReadOnlyList<StashCaptureRegion> regions,
+        IReadOnlyList<StashContainerCoverage> coverage,
+        EvidenceProvenance provenance)
+    {
+        var stash = new StashRecognition(
+            snapshotId,
+            regions,
+            coverage,
+            Unknown<long?>("stash.total", provenance),
+            Complete<int?>("stash.unresolved", 0, provenance));
+        var header = new RecognitionResultHeader(
+            "stash-result",
+            V2ContractVersion.Current,
+            new CaptureSessionId(Guid.NewGuid()),
+            "stash-artifact",
+            CapturedUtc,
+            ScanIntent.Stash,
+            Complete<RecognizedContext?>("stash.context", RecognizedContext.Stash, provenance));
+        return new(header, Complete("stash.result", stash, provenance));
+    }
+
+    private static StashCaptureRegion Region(
+        string regionId,
+        int ordinal,
+        string containerPath,
+        GridRecognition grid,
+        EvidenceProvenance provenance) => new(
+        regionId,
+        $"artifact-{ordinal}",
+        ordinal,
+        containerPath,
+        Complete<GridCellAddress?>("stash.origin", new GridCellAddress(0, 0), provenance),
+        grid);
+
+    private static StashContainerCoverage Coverage(
+        string containerPath,
+        int observedCells,
+        int totalCells,
+        EvidenceProvenance provenance) => new(
+        containerPath,
+        Complete<int?>("stash.coverage.observed", observedCells, provenance),
+        Complete<int?>("stash.coverage.total", totalCells, provenance));
+
+    private static GridRecognition UnreadGrid(params GridCellRecognition[] cells)
+    {
+        var provenance = ScreenshotProvenance();
+        return new(
+            new GridGeometry(
+                Unknown<int?>("stash.grid.rows", provenance),
+                Unknown<int?>("stash.grid.columns", provenance),
+                Unknown<int?>("stash.grid.cellWidth", provenance),
+                Unknown<int?>("stash.grid.cellHeight", provenance)),
+            cells);
+    }
+
+    private static RecognizedItem RecognizedItem(string id, EvidenceProvenance provenance) => new(
+        Complete("stash.item.id", id, provenance),
+        Complete("stash.item.name", "Bag", provenance),
+        Complete<int?>("stash.item.quantity", 1, provenance),
+        Complete<int?>("stash.item.width", 1, provenance),
+        Complete<int?>("stash.item.height", 1, provenance),
+        Complete<bool?>("stash.item.rotated", false, provenance),
+        Complete<bool?>("stash.item.foundInRaid", true, provenance),
+        Complete("stash.item.condition", ItemConditionReading.NotApplicable, provenance));
+
+    private static EvidencedValue<T> Complete<T>(string fieldId, T value, EvidenceProvenance provenance) => new(
+        fieldId,
+        value,
+        new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current),
+        provenance);
+
+    private static EvidencedValue<T> Unknown<T>(string fieldId, EvidenceProvenance provenance) => new(
+        fieldId,
+        default,
+        new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
+        provenance);
+
+    private static EvidenceProvenance ScreenshotProvenance() => new(
+        EvidenceSourceClass.GameWrittenScreenshot,
+        "fixture://stash-screen",
+        ObservedUtc,
+        new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.94),
+        new ProducerIdentity("fixture-stash-recognizer", "2.0"),
+        coverage: new EvidenceCoverage(fraction: 0.75, description: "Visible stash cells"));
+
+    private static HistoricalIntelligence<ZoneTrafficIntensity> HistoricalTraffic()
+    {
+        var inputProvenance = new EvidenceProvenance(
+            EvidenceSourceClass.GameWrittenLog,
+            "fixture://own-raid-history",
+            CapturedUtc.AddDays(-2),
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("fixture-log-reader", "2.0"));
+        var input = new IntelligenceInputReference(
+            "own-raid-history",
+            IntelligenceInputKind.PrivateLocalFeedback,
+            inputProvenance);
+        var provenance = IntelligenceProvenance(
+            EvidenceSourceClass.HistoricalAggregate,
+            "fixture://historical-traffic",
+            inputProvenance);
+        return new(
+            "customs-dorms-history",
+            Complete(
+                "traffic.zone",
+                new ZoneTrafficIntensity("customs", "dorms", RaidPhase.Mid, 0.45),
+                provenance),
+            [input]);
+    }
+
+    private static ModelledIntelligence<EncounterLikelihood> ModelledEncounter(
+        string sourceIdentifier = "fixture://encounter-model")
+    {
+        var inputProvenance = new EvidenceProvenance(
+            EvidenceSourceClass.PublicStructuredData,
+            "fixture://map-topology",
+            CapturedUtc.AddDays(-2),
+            EvidenceConfidence.Certain,
+            new ProducerIdentity("fixture-catalog", "2.0"));
+        var input = new IntelligenceInputReference(
+            "map-topology",
+            IntelligenceInputKind.StaticMapData,
+            inputProvenance);
+        var provenance = IntelligenceProvenance(
+            EvidenceSourceClass.ModelledEstimate,
+            sourceIdentifier,
+            inputProvenance);
+        return new(
+            "customs-dorms-estimate",
+            Complete(
+                "traffic.encounter",
+                new EncounterLikelihood("customs", "dorms", RaidPhase.Mid, 0.62),
+                provenance),
+            [input],
+            "Historical route estimate");
+    }
+
+    private static EvidenceProvenance IntelligenceProvenance(
+        EvidenceSourceClass sourceClass,
+        string sourceIdentifier,
+        params EvidenceProvenance[] inputs) => new(
+        sourceClass,
+        sourceIdentifier,
+        ObservedUtc,
+        new EvidenceConfidence(EvidenceConfidenceKind.CalibratedEstimate, 0.72, "fixture-calibration"),
+        new ProducerIdentity("fixture-intelligence", "2.0", "traffic-model-4"),
+        CapturedUtc.AddDays(-1),
+        CapturedUtc,
+        new EvidenceCoverage(240, 0.8, "Historical route samples"),
+        inputs: inputs);
+
+    private static async Task SetInventoryPayloadAsync(
+        SqliteConnectionFactory factory,
+        Guid snapshotId,
+        string payloadJson)
+    {
+        await using var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE observed_inventory_snapshots SET payload_json = $payload WHERE snapshot_id = $id;";
+        command.Parameters.AddWithValue("$payload", payloadJson);
+        command.Parameters.AddWithValue("$id", snapshotId.ToString("D"));
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static async Task ExecuteSqlAsync(
+        SqliteConnectionFactory factory,
+        string sql,
+        params (string Name, object Value)[] parameters)
+    {
+        await using var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        foreach (var (name, value) in parameters)
+        {
+            command.Parameters.AddWithValue(name, value);
+        }
+
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task SetModelPayloadAsync(
+        SqliteConnectionFactory factory,
+        Guid snapshotId,
+        string payloadJson)
+    {
+        await using var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE model_snapshots SET payload_json = $payload WHERE model_snapshot_id = $id;";
+        command.Parameters.AddWithValue("$payload", payloadJson);
+        command.Parameters.AddWithValue("$id", snapshotId.ToString("D"));
+        Assert.Equal(1, await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken));
+    }
+
+    private static async Task AssertContractReadRejectedAsync(Func<Task> read)
+    {
+        var failure = await Record.ExceptionAsync(read);
+        Assert.NotNull(failure);
+        Assert.True(
+            failure is JsonException or ArgumentException or InvalidDataException ||
+            failure.GetBaseException() is ArgumentException,
+            failure.ToString());
     }
 
     private static OutboxItem Item(string key, string aggregate, long sequence, DateTimeOffset now)

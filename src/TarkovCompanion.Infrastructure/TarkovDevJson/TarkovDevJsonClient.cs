@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -12,6 +13,8 @@ namespace TarkovCompanion.Infrastructure.TarkovDevJson;
 
 public sealed class TarkovDevJsonClient : IAsyncDisposable
 {
+    private const int MaximumTranslationPathUtf8Bytes = 4096;
+
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
@@ -28,10 +31,14 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
     private readonly DataTranslationService _translationService;
     private readonly TarkovDevJsonClientOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly Action<string>? _afterForegroundRefreshRegistered;
     private readonly ConcurrentDictionary<string, Lazy<Task<CachedResponse>>> _foregroundRefreshes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<CachedResponse>>> _forcedRefreshes = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task>> _backgroundRefreshes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _publicationEpochs = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly object _backgroundGate = new();
+    private readonly SemaphoreSlim _publicationGate = new(1, 1);
     private int _disposeState;
     private Task? _disposeTask;
 
@@ -41,6 +48,17 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         DataTranslationService translationService,
         TarkovDevJsonClientOptions? options = null,
         TimeProvider? timeProvider = null)
+        : this(httpClient, cache, translationService, options, timeProvider, null)
+    {
+    }
+
+    internal TarkovDevJsonClient(
+        HttpClient httpClient,
+        ITarkovDevResponseCache cache,
+        DataTranslationService translationService,
+        TarkovDevJsonClientOptions? options,
+        TimeProvider? timeProvider,
+        Action<string>? afterForegroundRefreshRegistered)
     {
         _httpClient = httpClient;
         _cache = cache;
@@ -48,6 +66,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         _options = options ?? new();
         _options.Validate();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _afterForegroundRefreshRegistered = afterForegroundRefreshRegistered;
     }
 
     public Task<TarkovDevResponse<TarkovDevItemsData>> GetItemsAsync(
@@ -181,7 +200,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             path,
             _options.StaticFreshFor,
             force,
-            (candidate, previous) => ValidateTypedDataset<T>(candidate, previous, path),
+            (candidate, previous) => ValidateTranslatableDataset<T>(candidate, previous, path),
             cancellationToken).ConfigureAwait(false);
 
         using var envelope = JsonDocument.Parse(baseResponse.Entry.BodyJson);
@@ -197,12 +216,52 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 $"{path}_{normalizedLanguage}",
                 _options.StaticFreshFor,
                 force,
-                (candidate, _) => ValidateTranslationEnvelope(candidate, path),
+                (candidate, previous) =>
+                {
+                    ValidateTranslationEnvelope(candidate, path);
+                    var translatedCandidate = _translationService.Apply(
+                        baseResponse.Entry.BodyJson,
+                        candidate,
+                        _options.MaximumResponseBytes);
+                    var translatedPrevious = previous is null
+                        ? null
+                        : _translationService.Apply(
+                            baseResponse.Entry.BodyJson,
+                            previous,
+                            _options.MaximumResponseBytes);
+                    ValidateTypedDataset<T>(translatedCandidate, translatedPrevious, path);
+                },
                 cancellationToken).ConfigureAwait(false);
-            translatedJson = _translationService.Apply(baseResponse.Entry.BodyJson, translationResponse.Entry.BodyJson);
+            try
+            {
+                translatedJson = _translationService.Apply(
+                    baseResponse.Entry.BodyJson,
+                    translationResponse.Entry.BodyJson,
+                    _options.MaximumResponseBytes);
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidDataException)
+            {
+                // A coalesced translation transfer may have been validated by a concurrent
+                // caller against a different base generation. Re-check this exact pair at the
+                // return boundary and keep an incompatible pair out of normalized persistence.
+                throw Refused(path, exception);
+            }
         }
 
-        var value = DeserializeEnvelope<T>(translatedJson);
+        // Translation candidates are merged and typed before publication above. Repeating the
+        // typed read here keeps the returned value and the validated value identical without a
+        // second quarantine path that could ever run without an exact cache hash.
+        TarkovDevEnvelope<T> value;
+        try
+        {
+            value = DeserializeEnvelope<T>(translatedJson);
+            TarkovDevDatasetValidator.Validate(value.Data, path);
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            throw Refused(path, exception);
+        }
+
         return new(
             value.Data,
             translatedJson,
@@ -213,7 +272,8 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             baseResponse.IsStale || translationResponse?.IsStale == true,
             baseResponse.Entry.ETag,
             baseResponse.Entry.LastModified,
-            baseResponse.Entry.BodyJson);
+            baseResponse.Entry.BodyJson,
+            translationResponse?.RefusalReason ?? baseResponse.RefusalReason);
     }
 
     private async Task<TarkovDevResponse<T>> GetUntranslatedAsync<T>(
@@ -238,7 +298,8 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             response.IsStale,
             response.Entry.ETag,
             response.Entry.LastModified,
-            response.Entry.BodyJson);
+            response.Entry.BodyJson,
+            response.RefusalReason);
     }
 
     private async Task<CachedResponse> GetJsonAsync(
@@ -250,6 +311,28 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
     {
         ThrowIfDisposed();
         var cached = await _cache.GetAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+        if (cached is not null)
+        {
+            try
+            {
+                // Cache rows predate validators and survive application upgrades. Re-check the
+                // complete typed persistence shape before a fresh shortcut can make an old,
+                // structurally-valid but unusable document authoritative forever.
+                ValidateCachedResponsePolicy(cached.BodyJson, cacheKey);
+                validate(cached.BodyJson, null);
+            }
+            catch (Exception exception) when (
+                exception is JsonException or InvalidDataException or TarkovDevResponseBudgetException)
+            {
+                await _cache.QuarantineAsync(
+                    cacheKey,
+                    cached.ContentSha256 ?? ContentHash(cached.BodyJson),
+                    "cache-dataset-invalid",
+                    cancellationToken).ConfigureAwait(false);
+                cached = null;
+            }
+        }
+
         var now = _timeProvider.GetUtcNow();
         if (!force && cached is not null && now - cached.CachedUtc <= freshFor)
         {
@@ -264,15 +347,20 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
 
         try
         {
-            // A forced caller owns its request and never joins stale background work. Cache-miss
-            // callers share one lifetime-bound transfer but await it with their own cancellation.
+            // Forced callers share a transfer that is independent from stale background work.
+            // Every transfer belongs to the client lifetime while each waiter retains independent
+            // cancellation, so disposal can always cancel and drain the actual HTTP operation.
             return force
-                ? await RefreshAsync(cacheKey, cached, validate, cancellationToken).ConfigureAwait(false)
+                ? await GetOrCreateForcedRefreshAsync(cacheKey, cached, validate, cancellationToken).ConfigureAwait(false)
                 : await GetOrCreateForegroundRefreshAsync(cacheKey, validate, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (cached is not null && exception is not OperationCanceledException)
         {
-            return new(cached, true, true);
+            return new(
+                cached,
+                true,
+                true,
+                exception is TarkovDevDatasetRefusedException refusal ? refusal.Reason : null);
         }
     }
 
@@ -290,14 +378,36 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 throw new ObjectDisposedException(nameof(TarkovDevJsonClient));
             }
 
+            // A cache-miss reader arriving while a forced refresh owns this key must join the
+            // authoritative transfer. Starting a second foreground request here would capture the
+            // force epoch and could publish a different body in the small window between the
+            // forced write and its epoch retirement.
+            if (_forcedRefreshes.TryGetValue(cacheKey, out var forced))
+            {
+                return forced.Value.WaitAsync(callerCancellation);
+            }
+
+            // Capture while registration is serialized. If the Lazy captured on first execution,
+            // a force could register and increment after this normal transfer was registered but
+            // before Lazy.Value started, making the older transfer look current.
+            var publicationEpoch = CapturePublicationEpoch(cacheKey);
             candidate = new(
-                () => RefreshAsync(cacheKey, null, validate, _lifetime.Token),
+                () => RefreshAsync(
+                    cacheKey,
+                    null,
+                    validate,
+                    publicationEpoch,
+                    _lifetime.Token),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             selected = _foregroundRefreshes.GetOrAdd(cacheKey, candidate);
         }
 
         if (ReferenceEquals(candidate, selected))
         {
+            // The integration seam pauses only after both registration and epoch capture. It
+            // makes the once-sub-instruction race reproducible without weakening production
+            // ordering; null in every production composition.
+            _afterForegroundRefreshRegistered?.Invoke(cacheKey);
             _ = AwaitForegroundAndRemoveAsync(cacheKey, candidate);
         }
 
@@ -305,6 +415,75 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         // first load. Each waiter still observes its own cancellation immediately; client disposal
         // cancels and drains the shared transfer itself.
         return selected.Value.WaitAsync(callerCancellation);
+    }
+
+    private Task<CachedResponse> GetOrCreateForcedRefreshAsync(
+        string cacheKey,
+        TarkovDevCacheEntry? cached,
+        Action<string, string?> validate,
+        CancellationToken callerCancellation)
+    {
+        Lazy<Task<CachedResponse>> candidate;
+        Lazy<Task<CachedResponse>> selected;
+        lock (_backgroundGate)
+        {
+            if (_disposeState != 0)
+            {
+                throw new ObjectDisposedException(nameof(TarkovDevJsonClient));
+            }
+
+            candidate = new(
+                () => RunForcedRefreshAsync(cacheKey, cached, validate, _lifetime.Token),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            selected = _forcedRefreshes.GetOrAdd(cacheKey, candidate);
+        }
+
+        if (ReferenceEquals(candidate, selected))
+        {
+            _ = AwaitForcedAndRemoveAsync(cacheKey, candidate);
+        }
+
+        return selected.Value.WaitAsync(callerCancellation);
+    }
+
+    private async Task<CachedResponse> RunForcedRefreshAsync(
+        string cacheKey,
+        TarkovDevCacheEntry? cached,
+        Action<string, string?> validate,
+        CancellationToken cancellationToken)
+    {
+        var epoch = await BeginForcedPublicationAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await RefreshAsync(cacheKey, cached, validate, epoch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Invalidate work that began while this authoritative refresh was active. The forced
+            // body has already published (when successful); a delayed stale response must not be
+            // able to replace it after the caller has observed completion.
+            await EndForcedPublicationAsync(cacheKey, epoch).ConfigureAwait(false);
+        }
+    }
+
+    private async Task AwaitForcedAndRemoveAsync(string cacheKey, Lazy<Task<CachedResponse>> lazy)
+    {
+        try
+        {
+            await lazy.Value.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Waiters observe their own result. This observer only owns exact-entry retirement.
+        }
+        finally
+        {
+            lock (_backgroundGate)
+            {
+                _forcedRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task<CachedResponse>>>(cacheKey, lazy));
+                RetirePublicationEpochIfIdle(cacheKey);
+            }
+        }
     }
 
     private async Task AwaitForegroundAndRemoveAsync(string cacheKey, Lazy<Task<CachedResponse>> lazy)
@@ -320,7 +499,11 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         }
         finally
         {
-            _foregroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task<CachedResponse>>>(cacheKey, lazy));
+            lock (_backgroundGate)
+            {
+                _foregroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task<CachedResponse>>>(cacheKey, lazy));
+                RetirePublicationEpochIfIdle(cacheKey);
+            }
         }
     }
 
@@ -338,8 +521,23 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 return;
             }
 
+            // A forced request is already replacing this stale entry. Suppressing a redundant
+            // background transfer is what gives the force epoch a single publisher; otherwise a
+            // background request begun during the force could share its epoch and win afterward.
+            if (_forcedRefreshes.ContainsKey(cacheKey))
+            {
+                return;
+            }
+
+            // See the foreground path: registration and epoch capture are one ordering event.
+            var publicationEpoch = CapturePublicationEpoch(cacheKey);
             candidate = new(
-                () => ObserveBackgroundRefreshAsync(cacheKey, cached, validate, _lifetime.Token),
+                () => ObserveBackgroundRefreshAsync(
+                    cacheKey,
+                    cached,
+                    validate,
+                    publicationEpoch,
+                    _lifetime.Token),
                 LazyThreadSafetyMode.ExecutionAndPublication);
             selected = _backgroundRefreshes.GetOrAdd(cacheKey, candidate);
         }
@@ -358,7 +556,28 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         }
         finally
         {
-            _backgroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task>>(cacheKey, lazy));
+            lock (_backgroundGate)
+            {
+                _backgroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task>>(cacheKey, lazy));
+                RetirePublicationEpochIfIdle(cacheKey);
+            }
+        }
+    }
+
+    /// <summary>Retires completed per-key ordering state without creating an epoch ABA race.</summary>
+    /// <remarks>
+    /// Every refresh registers its lazy under <see cref="_backgroundGate"/> before capturing an
+    /// epoch. Removing the epoch under that same gate is therefore safe only after all three
+    /// refresh registries are empty: a newly registered transfer keeps the epoch, and a delayed
+    /// old transfer keeps it until its publication check and observer have both completed.
+    /// </remarks>
+    private void RetirePublicationEpochIfIdle(string cacheKey)
+    {
+        if (!_foregroundRefreshes.ContainsKey(cacheKey) &&
+            !_forcedRefreshes.ContainsKey(cacheKey) &&
+            !_backgroundRefreshes.ContainsKey(cacheKey))
+        {
+            _publicationEpochs.TryRemove(cacheKey, out _);
         }
     }
 
@@ -366,6 +585,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         string cacheKey,
         TarkovDevCacheEntry? cached,
         Action<string, string?> validate,
+        long publicationEpoch,
         CancellationToken cancellationToken)
     {
         if (_options.OfflineProbe())
@@ -390,6 +610,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 cacheKey,
                 cached,
                 validate,
+                publicationEpoch,
                 cancellationToken).ConfigureAwait(false);
             if (result.Response is { } response)
             {
@@ -417,6 +638,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         string cacheKey,
         TarkovDevCacheEntry? cached,
         Action<string, string?> validate,
+        long publicationEpoch,
         CancellationToken cancellationToken)
     {
         Exception? lastError = null;
@@ -441,7 +663,18 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 if (response.StatusCode == HttpStatusCode.NotModified && cached is not null)
                 {
                     var revalidated = cached with { CachedUtc = _timeProvider.GetUtcNow() };
-                    await _cache.PutAsync(revalidated, cancellationToken).ConfigureAwait(false);
+                    if (!await PublishIfCurrentAsync(
+                            cacheKey,
+                            publicationEpoch,
+                            revalidated,
+                            cancellationToken).ConfigureAwait(false))
+                    {
+                        return (
+                            await ResolveSupersededResponseAsync(cacheKey, cancellationToken)
+                                .ConfigureAwait(false),
+                            null);
+                    }
+
                     return (new(revalidated, true, false), null);
                 }
 
@@ -465,14 +698,37 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 {
                     var body = await ReadBoundedUtf8Async(response.Content, timeout.Token).ConfigureAwait(false);
                     ValidateJsonEnvelope(body, cacheKey);
-                    validate(body, cached?.BodyJson);
+                    try
+                    {
+                        validate(body, cached?.BodyJson);
+                    }
+                    catch (Exception exception) when (
+                        (exception is JsonException or InvalidDataException) &&
+                        exception is not TarkovDevDatasetRefusedException)
+                    {
+                        throw new TarkovDevDatasetRefusedException(
+                            $"Refused '{cacheKey}': {exception.Message}",
+                            exception);
+                    }
                     var entry = new TarkovDevCacheEntry(
                         cacheKey,
                         body,
                         _timeProvider.GetUtcNow(),
                         response.Headers.ETag?.ToString(),
-                        response.Content.Headers.LastModified ?? response.Headers.Date);
-                    await _cache.PutAsync(entry, cancellationToken).ConfigureAwait(false);
+                        response.Content.Headers.LastModified ?? response.Headers.Date,
+                        ContentHash(body));
+                    if (!await PublishIfCurrentAsync(
+                            cacheKey,
+                            publicationEpoch,
+                            entry,
+                            cancellationToken).ConfigureAwait(false))
+                    {
+                        return (
+                            await ResolveSupersededResponseAsync(cacheKey, cancellationToken)
+                                .ConfigureAwait(false),
+                            null);
+                    }
+
                     return (new(entry, false, false), null);
                 }
             }
@@ -492,6 +748,24 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                     break;
                 }
             }
+            catch (InvalidDataException exception)
+            {
+                // InvalidDataException derives from IOException, so hostile-dataset refusal must
+                // be classified before the transport-stream catch below. Otherwise malformed
+                // normalized input is retried and ultimately reported as a generic outage.
+                if (isUpstream)
+                {
+                    if (exception is TarkovDevDatasetRefusedException)
+                    {
+                        throw;
+                    }
+
+                    throw Refused(cacheKey, exception);
+                }
+
+                lastError = exception;
+                break;
+            }
             catch (IOException exception)
             {
                 // A response stream can reset after headers have arrived. HttpClient does not
@@ -510,7 +784,17 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             {
                 if (isUpstream)
                 {
-                    throw;
+                    throw Refused(cacheKey, exception);
+                }
+
+                lastError = exception;
+                break;
+            }
+            catch (DecoderFallbackException exception)
+            {
+                if (isUpstream)
+                {
+                    throw Refused(cacheKey, exception);
                 }
 
                 lastError = exception;
@@ -522,13 +806,12 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 // from, not one to retry. Upstream is next.
                 if (isUpstream)
                 {
-                    throw;
+                    throw Refused(cacheKey, exception);
                 }
 
                 lastError = exception;
                 break;
             }
-
             await DelayBeforeRetryAsync(attempt, cancellationToken).ConfigureAwait(false);
         }
 
@@ -586,13 +869,14 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         string cacheKey,
         TarkovDevCacheEntry cached,
         Action<string, string?> validate,
+        long publicationEpoch,
         CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt <= _options.MaximumOfflineReconnectAttempts; attempt++)
         {
             try
             {
-                await RefreshAsync(cacheKey, cached, validate, cancellationToken).ConfigureAwait(false);
+                await RefreshAsync(cacheKey, cached, validate, publicationEpoch, cancellationToken).ConfigureAwait(false);
                 return;
             }
             catch (TarkovDevOfflineException) when (attempt < _options.MaximumOfflineReconnectAttempts)
@@ -629,6 +913,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             _lifetime.Cancel();
             var pending = _backgroundRefreshes.Values.Select(refresh => refresh.Value)
                 .Concat(_foregroundRefreshes.Values.Select(refresh => (Task)refresh.Value))
+                .Concat(_forcedRefreshes.Values.Select(refresh => (Task)refresh.Value))
                 .ToArray();
             _disposeTask = DrainBackgroundAsync(pending);
             return new(_disposeTask);
@@ -648,6 +933,7 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         }
         finally
         {
+            _publicationGate.Dispose();
             _lifetime.Dispose();
         }
     }
@@ -664,6 +950,9 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         JsonSerializer.Deserialize<TarkovDevEnvelope<T>>(json, SerializerOptions)
         ?? throw new JsonException("json.tarkov.dev returned a null envelope.");
 
+    private static string ContentHash(string json) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json))).ToLowerInvariant();
+
     private void ValidateJsonEnvelope(string json, string cacheKey)
     {
         using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = _options.MaximumJsonDepth });
@@ -672,6 +961,19 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         {
             throw new JsonException($"json.tarkov.dev response '{cacheKey}' is missing the required data envelope.");
         }
+    }
+
+    private void ValidateCachedResponsePolicy(string json, string cacheKey)
+    {
+        if (Encoding.UTF8.GetByteCount(json) > _options.MaximumResponseBytes)
+        {
+            throw new TarkovDevResponseBudgetException(_options.MaximumResponseBytes);
+        }
+
+        // Deserialization has a process-wide ceiling of 64 so every network candidate is first
+        // parsed with this client instance's (possibly tighter) policy. Cached bodies need the
+        // same check or a cache written under looser settings bypasses today's depth limit.
+        ValidateJsonEnvelope(json, cacheKey);
     }
 
     private void ValidateTranslationEnvelope(string json, string cacheKey)
@@ -684,11 +986,54 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         }
     }
 
+    private void ValidateTranslatableDataset<T>(string json, string? previousJson, string cacheKey)
+    {
+        ValidateTypedDataset<T>(json, previousJson, cacheKey);
+
+        // Parsing translation directives only after the base response is cached turns an
+        // unsupported path into a durable poison entry: every retry fails while the fresh-cache
+        // shortcut keeps returning the same base. The translation service's path grammar has one
+        // required prefix; check it without cloning and serializing a multi-megabyte data tree.
+        using var document = JsonDocument.Parse(
+            json,
+            new JsonDocumentOptions { MaxDepth = _options.MaximumJsonDepth });
+        if (!document.RootElement.TryGetProperty("translations", out var translations))
+        {
+            return;
+        }
+
+        if (translations.ValueKind is not JsonValueKind.Array)
+        {
+            throw new JsonException($"json.tarkov.dev response '{cacheKey}' has malformed translation directives.");
+        }
+
+        foreach (var element in translations.EnumerateArray())
+        {
+            if (element.ValueKind is not JsonValueKind.String)
+            {
+                throw new JsonException($"json.tarkov.dev response '{cacheKey}' has a non-string translation directive.");
+            }
+
+            var path = element.GetString();
+            if (path is not null && Encoding.UTF8.GetByteCount(path) > MaximumTranslationPathUtf8Bytes)
+            {
+                throw new JsonException(
+                    $"json.tarkov.dev response '{cacheKey}' contains an oversized translation directive.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(path) && !path.StartsWith("$.", StringComparison.Ordinal))
+            {
+                throw new JsonException($"Unsupported translation path '{path}'.");
+            }
+        }
+    }
+
     private static void ValidateTypedDataset<T>(string json, string? previousJson, string cacheKey)
     {
         var candidate = DeserializeEnvelope<T>(json);
-        var incoming = DatasetCount(candidate.Data);
-        if (incoming == 0)
+        TarkovDevDatasetValidator.Validate(candidate.Data, cacheKey);
+        var incoming = DatasetCardinalities(candidate.Data);
+        if (incoming[0].Count == 0)
         {
             throw new JsonException($"json.tarkov.dev response '{cacheKey}' contains an empty dataset.");
         }
@@ -698,26 +1043,186 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             return;
         }
 
-        var previous = DatasetCount(DeserializeEnvelope<T>(previousJson).Data);
-        if (previous > 0 && incoming * 2 < previous)
+        var previous = DatasetCardinalities(DeserializeEnvelope<T>(previousJson).Data)
+            .ToDictionary(value => value.Name, value => value.Count, StringComparer.Ordinal);
+        foreach (var dimension in incoming)
         {
-            throw new JsonException(
-                $"json.tarkov.dev response '{cacheKey}' implausibly shrank from {previous:N0} to {incoming:N0} records.");
+            if (previous.TryGetValue(dimension.Name, out var held) &&
+                held > 0 &&
+                dimension.Count * 2 < held)
+            {
+                throw new JsonException(
+                    $"json.tarkov.dev response '{cacheKey}' implausibly shrank {dimension.Name} " +
+                    $"from {held:N0} to {dimension.Count:N0} records.");
+            }
         }
     }
 
-    private static int DatasetCount<T>(T data) => data switch
+    private static IReadOnlyList<DatasetCardinality> DatasetCardinalities<T>(T data) => data switch
     {
-        TarkovDevItemsData items => items.Items.Count,
-        TarkovDevMapsData maps => maps.Maps.Count,
-        TarkovDevTasksData tasks => tasks.Tasks.Count,
-        IReadOnlyDictionary<string, TarkovDevHideoutStation> hideout => hideout.Count,
-        IReadOnlyDictionary<string, TarkovDevTrader> traders => traders.Count,
-        IReadOnlyCollection<TarkovDevCraft> crafts => crafts.Count,
-        IReadOnlyCollection<TarkovDevBarter> barters => barters.Count,
-        IReadOnlyCollection<TarkovDevPricePoint> prices => prices.Count,
+        TarkovDevItemsData items =>
+        [
+            new("items", items.Items.Count),
+            new("item categories", items.ItemCategories.Count),
+            new("item category memberships", items.Items.Values.Sum(item => (long)item.Categories.Count)),
+            new("item trader offers", items.Items.Values.Sum(item => (long)item.SellToTrader.Count)),
+        ],
+        TarkovDevMapsData maps =>
+        [
+            new("maps", maps.Maps.Count),
+            new("map extracts", maps.Maps.Values.Sum(map => (long)map.Extracts.Count)),
+            new("map locks", maps.Maps.Values.Sum(map => (long)map.Locks.Count)),
+        ],
+        TarkovDevTasksData tasks =>
+        [
+            new("tasks", tasks.Tasks.Count),
+            new("task prerequisites", tasks.Tasks.Values.Sum(task => (long)task.TaskRequirements.Count)),
+            new("task prerequisite statuses", tasks.Tasks.Values.Sum(task =>
+                task.TaskRequirements.Sum(requirement => (long)requirement.Status.Count))),
+            new("task objectives", tasks.Tasks.Values.Sum(task => (long)task.Objectives.Count)),
+            new("task failure conditions", tasks.Tasks.Values.Sum(task => (long)task.FailConditions.Count)),
+            new("objective target statuses", TaskObjectives(tasks).Sum(objective => (long)objective.Status.Count)),
+            new("objective item targets", TaskObjectives(tasks).Sum(ObjectiveItemTargetCount)),
+            new("objective map links", TaskObjectives(tasks).Sum(ObjectiveMapLinkCount)),
+            new("objective zones", TaskObjectives(tasks).Sum(ObjectiveZoneCount)),
+        ],
+        IReadOnlyDictionary<string, TarkovDevHideoutStation> hideout =>
+        [
+            new("hideout stations", hideout.Count),
+            new("hideout levels", hideout.Values.Sum(station => (long)station.Levels.Count)),
+            new("hideout item requirements", HideoutLevels(hideout).Sum(level => (long)level.ItemRequirements.Count)),
+            new("hideout station requirements", HideoutLevels(hideout).Sum(level => (long)level.StationLevelRequirements.Count)),
+            new("hideout trader requirements", HideoutLevels(hideout).Sum(level => (long)level.TraderRequirements.Count)),
+            new("hideout skill requirements", HideoutLevels(hideout).Sum(level => (long)level.SkillRequirements.Count)),
+        ],
+        IReadOnlyDictionary<string, TarkovDevTrader> traders =>
+        [
+            new("traders", traders.Count),
+            new("trader levels", traders.Values.Sum(trader => (long)trader.Levels.Count)),
+        ],
+        IReadOnlyCollection<TarkovDevCraft> crafts =>
+        [
+            new("crafts", crafts.Count),
+            new("craft requirements", crafts.Sum(craft => (long)craft.RequiredItems.Count)),
+        ],
+        IReadOnlyCollection<TarkovDevBarter> barters =>
+        [
+            new("barters", barters.Count),
+            new("barter requirements", barters.Sum(barter => (long)barter.RequiredItems.Count)),
+        ],
+        IReadOnlyCollection<TarkovDevPricePoint> prices => [new("prices", prices.Count)],
         _ => throw new JsonException($"No hostile-input cardinality rule is registered for {typeof(T).Name}.")
     };
+
+    private static IEnumerable<TarkovDevTaskObjective> TaskObjectives(TarkovDevTasksData tasks) =>
+        tasks.Tasks.Values.SelectMany(task => task.Objectives.Concat(task.FailConditions));
+
+    private static long ObjectiveItemTargetCount(TarkovDevTaskObjective objective) =>
+        objective.Items.Count +
+        objective.UseAny.Count +
+        objective.RequiredKeys.Sum(group => (long)group.Count) +
+        (string.IsNullOrWhiteSpace(objective.Item) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(objective.QuestItem) ? 0 : 1) +
+        (string.IsNullOrWhiteSpace(objective.MarkerItem) ? 0 : 1);
+
+    private static long ObjectiveMapLinkCount(TarkovDevTaskObjective objective) =>
+        objective.Maps.Count +
+        objective.Zones.LongCount(zone => !string.IsNullOrWhiteSpace(zone.Map)) +
+        objective.PossibleLocations.LongCount(location => !string.IsNullOrWhiteSpace(location.Map));
+
+    private static long ObjectiveZoneCount(TarkovDevTaskObjective objective) =>
+        objective.Zones.Count +
+        objective.PossibleLocations.Sum(location => (long)location.Positions.Count);
+
+    private static IEnumerable<TarkovDevHideoutLevel> HideoutLevels(
+        IReadOnlyDictionary<string, TarkovDevHideoutStation> hideout) =>
+        hideout.Values.SelectMany(station => station.Levels);
+
+    private static TarkovDevDatasetRefusedException Refused(string cacheKey, Exception exception) =>
+        new($"Refused '{cacheKey}': {exception.Message}", exception);
+
+    private long CapturePublicationEpoch(string cacheKey) =>
+        _publicationEpochs.GetOrAdd(cacheKey, 0);
+
+    private async Task<long> BeginForcedPublicationAsync(string cacheKey, CancellationToken cancellationToken)
+    {
+        await _publicationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return _publicationEpochs.AddOrUpdate(
+                cacheKey,
+                1,
+                static (_, current) => checked(current + 1));
+        }
+        finally
+        {
+            _publicationGate.Release();
+        }
+    }
+
+    private async Task EndForcedPublicationAsync(string cacheKey, long forcedEpoch)
+    {
+        await _publicationGate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            if (_publicationEpochs.TryGetValue(cacheKey, out var current) && current == forcedEpoch)
+            {
+                _publicationEpochs[cacheKey] = checked(current + 1);
+            }
+        }
+        finally
+        {
+            _publicationGate.Release();
+        }
+    }
+
+    private async Task<bool> PublishIfCurrentAsync(
+        string cacheKey,
+        long publicationEpoch,
+        TarkovDevCacheEntry entry,
+        CancellationToken cancellationToken)
+    {
+        await _publicationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (CapturePublicationEpoch(cacheKey) == publicationEpoch)
+            {
+                await _cache.PutAsync(entry, cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            return false;
+        }
+        finally
+        {
+            _publicationGate.Release();
+        }
+    }
+
+    private async Task<CachedResponse> ResolveSupersededResponseAsync(
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
+        // Losing the publication epoch means a force refresh became authoritative after this
+        // transfer started. Returning this transfer's perfectly valid but obsolete body would
+        // let its caller replace the normalized tables even though the raw-cache fence held.
+        // Join the authoritative transfer while it is still registered; after retirement its
+        // successful body must be the cache entry. If neither exists, the force failed and the
+        // superseded body is deliberately refused rather than allowed to escape the fence.
+        if (_forcedRefreshes.TryGetValue(cacheKey, out var forced))
+        {
+            return await forced.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var authoritative = await _cache.GetAsync(cacheKey, cancellationToken).ConfigureAwait(false);
+        if (authoritative is not null)
+        {
+            return new(authoritative, true, false);
+        }
+
+        throw new TarkovDevRequestException(
+            $"The catalog response for '{cacheKey}' was superseded, but its authoritative replacement did not complete.");
+    }
 
     private async Task<string> ReadBoundedUtf8Async(HttpContent content, CancellationToken cancellationToken)
     {
@@ -747,9 +1252,12 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
             }
 
-            var bytes = output.ToArray();
-            var offset = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
-            return new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset);
+            // MemoryStream owns an exposable buffer here. Decoding that buffer avoids a second
+            // response-sized allocation at the configured limit (up to 256 MiB).
+            var bytes = output.GetBuffer();
+            var length = checked((int)output.Length);
+            var offset = length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+            return new UTF8Encoding(false, true).GetString(bytes, offset, length - offset);
         }
         finally
         {
@@ -781,5 +1289,17 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(gameMode)),
     };
 
-    private sealed record CachedResponse(TarkovDevCacheEntry Entry, bool IsFromCache, bool IsStale);
+    private sealed record CachedResponse(
+        TarkovDevCacheEntry Entry,
+        bool IsFromCache,
+        bool IsStale,
+        string? RefusalReason = null);
+
+    private sealed record DatasetCardinality(string Name, long Count);
+}
+
+internal sealed class TarkovDevDatasetRefusedException(string reason, Exception innerException)
+    : InvalidDataException(reason, innerException)
+{
+    public string Reason { get; } = reason;
 }

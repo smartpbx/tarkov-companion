@@ -13,6 +13,9 @@
     <PackageReference Include="TesseractOCR" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="TarkovCompanion.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="Persistence/Migrations/*.sql" />
     <EmbeddedResource Include="Recognition/anchors.en.json"
                       WithCulture="false"

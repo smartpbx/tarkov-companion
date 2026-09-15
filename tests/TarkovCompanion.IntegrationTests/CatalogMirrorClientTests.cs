@@ -157,7 +157,7 @@ public sealed class CatalogMirrorClientTests
     }
 
     private const string Payload = """
-        {"data":{"maps":{"fixture":{"id":"fixture","name":"Fixture","normalizedName":"fixture"}}},"translations":[]}
+        {"data":{"maps":{"fixture":{"id":"fixture","name":"Fixture","normalizedName":"fixture","extracts":[{"id":"extract","name":"Extract"}]}}},"translations":[]}
         """;
 
     private static TarkovDevJsonClient Client(

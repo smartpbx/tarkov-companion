@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Infrastructure.TarkovDevJson;
@@ -52,7 +51,7 @@ public sealed class TarkovDevJsonClientTests
         };
         var client = CreateClient(handler);
 
-        var error = await Assert.ThrowsAsync<JsonException>(
+        var error = await Assert.ThrowsAnyAsync<InvalidDataException>(
             () => client.GetItemsAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
 
         Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);
@@ -70,7 +69,7 @@ public sealed class TarkovDevJsonClientTests
         };
         var client = CreateClient(handler);
 
-        var error = await Assert.ThrowsAsync<JsonException>(
+        var error = await Assert.ThrowsAnyAsync<InvalidDataException>(
             () => client.GetTasksAsync(GameMode.Regular, "en", TestContext.Current.CancellationToken));
 
         Assert.Contains("required", error.Message, StringComparison.OrdinalIgnoreCase);

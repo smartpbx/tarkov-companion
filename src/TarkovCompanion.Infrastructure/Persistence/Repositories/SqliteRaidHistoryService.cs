@@ -14,6 +14,25 @@ public sealed class SqliteRaidHistoryService(
     SqliteConnectionFactory connectionFactory,
     TimeProvider? timeProvider = null) : IRaidHistoryService, IRaidHistoryOperationStore
 {
+    internal const string RaidHistoryListSql = """
+        SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
+        FROM raids
+        ORDER BY COALESCE(start_utc, end_utc) DESC, id;
+        """;
+    internal const string MapTrailsSql = """
+        SELECT raid.id, raid.start_utc, event.payload_json
+        FROM raid_events AS event
+        JOIN raids AS raid ON raid.id = event.raid_id
+        WHERE event.type = 'position'
+          AND raid.id IN (
+              SELECT id FROM raids
+              WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
+              ORDER BY start_utc DESC
+              LIMIT $limit
+          )
+        ORDER BY raid.start_utc DESC, event.timestamp_utc, event.id;
+        """;
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -249,19 +268,7 @@ public sealed class SqliteRaidHistoryService(
         // The inner select picks the raids; the join then takes every position belonging to
         // them. Ordering by start descending and then by event time ascending gives newest
         // raid first with each raid's own points in the order they were taken.
-        command.CommandText = """
-            SELECT raid.id, raid.start_utc, event.payload_json
-            FROM raid_events AS event
-            JOIN raids AS raid ON raid.id = event.raid_id
-            WHERE event.type = 'position'
-              AND raid.id IN (
-                  SELECT id FROM raids
-                  WHERE map_id IS NOT NULL AND lower(map_id) = lower($mapId)
-                  ORDER BY start_utc DESC
-                  LIMIT $limit
-              )
-            ORDER BY raid.start_utc DESC, event.timestamp_utc, event.id;
-            """;
+        command.CommandText = MapTrailsSql;
         command.Parameters.AddWithValue("$mapId", mapId.Trim());
         command.Parameters.AddWithValue("$limit", limit);
 
@@ -415,11 +422,7 @@ public sealed class SqliteRaidHistoryService(
     {
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, profile_id, map_id, mode, start_utc, end_utc, outcome, notes
-            FROM raids
-            ORDER BY COALESCE(start_utc, end_utc) DESC, id;
-            """;
+        command.CommandText = RaidHistoryListSql;
         var entries = new List<RaidHistoryEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

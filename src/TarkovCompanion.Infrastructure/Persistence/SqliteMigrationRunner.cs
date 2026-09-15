@@ -47,6 +47,8 @@ public enum SqliteMigrationFaultPoint
     BeforeMigration,
     AfterMigrationSql,
     BeforeMigrationCommit,
+    BeforeMigrationRollback,
+    AfterMigrationRollback,
     BeforeRestore,
     AfterRestoreCopy,
 }
@@ -292,29 +294,60 @@ public sealed class SqliteMigrationRunner
             .ConfigureAwait(false);
         var sql = await ReadResource(resourceName, cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-        await using (var migration = connection.CreateCommand())
+        try
         {
-            migration.Transaction = transaction;
-            migration.CommandText = sql;
-            await migration.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+            await using (var migration = connection.CreateCommand())
+            {
+                migration.Transaction = transaction;
+                migration.CommandText = sql;
+                await migration.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
 
-        await InjectAsync(SqliteMigrationFaultPoint.AfterMigrationSql, version, connection.DataSource, cancellationToken)
-            .ConfigureAwait(false);
-        await using (var record = connection.CreateCommand())
+            await InjectAsync(SqliteMigrationFaultPoint.AfterMigrationSql, version, connection.DataSource, cancellationToken)
+                .ConfigureAwait(false);
+            await using (var record = connection.CreateCommand())
+            {
+                record.Transaction = transaction;
+                record.CommandText = "INSERT INTO schema_migrations(version, applied_utc) VALUES ($version, $appliedUtc);";
+                record.Parameters.AddWithValue("$version", version);
+                record.Parameters.AddWithValue(
+                    "$appliedUtc",
+                    _timeProvider.GetUtcNow().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
+                await record.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await InjectAsync(SqliteMigrationFaultPoint.BeforeMigrationCommit, version, connection.DataSource, cancellationToken)
+                .ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception migrationFailure)
         {
-            record.Transaction = transaction;
-            record.CommandText = "INSERT INTO schema_migrations(version, applied_utc) VALUES ($version, $appliedUtc);";
-            record.Parameters.AddWithValue("$version", version);
-            record.Parameters.AddWithValue(
-                "$appliedUtc",
-                _timeProvider.GetUtcNow().ToUniversalTime().ToString("O", CultureInfo.InvariantCulture));
-            await record.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
+            try
+            {
+                // Rollback is recovery work. It must not inherit the cancellation that caused
+                // the migration to stop, and its own failure must retain the initiating error.
+                await InjectAsync(
+                    SqliteMigrationFaultPoint.BeforeMigrationRollback,
+                    version,
+                    connection.DataSource,
+                    CancellationToken.None).ConfigureAwait(false);
+                await transaction.RollbackAsync(CancellationToken.None).ConfigureAwait(false);
+                await InjectAsync(
+                    SqliteMigrationFaultPoint.AfterMigrationRollback,
+                    version,
+                    connection.DataSource,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception rollbackFailure)
+            {
+                throw new AggregateException(
+                    "The migration failed and its transaction could not be rolled back cleanly.",
+                    migrationFailure,
+                    rollbackFailure);
+            }
 
-        await InjectAsync(SqliteMigrationFaultPoint.BeforeMigrationCommit, version, connection.DataSource, cancellationToken)
-            .ConfigureAwait(false);
-        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private ValueTask InjectAsync(

@@ -15,6 +15,10 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 /// </summary>
 public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 {
+    private const int MaximumCompressionNameBytes = 16;
+    private const int MaximumInspectableEntries = 100_001;
+    private const long MaximumStoredBodyBytes = 1024L * 1024 * 1024;
+
     private readonly SqliteConnectionFactory _connectionFactory;
     private readonly TarkovDevCachePolicy _policy;
     private readonly TimeProvider _timeProvider;
@@ -32,48 +36,176 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 
     public async Task<TarkovDevCacheEntry?> GetAsync(string cacheKey, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(cacheKey);
-        string hash;
-        byte[] compressed;
-        long expectedBytes;
-        DateTimeOffset cachedUtc;
-        string? etag;
-        DateTimeOffset? lastModified;
+        TarkovDevCacheMetadata.ValidateCacheKey(cacheKey);
+        string? hash = null;
+        string? compression = null;
+        byte[] compressed = [];
+        long? compressedBytes = null;
+        long? actualCompressedBytes = null;
+        long? expectedBytes = null;
+        string? createdUtcText = null;
+        string? cachedUtcText = null;
+        string? lastAccessedUtcText = null;
+        string? etag = null;
+        string? lastModifiedText = null;
+        var etagIsValid = false;
+        var lastModifiedIsValid = false;
+        var metadataReadFailed = false;
 
         await using (var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false))
         await using (var command = connection.CreateCommand())
         {
             command.CommandText = """
-                SELECT cache.content_sha256, body.compressed_body, body.uncompressed_bytes,
-                       cache.cached_utc, cache.etag, cache.last_modified
+                SELECT
+                    CASE WHEN typeof(cache.content_sha256) = 'text'
+                               AND length(CAST(cache.content_sha256 AS BLOB)) = 64
+                         THEN cache.content_sha256 END,
+                    CASE WHEN typeof(body.compression) = 'text'
+                               AND length(CAST(body.compression AS BLOB)) BETWEEN 1 AND $maxCompressionNameBytes
+                         THEN body.compression END,
+                    CASE WHEN typeof(body.compressed_bytes) = 'integer' THEN body.compressed_bytes END,
+                    CASE WHEN typeof(body.uncompressed_bytes) = 'integer' THEN body.uncompressed_bytes END,
+                    CASE WHEN typeof(body.compressed_body) = 'blob' THEN length(body.compressed_body) END,
+                    CASE WHEN typeof(body.created_utc) = 'text'
+                               AND length(CAST(body.created_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                         THEN body.created_utc END,
+                    CASE WHEN typeof(cache.cached_utc) = 'text'
+                               AND length(CAST(cache.cached_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                         THEN cache.cached_utc END,
+                    CASE WHEN typeof(cache.last_accessed_utc) = 'text'
+                               AND length(CAST(cache.last_accessed_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                         THEN cache.last_accessed_utc END,
+                    CASE WHEN typeof(cache.etag) = 'text'
+                               AND length(CAST(cache.etag AS BLOB)) <= $maxEntityTagBytes
+                         THEN cache.etag END,
+                    CASE WHEN cache.etag IS NULL OR (
+                               typeof(cache.etag) = 'text'
+                               AND length(CAST(cache.etag AS BLOB)) <= $maxEntityTagBytes)
+                         THEN 1 ELSE 0 END,
+                    CASE WHEN typeof(cache.last_modified) = 'text'
+                               AND length(CAST(cache.last_modified AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                         THEN cache.last_modified END,
+                    CASE WHEN cache.last_modified IS NULL OR (
+                               typeof(cache.last_modified) = 'text'
+                               AND length(CAST(cache.last_modified AS BLOB)) BETWEEN 1 AND $maxTimestampBytes)
+                         THEN 1 ELSE 0 END,
+                       body.compressed_body
                 FROM http_response_cache AS cache
-                JOIN raw_endpoint_bodies AS body ON body.content_sha256 = cache.content_sha256
+                LEFT JOIN raw_endpoint_bodies AS body ON body.content_sha256 = cache.content_sha256
                 WHERE cache.cache_key = $cacheKey;
                 """;
             command.Parameters.AddWithValue("$cacheKey", cacheKey);
+            command.Parameters.AddWithValue("$maxCompressionNameBytes", MaximumCompressionNameBytes);
+            command.Parameters.AddWithValue("$maxTimestampBytes", TarkovDevCacheMetadata.MaximumTimestampUtf8Bytes);
+            command.Parameters.AddWithValue("$maxEntityTagBytes", TarkovDevCacheMetadata.MaximumEntityTagUtf8Bytes);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 return null;
             }
 
-            hash = reader.GetString(0);
-            compressed = (byte[])reader[1];
-            expectedBytes = reader.GetInt64(2);
-            cachedUtc = ParseTime(reader.GetString(3));
-            etag = reader.IsDBNull(4) ? null : reader.GetString(4);
-            lastModified = reader.IsDBNull(5) ? null : ParseTime(reader.GetString(5));
+            try
+            {
+                hash = ReadNullableText(reader, 0);
+                if (hash is not null && !TarkovDevCacheMetadata.IsLowerHexHash(hash))
+                {
+                    hash = null;
+                }
+                compression = ReadNullableText(reader, 1);
+                compressedBytes = ReadNullableInt64(reader, 2);
+                expectedBytes = ReadNullableInt64(reader, 3);
+                actualCompressedBytes = ReadNullableInt64(reader, 4);
+                createdUtcText = ReadNullableText(reader, 5);
+                cachedUtcText = ReadNullableText(reader, 6);
+                lastAccessedUtcText = ReadNullableText(reader, 7);
+                etag = ReadNullableText(reader, 8);
+                etagIsValid = reader.GetInt64(9) == 1;
+                lastModifiedText = ReadNullableText(reader, 10);
+                lastModifiedIsValid = reader.GetInt64(11) == 1;
+
+                if (hash is not null &&
+                    string.Equals(compression, "gzip", StringComparison.Ordinal) &&
+                    compressedBytes is { } declaredCompressedBytes &&
+                    declaredCompressedBytes is >= 1 && declaredCompressedBytes <= _policy.MaximumCompressedBytes &&
+                    expectedBytes is { } declaredUncompressedBytes &&
+                    declaredUncompressedBytes is >= 1 &&
+                    declaredUncompressedBytes <= _policy.MaximumUncompressedBodyBytes &&
+                    actualCompressedBytes is { } actualBodyBytes &&
+                    actualBodyBytes == declaredCompressedBytes &&
+                    actualBodyBytes <= int.MaxValue &&
+                    createdUtcText is not null &&
+                    cachedUtcText is not null &&
+                    lastAccessedUtcText is not null &&
+                    etagIsValid &&
+                    lastModifiedIsValid)
+                {
+                    compressed = new byte[checked((int)actualBodyBytes)];
+                    var offset = 0;
+                    while (offset < compressed.Length)
+                    {
+                        var copied = checked((int)reader.GetBytes(
+                            12,
+                            offset,
+                            compressed,
+                            offset,
+                            compressed.Length - offset));
+                        if (copied == 0)
+                        {
+                            break;
+                        }
+
+                        offset += copied;
+                    }
+
+                    if (offset != compressed.Length)
+                    {
+                        compressed = [];
+                    }
+                }
+            }
+            catch (Exception exception) when (
+                exception is IOException or InvalidCastException or FormatException or OverflowException or
+                ArgumentException or SqliteException)
+            {
+                // CASE projections keep hostile dynamic values out of GetString/GetInt64, and
+                // this final fence converts provider-level decoding failures into quarantine too.
+                metadataReadFailed = true;
+                compressed = [];
+            }
+        }
+
+        var metadataIsValid = !metadataReadFailed && hash is not null &&
+            string.Equals(compression, "gzip", StringComparison.Ordinal) &&
+            compressedBytes is { } declaredCompressedBytes &&
+            declaredCompressedBytes is >= 1 && declaredCompressedBytes <= _policy.MaximumCompressedBytes &&
+            expectedBytes is { } declaredUncompressedBytes &&
+            declaredUncompressedBytes is >= 1 &&
+            declaredUncompressedBytes <= _policy.MaximumUncompressedBodyBytes &&
+            actualCompressedBytes is { } actualBodyBytes &&
+            actualBodyBytes == declaredCompressedBytes &&
+            actualBodyBytes <= int.MaxValue &&
+            compressed.LongLength == declaredCompressedBytes &&
+            createdUtcText is not null &&
+            cachedUtcText is not null &&
+            lastAccessedUtcText is not null &&
+            etagIsValid &&
+            lastModifiedIsValid;
+        if (!metadataIsValid)
+        {
+            await QuarantineMalformedMetadataAsync(cacheKey, hash, cancellationToken).ConfigureAwait(false);
+            return null;
         }
 
         string body;
+        DateTimeOffset cachedUtc;
+        DateTimeOffset? lastModified;
         try
         {
-            if (expectedBytes > _policy.MaximumUncompressedBodyBytes)
-            {
-                throw new InvalidDataException("The cached catalog body exceeds the decoded body budget.");
-            }
-
-            body = Decompress(compressed, expectedBytes);
+            _ = ParseTime(createdUtcText!);
+            cachedUtc = ParseTime(cachedUtcText!);
+            _ = ParseTime(lastAccessedUtcText!);
+            lastModified = lastModifiedText is null ? null : ParseTime(lastModifiedText);
+            body = Decompress(compressed, expectedBytes!.Value);
             var actualHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
             if (!string.Equals(hash, actualHash, StringComparison.Ordinal))
             {
@@ -82,9 +214,10 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 
             using var _ = JsonDocument.Parse(body, new JsonDocumentOptions { MaxDepth = 64 });
         }
-        catch (Exception exception) when (exception is InvalidDataException or IOException or JsonException)
+        catch (Exception exception) when (
+            exception is InvalidDataException or IOException or JsonException or FormatException or ArgumentException or OverflowException)
         {
-            await QuarantineAsync(cacheKey, hash, cancellationToken).ConfigureAwait(false);
+            await QuarantineAsync(cacheKey, hash!, "cache-json-invalid", cancellationToken).ConfigureAwait(false);
             return null;
         }
 
@@ -95,14 +228,19 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     public async Task PutAsync(TarkovDevCacheEntry entry, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        ArgumentException.ThrowIfNullOrWhiteSpace(entry.CacheKey);
+        TarkovDevCacheMetadata.ValidateCacheKey(entry.CacheKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(entry.BodyJson);
-        var bytes = Encoding.UTF8.GetBytes(entry.BodyJson);
-        if (bytes.LongLength > _policy.MaximumUncompressedBodyBytes)
+        TarkovDevCacheMetadata.ValidateEntityTag(entry.ETag);
+        TarkovDevCacheMetadata.ValidateOptionalContentHash(entry.ContentSha256);
+        var byteCount = Encoding.UTF8.GetByteCount(entry.BodyJson);
+        if (byteCount > _policy.MaximumUncompressedBodyBytes)
         {
             throw new InvalidDataException("One catalog response exceeds the decoded body budget.");
         }
 
+        // Count before allocating. A direct caller should not be able to force a body-sized
+        // temporary allocation merely to discover that the cache policy rejects the body.
+        var bytes = Encoding.UTF8.GetBytes(entry.BodyJson);
         var compressed = Compress(bytes);
         if (compressed.LongLength > _policy.MaximumCompressedBytes)
         {
@@ -116,6 +254,18 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         }
 
         var now = _timeProvider.GetUtcNow().ToUniversalTime();
+        var createdUtc = FormatTime(now);
+        var cachedUtc = FormatTime(entry.CachedUtc);
+        var accessedUtc = FormatTime(now);
+        var lastModified = entry.LastModified is null ? null : FormatTime(entry.LastModified.Value);
+        ValidateTimestamp(createdUtc);
+        ValidateTimestamp(cachedUtc);
+        ValidateTimestamp(accessedUtc);
+        if (lastModified is not null)
+        {
+            ValidateTimestamp(lastModified);
+        }
+
         await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         await ExecuteAsync(
@@ -136,7 +286,7 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             ("$body", compressed),
             ("$plainBytes", bytes.LongLength),
             ("$compressedBytes", compressed.LongLength),
-            ("$createdUtc", FormatTime(now))).ConfigureAwait(false);
+            ("$createdUtc", createdUtc)).ConfigureAwait(false);
 
         await ExecuteAsync(
             connection,
@@ -155,10 +305,10 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             cancellationToken,
             ("$key", entry.CacheKey),
             ("$hash", hash),
-            ("$cachedUtc", FormatTime(entry.CachedUtc)),
-            ("$accessedUtc", FormatTime(now)),
+            ("$cachedUtc", cachedUtc),
+            ("$accessedUtc", accessedUtc),
             ("$etag", entry.ETag),
-            ("$lastModified", entry.LastModified is null ? null : FormatTime(entry.LastModified.Value)))
+            ("$lastModified", lastModified))
             .ConfigureAwait(false);
 
         await RemoveUnreferencedBodiesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -168,36 +318,28 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 
     public async Task<TarkovDevCacheInspection> InspectAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
-        var entries = new List<TarkovDevCacheEntryInfo>();
         await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using (var command = connection.CreateCommand())
-        {
-            command.CommandText = """
-                SELECT cache.cache_key, cache.content_sha256, body.compressed_bytes,
-                       body.uncompressed_bytes, cache.cached_utc, cache.last_accessed_utc
-                FROM http_response_cache AS cache
-                JOIN raw_endpoint_bodies AS body ON body.content_sha256 = cache.content_sha256
-                ORDER BY cache.last_accessed_utc, cache.cache_key;
-                """;
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                entries.Add(new(
-                    reader.GetString(0),
-                    reader.GetString(1),
-                    reader.GetInt64(2),
-                    reader.GetInt64(3),
-                    ParseTime(reader.GetString(4)),
-                    ParseTime(reader.GetString(5))));
-            }
-        }
+        var entries = await ReadEntriesAsync(connection, null, cancellationToken).ConfigureAwait(false);
 
         var unique = entries.GroupBy(entry => entry.ContentSha256, StringComparer.Ordinal).ToArray();
         await using var quarantine = connection.CreateCommand();
-        quarantine.CommandText = "SELECT COUNT(*) FROM local_json_recovery WHERE state IN ('malformed', 'quarantined');";
-        var quarantined = Convert.ToInt32(
-            await quarantine.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
-            CultureInfo.InvariantCulture);
+        quarantine.CommandText = """
+            SELECT COUNT(*)
+            FROM (
+                SELECT 1
+                FROM local_json_recovery
+                WHERE state IN ('malformed', 'quarantined')
+                LIMIT $maximumRows);
+            """;
+        quarantine.Parameters.AddWithValue("$maximumRows", MaximumInspectableEntries);
+        var quarantinedValue = await quarantine.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        var quarantinedLong = Convert.ToInt64(quarantinedValue, CultureInfo.InvariantCulture);
+        if (quarantinedLong is < 0 or >= MaximumInspectableEntries)
+        {
+            throw new InvalidDataException("The cache recovery count is outside the supported range.");
+        }
+
+        var quarantined = (int)quarantinedLong;
         return new(
             entries.Count,
             unique.Length,
@@ -239,13 +381,13 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         else
         {
             var hashes = candidates.Select(candidate => candidate.ContentSha256).ToHashSet(StringComparer.Ordinal);
+            var candidateKeys = candidates.Select(candidate => candidate.CacheKey).ToHashSet(StringComparer.Ordinal);
             var stillReferenced = (await ReadEntriesAsync(connection, transaction, cancellationToken).ConfigureAwait(false))
-                .Where(entry => !candidates.Any(candidate => candidate.CacheKey == entry.CacheKey))
+                .Where(entry => !candidateKeys.Contains(entry.CacheKey))
                 .Select(entry => entry.ContentSha256)
                 .ToHashSet(StringComparer.Ordinal);
-            var published = await ReadPublicationBodyHashesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
             var removedHashes = hashes
-                .Where(hash => !stillReferenced.Contains(hash) && !published.Contains(hash))
+                .Where(hash => !stillReferenced.Contains(hash))
                 .ToHashSet(StringComparer.Ordinal);
             reclaimed = candidates.Where(candidate => removedHashes.Contains(candidate.ContentSha256))
                 .DistinctBy(candidate => candidate.ContentSha256)
@@ -295,67 +437,207 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         CancellationToken cancellationToken)
     {
         var entries = await ReadEntriesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
-        var remove = entries.Where(entry => nowUtc - entry.CachedUtc > _policy.MaximumAge).ToList();
-        var retained = entries.Except(remove).ToList();
-        while (retained.Count > _policy.MaximumEntries || UniqueCompressedBytes(retained) > _policy.MaximumCompressedBytes)
+        var remove = new List<TarkovDevCacheEntryInfo>();
+        var retained = new List<TarkovDevCacheEntryInfo>(entries.Count);
+        foreach (var entry in entries)
         {
-            remove.Add(retained[0]);
-            retained.RemoveAt(0);
+            if (nowUtc - entry.CachedUtc > _policy.MaximumAge)
+            {
+                remove.Add(entry);
+            }
+            else
+            {
+                retained.Add(entry);
+            }
+        }
+
+        // Entries are already ordered oldest-first. Maintain reference counts and a running
+        // unique-byte total so evicting up to 100k rows remains O(n), even when many keys share
+        // one content-addressed body.
+        var referencesByHash = new Dictionary<string, int>(StringComparer.Ordinal);
+        long uniqueCompressedBytes = 0;
+        foreach (var entry in retained)
+        {
+            if (referencesByHash.TryGetValue(entry.ContentSha256, out var references))
+            {
+                referencesByHash[entry.ContentSha256] = references + 1;
+            }
+            else
+            {
+                referencesByHash.Add(entry.ContentSha256, 1);
+                uniqueCompressedBytes = checked(uniqueCompressedBytes + entry.CompressedBytes);
+            }
+        }
+
+        var retainedCount = retained.Count;
+        var cursor = 0;
+        while (retainedCount > _policy.MaximumEntries || uniqueCompressedBytes > _policy.MaximumCompressedBytes)
+        {
+            var entry = retained[cursor++];
+            remove.Add(entry);
+            retainedCount--;
+            var remainingReferences = referencesByHash[entry.ContentSha256] - 1;
+            if (remainingReferences == 0)
+            {
+                referencesByHash.Remove(entry.ContentSha256);
+                uniqueCompressedBytes -= entry.CompressedBytes;
+            }
+            else
+            {
+                referencesByHash[entry.ContentSha256] = remainingReferences;
+            }
         }
 
         return remove.DistinctBy(entry => entry.CacheKey).ToList();
     }
 
-    private static long UniqueCompressedBytes(IEnumerable<TarkovDevCacheEntryInfo> entries) =>
-        entries.GroupBy(entry => entry.ContentSha256, StringComparer.Ordinal).Sum(group => group.First().CompressedBytes);
-
-    private static async Task<List<TarkovDevCacheEntryInfo>> ReadEntriesAsync(
+    private async Task<List<TarkovDevCacheEntryInfo>> ReadEntriesAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         CancellationToken cancellationToken)
     {
         var result = new List<TarkovDevCacheEntryInfo>();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT cache.cache_key, cache.content_sha256, body.compressed_bytes,
-                   body.uncompressed_bytes, cache.cached_utc, cache.last_accessed_utc
+            SELECT
+                CASE WHEN typeof(cache.cache_key) = 'text'
+                           AND length(CAST(cache.cache_key AS BLOB)) BETWEEN 1 AND $maxCacheKeyBytes
+                     THEN cache.cache_key END,
+                CASE WHEN typeof(cache.content_sha256) = 'text'
+                           AND length(CAST(cache.content_sha256 AS BLOB)) = 64
+                     THEN cache.content_sha256 END,
+                CASE WHEN typeof(body.compressed_bytes) = 'integer'
+                           AND body.compressed_bytes BETWEEN 1 AND $maxStoredBodyBytes
+                     THEN body.compressed_bytes END,
+                CASE WHEN typeof(body.uncompressed_bytes) = 'integer'
+                           AND body.uncompressed_bytes BETWEEN 1 AND $maxStoredBodyBytes
+                     THEN body.uncompressed_bytes END,
+                CASE WHEN typeof(cache.cached_utc) = 'text'
+                           AND length(CAST(cache.cached_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                     THEN cache.cached_utc END,
+                CASE WHEN typeof(cache.last_accessed_utc) = 'text'
+                           AND length(CAST(cache.last_accessed_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                     THEN cache.last_accessed_utc END,
+                CASE WHEN typeof(body.created_utc) = 'text'
+                           AND length(CAST(body.created_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                     THEN body.created_utc END,
+                CASE WHEN typeof(cache.last_modified) = 'text'
+                           AND length(CAST(cache.last_modified AS BLOB)) BETWEEN 1 AND $maxTimestampBytes
+                     THEN cache.last_modified END,
+                CASE WHEN
+                    body.content_sha256 IS NOT NULL AND
+                    typeof(body.compression) = 'text' AND
+                    body.compression = 'gzip' AND
+                    length(CAST(body.compression AS BLOB)) BETWEEN 1 AND $maxCompressionNameBytes AND
+                    typeof(body.compressed_bytes) = 'integer' AND
+                    body.compressed_bytes BETWEEN 1 AND $maxStoredBodyBytes AND
+                    typeof(body.uncompressed_bytes) = 'integer' AND
+                    body.uncompressed_bytes BETWEEN 1 AND $maxStoredBodyBytes AND
+                    typeof(body.compressed_body) = 'blob' AND
+                    length(body.compressed_body) = body.compressed_bytes AND
+                    typeof(body.created_utc) = 'text' AND
+                    length(CAST(body.created_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes AND
+                    (cache.etag IS NULL OR (
+                        typeof(cache.etag) = 'text' AND
+                        length(CAST(cache.etag AS BLOB)) <= $maxEntityTagBytes)) AND
+                    (cache.last_modified IS NULL OR (
+                        typeof(cache.last_modified) = 'text' AND
+                        length(CAST(cache.last_modified AS BLOB)) BETWEEN 1 AND $maxTimestampBytes))
+                    THEN 1 ELSE 0 END
             FROM http_response_cache AS cache
-            JOIN raw_endpoint_bodies AS body ON body.content_sha256 = cache.content_sha256
-            ORDER BY cache.last_accessed_utc, cache.cache_key;
+            LEFT JOIN raw_endpoint_bodies AS body ON body.content_sha256 = cache.content_sha256
+            ORDER BY cache.rowid
+            LIMIT $maximumRows;
             """;
+        command.Parameters.AddWithValue("$maxCacheKeyBytes", TarkovDevCacheMetadata.MaximumCacheKeyUtf8Bytes);
+        command.Parameters.AddWithValue("$maxStoredBodyBytes", MaximumStoredBodyBytes);
+        command.Parameters.AddWithValue("$maxTimestampBytes", TarkovDevCacheMetadata.MaximumTimestampUtf8Bytes);
+        command.Parameters.AddWithValue("$maxCompressionNameBytes", MaximumCompressionNameBytes);
+        command.Parameters.AddWithValue("$maxEntityTagBytes", TarkovDevCacheMetadata.MaximumEntityTagUtf8Bytes);
+        command.Parameters.AddWithValue("$maximumRows", MaximumInspectableEntries);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        try
         {
-            result.Add(new(
-                reader.GetString(0),
-                reader.GetString(1),
-                reader.GetInt64(2),
-                reader.GetInt64(3),
-                ParseTime(reader.GetString(4)),
-                ParseTime(reader.GetString(5))));
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var cacheKey = ReadNullableText(reader, 0);
+                var hash = ReadNullableText(reader, 1);
+                var compressedBytes = ReadNullableInt64(reader, 2);
+                var uncompressedBytes = ReadNullableInt64(reader, 3);
+                var cachedUtc = ReadNullableText(reader, 4);
+                var lastAccessedUtc = ReadNullableText(reader, 5);
+                var createdUtc = ReadNullableText(reader, 6);
+                var lastModifiedUtc = ReadNullableText(reader, 7);
+                var metadataIsValid = reader.GetInt64(8) == 1;
+                if (string.IsNullOrWhiteSpace(cacheKey) || !TarkovDevCacheMetadata.IsLowerHexHash(hash) || compressedBytes is null ||
+                    uncompressedBytes is null || cachedUtc is null || lastAccessedUtc is null ||
+                    createdUtc is null || !metadataIsValid)
+                {
+                    throw new InvalidDataException("The cache contains malformed or oversized metadata.");
+                }
+
+                _ = ParseTime(createdUtc);
+                if (lastModifiedUtc is not null)
+                {
+                    _ = ParseTime(lastModifiedUtc);
+                }
+
+                result.Add(new(
+                    cacheKey,
+                    hash!,
+                    compressedBytes.Value,
+                    uncompressedBytes.Value,
+                    ParseTime(cachedUtc),
+                    ParseTime(lastAccessedUtc)));
+            }
+        }
+        catch (Exception exception) when (
+            exception is FormatException or ArgumentException or InvalidCastException or OverflowException or SqliteException)
+        {
+            throw new InvalidDataException("The cache contains malformed metadata.", exception);
         }
 
-        return result;
+        if (result.Count == MaximumInspectableEntries)
+        {
+            throw new InvalidDataException("The cache contains more entries than maintenance can inspect safely.");
+        }
+
+        return result
+            .OrderBy(entry => entry.LastAccessedUtc)
+            .ThenBy(entry => entry.CacheKey, StringComparer.Ordinal)
+            .ToList();
     }
 
-    private async Task QuarantineAsync(string cacheKey, string hash, CancellationToken cancellationToken)
+    public async Task<bool> QuarantineAsync(
+        string cacheKey,
+        string expectedContentSha256,
+        string diagnosticCode,
+        CancellationToken cancellationToken)
     {
+        TarkovDevCacheMetadata.ValidateCacheKey(cacheKey);
+        var normalizedExpectedHash = TarkovDevCacheMetadata.NormalizeExpectedContentHash(expectedContentSha256);
+        TarkovDevCacheMetadata.ValidateDiagnosticCode(diagnosticCode);
+
         await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         var removed = await ExecuteAsync(
             connection,
             transaction,
-            "DELETE FROM http_response_cache WHERE cache_key = $key AND content_sha256 = $hash;",
+            """
+            DELETE FROM http_response_cache
+            WHERE cache_key = $key
+              AND content_sha256 = $hash;
+            """,
             cancellationToken,
             ("$key", cacheKey),
-            ("$hash", hash)).ConfigureAwait(false);
+            ("$hash", normalizedExpectedHash)).ConfigureAwait(false);
         if (removed == 0)
         {
             // A concurrent refresh replaced the corrupt observation after this reader loaded it.
             // Never let a stale quarantine decision remove or mislabel that newer valid body.
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return;
+            return false;
         }
 
         await RemoveUnreferencedBodiesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
@@ -364,7 +646,7 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             transaction,
             """
             INSERT INTO local_json_recovery(document_key, state, detected_utc, content_sha256, diagnostic_code)
-            VALUES ($key, 'quarantined', $detected, $hash, 'cache-json-invalid')
+            VALUES ($key, 'quarantined', $detected, $hash, $diagnostic)
             ON CONFLICT(document_key) DO UPDATE SET
                 state = excluded.state,
                 detected_utc = excluded.detected_utc,
@@ -374,8 +656,95 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             cancellationToken,
             ("$key", $"cache:{cacheKey}"),
             ("$detected", FormatTime(_timeProvider.GetUtcNow())),
-            ("$hash", hash)).ConfigureAwait(false);
+            ("$hash", normalizedExpectedHash),
+            ("$diagnostic", diagnosticCode)).ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private async Task<bool> QuarantineMalformedMetadataAsync(
+        string cacheKey,
+        string? expectedContentSha256,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await _connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var removed = await ExecuteAsync(
+            connection,
+            transaction,
+            """
+            DELETE FROM http_response_cache
+            WHERE cache_key = $key
+              AND ($hash IS NULL OR content_sha256 = $hash)
+              AND (
+                  typeof(content_sha256) <> 'text' OR
+                  length(CAST(content_sha256 AS BLOB)) <> 64 OR
+                  CASE WHEN typeof(content_sha256) = 'text'
+                              AND length(CAST(content_sha256 AS BLOB)) = 64
+                       THEN content_sha256 GLOB '*[^0-9a-f]*' ELSE 0 END OR
+                  typeof(cached_utc) <> 'text' OR
+                  length(CAST(cached_utc AS BLOB)) NOT BETWEEN 1 AND $maxTimestampBytes OR
+                  typeof(last_accessed_utc) <> 'text' OR
+                  length(CAST(last_accessed_utc AS BLOB)) NOT BETWEEN 1 AND $maxTimestampBytes OR
+                  (etag IS NOT NULL AND (
+                      typeof(etag) <> 'text' OR
+                      length(CAST(etag AS BLOB)) > $maxEntityTagBytes)) OR
+                  (last_modified IS NOT NULL AND (
+                      typeof(last_modified) <> 'text' OR
+                      length(CAST(last_modified AS BLOB)) NOT BETWEEN 1 AND $maxTimestampBytes)) OR
+                  NOT EXISTS (
+                      SELECT 1
+                      FROM raw_endpoint_bodies AS body
+                      WHERE body.content_sha256 = http_response_cache.content_sha256
+                        AND typeof(body.compression) = 'text'
+                        AND length(CAST(body.compression AS BLOB)) BETWEEN 1 AND $maxCompressionNameBytes
+                        AND body.compression = 'gzip'
+                        AND typeof(body.compressed_bytes) = 'integer'
+                        AND body.compressed_bytes BETWEEN 1 AND $maxCompressedBytes
+                        AND typeof(body.uncompressed_bytes) = 'integer'
+                        AND body.uncompressed_bytes BETWEEN 1 AND $maxUncompressedBytes
+                        AND typeof(body.compressed_body) = 'blob'
+                        AND length(body.compressed_body) = body.compressed_bytes
+                        AND typeof(body.created_utc) = 'text'
+                        AND length(CAST(body.created_utc AS BLOB)) BETWEEN 1 AND $maxTimestampBytes));
+            """,
+            cancellationToken,
+            ("$key", cacheKey),
+            ("$hash", expectedContentSha256),
+            ("$maxTimestampBytes", TarkovDevCacheMetadata.MaximumTimestampUtf8Bytes),
+            ("$maxEntityTagBytes", TarkovDevCacheMetadata.MaximumEntityTagUtf8Bytes),
+            ("$maxCompressionNameBytes", MaximumCompressionNameBytes),
+            ("$maxCompressedBytes", _policy.MaximumCompressedBytes),
+            ("$maxUncompressedBytes", _policy.MaximumUncompressedBodyBytes)).ConfigureAwait(false);
+        if (removed == 0)
+        {
+            // The key was repaired or replaced after this reader observed it. The predicate is
+            // intentionally re-evaluated by the deleting writer, so a good replacement survives
+            // even when the corrupt hash was too large or the wrong SQLite type to materialize.
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        await RemoveUnreferencedBodiesAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync(
+            connection,
+            transaction,
+            """
+            INSERT INTO local_json_recovery(document_key, state, detected_utc, content_sha256, diagnostic_code)
+            VALUES ($key, 'quarantined', $detected, $hash, 'cache-metadata-invalid')
+            ON CONFLICT(document_key) DO UPDATE SET
+                state = excluded.state,
+                detected_utc = excluded.detected_utc,
+                content_sha256 = excluded.content_sha256,
+                diagnostic_code = excluded.diagnostic_code;
+            """,
+            cancellationToken,
+            ("$key", $"cache:{cacheKey}"),
+            ("$detected", FormatTime(_timeProvider.GetUtcNow())),
+            ("$hash", expectedContentSha256)).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async Task TouchAsync(string cacheKey, CancellationToken cancellationToken)
@@ -399,30 +768,9 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
             DELETE FROM raw_endpoint_bodies
             WHERE NOT EXISTS (
                 SELECT 1 FROM http_response_cache
-                WHERE http_response_cache.content_sha256 = raw_endpoint_bodies.content_sha256)
-              AND NOT EXISTS (
-                SELECT 1 FROM dataset_publications
-                WHERE dataset_publications.content_sha256 = raw_endpoint_bodies.content_sha256);
+                WHERE http_response_cache.content_sha256 = raw_endpoint_bodies.content_sha256);
             """,
             cancellationToken).ConfigureAwait(false);
-
-    private static async Task<HashSet<string>> ReadPublicationBodyHashesAsync(
-        SqliteConnection connection,
-        SqliteTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        var hashes = new HashSet<string>(StringComparer.Ordinal);
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "SELECT DISTINCT content_sha256 FROM dataset_publications WHERE content_sha256 IS NOT NULL;";
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            hashes.Add(reader.GetString(0));
-        }
-
-        return hashes;
-    }
 
     private static async Task<(int Count, long Bytes)> BodyTotalsAsync(
         SqliteConnection connection,
@@ -431,10 +779,28 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT COUNT(*), COALESCE(SUM(compressed_bytes), 0) FROM raw_endpoint_bodies;";
+        command.CommandText = """
+            SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN
+                       typeof(compressed_bytes) = 'integer' AND compressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(uncompressed_bytes) = 'integer' AND uncompressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(compressed_body) = 'blob' AND length(compressed_body) = compressed_bytes
+                       THEN compressed_bytes ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN
+                       typeof(compressed_bytes) = 'integer' AND compressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(uncompressed_bytes) = 'integer' AND uncompressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(compressed_body) = 'blob' AND length(compressed_body) = compressed_bytes
+                       THEN 0 ELSE 1 END), 0)
+            FROM (
+                SELECT compressed_bytes, uncompressed_bytes, compressed_body
+                FROM raw_endpoint_bodies
+                LIMIT $maximumRows) AS body;
+            """;
+        command.Parameters.AddWithValue("$maximumBytes", MaximumStoredBodyBytes);
+        command.Parameters.AddWithValue("$maximumRows", MaximumInspectableEntries);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        return (reader.GetInt32(0), reader.GetInt64(1));
+        return ReadBodyTotals(reader);
     }
 
     private static async Task<(int Count, long Bytes)> CacheBodyTotalsAsync(
@@ -445,15 +811,43 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT COUNT(*), COALESCE(SUM(compressed_bytes), 0)
-            FROM raw_endpoint_bodies AS body
-            WHERE EXISTS (
-                SELECT 1 FROM http_response_cache AS cache
-                WHERE cache.content_sha256 = body.content_sha256);
+            SELECT COUNT(*),
+                   COALESCE(SUM(CASE WHEN
+                       typeof(compressed_bytes) = 'integer' AND compressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(uncompressed_bytes) = 'integer' AND uncompressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(compressed_body) = 'blob' AND length(compressed_body) = compressed_bytes
+                       THEN compressed_bytes ELSE 0 END), 0),
+                   COALESCE(SUM(CASE WHEN
+                       typeof(compressed_bytes) = 'integer' AND compressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(uncompressed_bytes) = 'integer' AND uncompressed_bytes BETWEEN 1 AND $maximumBytes AND
+                       typeof(compressed_body) = 'blob' AND length(compressed_body) = compressed_bytes
+                       THEN 0 ELSE 1 END), 0)
+            FROM (
+                SELECT compressed_bytes, uncompressed_bytes, compressed_body
+                FROM raw_endpoint_bodies AS candidate
+                WHERE EXISTS (
+                    SELECT 1 FROM http_response_cache AS cache
+                    WHERE cache.content_sha256 = candidate.content_sha256)
+                LIMIT $maximumRows) AS body;
             """;
+        command.Parameters.AddWithValue("$maximumBytes", MaximumStoredBodyBytes);
+        command.Parameters.AddWithValue("$maximumRows", MaximumInspectableEntries);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
-        return (reader.GetInt32(0), reader.GetInt64(1));
+        return ReadBodyTotals(reader);
+    }
+
+    private static (int Count, long Bytes) ReadBodyTotals(SqliteDataReader reader)
+    {
+        var count = reader.GetInt64(0);
+        var bytes = reader.GetInt64(1);
+        var invalid = reader.GetInt64(2);
+        if (count is < 0 or >= MaximumInspectableEntries || bytes < 0 || invalid != 0)
+        {
+            throw new InvalidDataException("The cache body metadata is malformed or outside maintenance bounds.");
+        }
+
+        return ((int)count, bytes);
     }
 
     private static async Task<int> EntryCountAsync(
@@ -463,8 +857,20 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT COUNT(*) FROM http_response_cache;";
-        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM (SELECT 1 FROM http_response_cache LIMIT $maximumRows);
+            """;
+        command.Parameters.AddWithValue("$maximumRows", MaximumInspectableEntries);
+        var count = Convert.ToInt64(
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
+        if (count is < 0 or >= MaximumInspectableEntries)
+        {
+            throw new InvalidDataException("The cache entry count is outside maintenance bounds.");
+        }
+
+        return (int)count;
     }
 
     private static async Task<int> ExecuteAsync(
@@ -488,7 +894,10 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
     private static byte[] Compress(byte[] bytes)
     {
         using var output = new MemoryStream();
-        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        // Cache publication is on the refresh path. SmallestSize made a synthetic 50 MiB
+        // fixture consume most of a Linux CI timeout for no meaningful budget improvement;
+        // Optimal preserves compact JSON while bounding first-sync CPU cost.
+        using (var gzip = new GZipStream(output, CompressionLevel.Optimal, leaveOpen: true))
         {
             gzip.Write(bytes);
         }
@@ -525,6 +934,21 @@ public sealed class SqliteTarkovDevResponseCache : ITarkovDevResponseCache
 
     private static DateTimeOffset ParseTime(string value) =>
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind).ToUniversalTime();
+
+    private static string? ReadNullableText(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+
+    private static long? ReadNullableInt64(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetInt64(ordinal);
+
+
+    private static void ValidateTimestamp(string value)
+    {
+        if (Encoding.UTF8.GetByteCount(value) is < 1 or > TarkovDevCacheMetadata.MaximumTimestampUtf8Bytes)
+        {
+            throw new InvalidDataException("A cache timestamp is outside the supported UTF-8 length.");
+        }
+    }
 
     private static string FormatTime(DateTimeOffset value) =>
         value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);

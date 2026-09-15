@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using TarkovCompanion.Application.Services;
@@ -12,6 +13,12 @@ internal delegate Task DataRefreshCommitAction(
     SqliteConnection connection,
     SqliteTransaction transaction,
     CancellationToken cancellationToken);
+
+public enum PriceHistoryRefreshOutcome
+{
+    Updated,
+    ItemNotInCatalog,
+}
 
 public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connectionFactory)
 {
@@ -29,7 +36,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
-        ValidateItems(data);
+        TarkovDevDatasetValidator.Validate(data, "items");
         await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
@@ -215,7 +222,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                 """,
                 cancellationToken,
                 ("$itemId", item.Id),
-                ("$weight", GetFiniteDouble(item.Properties, "weight")),
+                ("$weight", item.Weight ?? GetFiniteDouble(item.Properties, "weight")),
                 ("$fleaPrice", item.LastLowPrice),
                 ("$traderValue", BestTraderValue(item.SellToTrader)),
                 ("$measuredUtc", item.Updated is { } measured ? FormatTimestamp(measured) : null)).ConfigureAwait(false);
@@ -239,7 +246,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
-        ValidateMaps(data);
+        TarkovDevDatasetValidator.Validate(data, "maps");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -296,7 +303,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             VALUES ($id, $mapId, $name, $x, $y, $z, $conditions, $sourceJson);
                             """,
                             cancellationToken,
-                            ("$id", $"{map.Id}:{extractOrdinal}:{extract.Id}"),
+                            ("$id", CompositeIdentity(map.Id, extractOrdinal.ToString(CultureInfo.InvariantCulture), extract.Id)),
                             ("$mapId", map.Id),
                             ("$name", Named(extract.Name, extract.Id)),
                             ("$x", extract.Position?.X),
@@ -313,7 +320,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
                             transaction,
                             "INSERT INTO map_locks(id, map_id, key_item_id, source_json) VALUES ($id, $mapId, $keyItemId, $sourceJson);",
                             cancellationToken,
-                            ("$id", $"{map.Id}:{mapLock.Id}"),
+                            ("$id", CompositeIdentity(map.Id, mapLock.Id)),
                             ("$mapId", map.Id),
                             ("$keyItemId", mapLock.Key),
                             ("$sourceJson", JsonSerializer.Serialize(mapLock, SerializerOptions))).ConfigureAwait(false);
@@ -713,6 +720,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "hideout");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -813,6 +821,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "traders");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -869,6 +878,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "crafts");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -926,6 +936,7 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
         DataRefreshCommitAction? commitAction,
         CancellationToken cancellationToken)
     {
+        TarkovDevDatasetValidator.Validate(data, "barters");
         await InTransactionAsync(
             async (connection, transaction) =>
             {
@@ -972,56 +983,77 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
             commitAction).ConfigureAwait(false);
     }
 
-    public async Task RefreshPriceHistoryAsync(
+    public async Task<PriceHistoryRefreshOutcome> RefreshPriceHistoryAsync(
         string itemId,
         IReadOnlyList<TarkovDevPricePoint> points,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
-        await InTransactionAsync(
-            async (connection, transaction) =>
+        TarkovDevDatasetValidator.Validate(points, $"prices/{itemId}");
+        await using var connection = await connectionFactory.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        // This no-op update is deliberately the first database statement. It promotes the
+        // deferred transaction to SQLite's single writer before it also checks existence, so a
+        // concurrent catalog deletion either wins first (and produces the classified outcome
+        // below) or waits until every history row is committed. A read-then-write sequence could
+        // otherwise lose the item between those steps and surface SQLITE_BUSY or a foreign-key
+        // exception instead of a stable result.
+        var catalogMatches = await ExecuteAsync(
+            connection,
+            transaction,
+            "UPDATE items SET id = id WHERE id = $itemId;",
+            cancellationToken,
+            ("$itemId", itemId)).ConfigureAwait(false);
+        if (catalogMatches == 0)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return PriceHistoryRefreshOutcome.ItemNotInCatalog;
+        }
+
+        await ExecuteAsync(
+            connection,
+            transaction,
+            "DELETE FROM price_history_unresolved_time WHERE item_id = $itemId AND source = 'json.tarkov.dev/prices';",
+            cancellationToken,
+            ("$itemId", itemId)).ConfigureAwait(false);
+
+        foreach (var (point, ordinal) in points.Select((value, index) => (value, index)))
+        {
+            if (point.Timestamp is not { } timestamp)
             {
                 await ExecuteAsync(
                     connection,
                     transaction,
-                    "DELETE FROM price_history_unresolved_time WHERE item_id = $itemId AND source = 'json.tarkov.dev/prices';",
+                    """
+                    INSERT INTO price_history_unresolved_time(
+                        item_id, source_ordinal, flea_price, trader_value, source, raw_json)
+                    VALUES ($itemId, $ordinal, $fleaPrice, NULL, 'json.tarkov.dev/prices', $rawJson);
+                    """,
                     cancellationToken,
-                    ("$itemId", itemId)).ConfigureAwait(false);
+                    ("$itemId", itemId),
+                    ("$ordinal", ordinal),
+                    ("$fleaPrice", point.Price ?? point.PriceMin),
+                    ("$rawJson", JsonSerializer.Serialize(point, SerializerOptions))).ConfigureAwait(false);
+                continue;
+            }
 
-                foreach (var (point, ordinal) in points.Select((value, index) => (value, index)))
-                {
-                    if (point.Timestamp is not { } timestamp)
-                    {
-                        await ExecuteAsync(
-                            connection,
-                            transaction,
-                            """
-                            INSERT INTO price_history_unresolved_time(
-                                item_id, source_ordinal, flea_price, trader_value, source, raw_json)
-                            VALUES ($itemId, $ordinal, $fleaPrice, NULL, 'json.tarkov.dev/prices', $rawJson);
-                            """,
-                            cancellationToken,
-                            ("$itemId", itemId),
-                            ("$ordinal", ordinal),
-                            ("$fleaPrice", point.Price ?? point.PriceMin),
-                            ("$rawJson", JsonSerializer.Serialize(point, SerializerOptions))).ConfigureAwait(false);
-                        continue;
-                    }
+            await ExecuteAsync(
+                connection,
+                transaction,
+                """
+                INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source)
+                VALUES ($itemId, $timestampUtc, $fleaPrice, NULL, 'json.tarkov.dev/prices');
+                """,
+                cancellationToken,
+                ("$itemId", itemId),
+                ("$timestampUtc", FormatTimestamp(DateTimeOffset.FromUnixTimeMilliseconds(timestamp))),
+                ("$fleaPrice", point.Price ?? point.PriceMin)).ConfigureAwait(false);
+        }
 
-                    await ExecuteAsync(
-                        connection,
-                        transaction,
-                        """
-                        INSERT OR REPLACE INTO price_history(item_id, timestamp_utc, flea_price, trader_value, source)
-                        VALUES ($itemId, $timestampUtc, $fleaPrice, NULL, 'json.tarkov.dev/prices');
-                        """,
-                        cancellationToken,
-                        ("$itemId", itemId),
-                        ("$timestampUtc", FormatTimestamp(DateTimeOffset.FromUnixTimeMilliseconds(timestamp))),
-                        ("$fleaPrice", point.Price ?? point.PriceMin)).ConfigureAwait(false);
-                }
-            },
-            cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return PriceHistoryRefreshOutcome.Updated;
     }
 
     private async Task InTransactionAsync(
@@ -1144,45 +1176,17 @@ public sealed class SqliteDataRefreshRepository(SqliteConnectionFactory connecti
     private static string Named(string? name, string id) =>
         string.IsNullOrWhiteSpace(name) ? id : name;
 
-    private static void ValidateItems(TarkovDevItemsData data)
-    {
-        foreach (var pair in data.Items)
-        {
-            var item = pair.Value;
-            if (!string.Equals(pair.Key, item.Id, StringComparison.Ordinal))
-            {
-                throw new InvalidDataException($"Item dictionary key '{pair.Key}' does not match item id '{item.Id}'.");
-            }
-
-            if (string.IsNullOrWhiteSpace(item.Id) || string.IsNullOrWhiteSpace(item.Name) ||
-                item.Width <= 0 || item.Height <= 0)
-            {
-                throw new InvalidDataException($"Item '{pair.Key}' is missing required normalized persistence fields.");
-            }
-
-            _ = GetFiniteDouble(item.Properties, "weight");
-        }
-    }
-
-    private static void ValidateMaps(TarkovDevMapsData data)
-    {
-        foreach (var map in data.Maps.Values)
-        {
-            foreach (var position in map.Extracts.Select(value => value.Position)
-                         .Concat(map.Spawns.Select(value => value.Position))
-                         .Concat(map.LootContainers.Select(value => value.Position))
-                         .Concat(map.LootLoose.Select(value => value.Position)))
-            {
-                if (position is not null &&
-                    (position.X is { } x && !double.IsFinite(x) ||
-                     position.Y is { } y && !double.IsFinite(y) ||
-                     position.Z is { } z && !double.IsFinite(z)))
-                {
-                    throw new InvalidDataException($"Map '{map.Id}' contains a non-finite coordinate.");
-                }
-            }
-        }
-    }
+    /// <summary>Builds an injective opaque key from untrusted upstream identity components.</summary>
+    /// <remarks>
+    /// Delimiter concatenation is ambiguous because upstream ids may contain that delimiter:
+    /// <c>("a", "b:c")</c> and <c>("a:b", "c")</c> used to produce the same map-lock key and
+    /// poison the already-published HTTP cache when normalized persistence rolled back. Prefixing
+    /// every component with its UTF-8 byte length preserves the complete tuple without restricting
+    /// otherwise valid upstream ids.
+    /// </remarks>
+    private static string CompositeIdentity(params string[] components) => string.Concat(
+        components.Select(component => FormattableString.Invariant(
+            $"{Encoding.UTF8.GetByteCount(component)}:{component}")));
 
     /// <summary>
     /// Returns the short name to persist, falling back to the full name when it is blank.

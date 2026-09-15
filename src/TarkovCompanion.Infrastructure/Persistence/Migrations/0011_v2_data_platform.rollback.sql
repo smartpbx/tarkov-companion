@@ -1,3 +1,9 @@
+DROP INDEX IF EXISTS idx_craft_outputs_craft;
+DROP INDEX IF EXISTS idx_craft_requirements_craft;
+DROP INDEX IF EXISTS idx_crafts_station_level;
+DROP INDEX IF EXISTS idx_raids_profile_history;
+DROP INDEX IF EXISTS idx_raid_field_history_recent;
+DROP INDEX IF EXISTS idx_dataset_publications_run_state;
 DROP TABLE IF EXISTS maintenance_history;
 DROP TABLE IF EXISTS maintenance_schedules;
 DROP TABLE IF EXISTS local_json_recovery;
@@ -22,6 +28,7 @@ DROP TABLE IF EXISTS profile_completed_tasks_v2;
 DROP TABLE IF EXISTS profile_trader_progress_v2;
 DROP TABLE IF EXISTS profile_contexts;
 DROP TABLE IF EXISTS profile_workspaces;
+DROP TABLE IF EXISTS dataset_endpoint_materializations;
 DROP TABLE IF EXISTS dataset_heads;
 DROP TABLE IF EXISTS dataset_publications;
 DROP TABLE IF EXISTS dataset_sync_runs;

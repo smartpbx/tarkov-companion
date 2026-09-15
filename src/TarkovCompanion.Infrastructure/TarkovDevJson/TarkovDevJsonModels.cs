@@ -63,6 +63,9 @@ public sealed class TarkovDevItem
 
     public long? High24hPrice { get; init; }
 
+    /// <summary>Published item mass in kilograms; absent remains unknown.</summary>
+    public double? Weight { get; init; }
+
     public string? IconLink { get; init; }
 
     public string? GridImageLink { get; init; }
@@ -202,6 +205,9 @@ public sealed class TarkovDevMapPosition
     public double? Y { get; init; }
 
     public double? Z { get; init; }
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }
 
 public sealed class TarkovDevMapSpawn
@@ -585,4 +591,5 @@ public sealed record TarkovDevResponse<T>(
     bool IsStale,
     string? ETag,
     DateTimeOffset? LastModified,
-    string? RawSourceJson = null);
+    string? RawSourceJson = null,
+    string? RefusalReason = null);

@@ -3,7 +3,11 @@
 -- cache-key row, so its disposable HTTP bodies are intentionally replaced. Normalized catalog
 -- rows and user state are unaffected, and the verified migration backup retains the old cache.
 CREATE TABLE raw_endpoint_bodies (
-    content_sha256 TEXT PRIMARY KEY CHECK (length(content_sha256) = 64 AND content_sha256 = lower(content_sha256)),
+    content_sha256 TEXT NOT NULL PRIMARY KEY CHECK (
+        typeof(content_sha256) = 'text' AND
+        length(content_sha256) = 64 AND
+        content_sha256 = lower(content_sha256) AND
+        content_sha256 NOT GLOB '*[^0-9a-f]*'),
     compression TEXT NOT NULL CHECK (compression = 'gzip'),
     compressed_body BLOB NOT NULL,
     uncompressed_bytes INTEGER NOT NULL CHECK (uncompressed_bytes > 0),
@@ -43,7 +47,11 @@ CREATE TABLE price_history_unresolved_time (
 );
 
 CREATE TABLE dataset_sync_runs (
-    run_id TEXT PRIMARY KEY,
+    -- SQLite's AUTOINCREMENT sequence is the durable ordering authority. Timestamps cannot
+    -- decide two overlapping refreshes, and a deleted high row must never make an older run
+    -- current again by allowing its order to be reused.
+    publication_order INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL UNIQUE,
     game_mode TEXT NOT NULL,
     language TEXT NOT NULL,
     started_utc TEXT NOT NULL,
@@ -58,13 +66,21 @@ CREATE TABLE dataset_sync_runs (
 );
 
 CREATE TABLE dataset_publications (
-    publication_id TEXT PRIMARY KEY,
+    publication_id TEXT NOT NULL PRIMARY KEY,
     run_id TEXT REFERENCES dataset_sync_runs(run_id),
     source_key TEXT NOT NULL,
     game_mode TEXT NOT NULL,
     language TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('current', 'stale', 'refused', 'partial', 'last_known_good')),
-    content_sha256 TEXT REFERENCES raw_endpoint_bodies(content_sha256),
+    -- Provenance survives cache eviction. This is deliberately a hash, not a foreign key to
+    -- disposable transport storage: otherwise publication history silently defeats the cache's
+    -- byte budget by pinning every body ever observed.
+    content_sha256 TEXT CHECK (
+        content_sha256 IS NULL OR
+        (typeof(content_sha256) = 'text' AND
+         length(content_sha256) = 64 AND
+         content_sha256 = lower(content_sha256) AND
+         content_sha256 NOT GLOB '*[^0-9a-f]*')),
     record_count INTEGER CHECK (record_count IS NULL OR record_count >= 0),
     attempted_utc TEXT NOT NULL,
     published_utc TEXT,
@@ -73,6 +89,8 @@ CREATE TABLE dataset_publications (
 );
 CREATE INDEX idx_dataset_publications_scope_time
     ON dataset_publications(source_key, game_mode, language, attempted_utc DESC);
+CREATE INDEX idx_dataset_publications_run_state
+    ON dataset_publications(run_id, state);
 
 CREATE TABLE dataset_heads (
     source_key TEXT NOT NULL,
@@ -83,6 +101,32 @@ CREATE TABLE dataset_heads (
     state TEXT NOT NULL CHECK (state IN ('current', 'stale', 'refused', 'partial', 'last_known_good')),
     updated_utc TEXT NOT NULL,
     PRIMARY KEY (source_key, game_mode, language)
+);
+
+-- Normalized endpoint tables are global, even though request metadata is scoped by mode and
+-- language. Each endpoint therefore has one durable request fence and one active materialized
+-- context. A newer run claims its endpoints before network I/O; the prior materialization stays
+-- visible until that newer run successfully replaces it.
+CREATE TABLE dataset_endpoint_materializations (
+    source_key TEXT NOT NULL PRIMARY KEY,
+    claimed_publication_order INTEGER NOT NULL CHECK (claimed_publication_order > 0),
+    -- Run ids deliberately are not foreign keys: the one-row fence must outlive bounded
+    -- sync-run history, while sqlite_sequence keeps future orders strictly higher.
+    claimed_run_id TEXT NOT NULL,
+    materialized_publication_order INTEGER CHECK (
+        materialized_publication_order IS NULL OR
+        (materialized_publication_order > 0 AND materialized_publication_order <= claimed_publication_order)),
+    materialized_run_id TEXT,
+    materialized_game_mode TEXT,
+    materialized_language TEXT,
+    materialized_publication_id TEXT REFERENCES dataset_publications(publication_id),
+    CHECK (
+        (materialized_publication_order IS NULL AND materialized_run_id IS NULL AND
+         materialized_game_mode IS NULL AND materialized_language IS NULL AND
+         materialized_publication_id IS NULL) OR
+        (materialized_publication_order IS NOT NULL AND materialized_run_id IS NOT NULL AND
+         materialized_game_mode IS NOT NULL AND materialized_language IS NOT NULL AND
+         materialized_publication_id IS NOT NULL))
 );
 
 CREATE TABLE profile_workspaces (
@@ -253,33 +297,69 @@ CREATE INDEX idx_inventory_nodes_parent ON observed_inventory_nodes(snapshot_id,
 CREATE TABLE raid_field_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     raid_id TEXT NOT NULL REFERENCES raids(id) ON DELETE CASCADE,
-    field_name TEXT NOT NULL,
+    field_name TEXT NOT NULL CHECK (
+        typeof(field_name) = 'text' AND length(trim(field_name)) BETWEEN 1 AND 1024),
     value_json TEXT NOT NULL CHECK (json_valid(value_json)),
     provenance_kind TEXT NOT NULL CHECK (provenance_kind IN ('manual', 'observed')),
-    source TEXT NOT NULL,
-    observed_utc TEXT,
-    recorded_utc TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (
+        typeof(source) = 'text' AND length(trim(source)) BETWEEN 1 AND 1024),
+    observed_utc TEXT CHECK (
+        observed_utc IS NULL OR
+        (typeof(observed_utc) = 'text' AND length(trim(observed_utc)) BETWEEN 1 AND 64)),
+    recorded_utc TEXT NOT NULL CHECK (
+        typeof(recorded_utc) = 'text' AND length(trim(recorded_utc)) BETWEEN 1 AND 64),
     confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))
 );
 CREATE INDEX idx_raid_field_history ON raid_field_history(raid_id, field_name, recorded_utc DESC);
+CREATE INDEX idx_raid_field_history_recent
+    ON raid_field_history(raid_id, recorded_utc DESC, id DESC);
 CREATE INDEX idx_raids_profile_history ON raids(profile_id, start_utc DESC, id);
 
 CREATE TABLE craft_history (
-    history_id TEXT PRIMARY KEY,
-    craft_id TEXT NOT NULL,
-    station_id TEXT,
-    station_level INTEGER,
-    observed_utc TEXT,
-    recorded_utc TEXT NOT NULL,
-    output_item_id TEXT,
-    output_count REAL,
-    estimated_cost_roubles INTEGER,
-    estimated_yield_roubles INTEGER,
-    source TEXT NOT NULL,
+    history_id TEXT NOT NULL PRIMARY KEY CHECK (
+        typeof(history_id) = 'text' AND
+        length(history_id) = 36 AND
+        history_id = lower(history_id) AND
+        substr(history_id, 9, 1) = '-' AND
+        substr(history_id, 14, 1) = '-' AND
+        substr(history_id, 19, 1) = '-' AND
+        substr(history_id, 24, 1) = '-' AND
+        length(replace(history_id, '-', '')) = 32 AND
+        replace(history_id, '-', '') NOT GLOB '*[^0-9a-f]*'),
+    craft_id TEXT NOT NULL CHECK (
+        typeof(craft_id) = 'text' AND length(trim(craft_id)) BETWEEN 1 AND 1024),
+    station_id TEXT CHECK (
+        station_id IS NULL OR
+        (typeof(station_id) = 'text' AND length(trim(station_id)) BETWEEN 1 AND 1024)),
+    station_level INTEGER CHECK (
+        station_level IS NULL OR
+        (typeof(station_level) = 'integer' AND station_level BETWEEN 0 AND 2147483647)),
+    observed_utc TEXT CHECK (
+        observed_utc IS NULL OR
+        (typeof(observed_utc) = 'text' AND length(trim(observed_utc)) BETWEEN 1 AND 64)),
+    recorded_utc TEXT NOT NULL CHECK (
+        typeof(recorded_utc) = 'text' AND length(trim(recorded_utc)) BETWEEN 1 AND 64),
+    output_item_id TEXT CHECK (
+        output_item_id IS NULL OR
+        (typeof(output_item_id) = 'text' AND length(trim(output_item_id)) BETWEEN 1 AND 1024)),
+    output_count REAL CHECK (
+        output_count IS NULL OR
+        (typeof(output_count) IN ('integer', 'real') AND
+         output_count >= 0 AND output_count <= 1.7976931348623157e308)),
+    estimated_cost_roubles INTEGER CHECK (
+        estimated_cost_roubles IS NULL OR
+        (typeof(estimated_cost_roubles) = 'integer' AND estimated_cost_roubles >= 0)),
+    estimated_yield_roubles INTEGER CHECK (
+        estimated_yield_roubles IS NULL OR
+        (typeof(estimated_yield_roubles) = 'integer' AND estimated_yield_roubles >= 0)),
+    source TEXT NOT NULL CHECK (
+        typeof(source) = 'text' AND length(trim(source)) BETWEEN 1 AND 1024),
     payload_json TEXT NOT NULL CHECK (json_valid(payload_json))
 );
 CREATE INDEX idx_craft_history_lookup ON craft_history(craft_id, observed_utc DESC, recorded_utc DESC);
 CREATE INDEX idx_crafts_station_level ON crafts(station_id, level, id);
+CREATE INDEX idx_craft_requirements_craft ON craft_requirements(craft_id);
+CREATE INDEX idx_craft_outputs_craft ON craft_outputs(craft_id);
 
 CREATE TABLE loadout_plans (
     plan_id TEXT PRIMARY KEY,
@@ -316,25 +396,39 @@ CREATE INDEX idx_model_snapshots_scope
     ON model_snapshots(profile_id, generation, game_mode, model_kind, generated_utc DESC);
 
 CREATE TABLE retention_policies (
-    policy_key TEXT PRIMARY KEY,
+    policy_key TEXT NOT NULL PRIMARY KEY CHECK (
+        typeof(policy_key) = 'text' AND length(trim(policy_key)) BETWEEN 1 AND 1024),
     screenshot_retention_enabled INTEGER NOT NULL CHECK (screenshot_retention_enabled IN (0, 1)),
     screenshot_retention_hours INTEGER CHECK (screenshot_retention_hours IS NULL OR screenshot_retention_hours BETWEEN 1 AND 720),
     debug_capture_enabled INTEGER NOT NULL CHECK (debug_capture_enabled IN (0, 1)),
-    data_retention_days INTEGER CHECK (data_retention_days IS NULL OR data_retention_days >= 1),
+    -- One thousand years is intentionally far beyond a useful product setting while still
+    -- keeping cutoff arithmetic representable. Runtime also treats bypassed/corrupt values as
+    -- "retain everything" instead of making optional startup maintenance fatal.
+    data_retention_days INTEGER CHECK (
+        data_retention_days IS NULL OR
+        (typeof(data_retention_days) = 'integer' AND data_retention_days BETWEEN 1 AND 365000)),
     updated_utc TEXT NOT NULL,
     extension_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(extension_json))
 );
 
 CREATE TABLE local_json_recovery (
-    document_key TEXT PRIMARY KEY,
+    document_key TEXT NOT NULL PRIMARY KEY CHECK (
+        typeof(document_key) = 'text' AND length(trim(document_key)) BETWEEN 1 AND 1024),
     state TEXT NOT NULL CHECK (state IN ('current', 'malformed', 'quarantined', 'missing')),
-    detected_utc TEXT NOT NULL,
-    content_sha256 TEXT,
-    diagnostic_code TEXT NOT NULL
+    detected_utc TEXT NOT NULL CHECK (
+        typeof(detected_utc) = 'text' AND length(trim(detected_utc)) BETWEEN 1 AND 64),
+    content_sha256 TEXT CHECK (
+        content_sha256 IS NULL OR
+        (typeof(content_sha256) = 'text' AND
+         length(content_sha256) = 64 AND
+         content_sha256 = lower(content_sha256) AND
+         content_sha256 NOT GLOB '*[^0-9a-f]*')),
+    diagnostic_code TEXT NOT NULL CHECK (
+        typeof(diagnostic_code) = 'text' AND length(trim(diagnostic_code)) BETWEEN 1 AND 1024)
 );
 
 CREATE TABLE maintenance_schedules (
-    operation TEXT PRIMARY KEY CHECK (operation IN ('vacuum', 'reindex', 'prune')),
+    operation TEXT NOT NULL PRIMARY KEY CHECK (operation IN ('vacuum', 'reindex', 'prune')),
     enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
     interval_hours INTEGER NOT NULL CHECK (interval_hours BETWEEN 1 AND 8760),
     last_run_utc TEXT,
@@ -343,7 +437,7 @@ CREATE TABLE maintenance_schedules (
 );
 
 CREATE TABLE maintenance_history (
-    run_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL PRIMARY KEY,
     operation TEXT NOT NULL CHECK (operation IN ('vacuum', 'reindex', 'prune')),
     dry_run INTEGER NOT NULL CHECK (dry_run IN (0, 1)),
     started_utc TEXT NOT NULL,
@@ -353,3 +447,13 @@ CREATE TABLE maintenance_history (
     status TEXT NOT NULL CHECK (status IN ('planned', 'completed', 'failed')),
     diagnostic_code TEXT
 );
+
+-- User history has no implicit retention period. Prune stays disabled and not due until a
+-- caller both saves an explicit local data_retention_days policy and enables the schedule.
+-- Startup claims enabled windows atomically, so two app instances cannot run the same task.
+-- The heavier operations stay opt-in too.
+INSERT INTO maintenance_schedules(operation, enabled, interval_hours, last_run_utc, next_run_utc, updated_utc)
+VALUES
+    ('prune', 0, 24, NULL, NULL, strftime('%Y-%m-%dT%H:%M:%f0000+00:00', 'now')),
+    ('reindex', 0, 168, NULL, NULL, strftime('%Y-%m-%dT%H:%M:%f0000+00:00', 'now')),
+    ('vacuum', 0, 720, NULL, NULL, strftime('%Y-%m-%dT%H:%M:%f0000+00:00', 'now'));

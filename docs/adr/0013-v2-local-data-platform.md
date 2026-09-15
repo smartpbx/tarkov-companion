@@ -19,12 +19,23 @@ bodies, published catalog metadata, normalized query models, and locally owned e
 - Store upstream UTF-8 bodies once by SHA-256, gzip-compressed. Cache keys carry validators and
   reference a body; cache byte, entry, and age budgets evict only transport bodies. Dataset
   publications retain the content hash as provenance even after an evicted body is gone.
-- Record every endpoint attempt as `current`, `stale`, `refused`, or `partial`. Advance visible
-  and last-known-good heads only according to that state, in the same transaction as sync state.
+- Allocate each refresh a durable SQLite `AUTOINCREMENT` publication order and claim every
+  requested endpoint before network I/O. Record endpoint attempts as `current`, `stale`,
+  `refused`, or `partial`; a commit whose claim was replaced throws a typed superseded result
+  inside the normalization transaction. Advance visible and last-known-good heads only according
+  to that state, in the same transaction as sync state.
+- Treat each global normalized endpoint table as one active materialization, even though request
+  metadata and history remain mode/language scoped. A successful materialization identifies its
+  active context and invalidates other contexts' visible/current claims while retaining their
+  historical publications and last-known-good evidence.
 - Preserve absent measurements as `NULL`, unresolved upstream identifiers as explicit rows, and
   forward-compatible source or producer fields as bounded JSON. Reject empty, unexpectedly
   shrunken, oversized, deeply nested, non-finite, or required-field-deficient input before a
   publication head changes.
+- Treat local-history retention as revocable authorization, not merely a scheduler switch. A due
+  prune revalidates the exact integer policy and schedule claim after acquiring SQLite's writer
+  lock, then holds that lock through deletion; a concurrent settings change that commits first
+  preserves the history.
 - Keep profile progress normalized and compare-and-swap its workspace revision. Keep observed
   inventory, raid fields, craft records, plans, retention choices, and model results with source
   and UTC evidence timestamps; manual and observed facts remain separate. Model records require
@@ -61,7 +72,9 @@ inventory actions, track live players, or persist screen captures.
 ## Consequences
 
 Catalog readers get atomic visible and last-known-good identities, bounded offline cache behavior,
-and nullable observations whose uncertainty survives round trips. User state and historical model
+and nullable observations whose uncertainty survives round trips. Overlapping or cross-context
+refreshes cannot publish an older response after a newer durable claim, and scoped metadata cannot
+pretend that two contexts simultaneously own the same global rows. User state and historical model
 evidence are queryable without coupling Core to SQLite or the filesystem. The schema and recovery
 path are larger and every new migration must maintain an upgrade/rollback pair, the unread-schema
 ratchet, query-plan evidence, and deterministic failure fixtures.
