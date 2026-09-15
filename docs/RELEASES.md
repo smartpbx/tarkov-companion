@@ -289,6 +289,9 @@ Changing the in-app updater to read the private feed, carry a read credential an
 signature, ring, rollback and last-known-good rules is desktop composition work outside #280; it
 belongs to the integration owner (#294). Until then, signed desktop builds reach machines through
 the offline path below, and the desktop's in-app update does not enforce anything described here.
+When the desktop does track its ring, installed build, refusals and last-known-good, that state is
+persisted through #270's schema and interfaces; this issue defines no desktop storage of its own.
+The relay's stamps are host files beside its state, not application data.
 
 The installer still installs per user under `%LOCALAPPDATA%\TarkovCompanionDesktop`, separate
 from data under `%LOCALAPPDATA%\TarkovCompanion`; see [WINDOWS.md](WINDOWS.md#release-and-installation).
