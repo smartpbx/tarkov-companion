@@ -1,4 +1,5 @@
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.Application.Services.Shell;
 
 namespace TarkovCompanion.UnitTests.V2Shell;
 
@@ -81,6 +82,10 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
     [InlineData("{\"schema\": 1, \"variant\": \"v2-a\"}")]
     [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"recents\": null}")]
     [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"window\": {\"width\": 0, \"height\": 0}}")]
+    [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"address\": \"#/HOME\"}")]
+    [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"selectedEntity\": \"..\"}")]
+    [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"focusTarget\": \"../../other-window\"}")]
+    [InlineData("{\"schema\": 1, \"variant\": \"v2-b\", \"window\": {\"width\": 800, \"height\": 600, \"left\": 2, \"top\": null}}")]
     public async Task Corrupt_preview_state_resets_the_preview_and_nothing_else(string corrupt)
     {
         var shellJson = Path.Combine(_config, "shell.json");
@@ -126,7 +131,7 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
         await a.SaveAsync(V2ShellPreviewState.For(V2ShellMode.VariantA) with { Address = "#/raid" }, CancellationToken.None);
         await b.SaveAsync(V2ShellPreviewState.For(V2ShellMode.VariantB) with { Address = "#/home" }, CancellationToken.None);
 
-        b.Reset();
+        await b.ResetAsync(CancellationToken.None);
 
         Assert.False(File.Exists(b.FilePath));
         Assert.Equal("#/raid", a.Load().State.Address);
@@ -149,6 +154,56 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
         Assert.Equal("v2-b", load.State.Variant);
         Assert.Equal(V2ShellPreviewState.MaxRecents, load.State.Recents.Count);
         Assert.Equal(V2ShellPreviewState.MaxPins, load.State.Pins.Count);
+    }
+
+    [Fact]
+    public async Task Saving_refuses_unbounded_or_noncanonical_state_before_writing()
+    {
+        var store = new V2ShellPreviewStore(_config, V2ShellMode.VariantB);
+        var invalid = new[]
+        {
+            V2ShellPreviewState.For(V2ShellMode.VariantB) with { Address = "#/HOME" },
+            V2ShellPreviewState.For(V2ShellMode.VariantB) with { SelectedEntity = new string('x', V2ShellPreviewState.MaxEntityLength + 1) },
+            V2ShellPreviewState.For(V2ShellMode.VariantB) with { FocusTarget = "../../outside" },
+            V2ShellPreviewState.For(V2ShellMode.VariantB) with { Window = new(800, 600, 10, null, false) },
+        };
+
+        foreach (var state in invalid)
+        {
+            await Assert.ThrowsAsync<ArgumentException>(() => store.SaveAsync(state, CancellationToken.None));
+        }
+
+        Assert.False(File.Exists(store.FilePath));
+    }
+
+    [Fact]
+    public async Task A_save_that_started_before_reset_cannot_recreate_the_file_after_reset()
+    {
+        var store = new V2ShellPreviewStore(_config, V2ShellMode.VariantA);
+        var save = store.SaveAsync(
+            V2ShellPreviewState.For(V2ShellMode.VariantA) with { Address = "#/raid" },
+            CancellationToken.None);
+        var reset = store.ResetAsync(CancellationToken.None);
+
+        await Task.WhenAll(save, reset);
+
+        Assert.False(File.Exists(store.FilePath));
+    }
+
+    [Fact]
+    public void Window_placement_preserves_reachable_overlap_and_clamps_a_stranded_monitor()
+    {
+        ScreenBounds[] screens = [new(0, 0, 1920, 1080)];
+        var reachable = new V2ShellWindowPlacement(900, 700, -40, 30, false);
+        var stranded = new V2ShellWindowPlacement(2500, 1400, 5000, 4000, true);
+
+        Assert.Equal(reachable, reachable.ClampTo(screens));
+        var clamped = stranded.ClampTo(screens);
+        Assert.Equal(1920d, clamped.Width);
+        Assert.Equal(1080d, clamped.Height);
+        Assert.Equal(0d, clamped.Left!.Value);
+        Assert.Equal(0d, clamped.Top!.Value);
+        Assert.True(clamped.IsMaximized);
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider

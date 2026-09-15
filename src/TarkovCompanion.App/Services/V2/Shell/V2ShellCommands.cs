@@ -18,6 +18,27 @@ public enum V2ShellCommandKind
     PreviousRegion,
 }
 
+/// <summary>Stable automation ids used by focus restoration and the packaged Windows smoke.</summary>
+public static class V2ShellFocusTargets
+{
+    public const string Capture = "v2-shell-capture";
+    public const string Health = "v2-shell-health";
+    public const string Palette = "v2-shell-palette";
+    public const string HeaderSearch = "v2-shell-header-search";
+    public const string WorkspaceSearch = "v2-shell-workspace-search";
+    public const string Address = "v2-shell-address";
+    public const string CaptureDialog = "v2-shell-capture-dialog-title";
+    public const string PaletteDialog = "v2-shell-palette-dialog-title";
+    public const string PaletteQuery = "v2-shell-palette-query";
+    public const string HealthDialog = "v2-shell-health-dialog-title";
+
+    public static string Destination(V2RouteId route) => $"v2-shell-destination-{route.Value}";
+
+    public static string Command(string id) => $"v2-shell-command-{id}";
+
+    public static string SavedAddress(string prefix, int index) => $"v2-shell-{prefix}-{index}";
+}
+
 /// <summary>One command, the words it is offered with, and its documented shortcut, if any.</summary>
 public sealed record V2ShellCommand(string Id, string LabelKey, V2ShellCommandKind Kind, string? Gesture, V2RouteId? Route = null);
 

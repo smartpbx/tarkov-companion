@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
-using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Views;
 
@@ -16,6 +15,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     private static readonly TimeSpan InitializationDrainTimeout = TimeSpan.FromSeconds(5);
     private readonly CancellationTokenSource _stopping = new();
     private Task _initialization = Task.CompletedTask;
+    private MainWindowViewModel? _mainViewModel;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
@@ -24,6 +24,7 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            _mainViewModel = viewModel;
 
             // Opening straight onto a named page exists so the Windows verification job can
             // photograph every destination in turn. Seven pages were written and shipped
@@ -70,8 +71,12 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
     public async Task StopAsync()
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
-        services.GetService<V2ShellViewModel>()?.Dispose();
-        services.GetService<MapViewModel>()?.Dispose();
+        if (_mainViewModel?.PreviewShell is { } preview)
+        {
+            await preview.DisposeAsync().ConfigureAwait(false);
+        }
+
+        _mainViewModel?.Map.Dispose();
         try
         {
             await _initialization.WaitAsync(InitializationDrainTimeout, CancellationToken.None).ConfigureAwait(false);

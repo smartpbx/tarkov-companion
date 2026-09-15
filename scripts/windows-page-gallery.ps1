@@ -84,11 +84,10 @@ $ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 
-function Save-ScreenImage {
-    param([string] $Path, [IntPtr] $WindowHandle)
-
-    $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+function Initialize-GalleryBounds {
     if (-not ("TarkovCompanionGalleryBounds" -as [type])) {
         Add-Type @"
 using System;
@@ -98,9 +97,18 @@ public static class TarkovCompanionGalleryBounds {
     public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool GetWindowRect(IntPtr handle, out RECT rect);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool MoveWindow(IntPtr handle, int x, int y, int width, int height, bool repaint);
 }
 "@
     }
+}
+
+function Save-ScreenImage {
+    param([string] $Path, [IntPtr] $WindowHandle)
+
+    Initialize-GalleryBounds
+    $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 
     $Rect = New-Object TarkovCompanionGalleryBounds+RECT
     if (-not [TarkovCompanionGalleryBounds]::GetWindowRect($WindowHandle, [ref] $Rect)) {
@@ -131,6 +139,129 @@ public static class TarkovCompanionGalleryBounds {
     finally {
         $Bitmap.Dispose()
     }
+}
+
+function Set-WindowSize {
+    param([IntPtr] $WindowHandle, [int] $Width, [int] $Height)
+
+    if ($Width -le 0 -or $Height -le 0) { return }
+    Initialize-GalleryBounds
+    if (-not [TarkovCompanionGalleryBounds]::MoveWindow($WindowHandle, 12, 12, $Width, $Height, $true)) {
+        throw "Could not resize the companion window for its narrow-layout capture."
+    }
+}
+
+function Find-AutomationElement {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId = "",
+        [string] $Name = "",
+        [AllowNull()] [object] $ControlType = $null
+    )
+
+    $Root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+    if ($null -eq $Root) { return $null }
+    if ([string]::IsNullOrWhiteSpace($AutomationId) -and
+        [string]::IsNullOrWhiteSpace($Name) -and
+        $null -eq $ControlType) {
+        throw "An automation lookup needs an id, a name, or a control type."
+    }
+    $Conditions = [System.Collections.Generic.List[System.Windows.Automation.Condition]]::new()
+    # Avalonia can retain peers for collapsed controls in the raw automation tree. Interactions
+    # and layout assertions concern what the package actually presents, so exclude those peers.
+    $Conditions.Add([System.Windows.Automation.PropertyCondition]::new(
+        [System.Windows.Automation.AutomationElement]::IsOffscreenProperty,
+        $false))
+    if (-not [string]::IsNullOrWhiteSpace($AutomationId)) {
+        $Conditions.Add([System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::AutomationIdProperty,
+            $AutomationId))
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Name)) {
+        $Conditions.Add([System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty,
+            $Name))
+    }
+    if ($null -ne $ControlType) {
+        $Conditions.Add([System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            $ControlType))
+    }
+    $Condition = if ($Conditions.Count -eq 1) {
+        $Conditions[0]
+    }
+    else {
+        [System.Windows.Automation.AndCondition]::new($Conditions.ToArray())
+    }
+    return $Root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $Condition)
+}
+
+function Wait-AutomationElement {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId = "",
+        [string] $Name = "",
+        [AllowNull()] [object] $ControlType = $null,
+        [int] $TimeoutSeconds = 15
+    )
+
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Element = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $AutomationId -Name $Name -ControlType $ControlType
+            if ($null -ne $Element) { return $Element }
+        }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $Deadline)
+    return $null
+}
+
+function Invoke-AutomationElement {
+    param([System.Windows.Automation.AutomationElement] $Element, [string] $Description)
+
+    $Pattern = $null
+    if (-not $Element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref] $Pattern)) {
+        throw "$Description does not expose the UI Automation Invoke pattern."
+    }
+    ([System.Windows.Automation.InvokePattern] $Pattern).Invoke()
+}
+
+function Invoke-ShellInteraction {
+    param([IntPtr] $WindowHandle, [object] $Interaction)
+
+    $ControlType = if ($Interaction.targetControlType -eq "Button") {
+        [System.Windows.Automation.ControlType]::Button
+    }
+    else {
+        $null
+    }
+    $Target = Wait-AutomationElement `
+        -WindowHandle $WindowHandle `
+        -AutomationId $Interaction.targetAutomationId `
+        -Name $Interaction.targetName `
+        -ControlType $ControlType
+    if ($null -eq $Target) { throw "Interaction target '$($Interaction.description)' was not in the packaged app's automation tree." }
+    Invoke-AutomationElement -Element $Target -Description $Interaction.description
+
+    foreach ($ExpectedId in @($Interaction.expectedAutomationIds)) {
+        if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -AutomationId $ExpectedId)) {
+            throw "'$($Interaction.description)' did not expose expected element '$ExpectedId'."
+        }
+    }
+    foreach ($ExpectedName in @($Interaction.expectedNames)) {
+        if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -Name $ExpectedName)) {
+            throw "'$($Interaction.description)' did not expose expected element '$ExpectedName'."
+        }
+    }
+    foreach ($ForbiddenId in @($Interaction.forbiddenAutomationIds)) {
+        if ($null -ne (Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $ForbiddenId)) {
+            throw "'$($Interaction.description)' exposed layout element '$ForbiddenId' that should be absent."
+        }
+    }
+
+    return "Invoked $($Interaction.description) and observed the expected packaged-shell state."
 }
 
 # Matches the launch probe: the window asks for more room than a hosted runner's
@@ -273,12 +404,16 @@ function Get-InterfaceFaultLines {
 }
 
 function New-ShotResult {
-    param([string] $Page)
+    param([string] $Page, [string] $ShellMode, [bool] $InteractionRequired)
 
     return [pscustomobject]@{
         page = $Page
+        shellMode = $ShellMode
         presented = $false
         visuallyVaried = $false
+        interactionRequired = $InteractionRequired
+        interactionSmoke = -not $InteractionRequired
+        interactionDetail = if ($InteractionRequired) { "The packaged-shell interaction did not complete." } else { "Visual capture only." }
         detail = "The launch did not complete."
         screenshot = $null
         distinctColors = 0
@@ -301,17 +436,71 @@ New-Item -ItemType Directory -Path $WarningDirectory -Force | Out-Null
 # measurement and warning capture. A map view is a page opened with more said about it.
 $Shots = [System.Collections.Generic.List[object]]::new()
 foreach ($Name in $Pages) {
-    $Shots.Add([pscustomobject]@{ name = $Name; args = @("--page", $Name) })
+    $Shots.Add([pscustomobject]@{
+        name = $Name; args = @("--ui-shell", "legacy", "--page", $Name); shellMode = "legacy"
+        width = 0; height = 0; interaction = $null
+    })
 }
 foreach ($View in $MapViews) {
-    $Shots.Add([pscustomobject]@{ name = $View.name; args = $View.args })
+    $Shots.Add([pscustomobject]@{
+        name = $View.name; args = @("--ui-shell", "legacy") + $View.args; shellMode = "legacy"
+        width = 0; height = 0; interaction = $null
+    })
 }
+
+# One packaged launch per shell crosses a real UI Automation boundary before its screenshot.
+# The two narrow shots also prove that Variant A's rail really becomes the labelled row rather
+# than merely claiming a breakpoint in a view model.
+$Shots.Add([pscustomobject]@{
+    name = "shell-legacy"; args = @("--ui-shell", "legacy", "--page", "Raid"); shellMode = "legacy"
+    width = 0; height = 0
+    interaction = [pscustomobject]@{
+        description = "legacy Settings destination"; targetAutomationId = ""; targetName = "Settings"; targetControlType = "Button"
+        expectedAutomationIds = @(); expectedNames = @("Interface size"); forbiddenAutomationIds = @("v2-shell-page-heading")
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "shell-v2-a"; args = @("--ui-shell", "v2-a", "--page", "setup"); shellMode = "v2-a"
+    width = 0; height = 0
+    interaction = [pscustomobject]@{
+        description = "Variant A Intel destination"; targetAutomationId = "v2-shell-destination-items"; targetName = ""; targetControlType = "Button"
+        expectedAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-rail"); expectedNames = @()
+        forbiddenAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-row")
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "shell-v2-b"; args = @("--ui-shell", "v2-b", "--page", "home"); shellMode = "v2-b"
+    width = 0; height = 0
+    interaction = [pscustomobject]@{
+        description = "Variant B Raid destination"; targetAutomationId = "v2-shell-destination-raid"; targetName = ""; targetControlType = "Button"
+        expectedAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-row"); expectedNames = @()
+        forbiddenAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-rail")
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "shell-v2-a-narrow"; args = @("--ui-shell", "v2-a", "--page", "setup"); shellMode = "v2-a"
+    width = 560; height = 820
+    interaction = [pscustomobject]@{
+        description = "narrow Variant A Intel destination"; targetAutomationId = "v2-shell-destination-items"; targetName = ""; targetControlType = "Button"
+        expectedAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-row"); expectedNames = @()
+        forbiddenAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-rail")
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "shell-v2-b-narrow"; args = @("--ui-shell", "v2-b", "--page", "home"); shellMode = "v2-b"
+    width = 560; height = 820
+    interaction = [pscustomobject]@{
+        description = "narrow Variant B Raid destination"; targetAutomationId = "v2-shell-destination-raid"; targetName = ""; targetControlType = "Button"
+        expectedAutomationIds = @("v2-shell-header-search", "v2-shell-navigation-row"); expectedNames = @()
+        forbiddenAutomationIds = @("v2-shell-workspace-search", "v2-shell-navigation-rail")
+    }
+})
 
 foreach ($Shot in $Shots) {
     $Page = $Shot.name
     $Screenshot = Join-Path $ScreenshotDirectory ("{0}.png" -f $Page.ToLowerInvariant())
     $WarningLog = Join-Path $WarningDirectory ("{0}.log" -f $Page.ToLowerInvariant())
-    $Result = New-ShotResult -Page $Page
+    $Result = New-ShotResult -Page $Page -ShellMode $Shot.shellMode -InteractionRequired ($null -ne $Shot.interaction)
     $Process = $null
     try {
         if (Test-Path -LiteralPath $WarningLog) { Remove-Item -LiteralPath $WarningLog -Force }
@@ -374,6 +563,17 @@ foreach ($Shot in $Shots) {
             throw "The warning capture was not armed within $ReadinessTimeoutSeconds second(s): nothing reached TARKOV_COMPANION_UI_WARNING_LOG."
         }
 
+        if ($Shot.width -gt 0 -and $Shot.height -gt 0) {
+            Set-WindowSize -WindowHandle $Process.MainWindowHandle -Width $Shot.width -Height $Shot.height
+            Start-Sleep -Milliseconds 500
+        }
+
+        if ($null -ne $Shot.interaction) {
+            $Result.interactionDetail = Invoke-ShellInteraction -WindowHandle $Process.MainWindowHandle -Interaction $Shot.interaction
+            $Result.interactionSmoke = $true
+            Start-Sleep -Milliseconds 300
+        }
+
         Save-ScreenImage -Path $Screenshot -WindowHandle $Process.MainWindowHandle
 
         Close-AppProcess -Process $Process -Page $Page
@@ -426,8 +626,10 @@ $NoWindow = @($Results | Where-Object { -not $_.presented })
 $Blank = @($Results | Where-Object { $_.presented -and -not $_.visuallyVaried })
 $Faulted = @($Results | Where-Object { $_.interfaceFaultCount -gt 0 })
 $Unarmed = @($Results | Where-Object { -not $_.warningCaptureArmed })
+$InteractionFailed = @($Results | Where-Object { $_.interactionRequired -and -not $_.interactionSmoke })
 $Failed = @($Results | Where-Object {
-    -not $_.presented -or -not $_.visuallyVaried -or $_.interfaceFaultCount -gt 0 -or -not $_.warningCaptureArmed
+    -not $_.presented -or -not $_.visuallyVaried -or $_.interfaceFaultCount -gt 0 -or
+        -not $_.warningCaptureArmed -or ($_.interactionRequired -and -not $_.interactionSmoke)
 })
 
 $Report = [pscustomobject]@{
@@ -439,7 +641,8 @@ $Report = [pscustomobject]@{
     blankCount = $Blank.Count
     interfaceFaultCount = $Faulted.Count
     warningCaptureUnarmedCount = $Unarmed.Count
-    scope = "Responsive visual variation and toolkit interface faults only; semantic expected-page, accessibility, and data/tile readiness are not proven here and remain an open #279 criterion that depends on the application readiness signal owned by #281."
+    interactionFailureCount = $InteractionFailed.Count
+    scope = "Responsive visual variation, packaged-shell UI Automation interactions, and toolkit interface faults; semantic expected-page, accessibility, and data/tile readiness are not proven here and remain an open #279 criterion that depends on the application readiness signal owned by #281."
 }
 
 $Directory = Split-Path -Parent ([System.IO.Path]::GetFullPath($OutputPath))
@@ -463,9 +666,10 @@ if ($NoWindow.Count -gt 0) { $Problems += "no window: $(($NoWindow | ForEach-Obj
 if ($Blank.Count -gt 0) { $Problems += "insufficient visual variation: $(($Blank | ForEach-Object { $_.page }) -join ', ')" }
 if ($Faulted.Count -gt 0) { $Problems += "interface faults: $(($Faulted | ForEach-Object { $_.page }) -join ', ')" }
 if ($Unarmed.Count -gt 0) { $Problems += "warning capture was not armed: $(($Unarmed | ForEach-Object { $_.page }) -join ', ')" }
+if ($InteractionFailed.Count -gt 0) { $Problems += "packaged-shell interaction failed: $(($InteractionFailed | ForEach-Object { $_.page }) -join ', ')" }
 
 if ($Problems.Count -gt 0) {
     throw ($Problems -join "; ")
 }
 
-Write-Host "All $($Results.Count) launches showed responsive visual variation with an armed warning capture and no interface faults; semantic page, accessibility and data/tile readiness are not proven here."
+Write-Host "All $($Results.Count) launches showed responsive visual variation; every required packaged-shell interaction passed with an armed warning capture and no interface faults. Semantic page, accessibility and data/tile readiness are not proven here."

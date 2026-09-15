@@ -87,9 +87,19 @@ public sealed class V2AddressCodec
             throw new ArgumentException($"Route '{location.Route}' is addressed with an item exactly when it takes one.", nameof(location));
         }
 
+        if (location.Item is { } item && !IsValidItem(item))
+        {
+            throw new ArgumentException("The route item is not a bounded address segment.", nameof(location));
+        }
+
         var path = definition.TakesItem ? template.Replace(ItemPlaceholder, location.Item, StringComparison.Ordinal) : template;
         if (location.IntelItem is { } intelItem)
         {
+            if (!IsValidItem(intelItem))
+            {
+                throw new ArgumentException("The Intel item is not a bounded address segment.", nameof(location));
+            }
+
             if (_variant.IntelPlacement != V2IntelPlacement.BesideCurrentPage || definition.TakesItem)
             {
                 throw new ArgumentException($"Intel cannot open beside '{location.Route}' in {_variant.Token}.", nameof(location));

@@ -73,6 +73,40 @@ public sealed class V2ShellCommandTests
         }
     }
 
+    [Theory]
+    [InlineData("F", true, false, false, V2ShellCommandKind.FocusSearch)]
+    [InlineData("F6", false, false, false, V2ShellCommandKind.NextRegion)]
+    [InlineData("F6", false, false, true, V2ShellCommandKind.PreviousRegion)]
+    [InlineData("L", true, false, false, V2ShellCommandKind.CopyAddress)]
+    [InlineData("D", true, false, false, V2ShellCommandKind.TogglePin)]
+    [InlineData("Escape", false, false, false, V2ShellCommandKind.CloseTransient)]
+    public void Workflow_shortcuts_are_declared_commands(
+        string key,
+        bool control,
+        bool alt,
+        bool shift,
+        V2ShellCommandKind expected)
+    {
+        var command = V2ShellCommands.Match(
+            V2ShellCommands.For(V2ShellVariants.A),
+            new(key, control, alt, shift),
+            captureShortcutEnabled: true);
+
+        Assert.Equal(expected, command?.Kind);
+    }
+
+    [Fact]
+    public void Narrow_width_moves_variant_a_to_a_labelled_row_while_variant_b_always_uses_one()
+    {
+        Assert.Equal(V2WidthClass.Narrow, V2ShellAdaptation.Classify(599));
+        Assert.Equal(V2WidthClass.Compact, V2ShellAdaptation.Classify(600));
+        Assert.False(V2ShellAdaptation.UsesRail(V2ShellVariants.A, V2WidthClass.Compact));
+        Assert.True(V2ShellAdaptation.UsesRail(V2ShellVariants.A, V2WidthClass.Standard));
+        Assert.False(V2ShellAdaptation.UsesRail(V2ShellVariants.B, V2WidthClass.Expanded));
+        Assert.False(V2ShellAdaptation.IntelFitsBeside(V2WidthClass.Compact));
+        Assert.True(V2ShellAdaptation.IntelFitsBeside(V2WidthClass.Standard));
+    }
+
     [Fact]
     public void The_shell_names_no_game_facing_capability()
     {

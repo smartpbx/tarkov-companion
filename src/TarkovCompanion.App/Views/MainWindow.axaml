@@ -227,6 +227,6 @@
   </Grid>
   </LayoutTransformControl>
   </shell:LegacyPageHost>
-  <shell:V2ShellView IsVisible="{Binding IsPreview}" DataContext="{Binding PreviewShell}" />
+  <shell:V2ShellView IsVisible="{Binding IsPreviewShell}" DataContext="{Binding PreviewShell}" />
   </Grid>
 </Window>

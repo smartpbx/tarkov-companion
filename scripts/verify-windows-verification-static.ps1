@@ -112,6 +112,13 @@ Require-Text $Workflow '$DemoReplay.complete' 'demo-replay line reading the fiel
 Require-Text $Gallery '$env:TARKOV_COMPANION_UI_WARNING_LOG = $WarningLog' 'per-launch UI warning capture'
 Require-Text $Gallery 'warning capture was not armed' 'unarmed-capture failure'
 Require-Text $Gallery 'interface faults: ' 'interface-fault failure'
+Require-Text $Gallery 'UIAutomationClient' 'packaged-shell UI Automation client'
+Require-Text $Gallery '[System.Windows.Automation.InvokePattern]::Pattern' 'real packaged-shell Invoke interaction'
+Require-Text $Gallery '"--ui-shell", "legacy"' 'explicit legacy shell launch'
+Require-Text $Gallery '"--ui-shell", "v2-a"' 'Variant A shell launch'
+Require-Text $Gallery '"--ui-shell", "v2-b"' 'Variant B shell launch'
+Require-Text $Gallery 'shell-v2-a-narrow' 'narrow Variant A capture'
+Require-Text $Gallery 'packaged-shell interaction failed:' 'interaction failure gate'
 Forbid-Text $Gallery 'Kill($true)' '.NET Core-only process-tree Kill overload under Windows PowerShell'
 Require-Text $Gallery 'semantic expected-page, accessibility, and data/tile readiness are not proven here' 'gallery scope boundary'
 Require-Text $Gallery 'application readiness signal owned by #281' 'residual #281 readiness ownership'
@@ -183,6 +190,9 @@ try {
     }
     if ($Evidence.gallery.interfaceFaultLaunchCount -ne 1 -or -not $Evidence.gallery.pages[0].warningCaptureArmed) {
         throw 'Evidence summary lost the gallery interface-fault gate.'
+    }
+    if ($Evidence.gallery.interactionRequiredLaunchCount -ne 0 -or $Evidence.gallery.interactionPassedLaunchCount -ne 0) {
+        throw 'Evidence summary invented packaged-shell interactions for an older fixture.'
     }
     if ($Evidence.smoke.persistence.sqliteVersion -cne '3.53.3') {
         throw 'Evidence summary lost the smoke SQLite reader identity.'

@@ -1,39 +1,160 @@
-using System.ComponentModel;
+using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
-using TarkovCompanion.App.ViewModels.V2.Shell;
+using Avalonia.VisualTree;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 
 namespace TarkovCompanion.App.Views.V2.Shell;
 
+/// <summary>Attaches window-owned clipboard, sizing and focus behavior to the provisional shell.</summary>
 public sealed partial class V2ShellView : UserControl
 {
+    private V2ShellViewModel? _wiredShell;
+    private bool _attached;
+    private bool _requestedInitialFocus;
+
     public V2ShellView()
     {
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += DataContextChangedHandler;
+        AddHandler(GotFocusEvent, ShellGotFocus, RoutingStrategies.Bubble);
+    }
+
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        base.OnAttachedToVisualTree(eventArgs);
+        _attached = true;
+        SizeChanged += ShellSizeChanged;
+        Wire(DataContext as V2ShellViewModel);
+        UpdateWidth();
+        RequestInitialFocus();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        _attached = false;
+        SizeChanged -= ShellSizeChanged;
+        Unwire();
+        base.OnDetachedFromVisualTree(eventArgs);
     }
 
     private void DataContextChangedHandler(object? sender, EventArgs eventArgs)
     {
-        if (DataContext is V2ShellViewModel shell)
+        Unwire();
+        if (_attached)
         {
-            shell.FocusRequested += FocusRequested;
-            shell.PropertyChanged += ShellPropertyChanged;
+            Wire(DataContext as V2ShellViewModel);
+            UpdateWidth();
+            RequestInitialFocus();
         }
     }
 
-    private void FocusRequested(object? sender, V2FocusRequest request) => Dispatcher.UIThread.Post(() =>
+    private void Wire(V2ShellViewModel? shell)
     {
-        (request.Target == V2ShellRouter.IntelHeadingTarget ? this.FindControl<Control>("IntelHeading") : this.FindControl<Control>("PageHeading"))?.Focus();
-    });
-
-    private void ShellPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
-    {
-        if (eventArgs.PropertyName == nameof(V2ShellViewModel.IsCaptureOpen) && DataContext is V2ShellViewModel { IsCaptureOpen: true })
+        if (shell is null || ReferenceEquals(shell, _wiredShell))
         {
-            Dispatcher.UIThread.Post(() => this.FindControl<Control>("DialogTitle")?.Focus());
+            return;
+        }
+
+        _wiredShell = shell;
+        _requestedInitialFocus = false;
+        shell.FocusRequested += FocusRequested;
+        shell.Clipboard = CopyToClipboardAsync;
+    }
+
+    private void Unwire()
+    {
+        if (_wiredShell is null)
+        {
+            return;
+        }
+
+        _wiredShell.FocusRequested -= FocusRequested;
+        _wiredShell.Clipboard = ClipboardUnavailableAsync;
+        _wiredShell = null;
+        _requestedInitialFocus = false;
+    }
+
+    private async Task CopyToClipboardAsync(string text)
+    {
+        var clipboard = TopLevel.GetTopLevel(this)?.Clipboard
+            ?? throw new InvalidOperationException("The shell is not attached to a top-level clipboard.");
+        await clipboard.SetTextAsync(text).ConfigureAwait(true);
+    }
+
+    private static Task ClipboardUnavailableAsync(string _) =>
+        Task.FromException(new InvalidOperationException("The shell view is detached."));
+
+    private void ShellSizeChanged(object? sender, SizeChangedEventArgs eventArgs) => UpdateWidth();
+
+    private void UpdateWidth()
+    {
+        if (_wiredShell is { } shell)
+        {
+            shell.UpdateEffectiveWidth(Bounds.Width);
+        }
+    }
+
+    private void RequestInitialFocus()
+    {
+        if (_requestedInitialFocus || _wiredShell is null)
+        {
+            return;
+        }
+
+        _requestedInitialFocus = true;
+        Dispatcher.UIThread.Post(_wiredShell.RequestInitialFocus, DispatcherPriority.Loaded);
+    }
+
+    private void FocusRequested(object? sender, V2FocusRequest request)
+    {
+        if (!ReferenceEquals(sender, _wiredShell))
+        {
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() => FocusTarget(request.Target), DispatcherPriority.Loaded);
+    }
+
+    private void FocusTarget(string automationId)
+    {
+        var target = this.GetVisualDescendants()
+            .OfType<Control>()
+            .FirstOrDefault(control =>
+                control.IsEffectivelyVisible &&
+                control.IsEffectivelyEnabled &&
+                string.Equals(AutomationProperties.GetAutomationId(control), automationId, StringComparison.Ordinal));
+        if (target is null)
+        {
+            return;
+        }
+
+        // Tab is also what Avalonia's parameterless Focus uses. Supplying it explicitly keeps
+        // the focus-visible treatment on for a programmatic move requested by keyboard chrome.
+        target.Focus(NavigationMethod.Tab);
+        if (target.IsFocused)
+        {
+            _wiredShell?.RecordFocusedTarget(automationId);
+        }
+    }
+
+    private void ShellGotFocus(object? sender, GotFocusEventArgs eventArgs)
+    {
+        if (eventArgs.Source is not StyledElement focused)
+        {
+            return;
+        }
+
+        var automationId = AutomationProperties.GetAutomationId(focused);
+        if (automationId?.StartsWith("v2-shell-", StringComparison.Ordinal) == true)
+        {
+            _wiredShell?.RecordFocusedTarget(automationId);
         }
     }
 }

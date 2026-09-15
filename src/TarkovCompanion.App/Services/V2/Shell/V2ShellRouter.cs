@@ -18,6 +18,31 @@ public sealed record V2NavigationContext(
 {
     public const string ThisDesktop = "this-desktop";
 
+    /// <summary>The selected profile's stable identity and mode, separate from its display name.</summary>
+    public string? ProfileId { get; init; }
+
+    public string? ProfileMode { get; init; }
+
+    /// <summary>The exact raid and lifecycle state whose page context is being shown.</summary>
+    public string? RaidId { get; init; }
+
+    public string? RaidState { get; init; }
+
+    /// <summary>The task/objective selection that makes the current preparation context meaningful.</summary>
+    public string? ObjectiveId { get; init; }
+
+    /// <summary>Stable member keys for the currently observed party, never display names.</summary>
+    public IReadOnlyList<string> TeamMemberKeys { get; init; } = [];
+
+    /// <summary>The capture work item shared by chrome progress and its destination review.</summary>
+    public string? CaptureCorrelationId { get; init; }
+
+    /// <summary>The destination containing the current route, independent of its visible label.</summary>
+    public string? WorkspaceId { get; init; }
+
+    /// <summary>The entity selected inside that workspace, if any.</summary>
+    public string? SelectedEntity { get; init; }
+
     public static V2NavigationContext Empty { get; } = new(null, null, null, null, ThisDesktop);
 }
 
@@ -168,7 +193,7 @@ public sealed class V2ShellRouter
             return V2NavigationResult.Refused(parsed.Failure ?? "That address could not be read.");
         }
 
-        var focus = location.IntelItem is null
+        var focus = location.Item is null && location.IntelItem is null
             ? new V2FocusRequest(PageHeadingTarget, V2FocusReason.PageHeading)
             : new V2FocusRequest(IntelHeadingTarget, V2FocusReason.IntelHeading);
         return Push(location, location.Item ?? location.IntelItem, invoker, focus);
@@ -188,7 +213,7 @@ public sealed class V2ShellRouter
                 new(V2Routes.Item, Item: item),
                 item,
                 invoker,
-                new(PageHeadingTarget, V2FocusReason.PageHeading)),
+                new(IntelHeadingTarget, V2FocusReason.IntelHeading)),
             _ => Push(
                 Current.Location.WithoutIntel with { IntelItem = item },
                 item,
@@ -230,10 +255,26 @@ public sealed class V2ShellRouter
     public V2NavigationResult Forward() => Step(_forward, _back, V2NavigationKind.Forward, "There is nothing to go forward to.");
 
     /// <summary>Remembers what has focus on the current page, so Back and a restart can return to it.</summary>
-    public void RecordFocus(string? target) => Current = Current with { FocusTarget = target };
+    public void RecordFocus(string? target)
+    {
+        if (target is not null && !IsBoundedShellReference(target))
+        {
+            throw new ArgumentException("A focus target must be a bounded shell automation id.", nameof(target));
+        }
+
+        Current = Current with { FocusTarget = target };
+    }
 
     /// <summary>Records a selection on the current page without making a history entry.</summary>
-    public void Select(string? entity) => Current = Current with { SelectedEntity = entity };
+    public void Select(string? entity)
+    {
+        if (entity is not null && !V2AddressCodec.IsValidItem(entity))
+        {
+            throw new ArgumentException("A selected entity must be a bounded shell identifier.", nameof(entity));
+        }
+
+        Current = Current with { SelectedEntity = entity };
+    }
 
     /// <summary>
     /// Takes the runtime's context. Never history, never focus: a background change is not a move.
@@ -252,6 +293,16 @@ public sealed class V2ShellRouter
     public V2NavigationResult Restore(V2ShellLocation location, string? selectedEntity, string? focusTarget)
     {
         ArgumentNullException.ThrowIfNull(location);
+        if (selectedEntity is not null && !V2AddressCodec.IsValidItem(selectedEntity))
+        {
+            return V2NavigationResult.Refused("The remembered selection is not a bounded shell identifier.");
+        }
+
+        if (focusTarget is not null && !IsBoundedShellReference(focusTarget))
+        {
+            return V2NavigationResult.Refused("The remembered focus target is not a bounded shell automation id.");
+        }
+
         try
         {
             _ = Addresses.Format(location);
@@ -266,7 +317,7 @@ public sealed class V2ShellRouter
         _forward.Clear();
         Current = new(location, selectedEntity, focusTarget, null);
         var focus = new V2FocusRequest(
-            focusTarget ?? (location.IntelItem is null ? PageHeadingTarget : IntelHeadingTarget),
+            focusTarget ?? (location.Item is null && location.IntelItem is null ? PageHeadingTarget : IntelHeadingTarget),
             V2FocusReason.Restored);
         Navigated?.Invoke(this, new(previous, Current, V2NavigationKind.Restore, focus));
         return new(true, focus, null);
@@ -274,6 +325,11 @@ public sealed class V2ShellRouter
 
     private V2NavigationResult Push(V2ShellLocation location, string? selectedEntity, string? invoker, V2FocusRequest focus)
     {
+        if (invoker is not null && !IsBoundedShellReference(invoker))
+        {
+            return V2NavigationResult.Refused("The invoking control is not a bounded shell automation id.");
+        }
+
         string address;
         try
         {
@@ -322,9 +378,14 @@ public sealed class V2ShellRouter
 
         Current = target;
         var focus = new V2FocusRequest(
-            target.FocusTarget ?? (target.Location.IntelItem is null ? PageHeadingTarget : IntelHeadingTarget),
+            target.FocusTarget ?? (target.Location.Item is null && target.Location.IntelItem is null ? PageHeadingTarget : IntelHeadingTarget),
             V2FocusReason.Restored);
         Navigated?.Invoke(this, new(previous, Current, kind, focus));
         return new(true, focus, null);
     }
+
+    private static bool IsBoundedShellReference(string value) =>
+        value.Length is > 0 and <= V2ShellIdentifier.MaxLength &&
+        value is not "." and not ".." &&
+        value.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '.');
 }

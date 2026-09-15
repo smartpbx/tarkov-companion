@@ -3,93 +3,401 @@
              xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Shell">
-  <Grid Classes="v2-density-standard" RowDefinitions="Auto,Auto,*" Background="{DynamicResource V2.Brush.Surface}">
-    <Border Grid.Row="0" Classes="v2-card" CornerRadius="0" Padding="16,10">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-        <StackPanel Spacing="2">
-          <TextBlock Classes="v2-heading-2" x:Name="PageHeading" AutomationProperties.AutomationId="v2-shell-page-heading"
-                     AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" Focusable="True" />
-          <TextBlock Classes="v2-label" Text="{Binding ProvisionalLabel}" />
+  <UserControl.Styles>
+    <Style Selector="Button.v2-destination.selected">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Border.v2-shell-rail">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Surface}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
+      <Setter Property="BorderThickness" Value="0,0,1,0" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Space.Md.Inset}" />
+    </Style>
+    <Style Selector="Border.v2-shell-dialog-scrim">
+      <Setter Property="Background" Value="{DynamicResource V2.Brush.Canvas}" />
+      <Setter Property="Opacity" Value="0.98" />
+      <Setter Property="Padding" Value="{DynamicResource V2.Space.Xl.Inset}" />
+    </Style>
+    <Style Selector="Panel.v2-availability-stale > Rectangle.v2-badge-outline">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Panel.v2-availability-partial > Rectangle.v2-badge-outline">
+      <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
+    <Style Selector="Rectangle.v2-pattern-double">
+      <Setter Property="StrokeThickness" Value="4" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="ShellRoot"
+        Classes="v2-density-standard"
+        Classes.v2-density-compact="{Binding UsesCompactDensity}"
+        Background="{DynamicResource V2.Brush.Canvas}">
+    <!-- Disabling the application layer while the one dialog host is open keeps keyboard focus
+         inside that dialog without creating a second window or runtime graph. -->
+    <Grid IsEnabled="{Binding HasNoDialog}" RowDefinitions="Auto,Auto,Auto,*">
+      <Border Grid.Row="0" Classes="v2-card" CornerRadius="0" Padding="{DynamicResource V2.Space.Md.Inset}">
+        <StackPanel Classes="v2-stack">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-heading-1" Text="{Binding AppName}" />
+            <TextBlock Classes="v2-label" Text="{Binding VariantName}" />
+            <TextBlock Classes="v2-label" Text="{Binding ProvisionalLabel}" />
+          </StackPanel>
+          <WrapPanel Classes="v2-toolbar"
+                     HorizontalAlignment="Stretch"
+                     AutomationProperties.AccessibilityView="Control"
+                     AutomationProperties.ControlTypeOverride="ToolBar"
+                     AutomationProperties.Name="{Binding AppName}">
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-back"
+                    AutomationProperties.Name="{Binding BackLabel}" Content="{Binding BackLabel}" Command="{Binding BackCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-forward"
+                    AutomationProperties.Name="{Binding ForwardLabel}" Content="{Binding ForwardLabel}" Command="{Binding ForwardCommand}" />
+            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsHeaderSearch}">
+              <TextBox Classes="v2-field-input" MinWidth="180" Width="200"
+                       Text="{Binding SearchText}"
+                       Watermark="{Binding SearchPlaceholder}"
+                       AutomationProperties.AutomationId="v2-shell-header-search"
+                       AutomationProperties.Name="{Binding SearchLabel}" />
+              <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-header-search-open"
+                      Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
+            </StackPanel>
+            <Button Classes="v2-target v2-destination"
+                    Classes.selected="{Binding SetupDestination.IsCurrent}"
+                    IsVisible="{Binding ShowsHeaderSetup}"
+                    AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
+                    AutomationProperties.Name="{Binding SetupDestination.Label}"
+                    AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                    Content="{Binding SetupDestination.Label}"
+                    Command="{Binding SetupDestination.NavigateCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-capture"
+                    AutomationProperties.Name="{Binding CaptureLabel}" Content="{Binding CaptureLabel}" Command="{Binding CaptureCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-health"
+                    AutomationProperties.Name="{Binding HealthLabel}" Content="{Binding HealthLabel}" Command="{Binding HealthCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-palette"
+                    AutomationProperties.Name="{Binding PaletteLabel}" Content="{Binding PaletteLabel}" Command="{Binding PaletteCommand}" />
+          </WrapPanel>
         </StackPanel>
-        <WrapPanel Grid.Column="1" Classes="v2-toolbar" HorizontalAlignment="Right">
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-back" Content="Back" Command="{Binding BackCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-forward" Content="Forward" Command="{Binding ForwardCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-capture" Content="Capture" Command="{Binding CaptureCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-health" Content="Setup status" Command="{Binding HealthCommand}" />
-          <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-palette" Content="Commands" Command="{Binding PaletteCommand}" />
-        </WrapPanel>
-      </Grid>
-    </Border>
-    <Border Grid.Row="1" Classes="v2-card" Margin="12,8" Padding="8">
-      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-        <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="Address" />
-        <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding CurrentAddress}" AutomationProperties.AutomationId="v2-shell-address" />
-        <Button Grid.Column="2" Classes="v2-target" Content="Open" Command="{Binding AddressCommand}" />
-      </Grid>
-    </Border>
-    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="12,0,12,12" ColumnSpacing="12">
-      <ScrollViewer Grid.Column="0" Width="220" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Classes="v2-stack" AutomationProperties.LandmarkType="Navigation" AutomationProperties.Name="Destinations">
-          <ItemsControl ItemsSource="{Binding Destinations}">
+      </Border>
+
+      <!-- Variant B declares a workflow row. Variant A moves to this same labelled row only when
+           the measured content width can no longer hold its declared rail. -->
+      <Border Grid.Row="1" Classes="v2-card" CornerRadius="0" IsVisible="{Binding UsesRowNavigation}"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.LandmarkType="Navigation"
+              AutomationProperties.Name="{Binding NavigationRegionName}">
+        <StackPanel Classes="v2-stack">
+          <ItemsControl ItemsSource="{Binding PrimaryDestinations}"
+                        AutomationProperties.AutomationId="v2-shell-navigation-row">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
               <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
-                <Button Classes="v2-target" Content="{Binding Label}" Command="{Binding NavigateCommand}"
-                        AutomationProperties.AutomationId="v2-shell-destination" />
+                <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                        AutomationProperties.Name="{Binding Label}"
+                        AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                        Content="{Binding Label}" Command="{Binding NavigateCommand}" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-        </StackPanel>
-      </ScrollViewer>
-      <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
-        <StackPanel Classes="v2-page" Spacing="12">
-          <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadiness}">
-            <TextBlock Classes="v2-heading-2" Text="Get ready" />
-            <TextBlock Classes="v2-body" Text="{Binding Readiness.ReadyCount, StringFormat={}{0} required checks ready}" />
-            <ItemsControl ItemsSource="{Binding Readiness.Checks}">
-              <ItemsControl.ItemTemplate><DataTemplate><Border Classes="v2-card"><StackPanel><TextBlock Classes="v2-heading-3" Text="{Binding Label}" /><TextBlock Classes="v2-body" Text="{Binding Detail}" /></StackPanel></Border></DataTemplate></ItemsControl.ItemTemplate>
-            </ItemsControl>
+          <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowsSeparatedSetup}">
+            <TextBlock Classes="v2-label" VerticalAlignment="Center" Text="{Binding SetupSectionLabel}" />
+            <Button Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
+                    AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
+                    AutomationProperties.Name="{Binding SetupDestination.Label}"
+                    AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                    Content="{Binding SetupDestination.Label}" Command="{Binding SetupDestination.NavigateCommand}" />
           </StackPanel>
-          <Border Classes="v2-card" IsVisible="{Binding ShowsStatePresenter}">
-            <StackPanel Classes="v2-stack"><TextBlock Classes="v2-heading-2" Text="{Binding SurfaceTitle}" /><TextBlock Classes="v2-body" Text="{Binding Surface.Detail}" /><TextBlock Classes="v2-label" Text="{Binding SurfaceRemainder}" /></StackPanel>
-          </Border>
-          <Border Classes="v2-card" IsVisible="{Binding ShowsIntel}">
-            <StackPanel Classes="v2-stack"><TextBlock x:Name="IntelHeading" Classes="v2-heading-2" Focusable="True" AutomationProperties.AutomationId="v2-shell-intel-heading" Text="Intel" /><TextBlock Classes="v2-body" Text="{Binding Router.Current.SelectedEntity}" /></StackPanel>
-          </Border>
-          <ContentControl IsVisible="{Binding ShowsLegacyPage}" Content="{Binding Legacy.CurrentPage}" />
         </StackPanel>
-      </ScrollViewer>
+      </Border>
+
+      <Border Grid.Row="2" Classes="v2-card" CornerRadius="0" Padding="{DynamicResource V2.Space.Sm.Inset}">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" RowSpacing="8">
+          <TextBlock Grid.Column="0" Classes="v2-label" VerticalAlignment="Center" Text="{Binding AddressLabel}" />
+          <TextBox Grid.Column="1" Classes="v2-field-input" Text="{Binding CurrentAddress}"
+                   AutomationProperties.AutomationId="v2-shell-address" AutomationProperties.Name="{Binding AddressLabel}" />
+          <Button Grid.Column="2" Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-open"
+                  Content="{Binding OpenAddressLabel}" Command="{Binding AddressCommand}" />
+          <WrapPanel Grid.Row="1" Grid.ColumnSpan="3" Classes="v2-toolbar">
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-pin"
+                    Content="{Binding PinLabel}" Command="{Binding PinCommand}" />
+            <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-address-copy"
+                    Content="{Binding CopyAddressLabel}" Command="{Binding CopyAddressCommand}" />
+          </WrapPanel>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="3" ColumnDefinitions="Auto,*">
+        <!-- Only Variant A at standard/expanded width exposes this labelled rail. -->
+        <Border Grid.Column="0" Width="240" Classes="v2-shell-rail" IsVisible="{Binding UsesRailNavigation}"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.LandmarkType="Navigation"
+                AutomationProperties.Name="{Binding NavigationRegionName}">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Classes="v2-stack">
+              <ItemsControl ItemsSource="{Binding PrimaryDestinations}"
+                            AutomationProperties.AutomationId="v2-shell-navigation-rail">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2ShellDestinationViewModel">
+                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            Classes="v2-target v2-destination" Classes.selected="{Binding IsCurrent}"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}"
+                            AutomationProperties.ItemStatus="{Binding SelectionDescription}"
+                            Content="{Binding Label}" Command="{Binding NavigateCommand}" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Border Height="1" Background="{DynamicResource V2.Brush.Border}" />
+              <TextBlock Classes="v2-label" Text="{Binding SetupSectionLabel}" />
+              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      Classes="v2-target v2-destination" Classes.selected="{Binding SetupDestination.IsCurrent}"
+                      AutomationProperties.AutomationId="{Binding SetupDestination.AutomationId}"
+                      AutomationProperties.Name="{Binding SetupDestination.Label}"
+                      AutomationProperties.ItemStatus="{Binding SetupDestination.SelectionDescription}"
+                      Content="{Binding SetupDestination.Label}" Command="{Binding SetupDestination.NavigateCommand}" />
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Column="1" ColumnDefinitions="*,Auto"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.LandmarkType="Main"
+              AutomationProperties.Name="{Binding MainRegionName}">
+          <ScrollViewer Grid.Column="0" IsVisible="{Binding ShowsPrimaryContent}" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Classes="v2-page">
+              <TextBlock x:Name="PageHeading" Classes="v2-heading-2" Focusable="True"
+                         AutomationProperties.AutomationId="v2-shell-page-heading"
+                         AutomationProperties.HeadingLevel="1" Text="{Binding CurrentHeading}" />
+
+              <StackPanel Classes="v2-field" IsVisible="{Binding ShowsWorkspaceSearch}">
+                <TextBlock Classes="v2-label" Text="{Binding SearchLabel}" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Grid.Column="0" Classes="v2-field-input" Text="{Binding SearchText}"
+                           Watermark="{Binding SearchPlaceholder}"
+                           AutomationProperties.AutomationId="v2-shell-workspace-search"
+                           AutomationProperties.Name="{Binding SearchLabel}" />
+                  <Button Grid.Column="1" Classes="v2-target" AutomationProperties.AutomationId="v2-shell-workspace-search-open"
+                          Content="{Binding SearchOpenLabel}" Command="{Binding SearchCommand}" />
+                </Grid>
+              </StackPanel>
+
+              <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadiness}">
+                <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding ReadinessHeading}" />
+                <TextBlock Classes="v2-body" Text="{Binding ReadinessSummary}" />
+                <ItemsControl ItemsSource="{Binding ReadinessItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2ReadinessCheckViewModel">
+                      <Border Classes="v2-card" Margin="0,0,0,8"
+                              AutomationProperties.AccessibilityView="Control"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Label}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                          <TextBlock Grid.Column="0" Classes="v2-glyph" Text="{Binding Glyph}" AutomationProperties.AccessibilityView="Raw" />
+                          <StackPanel Grid.Column="1" Classes="v2-stack">
+                            <TextBlock Classes="v2-heading-3" Text="{Binding Label}" />
+                            <TextBlock Classes="v2-body" Text="{Binding Detail}" />
+                            <TextBlock Classes="v2-label" Text="{Binding Status}" />
+                          </StackPanel>
+                          <Button Grid.Column="2" Classes="v2-target" Content="{Binding ActionLabel}" Command="{Binding OpenCommand}" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsContinue}">
+                <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding ContinueHeading}" />
+                <TextBlock Classes="v2-body" IsVisible="{Binding HasNoContinueItems}" Text="{Binding ContinueEmpty}" />
+                <ItemsControl ItemsSource="{Binding ContinueItems}" IsVisible="{Binding HasContinueItems}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2SavedAddressViewModel">
+                      <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                              AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Address}"
+                              Content="{Binding Address}" Command="{Binding OpenCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+
+              <Border Classes="v2-card" IsVisible="{Binding ShowsStatePresenter}"
+                      AutomationProperties.AccessibilityView="Control"
+                      AutomationProperties.AutomationId="v2-shell-surface-state"
+                      AutomationProperties.Name="{Binding SurfaceAutomationName}">
+                <StackPanel Classes="v2-stack">
+                  <Grid Classes="v2-badge"
+                        Classes.v2-availability-ready="{Binding SurfaceIsReady}"
+                        Classes.v2-availability-loading="{Binding SurfaceIsLoading}"
+                        Classes.v2-availability-unknown="{Binding SurfaceIsUnknown}"
+                        Classes.v2-availability-offline="{Binding SurfaceIsOffline}"
+                        Classes.v2-availability-stale="{Binding SurfaceIsStale}"
+                        Classes.v2-availability-partial="{Binding SurfaceIsPartial}"
+                        Classes.v2-availability-denied="{Binding SurfaceIsDenied}"
+                        Classes.v2-availability-failed="{Binding SurfaceIsFailed}">
+                    <Rectangle Classes="v2-badge-outline"
+                               Classes.v2-pattern-dashed="{Binding SurfacePatternDashed}"
+                               Classes.v2-pattern-dotted="{Binding SurfacePatternDotted}"
+                               Classes.v2-pattern-double="{Binding SurfacePatternDouble}"
+                               AutomationProperties.AccessibilityView="Raw" />
+                    <StackPanel Classes="v2-badge-content">
+                      <TextBlock Classes="v2-glyph" Text="{Binding SurfaceGlyph}" AutomationProperties.AccessibilityView="Raw" />
+                      <TextBlock Classes="v2-label" Text="{Binding SurfaceTitle}" />
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock Classes="v2-body" Text="{Binding Surface.Detail}" />
+                  <TextBlock Classes="v2-label" Text="{Binding SurfaceRemainder}" />
+                  <ItemsControl ItemsSource="{Binding RecoveryActions}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2RecoveryActionViewModel">
+                        <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}" Content="{Binding Label}" Command="{Binding InvokeCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+
+              <ContentControl IsVisible="{Binding ShowsLegacyPage}" Content="{Binding Legacy.CurrentPage}" />
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
+               narrow width it spans the content and replaces it. In A it is the Intel workspace. -->
+          <ScrollViewer Grid.Column="{Binding IntelColumn}" Grid.ColumnSpan="{Binding IntelColumnSpan}"
+                        IsVisible="{Binding ShowsIntel}" HorizontalScrollBarVisibility="Disabled">
+            <Border Classes="v2-card" Margin="12" MaxWidth="520" HorizontalAlignment="Stretch">
+              <StackPanel Classes="v2-stack">
+                <TextBlock x:Name="IntelHeading" Classes="v2-heading-2" Focusable="True"
+                           AutomationProperties.AutomationId="v2-shell-intel-heading"
+                           AutomationProperties.HeadingLevel="1" Text="{Binding IntelHeading}" />
+                <TextBlock Classes="v2-body" Text="{Binding IntelDescription}" />
+                <Button Classes="v2-target" HorizontalAlignment="Left"
+                        AutomationProperties.AutomationId="v2-shell-intel-close"
+                        Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />
+              </StackPanel>
+            </Border>
+          </ScrollViewer>
+        </Grid>
+      </Grid>
     </Grid>
-    <!-- One in-tree dialog host gives every shell dialog a title, a focus target, and an invoker
-         restoration path. It is chrome, never a second window or a second runtime graph. -->
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsCaptureOpen}" Background="#B0000000" ZIndex="10" Padding="48">
-      <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.Name="Capture dialog">
-          <TextBlock x:Name="DialogTitle" Classes="v2-heading-2" Focusable="True" AutomationProperties.AutomationId="v2-shell-dialog-title" AutomationProperties.HeadingLevel="1" Text="Capture" />
-          <TextBlock Classes="v2-body" Text="Press the game's own screenshot key. The companion reads the saved file." />
-          <Button Classes="v2-target" Content="Close" Command="{Binding CloseTransientCommand}" />
-        </StackPanel>
-      </Border>
+
+    <!-- Exactly one modal layer. Its three mutually exclusive bodies have distinct title ids so
+         focus requests and packaged UI Automation can prove which dialog actually opened. -->
+    <Border Classes="v2-shell-dialog-scrim" IsVisible="{Binding HasOpenDialog}" ZIndex="10">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <Border Classes="v2-card" HorizontalAlignment="Stretch" VerticalAlignment="Center" MaxWidth="720"
+                AutomationProperties.AccessibilityView="Control" AutomationProperties.ControlTypeOverride="Window">
+          <Grid>
+          <StackPanel Classes="v2-stack" IsVisible="{Binding IsCaptureOpen}" AutomationProperties.Name="{Binding CaptureHeading}">
+            <TextBlock Classes="v2-heading-2" Focusable="True"
+                       AutomationProperties.AutomationId="v2-shell-capture-dialog-title"
+                       AutomationProperties.HeadingLevel="1" Text="{Binding CaptureHeading}" />
+            <TextBlock Classes="v2-body" Text="{Binding CaptureGuidance}" />
+            <TextBlock Classes="v2-label" Text="{Binding CaptureShortcutStatus}" />
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-shell-capture-dialog-close"
+                    Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />
+          </StackPanel>
+
+          <StackPanel Classes="v2-stack" IsVisible="{Binding IsPaletteOpen}" AutomationProperties.Name="{Binding PaletteHeading}">
+            <TextBlock Classes="v2-heading-2" Focusable="True"
+                       AutomationProperties.AutomationId="v2-shell-palette-dialog-title"
+                       AutomationProperties.HeadingLevel="1" Text="{Binding PaletteHeading}" />
+            <TextBox Classes="v2-field-input" Text="{Binding PaletteQuery}"
+                     Watermark="{Binding PaletteQueryLabel}"
+                     AutomationProperties.AutomationId="v2-shell-palette-query"
+                     AutomationProperties.Name="{Binding PaletteQueryLabel}" />
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-shell-palette-open-address"
+                    Content="{Binding OpenAddressLabel}" Command="{Binding PaletteAddressCommand}" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding HasNoFilteredCommandItems}" Text="{Binding PaletteEmpty}" />
+            <ScrollViewer MaxHeight="240" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasFilteredCommandItems}">
+              <ItemsControl ItemsSource="{Binding FilteredCommandItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:V2ShellCommandViewModel">
+                    <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            AutomationProperties.AutomationId="{Binding AutomationId}"
+                            AutomationProperties.Name="{Binding Label}" Command="{Binding InvokeCommand}">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding Label}" />
+                        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Gesture}" />
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <TextBlock Classes="v2-heading-3" IsVisible="{Binding HasPins}" Text="{Binding PalettePinsHeading}" />
+            <ItemsControl ItemsSource="{Binding PinItems}" IsVisible="{Binding HasPins}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2SavedAddressViewModel">
+                  <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding PaletteAutomationId}"
+                          AutomationProperties.Name="{Binding Address}" Content="{Binding Address}" Command="{Binding OpenCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="v2-heading-3" IsVisible="{Binding HasRecents}" Text="{Binding PaletteRecentsHeading}" />
+            <ItemsControl ItemsSource="{Binding RecentItems}" IsVisible="{Binding HasRecents}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2SavedAddressViewModel">
+                  <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding PaletteAutomationId}"
+                          AutomationProperties.Name="{Binding Address}" Content="{Binding Address}" Command="{Binding OpenCommand}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-shell-palette-dialog-close"
+                    Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />
+          </StackPanel>
+
+          <StackPanel Classes="v2-stack" IsVisible="{Binding IsHealthOpen}" AutomationProperties.Name="{Binding HealthHeading}">
+            <TextBlock Classes="v2-heading-2" Focusable="True"
+                       AutomationProperties.AutomationId="v2-shell-health-dialog-title"
+                       AutomationProperties.HeadingLevel="1" Text="{Binding HealthHeading}" />
+            <TextBlock Classes="v2-body" Text="{Binding HealthSummary}" />
+            <ItemsControl ItemsSource="{Binding ReadinessItems}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2ReadinessCheckViewModel">
+                  <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                          AutomationProperties.AutomationId="{Binding DialogAutomationId}"
+                          AutomationProperties.Name="{Binding Label}" Command="{Binding OpenCommand}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                      <TextBlock Grid.Column="0" Classes="v2-glyph" Text="{Binding Glyph}" AutomationProperties.AccessibilityView="Raw" />
+                      <TextBlock Grid.Column="1" Classes="v2-body" Text="{Binding Label}" />
+                      <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Status}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-shell-health-dialog-close"
+                    Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />
+          </StackPanel>
+          </Grid>
+        </Border>
+      </ScrollViewer>
     </Border>
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsPaletteOpen}" Background="#B0000000" ZIndex="10" Padding="48">
-      <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.Name="Commands dialog">
-          <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="1" Text="Commands" />
-          <TextBox Classes="v2-field-input" Text="{Binding SearchText}" PlaceholderText="Type an item id or address" />
-          <Button Classes="v2-target" Content="Search" Command="{Binding SearchCommand}" />
-          <TextBlock Classes="v2-heading-3" Text="Pinned" /><ItemsControl ItemsSource="{Binding Pins}" />
-          <TextBlock Classes="v2-heading-3" Text="Recent" /><ItemsControl ItemsSource="{Binding Recents}" />
-          <Button Classes="v2-target" Content="Close" Command="{Binding CloseTransientCommand}" />
-        </StackPanel>
-      </Border>
-    </Border>
-    <Border Grid.RowSpan="3" IsVisible="{Binding IsHealthOpen}" Background="#B0000000" ZIndex="10" Padding="48">
-      <Border Classes="v2-card" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560">
-        <StackPanel Classes="v2-stack" AutomationProperties.Name="Setup status dialog">
-          <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="1" Text="Setup status" />
-          <TextBlock Classes="v2-body" Text="{Binding Readiness.NeedsActionCount, StringFormat={}{0} setup items need action}" />
-          <Button Classes="v2-target" Content="Close" Command="{Binding CloseTransientCommand}" />
-        </StackPanel>
-      </Border>
-    </Border>
+
+    <TextBlock Classes="v2-label"
+               Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+               HorizontalAlignment="Left" VerticalAlignment="Bottom"
+               AutomationProperties.AutomationId="v2-shell-live-polite"
+               AutomationProperties.LiveSetting="Polite"
+               Text="{Binding PoliteAnnouncement}" />
+    <TextBlock Classes="v2-label"
+               Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+               HorizontalAlignment="Left" VerticalAlignment="Bottom"
+               AutomationProperties.AutomationId="v2-shell-live-assertive"
+               AutomationProperties.LiveSetting="Assertive"
+               Text="{Binding AssertiveAnnouncement}" />
   </Grid>
 </UserControl>

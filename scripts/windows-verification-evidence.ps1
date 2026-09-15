@@ -121,6 +121,8 @@ if ($null -ne $Launch) {
 $GallerySummary = $null
 if ($null -ne $Gallery) {
     $GalleryPages = @($Gallery.pages | Where-Object { $null -ne $_ })
+    $InteractionRequired = @($GalleryPages | Where-Object { [bool]$(Get-OptionalProperty $_ "interactionRequired") })
+    $InteractionPassed = @($InteractionRequired | Where-Object { [bool]$(Get-OptionalProperty $_ "interactionSmoke") })
     $GallerySummary = [ordered]@{
         launchCount = $GalleryPages.Count
         failedCount = $Gallery.failedCount
@@ -128,12 +130,18 @@ if ($null -ne $Gallery) {
         insufficientVisualVariationCount = $Gallery.blankCount
         interfaceFaultLaunchCount = $(Get-OptionalProperty $Gallery "interfaceFaultCount")
         warningCaptureUnarmedCount = $(Get-OptionalProperty $Gallery "warningCaptureUnarmedCount")
-        scope = "Responsive visual variation and toolkit interface faults only; semantic expected-page, accessibility, and data/tile readiness are not proven here and remain an open #279 criterion that depends on the application readiness signal owned by #281."
+        interactionRequiredLaunchCount = $InteractionRequired.Count
+        interactionPassedLaunchCount = $InteractionPassed.Count
+        interactionFailureCount = $(Get-OptionalProperty $Gallery "interactionFailureCount")
+        scope = "Responsive visual variation, packaged-shell UI Automation interactions, and toolkit interface faults; semantic expected-page, accessibility, and data/tile readiness are not proven here and remain an open #279 criterion that depends on the application readiness signal owned by #281."
         pages = @($GalleryPages | ForEach-Object {
             [ordered]@{
                 page = $_.page
+                shellMode = $(Get-OptionalProperty $_ "shellMode")
                 presented = [bool]$_.presented
                 visuallyVaried = [bool]$_.visuallyVaried
+                interactionRequired = [bool]$(Get-OptionalProperty $_ "interactionRequired")
+                interactionSmoke = [bool]$(Get-OptionalProperty $_ "interactionSmoke")
                 distinctColors = $_.distinctColors
                 variedFraction = $_.variedFraction
                 warningCaptureArmed = [bool]$(Get-OptionalProperty $_ "warningCaptureArmed")
@@ -144,8 +152,15 @@ if ($null -ne $Gallery) {
     foreach ($Page in $GalleryPages) {
         $Faults = @(Get-OptionalProperty $Page "interfaceFaults" | Where-Object { $null -ne $_ })
         $Armed = [bool]$(Get-OptionalProperty $Page "warningCaptureArmed")
-        if (-not $Page.presented -or -not $Page.visuallyVaried -or -not $Armed -or $Faults.Count -gt 0) {
+        $InteractionRequiredForPage = [bool]$(Get-OptionalProperty $Page "interactionRequired")
+        $InteractionPassedForPage = [bool]$(Get-OptionalProperty $Page "interactionSmoke")
+        if (-not $Page.presented -or -not $Page.visuallyVaried -or -not $Armed -or $Faults.Count -gt 0 -or
+            ($InteractionRequiredForPage -and -not $InteractionPassedForPage)) {
             $Excerpts.Add("gallery $($Page.page): $(ConvertTo-SafeEvidenceText $Page.detail)")
+            if ($InteractionRequiredForPage -and -not $InteractionPassedForPage) {
+                $InteractionDetail = Get-OptionalProperty $Page "interactionDetail"
+                $Excerpts.Add("gallery $($Page.page) interaction: $(ConvertTo-SafeEvidenceText $InteractionDetail)")
+            }
         }
         # Five per launch: enough to name the binding, few enough that one broken page cannot
         # push every other failure out of the bounded excerpt.

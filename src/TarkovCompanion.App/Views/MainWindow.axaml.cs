@@ -1,3 +1,5 @@
+using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -65,12 +67,17 @@ public sealed partial class MainWindow : Window
                 screen.WorkingArea.Y + screen.WorkingArea.Height))
             .ToArray();
 
-        if (viewModel.PreviewShell?.RestoredWindow is { } preview)
+        if (viewModel.PreviewShell is { } previewShell)
         {
-            Width = preview.Width;
-            Height = preview.Height;
-            if (preview is { Left: { } left, Top: { } top }) Position = new((int)left, (int)top);
-            if (preview.IsMaximized) WindowState = WindowState.Maximized;
+            MinWidth = V2ShellWindowPlacement.MinimumWidth;
+            MinHeight = V2ShellWindowPlacement.MinimumHeight;
+            if (previewShell.RestoreWindow(screens) is { } preview)
+            {
+                Width = preview.Width;
+                Height = preview.Height;
+                if (preview is { Left: { } left, Top: { } top }) Position = new((int)left, (int)top);
+                if (preview.IsMaximized) WindowState = WindowState.Maximized;
+            }
         }
         else
         {
@@ -85,6 +92,12 @@ public sealed partial class MainWindow : Window
         // operating system's own opening position over the one being restored.
         PositionChanged += BoundsChanged;
         SizeChanged += BoundsChanged;
+        if (viewModel.PreviewShell is not null)
+        {
+            // Seed a normal restore rectangle even when this is the first launch and the next
+            // window event is a maximize. Otherwise the only remembered bounds are the screen.
+            Remember();
+        }
     }
 
     private void BoundsChanged(object? sender, EventArgs eventArgs) => Remember();
@@ -112,10 +125,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (viewModel.PreviewShell is { } preview && TryV2Chord(eventArgs, out var chord))
+        if (viewModel.PreviewShell is { } preview)
         {
-            eventArgs.Handled = preview.HandleKey(chord);
-            if (eventArgs.Handled) return;
+            if (TryV2Chord(eventArgs, out var chord))
+            {
+                var focusedId = FocusManager?.GetFocusedElement() is StyledElement focused
+                    ? AutomationProperties.GetAutomationId(focused)
+                    : null;
+                eventArgs.Handled = preview.HandleKey(chord, focusedId);
+            }
+
+            // A V2 key not claimed by chrome still reaches the focused V2 control, but it never
+            // drops into the hidden V1 shortcut table below.
+            return;
         }
 
         // Ctrl and a digit are safe while typing, because they are not a character. Everything

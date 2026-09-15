@@ -89,7 +89,7 @@ public sealed class V2ShellRouterTests
         Assert.Equal("#/intel/item/electric-drill", router.CurrentAddress);
         Assert.Equal(V2Routes.Items, router.CurrentDestination);
         Assert.Equal(Drill, router.Current.SelectedEntity);
-        Assert.Equal(V2FocusReason.PageHeading, opened.Focus?.Reason);
+        Assert.Equal(V2FocusReason.IntelHeading, opened.Focus?.Reason);
 
         var closed = router.CloseIntel();
 
@@ -183,6 +183,39 @@ public sealed class V2ShellRouterTests
     }
 
     [Fact]
+    public void Context_carries_profile_raid_team_objective_capture_and_workspace_identity()
+    {
+        var router = Router(V2ShellMode.VariantB);
+        var context = new V2NavigationContext("Moth", "woods", "plan-7", "scan-4", "paired-tablet-2")
+        {
+            ProfileId = "profile-1",
+            ProfileMode = "Pve",
+            RaidId = "raid-9",
+            RaidState = "InRaid",
+            ObjectiveId = "objective-3",
+            TeamMemberKeys = ["self", "wingmate"],
+            CaptureCorrelationId = "capture-12",
+            WorkspaceId = "raid",
+            SelectedEntity = "electric-drill",
+        };
+
+        router.UpdateContext(context);
+        router.Navigate(V2Routes.Team);
+
+        Assert.Same(context, router.Context);
+        Assert.Equal("profile-1", router.Context.ProfileId);
+        Assert.Equal("Pve", router.Context.ProfileMode);
+        Assert.Equal("raid-9", router.Context.RaidId);
+        Assert.Equal("InRaid", router.Context.RaidState);
+        Assert.Equal("objective-3", router.Context.ObjectiveId);
+        Assert.Equal(["self", "wingmate"], router.Context.TeamMemberKeys);
+        Assert.Equal("capture-12", router.Context.CaptureCorrelationId);
+        Assert.Equal("raid", router.Context.WorkspaceId);
+        Assert.Equal("electric-drill", router.Context.SelectedEntity);
+        Assert.Equal("paired-tablet-2", router.Context.InitiatingDevice);
+    }
+
+    [Fact]
     public void A_deep_link_opens_exactly_what_it_names()
     {
         var router = Router(V2ShellMode.VariantB);
@@ -269,6 +302,22 @@ public sealed class V2ShellRouterTests
         Assert.Single(router.BackEntries);
         Assert.Equal("quest-debut", router.Current.SelectedEntity);
         Assert.Equal("quest-row-debut", router.Current.FocusTarget);
+    }
+
+    [Fact]
+    public void Hostile_selection_focus_and_invoker_references_are_refused()
+    {
+        var router = Router(V2ShellMode.VariantA);
+
+        Assert.Throws<ArgumentException>(() => router.Select("../../inventory"));
+        Assert.Throws<ArgumentException>(() => router.RecordFocus("../../other-window"));
+        Assert.False(router.Navigate(V2Routes.Raid, "../../other-window").Succeeded);
+        Assert.False(router.Restore(new(V2Routes.Raid), "../../inventory", null).Succeeded);
+        Assert.False(router.Restore(new(V2Routes.Item, Item: ".."), null, null).Succeeded);
+        Assert.False(router.Restore(new(V2Routes.Raid, IntelItem: ".."), null, null).Succeeded);
+        Assert.False(router.Restore(new(V2Routes.Raid), null, new string('a', V2ShellPreviewState.MaxFocusTargetLength + 1)).Succeeded);
+        Assert.Equal("#/setup", router.CurrentAddress);
+        Assert.False(router.CanGoBack);
     }
 
     private static V2ShellRouter Router(V2ShellMode mode) => new(V2ShellVariants.For(mode), V2RouteRegistry.Default);

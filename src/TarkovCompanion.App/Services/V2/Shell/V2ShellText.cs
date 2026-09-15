@@ -28,7 +28,9 @@ public static class V2ShellText
         ["V2.Shell.Region.Sections"] = "Sections",
         ["V2.Shell.Region.SetupSection"] = "Setup",
         ["V2.Shell.Region.Status"] = "Status announcements",
+        ["V2.Shell.Region.Main"] = "Current workspace",
         ["V2.Shell.Nav.Current"] = "Current page",
+        ["V2.Shell.Nav.NotCurrent"] = "Available page",
 
         ["V2.Shell.Route.Home"] = "Home",
         ["V2.Shell.Route.Raid"] = "Raid",
@@ -61,8 +63,11 @@ public static class V2ShellText
         ["V2.Shell.Label.Setup"] = "Setup",
 
         ["V2.Shell.Search.Label"] = "Search",
+        ["V2.Shell.Search.Heading"] = "Search",
         ["V2.Shell.Search.Placeholder"] = "Items, ammo, keys",
+        ["V2.Shell.Search.Open"] = "Search",
         ["V2.Shell.Address.Label"] = "Address",
+        ["V2.Shell.Address.Open"] = "Open",
         ["V2.Shell.BackTo"] = "Back to {0}",
         ["V2.Shell.Close"] = "Close",
 
@@ -96,6 +101,7 @@ public static class V2ShellText
 
         ["V2.Shell.Readiness.Heading"] = "Get ready",
         ["V2.Shell.Readiness.Summary"] = "{0} of {1} checks ready · {2} need action · {3} unconfirmed",
+        ["V2.Shell.Readiness.Open"] = "Open",
         ["V2.Shell.Continue.Heading"] = "Continue",
         ["V2.Shell.Continue.Empty"] = "Nothing to continue yet",
 
@@ -140,6 +146,15 @@ public static class V2ShellText
         ["V2.Shell.State.Partial"] = "Partial",
         ["V2.Shell.State.Denied"] = "Permission denied",
         ["V2.Shell.State.Failed"] = "Failed",
+        ["V2.Shell.StateGlyph.Ready"] = "✓",
+        ["V2.Shell.StateGlyph.Loading"] = "…",
+        ["V2.Shell.StateGlyph.Empty"] = "○",
+        ["V2.Shell.StateGlyph.Offline"] = "⊘",
+        ["V2.Shell.StateGlyph.Stale"] = "◷",
+        ["V2.Shell.StateGlyph.Partial"] = "◔",
+        ["V2.Shell.StateGlyph.Denied"] = "⌕",
+        ["V2.Shell.StateGlyph.Failed"] = "×",
+        ["V2.Shell.State.AutomationName"] = "{0}. {1}. {2}",
 
         ["V2.Shell.Remainder.All"] = "Everything is available",
         ["V2.Shell.Remainder.Local"] = "Local pages, history and settings still work",
@@ -151,6 +166,7 @@ public static class V2ShellText
         ["V2.Shell.Action.OpenTeam"] = "Open Team",
         ["V2.Shell.Action.SyncNow"] = "Sync now",
         ["V2.Shell.Action.OpenSetup"] = "Open Setup",
+        ["V2.Shell.Action.OpenReadiness"] = "Open",
 
         ["V2.Shell.Capture.Heading"] = "Capture",
         ["V2.Shell.Capture.NotArmed"] = "Not armed: screenshots use Auto-detect",
@@ -161,6 +177,8 @@ public static class V2ShellText
         ["V2.Shell.Capture.IntentUnavailable"] = "Choosing an intent is not in this build",
         ["V2.Shell.Capture.PriorHeading"] = "Last capture",
         ["V2.Shell.Capture.NoPrior"] = "No capture yet",
+        ["V2.Shell.Capture.ShortcutOn"] = "Window shortcut on",
+        ["V2.Shell.Capture.ShortcutOff"] = "Window shortcut off",
         ["V2.Shell.Capture.Review"] = "Review",
         ["V2.Shell.Capture.Details"] = "Details",
         ["V2.Shell.Capture.Reference"] = "Reference {0}",
@@ -177,6 +195,7 @@ public static class V2ShellText
         ["V2.Shell.Intent.Flea"] = "Flea listings you opened",
 
         ["V2.Shell.Intel.Heading"] = "Intel",
+        ["V2.Shell.Intel.Item"] = "Item address: {0}",
         ["V2.Shell.Intel.Close"] = "Close Intel",
         ["V2.Shell.Intel.Loading"] = "Reading item facts from the local catalog",
         ["V2.Shell.Intel.NotFound"] = "No item in the local catalog has this address",
@@ -209,6 +228,8 @@ public static class V2ShellText
         ["V2.Shell.Announce.ShortcutOff"] = "Capture shortcut off",
         ["V2.Shell.Announce.Pinned"] = "Pinned",
         ["V2.Shell.Announce.Unpinned"] = "Unpinned",
+        ["V2.Shell.Announce.SyncStarted"] = "Sync started",
+        ["V2.Shell.Announce.ActionUnavailable"] = "That recovery action is not available yet",
     };
 
     public static string Get(string key) =>
