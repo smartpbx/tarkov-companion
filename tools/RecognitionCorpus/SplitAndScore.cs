@@ -338,6 +338,7 @@ public static class PrivateRunPlanner
         Append(builder, context.MapId);
         Append(builder, context.FloorId);
         Append(builder, context.PlanId);
+        Append(builder, context.ObjectiveIds.Count.ToString(CultureInfo.InvariantCulture));
         foreach (var objectiveId in context.ObjectiveIds)
         {
             Append(builder, objectiveId);
@@ -349,7 +350,9 @@ public static class PrivateRunPlanner
         Append(builder, context.Surface);
         Append(builder, context.Width.ToString(CultureInfo.InvariantCulture));
         Append(builder, context.Height.ToString(CultureInfo.InvariantCulture));
-        Append(builder, context.UiScale.ToString(CultureInfo.InvariantCulture));
+        // "1", "1.0", and "1.00" are one JSON value; the lock must not depend on how a writer
+        // happened to spell it.
+        Append(builder, CorpusJson.CanonicalDecimalText(context.UiScale));
         Append(builder, context.Locale);
         Append(builder, context.GameVersion);
         Append(builder, context.CompanionUiVersion);
@@ -361,7 +364,7 @@ public static class PrivateRunPlanner
         Append(builder, lineage.FrameOrdinal.ToString(CultureInfo.InvariantCulture));
         Append(builder, lineage.ViewportId);
         Append(builder, lineage.ContainerIdentity);
-        Append(builder, lineage.OverlapWithPrevious.ToString(CultureInfo.InvariantCulture));
+        Append(builder, CorpusJson.CanonicalDecimalText(lineage.OverlapWithPrevious));
         Append(builder, lineage.ParentContainerIdentity);
     }
 

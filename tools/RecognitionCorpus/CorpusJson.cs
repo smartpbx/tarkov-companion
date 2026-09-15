@@ -8,6 +8,13 @@ public sealed record CorpusParseResult<T>(T? Value, IReadOnlyList<string> Errors
 
 public static class CorpusJson
 {
+    private static readonly HashSet<string> NestedSchemaVersions = new(StringComparer.Ordinal)
+    {
+        CorpusValidation.ProvenanceSchemaVersion,
+        CorpusValidation.ConsentSchemaVersion,
+        CorpusValidation.PrivacyReviewSchemaVersion,
+    };
+
     public static CorpusParseResult<CorpusManifest> ParseManifest(string json)
     {
         if (!TryRoot(json, CorpusValidation.ManifestSchemaVersion, true, out var document, out var errors))
@@ -212,11 +219,64 @@ public static class CorpusJson
         }
     }
 
+    /// <summary>
+    /// Writes the truth-free plan a producer receives. The bytes are a pure function of the plan:
+    /// fixed property order, LF line endings on every platform, and canonical decimals, so the
+    /// same private manifest emits byte-identical plans on Linux and Windows and a golden fixture
+    /// can pin them.
+    /// </summary>
+    public static string SerializeRunPlan(RunPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        return Write(writer =>
+        {
+            writer.WriteStartObject();
+            writer.WriteString("schemaVersion", CorpusValidation.RunPlanSchemaVersion);
+            writer.WriteString("runId", plan.RunId);
+            writer.WriteStartObject("producer");
+            writer.WriteString("id", plan.ProducerId);
+            writer.WriteString("version", plan.ProducerVersion);
+            writer.WriteEndObject();
+            writer.WriteString("policyVersion", plan.PolicyVersion);
+            writer.WriteString("corpusId", plan.CorpusId);
+            writer.WriteString("nearDuplicateGraphVersion", plan.NearDuplicateGraphVersion);
+            writer.WriteString("planLock", plan.PlanLock);
+            writer.WriteStartArray("samples");
+            foreach (var sample in plan.Samples)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("sampleId", sample.SampleId);
+                writer.WriteString("split", FormatSplit(sample.Split));
+                writer.WriteString("intent", FormatIntent(sample.Intent));
+                writer.WriteString("evidenceClass", FormatEvidenceClass(sample.EvidenceClass));
+                WriteContext(writer, sample.Context);
+                WriteLineage(writer, sample.Lineage);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        });
+    }
+
+    /// <summary>
+    /// Removes a decimal's trailing zeros. System.Text.Json keeps the scale it parsed, so "1.0"
+    /// and "1" would otherwise serialize, and lock, differently for one value.
+    /// </summary>
+    public static decimal CanonicalDecimal(decimal value) =>
+        value == 0m
+            ? 0m
+            : decimal.Parse(
+                value.ToString("0.############################", CultureInfo.InvariantCulture),
+                NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture);
+
+    public static string CanonicalDecimalText(decimal value) => CanonicalDecimal(value).ToString(CultureInfo.InvariantCulture);
+
     public static string SerializeAggregateResults(AggregateResults aggregate)
     {
         ArgumentNullException.ThrowIfNull(aggregate);
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        return Write(writer =>
         {
             writer.WriteStartObject();
             writer.WriteString("schemaVersion", CorpusValidation.AggregateResultsSchemaVersion);
@@ -243,9 +303,89 @@ public static class CorpusJson
 
             writer.WriteEndArray();
             writer.WriteEndObject();
+        });
+    }
+
+    private static string Write(Action<Utf8JsonWriter> write)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true, NewLine = "\n" }))
+        {
+            write(writer);
         }
 
-        return Encoding.UTF8.GetString(stream.ToArray()) + Environment.NewLine;
+        return Encoding.UTF8.GetString(stream.ToArray()) + "\n";
+    }
+
+    private static void WriteContext(Utf8JsonWriter writer, CaptureContext context)
+    {
+        writer.WriteStartObject("provenance");
+        writer.WriteString("schemaVersion", CorpusValidation.ProvenanceSchemaVersion);
+        writer.WriteString("captureIntentId", context.CaptureIntentId);
+        writer.WriteString("sessionId", context.SessionId);
+        writer.WriteString("correlationId", context.CorrelationId);
+        writer.WriteNumber("captureOrdinal", context.CaptureOrdinal);
+        WriteNullableString(writer, "workspaceId", context.WorkspaceId);
+        WriteNullableString(writer, "profileId", context.ProfileId);
+        WriteNullableString(writer, "mapId", context.MapId);
+        WriteNullableString(writer, "floorId", context.FloorId);
+        WriteNullableString(writer, "planId", context.PlanId);
+        writer.WriteStartArray("objectiveIds");
+        foreach (var objectiveId in context.ObjectiveIds)
+        {
+            writer.WriteStringValue(objectiveId);
+        }
+
+        writer.WriteEndArray();
+        WriteNullableString(writer, "selectedReference", context.SelectedReference);
+        WriteNullableString(writer, "priorScanReference", context.PriorScanReference);
+        writer.WriteString("deviceClass", context.DeviceClass);
+        writer.WriteString("surface", context.Surface);
+        writer.WriteStartObject("resolution");
+        writer.WriteNumber("width", context.Width);
+        writer.WriteNumber("height", context.Height);
+        writer.WriteEndObject();
+        writer.WriteNumber("uiScale", CanonicalDecimal(context.UiScale));
+        writer.WriteString("locale", context.Locale);
+        writer.WriteString("gameVersion", context.GameVersion);
+        writer.WriteString("companionUiVersion", context.CompanionUiVersion);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteLineage(Utf8JsonWriter writer, SequenceLineage lineage)
+    {
+        writer.WriteStartObject("lineage");
+        writer.WriteString("sequenceId", lineage.SequenceId);
+        writer.WriteNumber("frameOrdinal", lineage.FrameOrdinal);
+        writer.WriteString("viewportId", lineage.ViewportId);
+        writer.WriteString("containerIdentity", lineage.ContainerIdentity);
+        writer.WriteNumber("overlapWithPrevious", CanonicalDecimal(lineage.OverlapWithPrevious));
+        WriteNullableString(writer, "parentContainerIdentity", lineage.ParentContainerIdentity);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteNullableString(Utf8JsonWriter writer, string name, string? value)
+    {
+        if (value is null)
+        {
+            writer.WriteNull(name);
+        }
+        else
+        {
+            writer.WriteString(name, value);
+        }
+    }
+
+    private static void WriteNullableDecimal(Utf8JsonWriter writer, string name, decimal? value)
+    {
+        if (value is { } number)
+        {
+            writer.WriteNumber(name, CanonicalDecimal(number));
+        }
+        else
+        {
+            writer.WriteNull(name);
+        }
     }
 
     private static CorpusSample ParseSample(JsonElement element, string path, ICollection<string> errors)
@@ -290,7 +430,7 @@ public static class CorpusJson
 
     private static ConsentEvidence ParseConsent(JsonElement element, string path, ICollection<string> errors)
     {
-        Const(element, "schemaVersion", "consent.v1", path, errors);
+        Const(element, "schemaVersion", CorpusValidation.ConsentSchemaVersion, path, errors);
         var retention = Object(element, "retention", path, errors);
         var revocation = Object(element, "revocation", path, errors);
         return new ConsentEvidence(
@@ -304,7 +444,7 @@ public static class CorpusJson
 
     private static PrivacyReviewEvidence ParsePrivacyReview(JsonElement element, string path, ICollection<string> errors)
     {
-        Const(element, "schemaVersion", "privacy-review.v1", path, errors);
+        Const(element, "schemaVersion", CorpusValidation.PrivacyReviewSchemaVersion, path, errors);
         return new PrivacyReviewEvidence(
             String(element, "reviewId", path, errors),
             String(element, "reviewHash", path, errors),
@@ -315,7 +455,7 @@ public static class CorpusJson
 
     private static CaptureContext ParseContext(JsonElement element, string path, ICollection<string> errors)
     {
-        Const(element, "schemaVersion", "provenance.v1", path, errors);
+        Const(element, "schemaVersion", CorpusValidation.ProvenanceSchemaVersion, path, errors);
         var resolution = Object(element, "resolution", path, errors);
         return new CaptureContext(
             String(element, "captureIntentId", path, errors),
@@ -380,34 +520,18 @@ public static class CorpusJson
         writer.WriteNumber("recallDenominator", slice.RecallDenominator);
         writer.WriteNumber("falsePositiveNumerator", slice.FalsePositiveNumerator);
         writer.WriteNumber("falsePositiveDenominator", slice.FalsePositiveDenominator);
-        writer.WriteNumber("coverage", slice.Coverage);
-        writer.WriteNumber("accuracy", slice.Accuracy);
-        writer.WriteNumber("recall", slice.Recall);
-        writer.WriteNumber("falsePositiveRate", slice.FalsePositiveRate);
-        writer.WriteNumber("f1", slice.F1);
-        writer.WriteNumber("abstentionRate", slice.AbstentionRate);
-        writer.WriteNumber("confidentWrongRate", slice.ConfidentWrongRate);
-        writer.WriteNumber("confidenceIntervalLower", slice.ConfidenceIntervalLower);
-        writer.WriteNumber("confidenceIntervalUpper", slice.ConfidenceIntervalUpper);
+        writer.WriteNumber("coverage", CanonicalDecimal(slice.Coverage));
+        writer.WriteNumber("accuracy", CanonicalDecimal(slice.Accuracy));
+        writer.WriteNumber("recall", CanonicalDecimal(slice.Recall));
+        writer.WriteNumber("falsePositiveRate", CanonicalDecimal(slice.FalsePositiveRate));
+        writer.WriteNumber("f1", CanonicalDecimal(slice.F1));
+        writer.WriteNumber("abstentionRate", CanonicalDecimal(slice.AbstentionRate));
+        writer.WriteNumber("confidentWrongRate", CanonicalDecimal(slice.ConfidentWrongRate));
+        writer.WriteNumber("confidenceIntervalLower", CanonicalDecimal(slice.ConfidenceIntervalLower));
+        writer.WriteNumber("confidenceIntervalUpper", CanonicalDecimal(slice.ConfidenceIntervalUpper));
         writer.WriteNumber("performanceSampleCount", slice.PerformanceSampleCount);
-        if (slice.MeanElapsedMilliseconds is { } mean)
-        {
-            writer.WriteNumber("meanElapsedMilliseconds", mean);
-        }
-        else
-        {
-            writer.WriteNull("meanElapsedMilliseconds");
-        }
-
-        if (slice.MaximumElapsedMilliseconds is { } maximum)
-        {
-            writer.WriteNumber("maximumElapsedMilliseconds", maximum);
-        }
-        else
-        {
-            writer.WriteNull("maximumElapsedMilliseconds");
-        }
-
+        WriteNullableDecimal(writer, "meanElapsedMilliseconds", slice.MeanElapsedMilliseconds);
+        WriteNullableDecimal(writer, "maximumElapsedMilliseconds", slice.MaximumElapsedMilliseconds);
         writer.WriteEndObject();
     }
 
@@ -445,9 +569,45 @@ public static class CorpusJson
         }
 
         Const(document.RootElement, "schemaVersion", expectedSchemaVersion, "$", errors);
+        RejectUnsupportedNestedSchemaVersions(document.RootElement, "$", errors);
         RejectDuplicateProperties(document.RootElement, "$", errors);
         errors.AddRange(CorpusValidation.PrivacyErrors(document.RootElement, privateManifest));
         return true;
+    }
+
+    /// <summary>
+    /// Unknown properties are tolerated so v1 readers survive compatible additions, but a nested
+    /// object that declares its own schema version is a versioned sub-document, and one this
+    /// reader does not implement cannot be read as if it were v1. The positional checks in the
+    /// consent, privacy-review, and provenance parsers only see the places v1 defines; a
+    /// "provenance.v2" smuggled under an extension, or a "schemaVersion" on an object v1 never
+    /// versioned, would otherwise pass silently. The root's own version is checked by the caller.
+    /// </summary>
+    private static void RejectUnsupportedNestedSchemaVersions(JsonElement element, string path, ICollection<string> errors)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                var propertyPath = path + "." + property.Name;
+                if (path != "$" && property.NameEquals("schemaVersion") &&
+                    (property.Value.ValueKind != JsonValueKind.String || !NestedSchemaVersions.Contains(property.Value.GetString()!)))
+                {
+                    errors.Add($"{propertyPath} names an unsupported nested schema version.");
+                }
+
+                RejectUnsupportedNestedSchemaVersions(property.Value, propertyPath, errors);
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var value in element.EnumerateArray())
+            {
+                RejectUnsupportedNestedSchemaVersions(value, $"{path}[{index}]", errors);
+                index++;
+            }
+        }
     }
 
     private static void RejectDuplicateProperties(JsonElement element, string path, ICollection<string> errors)
@@ -723,6 +883,14 @@ public static class CorpusJson
         CorpusEvidenceClass.RealRaster => "real-raster",
         CorpusEvidenceClass.SyntheticRaster => "synthetic-raster",
         CorpusEvidenceClass.PostOcrEvidence => "post-ocr-evidence",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
+
+    internal static string FormatSplit(CorpusSplit value) => value switch
+    {
+        CorpusSplit.Train => "train",
+        CorpusSplit.Tune => "tune",
+        CorpusSplit.Test => "test",
         _ => throw new ArgumentOutOfRangeException(nameof(value)),
     };
 

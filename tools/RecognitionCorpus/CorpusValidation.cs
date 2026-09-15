@@ -10,6 +10,9 @@ public static class CorpusValidation
     public const string PredictionsSchemaVersion = "predictions.v1";
     public const string AggregateResultsSchemaVersion = "aggregate-results.v1";
     public const string ThresholdsSchemaVersion = "thresholds.v1";
+    public const string ProvenanceSchemaVersion = "provenance.v1";
+    public const string ConsentSchemaVersion = "consent.v1";
+    public const string PrivacyReviewSchemaVersion = "privacy-review.v1";
     public const string FrozenPolicyVersion = "recognition-scorer-policy.v1";
     public const string NearDuplicateGraphVersion = "phash-graph.v1";
     public const decimal MaximumElapsedMilliseconds = 120_000m;
