@@ -2,10 +2,11 @@
 
 A small relay so a group of friends can see each other on one map during a raid.
 
-It holds nothing on disk. Each member publishes their own state, the server keeps the last
-thing each of them said in memory, and hands back everyone else's. A member who stops
-publishing disappears after three minutes, and restarting the server forgets everyone. Keeping
-a history of where people have been would be easy and is the thing worth not doing.
+Live member state is memory-only. Each member publishes their own state, the server keeps the
+last thing each of them said in memory, and hands back everyone else's. A member who stops
+publishing disappears after three minutes, and restarting the server forgets everyone. The state
+directory separately persists waypoints, registered rooms, problem reports, and updater status;
+it does not record member-position history.
 
 ## What is shared
 
@@ -21,10 +22,11 @@ sent is listed in `GroupContracts.cs` in full so the promise can be read rather 
 
 One value: the group key. Whoever types the same key is in the same group.
 
-The server holds no secrets and has nothing to check a key against. It hashes what it is given
-and buckets members by the result, so a key nobody else uses names a room nobody else is in
-rather than being refused. The key itself is never stored, never logged, and never leaves the
-member's machine in readable form.
+In open mode the server has no registered room verifier to compare a key against. It receives the
+reusable bearer key on every request, then hashes it and buckets members by the result, so a key
+nobody else uses names a room nobody else is in rather than being refused. Stock source does not
+intentionally persist or log the raw key, but the receiving relay and any unprotected transport
+can read it. Scoped credentials and transport hardening are tracked in #304 and #310.
 
 This replaced a room name plus a secret set in the server's environment. That arrangement was
 worse in every way: a member could not choose the secret, the person running the container had

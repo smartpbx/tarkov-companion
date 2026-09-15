@@ -1,8 +1,9 @@
 # Deploying the group relay
 
-The relay runs as a systemd service on a small container behind a Cloudflare tunnel. It holds
-nothing on disk, so there is no data to migrate and no backup to take: members re-publish every
-few seconds and a restart costs everybody one blink.
+The relay runs as a systemd service on a small container behind a Cloudflare tunnel. Live member
+positions are memory-only and members re-publish every few seconds. Its state directory does
+persist waypoints, the room registry, problem reports, and updater status, so an operator must
+include that directory in migration, retention, and backup decisions.
 
 ## First install
 
@@ -30,8 +31,9 @@ bug live. `tarkov-group.service` is still yours — it is hand-maintained, carri
 drop-in, and is the one unit this repository does not know the contents of.
 
 The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.GroupServer` with
-`ASPNETCORE_URLS=http://0.0.0.0:8090`. It takes no configuration: since the group key became
-the room, the server holds no secrets and there is nothing to set.
+`ASPNETCORE_URLS=http://0.0.0.0:8090`. Open mode needs no per-room configuration: each request
+supplies the reusable group key, which the relay receives before hashing it into a room id. The
+operator/admin credential and optional registered-room state remain separate configuration.
 
 ## Updating
 

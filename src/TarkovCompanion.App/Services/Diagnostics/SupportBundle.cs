@@ -20,10 +20,10 @@ namespace TarkovCompanion.App.Services.Diagnostics;
 /// which folders were found, what the sync did, and — the part that actually settles it — the
 /// shape of the screenshot names the game is writing.
 ///
-/// What it does not carry is the point. SAFETY.md requires user path segments and tokens to be
-/// redacted before anything is shareable, and forbids other players' log data from ever
-/// reaching a diagnostic report. So: no game logs, which carry squadmates' nicknames, account
-/// ids, levels and loadouts; no group key; no screenshots; and no coordinates.
+/// What it does not carry is the point. It deliberately omits game logs, the group key, and
+/// screenshot pixels. The current field-by-field redaction is not yet a complete outbound
+/// allowlist, so diagnostic details can still contain paths, screenshot names, or coordinates;
+/// #281 and #310 own the preview and complete-payload filter.
 /// </remarks>
 public static partial class SupportBundle
 {
@@ -120,8 +120,8 @@ public static partial class SupportBundle
         report.AppendLine("```");
         report.AppendLine();
         report.AppendLine(
-            "No game logs, no group key, no screenshots and no coordinates are included. " +
-            "User folder names are replaced with <user>.");
+            "Game logs, the group key, and screenshot pixels are excluded. " +
+            "Review the complete report before sending; diagnostic text and masked screenshot names are included.");
         return report.ToString();
     }
 

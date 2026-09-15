@@ -680,10 +680,10 @@ app.MapPost("/admin/update", Results<Ok<RelayUpdateState>, BadRequest<string>, U
 
 app.Run();
 
-// The only thing checked is that a key is long enough to be a key. There is nothing to compare
-// it against, because the server holds no secrets: a key that nobody else uses simply names a
-// room that nobody else is in. Refusing a short one is not access control, it is stopping
-// somebody from believing "a" protects their group.
+// The only thing checked here is that a key is long enough to be a key. In open mode there is no
+// registered room verifier to compare it against: a key that nobody else uses simply names a room
+// that nobody else is in. The relay still receives the plaintext bearer key before hashing it.
+// Refusing a short one is not access control; it stops somebody believing "a" protects the group.
 /// <summary>
 /// Whether an If-None-Match value names this snapshot, weak prefix and all.
 /// </summary>

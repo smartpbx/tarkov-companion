@@ -6,8 +6,9 @@ Anything that can make an HTTPS request can join a group. This document is the w
 
 ## The group key
 
-One value, agreed between the people in the group and typed into each of their clients. It is
-not published here and it is not set on the server: **the server holds no secrets at all.**
+One value, agreed between the people in the group and typed into each of their clients. It is not
+configured as a per-room server secret, but the receiving relay sees the reusable bearer key on
+every request before hashing it to a room identifier.
 
 It hashes the key you send and buckets members by the result, so the key is both *which group*
 and *proof you are in it*. Type the same key as your friends and you see each other. Type a
@@ -267,12 +268,13 @@ typed, then every word starting a word of the name.
 
 - It keeps no history. Where people have been would be easy to record and is deliberately not.
 - It has no accounts and no identities beyond the display name you send.
-- It never sees your key, only its hash, and never logs either. Registering a room does not
-  change that: the list holds hashes and labels.
+- It receives your key, hashes it to select the room, and does not intentionally log or persist
+  the raw value. Registering a room stores hashes and labels. Direct HTTP or a compromised relay
+  can still expose the reusable credential; #304 and #310 own its replacement.
 
-What it does write is two files, both in its state directory and neither about where anybody has
-been: `marks.json`, the waypoints a group placed, and `rooms.json`, the rooms an operator
-registered. Both survive a restart on purpose — the relay updates itself every half hour.
+The state directory contains `marks.json` waypoints, the `rooms.json` registry, submitted
+`reports/*.md`, and updater status stamps. They survive a restart on purpose. Live member
+positions and pings remain memory-only and are not written as movement history.
 
 ## Which version everything speaks
 

@@ -95,9 +95,10 @@ for it and runs the same update the timer runs — the relay runs unprivileged a
 unit itself. If that path unit is not installed the button still works, in the sense that the
 next timer tick picks the file up; it is just no longer immediate.
 
-A report carries no game logs, no group key, no screenshots and no coordinates; user folder
-names are replaced. It does carry the *shape* of the player's screenshot names, with every
-digit masked, which is the thing that usually settles why somebody has no position.
+A report intentionally excludes game logs, the group key, and screenshot pixels. It includes
+diagnostic detail, an application-log tail, and the *shape* of recent screenshot names with every
+digit masked. Complete path, filename, and coordinate filtering plus an outbound preview remain
+release-blocking work in #281 and #310.
 
 **When the group panel says something is wrong:**
 
