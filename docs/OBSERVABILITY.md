@@ -46,4 +46,12 @@ Admin readiness evaluates storage, disk headroom, clock drift, known build, upda
 
 The hourly workflow checks out full history, validates the reported commit, and uses `deploy/group-server/monitoring/relay-watch.sh`. The classifier prints neither relay URL nor health body. Its fixture proves that a stale deployment raises the single existing incident rather than silently passing or creating hourly duplicates.
 
+## Windows page-readiness handoff (#279)
+
+The #279 Windows gallery must wait for a fixture-safe semantic readiness handoff, never a fixed delay or a screenshot. Each gallery scenario supplies the expected page identity and requires the rendered page to report that same stable semantic identity after navigation; a title, route text, or captured image is not sufficient proof that the intended page is current.
+
+The handoff reports only enumerated state: required data is `ready`, `unavailable`, or `error`; a map page also reports required tile data as `ready`, `unavailable`, or `not-applicable`; and the navigation/visual state is `settled` only after the page has finished its declared transition and has no pending page animation. #279 must reject a wrong identity, loading data, an unsettled animation, missing tiles where tiles are required, or an undeclared error rather than photographing a transient state.
+
+These states come from synthetic fixture data and existing UI/test seams. They carry no screenshots, private paths, player names, coordinates, report bodies, or live-game claim; gallery capture remains evidence after readiness, not the signal that establishes readiness.
+
 Use [`docs/runbooks/`](runbooks/) for storage, clock, update, rotation, backup/restore, and privacy incidents. Record UTC, random correlation id, enumerated failure class, and outcome only; never attach screenshots, logs, credentials, names, report bodies, coordinates, or full paths to a public issue.
