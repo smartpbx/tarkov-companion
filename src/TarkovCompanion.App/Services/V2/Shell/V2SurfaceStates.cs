@@ -72,21 +72,21 @@ public static class V2SurfaceStatePolicies
     /// </remarks>
     public static IReadOnlyList<V2SurfaceStatePolicy> All { get; } =
     [
-        new(V2SurfaceStateKind.Ready, "V2.Shell.State.Ready", "V2.String.State.Ready", "v2-state-ready", "check", "solid",
+        new(V2SurfaceStateKind.Ready, "V2.Shell.State.Ready", "V2.String.Availability.Ready", "v2-state-ready", "check", "solid",
             V2Announcement.None, V2Announcement.Polite, false),
         new(V2SurfaceStateKind.Loading, "V2.Shell.State.Loading", null, "v2-state-unknown", "hourglass", "dashed",
             V2Announcement.Polite, V2Announcement.Polite, false),
         new(V2SurfaceStateKind.Empty, "V2.Shell.State.Empty", null, "v2-state-unknown", "circle", "dotted",
             V2Announcement.None, V2Announcement.None, false),
-        new(V2SurfaceStateKind.Offline, "V2.Shell.State.Offline", "V2.String.State.Offline", "v2-state-offline", "link-off", "dashed",
+        new(V2SurfaceStateKind.Offline, "V2.Shell.State.Offline", "V2.String.Availability.Offline", "v2-state-offline", "link-off", "dashed",
             V2Announcement.Polite, V2Announcement.Polite, false),
-        new(V2SurfaceStateKind.Stale, "V2.Shell.State.Stale", "V2.String.State.Stale", "v2-state-warning", "clock", "dotted",
+        new(V2SurfaceStateKind.Stale, "V2.Shell.State.Stale", "V2.String.Freshness.Stale", "v2-state-warning", "clock", "dotted",
             V2Announcement.Polite, V2Announcement.Polite, false),
-        new(V2SurfaceStateKind.Partial, "V2.Shell.State.Partial", "V2.String.State.Partial", "v2-state-warning", "half-circle", "double",
+        new(V2SurfaceStateKind.Partial, "V2.Shell.State.Partial", "V2.String.Completeness.Partial", "v2-state-warning", "half-circle", "double",
             V2Announcement.None, V2Announcement.None, false),
-        new(V2SurfaceStateKind.Denied, "V2.Shell.State.Denied", "V2.String.State.Denied", "v2-state-error", "lock", "solid",
+        new(V2SurfaceStateKind.Denied, "V2.Shell.State.Denied", "V2.String.Availability.Denied", "v2-state-error", "lock", "solid",
             V2Announcement.Polite, V2Announcement.Assertive, false),
-        new(V2SurfaceStateKind.Failed, "V2.Shell.State.Failed", "V2.String.State.Failed", "v2-state-error", "cross", "solid",
+        new(V2SurfaceStateKind.Failed, "V2.Shell.State.Failed", "V2.String.Availability.Failed", "v2-state-error", "cross", "solid",
             V2Announcement.Polite, V2Announcement.Assertive, true),
     ];
 
