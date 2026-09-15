@@ -216,7 +216,11 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Equal("Retry reset", shell.PersistenceRetryLabel);
 
         shell.RetryPersistenceCommand.Execute(null);
-        await WaitUntilAsync(() => attempts == 2 && !shell.HasPersistenceFailure && shell.Pins.Count == 0);
+        await WaitUntilAsync(() =>
+            attempts == 2 &&
+            !shell.HasPersistenceFailure &&
+            shell.Pins.Count == 0 &&
+            shell.Router.CurrentAddress == "#/home");
 
         Assert.Equal("#/home", shell.Router.CurrentAddress);
         Assert.Empty(shell.Recents);
