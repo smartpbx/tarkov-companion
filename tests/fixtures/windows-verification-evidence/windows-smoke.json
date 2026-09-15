@@ -1,0 +1,21 @@
+{
+  "success": false,
+  "assertions": [
+    {
+      "name": "scan-row-committed-Inspect_Key",
+      "passed": false,
+      "detail": "Expected durable row at C:\\Users\\build-user\\AppData\\Local"
+    }
+  ],
+  "errors": [
+    "Smoke error at C:\\Users\\build-user\\temp"
+  ],
+  "persistence": {
+    "reader": "packaged e_sqlite3, read-only",
+    "sqliteVersion": "3.53.3",
+    "readiness": "migrated schema, then a raid opened by this launch",
+    "scanEventCountBefore": 0,
+    "scanEventCountAfter": 3,
+    "expectedScanEventDelta": 10
+  }
+}
