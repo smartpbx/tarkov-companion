@@ -40,19 +40,27 @@ public sealed class ApplicationStartupCoordinatorTests
             TimeSpan.FromSeconds(1),
             () => manualWait.IsCompleted);
         await manualWait;
-        await RuntimeTestTasks.UntilAsync(() =>
-            fixture.State.Current.Supervisor.Operations.Any(operation =>
-                operation.LastFault?.Code.Value == "operation-attempt-timeout"));
+        try
+        {
+            await RuntimeTestTasks.UntilAsync(() =>
+                fixture.State.Current.Supervisor.Operations.Any(operation =>
+                    operation.LastFault?.Code.Value == "operation-attempt-timeout"));
 
-        Assert.Same(ownedRefresh, fixture.Coordinator.BackgroundRefresh);
-        Assert.False(ownedRefresh.IsCompleted);
-        Assert.Equal(1, fixture.Sync.Calls);
-        Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
-        var running = Assert.Single(fixture.State.Current.Supervisor.Operations);
-        Assert.Equal(BackgroundWorkState.Running, running.State);
-        Assert.Null(running.CompletedUtc);
+            Assert.Same(ownedRefresh, fixture.Coordinator.BackgroundRefresh);
+            Assert.False(ownedRefresh.IsCompleted);
+            Assert.Equal(1, fixture.Sync.Calls);
+            Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
+            var running = Assert.Single(fixture.State.Current.Supervisor.Operations);
+            Assert.Equal(BackgroundWorkState.Running, running.State);
+            Assert.Null(running.CompletedUtc);
+        }
+        finally
+        {
+            // A failed pre-release assertion must not strand the deliberately uncooperative
+            // dependency and turn a useful failure into a hung test process.
+            fixture.Control.Release();
+        }
 
-        fixture.Control.Release();
         await ownedRefresh;
         await RuntimeTestTasks.UntilAsync(() =>
             fixture.State.Current.Supervisor.Operations.Any(operation =>
@@ -77,27 +85,33 @@ public sealed class ApplicationStartupCoordinatorTests
         var ownedRefresh = fixture.Coordinator.BackgroundRefresh!;
 
         var disposing = fixture.Coordinator.DisposeAsync().AsTask();
-        var repeatedDispose = fixture.Coordinator.DisposeAsync().AsTask();
-        Assert.Same(disposing, repeatedDispose);
-        await RuntimeTestTasks.UntilAsync(() =>
-            fixture.State.Current.Supervisor.IsStopping
-            && fixture.Control.ReceivedToken.IsCancellationRequested);
+        try
+        {
+            var repeatedDispose = fixture.Coordinator.DisposeAsync().AsTask();
+            Assert.Same(disposing, repeatedDispose);
+            await RuntimeTestTasks.UntilAsync(() =>
+                fixture.State.Current.Supervisor.IsStopping
+                && fixture.Control.ReceivedToken.IsCancellationRequested);
 
-        fixture.Time.Advance(TimeSpan.FromSeconds(10));
-        await RuntimeTestTasks.UntilAsync(() => disposing.IsCompleted);
-        await disposing;
+            fixture.Time.Advance(TimeSpan.FromSeconds(10));
+            await RuntimeTestTasks.UntilAsync(() => disposing.IsCompleted);
+            await disposing;
 
-        Assert.False(ownedRefresh.IsCompleted);
-        Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
-        var unfinished = Assert.Single(fixture.State.Current.Supervisor.Operations);
-        Assert.Equal(BackgroundWorkState.Running, unfinished.State);
-        Assert.Null(unfinished.CompletedUtc);
-        Assert.Equal("supervisor-stop-timeout", unfinished.LastFault?.Code.Value);
+            Assert.False(ownedRefresh.IsCompleted);
+            Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
+            var unfinished = Assert.Single(fixture.State.Current.Supervisor.Operations);
+            Assert.Equal(BackgroundWorkState.Running, unfinished.State);
+            Assert.Null(unfinished.CompletedUtc);
+            Assert.Equal("supervisor-stop-timeout", unfinished.LastFault?.Code.Value);
+        }
+        finally
+        {
+            // Dispose returned without destroying the semaphore or supervisor state still owned
+            // by the late dependency. Releasing it must complete normally, not surface an ODE
+            // from the refresh finally block or a disposed supervisor signal.
+            fixture.Control.Release();
+        }
 
-        // Dispose returned without destroying the semaphore or supervisor state still owned by
-        // the late dependency. Releasing it must complete normally, not surface an ODE from the
-        // refresh finally block or a disposed supervisor signal.
-        fixture.Control.Release();
         await ownedRefresh;
         Assert.True(disposing.IsCompletedSuccessfully);
         Assert.Same(disposing, fixture.Coordinator.DisposeAsync().AsTask());
@@ -136,14 +150,20 @@ public sealed class ApplicationStartupCoordinatorTests
         await fixture.Control.Started.Task;
         var ownedRefresh = fixture.Coordinator.BackgroundRefresh!;
 
-        callerCancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
+        try
+        {
+            callerCancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting);
 
-        Assert.False(ownedRefresh.IsCompleted);
-        Assert.False(fixture.Control.ReceivedToken.IsCancellationRequested);
-        Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
+            Assert.False(ownedRefresh.IsCompleted);
+            Assert.False(fixture.Control.ReceivedToken.IsCancellationRequested);
+            Assert.Equal(1, fixture.State.Current.Supervisor.Resources.RunningIO);
+        }
+        finally
+        {
+            fixture.Control.Release();
+        }
 
-        fixture.Control.Release();
         await ownedRefresh;
         await RuntimeTestTasks.UntilAsync(() =>
             fixture.State.Current.Supervisor.Operations.Any(operation =>
@@ -270,7 +290,10 @@ public sealed class ApplicationStartupCoordinatorTests
 
             ReceivedToken = cancellationToken;
             Started.TrySetResult();
-            await _release.Task.ConfigureAwait(false);
+            // Real-time fail-safe only: injected time still controls every production deadline.
+            // If a test assertion fails before the hand release, the fixture must eventually
+            // unwind instead of occupying an Actions runner until the job-level timeout.
+            await _release.Task.WaitAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
             return result;
         }
 

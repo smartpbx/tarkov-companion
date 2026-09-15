@@ -459,7 +459,11 @@ public sealed class FeatureLifecycleCoordinatorTests
                 _ =>
                 {
                     blockingStarted.TrySetResult();
-                    releaseBlockingStart.Wait();
+                    if (!releaseBlockingStart.Wait(TimeSpan.FromSeconds(15)))
+                    {
+                        throw new TimeoutException("The test did not release the blocking start callback.");
+                    }
+
                     return Task.CompletedTask;
                 }),
             new(
@@ -511,7 +515,11 @@ public sealed class FeatureLifecycleCoordinatorTests
                 _ =>
                 {
                     stopStarted.TrySetResult();
-                    releaseStop.Wait();
+                    if (!releaseStop.Wait(TimeSpan.FromSeconds(15)))
+                    {
+                        throw new TimeoutException("The test did not release the blocking stop callback.");
+                    }
+
                     return Task.CompletedTask;
                 }),
         ], time, new(1, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1)));
