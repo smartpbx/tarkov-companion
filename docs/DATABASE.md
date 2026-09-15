@@ -6,7 +6,7 @@ The cache is local application state. It never contains game process memory, int
 
 ## Startup
 
-Run `SqliteMigrationRunner.ApplyAsync` before constructing repositories. `SqliteMigrationLedger` is the only ordered sequence: every identifier has one embedded upgrade fixture and one rollback fixture, and an unreserved filename is refused. The migration and its `schema_migrations` row commit in one transaction, so re-running the runner is idempotent.
+Run `SqliteMigrationRunner.ApplyAsync` before constructing repositories. `SqliteMigrationLedger` is the only ordered sequence: every identifier has one embedded upgrade fixture and one rollback fixture, and an unreserved filename is refused. The migration and its `schema_migrations` row commit in one transaction, so re-running the runner is idempotent. A database that contains an unknown newer-build migration and is also missing any known migration is left intact and refused as an unsafe sidegrade; a fully current database with additive newer migration rows remains readable and reports those rows.
 
 Before any pending migration marked destructive, the runner makes a SQLite-consistent `VACUUM INTO` recovery copy beside the database and verifies it with `quick_check`. A failed or cancelled migration restores that verified copy with an atomic staged file replacement; if restoration itself fails, `SqliteMigrationException.LastRecoverableBackupPath` names the copy that still verifies. Fault injection covers backup disk-full/lock failures, interruption before commit, transactional rollback, and restoration failure. The two newest successful recovery copies are retained.
 

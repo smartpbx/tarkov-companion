@@ -99,6 +99,15 @@ public sealed class SqliteMigrationRunner
             var pending = SqliteMigrationLedger.Entries.Where(entry => !applied.Contains(entry.Id)).ToArray();
             fromNewerBuild = applied.Where(version => !known.Contains(version)).Order(StringComparer.Ordinal).ToArray();
 
+            // A fully migrated database may carry additive work from a newer build and remain
+            // readable here. A mixed ledger is different: applying an older missing migration
+            // to a schema this binary does not understand is a destructive sidegrade, not an
+            // availability fallback.
+            if (fromNewerBuild.Count > 0 && pending.Length > 0)
+            {
+                throw new NewerSchemaCompatibilityException();
+            }
+
             if (existedBeforeRun && applied.Count > 0 && pending.Any(entry => entry.IsDestructive))
             {
                 var upcoming = pending.Last(entry => entry.IsDestructive).Id;
@@ -129,6 +138,15 @@ public sealed class SqliteMigrationRunner
 
         if (backupPath is null)
         {
+            if (failure is NewerSchemaCompatibilityException)
+            {
+                throw new SqliteMigrationException(
+                    "The database contains migrations from a newer build while known migrations are missing; this build refused to modify the newer schema.",
+                    MigrationRecoveryState.OriginalIntact,
+                    null,
+                    failure);
+            }
+
             var recoverable = await FindNewestVerifiedBackupAsync(databasePath).ConfigureAwait(false);
             throw new SqliteMigrationException(
                 recoverable is null
@@ -461,4 +479,7 @@ public sealed class SqliteMigrationRunner
             }
         }
     }
+
+    private sealed class NewerSchemaCompatibilityException()
+        : InvalidOperationException("A mixed newer schema cannot be migrated by an older build.");
 }

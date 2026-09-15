@@ -126,6 +126,36 @@ public sealed class MigrationRecoveryTests
         }
     }
 
+    [Fact]
+    public async Task MixedNewerSchemaIsLeftIntactInsteadOfApplyingMissingOlderMigration()
+    {
+        await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        await using (var connection = await database.Factory.OpenAsync(TestContext.Current.CancellationToken))
+        await using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                DELETE FROM schema_migrations WHERE version = '0011_v2_data_platform';
+                INSERT INTO schema_migrations(version, applied_utc)
+                VALUES ('0042_from_the_future', '2030-01-01T00:00:00Z');
+                CREATE TABLE future_schema_marker(value TEXT NOT NULL);
+                INSERT INTO future_schema_marker(value) VALUES ('preserve-me');
+                """;
+            await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+        }
+
+        var failure = await Assert.ThrowsAsync<SqliteMigrationException>(() =>
+            new SqliteMigrationRunner(database.Factory).ApplyAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal(MigrationRecoveryState.OriginalIntact, failure.RecoveryState);
+        Assert.Contains("newer build", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, await V2TestDatabase.ScalarAsync(database.Factory,
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = '0011_v2_data_platform';"));
+        Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory,
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = '0042_from_the_future';"));
+        Assert.Equal(1, await V2TestDatabase.ScalarAsync(database.Factory,
+            "SELECT COUNT(*) FROM future_schema_marker WHERE value = 'preserve-me';"));
+    }
+
     private static async Task CreateAtV10Async(SqliteConnectionFactory factory)
     {
         await using var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
