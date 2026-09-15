@@ -44,7 +44,7 @@ jobs:
             {
               echo '### Relay watch is not configured'
               echo
-              echo 'No `RELAY_HEALTH_URL` repository variable is set, so this run checked nothing.'
+              echo "No \`RELAY_HEALTH_URL\` repository variable is set, so this run checked nothing."
               echo
               echo 'While it is unset the relay is unwatched **and** problem reports sent by the'
               echo 'desktop "Report a problem" button are never turned into issues — they stay on'

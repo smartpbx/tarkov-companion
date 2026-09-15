@@ -300,7 +300,7 @@ jobs:
           # Every published file gets a checksum, not just the legacy zip. A corrupt
           # download is otherwise discovered halfway through an install, with the data
           # directory already renamed aside; that is exactly how this was found.
-          ( cd dist/velopack && sha256sum * > ../VELOPACK-SHA256SUMS.txt )
+          ( cd dist/velopack && sha256sum -- * > ../VELOPACK-SHA256SUMS.txt )
           cat dist/VELOPACK-SHA256SUMS.txt
 
       - name: Headless self-test on a clean machine
