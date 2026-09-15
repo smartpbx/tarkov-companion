@@ -22,7 +22,8 @@ public sealed class WindowsScreenshotWatcher(
     TimeSpan? pollInterval = null,
     TimeProvider? timeProvider = null,
     int requiredStableProbes = 2,
-    long maximumEncodedBytes = 256L * 1024 * 1024)
+    long maximumEncodedBytes = 64L * 1024 * 1024,
+    int maximumTrackedFiles = 16_384)
     : IScreenshotWatcher
 {
     private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(1);
@@ -45,46 +46,65 @@ public sealed class WindowsScreenshotWatcher(
     private readonly long _maximumEncodedBytes = maximumEncodedBytes is >= 1 and <= 1024L * 1024 * 1024
         ? maximumEncodedBytes
         : throw new ArgumentOutOfRangeException(nameof(maximumEncodedBytes));
+    private readonly int _maximumTrackedFiles = maximumTrackedFiles is >= 16 and <= 100_000
+        ? maximumTrackedFiles
+        : throw new ArgumentOutOfRangeException(nameof(maximumTrackedFiles));
 
     public async IAsyncEnumerable<string> WatchAsync(
         string screenshotRoot,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(screenshotRoot);
-        if (!Directory.Exists(screenshotRoot))
-        {
-            throw new DirectoryNotFoundException($"EFT screenshot directory does not exist: {screenshotRoot}");
-        }
-
-        var seen = new Dictionary<string, FileFingerprint>(StringComparer.OrdinalIgnoreCase);
+        var seen = new Dictionary<string, SeenFile>(StringComparer.OrdinalIgnoreCase);
         var settling = new Dictionary<string, SettlingCandidate>(StringComparer.OrdinalIgnoreCase);
         var cutoff = _timeProvider.GetUtcNow().UtcDateTime - StartupGrace;
-        var first = true;
+        FileOrderKey? deliveryWatermark = null;
 
         while (!cancellationToken.IsCancellationRequested)
         {
             if (!Directory.Exists(screenshotRoot))
             {
-                throw new ScreenshotSourceUnavailableException(screenshotRoot);
+                // The game, OneDrive, or removable storage can recreate this exact configured
+                // root. Ending the iterator used to tear down the unrelated log watcher and
+                // clear raid/party state. Keep the source in retry instead.
+                settling.Clear();
+                if (!await WaitAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    yield break;
+                }
+
+                continue;
             }
 
             var snapshot = Snapshot(screenshotRoot);
+            var now = _timeProvider.GetUtcNow();
             var present = snapshot.Select(item => item.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (var missing in settling.Keys.Where(path => !present.Contains(path)).ToArray())
             {
                 settling.Remove(missing);
             }
 
+            foreach (var path in seen.Keys.Where(present.Contains).ToArray())
+            {
+                seen[path] = seen[path] with { LastObservedUtc = now };
+            }
+
             foreach (var candidate in snapshot)
             {
-                if (seen.TryGetValue(candidate.Path, out var delivered) && delivered == candidate.Fingerprint)
+                var wasTracked = seen.TryGetValue(candidate.Path, out var delivered);
+                if (wasTracked
+                    && delivered.Fingerprint == candidate.Fingerprint)
                 {
                     continue;
                 }
 
-                if (first && candidate.WrittenUtc < cutoff)
+                var order = new FileOrderKey(candidate.WrittenUtc.Ticks, candidate.Path);
+                if (candidate.WrittenUtc < cutoff
+                    || (!wasTracked
+                        && deliveryWatermark is { } watermark
+                        && order.CompareTo(watermark) <= 0))
                 {
-                    seen[candidate.Path] = candidate.Fingerprint;
+                    seen[candidate.Path] = new(candidate.Fingerprint, now);
                     continue;
                 }
 
@@ -97,17 +117,22 @@ public sealed class WindowsScreenshotWatcher(
                 state = state with { StableProbes = state.StableProbes + 1 };
                 settling[candidate.Path] = state;
                 if (state.StableProbes < _requiredStableProbes
-                    || !TryOpenCompleted(candidate.Path, candidate.Fingerprint, out var completed))
+                    || !TryOpenCompleted(candidate, out var completed))
                 {
                     continue;
                 }
 
-                seen[candidate.Path] = completed;
+                seen[candidate.Path] = new(completed, now);
                 settling.Remove(candidate.Path);
+                if (deliveryWatermark is null || order.CompareTo(deliveryWatermark.Value) > 0)
+                {
+                    deliveryWatermark = order;
+                }
+
                 yield return candidate.Path;
             }
 
-            first = false;
+            PruneTracking(seen, settling, present);
             if (!await WaitAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield break;
@@ -168,7 +193,8 @@ public sealed class WindowsScreenshotWatcher(
             return new(
                 path,
                 info.LastWriteTimeUtc,
-                new(info.Length, info.LastWriteTimeUtc.Ticks, info.Attributes));
+                new(info.Length, info.LastWriteTimeUtc.Ticks),
+                info.Attributes);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -176,11 +202,13 @@ public sealed class WindowsScreenshotWatcher(
         }
     }
 
-    private bool TryOpenCompleted(string path, FileFingerprint expected, out FileFingerprint completed)
+    private bool TryOpenCompleted(FileCandidate candidate, out FileFingerprint completed)
     {
         completed = default;
+        var path = candidate.Path;
+        var expected = candidate.Fingerprint;
         if (expected.Length is <= 0 || expected.Length > _maximumEncodedBytes
-            || (expected.Attributes & CloudPlaceholderAttributes) != 0)
+            || (candidate.Attributes & CloudPlaceholderAttributes) != 0)
         {
             return false;
         }
@@ -202,7 +230,8 @@ public sealed class WindowsScreenshotWatcher(
             }
 
             var after = TryProbe(path);
-            if (after is null || after.Fingerprint != expected)
+            if (after is null || after.Fingerprint != expected
+                || (after.Attributes & CloudPlaceholderAttributes) != 0)
             {
                 return false;
             }
@@ -232,15 +261,8 @@ public sealed class WindowsScreenshotWatcher(
                 return false;
             }
 
-            Span<byte> trailer = stackalloc byte[12];
-            stream.Seek(-trailer.Length, SeekOrigin.End);
-            if (stream.Read(trailer) != trailer.Length)
-            {
-                return false;
-            }
-
             ReadOnlySpan<byte> iend = [0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130];
-            return trailer.SequenceEqual(iend);
+            return ContainsNearEnd(stream, iend);
         }
 
         if (string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase)
@@ -251,18 +273,76 @@ public sealed class WindowsScreenshotWatcher(
                 return false;
             }
 
-            stream.Seek(-2, SeekOrigin.End);
-            return stream.ReadByte() == 0xff && stream.ReadByte() == 0xd9;
+            ReadOnlySpan<byte> endOfImage = [0xff, 0xd9];
+            return ContainsNearEnd(stream, endOfImage);
         }
 
         return false;
     }
 
-    private readonly record struct FileFingerprint(long Length, long WrittenUtcTicks, FileAttributes Attributes);
+    private static bool ContainsNearEnd(Stream stream, ReadOnlySpan<byte> marker)
+    {
+        const int maximumTailBytes = 64 * 1024;
+        var tailLength = checked((int)Math.Min(maximumTailBytes, stream.Length));
+        var tail = new byte[tailLength];
+        stream.Seek(-tailLength, SeekOrigin.End);
+        stream.ReadExactly(tail);
+        return tail.AsSpan().IndexOf(marker) >= 0;
+    }
 
-    private sealed record FileCandidate(string Path, DateTime WrittenUtc, FileFingerprint Fingerprint);
+    private void PruneTracking(
+        Dictionary<string, SeenFile> seen,
+        Dictionary<string, SettlingCandidate> settling,
+        HashSet<string> present)
+    {
+        foreach (var path in seen
+                     .Where(pair => !present.Contains(pair.Key))
+                     .OrderBy(pair => pair.Value.LastObservedUtc)
+                     .Take(Math.Max(0, seen.Count - _maximumTrackedFiles))
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            seen.Remove(path);
+        }
+
+        foreach (var path in seen
+                     .OrderBy(pair => pair.Value.LastObservedUtc)
+                     .Take(Math.Max(0, seen.Count - _maximumTrackedFiles))
+                     .Select(pair => pair.Key)
+                     .ToArray())
+        {
+            seen.Remove(path);
+        }
+
+        foreach (var path in settling.Keys
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                     .Take(Math.Max(0, settling.Count - _maximumTrackedFiles))
+                     .ToArray())
+        {
+            settling.Remove(path);
+        }
+    }
+
+    private readonly record struct FileFingerprint(long Length, long WrittenUtcTicks);
+
+    private sealed record FileCandidate(
+        string Path,
+        DateTime WrittenUtc,
+        FileFingerprint Fingerprint,
+        FileAttributes Attributes);
 
     private sealed record SettlingCandidate(FileFingerprint Fingerprint, int StableProbes);
+
+    private sealed record SeenFile(FileFingerprint Fingerprint, DateTimeOffset LastObservedUtc);
+
+    private readonly record struct FileOrderKey(long WrittenUtcTicks, string Path) : IComparable<FileOrderKey>
+    {
+        public int CompareTo(FileOrderKey other)
+        {
+            var byTime = WrittenUtcTicks.CompareTo(other.WrittenUtcTicks);
+            return byTime != 0 ? byTime : StringComparer.OrdinalIgnoreCase.Compare(Path, other.Path);
+        }
+    }
 }
 
 public sealed class ScreenshotSourceUnavailableException(string path)
