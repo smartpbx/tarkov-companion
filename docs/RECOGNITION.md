@@ -46,6 +46,16 @@ a freed reader nor have its reader freed underneath it. A request that a concurr
 overtakes before its read is registered throws `ObjectDisposedException`, as a request on an
 already-disposed provider does, rather than reporting an unavailable provider.
 
+A request can queue on the gate behind native work an earlier request abandoned, and that work can
+fail after its caller has gone. Clearing the abandoned work and, when it failed, retiring the
+provider (marking it unavailable and freeing its reader once nothing native uses it) are one step
+under the lifetime lock, taken before the gate is released. A request rechecks disposal and
+retirement as soon as it owns the gate and again when it registers its read, so the queued request
+answers `ocr_provider_unavailable`, or throws `ObjectDisposedException`, without preparing a frame
+or starting a read on the failed engine; the late failure used to leave the reader in place, and the
+queued request read it. `TesseractOcrEngine.WaitForSettledAsync` waits, bounded, until the provider
+is idle, which is the point at which its availability reflects how abandoned work ended.
+
 A timeout, rejected input, unavailable provider, total provider failure, and a result recovered
 from only some tiles have separate diagnostic outcomes. So does an available read that ran to
 completion and found no text: its status is `Empty` and its diagnostic `ocr_no_text`. A requested
@@ -107,29 +117,73 @@ with `ocr_no_text`, which `RecognitionService` reports instead of `context_unkno
 timed out or was rejected keeps its own diagnostic instead of being reported as an unavailable
 provider.
 
-A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan. The
-merged candidate set carries the degradation of whichever pass fed it (the contextual pass first,
-then the full frame, then an exhausted dedupe budget), where a partial pass that was still
-available used to contribute its lines and lose its code. `RecognitionService` gives that code
-precedence over every code derived from the same read, including `context_unknown`, `no_match`,
-`extract_context` and the absent code of an auto-selected item, whose partial evidence used to reach
-only the detail line. `ScanUseCase` still prices and advises on an auto-selected item, but a
-recognition that carries a code marks the scan `Partial` with it instead of `Complete`.
+A partial or otherwise degraded provider read keeps its diagnostic all the way to the scan, for
+every context a scan dispatches to. The merged candidate set carries the degradation of whichever
+pass fed it (the contextual pass first, then the full frame, then an exhausted dedupe budget), where
+a partial pass that was still available used to contribute its lines and lose its code.
+`RecognitionService` gives that code precedence over every code derived from the same read,
+including `context_unknown`, `no_match`, `extract_context` and the absent code of an auto-selected
+item. `ExtractRecognitionService` carries the degradation of its full-frame reading, then of its
+panel reading, including a panel reading that failed or timed out outright, ahead of
+`extracts_partial`; `FleaRecognitionService` carries its read's ahead of `no_visible_flea_rows`.
 
-`OcrCoordinator` starts one 30-second deadline (`OcrPipelineOptions`), linked to the caller's
-token, for the full-frame and contextual passes together. Each provider call's own frame timeout
-remains an inner cap. When the deadline expires, finished passes keep their evidence and the
-result carries `ocr_pipeline_timeout`; caller cancellation still throws. A frame pass that ran out
-of memory is not followed by a contextual pass. `ContainerRecognitionService` starts the same kind
-of single deadline before the first pixel is read and spends it across grid detection,
-segmentation, the whole-grid pass and every cell fallback. Grid detection walks the whole frame
-and used to run before the deadline existed; it and segmentation now check cancellation in bounded
-chunks, and a deadline that expires during them returns an empty partial result with
-`ocr_pipeline_timeout`. A deadline that expires mid-fallback returns the analysis of what was read,
-marked partial with `ocr_pipeline_timeout`. A degraded whole-grid pass or cell read marks the scan
-partial and names it: the deadline first, then the whole-grid pass, then cells in reading order.
+`ScanUseCase` treats any recognition code that is not a known conclusion about complete text
+(`context_unknown`, `extract_context`, `item_not_auto_selected`, `no_match`, `ambiguous`,
+`ambiguous_runner_up`, `low_confidence_candidates`, `ocr_no_text`, `ocr_region_empty`) as a
+degradation, and any code at all on an auto-selected item. A degradation makes every dispatch at
+best `Partial` and leads the scan's code, joined with the dispatch's own where it adds one:
+`ocr_partial_tiles; canonical_item_or_price_unavailable`. Each dispatch used to decide the scan from
+its own reading, so a context found in a degraded frame followed by a clean extract, container or
+flea read published `Complete`, and a single item whose price lookup failed had the degraded code
+overwritten. The list is of harmless codes on purpose, so a degradation code nobody has listed makes
+a scan `Partial` rather than `Complete`. An extract, container or flea result that carries any code
+also makes the scan `Partial`. `ScanUseCase` still prices and advises on an auto-selected item from
+degraded text.
+
+One captured frame has one budget. `ScanUseCase` starts a 30-second `ScanFrameDeadline`
+(`ScanFrameOptions`), linked to the caller's token, and every stage that reads the frame spends from
+it: recognition's full-frame and contextual passes, the catalog load and line resolution,
+the extract recognizer's frame and panel passes and its matching, the flea pass and parse, container
+grid detection, segmentation, whole-grid pass, cell fallbacks, resolution, analyses and price
+lookups, and the scan's map, item, price and recommendation-context lookups. It used to be scoped per
+component: recognition spent thirty seconds, the extract and flea passes and every lookup then ran on
+the caller's token, and the container recognizer started a fresh thirty seconds with its resolver,
+analysis and price lookups outside it, so one capture could spend a minute and then some. A
+component handed the frame's token joins its deadline (`OcrPipelineDeadline`) rather than starting a
+budget of its own; called outside a scan, `OcrCoordinator`, `ExtractRecognitionService`,
+`FleaRecognitionService` and `ContainerRecognitionService` each start one (`OcrPipelineOptions`, 30
+seconds) that the components they call join in turn, so a budget is never nested inside another.
+Each provider call's own frame timeout remains an inner cap, and each stage is checked before it
+starts as well as during it, so a repository that ignores its token still does not start a lookup
+the budget has ruled out.
+
+Expiry is a measured outcome, not cancellation: whatever finished is kept and the stage that was
+cut says `ocr_pipeline_timeout`; caller cancellation still throws. A recognition cut before it
+finished is an unknown-context `Partial` scan; a dispatch or lookup cut keeps the recognition. The
+extract recognizer matches the frame's lines before reading the panel, so a cut panel keeps the
+exits the frame named; a cut frame pass is not available with `ocr_pipeline_timeout`, which the scan
+reports as `Partial` rather than as a missing provider, and writes nothing to the raid, where an
+empty list would have replaced the exits the last good scan found. The flea recognizer keeps the
+rows parsed before a cut. Recording is not reading: the scan event, the publication and the raid's
+extract write use the caller's token, so a frame that ran out of budget still records what it found
+and that it stopped.
+
+A frame pass that ran out of memory is not followed by a contextual pass, or by the extract panel
+pass. Container grid detection walks the whole frame and used to run before any deadline existed; it
+and segmentation check cancellation in bounded chunks, and the budget running out during them, or
+before the whole-grid analysis finishes, returns an empty partial result with
+`ocr_pipeline_timeout`. After that analysis, a cut cell fallback, price lookup or final analysis
+returns the last analysis that finished, marked partial with `ocr_pipeline_timeout`. A degraded
+whole-grid pass or cell read marks the scan partial and names it: the deadline first, then the
+whole-grid pass, then cells in reading order.
 Each unread cell issue whose own read was degraded, or whose planned read the deadline or an
-out-of-memory cell read left unattempted, keeps its reason and gains `; ocr=<code>`. A whole-grid pass or cell read
+out-of-memory cell read left unattempted, keeps its reason and gains `; ocr=<code>`.
+
+Grid detection, segmentation and stash discovery refuse a frame over 40,000,000 pixels, the
+providers' default source ceiling and the screenshot loader's, before reading a pixel of it; the
+container recognizer answers such a frame with `ocr_input_limit_exceeded`, and the recognizer skips
+its HUD probe. The providers refused such a frame, but grid detection walked it before any provider
+was asked. A whole-grid pass or cell read
 that ran out of memory is not followed by further cell reads. These deadline, cancellation and
 diagnostic changes are #299's; the grid detection, segmentation and analysis algorithms remain
 owned by #273.
@@ -236,10 +290,25 @@ stop, and line bounds on the Windows runner. The Tesseract gate, deadline, pixel
 ceilings, empty and empty-region outcomes, line bounds, chunked cancellation, and start/dispose
 atomicity (a `Dispose` forced into the window between taking the reader and registering its read,
 one forced during preparation, and 200 scheduler-chosen interleavings) are proven on every host
-through an internal page-reader seam that production composition cannot reach. Partial-provider
-tests run fixture engines through the real coordinator, recognizer, container recognizer and
-`ScanUseCase`; the loader's chunked decode, its cancellation and its abandoned-decode ownership
-run against Skia's Linux native assets in `TarkovCompanion.UnitTests`.
+through an internal page-reader seam that production composition cannot reach. So is the late
+native failure of an abandoned read: queued behind a timeout and behind a cancellation (the queued
+request answers unavailable and never reads), with the provider disposed while a request is queued,
+and against the settle wait, with encoded pages checked unchanged across abandoned reads.
+`OcrProbeSettleTests` drives the probe through the same seam for a last pass whose read fails late, a
+read still unsettled at the bound, and a pass queued behind a late failure.
+
+`ScanDispatchDiagnosticsTests` runs a scripted provider through the real coordinator, recognizer,
+extract, container and flea recognizers and `ScanUseCase`, degrading each pass of every dispatch
+(recognition frame and context, extract frame and panel, container grid and cell, flea) as an
+available partial read and as an unavailable one: none publishes `Complete`, each keeps its code
+through publication, persistence and evidence, the single-item early failures keep the reading's
+code beside their own, and the same screens read cleanly publish `Complete`. `ScanFrameBudgetTests`
+spends each pass and lookup on a manual clock and proves, for a single item, an extract list
+(including its panel), flea rows and a container (including its price lookups), which stage the
+budget cut, what was kept, that every stage received the one frame token, and that the frame's is
+the only timer started. `PixelCeilingTests` proves the ceiling refusals read no pixel. The loader's
+chunked decode, its cancellation and its abandoned-decode ownership run against Skia's Linux native
+assets in `TarkovCompanion.UnitTests`.
 On Windows x64, provider absence is a failure. Therefore a Linux green run proves compilation,
 post-OCR behavior, persistence, and skip honesty; it does not publish screenshot-recognition
 accuracy. Accuracy remains unmeasured until Windows CI records the provider result, and no
@@ -265,7 +334,14 @@ before the deadline started. When it expires the report keeps the finished passe
 completed pass counts, so skipped work stays visible. A provider whose pass reports
 `ocr_provider_failed` or `ocr_provider_unavailable` stops its own remaining passes and records that
 code as the entry's `diagnosticCode`; one that marks itself unavailable stops the same way with
-`ocr_provider_failed`. Other providers still run. Each entry's availability and reason are read again after its passes rather than assumed.
+`ocr_provider_failed`. Other providers still run. Each entry's availability and reason are read
+again after its passes rather than assumed, and only once native work its passes abandoned has
+settled: a pass that timed out, or that the run deadline cancelled, leaves its read running, and a
+failure that read reports later retires the provider. The report used to record availability before
+that failure landed and say available with no diagnostic. It now waits for the provider to be idle,
+bounded by `OcrProbeLimits.SettleTimeout` (30 seconds, separate from the run deadline that may have
+abandoned the work), records a late failure as unavailable with `ocr_provider_failed`, and records
+work still running at the bound as `ocr_provider_settle_timeout` rather than as a healthy provider.
 A report is written beside its destination and moved over it only once complete, so cancellation
 at any point leaves the previous file, or no file, rather than a truncated one. Ctrl+C cancels the
 probe at its next bounded check and exits with code 130 without writing a report; a second Ctrl+C
