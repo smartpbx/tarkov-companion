@@ -233,6 +233,9 @@ public sealed class TarkovDevQuestCatalogNormalizer
         for (var index = 0; index < zones.Count; index++)
         {
             var zone = zones[index];
+            ValidateFinite(zone.Bottom, "bottom elevation");
+            ValidateFinite(zone.Top, "top elevation");
+            ValidateFinite(zone.TerrainElevation, "terrain elevation");
             normalized.Add(new(
                 index,
                 zone.Id,
@@ -277,13 +280,31 @@ public sealed class TarkovDevQuestCatalogNormalizer
         return normalized;
     }
 
-    private static WorldPosition? Position(TarkovDevObjectivePosition? position) =>
-        position is { X: not null, Y: not null, Z: not null }
+    private static WorldPosition? Position(TarkovDevObjectivePosition? position)
+    {
+        if (position is null) return null;
+        ValidateFinite(position.X, "x coordinate");
+        ValidateFinite(position.Y, "y coordinate");
+        ValidateFinite(position.Z, "z coordinate");
+        return position is { X: not null, Y: not null, Z: not null }
             ? new(position.X.Value, position.Y.Value, position.Z.Value)
             : null;
+    }
 
-    private static QuestZoneSize? Size(TarkovDevObjectivePosition? size) =>
-        size is null ? null : new(size.X, size.Y, size.Z);
+    private static QuestZoneSize? Size(TarkovDevObjectivePosition? size)
+    {
+        if (size is null) return null;
+        ValidateFinite(size.X, "zone width");
+        ValidateFinite(size.Y, "zone height");
+        ValidateFinite(size.Z, "zone depth");
+        return new(size.X, size.Y, size.Z);
+    }
+
+    private static void ValidateFinite(double? value, string field)
+    {
+        if (value is { } number && !double.IsFinite(number))
+            throw new InvalidDataException($"Quest data contains a non-finite {field}.");
+    }
 
     private static string SubtypeJson(string rawObjectiveJson)
     {

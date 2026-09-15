@@ -7,9 +7,11 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
@@ -133,12 +135,19 @@ public static class AppComposition
         services.AddSingleton<SqliteRuntimeDataStore>();
         services.AddSingleton<IRuntimeDataStore>(provider => provider.GetRequiredService<SqliteRuntimeDataStore>());
         services.AddSingleton<SqliteRaidHistoryService>();
+        services.AddSingleton<SqliteOutboxStore>();
+        services.AddSingleton<IOutboxStore>(provider => provider.GetRequiredService<SqliteOutboxStore>());
         // Behind a queue, so a database busy with the hourly catalog refresh cannot stall the
         // watcher reading the game's log. A write that arrives late is a row with the right
         // timestamp; an observation that never happens is gone.
         services.AddSingleton<IRaidHistoryService>(provider => new RaidHistoryOutbox(
             provider.GetRequiredService<SqliteRaidHistoryService>(),
-            provider.GetService<ILogger<RaidHistoryOutbox>>()));
+            provider.GetService<ILogger<RaidHistoryOutbox>>(),
+            timeProvider,
+            provider.GetRequiredService<IOutboxStore>()));
+        services.AddSingleton<SqliteProfileWorkspaceStore>();
+        services.AddSingleton<IProfileWorkspaceStore>(provider => provider.GetRequiredService<SqliteProfileWorkspaceStore>());
+        services.AddSingleton<ProfileContextService>();
         services.AddSingleton<SqliteRecognitionCatalogRepository>();
         services.AddSingleton<IRecognitionCatalogRepository>(provider =>
             provider.GetRequiredService<SqliteRecognitionCatalogRepository>());
@@ -219,8 +228,9 @@ public static class AppComposition
         // Keeping the game's screenshot folder from growing without limit. Composed here
         // rather than discovered because it is the other half of the application that touches
         // files it did not create, and that should be visible in one place.
-        services.AddSingleton<IScreenshotRetentionStore>(_ =>
-            new JsonFileScreenshotRetentionStore(Path.Combine(paths.Config, "screenshots.json")));
+        services.AddSingleton<SqliteScreenshotRetentionStore>();
+        services.AddSingleton<IScreenshotRetentionStore>(provider =>
+            provider.GetRequiredService<SqliteScreenshotRetentionStore>());
         // Where the game keeps its screenshots and logs, when the guessing is wrong. The first
         // person to install this who does not use OneDrive had no screenshots detected and no
         // way to say where they were.

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Buffers;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using TarkovCompanion.Application.Services;
@@ -8,11 +10,17 @@ using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.Infrastructure.TarkovDevJson;
 
-public sealed class TarkovDevJsonClient
+public sealed class TarkovDevJsonClient : IAsyncDisposable
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+        // Per-client envelope validation enforces the configured limit first. Keep the typed
+        // serializer at the largest accepted option so a valid 33-64-depth configuration is not
+        // silently tightened during the second parse.
+        MaxDepth = 64,
     };
 
     private readonly HttpClient _httpClient;
@@ -20,7 +28,12 @@ public sealed class TarkovDevJsonClient
     private readonly DataTranslationService _translationService;
     private readonly TarkovDevJsonClientOptions _options;
     private readonly TimeProvider _timeProvider;
-    private readonly ConcurrentDictionary<string, Lazy<Task<CachedResponse>>> _inFlight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<CachedResponse>>> _foregroundRefreshes = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task>> _backgroundRefreshes = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly object _backgroundGate = new();
+    private int _disposeState;
+    private Task? _disposeTask;
 
     public TarkovDevJsonClient(
         HttpClient httpClient,
@@ -164,7 +177,12 @@ public sealed class TarkovDevJsonClient
     {
         var normalizedLanguage = NormalizeLanguage(language);
         var path = $"{ModeSlug(gameMode)}/{endpoint}";
-        var baseResponse = await GetJsonAsync(path, _options.StaticFreshFor, force, cancellationToken).ConfigureAwait(false);
+        var baseResponse = await GetJsonAsync(
+            path,
+            _options.StaticFreshFor,
+            force,
+            (candidate, previous) => ValidateTypedDataset<T>(candidate, previous, path),
+            cancellationToken).ConfigureAwait(false);
 
         using var envelope = JsonDocument.Parse(baseResponse.Entry.BodyJson);
         var hasTranslations = envelope.RootElement.TryGetProperty("translations", out var translations) &&
@@ -179,6 +197,7 @@ public sealed class TarkovDevJsonClient
                 $"{path}_{normalizedLanguage}",
                 _options.StaticFreshFor,
                 force,
+                (candidate, _) => ValidateTranslationEnvelope(candidate, path),
                 cancellationToken).ConfigureAwait(false);
             translatedJson = _translationService.Apply(baseResponse.Entry.BodyJson, translationResponse.Entry.BodyJson);
         }
@@ -208,6 +227,7 @@ public sealed class TarkovDevJsonClient
             $"{ModeSlug(gameMode)}/{endpoint}",
             freshFor,
             force,
+            (candidate, previous) => ValidateTypedDataset<T>(candidate, previous, endpoint),
             cancellationToken).ConfigureAwait(false);
         var value = DeserializeEnvelope<T>(response.Entry.BodyJson);
         return new(
@@ -225,8 +245,10 @@ public sealed class TarkovDevJsonClient
         string cacheKey,
         TimeSpan freshFor,
         bool force,
+        Action<string, string?> validate,
         CancellationToken cancellationToken)
     {
+        ThrowIfDisposed();
         var cached = await _cache.GetAsync(cacheKey, cancellationToken).ConfigureAwait(false);
         var now = _timeProvider.GetUtcNow();
         if (!force && cached is not null && now - cached.CachedUtc <= freshFor)
@@ -236,13 +258,17 @@ public sealed class TarkovDevJsonClient
 
         if (!force && cached is not null)
         {
-            _ = ObserveBackgroundRefreshAsync(GetOrCreateRefresh(cacheKey, cached, CancellationToken.None));
+            StartBackgroundRefresh(cacheKey, cached, validate);
             return new(cached, true, true);
         }
 
         try
         {
-            return await GetOrCreateRefresh(cacheKey, cached, cancellationToken).ConfigureAwait(false);
+            // A forced caller owns its request and never joins stale background work. Cache-miss
+            // callers share one lifetime-bound transfer but await it with their own cancellation.
+            return force
+                ? await RefreshAsync(cacheKey, cached, validate, cancellationToken).ConfigureAwait(false)
+                : await GetOrCreateForegroundRefreshAsync(cacheKey, validate, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (cached is not null && exception is not OperationCanceledException)
         {
@@ -250,36 +276,103 @@ public sealed class TarkovDevJsonClient
         }
     }
 
-    private Task<CachedResponse> GetOrCreateRefresh(
+    private Task<CachedResponse> GetOrCreateForegroundRefreshAsync(
         string cacheKey,
-        TarkovDevCacheEntry? cached,
-        CancellationToken cancellationToken)
+        Action<string, string?> validate,
+        CancellationToken callerCancellation)
     {
-        var lazy = _inFlight.GetOrAdd(
-            cacheKey,
-            _ => new(
-                () => RefreshAsync(cacheKey, cached, cancellationToken),
-                LazyThreadSafetyMode.ExecutionAndPublication));
-        return AwaitAndRemoveAsync(cacheKey, lazy);
+        Lazy<Task<CachedResponse>> candidate;
+        Lazy<Task<CachedResponse>> selected;
+        lock (_backgroundGate)
+        {
+            if (_disposeState != 0)
+            {
+                throw new ObjectDisposedException(nameof(TarkovDevJsonClient));
+            }
+
+            candidate = new(
+                () => RefreshAsync(cacheKey, null, validate, _lifetime.Token),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            selected = _foregroundRefreshes.GetOrAdd(cacheKey, candidate);
+        }
+
+        if (ReferenceEquals(candidate, selected))
+        {
+            _ = AwaitForegroundAndRemoveAsync(cacheKey, candidate);
+        }
+
+        // The transfer is token-independent so one caller cannot cancel another caller's shared
+        // first load. Each waiter still observes its own cancellation immediately; client disposal
+        // cancels and drains the shared transfer itself.
+        return selected.Value.WaitAsync(callerCancellation);
     }
 
-    private async Task<CachedResponse> AwaitAndRemoveAsync(string cacheKey, Lazy<Task<CachedResponse>> lazy)
+    private async Task AwaitForegroundAndRemoveAsync(string cacheKey, Lazy<Task<CachedResponse>> lazy)
     {
         try
         {
-            return await lazy.Value.ConfigureAwait(false);
+            await lazy.Value.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // The requesting callers observe the failure. This observer exists only to retire the
+            // exact lazy entry without turning its duplicate-suppression task into an unobserved one.
         }
         finally
         {
-            _inFlight.TryRemove(new KeyValuePair<string, Lazy<Task<CachedResponse>>>(cacheKey, lazy));
+            _foregroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task<CachedResponse>>>(cacheKey, lazy));
+        }
+    }
+
+    private void StartBackgroundRefresh(
+        string cacheKey,
+        TarkovDevCacheEntry cached,
+        Action<string, string?> validate)
+    {
+        Lazy<Task> candidate;
+        Lazy<Task> selected;
+        lock (_backgroundGate)
+        {
+            if (_disposeState != 0)
+            {
+                return;
+            }
+
+            candidate = new(
+                () => ObserveBackgroundRefreshAsync(cacheKey, cached, validate, _lifetime.Token),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            selected = _backgroundRefreshes.GetOrAdd(cacheKey, candidate);
+        }
+
+        if (ReferenceEquals(candidate, selected))
+        {
+            _ = AwaitBackgroundAndRemoveAsync(cacheKey, candidate);
+        }
+    }
+
+    private async Task AwaitBackgroundAndRemoveAsync(string cacheKey, Lazy<Task> lazy)
+    {
+        try
+        {
+            await lazy.Value.ConfigureAwait(false);
+        }
+        finally
+        {
+            _backgroundRefreshes.TryRemove(new KeyValuePair<string, Lazy<Task>>(cacheKey, lazy));
         }
     }
 
     private async Task<CachedResponse> RefreshAsync(
         string cacheKey,
         TarkovDevCacheEntry? cached,
+        Action<string, string?> validate,
         CancellationToken cancellationToken)
     {
+        if (_options.OfflineProbe())
+        {
+            throw new TarkovDevOfflineException();
+        }
+
         Exception? lastError = null;
         // The mirror first where there is one, then upstream, always. A group server holding
         // the catalog saves every client from pulling the same several megabytes, and a mirror
@@ -296,6 +389,7 @@ public sealed class TarkovDevJsonClient
                 isUpstream,
                 cacheKey,
                 cached,
+                validate,
                 cancellationToken).ConfigureAwait(false);
             if (result.Response is { } response)
             {
@@ -322,6 +416,7 @@ public sealed class TarkovDevJsonClient
         bool isUpstream,
         string cacheKey,
         TarkovDevCacheEntry? cached,
+        Action<string, string?> validate,
         CancellationToken cancellationToken)
     {
         Exception? lastError = null;
@@ -330,6 +425,11 @@ public sealed class TarkovDevJsonClient
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                if (_options.OfflineProbe())
+                {
+                    throw new TarkovDevOfflineException();
+                }
+
                 using var request = CreateRequest(address, cacheKey, cached);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(_options.RequestTimeout);
@@ -363,8 +463,9 @@ public sealed class TarkovDevJsonClient
                 }
                 else
                 {
-                    var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+                    var body = await ReadBoundedUtf8Async(response.Content, timeout.Token).ConfigureAwait(false);
                     ValidateJsonEnvelope(body, cacheKey);
+                    validate(body, cached?.BodyJson);
                     var entry = new TarkovDevCacheEntry(
                         cacheKey,
                         body,
@@ -391,15 +492,41 @@ public sealed class TarkovDevJsonClient
                     break;
                 }
             }
+            catch (IOException exception)
+            {
+                // A response stream can reset after headers have arrived. HttpClient does not
+                // consistently wrap that transport failure in HttpRequestException.
+                lastError = exception;
+                if (attempt == attempts)
+                {
+                    break;
+                }
+            }
+            catch (TarkovDevOfflineException)
+            {
+                throw;
+            }
+            catch (TarkovDevResponseBudgetException exception)
+            {
+                if (isUpstream)
+                {
+                    throw;
+                }
+
+                lastError = exception;
+                break;
+            }
             catch (JsonException exception)
             {
                 // A mirror serving something that is not the catalog is a mirror to walk away
                 // from, not one to retry. Upstream is next.
-                lastError = exception;
-                if (!isUpstream || attempt == attempts)
+                if (isUpstream)
                 {
-                    break;
+                    throw;
                 }
+
+                lastError = exception;
+                break;
             }
 
             await DelayBeforeRetryAsync(attempt, cancellationToken).ConfigureAwait(false);
@@ -455,15 +582,81 @@ public sealed class TarkovDevJsonClient
         await Task.Delay(delay, _timeProvider, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task ObserveBackgroundRefreshAsync(Task<CachedResponse> refresh)
+    private async Task ObserveBackgroundRefreshAsync(
+        string cacheKey,
+        TarkovDevCacheEntry cached,
+        Action<string, string?> validate,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt <= _options.MaximumOfflineReconnectAttempts; attempt++)
+        {
+            try
+            {
+                await RefreshAsync(cacheKey, cached, validate, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (TarkovDevOfflineException) when (attempt < _options.MaximumOfflineReconnectAttempts)
+            {
+                if (_options.OfflineReconnectDelay > TimeSpan.Zero)
+                {
+                    var multiplier = Math.Min(1 << Math.Min(attempt, 5), 32);
+                    await Task.Delay(_options.OfflineReconnectDelay * multiplier, _timeProvider, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception)
+            {
+                // A valid stale response was already returned. The next caller can retry.
+                return;
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_backgroundGate)
+        {
+            if (_disposeTask is not null)
+            {
+                return new(_disposeTask);
+            }
+
+            _disposeState = 1;
+            _lifetime.Cancel();
+            var pending = _backgroundRefreshes.Values.Select(refresh => refresh.Value)
+                .Concat(_foregroundRefreshes.Values.Select(refresh => (Task)refresh.Value))
+                .ToArray();
+            _disposeTask = DrainBackgroundAsync(pending);
+            return new(_disposeTask);
+        }
+    }
+
+    private async Task DrainBackgroundAsync(Task[] pending)
     {
         try
         {
-            await refresh.ConfigureAwait(false);
+            await Task.WhenAll(pending).ConfigureAwait(false);
         }
         catch (Exception)
         {
-            // A valid stale response was already returned. The next caller can retry.
+            // Request callers have already observed foreground failures, and background refreshes
+            // are best-effort. Shutdown's job is to quiesce them, not replace the initiating result.
+        }
+        finally
+        {
+            _lifetime.Dispose();
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (Volatile.Read(ref _disposeState) != 0)
+        {
+            throw new ObjectDisposedException(nameof(TarkovDevJsonClient));
         }
     }
 
@@ -471,13 +664,96 @@ public sealed class TarkovDevJsonClient
         JsonSerializer.Deserialize<TarkovDevEnvelope<T>>(json, SerializerOptions)
         ?? throw new JsonException("json.tarkov.dev returned a null envelope.");
 
-    private static void ValidateJsonEnvelope(string json, string cacheKey)
+    private void ValidateJsonEnvelope(string json, string cacheKey)
     {
-        using var document = JsonDocument.Parse(json);
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = _options.MaximumJsonDepth });
         if (document.RootElement.ValueKind != JsonValueKind.Object ||
             !document.RootElement.TryGetProperty("data", out _))
         {
             throw new JsonException($"json.tarkov.dev response '{cacheKey}' is missing the required data envelope.");
+        }
+    }
+
+    private void ValidateTranslationEnvelope(string json, string cacheKey)
+    {
+        ValidateJsonEnvelope(json, cacheKey);
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = _options.MaximumJsonDepth });
+        if (document.RootElement.GetProperty("data").ValueKind is not JsonValueKind.Object)
+        {
+            throw new JsonException($"json.tarkov.dev translation '{cacheKey}' must contain one data object.");
+        }
+    }
+
+    private static void ValidateTypedDataset<T>(string json, string? previousJson, string cacheKey)
+    {
+        var candidate = DeserializeEnvelope<T>(json);
+        var incoming = DatasetCount(candidate.Data);
+        if (incoming == 0)
+        {
+            throw new JsonException($"json.tarkov.dev response '{cacheKey}' contains an empty dataset.");
+        }
+
+        if (previousJson is null)
+        {
+            return;
+        }
+
+        var previous = DatasetCount(DeserializeEnvelope<T>(previousJson).Data);
+        if (previous > 0 && incoming * 2 < previous)
+        {
+            throw new JsonException(
+                $"json.tarkov.dev response '{cacheKey}' implausibly shrank from {previous:N0} to {incoming:N0} records.");
+        }
+    }
+
+    private static int DatasetCount<T>(T data) => data switch
+    {
+        TarkovDevItemsData items => items.Items.Count,
+        TarkovDevMapsData maps => maps.Maps.Count,
+        TarkovDevTasksData tasks => tasks.Tasks.Count,
+        IReadOnlyDictionary<string, TarkovDevHideoutStation> hideout => hideout.Count,
+        IReadOnlyDictionary<string, TarkovDevTrader> traders => traders.Count,
+        IReadOnlyCollection<TarkovDevCraft> crafts => crafts.Count,
+        IReadOnlyCollection<TarkovDevBarter> barters => barters.Count,
+        IReadOnlyCollection<TarkovDevPricePoint> prices => prices.Count,
+        _ => throw new JsonException($"No hostile-input cardinality rule is registered for {typeof(T).Name}.")
+    };
+
+    private async Task<string> ReadBoundedUtf8Async(HttpContent content, CancellationToken cancellationToken)
+    {
+        if (content.Headers.ContentLength is { } declared && declared > _options.MaximumResponseBytes)
+        {
+            throw new TarkovDevResponseBudgetException(_options.MaximumResponseBytes);
+        }
+
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var output = new MemoryStream();
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            while (true)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                if (output.Length + read > _options.MaximumResponseBytes)
+                {
+                    throw new TarkovDevResponseBudgetException(_options.MaximumResponseBytes);
+                }
+
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            }
+
+            var bytes = output.ToArray();
+            var offset = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+            return new UTF8Encoding(false, true).GetString(bytes, offset, bytes.Length - offset);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
