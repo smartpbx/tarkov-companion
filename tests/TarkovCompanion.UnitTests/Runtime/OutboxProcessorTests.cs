@@ -173,6 +173,37 @@ public sealed class OutboxProcessorTests
     }
 
     [Fact]
+    public async Task DeadLetterRemainsPartOfOldestOutstandingAgeUntilResolution()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var item = Item("aggregate-a", 1);
+        await EnqueueAsync(store, item);
+        var leased = Assert.Single(await store.LeaseNextAsync(
+            time.GetUtcNow(), TimeSpan.FromSeconds(5), 1, default));
+        Assert.True(await store.DeadLetterAsync(
+            item.OperationId,
+            leased.LeaseToken!.Value,
+            new(
+                RuntimeFailureKind.Validation,
+                new("fixture-poison"),
+                RuntimeRecoveryAction.None,
+                new("test:oldest-outstanding"),
+                time.GetUtcNow()),
+            time.GetUtcNow(),
+            default));
+
+        time.Advance(TimeSpan.FromMinutes(7));
+        var unresolved = await store.GetSnapshotAsync(time.GetUtcNow(), default);
+
+        Assert.Equal(1, unresolved.Counts.DeadLetter);
+        Assert.Equal<TimeSpan?>(TimeSpan.FromMinutes(7), unresolved.OldestOutstandingAge);
+
+        Assert.True(await store.ResolveDeadLetterAsync(item.OperationId, time.GetUtcNow(), default));
+        Assert.Null((await store.GetSnapshotAsync(time.GetUtcNow(), default)).OldestOutstandingAge);
+    }
+
+    [Fact]
     public async Task BatchAcceptanceStoresEveryItemOrNone()
     {
         var store = new FixtureOutboxStore(capacity: 2);

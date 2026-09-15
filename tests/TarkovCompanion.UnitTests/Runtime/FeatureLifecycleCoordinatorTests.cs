@@ -138,6 +138,45 @@ public sealed class FeatureLifecycleCoordinatorTests
     }
 
     [Fact]
+    public async Task ShutdownCompensatesAStartThatAcquiredResourcesBeforeItFailed()
+    {
+        var resourceAcquired = false;
+        var stopCalls = 0;
+        var lifecycle = Lifecycle(
+        [
+            new(
+                new("partial-start"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ =>
+                {
+                    resourceAcquired = true;
+                    return Task.FromException(new IOException("failed after acquisition"));
+                },
+                _ =>
+                {
+                    Assert.True(resourceAcquired);
+                    resourceAcquired = false;
+                    Interlocked.Increment(ref stopCalls);
+                    return Task.CompletedTask;
+                }),
+        ]);
+
+        var started = await lifecycle.StartAsync();
+        var startFault = Assert.Single(started.Features).LastFault;
+        Assert.Equal(FeatureLifecycleState.Failed, Assert.Single(started.Features).State);
+        Assert.True(resourceAcquired);
+        Assert.Equal(0, Volatile.Read(ref stopCalls));
+
+        var stopped = await lifecycle.StopAsync();
+
+        Assert.False(resourceAcquired);
+        Assert.Equal(1, Volatile.Read(ref stopCalls));
+        Assert.Equal(FeatureLifecycleState.Stopped, Assert.Single(stopped.Features).State);
+        Assert.Same(startFault, Assert.Single(stopped.Features).LastFault);
+    }
+
+    [Fact]
     public async Task StopRacingAnIgnoredStartupNeverLetsTheFeatureBecomeRunning()
     {
         var time = new ManualTimeProvider(Epoch);

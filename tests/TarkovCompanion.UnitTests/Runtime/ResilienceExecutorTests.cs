@@ -218,11 +218,11 @@ public sealed class ResilienceExecutorTests
     }
 
     /// <summary>
-    /// A caller cancellation during a half-open probe must release the probe slot without
-    /// closing the circuit or recording a success. Nothing was learned about the dependency.
+    /// A caller cancellation during a half-open probe must keep the probe slot until an ignoring
+    /// dependency actually returns. Nothing was learned about the dependency in the meantime.
     /// </summary>
     [Fact]
-    public async Task CallerCancellationReleasesHalfOpenProbeWithoutChangingCircuitState()
+    public async Task CallerCancellationRetainsHalfOpenProbeUntilIgnoredInvocationReturns()
     {
         var time = new ManualTimeProvider(Epoch);
         var executor = new ResilienceExecutor(time, new ExactJitter());
@@ -263,14 +263,23 @@ public sealed class ResilienceExecutorTests
         await cancellation.CancelAsync();
         var result = await execution;
 
-        // Caller cancel: classified as Cancelled, probe released, circuit stays HalfOpen.
+        // Caller cancel is visible immediately, but the ignored invocation still owns the probe.
         Assert.False(result.Succeeded);
         Assert.Equal(RuntimeFailureKind.Cancelled, result.Fault!.Kind);
         Assert.Equal(CircuitState.HalfOpen, Assert.Single(executor.Circuits).State);
-        Assert.False(Assert.Single(executor.Circuits).ProbeInProgress);
+        Assert.True(Assert.Single(executor.Circuits).ProbeInProgress);
+        var unfinished = Assert.IsAssignableFrom<Task>(result.UnfinishedAttempt);
+        Assert.False(unfinished.IsCompleted);
 
-        // The next probe can still acquire the half-open slot and, on success, close the circuit.
+        var overlapping = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(42), default);
+        Assert.False(overlapping.Succeeded);
+        Assert.Equal(RuntimeFailureKind.CircuitOpen, overlapping.Fault!.Kind);
+        Assert.Equal(0, overlapping.Attempts);
+
+        // Once the exact old invocation returns, its retained owner releases the half-open slot.
         probePending.TrySetResult(1);
+        await unfinished;
+        Assert.False(Assert.Single(executor.Circuits).ProbeInProgress);
         var probe = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(42), default);
         Assert.True(probe.Succeeded);
         Assert.Equal(CircuitState.Closed, Assert.Single(executor.Circuits).State);

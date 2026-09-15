@@ -231,27 +231,23 @@ public sealed class RaidActivityCoordinator(
     /// question: anything recent enough for the resume to adopt is left alone.
     /// </para>
     /// <para>
-    /// Silent on failure, like the resume. Tidying the record is not worth failing startup for.
+    /// A failure is allowed to reach the lifecycle coordinator. Observation treats repair as an
+    /// optional dependency, so play remains usable while runtime health truthfully shows that the
+    /// historical record was not repaired.
     /// </para>
     /// </remarks>
     public async Task CloseAbandonedAsync(CancellationToken cancellationToken)
     {
-        try
+        var now = _timeProvider.GetUtcNow();
+        var history = await raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var abandoned in RaidResume.Abandoned(history, now))
         {
-            var now = _timeProvider.GetUtcNow();
-            var history = await raidHistoryService.ListAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var abandoned in RaidResume.Abandoned(history, now))
-            {
-                await raidHistoryService.EndAsync(
-                    abandoned,
-                    now,
-                    "Closed on restart",
-                    "The companion was not running when this raid ended.",
-                    cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
+            await raidHistoryService.EndAsync(
+                abandoned,
+                now,
+                "Closed on restart",
+                "The companion was not running when this raid ended.",
+                cancellationToken).ConfigureAwait(false);
         }
     }
 

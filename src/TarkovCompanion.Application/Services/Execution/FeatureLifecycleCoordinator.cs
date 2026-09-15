@@ -617,6 +617,7 @@ public sealed class FeatureLifecycleCoordinator
                 var startedOrStarting = node.State is
                     FeatureLifecycleState.Running or
                     FeatureLifecycleState.Degraded or
+                    FeatureLifecycleState.Failed or
                     FeatureLifecycleState.Starting or
                     FeatureLifecycleState.StartTimedOut or
                     FeatureLifecycleState.Stopping;
@@ -651,24 +652,17 @@ public sealed class FeatureLifecycleCoordinator
         try
         {
             var starting = await node.StartInvocation!.Task.ConfigureAwait(false);
-            var started = true;
+            var startSucceeded = true;
             try
             {
                 await starting.ConfigureAwait(false);
             }
             catch (Exception)
             {
-                started = false;
+                startSucceeded = false;
             }
 
             await DisposeStartCancellationAsync(node).ConfigureAwait(false);
-            if (!started)
-            {
-                // The start itself failed, so nothing began and there is nothing to stop.
-                SettleStopped(node, stopFault: null, startSucceeded: false);
-                return;
-            }
-
             lock (_gate)
             {
                 node.State = FeatureLifecycleState.Stopping;
@@ -714,18 +708,20 @@ public sealed class FeatureLifecycleCoordinator
                     catch (Exception exception)
                     {
                         await cancellingStop.ConfigureAwait(false);
-                        SettleStopped(node, StopFault(node, exception), startSucceeded: true);
+                        SettleStopped(node, StopFault(node, exception), startSucceeded);
                         return;
                     }
                 }
                 catch (Exception exception)
                 {
-                    SettleStopped(node, StopFault(node, exception), startSucceeded: true);
+                    SettleStopped(node, StopFault(node, exception), startSucceeded);
                     return;
                 }
 
                 await cancellingStop.ConfigureAwait(false);
-                SettleStopped(node, stopFault: null, startSucceeded: true);
+                // A thrown start is not proof that it acquired nothing. Shutdown must invoke the
+                // compensating stop even after failure; retain the start fault when cleanup works.
+                SettleStopped(node, stopFault: null, startSucceeded);
             }
             finally
             {

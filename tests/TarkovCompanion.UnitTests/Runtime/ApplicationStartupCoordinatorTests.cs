@@ -178,6 +178,60 @@ public sealed class ApplicationStartupCoordinatorTests
     }
 
     [Fact]
+    public async Task RaidHistoryRepairDoesNotRaceDatabaseInitialization()
+    {
+        var releaseDatabase = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var history = new StubRaidHistoryService();
+        await using var fixture = new RefreshFixture(
+            RefreshDependency.None,
+            TimeSpan.FromSeconds(5),
+            history,
+            releaseDatabase);
+
+        var initializing = fixture.Coordinator.InitializeAsync(default);
+        await fixture.DataStore.InitializeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            await RuntimeTestTasks.DrainAsync();
+            Assert.Equal(0, history.ListCalls);
+        }
+        finally
+        {
+            releaseDatabase.TrySetResult();
+        }
+
+        await initializing;
+        Assert.Equal(1, history.ListCalls);
+    }
+
+    [Fact]
+    public async Task RaidHistoryRepairFailureIsPublishedAndObservationStillStartsDegraded()
+    {
+        var history = new StubRaidHistoryService
+        {
+            ListFailure = new IOException("private storage failure"),
+        };
+        await using var fixture = new RefreshFixture(
+            RefreshDependency.None,
+            TimeSpan.FromSeconds(5),
+            history);
+
+        await fixture.Coordinator.InitializeAsync(default);
+
+        var lifecycle = fixture.State.Current.Lifecycle;
+        Assert.True(fixture.State.Current.DatabaseReady);
+        Assert.Equal(FeatureLifecycleState.Failed, State("raid-history-repair"));
+        Assert.Equal(FeatureLifecycleState.Degraded, State("observation"));
+        Assert.Equal("dependency-io", Feature("raid-history-repair").LastFault!.Code.Value);
+
+        RuntimeFeatureSnapshot Feature(string id) => Assert.Single(
+            lifecycle.Features,
+            feature => feature.FeatureId == new RuntimeFeatureId(id));
+
+        FeatureLifecycleState State(string id) => Feature(id).State;
+    }
+
+    [Fact]
     public void InitializePublishesTheLifecycleSnapshotReadInsideTheStateUpdate()
     {
         var source = File.ReadAllText(Path.Combine(RuntimeDirectory(), "ApplicationStartupCoordinator.cs"));
@@ -200,7 +254,11 @@ public sealed class ApplicationStartupCoordinatorTests
 
     private sealed class RefreshFixture : IAsyncDisposable
     {
-        public RefreshFixture(RefreshDependency dependency, TimeSpan refreshTimeout)
+        public RefreshFixture(
+            RefreshDependency dependency,
+            TimeSpan refreshTimeout,
+            IRaidHistoryService? raidHistory = null,
+            TaskCompletionSource? databaseRelease = null)
         {
             Time = new(Epoch);
             Control = new(dependency);
@@ -212,7 +270,7 @@ public sealed class ApplicationStartupCoordinatorTests
                 TimeSpan.FromHours(1),
                 refreshTimeout);
             State = new(options, Time);
-            DataStore = new(Control);
+            DataStore = new(Control, databaseRelease);
             Sync = new(Control);
             Catalogs = new(Control);
             ItemFacts = new();
@@ -220,7 +278,7 @@ public sealed class ApplicationStartupCoordinatorTests
             var profile = new StubProfileService();
             var raid = new RaidActivityCoordinator(
                 new RaidStateService(),
-                new StubRaidHistoryService(),
+                raidHistory ?? new StubRaidHistoryService(),
                 profile,
                 State,
                 timeProvider: Time);
@@ -322,13 +380,25 @@ public sealed class ApplicationStartupCoordinatorTests
         }
     }
 
-    private sealed class ControlledDataStore(RefreshControl control) : IRuntimeDataStore
+    private sealed class ControlledDataStore(
+        RefreshControl control,
+        TaskCompletionSource? initializeRelease = null) : IRuntimeDataStore
     {
         public string DatabasePath => "fixture";
 
         public int SnapshotCalls { get; private set; }
 
-        public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+        public TaskCompletionSource InitializeStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task InitializeAsync(CancellationToken cancellationToken)
+        {
+            InitializeStarted.TrySetResult();
+            if (initializeRelease is not null)
+            {
+                await initializeRelease.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
 
         public Task SeedDemoAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -448,6 +518,12 @@ public sealed class ApplicationStartupCoordinatorTests
 
     private sealed class StubRaidHistoryService : IRaidHistoryService
     {
+        private int _listCalls;
+
+        public Exception? ListFailure { get; init; }
+
+        public int ListCalls => Volatile.Read(ref _listCalls);
+
         public Task<Guid> StartAsync(RaidHistoryEntry raid, CancellationToken cancellationToken) =>
             Task.FromResult(raid.Id);
 
@@ -465,8 +541,13 @@ public sealed class ApplicationStartupCoordinatorTests
             string? notes,
             CancellationToken cancellationToken) => Task.CompletedTask;
 
-        public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
+        public Task<IReadOnlyList<RaidHistoryEntry>> ListAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _listCalls);
+            return ListFailure is { } failure
+                ? Task.FromException<IReadOnlyList<RaidHistoryEntry>>(failure)
+                : Task.FromResult<IReadOnlyList<RaidHistoryEntry>>([]);
+        }
 
         public Task<IReadOnlyList<ScreenshotPosition>> ListPositionsAsync(
             Guid raidId,

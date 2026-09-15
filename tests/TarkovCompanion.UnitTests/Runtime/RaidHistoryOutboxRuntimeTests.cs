@@ -348,6 +348,27 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task PayloadCannotWriteADifferentRaidThanItsLeasedAggregate()
+    {
+        var store = new AggregateTamperingStore();
+        var history = new RecordingHistory();
+        await using var outbox = new RaidHistoryOutbox(
+            history,
+            timeProvider: new ManualTimeProvider(Epoch),
+            store: store);
+
+        var accepted = await outbox.AcceptAsync(
+            [RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())],
+            default);
+        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.DeadLetters.Length == 1);
+
+        var deadLetter = Assert.Single(outbox.Snapshot.DeadLetters);
+        Assert.Equal(Assert.Single(accepted), deadLetter.OperationId);
+        Assert.Equal("outbox-aggregate-mismatch", deadLetter.LastFault!.Code.Value);
+        Assert.Empty(history.Types);
+    }
+
+    [Fact]
     public async Task ManualDeadLetterRetryDeliversAndClearsTheHealthEntry()
     {
         var history = new RecordingHistory { FailuresBeforeSuccess = 1 };
@@ -404,16 +425,20 @@ public sealed class RaidHistoryOutboxRuntimeTests
         var accepting = outbox.AcceptAsync([RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())], default);
         await store.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var disposing = outbox.DisposeAsync().AsTask();
+        var joiningDispose = outbox.DisposeAsync().AsTask();
         await RuntimeTestTasks.DrainAsync();
+        Assert.Same(disposing, joiningDispose);
         Assert.False(disposing.IsCompleted);
+        Assert.False(joiningDispose.IsCompleted);
 
         store.Release.TrySetResult();
         var accepted = await accepting.WaitAsync(TimeSpan.FromSeconds(30));
-        await disposing.WaitAsync(TimeSpan.FromSeconds(30));
+        await Task.WhenAll(disposing, joiningDispose).WaitAsync(TimeSpan.FromSeconds(30));
 
         Assert.Single(accepted);
         Assert.Equal(["state"], history.Types);
         Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
+        Assert.Same(disposing, outbox.DisposeAsync().AsTask());
         await Assert.ThrowsAsync<ObjectDisposedException>(() => outbox.AcceptAsync(
             [RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())],
             default));
@@ -452,6 +477,7 @@ public sealed class RaidHistoryOutboxRuntimeTests
         var accepting = outbox.AcceptAsync([RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())], default);
         await store.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var firstDispose = outbox.DisposeAsync().AsTask();
+        await RuntimeTestTasks.UntilAsync(() => time.NextTimerUtc == Epoch.AddSeconds(10));
         time.Advance(TimeSpan.FromSeconds(10));
         await firstDispose.WaitAsync(TimeSpan.FromSeconds(30));
 
@@ -699,6 +725,42 @@ public sealed class RaidHistoryOutboxRuntimeTests
             Interlocked.Decrement(ref _remaining) >= 0
                 ? Task.FromException<ImmutableArray<OutboxStoredItem>>(new IOException("private lease failure"))
                 : base.LeaseNextAsync(nowUtc, leaseDuration, maximumCount, cancellationToken);
+    }
+
+    private sealed class AggregateTamperingStore : DelegatingStore
+    {
+        public override async Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            int maximumCount,
+            CancellationToken cancellationToken)
+        {
+            var leased = await base.LeaseNextAsync(
+                    nowUtc,
+                    leaseDuration,
+                    maximumCount,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return [.. leased.Select(stored => stored with
+            {
+                Item = WithAggregate(stored.Item, new($"raid:{Guid.NewGuid():N}")),
+            })];
+        }
+
+        private static OutboxItem WithAggregate(OutboxItem item, OutboxAggregateId aggregateId) => new(
+            item.OperationId,
+            item.IdempotencyKey,
+            item.CorrelationId,
+            item.FeatureId,
+            item.Command,
+            item.Version,
+            aggregateId,
+            item.AggregateSequence,
+            item.CreatedUtc,
+            item.NotBeforeUtc,
+            item.ExpiresUtc,
+            item.Payload,
+            item.AttemptPolicy);
     }
 
     private sealed class BlockingEnqueueStore : DelegatingStore

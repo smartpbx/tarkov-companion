@@ -375,7 +375,9 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 _items.Values.Count(item => item.State == OutboxDeliveryState.DeadLetter),
                 _items.Values.Count(item => item.State == OutboxDeliveryState.Completed));
             var oldest = _items.Values
-                .Where(item => IsActive(item.State))
+                // Dead letters remain admitted work and keep their aggregate head blocked until
+                // an operator retries or resolves them, so they remain outstanding for health age.
+                .Where(item => item.State != OutboxDeliveryState.Completed)
                 .Select(item => (DateTimeOffset?)item.Item.CreatedUtc)
                 .Min();
             var age = oldest is null
@@ -518,11 +520,6 @@ public sealed class FixtureOutboxStore : IOutboxStore
             _idempotency.Remove(item.Item.IdempotencyKey);
         }
     }
-
-    private static bool IsActive(OutboxDeliveryState state) => state is
-        OutboxDeliveryState.Pending or
-        OutboxDeliveryState.Processing or
-        OutboxDeliveryState.Retrying;
 
     private static DateTimeOffset AddBounded(DateTimeOffset value, TimeSpan duration)
     {

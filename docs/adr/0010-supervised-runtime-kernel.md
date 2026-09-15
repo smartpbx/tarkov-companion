@@ -19,6 +19,9 @@ the dependency graph incrementally, publishes immutable revisioned snapshots, is
 feature faults, and exposes explicit degraded or failed state. Hard dependencies settle before a
 dependant starts. Optional dependencies never gate startup, including within one priority phase;
 if one later fails or is degraded, that state propagates through already-running dependants.
+Raid-history repair is hard-ordered after database initialization because it reads schema-bound
+tables, while observation depends on that repair only optionally so a visible repair failure does
+not prevent external, read-only observation from starting.
 
 ### Shutdown is bounded and truthful
 
@@ -45,7 +48,8 @@ can observe it, and once stopping has begun no feature may enter `Starting`. The
 therefore cannot pass a feature whose start is in flight: it waits for that start to return,
 stops the feature, and only then continues to that feature's dependencies. A start that exceeds
 its deadline is reported as the non-terminal `StartTimedOut`, and the feature is stopped once the
-callback finally returns before it settles as `Failed`.
+callback finally returns before it settles as `Failed`. A start callback that throws is also
+stopped during shutdown: failure does not prove that its synchronous prefix acquired no resource.
 
 Feature start and stop callbacks are scheduled before invocation. Their timeout is therefore
 armed even when a callback enters synchronous SQLite or CPU work before it returns a task, and a
@@ -66,7 +70,8 @@ a typed policy, deadline, cancellation ownership, and sanitized fault. Dependenc
 scheduled before invocation so synchronous prefixes cannot prevent a deadline being armed. Retry
 and circuit behavior consume `TimeProvider`, making delay, recovery, and half-open transitions
 deterministic in tests. Cancellation registrations are unregistered, never disposed, while the
-scheduler lock is held.
+scheduler lock is held. A cancelled half-open probe keeps its slot while an invocation ignores
+cancellation; only that retained invocation's actual return releases the slot.
 
 Restart modes mean exactly this:
 
@@ -123,7 +128,9 @@ encoded by its own reviewed codec into a record of plain values. There is no rou
 event JSON: the outbox refuses `RecordEventAsync`, payloads are read back with unmapped members,
 missing constructor arguments, and contract-violating nulls rejected, and free text that names a
 screenshot file is refused before acceptance. A position crosses as typed coordinates without its
-screenshot filename; delivery stores a stable per-command token in the filename's place.
+screenshot filename; delivery stores a stable per-command token in the filename's place. Before
+any target I/O, delivery also proves that the raid ID decoded from the payload matches the durable
+aggregate ID under which the row was leased.
 
 Acceptance is the publication boundary:
 
@@ -152,7 +159,8 @@ acceptance admission gate, so shutdown waits for an admitted operator decision a
 cannot mutate the store after shutdown has closed its wake signal. Because the supervisor,
 lifecycle, and delivery pump all publish from background threads, `RuntimeStateStore` linearizes
 each state replacement with its subscriber notification; the snapshot is still computed under its
-own lock, and no subscriber runs while that inner lock is held.
+own lock, and no subscriber runs while that inner lock is held. Oldest-outstanding age includes
+unresolved dead letters because they still consume admission and block their aggregate.
 
 Cancellation of an attempt that is still running is explicit. A wait can observe a caller's
 cancellation before a linked token has passed it on, and tearing the link down afterwards used to
@@ -167,7 +175,9 @@ caller hostage.
 This change includes an in-process bounded fixture store only. Its capacity bounds unresolved
 work, including dead letters; completed rows have a separate bounded retention window. A dead
 letter keeps its aggregate ordered and consumes admission until it is retried or explicitly
-resolved. #270 owns the SQLite implementation, migrations,
+resolved. Concurrent outbox disposal callers join one retained bounded attempt; if that attempt
+returns non-terminal, a later call may retry after the still-owned work settles. #270 owns the
+SQLite implementation, migrations,
 crash/restart durability, retention, the target-side operation ledger, and durable aggregate
 sequence allocation, which the process-local sequence here cannot provide across restart. #271
 moves capture producers onto the supervisor, #281 owns presenting delivery health and the

@@ -184,7 +184,7 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 return OperationExecutionResult<T>.Failure(lastFault, attempt - 1, startedUtc, now);
             }
 
-            if (!circuit.TryAcquire(now))
+            if (!circuit.TryAcquire(now, out var ownsHalfOpenProbe))
             {
                 lastFault = RuntimeFault.CircuitOpen(_timeProvider, reference);
                 return OperationExecutionResult<T>.Failure(lastFault, attempt - 1, startedUtc, now);
@@ -196,6 +196,7 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 : request.Policy.AttemptTimeout;
             var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Task<T>? pending = null;
+            var releaseProbeWhenAttemptSettles = false;
             try
             {
                 var attemptContext = new OperationAttemptContext(request, attempt, now);
@@ -243,11 +244,10 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        // Caller cancelled: classify as Cancelled and release any half-open probe
-                        // without touching the circuit's counters or state. Nothing is known about
-                        // whether the dependency itself is healthy.
+                        // Caller cancellation says nothing about dependency health. An ignored
+                        // invocation still owns a half-open probe until it actually returns.
                         lastFault = RuntimeFault.FromException(exception, _timeProvider, reference);
-                        circuit.ReleaseProbe();
+                        releaseProbeWhenAttemptSettles = ownsHalfOpenProbe;
                     }
                     else
                     {
@@ -290,6 +290,18 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             else
             {
                 attemptCancellation.Dispose();
+            }
+
+            if (releaseProbeWhenAttemptSettles)
+            {
+                if (unfinished is null)
+                {
+                    circuit.ReleaseProbe();
+                }
+                else
+                {
+                    unfinished = ReleaseProbeWhenFinishedAsync(unfinished, circuit);
+                }
             }
 
             if (!CanRetry(request, lastFault) || attempt == request.Policy.MaxAttempts)
@@ -400,6 +412,20 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
         }
     }
 
+    private static async Task ReleaseProbeWhenFinishedAsync(
+        Task unfinishedAttempt,
+        DependencyCircuitBreaker circuit)
+    {
+        try
+        {
+            await unfinishedAttempt.ConfigureAwait(false);
+        }
+        finally
+        {
+            circuit.ReleaseProbe();
+        }
+    }
+
     private DependencyCircuitBreaker CircuitFor(OperationExecutionRequest request)
     {
         lock (_gate)
@@ -476,10 +502,11 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             }
         }
 
-        public bool TryAcquire(DateTimeOffset now)
+        public bool TryAcquire(DateTimeOffset now, out bool ownsHalfOpenProbe)
         {
             lock (_gate)
             {
+                ownsHalfOpenProbe = false;
                 if (_state == CircuitState.Open && now >= _openUntilUtc)
                 {
                     _state = CircuitState.HalfOpen;
@@ -494,6 +521,7 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 if (_state == CircuitState.HalfOpen)
                 {
                     _probeInProgress = true;
+                    ownsHalfOpenProbe = true;
                 }
 
                 return true;
@@ -519,7 +547,10 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
         {
             lock (_gate)
             {
-                _probeInProgress = false;
+                if (_state == CircuitState.HalfOpen)
+                {
+                    _probeInProgress = false;
+                }
             }
         }
 

@@ -98,6 +98,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
     private bool _processorStopping;
     private bool _disposing;
     private bool _disposed;
+    private Task? _disposeTask;
 
     public RaidHistoryOutbox(
         IRaidHistoryService inner,
@@ -449,22 +450,31 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         return true;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         lock (_gate)
         {
-            if (_disposed || _disposing)
+            if (_disposeTask is { } currentAttempt
+                && (_disposing || !currentAttempt.IsCompleted || _disposed))
             {
-                return;
+                return new(currentAttempt);
             }
 
             _disposing = true;
             _accepting = false;
             _pumpState = OutboxPumpState.Stopping;
+            // The core yields before touching collaborators, so callbacks cannot run while this
+            // gate is held. Every concurrent caller then joins this exact bounded attempt.
+            _disposeTask = DisposeCoreAsync();
+            return new(_disposeTask);
         }
+    }
 
+    private async Task DisposeCoreAsync()
+    {
         try
         {
+            await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
             PublishChanged();
             var stopDeadlineUtc = AddBounded(_timeProvider.GetUtcNow(), StopTimeout);
 
@@ -1282,6 +1292,19 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                 throw new RuntimeFaultException(new(
                     RuntimeFailureKind.Validation,
                     new("outbox-payload-invalid"),
+                    RuntimeRecoveryAction.None,
+                    new($"operation:{context.OperationId}"),
+                    item.CreatedUtc));
+            }
+
+            var expectedAggregateId = new OutboxAggregateId($"raid:{command.RaidId:N}");
+            if (item.AggregateId != expectedAggregateId)
+            {
+                // The durable row is the sequencing authority. Never let a corrupted row lease
+                // under aggregate A while its payload performs target I/O against raid B.
+                throw new RuntimeFaultException(new(
+                    RuntimeFailureKind.Validation,
+                    new("outbox-aggregate-mismatch"),
                     RuntimeRecoveryAction.None,
                     new($"operation:{context.OperationId}"),
                     item.CreatedUtc));

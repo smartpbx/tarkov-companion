@@ -594,7 +594,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             new(
                 raidHistoryRepair,
                 FeatureStartupPriority.WorkspaceCritical,
-                [new(database, FeatureDependencyKind.Optional)],
+                // Repair reads and writes raid-history tables. It cannot race schema creation:
+                // a missing table is a repair failure, not evidence that there was nothing to do.
+                [new(database, FeatureDependencyKind.Hard)],
                 _raidActivityCoordinator.CloseAbandonedAsync),
             new(
                 new("observation"),
