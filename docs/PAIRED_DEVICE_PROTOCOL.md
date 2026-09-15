@@ -716,7 +716,8 @@ the executable model:
 | Update whose global revision is not exactly the next, or whose aggregate revision is not exactly the next | Resync required. |
 | Next update | Replaces that aggregate and advances the global revision. |
 | Acknowledgement carrying same-epoch canonical state | Applies only when it dominates the cache; stale state is ignored and divergent state requires resync. |
-| Other acknowledgement or deprecation notice | Advances the position. |
+| Acknowledgement without canonical state | Advances the position only when its global revision and any applied aggregate cursor are already reflected; leading or forked state requires resync. |
+| Deprecation notice | Advances the position. |
 
 A replica requiring resync sends `ReconnectRequest` on the live session.
 

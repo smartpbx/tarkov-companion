@@ -344,6 +344,12 @@ public sealed record CanonicalReplica
             }
         }
 
+        if (message is CommandAcknowledgementMessage { Acknowledgement: var acknowledgement } &&
+            !AcknowledgementIsReflected(acknowledgement, State!))
+        {
+            return RequireResync("acknowledgement-state-diverges");
+        }
+
         switch (message)
         {
             case CanonicalUpdateMessage { Update: var update }:
@@ -508,6 +514,31 @@ public sealed record CanonicalReplica
         ProfilePreferencesCanonicalUpdate preferences => JsonEqual(preferences.State, state.ProfilePreferences),
         _ => throw new ArgumentOutOfRangeException(nameof(update)),
     };
+
+    /// <summary>
+    /// An acknowledgement without a snapshot may describe only state the replica already holds.
+    /// Delivery order puts the corresponding update first; accepting an acknowledgement that leads
+    /// or forks the cache would consume its sequence while leaving the tablet silently stale.
+    /// </summary>
+    private static bool AcknowledgementIsReflected(
+        CommandAcknowledgement acknowledgement,
+        CanonicalCompanionState state)
+    {
+        if (acknowledgement.GlobalRevision.Value > state.GlobalRevision.Value)
+        {
+            return false;
+        }
+
+        if (acknowledgement.Disposition != CommandDisposition.Applied)
+        {
+            return true;
+        }
+
+        var cursor = state.Cursor(acknowledgement.Aggregate);
+        return acknowledgement.AppliedRevision.Value < cursor.Revision.Value ||
+               (acknowledgement.AppliedRevision == cursor.Revision &&
+                acknowledgement.AppliedChangeId == cursor.LastChangeId);
+    }
 
     private static bool JsonEqual<T>(T left, T right) =>
         JsonSerializer.SerializeToUtf8Bytes(left, CompanionProtocolJson.Options)

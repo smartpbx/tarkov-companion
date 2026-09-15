@@ -416,6 +416,39 @@ public sealed class DeliveryAndReconnectTests
     }
 
     [Fact]
+    public void AcknowledgementsWithoutStateCannotLeadOrForkTheReplica()
+    {
+        var flow = Flow.Create();
+        var initial = flow.ReplicaThrough(1);
+        var afterMode = flow.ReplicaThrough(2);
+        var modeAcknowledgement = Assert.IsType<CommandAcknowledgementMessage>(flow.Envelope(3).Message);
+        var leading = Observe(
+            initial,
+            Delivered(2, modeAcknowledgement, TabletDevice));
+        var forkedAcknowledgement = new CommandAcknowledgement(
+            Command(799),
+            CanonicalAggregateKind.DeviceModes,
+            new AggregateRevision(1),
+            new AggregateRevision(1),
+            Command(799),
+            new GlobalRevision(1),
+            flow.Final.AuthorityEpoch,
+            CommandDisposition.Applied,
+            "malformed-applied-acknowledgement",
+            null);
+        var forked = Observe(
+            afterMode,
+            Delivered(3, new CommandAcknowledgementMessage(forkedAcknowledgement), TabletDevice));
+
+        Assert.Equal(ReplicaDisposition.ResyncRequired, leading.Disposition);
+        Assert.Equal("acknowledgement-state-diverges", leading.Code);
+        Assert.Equal(1, leading.Replica.LastDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, forked.Disposition);
+        Assert.Equal("acknowledgement-state-diverges", forked.Code);
+        Assert.Equal(2, forked.Replica.LastDeliverySequence.Value);
+    }
+
+    [Fact]
     public void ReconnectResponseTimeAdvancesTheReplicaRollbackFence()
     {
         var flow = Flow.Create();
