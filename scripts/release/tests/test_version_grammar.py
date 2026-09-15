@@ -40,9 +40,13 @@ ORDER = ["1.0.0-0", "1.0.0-B", "1.0.0-a", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0
 def updater_functions() -> str:
     source = (ROOT / "deploy/group-server/tarkov-group-update.sh").read_text(encoding="utf-8")
     pattern = "\n".join(line for line in source.splitlines()
-                        if line.startswith(("readonly PRERELEASE_IDENTIFIER=", "readonly VERSION_PATTERN=")))
-    function = re.search(r"^semver_less\(\) \{.*?^\}\n", source, re.S | re.M).group(0)
-    return f"export LC_ALL=C\n{pattern}\n{function}"
+                        if line.startswith(("readonly MAX_SEMVER_NUMBER=", "readonly PRERELEASE_IDENTIFIER=",
+                                            "readonly VERSION_PATTERN=")))
+    functions = "\n".join(
+        re.search(rf"^{name}\(\) \{{.*?^\}}\n", source, re.S | re.M).group(0)
+        for name in ("decimal_at_most", "valid_semver", "semver_less")
+    )
+    return f"export LC_ALL=C\n{pattern}\n{functions}"
 
 
 def bash(script: str, *arguments: str) -> subprocess.CompletedProcess[str]:
