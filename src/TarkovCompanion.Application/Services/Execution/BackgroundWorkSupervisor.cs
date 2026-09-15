@@ -573,7 +573,7 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
                     }
 
                     registration.Unregister();
-                    StartRun(item);
+                    item.RunTask = ExecuteItemAsync(item);
                     PublishChanged();
                 }
             }
@@ -582,14 +582,6 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         {
         }
     }
-
-    /// <summary>Starts one run of an item.</summary>
-    /// <remarks>
-    /// The run is supervised through <c>WorkItem.RunCompletion</c>, which it completes in a
-    /// finally block and which stop and history trimming both consult. Its own task never
-    /// faults, so there is nothing further to observe here.
-    /// </remarks>
-    private void StartRun(WorkItem item) => ExecuteItemAsync(item);
 
     private async Task ExecuteItemAsync(WorkItem item)
     {
@@ -1120,7 +1112,15 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         public CancellationTokenRegistration CancellationRegistration { get; set; }
 
         /// <summary>The current or most recent run, completed only once its user work returned.</summary>
+        /// <remarks>
+        /// Created under the scheduler lock before the run starts, so a stop taken at any moment
+        /// sees every run that exists; the run completes it in a finally block.
+        /// </remarks>
         public TaskCompletionSource? RunCompletion { get; set; }
+
+        /// <summary>The run itself, retained for its lifetime. It never faults; stop observes
+        /// <see cref="RunCompletion"/>.</summary>
+        public Task? RunTask { get; set; }
 
         public BackgroundWorkSnapshot Snapshot() => new(
             Request.Execution.FeatureId,
