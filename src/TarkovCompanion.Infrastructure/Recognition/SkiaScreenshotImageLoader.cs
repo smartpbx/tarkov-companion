@@ -1,5 +1,4 @@
 using SkiaSharp;
-using System.Security.Cryptography;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Domain.Recognition;
 
@@ -16,10 +15,7 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 /// a second of its creation. A partial read comes back as a decode failure rather than as
 /// garbage, and the caller treats that as nothing to scan.
 /// </remarks>
-public sealed class SkiaScreenshotImageLoader(
-    TimeProvider? timeProvider = null,
-    int maximumAttempts = 4,
-    TimeSpan? retryDelay = null) : IScreenshotImageLoader
+public sealed class SkiaScreenshotImageLoader : IScreenshotImageLoader
 {
     /// <summary>
     /// The largest picture worth decoding, in pixels.
@@ -31,114 +27,24 @@ public sealed class SkiaScreenshotImageLoader(
     /// running the game.
     /// </remarks>
     private const long MaximumPixels = 40_000_000;
-    private const long MaximumEncodedBytes = 256L * 1024 * 1024;
-    private const FileAttributes CloudPlaceholderAttributes =
-        FileAttributes.Offline | (FileAttributes)0x00040000 | (FileAttributes)0x00400000;
-    private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
-    private readonly int _maximumAttempts = maximumAttempts is >= 1 and <= 16
-        ? maximumAttempts
-        : throw new ArgumentOutOfRangeException(nameof(maximumAttempts));
-    private readonly TimeSpan _retryDelay = retryDelay is { } delay
-        ? delay >= TimeSpan.Zero && delay <= TimeSpan.FromSeconds(5)
-            ? delay
-            : throw new ArgumentOutOfRangeException(nameof(retryDelay))
-        : TimeSpan.FromMilliseconds(100);
 
     public async Task<CapturedImage?> LoadAsync(string path, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        for (var attempt = 1; attempt <= _maximumAttempts; attempt++)
-        {
-            byte[]? bytes = null;
-            try
-            {
-                var read = await ReadStableAsync(path, cancellationToken).ConfigureAwait(false);
-                if (read is not null)
-                {
-                    bytes = read.Value.Bytes;
-                    var decoded = Decode(bytes, read.Value.WrittenUtc);
-                    if (decoded is not null)
-                    {
-                        return decoded;
-                    }
-                }
-            }
-            catch (Exception exception) when (exception is IOException
-                                              or UnauthorizedAccessException
-                                              or OutOfMemoryException)
-            {
-            }
-            finally
-            {
-                if (bytes is not null)
-                {
-                    CryptographicOperations.ZeroMemory(bytes);
-                }
-            }
-
-            if (attempt < _maximumAttempts && _retryDelay > TimeSpan.Zero)
-            {
-                await Task.Delay(_retryDelay, _timeProvider, cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task<(byte[] Bytes, DateTimeOffset WrittenUtc)?> ReadStableAsync(
-        string path,
-        CancellationToken cancellationToken)
-    {
-        var before = new FileInfo(path);
-        before.Refresh();
-        if (!before.Exists || before.Length is <= 0 or > MaximumEncodedBytes
-            || (before.Attributes & CloudPlaceholderAttributes) != 0)
-        {
-            return null;
-        }
-
-        var expectedLength = before.Length;
-        var expectedWriteUtc = before.LastWriteTimeUtc;
-        if (expectedLength > int.MaxValue)
-        {
-            return null;
-        }
-
-        var bytes = GC.AllocateUninitializedArray<byte>((int)expectedLength);
         try
         {
-            await using var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete,
-                bufferSize: 64 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
-            if (stream.Length != expectedLength)
-            {
-                CryptographicOperations.ZeroMemory(bytes);
-                return null;
-            }
-
-            await stream.ReadExactlyAsync(bytes, cancellationToken).ConfigureAwait(false);
-            var after = new FileInfo(path);
-            after.Refresh();
-            if (!after.Exists || after.Length != expectedLength || after.LastWriteTimeUtc != expectedWriteUtc)
-            {
-                CryptographicOperations.ZeroMemory(bytes);
-                return null;
-            }
-
-            return (bytes, new DateTimeOffset(expectedWriteUtc, TimeSpan.Zero));
+            var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            return Decode(bytes, path);
         }
-        catch
+        catch (Exception exception) when (exception is IOException
+                                          or UnauthorizedAccessException
+                                          or OutOfMemoryException)
         {
-            CryptographicOperations.ZeroMemory(bytes);
-            throw;
+            return null;
         }
     }
 
-    private static CapturedImage? Decode(byte[] bytes, DateTimeOffset writtenUtc)
+    private static CapturedImage? Decode(byte[] bytes, string path)
     {
         using var data = SKData.CreateCopy(bytes);
         using var codec = SKCodec.Create(data);
@@ -155,9 +61,7 @@ public sealed class SkiaScreenshotImageLoader(
 
         var target = new SKImageInfo(info.Width, info.Height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using var bitmap = new SKBitmap(target);
-        // IncompleteInput used to be accepted and sent a truncated or black frame into OCR.
-        // It is a retry signal: only a decoder-confirmed complete image crosses this boundary.
-        if (codec.GetPixels(target, bitmap.GetPixels()) != SKCodecResult.Success)
+        if (codec.GetPixels(target, bitmap.GetPixels()) is not (SKCodecResult.Success or SKCodecResult.IncompleteInput))
         {
             return null;
         }
@@ -169,7 +73,7 @@ public sealed class SkiaScreenshotImageLoader(
             target.Height,
             target.RowBytes,
             PixelFormat.Bgra8888,
-            writtenUtc,
+            File.GetLastWriteTimeUtc(path),
             "game screenshot");
     }
 }
