@@ -11,16 +11,16 @@ namespace TarkovCompanion.Infrastructure.Diagnostics;
 /// prove it found every variant. This closed record carries only operational categories and
 /// bounded numbers. Persistence is intentionally left to the v2 persistence contract (#270).
 /// </remarks>
-public sealed record SanitizedDiagnosticEvent(
-    DiagnosticEventKind Kind,
-    DiagnosticCorrelationId CorrelationId,
-    DateTimeOffset OccurredUtc,
-    DiagnosticOutcome Outcome,
-    DiagnosticFailureCode Failure,
-    int? DurationMilliseconds = null,
-    int? Attempt = null)
+public sealed record SanitizedDiagnosticEvent
 {
-    public SanitizedDiagnosticEvent
+    public SanitizedDiagnosticEvent(
+        DiagnosticEventKind Kind,
+        DiagnosticCorrelationId CorrelationId,
+        DateTimeOffset OccurredUtc,
+        DiagnosticOutcome Outcome,
+        DiagnosticFailureCode Failure,
+        int? DurationMilliseconds = null,
+        int? Attempt = null)
     {
         if (OccurredUtc.Offset != TimeSpan.Zero)
         {
@@ -36,7 +36,29 @@ public sealed record SanitizedDiagnosticEvent(
         {
             throw new ArgumentOutOfRangeException(nameof(Attempt));
         }
+
+        this.Kind = Kind;
+        this.CorrelationId = CorrelationId;
+        this.OccurredUtc = OccurredUtc;
+        this.Outcome = Outcome;
+        this.Failure = Failure;
+        this.DurationMilliseconds = DurationMilliseconds;
+        this.Attempt = Attempt;
     }
+
+    public DiagnosticEventKind Kind { get; }
+
+    public DiagnosticCorrelationId CorrelationId { get; }
+
+    public DateTimeOffset OccurredUtc { get; }
+
+    public DiagnosticOutcome Outcome { get; }
+
+    public DiagnosticFailureCode Failure { get; }
+
+    public int? DurationMilliseconds { get; }
+
+    public int? Attempt { get; }
 }
 
 public enum DiagnosticEventKind
@@ -110,20 +132,24 @@ public readonly record struct DiagnosticCorrelationId
 /// <summary>
 /// A bounded, already-sanitized recovery note that a #270 storage adapter may persist.
 /// </summary>
-public sealed record CrashRecoveryState(IReadOnlyList<SanitizedDiagnosticEvent> Events)
+public sealed record CrashRecoveryState
 {
     public const int MaximumEvents = 12;
 
     public static CrashRecoveryState Empty { get; } = new([]);
 
-    public CrashRecoveryState
+    public CrashRecoveryState(IReadOnlyList<SanitizedDiagnosticEvent> Events)
     {
         ArgumentNullException.ThrowIfNull(Events);
         if (Events.Count > MaximumEvents || Events.Any(diagnosticEvent => diagnosticEvent is null))
         {
             throw new ArgumentOutOfRangeException(nameof(Events));
         }
+
+        this.Events = Events;
     }
+
+    public IReadOnlyList<SanitizedDiagnosticEvent> Events { get; }
 
     public CrashRecoveryState Add(SanitizedDiagnosticEvent diagnosticEvent)
     {
