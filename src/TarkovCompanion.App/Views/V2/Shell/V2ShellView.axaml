@@ -11,6 +11,9 @@
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Border}" />
       <Setter Property="BorderThickness" Value="2" />
     </Style>
+    <Style Selector="Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter">
+      <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
+    </Style>
     <Style Selector="Button.v2-destination.selected">
       <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Action}" />
@@ -173,7 +176,12 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.LandmarkType="Main"
               AutomationProperties.Name="{Binding MainRegionName}">
-          <ScrollViewer Grid.Column="0" IsVisible="{Binding ShowsPrimaryContent}" HorizontalScrollBarVisibility="Disabled">
+          <!-- Legacy pages already own their scrolling and need a finite viewport, especially
+               the Raid map. Keep the small V2 heading/state strip in the auto row and place the
+               legacy page in the remaining row instead of nesting it in another ScrollViewer. -->
+          <Grid Grid.Column="0" IsVisible="{Binding ShowsPrimaryContent}" RowDefinitions="Auto,*">
+          <ScrollViewer Grid.Row="0" Grid.RowSpan="{Binding ShellBodyRowSpan}"
+                        HorizontalScrollBarVisibility="Disabled">
             <StackPanel Classes="v2-page">
               <TextBlock x:Name="PageHeading" Classes="v2-heading-2" Focusable="True"
                          AutomationProperties.AutomationId="v2-shell-page-heading"
@@ -270,10 +278,10 @@
                   </ItemsControl>
                 </StackPanel>
               </Border>
-
-              <ContentControl IsVisible="{Binding ShowsLegacyPage}" Content="{Binding Legacy.CurrentPage}" />
             </StackPanel>
           </ScrollViewer>
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding Legacy.CurrentPage}" />
+          </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
                narrow width it spans the content and replaces it. In A it is the Intel workspace. -->

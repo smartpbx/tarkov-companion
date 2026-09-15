@@ -62,7 +62,8 @@ public sealed class V2ShellHostContractTests
         foreach (var binding in new[]
         {
             "UsesRailNavigation", "UsesRowNavigation", "ShowsHeaderSetup", "ShowsSeparatedSetup",
-            "ShowsHeaderSearch", "ShowsWorkspaceSearch", "ShowsPrimaryContent", "IntelColumn", "IntelColumnSpan",
+            "ShowsHeaderSearch", "ShowsWorkspaceSearch", "ShowsPrimaryContent", "ShellBodyRowSpan",
+            "IntelColumn", "IntelColumnSpan",
         })
         {
             Assert.Contains($"{{Binding {binding}}}", shell, StringComparison.Ordinal);
@@ -73,7 +74,9 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("v2-shell-navigation-rail", shell, StringComparison.Ordinal);
         Assert.Contains("v2-shell-navigation-row", shell, StringComparison.Ordinal);
         Assert.Contains("<Style Selector=\"Button.v2-destination\">", shell, StringComparison.Ordinal);
+        Assert.Contains("Button.v2-destination /template/ ContentPresenter#PART_ContentPresenter", shell, StringComparison.Ordinal);
         Assert.Contains("Changing border geometry", shell, StringComparison.Ordinal);
+        Assert.Contains("<ContentControl Grid.Row=\"1\" IsVisible=\"{Binding ShowsLegacyPage}\"", shell, StringComparison.Ordinal);
     }
 
     [Fact]

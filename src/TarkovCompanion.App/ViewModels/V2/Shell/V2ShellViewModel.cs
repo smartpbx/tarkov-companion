@@ -291,6 +291,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool ShowsWorkspaceSearch => Variant.SearchPlacement == V2SearchPlacement.InsideItemsWorkspace &&
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
+    public int ShellBodyRowSpan => ShowsLegacyPage ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -787,7 +788,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsReadiness), nameof(ShowsContinue),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShellBodyRowSpan),
+            nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),
             nameof(SurfaceIsReady), nameof(SurfaceIsLoading), nameof(SurfaceIsUnknown), nameof(SurfaceIsOffline),
