@@ -318,19 +318,24 @@ function Invoke-Verification([string] $Path) {
     # a terminating error under "Stop", so the exit code is the only verdict read here.
     $Previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $ExitCode = -1
     try {
-        # Seed the automatic variable so a host that opens rather than executes the file cannot
-        # reuse a stale success or fail later with an unrelated StrictMode error.
-        $LASTEXITCODE = -1
-        & $StagedCosign verify-blob `
-            --bundle "$Path.sigstore.json" `
-            --trusted-root $StagedTrustRoot `
-            --certificate-identity $Identity `
-            --certificate-oidc-issuer $Issuer `
-            --certificate-github-workflow-repository $SignerRepository `
-            --certificate-github-workflow-ref $SignerRef `
-            $Path *> $null
-        $ExitCode = $LASTEXITCODE
+        try {
+            & $StagedCosign verify-blob `
+                --bundle "$Path.sigstore.json" `
+                --trusted-root $StagedTrustRoot `
+                --certificate-identity $Identity `
+                --certificate-oidc-issuer $Issuer `
+                --certificate-github-workflow-repository $SignerRepository `
+                --certificate-github-workflow-ref $SignerRef `
+                $Path *> $null
+            # LASTEXITCODE is an automatic variable in the caller's scope. Assigning it in this
+            # function shadows the value PowerShell updates after a native .cmd or executable.
+            $ExitCode = $LASTEXITCODE
+        } catch {
+            # A verifier that cannot be launched is indistinguishable from a failed signature.
+            $ExitCode = -1
+        }
     } finally {
         $ErrorActionPreference = $Previous
     }

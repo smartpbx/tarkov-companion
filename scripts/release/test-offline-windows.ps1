@@ -35,12 +35,19 @@ exit /b 0
 "@ | Set-Content -LiteralPath (Join-Path $Bundle $InstallerName) -Encoding ascii
 
     $Cosign = Join-Path $Root "cosign.cmd"
-    "@echo off`r`nexit /b 0`r`n" | Set-Content -LiteralPath $Cosign -Encoding ascii
+    @"
+@echo off
+setlocal
+if defined FAKE_COSIGN_EXECUTABLE_LOG echo %~f0>>"%FAKE_COSIGN_EXECUTABLE_LOG%"
+if /I "%FAKE_COSIGN_MODE%"=="reject" exit /b 23
+exit /b 0
+"@ | Set-Content -LiteralPath $Cosign -Encoding ascii
     $Trust = Join-Path $Root "trusted-root.json"
     '{"mediaType":"fixture-trusted-root"}' | Set-Content -LiteralPath $Trust -Encoding utf8
     & python $FixtureScript --bundle $Bundle --installer $InstallerName --version $Version --commit $Commit --feed $Feed
     if ($LASTEXITCODE -ne 0) { throw "Creating the Windows offline fixture failed." }
     $CosignDigest = (Get-FileHash -LiteralPath $Cosign -Algorithm SHA256).Hash.ToLowerInvariant()
+    $CosignLog = Join-Path $Root "cosign-executables.log"
 
     function Invoke-InstallerCase([string] $Mode, [bool] $SeedOldBuild) {
         if (Test-Path -LiteralPath $Install) { Remove-Item -LiteralPath $Install -Recurse -Force }
@@ -55,6 +62,8 @@ exit /b 0
         $env:FAKE_INSTALL_MODE = $Mode
         $env:FAKE_INSTALL_VERSION = $Version
         $env:FAKE_INSTALL_COMMIT = $Commit
+        $env:FAKE_COSIGN_EXECUTABLE_LOG = $CosignLog
+        $env:FAKE_COSIGN_MODE = if ($Mode -ceq "reject-signature") { "reject" } else { "accept" }
         $Stdout = Join-Path $Root "$Mode.out.txt"
         $Stderr = Join-Path $Root "$Mode.err.txt"
         $Arguments = @(
@@ -73,6 +82,11 @@ exit /b 0
 
     $Installed = Invoke-InstallerCase "install" $false
     if ($Installed.ExitCode -ne 0) { throw "Windows offline install failed: $($Installed.Output)" }
+    $CosignExecutions = @(Get-Content -LiteralPath $CosignLog)
+    if ($CosignExecutions.Count -ne 3 -or
+        @($CosignExecutions | Where-Object { $_ -ceq $Cosign -or (Test-Path -LiteralPath $_) }).Count -ne 0) {
+        throw "Windows did not execute exactly three cleaned-up private verifier copies: $($CosignExecutions -join ' | ')"
+    }
     $Identity = Get-Content -LiteralPath (Join-Path $Install "current/BUILD_INFO.txt") -Raw
     if ($Identity -cnotmatch "version=$Version" -or $Identity -cnotmatch "commit=$Commit") {
         throw "Windows offline install did not leave the requested identity."
@@ -82,6 +96,10 @@ exit /b 0
         if ($Refused.ExitCode -eq 0 -or $Refused.Output -notmatch "installed identity") {
             throw "The Windows offline installer did not refuse the $Mode fixture: $($Refused.Output)"
         }
+    }
+    $RejectedSignature = Invoke-InstallerCase "reject-signature" $false
+    if ($RejectedSignature.ExitCode -eq 0 -or $RejectedSignature.Output -notmatch "does not verify") {
+        throw "The Windows offline installer ignored the verifier's native failure: $($RejectedSignature.Output)"
     }
     & python $FixtureScript --bundle $Bundle --installer $InstallerName --version $Version --commit $Commit `
         --feed $Feed --inconsistent-rollback
