@@ -144,7 +144,7 @@ public sealed partial class V2ShellView : UserControl
         }
     }
 
-    private void ShellGotFocus(object? sender, GotFocusEventArgs eventArgs)
+    private void ShellGotFocus(object? sender, FocusChangedEventArgs eventArgs)
     {
         if (eventArgs.Source is not StyledElement focused)
         {
