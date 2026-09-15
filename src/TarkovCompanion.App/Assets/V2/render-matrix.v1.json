@@ -1,0 +1,46 @@
+{
+  "matrix": "v2-primitive-gallery",
+  "version": 1,
+  "status": "unrendered",
+  "evidenceOwner": "#279",
+  "purpose": "The cases the native primitive gallery must be rendered, inspected, and approved at. Nothing in CI renders, lays out, or captures these cases; this file is the checklist that evidence has to cover, not the evidence.",
+  "determinism": "Synthetic resource-backed strings only; no clock, network data, animation frame, font fallback, or OS-specific capture is accepted.",
+  "variants": ["Dark", "Light", "HighContrast", "DarkRedGreenSafe", "LightRedGreenSafe", "DarkBlueYellowSafe", "LightBlueYellowSafe", "DarkMonochrome", "LightMonochrome"],
+  "elements": {
+    "heading": ["v2-page-heading"],
+    "status": ["v2-state-banner", "v2-status-badge"],
+    "why": ["v2-why-disclosure"],
+    "field": ["v2-field-error-input"],
+    "toolbar": ["v2-toolbar"],
+    "card": ["v2-empty-state"],
+    "table": ["v2-semantic-table"],
+    "legend": ["v2-map-legend", "v2-chart-legend"],
+    "pairedDevice": ["v2-paired-device"],
+    "captureQueue": ["v2-capture-queue"],
+    "liveRegion": ["v2-live-polite", "v2-live-assertive"],
+    "touchTargets": ["v2-touch-target"],
+    "focusRing": ["v2-toolbar-open", "v2-field-error-input"]
+  },
+  "cases": [
+    { "id": "desktop-100-expanded", "textScale": 100, "effectiveWidth": "expanded", "mustShow": ["heading", "toolbar", "card", "table", "legend", "why"] },
+    { "id": "desktop-125-standard", "textScale": 125, "effectiveWidth": "standard", "mustShow": ["heading", "status", "captureQueue", "pairedDevice"] },
+    { "id": "desktop-150-compact", "textScale": 150, "effectiveWidth": "compact", "mustShow": ["status", "field", "table", "liveRegion"] },
+    { "id": "desktop-200-narrow", "textScale": 200, "effectiveWidth": "narrow", "mustShow": ["heading", "toolbar", "touchTargets", "legend", "focusRing"] },
+    { "id": "tablet-100-narrow", "textScale": 100, "effectiveWidth": "narrow", "mustShow": ["touchTargets", "pairedDevice", "captureQueue"] }
+  ],
+  "notInGallery": {
+    "owner": "#266",
+    "reason": "The gallery is one fixed column with no width-driven layout, no horizontally scrolling table, and no ordered map or chart data list, so no case can capture these until a later #266 change adds them.",
+    "elements": ["stackedCards", "singleColumnReflow", "tableOverflowAffordance", "orderedDataAlternative"]
+  },
+  "treeExpectations": [
+    "one level-1 heading",
+    "a named Main landmark in the control view",
+    "every gallery automation id in the control view with a name",
+    "the state banner named with its tone word and title",
+    "polite and assertive live-region text elements",
+    "each table row exposed as a named group",
+    "the toolbar exposed as a ToolBar",
+    "no decorative glyph or outline in the control view"
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "manifest": "tarkov-companion.v2.semantic-ui",
+  "version": "1.0.0",
+  "purpose": "Platform-neutral meaning and accessibility contract. Platform adapters supply pixels, controls, and operating-system integration.",
+  "platformBoundary": {
+    "shared": ["semantic roles", "state wording", "redundant cues", "provenance requirements", "automation-name template keys", "responsive intent"],
+    "excluded": ["Avalonia classes", "CSS", "breakpoints", "focus-ring pixels", "screenshots", "game interaction"]
+  },
+  "tokens": {
+    "color": ["canvas", "surface", "surfaceRaised", "textPrimary", "textSecondary", "border", "action", "focus", "success", "warning", "danger", "info", "unknown"],
+    "chart": ["series1", "series2", "series3", "series4"],
+    "map": ["historical", "modelled", "manual", "unavailable"],
+    "type": ["heading1", "heading2", "heading3", "body", "label"],
+    "space": ["xs", "sm", "md", "lg", "xl"],
+    "shape": ["control", "card"],
+    "elevation": ["flat", "raised", "dialog"],
+    "focus": ["indicator"],
+    "motion": ["full", "reduced"],
+    "density": ["compact", "standard", "comfortable"],
+    "target": ["desktop", "touch"]
+  },
+  "variants": {
+    "appearance": ["system", "light", "dark", "highContrast"],
+    "colorVision": ["standard", "redGreenSafe", "blueYellowSafe", "monochrome"],
+    "motion": ["system", "reduced", "full"],
+    "density": ["compact", "standard", "comfortable"]
+  },
+  "status": {
+    "axes": {
+      "availability": {
+        "default": null,
+        "values": [
+          { "id": "ready", "wordingKey": "V2.String.Availability.Ready", "glyph": "check", "border": "solid" },
+          { "id": "loading", "wordingKey": "V2.String.Availability.Loading", "glyph": "quarterCircle", "border": "dashDot" },
+          { "id": "unknown", "wordingKey": "V2.String.Availability.Unknown", "glyph": "question", "border": "dotted" },
+          { "id": "unavailable", "wordingKey": "V2.String.Availability.Unavailable", "glyph": "minus", "border": "dashed" },
+          { "id": "offline", "wordingKey": "V2.String.Availability.Offline", "glyph": "slashedCircle", "border": "dashed" },
+          { "id": "denied", "wordingKey": "V2.String.Availability.Denied", "glyph": "circledMinus", "border": "solid" },
+          { "id": "failed", "wordingKey": "V2.String.Availability.Failed", "glyph": "cross", "border": "solid" }
+        ]
+      },
+      "completeness": {
+        "default": "complete",
+        "values": [
+          { "id": "complete", "wordingKey": "V2.String.Completeness.Complete", "glyph": "filledSquare" },
+          { "id": "partial", "wordingKey": "V2.String.Completeness.Partial", "glyph": "halfSquare" },
+          { "id": "unknown", "wordingKey": "V2.String.Completeness.Unknown", "glyph": "emptySquare" }
+        ]
+      },
+      "freshness": {
+        "default": "current",
+        "values": [
+          { "id": "current", "wordingKey": "V2.String.Freshness.Current", "glyph": "filledDiamond" },
+          { "id": "stale", "wordingKey": "V2.String.Freshness.Stale", "glyph": "emptyDiamond" },
+          { "id": "unknown", "wordingKey": "V2.String.Freshness.Unknown", "glyph": "insetDiamond" }
+        ]
+      }
+    },
+    "composition": {
+      "order": ["availability", "completeness", "freshness"],
+      "rule": "Every status names one availability value. Completeness and freshness are independent axes: a result can be partial and stale at once, and each shows its own word and glyph. A default may be left unstated only when the feature has evidence for it; without evidence, show that axis's unknown value.",
+      "automationTemplate": "statusName"
+    }
+  },
+  "banner": {
+    "rule": "A banner escalates material risk or uncertainty. Its tone is a word, a glyph, and an outline pattern as well as a role colour, so no tone depends on colour alone.",
+    "tones": [
+      { "id": "info", "wordingKey": "V2.String.Tone.Info", "glyph": "circledInfo", "pattern": "solid" },
+      { "id": "warning", "wordingKey": "V2.String.Tone.Warning", "glyph": "warningSign", "pattern": "dashed" },
+      { "id": "danger", "wordingKey": "V2.String.Tone.Critical", "glyph": "doubleExclamation", "pattern": "dashDot" }
+    ]
+  },
+  "evidence": {
+    "classes": ["observed", "inferred", "manual", "estimated", "historical", "modelled", "potential"],
+    "requiredWhenMaterial": ["source", "observedOrDataThroughUtc", "generatedUtc", "coverage", "confidence", "modelVersion"],
+    "disclosure": "Show compact identity and decision-changing freshness or confidence inline. Put complete evidence in Why/details; never imply a live detection."
+  },
+  "mapEvidence": [
+    { "id": "historical", "wordingKey": "V2.String.Map.Historical", "pattern": "dashed" },
+    { "id": "modelled", "wordingKey": "V2.String.Map.Modelled", "pattern": "dotted" },
+    { "id": "manual", "wordingKey": "V2.String.Map.Manual", "pattern": "solid" },
+    { "id": "unavailable", "wordingKey": "V2.String.Map.Unavailable", "pattern": "dashDot" }
+  ],
+  "chartSeries": [
+    { "id": "series1", "pattern": "solid" },
+    { "id": "series2", "pattern": "dashed" },
+    { "id": "series3", "pattern": "dotted" },
+    { "id": "series4", "pattern": "dashDot" }
+  ],
+  "operations": {
+    "captureStages": ["armed", "queued", "processing", "review", "corrected", "failed"],
+    "pairedDeviceStates": ["follow", "control", "independent", "leasePending", "offline", "reconnecting", "acknowledgementLag", "conflict"]
+  },
+  "primitives": [
+    "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary", "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable", "chartLegend", "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "captureQueue"
+  ],
+  "accessibility": {
+    "landmarks": ["banner", "navigation", "main", "complementary", "search"],
+    "focus": "Navigation focuses the page heading; dialogs focus their title then restore their invoker or the page heading; background work never moves focus.",
+    "liveRegions": { "background": "polite", "refusalFailureConflict": "assertive" },
+    "tables": "A table exposes its caption and header-to-cell relationships to assistive technology; where the platform cannot, each row is also exposed as one complete, localized sentence.",
+    "colorAlone": false,
+    "mapAlternative": "Every map or chart has an ordered data alternative."
+  },
+  "adaptation": {
+    "effectiveContentWidths": ["narrow", "compact", "standard", "expanded"],
+    "textScales": ["100", "125", "150", "200"],
+    "rule": "Select layout by effective content width after text scaling, not by device label; tables alone may scroll horizontally."
+  },
+  "localization": {
+    "strings": "resource-backed",
+    "pseudoLocale": "qps-ploc",
+    "rtl": "defer RTL/bidirectional-layout validation to #279; use logical start/end alignment and no direction-sensitive icons as the native adapter rule",
+    "formatting": "The culture shapes digits and dates only. A currency amount carries an explicit ISO 4217 code from the data, and a displayed time carries its UTC offset. Fill whole localized message templates with named placeholders; never concatenate localized fragments.",
+    "templates": [
+      { "id": "statusName", "wordingKey": "V2.String.Template.StatusName", "placeholders": ["availability", "completeness", "freshness", "detail"] },
+      { "id": "zonedDateTime", "wordingKey": "V2.String.Template.ZonedDateTime", "placeholders": ["dateTime", "zone"] }
+    ]
+  }
+}
