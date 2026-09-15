@@ -336,7 +336,7 @@ what already exists.
 ## Controls this repository cannot enforce
 
 `scripts/release/capture_controls.py` reads these from GitHub and records who captured them and
-when. It only reads. The state on **2026-09-15T01:57:46Z**, captured by `smartpbx`:
+when. It only reads. The state on **2026-09-15T02:07:37Z**, captured by `smartpbx`:
 
 | Control | Required | Observed |
 | --- | --- | --- |
@@ -347,6 +347,8 @@ when. It only reads. The state on **2026-09-15T01:57:46Z**, captured by `smartpb
 | Default `GITHUB_TOKEN` permission | read | **gap**: write |
 | Actions pinned to commit SHAs | required at repository level | **gap**: not required; `ci.yml` and `windows-verify.yml` still use tags (#279) |
 | Secret scanning and push protection | enabled | **gap**: disabled |
+| Dependency graph | enabled, or the pull-request dependency review cannot run | **gap**: disabled; License lock fails its dependency review step until it is enabled |
+| Dependabot vulnerability alerts | enabled | **gap**: disabled |
 | `v2-canary-release`, `v2-beta-release`, `v2-stable-release` | exist; main only; beta and stable with reviewers who are not the dispatcher; `V2_RELEASE_TOKEN` and `V2_RELEASE_REPOSITORY` | **gap**: none exist |
 | Private feed repository | private or internal, initialized, immutable releases on | **gap**: none configured |
 

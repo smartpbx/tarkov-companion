@@ -100,6 +100,13 @@ def evaluate(api: Api, source: str, feed: str | None) -> list[dict[str, Any]]:
         findings.append(finding("secret scanning and push protection", "met" if scanning == push == "enabled" else "gap",
                                 {"secretScanning": scanning, "pushProtection": push}, "both enabled"))
 
+    state, _ = read(f"repos/{source}/dependency-graph/sbom")
+    findings.append(finding("dependency graph enabled, so dependency review can run",
+                            {"ok": "met", "absent": "gap"}.get(state, "unreadable"), state, "enabled"))
+    state, _ = read(f"repos/{source}/vulnerability-alerts")
+    findings.append(finding("Dependabot vulnerability alerts",
+                            {"ok": "met", "absent": "gap"}.get(state, "unreadable"), state, "enabled"))
+
     # Release environments.
     for ring in RINGS:
         name = f"v2-{ring}-release"

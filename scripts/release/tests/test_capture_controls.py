@@ -27,6 +27,8 @@ def configured() -> dict[str, tuple[int, object]]:
         f"repos/{SOURCE}/actions/permissions": (200, {"sha_pinning_required": True, "allowed_actions": "selected"}),
         f"repos/{SOURCE}": (200, {"security_and_analysis": {"secret_scanning": {"status": "enabled"},
                                                             "secret_scanning_push_protection": {"status": "enabled"}}}),
+        f"repos/{SOURCE}/dependency-graph/sbom": (200, {"sbom": {}}),
+        f"repos/{SOURCE}/vulnerability-alerts": (200, None),
         f"repos/{FEED}": (200, {"visibility": "private"}),
         f"repos/{FEED}/immutable-releases": (200, {"enabled": True}),
     }
@@ -54,14 +56,16 @@ class CaptureControlsTests(unittest.TestCase):
 
         self.assertEqual({"met", "info"}, set(statuses.values()), statuses)
 
-    def test_absent_environments_and_feed_are_gaps(self) -> None:
+    def test_absent_environments_feed_and_dependency_graph_are_gaps(self) -> None:
         responses = configured()
         del responses[f"repos/{SOURCE}/environments/v2-stable-release"]
+        del responses[f"repos/{SOURCE}/dependency-graph/sbom"]
 
         statuses = self.evaluate(responses, feed=None)
 
         self.assertEqual("gap", statuses["environment v2-stable-release"])
         self.assertEqual("gap", statuses["private release feed repository"])
+        self.assertEqual("gap", statuses["dependency graph enabled, so dependency review can run"])
 
     def test_what_the_token_cannot_read_is_unreadable_never_met(self) -> None:
         responses = configured()
