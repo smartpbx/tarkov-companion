@@ -91,16 +91,7 @@ public static class AggregateResultValidation
 
     private static void ValidateSlice(SliceMetrics slice, FrozenThresholds thresholds, ICollection<string> errors)
     {
-        var counts = new[]
-        {
-            slice.Numerator, slice.Denominator, slice.ExcludedUnknowns, slice.ExcludedPredictionClaims,
-            slice.IndependentSplitUnits, slice.AttemptedKnownClaims, slice.TruePositives, slice.FalsePositives,
-            slice.FalseNegatives, slice.Abstentions, slice.ConfidentWrong, slice.ExpectedFrames, slice.ObservedFrames, slice.MissingFrames,
-            slice.ReorderedFrames, slice.OverlapDeduplicationErrors, slice.AccuracyNumerator,
-            slice.AccuracyDenominator, slice.RecallNumerator, slice.RecallDenominator,
-            slice.FalsePositiveNumerator, slice.FalsePositiveDenominator, slice.PerformanceSampleCount,
-        };
-        if (counts.Any(value => value < 0))
+        if (IndependentScorer.PublishedCounts(slice).Any(value => value < 0))
         {
             errors.Add($"Aggregate slice {slice.Intent} contains a negative count.");
             return;
@@ -140,6 +131,20 @@ public static class AggregateResultValidation
             slice.ReorderedFrames > Math.Max(0, slice.ObservedFrames - 1))
         {
             errors.Add($"Aggregate slice {slice.Intent} sequence completeness arithmetic is inconsistent.");
+        }
+
+        // Attempts, true and false positives, abstentions, confident misses, excluded claims,
+        // overlap duplicates, and reorderings are all read from a producer's results, and any
+        // result makes its frame observed; an excluded claim also needs an unknown truth to be
+        // excluded by. Nothing above tied them to that evidence, so a slice could publish false
+        // positives, or thirty true positives, from frames that were never observed.
+        if ((slice.ObservedFrames == 0 &&
+             (slice.AttemptedKnownClaims != 0 || slice.TruePositives != 0 || slice.FalsePositives != 0 ||
+              slice.Abstentions != 0 || slice.ConfidentWrong != 0 || slice.ExcludedPredictionClaims != 0 ||
+              slice.OverlapDeduplicationErrors != 0 || slice.ReorderedFrames != 0)) ||
+            (slice.ExcludedPredictionClaims != 0 && slice.ExcludedUnknowns == 0))
+        {
+            errors.Add($"Aggregate slice {slice.Intent} reports output-derived counts without the observed frames or unknown truth they derive from.");
         }
 
         var expectedCoverage = Rate(slice.AttemptedKnownClaims, denominator);

@@ -844,11 +844,7 @@ public sealed class CorpusContractTests
     [Fact]
     public void AggregateRoundTripAndSemanticValidatorRejectTamperingMixingAndAssertedPrivacy()
     {
-        var manifest = Manifest(FindIndependentTestSamples(30, "sample-aggregate"));
-        var plan = PrivateRunPlanner.Create(manifest, "run-aggregate-roundtrip1", "producer-aggregate-001", "1.0", Now);
-        var predictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
-            [new PredictionClaim($"claim-aggregate-{index:00000001}", "item", "known-item")])).ToArray();
-        var aggregate = Score(manifest, plan, predictions);
+        var aggregate = SafeAggregate();
         Assert.True(aggregate.Privacy.SafeToPublish);
         Assert.Empty(AggregateResultValidation.Validate(aggregate, Thresholds()));
 
@@ -938,6 +934,84 @@ public sealed class CorpusContractTests
         };
         Assert.Contains(AggregateResultValidation.Validate(forgedPrivacy, Thresholds()),
             error => error.Contains("recomputed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Only an empty slice escapes the minimum independent split units, so every member a slice
+    /// publishes has to make it non-empty. The previous emptiness test named ten counts. Changing
+    /// any other member of an empty slice beside a safe one, false positives or the accuracy,
+    /// recall, or false-positive denominator among them, left the slice "empty" and the aggregate
+    /// publishable as far as the privacy rule was concerned.
+    /// </summary>
+    [Fact]
+    public void EveryPublishedSliceMemberIsEvidenceThatNeedsIndependentSplitUnits()
+    {
+        var aggregate = SafeAggregate();
+        Assert.Empty(AggregateResultValidation.Validate(aggregate, Thresholds()));
+        var members = PrimaryConstructorMembers<SliceMetrics>()
+            .Where(member => member is not (nameof(SliceMetrics.Intent) or nameof(SliceMetrics.EvidenceClass) or nameof(SliceMetrics.Status)))
+            .ToArray();
+        Assert.Equal(35, members.Length);
+
+        foreach (var member in members)
+        {
+            var forged = aggregate with
+            {
+                Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.FullStash ? WithChangedMember(slice, member) : slice).ToArray(),
+            };
+            AssertRefused(AggregateResultValidation.Validate(forged, Thresholds()), "privacy safety must be recomputed", member);
+        }
+    }
+
+    /// <summary>
+    /// Forged slices that satisfy every count, rate, interval, status, completeness, and timing
+    /// identity the validator had, so each was accepted. False positives with only the
+    /// denominators they imply counted as an empty slice and published beside a safe one, and
+    /// nothing tied results to observed frames or excluded claims to unknown truth. The first row
+    /// is the published bypass exactly: the old validator returned no error for that document.
+    /// </summary>
+    [Fact]
+    public void ConsistentForgedSlicesCannotPublishOutputWithoutObservedEvidence()
+    {
+        var aggregate = SafeAggregate();
+        var loot = Slice(aggregate);
+        var empty = Assert.Single(aggregate.Slices, slice => slice.Intent == BenchmarkIntent.FullStash);
+        Assert.Equal(30, loot.ExpectedFrames);
+        Assert.Equal(0, loot.ExcludedUnknowns);
+        string[] earlierRules =
+        [
+            "negative count", "overflows", "count arithmetic is inconsistent", "sequence completeness arithmetic",
+            "rates or confidence interval", "status does not match", "performance", "timing",
+        ];
+
+        foreach (var (name, intent, forged, expected) in new (string, BenchmarkIntent, SliceMetrics, string[])[]
+                 {
+                     ("false positives only beside a safe slice", BenchmarkIntent.FullStash, empty with
+                     {
+                         FalsePositives = 3, FalsePositiveNumerator = 3, FalsePositiveDenominator = 3, AccuracyDenominator = 3, FalsePositiveRate = 1m,
+                     }, ["privacy safety must be recomputed", "output-derived counts without the observed frames"]),
+                     ("true positives from frames never observed", BenchmarkIntent.LootDecision, loot with
+                     {
+                         ObservedFrames = 0, MissingFrames = loot.ExpectedFrames, SequenceCompleteness = 0m, PerformanceSampleCount = 0,
+                         MeanElapsedMilliseconds = null, MaximumElapsedMilliseconds = null,
+                     }, ["output-derived counts without the observed frames"]),
+                     ("excluded claims without unknown truth", BenchmarkIntent.LootDecision, loot with { ExcludedPredictionClaims = 1 },
+                         ["output-derived counts without the observed frames"]),
+                 })
+        {
+            var errors = AggregateResultValidation.Validate(
+                aggregate with { Slices = aggregate.Slices.Select(slice => slice.Intent == intent ? forged : slice).ToArray() },
+                Thresholds());
+            foreach (var rule in earlierRules)
+            {
+                Assert.DoesNotContain(errors, error => error.Contains(rule, StringComparison.Ordinal));
+            }
+
+            foreach (var message in expected)
+            {
+                AssertRefused(errors, message, name);
+            }
+        }
     }
 
     [Fact]
@@ -1415,6 +1489,7 @@ public sealed class CorpusContractTests
             {
                 string text => text + "-changed",
                 null when parameter.ParameterType == typeof(string) => "changed-member-000001",
+                null when parameter.ParameterType == typeof(decimal?) => 1m,
                 int number => number + 1,
                 decimal number => number + 0.25m,
                 IReadOnlyList<string> list => list.Append("changed-member-000001").ToArray(),
@@ -1443,6 +1518,16 @@ public sealed class CorpusContractTests
             Thresholds(),
             evidenceClass,
             Now);
+
+    /// <summary>Thirty independent Test-split loot samples, all answered correctly: publishable, with seven empty slices.</summary>
+    private static AggregateResults SafeAggregate()
+    {
+        var manifest = Manifest(FindIndependentTestSamples(30, "sample-aggregate"));
+        var plan = PrivateRunPlanner.Create(manifest, "run-aggregate-roundtrip1", "producer-aggregate-001", "1.0", Now);
+        var predictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
+            [new PredictionClaim($"claim-aggregate-{index:00000001}", "item", "known-item")])).ToArray();
+        return Score(manifest, plan, predictions);
+    }
 
     /// <summary>
     /// Every interchange, each valid on its own, with one extension member added: the name holding

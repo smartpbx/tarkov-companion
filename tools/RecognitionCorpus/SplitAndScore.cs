@@ -754,9 +754,34 @@ public static class IndependentScorer
         return (Math.Max(0, center - margin), Math.Min(1, center + margin));
     }
 
+    /// <summary>
+    /// Only an empty slice is exempt from the minimum independent split units, and a slice is
+    /// empty only when it publishes nothing: every count and rate is zero and it reports no
+    /// timing. The previous test named ten of the counts. A slice holding only false positives,
+    /// with the accuracy and false-positive denominators they imply, satisfied every arithmetic
+    /// identity, counted as empty, and was published beside an otherwise safe slice with no
+    /// independent split unit behind it. Deciding from the complete member lists instead of a
+    /// chosen subset means a count added later is evidence without anyone remembering it here.
+    /// </summary>
     internal static bool ContainsAggregateEvidence(SliceMetrics slice) =>
-        slice.IndependentSplitUnits != 0 || slice.Denominator != 0 || slice.ExcludedUnknowns != 0 ||
-        slice.ExpectedFrames != 0 || slice.ObservedFrames != 0 ||
-        slice.ExcludedPredictionClaims != 0 || slice.PerformanceSampleCount != 0 || slice.MissingFrames != 0 ||
-        slice.ReorderedFrames != 0 || slice.OverlapDeduplicationErrors != 0;
+        PublishedCounts(slice).Any(count => count != 0) ||
+        PublishedRates(slice).Any(rate => rate != 0) ||
+        slice.MeanElapsedMilliseconds is not null || slice.MaximumElapsedMilliseconds is not null;
+
+    /// <summary>Every count a slice publishes; the negative-count check reads the same list.</summary>
+    internal static int[] PublishedCounts(SliceMetrics slice) =>
+    [
+        slice.Numerator, slice.Denominator, slice.ExcludedUnknowns, slice.ExcludedPredictionClaims,
+        slice.IndependentSplitUnits, slice.AttemptedKnownClaims, slice.TruePositives, slice.FalsePositives,
+        slice.FalseNegatives, slice.Abstentions, slice.ConfidentWrong, slice.ExpectedFrames, slice.ObservedFrames,
+        slice.MissingFrames, slice.ReorderedFrames, slice.OverlapDeduplicationErrors, slice.AccuracyNumerator,
+        slice.AccuracyDenominator, slice.RecallNumerator, slice.RecallDenominator, slice.FalsePositiveNumerator,
+        slice.FalsePositiveDenominator, slice.PerformanceSampleCount,
+    ];
+
+    private static decimal[] PublishedRates(SliceMetrics slice) =>
+    [
+        slice.Coverage, slice.Accuracy, slice.Recall, slice.FalsePositiveRate, slice.F1, slice.AbstentionRate,
+        slice.ConfidentWrongRate, slice.SequenceCompleteness, slice.ConfidenceIntervalLower, slice.ConfidenceIntervalUpper,
+    ];
 }
