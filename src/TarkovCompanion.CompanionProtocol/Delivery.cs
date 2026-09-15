@@ -2,170 +2,239 @@ using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.CompanionProtocol;
 
-public sealed record DeliveryChannelKey(CompanionDeviceId DeviceId, CanonicalAggregateKind Aggregate)
+/// <summary>An independently bounded queue inside one device's delivery stream.</summary>
+public enum DeliveryChannel
 {
-    public CompanionDeviceId DeviceId { get; } = DeviceId.Value == Guid.Empty
-        ? throw new ArgumentException("A delivery device is required.", nameof(DeviceId))
-        : DeviceId;
+    DeviceModes = 1,
+    Workspace,
+    Marks,
+    CaptureIntent,
 
-    public CanonicalAggregateKind Aggregate { get; } = ProtocolGuard.Defined(Aggregate, nameof(Aggregate));
+    /// <summary>Command acknowledgements, snapshots, and deprecation notices.</summary>
+    Control,
 }
 
+/// <summary>
+/// One sequenced delivery to one device: a server message, or a marker that the channel overflowed
+/// and the transport must send a current canonical snapshot at this sequence instead.
+/// </summary>
 public sealed record DeliveryItem
 {
-    public DeliveryItem(DeliverySequence sequence, CanonicalUpdate? update, bool snapshotRequired)
+    public DeliveryItem(
+        DeliverySequence sequence,
+        DeliveryChannel channel,
+        DateTimeOffset enqueuedUtc,
+        ServerMessage? message,
+        bool snapshotRequired)
     {
         Sequence = sequence.Value > 0 ? sequence : throw new ArgumentOutOfRangeException(nameof(sequence));
-        Update = update;
+        Channel = ProtocolGuard.Defined(channel, nameof(channel));
+        EnqueuedUtc = ProtocolGuard.Utc(enqueuedUtc, nameof(enqueuedUtc));
+        Message = message;
         SnapshotRequired = snapshotRequired;
-        if (snapshotRequired == (update is not null))
+        if (snapshotRequired == (message is not null) ||
+            (message is not null && DeliveryLedger.ChannelOf(message) != channel))
         {
-            throw new ArgumentException("A delivery is either one update or a snapshot-required marker.");
+            throw new ArgumentException("A delivery is one message on its own channel or a snapshot-required marker.");
         }
     }
 
     public DeliverySequence Sequence { get; }
 
-    public CanonicalUpdate? Update { get; }
+    public DeliveryChannel Channel { get; }
+
+    public DateTimeOffset EnqueuedUtc { get; }
+
+    public ServerMessage? Message { get; }
 
     public bool SnapshotRequired { get; }
+
+    /// <summary>The message to send at this sequence; a coalesced marker becomes the current snapshot.</summary>
+    public ServerMessage Resolve(CanonicalCompanionState current)
+    {
+        ArgumentNullException.ThrowIfNull(current);
+        return Message ?? new CanonicalSnapshotMessage(current);
+    }
 }
 
-public sealed record DeliveryChannelState
+/// <summary>
+/// One device's single ordered delivery stream. Every server envelope to the device consumes the
+/// next sequence, whatever channel it belongs to, so a missing sequence is always detectable.
+/// </summary>
+public sealed record DeviceDeliveryState
 {
-    public DeliveryChannelState(
-        DeliveryChannelKey key,
+    public DeviceDeliveryState(
+        CompanionDeviceId deviceId,
+        DeliverySequence lastAssigned,
         DeliverySequence lastAcknowledged,
         IReadOnlyList<DeliveryItem> pending)
     {
-        Key = ProtocolGuard.NotNull(key, nameof(key));
-        LastAcknowledged = lastAcknowledged;
-        Pending = ProtocolGuard.List(pending, nameof(pending), ProtocolBounds.MaxDeliveryItemsPerAggregate);
-        if (Pending.Any(item => item.Sequence.Value <= lastAcknowledged.Value) ||
-            !Pending.Select(item => item.Sequence).SequenceEqual(Pending.Select(item => item.Sequence).OrderBy(value => value.Value)) ||
-            Pending.Any(item => item.Update is not null && item.Update.Aggregate != key.Aggregate))
+        DeviceId = deviceId.Value == Guid.Empty
+            ? throw new ArgumentException("A delivery device is required.", nameof(deviceId))
+            : deviceId;
+        LastAssigned = lastAssigned;
+        LastAcknowledged = lastAcknowledged.Value <= lastAssigned.Value
+            ? lastAcknowledged
+            : throw new ArgumentOutOfRangeException(nameof(lastAcknowledged), "A device cannot acknowledge an unassigned sequence.");
+        Pending = ProtocolGuard.List(
+            pending,
+            nameof(pending),
+            ProtocolBounds.MaxDeliveryItemsPerChannel * Enum.GetValues<DeliveryChannel>().Length);
+
+        for (var index = 0; index < Pending.Count; index++)
         {
-            throw new ArgumentException("Delivery entries are ordered, unacknowledged, and belong to their channel.", nameof(pending));
+            var sequence = Pending[index].Sequence.Value;
+            if (sequence <= lastAcknowledged.Value || sequence > lastAssigned.Value ||
+                (index > 0 && sequence <= Pending[index - 1].Sequence.Value))
+            {
+                throw new ArgumentException("Pending deliveries are ascending, assigned, and unacknowledged.", nameof(pending));
+            }
+        }
+
+        if (Pending.GroupBy(item => item.Channel).Any(group =>
+                group.Count() > ProtocolBounds.MaxDeliveryItemsPerChannel ||
+                (group.Any(item => item.SnapshotRequired) && group.Count() != 1)))
+        {
+            throw new ArgumentException("A channel holds at most 64 deliveries, or exactly one snapshot marker.", nameof(pending));
         }
     }
 
-    public DeliveryChannelKey Key { get; }
+    public CompanionDeviceId DeviceId { get; }
+
+    public DeliverySequence LastAssigned { get; }
 
     public DeliverySequence LastAcknowledged { get; }
 
     public IReadOnlyList<DeliveryItem> Pending { get; }
 }
 
-public sealed record DeviceDeliveryCounter(CompanionDeviceId DeviceId, DeliverySequence LastAssigned)
-{
-    public CompanionDeviceId DeviceId { get; } = DeviceId.Value == Guid.Empty
-        ? throw new ArgumentException("A delivery device is required.", nameof(DeviceId))
-        : DeviceId;
-
-    public DeliverySequence LastAssigned { get; } = LastAssigned.Value > 0
-        ? LastAssigned
-        : throw new ArgumentOutOfRangeException(nameof(LastAssigned));
-}
-
+/// <summary>
+/// Isolated backpressure for every paired device. A full channel coalesces to one snapshot marker
+/// for that device and channel; other channels of the device and every other device keep
+/// accepting deliveries, so a slow tablet cannot block unrelated state.
+/// </summary>
 public sealed record DeliveryLedger
 {
-    public DeliveryLedger(
-        IReadOnlyList<DeviceDeliveryCounter> deviceCounters,
-        IReadOnlyList<DeliveryChannelState> channels)
+    public DeliveryLedger(IReadOnlyList<DeviceDeliveryState> devices)
     {
-        DeviceCounters = ProtocolGuard.List(deviceCounters, nameof(deviceCounters), ProtocolBounds.MaxDevices);
-        Channels = ProtocolGuard.List(
-            channels,
-            nameof(channels),
-            ProtocolBounds.MaxDevices * Enum.GetValues<CanonicalAggregateKind>().Length);
-        if (DeviceCounters.Select(item => item.DeviceId).Distinct().Count() != DeviceCounters.Count ||
-            Channels.Select(item => item.Key).Distinct().Count() != Channels.Count)
+        Devices = ProtocolGuard.List(devices, nameof(devices), ProtocolBounds.MaxDevices);
+        if (Devices.Select(item => item.DeviceId).Distinct().Count() != Devices.Count)
         {
-            throw new ArgumentException("Delivery counters and channels are unique.");
+            throw new ArgumentException("A device has one delivery stream.", nameof(devices));
         }
     }
 
-    public IReadOnlyList<DeviceDeliveryCounter> DeviceCounters { get; }
+    public IReadOnlyList<DeviceDeliveryState> Devices { get; }
 
-    public IReadOnlyList<DeliveryChannelState> Channels { get; }
+    public static DeliveryLedger Empty { get; } = new([]);
 
-    public static DeliveryLedger Empty { get; } = new([], []);
-
-    public DeliveryEnqueueResult Enqueue(CompanionDeviceId deviceId, CanonicalUpdate update)
+    public static DeliveryChannel ChannelOf(ServerMessage message) => message switch
     {
-        ArgumentNullException.ThrowIfNull(update);
-        var counters = DeviceCounters.ToList();
-        var counterIndex = counters.FindIndex(item => item.DeviceId == deviceId);
-        var sequence = counterIndex < 0
-            ? new DeliverySequence(1)
-            : counters[counterIndex].LastAssigned.Next();
-        if (counterIndex < 0)
-        {
-            if (counters.Count >= ProtocolBounds.MaxDevices)
-            {
-                throw new InvalidOperationException("The delivery device bound has been reached.");
-            }
+        CanonicalUpdateMessage update => (DeliveryChannel)update.Update.Aggregate,
+        CommandAcknowledgementMessage or CanonicalSnapshotMessage or DeprecationMessage => DeliveryChannel.Control,
+        null => throw new ArgumentNullException(nameof(message)),
+        _ => throw new ArgumentOutOfRangeException(nameof(message)),
+    };
 
-            counters.Add(new DeviceDeliveryCounter(deviceId, sequence));
+    public DeviceDeliveryState? For(CompanionDeviceId deviceId) =>
+        Devices.FirstOrDefault(item => item.DeviceId == deviceId);
+
+    public DeliveryEnqueueResult Enqueue(CompanionDeviceId deviceId, ServerMessage message, DateTimeOffset enqueuedUtc)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        var devices = Devices.ToList();
+        var index = devices.FindIndex(item => item.DeviceId == deviceId);
+        if (index < 0 && devices.Count >= ProtocolBounds.MaxDevices)
+        {
+            throw new InvalidOperationException("The delivery device bound has been reached.");
+        }
+
+        var prior = index < 0
+            ? new DeviceDeliveryState(deviceId, new DeliverySequence(0), new DeliverySequence(0), [])
+            : devices[index];
+        var channel = ChannelOf(message);
+        var sequence = prior.LastAssigned.Next();
+        var sameChannel = prior.Pending.Where(existing => existing.Channel == channel).ToArray();
+        var coalesce = sameChannel.Length >= ProtocolBounds.MaxDeliveryItemsPerChannel ||
+                       sameChannel.Any(existing => existing.SnapshotRequired);
+        var delivery = coalesce
+            ? new DeliveryItem(sequence, channel, enqueuedUtc, null, snapshotRequired: true)
+            : new DeliveryItem(sequence, channel, enqueuedUtc, message, snapshotRequired: false);
+        var pending = coalesce
+            ? prior.Pending.Where(existing => existing.Channel != channel).Append(delivery)
+            : prior.Pending.Append(delivery);
+        var next = new DeviceDeliveryState(deviceId, sequence, prior.LastAcknowledged, pending.ToArray());
+        if (index < 0)
+        {
+            devices.Add(next);
         }
         else
         {
-            counters[counterIndex] = new DeviceDeliveryCounter(deviceId, sequence);
+            devices[index] = next;
         }
 
-        var channels = Channels.ToList();
-        var key = new DeliveryChannelKey(deviceId, update.Aggregate);
-        var channelIndex = channels.FindIndex(item => item.Key == key);
-        var prior = channelIndex < 0
-            ? new DeliveryChannelState(key, new DeliverySequence(0), [])
-            : channels[channelIndex];
-        var mustSnapshot = prior.Pending.Count >= ProtocolBounds.MaxDeliveryItemsPerAggregate ||
-                           prior.Pending.Any(item => item.SnapshotRequired);
-        var item = new DeliveryItem(sequence, mustSnapshot ? null : update, mustSnapshot);
-        var pending = mustSnapshot ? [item] : prior.Pending.Append(item).ToArray();
-        var nextChannel = new DeliveryChannelState(key, prior.LastAcknowledged, pending);
-        if (channelIndex < 0)
-        {
-            channels.Add(nextChannel);
-        }
-        else
-        {
-            channels[channelIndex] = nextChannel;
-        }
-
-        return new DeliveryEnqueueResult(new DeliveryLedger(counters, channels), item);
+        return new DeliveryEnqueueResult(new DeliveryLedger(devices), delivery);
     }
 
-    public DeliveryLedger Acknowledge(
-        CompanionDeviceId deviceId,
-        CanonicalAggregateKind aggregate,
-        DeliverySequence through)
+    /// <summary>Acknowledges the device stream through one sequence; an old acknowledgement is ignored.</summary>
+    public DeliveryLedger Acknowledge(CompanionDeviceId deviceId, DeliverySequence through)
     {
-        var channels = Channels.ToList();
-        var key = new DeliveryChannelKey(deviceId, aggregate);
-        var index = channels.FindIndex(item => item.Key == key);
-        if (index < 0 || through.Value <= channels[index].LastAcknowledged.Value)
+        var devices = Devices.ToList();
+        var index = devices.FindIndex(item => item.DeviceId == deviceId);
+        if (index < 0 || through.Value <= devices[index].LastAcknowledged.Value)
         {
             return this;
         }
 
-        var current = channels[index];
-        var maximumAssigned = DeviceCounters.FirstOrDefault(item => item.DeviceId == deviceId)?.LastAssigned.Value ?? 0;
-        var boundedThrough = new DeliverySequence(Math.Min(through.Value, maximumAssigned));
-        channels[index] = new DeliveryChannelState(
-            key,
-            boundedThrough,
-            current.Pending.Where(item => item.Sequence.Value > boundedThrough.Value).ToArray());
-        return new DeliveryLedger(DeviceCounters, channels);
+        var current = devices[index];
+        var bounded = new DeliverySequence(Math.Min(through.Value, current.LastAssigned.Value));
+        devices[index] = new DeviceDeliveryState(
+            deviceId,
+            current.LastAssigned,
+            bounded,
+            current.Pending.Where(item => item.Sequence.Value > bounded.Value).ToArray());
+        return new DeliveryLedger(devices);
+    }
+
+    /// <summary>
+    /// Applies a live client acknowledgement. One from another authority lifetime, or one claiming
+    /// a revision or change the desktop does not hold, is refused and the client must resynchronize.
+    /// </summary>
+    public DeliveryAcknowledgementResult Acknowledge(
+        CompanionDeviceId deviceId,
+        ClientDeliveryAcknowledgement acknowledgement,
+        CanonicalCompanionState canonical)
+    {
+        ArgumentNullException.ThrowIfNull(acknowledgement);
+        ArgumentNullException.ThrowIfNull(canonical);
+        if (acknowledgement.AuthorityEpoch != canonical.AuthorityEpoch)
+        {
+            return new DeliveryAcknowledgementResult(this, false, "authority-epoch-mismatch");
+        }
+
+        if (acknowledgement.GlobalRevision.Value > canonical.GlobalRevision.Value ||
+            !AggregateAcknowledgement.AgreeWith(canonical, acknowledgement.AggregateAcknowledgements))
+        {
+            return new DeliveryAcknowledgementResult(this, false, "acknowledged-state-diverges");
+        }
+
+        var state = For(deviceId);
+        if (state is null || acknowledgement.ThroughDeliverySequence.Value > state.LastAssigned.Value)
+        {
+            return new DeliveryAcknowledgementResult(this, false, "delivery-sequence-not-assigned");
+        }
+
+        return new DeliveryAcknowledgementResult(Acknowledge(deviceId, acknowledgement.ThroughDeliverySequence), true, "acknowledged");
     }
 
     public IReadOnlyList<DeliveryItem> PendingFor(CompanionDeviceId deviceId) =>
-        ProtocolGuard.List(
-            Channels.Where(channel => channel.Key.DeviceId == deviceId)
-                .SelectMany(channel => channel.Pending)
-                .OrderBy(item => item.Sequence.Value),
-            nameof(deviceId),
-            ProtocolBounds.MaxDeliveryItemsPerAggregate * Enum.GetValues<CanonicalAggregateKind>().Length);
+        For(deviceId)?.Pending ?? [];
+
+    /// <summary>Drops a revoked, expired, or replaced device's stream.</summary>
+    public DeliveryLedger RemoveDevice(CompanionDeviceId deviceId) =>
+        new(Devices.Where(item => item.DeviceId != deviceId).ToArray());
 }
 
 public sealed record DeliveryEnqueueResult(DeliveryLedger Ledger, DeliveryItem Item);
+
+public sealed record DeliveryAcknowledgementResult(DeliveryLedger Ledger, bool Accepted, string Code);
