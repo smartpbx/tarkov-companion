@@ -5,27 +5,29 @@
 # the right behaviour and it leaves one question, which is how to produce the new copy when
 # nobody may run .NET outside CI. Hence `regenerate`: run it, read the diff, commit the result.
 #
-# `supply-chain` is the other half. A pull request that changes a dependency, a workflow, or any
-# script, unit or release tool that produces or checks signed bytes is reviewed here before it can
-# reach main, and nothing in this workflow can write to the repository, a release or a tag.
+# The supply-chain jobs are the other half. Every pull request is reviewed here before it can reach
+# main, and nothing in this workflow can write to the repository, a release or a tag. The final
+# pull-request-only context is deliberately named differently from non-PR runs: a manual run that
+# cannot perform dependency review must never satisfy the required check for a pull request.
 # Whether a failure here blocks a merge is a branch-protection setting, not something this file
 # can make true; docs/RELEASES.md records whether it is required.
 name: License lock
 
-# Runs when the dependency graph or the release machinery could have changed, rather than on
-# demand. Dispatch only works from the default branch, and the work that invalidates the lock
-# happens on feature branches.
+# Pull requests are intentionally unfiltered. A required check omitted by a path filter stays
+# pending forever, and a same-SHA manual run would be a weaker substitute because dependency
+# review only has a pull-request comparison. Push runs are limited to main so a feature update
+# cannot emit a second, weaker context beside its pull-request run.
 #
-# The paths are everything that builds, packages, ships or gates the bytes a release signs: every
+# The main-push paths are everything that builds, packages, ships or gates the bytes a release signs: every
 # workflow (verification builds and packs the desktop and relay; CI runs the tests and the
 # vulnerability audit publication waits for), every script (packaging, the sweeps and audits the
 # gates run, the release tooling), the relay's deployment units, and the build and package
 # configuration. Listing only the release workflow left verification free to change what it
-# produced without this review running. The two lists are the same list, written twice; a test
-# holds them equal.
+# produced without this review running.
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/**'
       - 'scripts/**'
@@ -55,35 +57,13 @@ on:
       - 'tests/TarkovCompanion.UnitTests/*Release*.cs'
   pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/**'
-      - 'scripts/**'
-      - 'deploy/group-server/**'
-      - '**/*.csproj'
-      - '**/*.props'
-      - '**/*.targets'
-      - '**/packages.lock.json'
-      - '**/[Nn]u[Gg]et.[Cc]onfig'
-      - 'global.json'
-      - 'TarkovCompanion.sln'
-      - 'docs/THIRD_PARTY_NOTICES.md'
-      - 'docs/THIRD_PARTY_INVENTORY.json'
-      - 'docs/RELEASES.md'
-      - 'docs/WINDOWS.md'
-      - 'docs/adr/0011-signed-private-release-feed.md'
-      - 'licenses/**'
-      - 'src/TarkovCompanion.GroupServer/RelayUpdate.cs'
-      - 'src/TarkovCompanion.App/Services/Updates/**'
-      - 'src/TarkovCompanion.Application/Services/Updates/**'
-      - 'src/TarkovCompanion.Infrastructure/Updates/**'
-      - 'src/TarkovCompanion.Core/Domain/Quests/QuestExchange.cs'
-      - 'tests/TarkovCompanion.UnitTests/*Release*.cs'
 
 permissions:
   contents: read
 
 jobs:
   offline-windows:
+    name: ${{ github.event_name == 'pull_request' && 'license-lock-pr / offline-windows' || 'license-lock-non-pr / offline-windows' }}
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -95,6 +75,7 @@ jobs:
         run: ./scripts/release/test-offline-windows.ps1
 
   supply-chain:
+    name: ${{ github.event_name == 'pull_request' && 'license-lock-pr / supply-chain' || 'license-lock-non-pr / supply-chain' }}
     needs: offline-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -197,6 +178,30 @@ jobs:
         run: |
           echo "::error title=Dependency review did not pass::The dependency review step concluded '${OUTCOME}'. If its log says the dependency graph is not enabled, that is a repository setting (Settings > Code security > Dependency graph); see docs/RELEASES.md."
           exit 1
+
+  release-supply-chain-gate:
+    # A manual dispatch may target the same commit as a PR, but it has no dependency-review
+    # comparison. Giving that run a different context name prevents it from satisfying the PR's
+    # required check, while still making non-PR failures visible.
+    name: ${{ github.event_name == 'pull_request' && 'release-supply-chain-required-gate' || 'release-supply-chain-non-pr-gate' }}
+    if: ${{ always() }}
+    needs:
+      - offline-windows
+      - supply-chain
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every release supply-chain job to pass
+        shell: bash
+        env:
+          OFFLINE_WINDOWS_RESULT: ${{ needs['offline-windows'].result }}
+          SUPPLY_CHAIN_RESULT: ${{ needs['supply-chain'].result }}
+        run: |
+          set -euo pipefail
+          if [[ "${OFFLINE_WINDOWS_RESULT}" != "success" || "${SUPPLY_CHAIN_RESULT}" != "success" ]]; then
+            echo "::error title=Release supply-chain gate failed::offline-windows=${OFFLINE_WINDOWS_RESULT}; supply-chain=${SUPPLY_CHAIN_RESULT}"
+            exit 1
+          fi
 
   regenerate:
     if: github.event_name != 'pull_request'

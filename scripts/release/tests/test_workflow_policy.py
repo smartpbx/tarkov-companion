@@ -258,10 +258,12 @@ class WorkflowPolicyTests(unittest.TestCase):
 
     def test_the_supply_chain_gate_watches_everything_that_produces_or_gates_signed_bytes(self) -> None:
         document, _ = check_workflow_policy.load((REPOSITORY_ROOT / ".github/workflows/license-lock.yml").read_text(encoding="utf-8"))
-        push = document["on"]["push"]["paths"]
-        pull_request = document["on"]["pull_request"]["paths"]
+        push = document["on"]["push"]
+        pull_request = document["on"]["pull_request"]
 
-        self.assertEqual(push, pull_request)
+        self.assertEqual(["main"], push["branches"])
+        self.assertEqual(["main"], pull_request["branches"])
+        self.assertNotIn("paths", pull_request)
         # Each of these produced or checked release bytes while the gate did not run for it.
         for producer in (".github/workflows/ci.yml", ".github/workflows/windows-verify.yml", ".github/workflows/publish.yml",
                          "scripts/package-windows.sh", "scripts/audit-licenses.sh", "scripts/scan-secrets.sh",
@@ -273,7 +275,12 @@ class WorkflowPolicyTests(unittest.TestCase):
                          "tests/TarkovCompanion.UnitTests/SignedReleaseFeedConsumerTests.cs",
                          "docs/RELEASES.md", "licenses/dependency-license-map.json"):
             with self.subTest(producer=producer):
-                self.assertTrue(any(self.glob_matches(pattern, producer) for pattern in push), producer)
+                self.assertTrue(any(self.glob_matches(pattern, producer) for pattern in push["paths"]), producer)
+
+        required_gate = document["jobs"]["release-supply-chain-gate"]
+        self.assertIn("release-supply-chain-required-gate", required_gate["name"])
+        self.assertIn("always()", required_gate["if"])
+        self.assertEqual({"offline-windows", "supply-chain"}, set(required_gate["needs"]))
 
     @staticmethod
     def glob_matches(pattern: str, path: str) -> bool:
