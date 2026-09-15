@@ -52,7 +52,6 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             desktop.MainWindow = new MainWindow
             {
                 DataContext = viewModel,
-                Title = viewModel.PreviewShell?.Title ?? "Tarkov Companion",
             };
             _initialization = viewModel.InitializeAsync(_stopping.Token);
         }

@@ -97,7 +97,10 @@ public sealed partial class V2ShellView : UserControl
     {
         if (_wiredShell is { } shell)
         {
-            shell.UpdateEffectiveWidth(Bounds.Width);
+            var focusedAutomationId = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is StyledElement focused
+                ? AutomationProperties.GetAutomationId(focused)
+                : null;
+            shell.UpdateEffectiveWidth(Bounds.Width, focusedAutomationId);
         }
     }
 
@@ -119,28 +122,39 @@ public sealed partial class V2ShellView : UserControl
             return;
         }
 
-        Dispatcher.UIThread.Post(() => FocusTarget(request.Target), DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(() => FocusTarget(request), DispatcherPriority.Loaded);
     }
 
-    private void FocusTarget(string automationId)
+    private void FocusTarget(V2FocusRequest request)
     {
-        var target = this.GetVisualDescendants()
-            .OfType<Control>()
-            .FirstOrDefault(control =>
-                control.IsEffectivelyVisible &&
-                control.IsEffectivelyEnabled &&
-                string.Equals(AutomationProperties.GetAutomationId(control), automationId, StringComparison.Ordinal));
-        if (target is null)
+        var fallback = _wiredShell?.FocusFallbackTarget ?? V2ShellRouter.PageHeadingTarget;
+        foreach (var automationId in new[]
+                 {
+                     request.Target,
+                     fallback,
+                     V2ShellRouter.PageHeadingTarget,
+                     V2ShellRouter.IntelHeadingTarget,
+                 }.Distinct(StringComparer.Ordinal))
         {
-            return;
-        }
+            var target = this.GetVisualDescendants()
+                .OfType<Control>()
+                .FirstOrDefault(control =>
+                    control.IsEffectivelyVisible &&
+                    control.IsEffectivelyEnabled &&
+                    string.Equals(AutomationProperties.GetAutomationId(control), automationId, StringComparison.Ordinal));
+            if (target is null)
+            {
+                continue;
+            }
 
-        // Tab is also what Avalonia's parameterless Focus uses. Supplying it explicitly keeps
-        // the focus-visible treatment on for a programmatic move requested by keyboard chrome.
-        target.Focus(NavigationMethod.Tab);
-        if (target.IsFocused)
-        {
-            _wiredShell?.RecordFocusedTarget(automationId);
+            // Tab is also what Avalonia's parameterless Focus uses. Supplying it explicitly keeps
+            // the focus-visible treatment on for a programmatic move requested by keyboard chrome.
+            target.Focus(NavigationMethod.Tab);
+            if (target.IsFocused)
+            {
+                _wiredShell?.RecordFocusedTarget(automationId);
+                return;
+            }
         }
     }
 

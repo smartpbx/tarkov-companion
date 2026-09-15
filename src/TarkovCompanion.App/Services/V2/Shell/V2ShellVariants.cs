@@ -89,9 +89,12 @@ public sealed record V2DestinationDefinition(V2RouteId Route, string LabelKey);
 /// variant it is. When the sessions choose, the losing definition is deleted and nothing else has
 /// to change shape.
 ///
-/// A destination is the variant's label for the first address segment, so where Stash scan sits
-/// is decided by its address ("intel/stash" or "prepare/stash") and the highlighted destination
-/// follows without a second table that could disagree with it.
+/// A destination is normally the variant's label for a route-registry root. The small override
+/// table records routes whose registry root is not a visible destination: item details in A, and
+/// the deliberate variant difference where Stash scan belongs to Intel in A and Prepare in B.
+/// Addresses remain free to be stable deep links rather than silently becoming the navigation
+/// model; this matters for
+/// <c>#/tablet</c>, which belongs to Team without being nested below <c>#/team</c>.
 /// </remarks>
 public sealed record V2ShellVariantDefinition
 {
@@ -122,6 +125,10 @@ public sealed record V2ShellVariantDefinition
     /// </summary>
     public required IReadOnlyDictionary<V2RouteId, string> Addresses { get; init; }
 
+    /// <summary>Routes whose destination differs from their registry root.</summary>
+    public IReadOnlyDictionary<V2RouteId, V2RouteId> DestinationOverrides { get; init; } =
+        new Dictionary<V2RouteId, V2RouteId>();
+
     /// <summary>Capabilities provided by chrome on every page rather than by a route.</summary>
     public required IReadOnlyList<V2CapabilityId> ChromeCapabilities { get; init; }
 
@@ -145,6 +152,26 @@ public sealed record V2ShellVariantDefinition
         route == Setup.Route
             ? Setup.LabelKey
             : Destinations.FirstOrDefault(destination => destination.Route == route)?.LabelKey;
+
+    /// <summary>The visible destination that owns a route, independent of its address spelling.</summary>
+    public V2RouteId? DestinationOf(V2RouteId route, V2RouteRegistry registry)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        if (!Addresses.ContainsKey(route))
+        {
+            return null;
+        }
+
+        if (DestinationOverrides.TryGetValue(route, out var overridden))
+        {
+            return overridden;
+        }
+
+        var root = registry.RootOf(route);
+        return root == Setup.Route || Destinations.Any(destination => destination.Route == root)
+            ? root
+            : null;
+    }
 }
 
 /// <summary>The two recorded presentations from docs/design/v2/validation/navigation-variants.md.</summary>
@@ -188,9 +215,14 @@ public static class V2ShellVariants
             [V2Routes.Events] = "plan/events",
             [V2Routes.Team] = "team",
             [V2Routes.Group] = "team/group",
-            [V2Routes.Tablet] = "team/tablet",
+            [V2Routes.Tablet] = "tablet",
             [V2Routes.Debrief] = "debrief",
             [V2Routes.Setup] = "setup",
+        },
+        DestinationOverrides = new Dictionary<V2RouteId, V2RouteId>
+        {
+            [V2Routes.Item] = V2Routes.Items,
+            [V2Routes.Stash] = V2Routes.Items,
         },
         ChromeCapabilities = SharedChrome,
     };
@@ -231,9 +263,13 @@ public static class V2ShellVariants
             [V2Routes.Events] = "prepare/events",
             [V2Routes.Team] = "team",
             [V2Routes.Group] = "team/group",
-            [V2Routes.Tablet] = "team/tablet",
+            [V2Routes.Tablet] = "tablet",
             [V2Routes.Debrief] = "history",
             [V2Routes.Setup] = "setup",
+        },
+        DestinationOverrides = new Dictionary<V2RouteId, V2RouteId>
+        {
+            [V2Routes.Stash] = V2Routes.Plan,
         },
         ChromeCapabilities = SharedChrome,
     };

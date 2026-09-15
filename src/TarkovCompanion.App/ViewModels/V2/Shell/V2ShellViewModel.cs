@@ -38,13 +38,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 {
     private readonly IRuntimeStateStore _runtime;
     private readonly V2ShellPreviewStore _preview;
+    private readonly V2ShellPersistenceQueue _persistence;
     private readonly TimeProvider _clock;
     private readonly CoalescingDispatch _apply;
-    private readonly object _saveSync = new();
-    private V2ShellPreviewState? _pendingSave;
-    private Task _saveDrain = Task.CompletedTask;
-    private bool _saveLoopRunning;
-    private bool _saveSuspended;
+    private readonly SynchronizationContext? _dispatcherContext;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly object _disposeSync = new();
     private string _address = string.Empty;
     private string _politeAnnouncement = string.Empty;
     private string _assertiveAnnouncement = string.Empty;
@@ -59,6 +58,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private V2ShellWindowPlacement? _window;
     private V2NavigationContinuity _continuity = V2NavigationContinuity.Desktop;
     private int _regionIndex = -1;
+    private int _resetInProgress;
+    private Task? _disposeTask;
+    private V2ReadinessCheck? _activeReadinessTarget;
     private V2FocusRequest? _playerActionStateFocus;
 
     public V2ShellViewModel(
@@ -80,9 +82,14 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Variant = V2ShellVariants.For(options.UiShell);
         Router = new V2ShellRouter(Variant, Registry);
         _preview = new V2ShellPreviewStore(paths.Config, options.UiShell, _clock);
+        _persistence = new(_preview.SaveAsync, _preview.ResetAsync);
         PrimaryDestinations = new ObservableCollection<V2ShellDestinationViewModel>(
-            Variant.Destinations.Select(destination => new V2ShellDestinationViewModel(destination, GoTo)));
-        SetupDestination = new(Variant.Setup, GoTo);
+            Variant.Destinations.Select(destination => new V2ShellDestinationViewModel(
+                destination,
+                route => GoTo(route, V2ShellFocusTargets.Destination(route)))));
+        SetupDestination = new(
+            Variant.Setup,
+            route => GoTo(route, V2ShellFocusTargets.Destination(route)));
 
         BackCommand = new DelegateCommand(Back);
         ForwardCommand = new DelegateCommand(Forward);
@@ -105,16 +112,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         CloseTransientCommand = new DelegateCommand(CloseTransient);
         ResetPreviewCommand = new AsyncDelegateCommand(ResetPreviewAsync);
         PaletteAddressCommand = new DelegateCommand(OpenPaletteAddress);
-        Commands = V2ShellCommands.For(Variant);
+        Commands = V2ShellCommands.For(Variant, Registry);
         CommandItems = new ObservableCollection<V2ShellCommandViewModel>(
             Commands.Select(command => new V2ShellCommandViewModel(command, CreateCommand(command))));
 
         var synchronizationContext = SynchronizationContext.Current;
-        var dispatcherContext = synchronizationContext?.GetType().Namespace?
+        _dispatcherContext = synchronizationContext?.GetType().Namespace?
             .StartsWith("Avalonia", StringComparison.Ordinal) == true
                 ? synchronizationContext
                 : null;
-        _apply = new(dispatcherContext, () =>
+        _apply = new(_dispatcherContext, () =>
         {
             if (!_disposed)
             {
@@ -126,6 +133,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _runtime.Changed += RuntimeChanged;
         Restore(options.StartPage);
         SynchronizeLegacyRoute();
+        RebuildSectionItems();
         Refresh(announceBackgroundChange: false);
     }
 
@@ -141,6 +149,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public V2ShellRouter Router { get; }
     public ObservableCollection<V2ShellDestinationViewModel> PrimaryDestinations { get; }
     public V2ShellDestinationViewModel SetupDestination { get; }
+    public IReadOnlyList<V2ShellSectionViewModel> SectionItems { get; private set; } = [];
     public IReadOnlyList<V2ShellCommand> Commands { get; }
     public ObservableCollection<V2ShellCommandViewModel> CommandItems { get; }
     public IReadOnlyList<V2ReadinessCheckViewModel> ReadinessItems { get; private set; } = [];
@@ -152,6 +161,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public string ProvisionalLabel => V2ShellText.Get("V2.Shell.Provisional");
     public string VariantName => V2ShellText.Get(Variant.NameKey);
     public string NavigationRegionName => V2ShellText.Get("V2.Shell.Region.Navigation");
+    public string SectionRegionName => V2ShellText.Get("V2.Shell.Region.Sections");
     public string MainRegionName => V2ShellText.Get("V2.Shell.Region.Main");
     public string SetupSectionLabel => V2ShellText.Get("V2.Shell.Region.SetupSection");
     public string BackLabel => V2ShellText.Get("V2.Shell.Command.Back");
@@ -186,7 +196,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         "V2.Shell.Readiness.Summary",
         CultureInfo.CurrentCulture,
         Readiness.ReadyCount,
-        Readiness.Checks.Count,
+        Readiness.RequiredCount,
         Readiness.NeedsActionCount,
         Readiness.UnconfirmedCount);
     public string HealthSummary => Readiness.NeedsActionCount switch
@@ -200,6 +210,13 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _ => V2ShellText.Get("V2.Shell.Health.Clear"),
     };
     public string Title => V2ShellText.Format("V2.Shell.WindowTitle", CultureInfo.CurrentCulture, CurrentHeading, ProvisionalLabel);
+    public string DialogAutomationName => ActiveDialog switch
+    {
+        V2ShellDialogKind.Capture => CaptureHeading,
+        V2ShellDialogKind.Commands => PaletteHeading,
+        V2ShellDialogKind.Health => HealthHeading,
+        _ => string.Empty,
+    };
     public string CurrentHeading
     {
         get
@@ -260,6 +277,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
                 OnPropertyChanged(nameof(IsCaptureOpen));
                 OnPropertyChanged(nameof(IsPaletteOpen));
                 OnPropertyChanged(nameof(IsHealthOpen));
+                OnPropertyChanged(nameof(DialogAutomationName));
             }
         }
     }
@@ -290,6 +308,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool ShowsHeaderSearch => Variant.SearchPlacement == V2SearchPlacement.Header;
     public bool ShowsWorkspaceSearch => Variant.SearchPlacement == V2SearchPlacement.InsideItemsWorkspace &&
         Router.CurrentDestination == V2Routes.Items;
+    public bool ShowsSectionNavigation => SectionItems.Count > 1;
     public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
     public int ShellBodyRowSpan => ShowsLegacyPage ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
@@ -333,6 +352,18 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool HasNoContinueItems => !HasContinueItems;
     public bool HasPins => PinItems.Count > 0;
     public V2ShellWindowPlacement? RestoredWindow => _window;
+    public string FocusFallbackTarget => DefaultPageFocusTarget();
+    public bool ShowsReadinessTarget => _activeReadinessTarget is not null;
+    public string ReadinessTargetAutomationId => _activeReadinessTarget is { } check
+        ? V2ShellFocusTargets.ReadinessTarget(check.Id)
+        : V2ShellRouter.PageHeadingTarget;
+    public string ReadinessTargetHeading => _activeReadinessTarget?.Label ?? string.Empty;
+    public string ReadinessTargetDetail => _activeReadinessTarget is { } check
+        ? V2ShellText.Get($"V2.Shell.Readiness.Target.{check.Id}")
+        : string.Empty;
+    public string ReadinessTargetAutomationName => _activeReadinessTarget is { } check
+        ? string.Join(". ", check.Label, V2ShellText.Get($"V2.Shell.Status.{check.Status}"), ReadinessTargetDetail)
+        : string.Empty;
 
     public ICommand BackCommand { get; }
     public ICommand ForwardCommand { get; }
@@ -347,9 +378,11 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public AsyncDelegateCommand ResetPreviewCommand { get; }
     public ICommand PaletteAddressCommand { get; }
 
-    public void GoTo(V2RouteId route) => Act(Router.Navigate(route, V2ShellFocusTargets.Destination(route)));
+    public void GoTo(V2RouteId route) => GoTo(route, V2ShellFocusTargets.Destination(route));
     public void Back() => Act(Router.Back());
     public void Forward() => Act(Router.Forward());
+
+    private void GoTo(V2RouteId route, string invoker) => Act(Router.Navigate(route, invoker));
 
     public void CloseTransient()
     {
@@ -472,7 +505,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         return true;
     }
 
-    public void UpdateEffectiveWidth(double effectiveWidth)
+    public void UpdateEffectiveWidth(double effectiveWidth, string? focusedAutomationId = null)
     {
         var width = V2ShellAdaptation.Classify(effectiveWidth);
         if (WidthClass == width)
@@ -480,6 +513,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             return;
         }
 
+        var usedRail = UsesRailNavigation;
         WidthClass = width;
         OnPropertyChanged(nameof(WidthClassLabel));
         OnPropertyChanged(nameof(UsesCompactDensity));
@@ -490,6 +524,14 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(ShowsPrimaryContent));
         OnPropertyChanged(nameof(IntelColumn));
         OnPropertyChanged(nameof(IntelColumnSpan));
+        if (usedRail != UsesRailNavigation &&
+            focusedAutomationId?.StartsWith("v2-shell-destination-", StringComparison.Ordinal) == true)
+        {
+            // The rail and row intentionally expose the same stable controls. Once the binding
+            // hides one copy, restore focus to the visible copy instead of dropping it to the
+            // window when a docked resize crosses the breakpoint.
+            FocusRequested?.Invoke(this, new(focusedAutomationId, V2FocusReason.Restored));
+        }
     }
 
     /// <summary>
@@ -631,6 +673,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     private void RouterNavigated(object? sender, V2NavigationChange change)
     {
+        _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
         Recents = Recents
@@ -639,6 +682,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             .Take(V2ShellPreviewState.MaxRecents)
             .ToArray();
         RebuildSavedAddresses();
+        RebuildSectionItems();
         _playerActionStateFocus = null;
         Refresh(
             announceBackgroundChange: false,
@@ -728,6 +772,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         {
             destination.IsCurrent = Router.CurrentDestination == destination.Route;
         }
+        foreach (var section in SectionItems)
+        {
+            section.IsCurrent = Router.Current.Location.Route == section.Route;
+        }
 
         RaisePresentationChanged();
         if (announceBackgroundChange && (readinessChanged || recoveryChanged) &&
@@ -743,7 +791,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         ReadinessItems.Any(item =>
             string.Equals(item.AutomationId, automationId, StringComparison.Ordinal) ||
             string.Equals(item.DialogAutomationId, automationId, StringComparison.Ordinal)) ||
-        RecoveryActions.Any(item => string.Equals(item.AutomationId, automationId, StringComparison.Ordinal));
+        RecoveryActions.Any(item => string.Equals(item.AutomationId, automationId, StringComparison.Ordinal)) ||
+        _activeReadinessTarget is not null &&
+        string.Equals(ReadinessTargetAutomationId, automationId, StringComparison.Ordinal);
 
     private void ExecuteRecovery(V2RecoveryAction action)
     {
@@ -778,7 +828,21 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             CloseDialog(restoreInvoker: false);
         }
 
-        Act(Router.Navigate(check.ActionRoute, invoker));
+        var result = Router.Navigate(check.ActionRoute, invoker);
+        if (!result.Succeeded)
+        {
+            Act(result);
+            return;
+        }
+
+        // A readiness row names a specific thing to inspect. Several rows share Setup, and a
+        // same-page Navigate result only focuses the generic page heading, so preserve the row's
+        // identity in a visible action target and focus that target in every case.
+        _activeReadinessTarget = check;
+        RaiseReadinessTargetChanged();
+        FocusRequested?.Invoke(this, new(
+            V2ShellFocusTargets.ReadinessTarget(check.Id),
+            V2FocusReason.PageHeading));
     }
 
     private void RaisePresentationChanged()
@@ -795,6 +859,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(SurfaceIsReady), nameof(SurfaceIsLoading), nameof(SurfaceIsUnknown), nameof(SurfaceIsOffline),
             nameof(SurfaceIsStale), nameof(SurfaceIsPartial), nameof(SurfaceIsDenied), nameof(SurfaceIsFailed),
             nameof(SurfacePatternDashed), nameof(SurfacePatternDotted), nameof(SurfacePatternDouble),
+            nameof(SectionItems), nameof(ShowsSectionNavigation),
+            nameof(ShowsReadinessTarget), nameof(ReadinessTargetAutomationId), nameof(ReadinessTargetHeading),
+            nameof(ReadinessTargetDetail), nameof(ReadinessTargetAutomationName),
         })
         {
             OnPropertyChanged(property);
@@ -962,36 +1029,35 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     private async Task ResetPreviewAsync()
     {
-        Task savesAlreadyInFlight;
-        lock (_saveSync)
+        if (_disposed || Interlocked.Exchange(ref _resetInProgress, 1) != 0)
         {
-            _saveSuspended = true;
-            savesAlreadyInFlight = _saveDrain;
+            return;
         }
 
         try
         {
-            await savesAlreadyInFlight.ConfigureAwait(true);
-            await _preview.ResetAsync(CancellationToken.None).ConfigureAwait(true);
-            Pins = [];
-            Recents = [];
-            Router.Restore(new(Variant.Landing), selectedEntity: null, focusTarget: null);
-            SynchronizeLegacyRoute();
-            RebuildSavedAddresses();
-            Announce(V2ShellText.Get("V2.Shell.Announce.PreviewReset"), V2Announcement.Polite);
-            QueueSave();
+            await _persistence.ResetAsync().ConfigureAwait(false);
+            await InvokeOnDispatcherAsync(() =>
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                Pins = [];
+                Recents = [];
+                var restored = Router.Restore(new(Variant.Landing), selectedEntity: null, focusTarget: null);
+                Announce(V2ShellText.Get("V2.Shell.Announce.PreviewReset"), V2Announcement.Polite);
+                Act(restored);
+            }, _lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
         }
         finally
         {
-            lock (_saveSync)
-            {
-                _saveSuspended = false;
-                StartSaveDrainLocked();
-            }
+            Interlocked.Exchange(ref _resetInProgress, 0);
         }
-
-        await FlushSavesAsync().ConfigureAwait(true);
-        FocusRequested?.Invoke(this, new(V2ShellRouter.PageHeadingTarget, V2FocusReason.PageHeading));
     }
 
     private void OpenSavedAddress(string address, string automationId)
@@ -1023,6 +1089,30 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(HasContinueItems));
         OnPropertyChanged(nameof(HasNoContinueItems));
         OnPropertyChanged(nameof(HasPins));
+    }
+
+    private void RebuildSectionItems()
+    {
+        var current = Router.Current.Location.Route;
+        SectionItems = Registry.VisibleSections(Variant, current)
+            .Select(definition => new V2ShellSectionViewModel(
+                definition,
+                route => GoTo(route, V2ShellFocusTargets.Section(route)))
+            {
+                IsCurrent = definition.Id == current,
+            })
+            .ToArray();
+        OnPropertyChanged(nameof(SectionItems));
+        OnPropertyChanged(nameof(ShowsSectionNavigation));
+    }
+
+    private void RaiseReadinessTargetChanged()
+    {
+        OnPropertyChanged(nameof(ShowsReadinessTarget));
+        OnPropertyChanged(nameof(ReadinessTargetAutomationId));
+        OnPropertyChanged(nameof(ReadinessTargetHeading));
+        OnPropertyChanged(nameof(ReadinessTargetDetail));
+        OnPropertyChanged(nameof(ReadinessTargetAutomationName));
     }
 
     private void Announce(string text, V2Announcement announcement)
@@ -1075,85 +1165,43 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
                 : target;
     }
 
-    /// <summary>Coalesces window-move bursts while preserving the order of the last state in each burst.</summary>
+    /// <summary>Coalesces window-move bursts without coupling persistence to the UI dispatcher.</summary>
     private void QueueSave()
     {
-        lock (_saveSync)
+        if (!_disposed)
         {
-            _pendingSave = Snapshot();
-            if (_saveLoopRunning || _saveSuspended)
-            {
-                return;
-            }
-
-            StartSaveDrainLocked();
+            _persistence.QueueSave(Snapshot());
         }
     }
 
-    private void StartSaveDrainLocked()
+    private Task InvokeOnDispatcherAsync(Action action, CancellationToken cancellationToken)
     {
-        if (_saveLoopRunning || _saveSuspended || _pendingSave is null)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_dispatcherContext is null || ReferenceEquals(SynchronizationContext.Current, _dispatcherContext))
         {
-            return;
+            action();
+            return Task.CompletedTask;
         }
 
-        _saveLoopRunning = true;
-        _saveDrain = Task.Run(DrainSavesAsync);
-    }
-
-    private async Task DrainSavesAsync()
-    {
-        try
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _dispatcherContext.Post(_ =>
         {
-            while (true)
+            try
             {
-                V2ShellPreviewState? state;
-                lock (_saveSync)
-                {
-                    state = _pendingSave;
-                    _pendingSave = null;
-                }
-
-                if (state is not null)
-                {
-                    await _preview.SaveAsync(state, CancellationToken.None).ConfigureAwait(false);
-                }
-
-                lock (_saveSync)
-                {
-                    if (_pendingSave is null)
-                    {
-                        return;
-                    }
-                }
+                cancellationToken.ThrowIfCancellationRequested();
+                action();
+                completion.TrySetResult();
             }
-        }
-        finally
-        {
-            lock (_saveSync)
+            catch (OperationCanceledException)
             {
-                _saveLoopRunning = false;
-                StartSaveDrainLocked();
+                completion.TrySetCanceled(cancellationToken);
             }
-        }
-    }
-
-    private async Task FlushSavesAsync()
-    {
-        while (true)
-        {
-            Task drain;
-            lock (_saveSync)
+            catch (Exception exception)
             {
-                drain = _saveDrain;
-                if (!_saveLoopRunning && _pendingSave is null)
-                {
-                    return;
-                }
+                completion.TrySetException(exception);
             }
-
-            await drain.ConfigureAwait(false);
-        }
+        }, null);
+        return completion.Task.WaitAsync(cancellationToken);
     }
 
     private static string? RequireContextValue(string? value, string parameterName, bool optional)
@@ -1177,18 +1225,23 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         return normalized;
     }
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (_disposed)
+        lock (_disposeSync)
         {
-            return;
+            return new(_disposeTask ??= DisposeCoreAsync());
         }
+    }
 
+    private async Task DisposeCoreAsync()
+    {
+        var finalState = Snapshot();
+        var resetWasInProgress = Volatile.Read(ref _resetInProgress) != 0;
         _disposed = true;
         _runtime.Changed -= RuntimeChanged;
         Router.Navigated -= RouterNavigated;
-        QueueSave();
-        await FlushSavesAsync().ConfigureAwait(false);
+        _lifetime.Cancel();
+        await _persistence.DisposeAsync(finalState, suppressFinalSave: resetWasInProgress).ConfigureAwait(false);
     }
 }
 
@@ -1205,6 +1258,7 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
 
     public V2RouteId Route => _definition.Route;
     public string Label => V2ShellText.Get(_definition.LabelKey);
+    public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
     public string AutomationId => V2ShellFocusTargets.Destination(Route);
     public string SelectionDescription => IsCurrent
         ? V2ShellText.Get("V2.Shell.Nav.Current")
@@ -1216,6 +1270,41 @@ public sealed class V2ShellDestinationViewModel : BindableViewModel
         {
             if (SetProperty(ref _isCurrent, value))
             {
+                OnPropertyChanged(nameof(SelectionDescription));
+                OnPropertyChanged(nameof(DisplayLabel));
+            }
+        }
+    }
+
+    public ICommand NavigateCommand { get; }
+}
+
+public sealed class V2ShellSectionViewModel : BindableViewModel
+{
+    private readonly V2RouteDefinition _definition;
+    private bool _isCurrent;
+
+    public V2ShellSectionViewModel(V2RouteDefinition definition, Action<V2RouteId> navigate)
+    {
+        _definition = definition;
+        NavigateCommand = new DelegateCommand(() => navigate(definition.Id));
+    }
+
+    public V2RouteId Route => _definition.Id;
+    public string Label => V2ShellText.Get(_definition.HeadingKey);
+    public string DisplayLabel => IsCurrent ? $"› {Label}" : Label;
+    public string AutomationId => V2ShellFocusTargets.Section(Route);
+    public string SelectionDescription => IsCurrent
+        ? V2ShellText.Get("V2.Shell.Nav.Current")
+        : V2ShellText.Get("V2.Shell.Nav.NotCurrent");
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        set
+        {
+            if (SetProperty(ref _isCurrent, value))
+            {
+                OnPropertyChanged(nameof(DisplayLabel));
                 OnPropertyChanged(nameof(SelectionDescription));
             }
         }
@@ -1256,7 +1345,8 @@ public sealed class V2ReadinessCheckViewModel(V2ReadinessCheck check, Action ope
     };
     public string AutomationId => $"v2-shell-readiness-{check.Id}";
     public string DialogAutomationId => $"v2-shell-readiness-dialog-{check.Id}";
-    public string ActionLabel => V2ShellText.Get("V2.Shell.Action.OpenReadiness");
+    public string ActionLabel => V2ShellText.Format("V2.Shell.Action.OpenReadiness", CultureInfo.CurrentCulture, Label);
+    public string AutomationName => string.Join(". ", ActionLabel, Status, Detail);
     public ICommand OpenCommand { get; } = new DelegateCommand(open);
 }
 

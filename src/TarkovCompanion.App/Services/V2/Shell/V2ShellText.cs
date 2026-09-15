@@ -166,7 +166,14 @@ public static class V2ShellText
         ["V2.Shell.Action.OpenTeam"] = "Open Team",
         ["V2.Shell.Action.SyncNow"] = "Sync now",
         ["V2.Shell.Action.OpenSetup"] = "Open Setup",
-        ["V2.Shell.Action.OpenReadiness"] = "Open",
+        ["V2.Shell.Action.OpenReadiness"] = "Open {0}",
+
+        ["V2.Shell.Readiness.Target.game-log"] = "Review the Logs field under Game folders.",
+        ["V2.Shell.Readiness.Target.screenshots"] = "Review the Screenshots field under Game folders.",
+        ["V2.Shell.Readiness.Target.text-recognition"] = "Review the recognition provider under Scan provider.",
+        ["V2.Shell.Readiness.Target.game-data"] = "Review Local data and use Sync now.",
+        ["V2.Shell.Readiness.Target.profile"] = "Review the active profile and quest plan.",
+        ["V2.Shell.Readiness.Target.group-sharing"] = "Review Group sharing and paired devices.",
 
         ["V2.Shell.Capture.Heading"] = "Capture",
         ["V2.Shell.Capture.NotArmed"] = "Not armed: screenshots use Auto-detect",

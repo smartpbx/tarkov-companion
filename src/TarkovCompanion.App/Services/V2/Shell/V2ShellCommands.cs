@@ -34,6 +34,10 @@ public static class V2ShellFocusTargets
 
     public static string Destination(V2RouteId route) => $"v2-shell-destination-{route.Value}";
 
+    public static string Section(V2RouteId route) => $"v2-shell-section-{route.Value}";
+
+    public static string ReadinessTarget(string id) => $"v2-shell-readiness-target-{V2ShellIdentifier.Require(id, nameof(id))}";
+
     public static string Command(string id) => $"v2-shell-command-{id}";
 
     public static string SavedAddress(string prefix, int index) => $"v2-shell-{prefix}-{index}";
@@ -67,10 +71,14 @@ public static class V2ShellCommands
 {
     public const string CaptureShortcutId = "capture";
 
-    public static IReadOnlyList<V2ShellCommand> For(V2ShellVariantDefinition variant)
+    public static IReadOnlyList<V2ShellCommand> For(
+        V2ShellVariantDefinition variant,
+        V2RouteRegistry? registry = null)
     {
         ArgumentNullException.ThrowIfNull(variant);
+        registry ??= V2RouteRegistry.Default;
         var commands = new List<V2ShellCommand>();
+        var offeredRoutes = new HashSet<V2RouteId>();
         for (var index = 0; index < variant.Destinations.Count; index++)
         {
             var destination = variant.Destinations[index];
@@ -80,9 +88,28 @@ public static class V2ShellCommands
                 V2ShellCommandKind.Navigate,
                 index < 9 ? $"Ctrl+{index + 1}" : null,
                 destination.Route));
+            offeredRoutes.Add(destination.Route);
         }
 
         commands.Add(new($"go.{variant.Setup.Route}", variant.Setup.LabelKey, V2ShellCommandKind.Navigate, "Ctrl+,", variant.Setup.Route));
+        offeredRoutes.Add(variant.Setup.Route);
+
+        // Local section buttons are the direct path while the command palette is the global
+        // path. Offer every remaining addressable, parameter-free route here so no retained V1
+        // page depends on somebody already knowing and typing its deep link.
+        foreach (var route in registry.Routes.Where(route =>
+                     !route.TakesItem &&
+                     variant.Addresses.ContainsKey(route.Id) &&
+                     offeredRoutes.Add(route.Id)))
+        {
+            commands.Add(new(
+                $"go.{route.Id}",
+                route.HeadingKey,
+                V2ShellCommandKind.Navigate,
+                Gesture: null,
+                Route: route.Id));
+        }
+
         commands.AddRange(
         [
             new("back", "V2.Shell.Command.Back", V2ShellCommandKind.Back, "Alt+Left"),

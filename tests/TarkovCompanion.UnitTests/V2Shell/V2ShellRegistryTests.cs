@@ -76,6 +76,7 @@ public sealed class V2ShellRegistryTests
         Assert.Equal(V2Routes.Setup, a.Landing);
         Assert.False(a.Addresses.ContainsKey(V2Routes.Home));
         Assert.Equal("intel/stash", a.Addresses[V2Routes.Stash]);
+        Assert.Equal("tablet", a.Addresses[V2Routes.Tablet]);
     }
 
     [Fact]
@@ -91,16 +92,70 @@ public sealed class V2ShellRegistryTests
         Assert.Equal(V2IntelPlacement.BesideCurrentPage, b.IntelPlacement);
         Assert.Equal(V2Routes.Home, b.Landing);
         Assert.Equal("prepare/stash", b.Addresses[V2Routes.Stash]);
+        Assert.Equal("tablet", b.Addresses[V2Routes.Tablet]);
     }
 
     [Fact]
-    public void Stash_scan_is_highlighted_under_the_destination_its_address_places_it_in()
+    public void Stash_scan_is_highlighted_under_its_explicit_variant_destination()
     {
         var registry = V2RouteRegistry.Default;
 
         Assert.Equal(V2Routes.Items, new V2ShellRouter(V2ShellVariants.A, registry).DestinationOf(V2Routes.Stash));
         Assert.Equal(V2Routes.Plan, new V2ShellRouter(V2ShellVariants.B, registry).DestinationOf(V2Routes.Stash));
         Assert.False(new V2ShellRouter(V2ShellVariants.B, registry).DestinationOf(V2Routes.Items).HasValue);
+    }
+
+    [Theory]
+    [InlineData(V2ShellMode.VariantA)]
+    [InlineData(V2ShellMode.VariantB)]
+    public void Tablet_has_the_documented_stable_address_and_is_highlighted_under_team(V2ShellMode mode)
+    {
+        var router = new V2ShellRouter(V2ShellVariants.For(mode), V2RouteRegistry.Default);
+
+        var opened = router.NavigateToAddress("#/tablet");
+
+        Assert.True(opened.Succeeded, opened.Failure);
+        Assert.Equal(V2Routes.Tablet, router.Current.Location.Route);
+        Assert.Equal(V2Routes.Team, router.CurrentDestination);
+        Assert.Equal("#/tablet", router.CurrentAddress);
+    }
+
+    [Theory]
+    [InlineData(V2ShellMode.VariantA)]
+    [InlineData(V2ShellMode.VariantB)]
+    public void Every_parameter_free_route_is_offered_globally_and_in_its_local_group(V2ShellMode mode)
+    {
+        var variant = V2ShellVariants.For(mode);
+        var registry = V2RouteRegistry.Default;
+        var commands = V2ShellCommands.For(variant, registry);
+        var addressable = registry.Routes
+            .Where(route => !route.TakesItem && variant.Addresses.ContainsKey(route.Id))
+            .ToArray();
+
+        Assert.All(addressable, route =>
+            Assert.Contains(commands, command => command.Kind == V2ShellCommandKind.Navigate && command.Route == route.Id));
+        foreach (var route in addressable)
+        {
+            var sections = registry.VisibleSections(variant, route.Id);
+            Assert.Contains(sections, section => section.Id == route.Id);
+            Assert.Equal(sections.Count, sections.Select(section => section.Id).Distinct().Count());
+        }
+    }
+
+    [Fact]
+    public void Local_groups_include_retained_children_and_the_variant_specific_stash_location()
+    {
+        var registry = V2RouteRegistry.Default;
+
+        Assert.Equal(
+            [V2Routes.Items, V2Routes.Ammo, V2Routes.Keys, V2Routes.Flea, V2Routes.Stash],
+            registry.VisibleSections(V2ShellVariants.A, V2Routes.Items).Select(route => route.Id));
+        Assert.Equal(
+            [V2Routes.Plan, V2Routes.Hideout, V2Routes.Loadout, V2Routes.Events, V2Routes.Stash],
+            registry.VisibleSections(V2ShellVariants.B, V2Routes.Plan).Select(route => route.Id));
+        Assert.Equal(
+            [V2Routes.Team, V2Routes.Group, V2Routes.Tablet],
+            registry.VisibleSections(V2ShellVariants.A, V2Routes.Tablet).Select(route => route.Id));
     }
 
     [Theory]
@@ -165,6 +220,8 @@ public sealed class V2ShellRegistryTests
         Assert.Equal(new V2ShellLocation(V2Routes.Item, Item: "electric-drill"), a.Parse("#/intel/item/electric-drill").Location);
         Assert.Equal(new V2ShellLocation(V2Routes.Loot, IntelItem: "electric-drill"), b.Parse("#/raid/loot/intel/electric-drill").Location);
         Assert.Equal(new V2ShellLocation(V2Routes.Debrief), b.Parse("#/history").Location);
+        Assert.Equal(new V2ShellLocation(V2Routes.Tablet), a.Parse("#/tablet").Location);
+        Assert.Equal(new V2ShellLocation(V2Routes.Tablet), b.Parse("#/tablet").Location);
         Assert.Equal(new V2ShellLocation(V2Routes.Plan), a.Parse("plan").Location);
     }
 

@@ -2723,10 +2723,26 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         get => _previewShell;
         set
         {
+            if (ReferenceEquals(_previewShell, value))
+            {
+                return;
+            }
+
+            if (_previewShell is not null)
+            {
+                _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+            }
+
             if (SetProperty(ref _previewShell, value))
             {
+                if (_previewShell is not null)
+                {
+                    _previewShell.PropertyChanged += PreviewShellPropertyChanged;
+                }
+
                 OnPropertyChanged(nameof(IsLegacyShell));
                 OnPropertyChanged(nameof(IsPreviewShell));
+                OnPropertyChanged(nameof(WindowTitle));
             }
         }
     }
@@ -2734,6 +2750,16 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
     public bool IsLegacyShell => PreviewShell is null;
 
     public bool IsPreviewShell => PreviewShell is not null;
+
+    public string WindowTitle => PreviewShell?.Title ?? "Tarkov Companion";
+
+    private void PreviewShellPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (eventArgs.PropertyName is null or nameof(V2ShellViewModel.Title))
+        {
+            OnPropertyChanged(nameof(WindowTitle));
+        }
+    }
 
     public string LastScanName
     {
@@ -3061,6 +3087,10 @@ public sealed class MainWindowViewModel : BindableViewModel, IDisposable
         _disposed = true;
         _clock?.Stop();
         _clock = null;
+        if (_previewShell is not null)
+        {
+            _previewShell.PropertyChanged -= PreviewShellPropertyChanged;
+        }
         _stateStore.Changed -= RuntimeStateChanged;
         // Stops the update watcher, which otherwise outlives the window it reports to and
         // keeps making network calls for a process on its way out.

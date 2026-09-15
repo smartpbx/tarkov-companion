@@ -148,4 +148,33 @@ public sealed class V2RouteRegistry
         var root = RootOf(id);
         return Routes.Where(route => route.Id == root || route.Parent == root).ToArray();
     }
+
+    /// <summary>The local, directly clickable routes around the current page.</summary>
+    /// <remarks>
+    /// Registry children form the ordinary group. A variant may attach a standalone route to a
+    /// destination (Stash scan), but an address segment is never used to guess that ownership.
+    /// </remarks>
+    public IReadOnlyList<V2RouteDefinition> VisibleSections(
+        V2ShellVariantDefinition variant,
+        V2RouteId current)
+    {
+        ArgumentNullException.ThrowIfNull(variant);
+        _ = this[current];
+        var destination = variant.DestinationOf(current, this);
+        var root = destination ?? RootOf(current);
+        var definitions = SectionGroup(root)
+            .Where(route => !route.TakesItem && variant.Addresses.ContainsKey(route.Id))
+            .ToList();
+
+        if (destination is { } owner)
+        {
+            definitions.AddRange(Routes.Where(route =>
+                !route.TakesItem &&
+                variant.Addresses.ContainsKey(route.Id) &&
+                !definitions.Any(existing => existing.Id == route.Id) &&
+                variant.DestinationOf(route.Id, this) == owner));
+        }
+
+        return definitions;
+    }
 }

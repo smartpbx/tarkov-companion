@@ -152,21 +152,7 @@ public sealed class V2ShellRouter
     public V2RouteId? CurrentDestination => DestinationOf(Current.Location.Route);
 
     public V2RouteId? DestinationOf(V2RouteId route)
-    {
-        if (!Variant.Addresses.TryGetValue(route, out var path))
-        {
-            return null;
-        }
-
-        var first = path.Split('/')[0];
-        return Variant.Destinations
-            .Select(destination => destination.Route)
-            .Append(Variant.Setup.Route)
-            .Where(candidate => Variant.Addresses.TryGetValue(candidate, out var candidatePath) &&
-                                string.Equals(candidatePath, first, StringComparison.Ordinal))
-            .Select(candidate => (V2RouteId?)candidate)
-            .FirstOrDefault();
-    }
+        => Variant.DestinationOf(route, _registry);
 
     /// <summary>Goes to a route's page. Items open through <see cref="OpenIntel"/>, which knows where.</summary>
     public V2NavigationResult Navigate(V2RouteId route, string? invoker = null)

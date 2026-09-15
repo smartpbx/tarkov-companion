@@ -1,5 +1,6 @@
 using System.Reflection;
 using TarkovCompanion.App.Services.V2.Shell;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 
 namespace TarkovCompanion.UnitTests.V2Shell;
 
@@ -105,6 +106,43 @@ public sealed class V2ShellCommandTests
         Assert.False(V2ShellAdaptation.UsesRail(V2ShellVariants.B, V2WidthClass.Expanded));
         Assert.False(V2ShellAdaptation.IntelFitsBeside(V2WidthClass.Compact));
         Assert.True(V2ShellAdaptation.IntelFitsBeside(V2WidthClass.Standard));
+    }
+
+    [Fact]
+    public void Current_navigation_has_a_visible_non_colour_marker_and_a_textual_uia_state()
+    {
+        var destination = new V2ShellDestinationViewModel(
+            new(V2Routes.Raid, "V2.Shell.Label.Raid"),
+            _ => { });
+        var section = new V2ShellSectionViewModel(
+            V2RouteRegistry.Default[V2Routes.Loot],
+            _ => { });
+
+        destination.IsCurrent = true;
+        section.IsCurrent = true;
+
+        Assert.Equal("› Raid", destination.DisplayLabel);
+        Assert.Equal("› Loot decision", section.DisplayLabel);
+        Assert.Equal("Current page", destination.SelectionDescription);
+        Assert.Equal("Current page", section.SelectionDescription);
+    }
+
+    [Fact]
+    public void A_readiness_action_names_the_check_status_and_evidence_on_the_actual_button()
+    {
+        var action = new V2ReadinessCheckViewModel(
+            new(
+                "screenshots",
+                "V2.Shell.Check.Screenshots",
+                V2CheckStatus.NeedsAction,
+                "No screenshot folder",
+                V2Routes.Setup,
+                Required: true),
+            () => { });
+
+        Assert.Equal("v2-shell-readiness-screenshots", action.AutomationId);
+        Assert.Equal("Open Screenshot folder", action.ActionLabel);
+        Assert.Equal("Open Screenshot folder. Needs action. No screenshot folder", action.AutomationName);
     }
 
     [Fact]

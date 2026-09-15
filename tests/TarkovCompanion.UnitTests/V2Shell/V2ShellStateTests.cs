@@ -137,9 +137,40 @@ public sealed class V2ShellStateTests
 
         Assert.Equal(["game-log", "screenshots", "text-recognition", "game-data", "profile", "group-sharing"], summary.Checks.Select(check => check.Id));
         Assert.Equal(4, summary.ReadyCount);
+        Assert.Equal(5, summary.RequiredCount);
         Assert.Equal(1, summary.UnconfirmedCount);
+        Assert.Equal(summary.RequiredCount, summary.ReadyCount + summary.NeedsActionCount + summary.UnconfirmedCount);
         Assert.Equal(V2CheckStatus.Optional, summary.Checks.Single(check => check.Id == "group-sharing").Status);
         Assert.False(summary.Checks.Single(check => check.Id == "group-sharing").Required);
+    }
+
+    [Fact]
+    public void A_fully_ready_required_checklist_reports_five_of_five_not_five_of_six()
+    {
+        var checks = Enumerable.Range(1, 5)
+            .Select(index => new V2ReadinessCheck(
+                $"required-{index}",
+                "V2.Shell.Check.Profile",
+                V2CheckStatus.Ready,
+                "Ready fixture",
+                V2Routes.Setup,
+                Required: true))
+            .Append(new(
+                "optional",
+                "V2.Shell.Check.GroupSharing",
+                V2CheckStatus.Optional,
+                "Optional fixture",
+                V2Routes.Group,
+                Required: false))
+            .ToArray();
+
+        var summary = new V2ReadinessSummary(checks);
+
+        Assert.Equal(5, summary.RequiredCount);
+        Assert.Equal(5, summary.ReadyCount);
+        Assert.Equal(0, summary.NeedsActionCount);
+        Assert.Equal(0, summary.UnconfirmedCount);
+        Assert.Equal(V2SurfaceStateKind.Ready, summary.Kind);
     }
 
     [Fact]

@@ -130,11 +130,14 @@ if ($null -ne $Gallery) {
         insufficientVisualVariationCount = $Gallery.blankCount
         interfaceFaultLaunchCount = $(Get-OptionalProperty $Gallery "interfaceFaultCount")
         warningCaptureUnarmedCount = $(Get-OptionalProperty $Gallery "warningCaptureUnarmedCount")
+        ungracefulShutdownCount = $(Get-OptionalProperty $Gallery "ungracefulShutdownCount")
         interactionRequiredLaunchCount = $InteractionRequired.Count
         interactionPassedLaunchCount = $InteractionPassed.Count
         interactionFailureCount = $(Get-OptionalProperty $Gallery "interactionFailureCount")
-        scope = "Responsive visual variation, packaged-shell UI Automation interactions, and toolkit interface faults; semantic expected-page, accessibility, and data/tile readiness are not proven here and remain an open #279 criterion that depends on the application readiness signal owned by #281."
+        scope = "Responsive visual variation, retained-route, focus, dialog, title and current-destination UI Automation assertions, graceful shutdown, and toolkit interface faults; full usability/accessibility and data/tile readiness are not proven and remain open #279 criteria that depend on the application readiness signal owned by #281."
         pages = @($GalleryPages | ForEach-Object {
+            $PageGracefulProperty = Get-OptionalProperty $_ "gracefulShutdown"
+            $PageGraceful = ($null -eq $PageGracefulProperty) -or [bool]$PageGracefulProperty
             [ordered]@{
                 page = $_.page
                 shellMode = $(Get-OptionalProperty $_ "shellMode")
@@ -145,6 +148,7 @@ if ($null -ne $Gallery) {
                 distinctColors = $_.distinctColors
                 variedFraction = $_.variedFraction
                 warningCaptureArmed = [bool]$(Get-OptionalProperty $_ "warningCaptureArmed")
+                gracefulShutdown = $PageGraceful
                 interfaceFaultCount = $(Get-OptionalProperty $_ "interfaceFaultCount")
             }
         })
@@ -152,9 +156,11 @@ if ($null -ne $Gallery) {
     foreach ($Page in $GalleryPages) {
         $Faults = @(Get-OptionalProperty $Page "interfaceFaults" | Where-Object { $null -ne $_ })
         $Armed = [bool]$(Get-OptionalProperty $Page "warningCaptureArmed")
+        $GracefulProperty = Get-OptionalProperty $Page "gracefulShutdown"
+        $Graceful = ($null -eq $GracefulProperty) -or [bool]$GracefulProperty
         $InteractionRequiredForPage = [bool]$(Get-OptionalProperty $Page "interactionRequired")
         $InteractionPassedForPage = [bool]$(Get-OptionalProperty $Page "interactionSmoke")
-        if (-not $Page.presented -or -not $Page.visuallyVaried -or -not $Armed -or $Faults.Count -gt 0 -or
+        if (-not $Page.presented -or -not $Page.visuallyVaried -or -not $Armed -or -not $Graceful -or $Faults.Count -gt 0 -or
             ($InteractionRequiredForPage -and -not $InteractionPassedForPage)) {
             $Excerpts.Add("gallery $($Page.page): $(ConvertTo-SafeEvidenceText $Page.detail)")
             if ($InteractionRequiredForPage -and -not $InteractionPassedForPage) {
