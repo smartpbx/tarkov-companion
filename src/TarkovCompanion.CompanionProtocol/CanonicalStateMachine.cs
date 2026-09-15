@@ -265,7 +265,8 @@ public static class DesktopCanonicalStateMachine
                 aggregate));
         }
 
-        current = current.With(current.GlobalRevision, recentCommands: RetainReceipts(current, current.RecentCommands, now));
+        var (retained, horizon) = RetainReceipts(current, current.RecentCommands, now);
+        current = current.With(current.GlobalRevision, recentCommands: retained, receiptHorizonUtc: horizon);
         return new MaintenanceReduction(current, ProtocolGuard.List(updates, nameof(updates)));
     }
 
@@ -412,6 +413,13 @@ public static class DesktopCanonicalStateMachine
         if (command.IssuedUtc - now > ProtocolBounds.MaxClientClockSkew)
         {
             return Reject(state, command, CommandDisposition.RejectedInvalidState, "command-issued-in-future");
+        }
+
+        // Without a receipt, a command issued no later than an evicted unexpired receipt may be that
+        // change's retry; refusing it keeps the at-most-once guarantee when the window overflows.
+        if (state.ReceiptHorizonUtc is { } horizon && command.IssuedUtc <= horizon)
+        {
+            return Reject(state, command, CommandDisposition.RejectedInvalidState, "idempotency-window-exceeded");
         }
 
         if (!CanExecute(command, context))
@@ -1160,12 +1168,13 @@ public static class DesktopCanonicalStateMachine
             scope.Context.DeviceId,
             command.Aggregate,
             command.RequestedRevision,
+            command.IssuedUtc,
             command.ExpiresUtc);
-        var receipts = RetainReceipts(
+        var (receipts, horizon) = RetainReceipts(
             staged,
             state.RecentCommands.Where(item => item.CommandId != command.CommandId).Append(receipt),
             scope.Now);
-        var next = staged.With(global, recentCommands: receipts);
+        var next = staged.With(global, recentCommands: receipts, receiptHorizonUtc: horizon);
         return new CommandReduction(
             next,
             Acknowledge(next, command, CommandDisposition.Applied, code, command.RequestedRevision, command.RequestedRevision, command.CommandId),
@@ -1175,13 +1184,15 @@ public static class DesktopCanonicalStateMachine
     /// <summary>
     /// A receipt is retained until its command expires, and always while its change still occupies
     /// its aggregate cursor, so the newest change's exact retry is recognized after expiry and a
-    /// rejection can never have to name the rejected command as the applied change.
+    /// rejection can never have to name the rejected command as the applied change. When the bound
+    /// forces an unexpired receipt out, the receipt horizon advances to its issue time.
     /// </summary>
-    private static IReadOnlyList<RecentCommandReceipt> RetainReceipts(
+    private static (IReadOnlyList<RecentCommandReceipt> Receipts, DateTimeOffset? Horizon) RetainReceipts(
         CanonicalCompanionState state,
         IEnumerable<RecentCommandReceipt> receipts,
         DateTimeOffset now)
     {
+        var horizon = state.ReceiptHorizonUtc;
         var retained = receipts.Where(item => IsRetained(state, item, now)).ToList();
         while (retained.Count > ProtocolBounds.MaxRecentCommands)
         {
@@ -1191,10 +1202,12 @@ public static class DesktopCanonicalStateMachine
                 break;
             }
 
+            var evicted = retained[oldestUnpinned];
+            horizon = horizon is { } current && current >= evicted.IssuedUtc ? current : evicted.IssuedUtc;
             retained.RemoveAt(oldestUnpinned);
         }
 
-        return retained;
+        return (retained, horizon);
     }
 
     private static bool IsRetained(CanonicalCompanionState state, RecentCommandReceipt receipt, DateTimeOffset now) =>

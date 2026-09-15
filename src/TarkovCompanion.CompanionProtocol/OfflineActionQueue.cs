@@ -65,7 +65,7 @@ public sealed record UpsertMarkOfflineAction : OfflineAction
         : base(actionId, queuedUtc, expiresUtc)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.NonNegative(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision));
         Mark = ProtocolGuard.NotNull(mark, nameof(mark));
     }
 
@@ -92,7 +92,7 @@ public sealed record DeleteMarkOfflineAction : OfflineAction
         : base(actionId, queuedUtc, expiresUtc)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.Positive(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.Positive(ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision)), nameof(expectedMarkRevision));
     }
 
     public MarkId MarkId { get; }
@@ -196,7 +196,10 @@ public sealed record OfflineActionQueue
     public OfflineActionQueue Remove(CommandId actionId) =>
         new(Actions.Where(action => action.ActionId != actionId).ToArray());
 
-    /// <summary>Discards every action whose fifteen-minute lifetime has ended; it can never enter a later raid.</summary>
+    /// <summary>
+    /// Discards every action whose fifteen-minute lifetime has ended. The lifetime bounds staleness but
+    /// knows nothing of raids; the submission preview is what keeps a draft off changed state.
+    /// </summary>
     public OfflineActionQueue PruneExpired(DateTimeOffset nowUtc)
     {
         var now = ProtocolGuard.Utc(nowUtc, nameof(nowUtc));

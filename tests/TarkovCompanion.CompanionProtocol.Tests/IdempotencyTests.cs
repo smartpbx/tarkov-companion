@@ -169,7 +169,7 @@ public sealed class IdempotencyTests
     }
 
     [Fact]
-    public void ReceiptsStayBoundedWhileTheNewestChangeRemainsRecognizable()
+    public void ReceiptsStayBoundedTheNewestChangeRemainsRecognizableAndAnEvictedRetryNeverAppliesTwice()
     {
         var state = InitialState();
         var commands = new List<UpdateDesktopWorkspaceCommand>();
@@ -192,10 +192,31 @@ public sealed class IdempotencyTests
         var newest = DesktopCanonicalStateMachine.Apply(state, Envelope(commands[^1], DesktopSession), DesktopContext(retryAt));
         var evicted = DesktopCanonicalStateMachine.Apply(state, Envelope(commands[0], DesktopSession), DesktopContext(retryAt));
 
+        // The evicted retry names an older revision here, but a re-previewed draft would request the
+        // next one; the receipt horizon refuses both instead of evaluating them as new commands.
+        var evictedDraftRetry = new UpdateDesktopWorkspaceCommand(
+            commands[0].CommandId,
+            state.Workspace.Cursor.Revision.Next(),
+            commands[0].IssuedUtc,
+            commands[0].ExpiresUtc,
+            commands[0].Projection);
+        var redrafted = DesktopCanonicalStateMachine.Apply(state, Envelope(evictedDraftRetry, DesktopSession), DesktopContext(retryAt));
+        var fresh = DesktopCanonicalStateMachine.Apply(
+            state,
+            Envelope(new UpdateDesktopWorkspaceCommand(Command(20_000), state.Workspace.Cursor.Revision.Next(), retryAt, retryAt.AddMinutes(1), Projection("fresh")), DesktopSession),
+            DesktopContext(retryAt));
+
         Assert.Equal(ProtocolBounds.MaxRecentCommands, state.RecentCommands.Count);
+        Assert.Equal(commands[43].IssuedUtc, state.ReceiptHorizonUtc);
         Assert.Equal("duplicate-command", newest.Acknowledgement.Code);
-        Assert.Equal(CommandDisposition.RejectedStale, evicted.Acknowledgement.Disposition);
-        Assert.NotEqual(commands[0].CommandId, evicted.Acknowledgement.AppliedChangeId);
+        Assert.All(new[] { evicted, redrafted }, reduction =>
+        {
+            Assert.Equal(CommandDisposition.RejectedInvalidState, reduction.Acknowledgement.Disposition);
+            Assert.Equal("idempotency-window-exceeded", reduction.Acknowledgement.Code);
+            Assert.Null(reduction.Acknowledgement.AppliedChangeId);
+            Assert.Same(state, reduction.State);
+        });
+        Assert.Equal(CommandDisposition.Applied, fresh.Acknowledgement.Disposition);
     }
 
     private static JsonNode? Reverse(JsonNode? node) => node switch

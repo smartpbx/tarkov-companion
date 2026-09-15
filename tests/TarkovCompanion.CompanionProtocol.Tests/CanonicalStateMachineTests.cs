@@ -267,7 +267,7 @@ public sealed class CanonicalStateMachineTests
         Assert.Equal(new CaptureIntentState(ScanIntent.Loot, Now, Now.AddMinutes(1)), intent.State);
         Assert.NotNull(projected);
         Assert.Same(intent.State, projected.Value);
-        Assert.Equal(new StateStreamId("paired/CaptureIntent"), projected.StreamId);
+        Assert.Equal(new StateStreamId($"paired/{Epoch.Value:D}/CaptureIntent"), projected.StreamId);
         Assert.Equal(1, projected.Revision.Value);
         Assert.Equal(new StateChangeId(Command(40).Value), projected.ChangeId);
         Assert.Equal(V2ContractVersion.Current, projected.ContractVersion);
@@ -293,10 +293,11 @@ public sealed class CanonicalStateMachineTests
             new CanonicalUpdate[] { mode.Update!, desktop.Update!, first.Update!, second.Update! }.Concat(maintained.Updates),
             update => Assert.Equal(V2ContractVersion.Current, update.ContractVersion));
 
-        // A marks change projects only the marks it wrote, each on its own Core stream with its own revision.
+        // A marks change projects only the marks it wrote, each on its own epoch-scoped Core stream at
+        // the marks aggregate revision, which keeps increasing even if a mark id is deleted and re-created.
         var projected = Assert.Single(Assert.IsType<MarksCanonicalUpdate>(second.Update).ToRevisionedStates());
-        Assert.Equal(new StateStreamId($"paired/Marks/{Mark(2).Value:D}"), projected.StreamId);
-        Assert.Equal(1, projected.Revision.Value);
+        Assert.Equal(new StateStreamId($"paired/{Epoch.Value:D}/Marks/{Mark(2).Value:D}"), projected.StreamId);
+        Assert.Equal(2, projected.Revision.Value);
         Assert.Equal(second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(2)).State, projected.Value);
         Assert.Equal(Command(73), second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(2)).LastChangeId);
         Assert.Equal(Command(72), second.State.Marks.Marks.Single(mark => mark.MarkId == Mark(1)).LastChangeId);
@@ -304,6 +305,15 @@ public sealed class CanonicalStateMachineTests
         var expiry = Assert.IsType<MarksCanonicalUpdate>(Assert.Single(maintained.Updates));
         Assert.Equal(new WorkspaceOrigin(Workspace, DesktopDevice, WorkspaceOriginKind.DesktopApplication, DesktopInstance), expiry.Origin);
         Assert.Empty(expiry.ToRevisionedStates());
+
+        var recreated = Apply(
+            maintained.State,
+            Upsert(75, maintained.State.Marks.Cursor.Revision.Value + 1, 0, Now.AddSeconds(47), mark: 2),
+            TabletContext(Now.AddSeconds(47)));
+        var recreatedProjection = Assert.Single(Assert.IsType<MarksCanonicalUpdate>(recreated.Update).ToRevisionedStates());
+        Assert.Equal(projected.StreamId, recreatedProjection.StreamId);
+        Assert.True(recreatedProjection.Revision.Value > projected.Revision.Value);
+        Assert.Equal(1, recreated.State.Marks.Marks.Single(mark => mark.MarkId == Mark(2)).Revision);
     }
 
     [Fact]

@@ -318,7 +318,7 @@ public sealed record UpsertMarkCommand : CompanionCommand
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.NonNegative(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision));
         Mark = ProtocolGuard.NotNull(mark, nameof(mark));
     }
 
@@ -346,7 +346,7 @@ public sealed record DeleteMarkCommand : CompanionCommand
         : base(commandId, requestedRevision, issuedUtc, expiresUtc, offlineQueuePreview)
     {
         MarkId = markId.Value == Guid.Empty ? throw new ArgumentException("A mark id is required.", nameof(markId)) : markId;
-        ExpectedMarkRevision = ProtocolGuard.Positive(expectedMarkRevision, nameof(expectedMarkRevision));
+        ExpectedMarkRevision = ProtocolGuard.Positive(ProtocolGuard.WireInteger(expectedMarkRevision, nameof(expectedMarkRevision)), nameof(expectedMarkRevision));
     }
 
     public MarkId MarkId { get; }

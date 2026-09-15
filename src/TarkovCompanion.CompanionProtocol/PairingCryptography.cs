@@ -482,11 +482,17 @@ public static class PairingCryptography
     internal static string ValidateDeviceName(string? deviceName)
     {
         var name = ProtocolGuard.Required(deviceName, nameof(deviceName), ProtocolBounds.MaxDeviceNameBytes);
-        foreach (var character in name)
+        foreach (var rune in name.EnumerateRunes())
         {
-            // Control, format (zero-width, joiner, and bidirectional), separator, and private-use
-            // characters could make the approval prompt show a different name from the one requested.
-            var category = CharUnicodeInfo.GetUnicodeCategory(character);
+            // Control, format (zero-width, joiner, bidirectional, and tag), separator, private-use,
+            // and unpaired surrogate code points, in any plane, could make the approval prompt show a
+            // different name from the one requested.
+            if (rune == Rune.ReplacementChar)
+            {
+                throw new ArgumentException("A device name is well-formed Unicode text.", nameof(deviceName));
+            }
+
+            var category = Rune.GetUnicodeCategory(rune);
             if (category is UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.LineSeparator or
                 UnicodeCategory.ParagraphSeparator or UnicodeCategory.PrivateUse)
             {

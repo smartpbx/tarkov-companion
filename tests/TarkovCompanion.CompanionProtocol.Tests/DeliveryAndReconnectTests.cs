@@ -282,6 +282,56 @@ public sealed class DeliveryAndReconnectTests
         Assert.Equal(ReplicaDisposition.ResyncRequired, upToDateElsewhere.Disposition);
     }
 
+    [Fact]
+    public void AReplicaAdoptsANewAuthorityLifetimeWhoseDeliveryStreamRestarted()
+    {
+        var flow = Flow.Create();
+        var cached = flow.ReplicaThrough(5);
+        var restartedEpoch = new AuthorityEpoch(Guid.Parse("30000000-0000-0000-0000-000000000077"));
+        var restarted = new CanonicalCompanionState(
+            restartedEpoch,
+            flow.Final.WorkspaceId,
+            flow.Final.DesktopInstanceId,
+            new GlobalRevision(0),
+            flow.Final.DesktopDeviceId,
+            flow.Final.DeviceModes,
+            new WorkspaceAggregate(AggregateCursor.Empty, Projection()),
+            new MarkAggregate(AggregateCursor.Empty, []),
+            new CaptureIntentAggregate(AggregateCursor.Empty, null));
+
+        // After a desktop restart the new ledger has assigned nothing, so the plan resumes at zero.
+        var plan = ReconnectPlanner.Plan(
+            restarted,
+            cached.CreateReconnectRequest(CompanionProtocolVersion.Current, TabletSession, Now),
+            DeliveryLedger.Empty,
+            TabletDevice,
+            CompanionProtocolVersion.Current).Plan;
+        var adopted = cached.ApplyReconnectPlan(plan);
+        var nextLive = adopted.Replica.Observe(Delivered(1, new CanonicalUpdateMessage(RestartedMarksUpdate(restartedEpoch))));
+        var liveSnapshot = cached.Observe(Delivered(1, new CanonicalSnapshotMessage(restarted)));
+        var liveUpdate = cached.Observe(Delivered(1, new CanonicalUpdateMessage(RestartedMarksUpdate(restartedEpoch))));
+
+        Assert.Equal(ReconnectDisposition.FullSnapshot, plan.Disposition);
+        Assert.Equal(0, plan.ResumeAfterDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.Applied, adopted.Disposition);
+        Assert.Equal(restartedEpoch, adopted.Replica.State!.AuthorityEpoch);
+        Assert.Equal(0, adopted.Replica.LastDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.Applied, nextLive.Disposition);
+        Assert.Equal(ReplicaDisposition.Applied, liveSnapshot.Disposition);
+        Assert.Equal(1, liveSnapshot.Replica.LastDeliverySequence.Value);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, liveUpdate.Disposition);
+        Assert.Equal("authority-epoch-changed", liveUpdate.Code);
+    }
+
+    private static MarksCanonicalUpdate RestartedMarksUpdate(AuthorityEpoch epoch) => new(
+        epoch,
+        new GlobalRevision(1),
+        Command(900),
+        Now,
+        TabletOrigin,
+        V2ContractVersion.Current,
+        new MarkAggregate(new AggregateCursor(new AggregateRevision(1), Command(900)), []));
+
     private static void AssertStateEqual(CanonicalCompanionState expected, CanonicalCompanionState actual) =>
         AssertJsonEqual(
             JsonSerializer.SerializeToUtf8Bytes(expected, CompanionProtocolJson.Options),

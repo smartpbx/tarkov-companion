@@ -586,6 +586,7 @@ public sealed record RecentCommandReceipt(
     CompanionDeviceId DeviceId,
     CanonicalAggregateKind Aggregate,
     AggregateRevision AppliedRevision,
+    DateTimeOffset IssuedUtc,
     DateTimeOffset ExpiresUtc)
 {
     public CommandId CommandId { get; } = CommandId.Value == Guid.Empty
@@ -606,6 +607,9 @@ public sealed record RecentCommandReceipt(
         ? AppliedRevision
         : throw new ArgumentOutOfRangeException(nameof(AppliedRevision), "An applied command occupies a positive revision.");
 
+    /// <summary>The command's own issue time; a retry of the same command repeats it.</summary>
+    public DateTimeOffset IssuedUtc { get; } = ProtocolGuard.Utc(IssuedUtc, nameof(IssuedUtc));
+
     public DateTimeOffset ExpiresUtc { get; } = ProtocolGuard.Utc(ExpiresUtc, nameof(ExpiresUtc));
 }
 
@@ -621,7 +625,8 @@ public sealed record CanonicalCompanionState
         WorkspaceAggregate workspace,
         MarkAggregate marks,
         CaptureIntentAggregate captureIntent,
-        IReadOnlyList<RecentCommandReceipt>? recentCommands = null)
+        IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
+        DateTimeOffset? receiptHorizonUtc = null)
     {
         AuthorityEpoch = authorityEpoch.Value == Guid.Empty
             ? throw new ArgumentException("An authority epoch is required.", nameof(authorityEpoch))
@@ -642,6 +647,7 @@ public sealed record CanonicalCompanionState
             recentCommands ?? [],
             nameof(recentCommands),
             ProtocolBounds.MaxRecentCommands);
+        ReceiptHorizonUtc = ProtocolGuard.UtcOptional(receiptHorizonUtc, nameof(receiptHorizonUtc));
 
         // A command id is a change identity for the whole authority lifetime, not per device;
         // otherwise two devices could each be told that "their" change occupies one revision.
@@ -681,6 +687,14 @@ public sealed record CanonicalCompanionState
     [JsonIgnore]
     public IReadOnlyList<RecentCommandReceipt> RecentCommands { get; }
 
+    /// <summary>
+    /// The latest issue time of an unexpired receipt the bounded window had to evict. A command issued
+    /// at or before it without a receipt may be the retry of an evicted change, so the reducer refuses
+    /// it rather than risk applying it twice. Desktop-local; persisted beside the receipts.
+    /// </summary>
+    [JsonIgnore]
+    public DateTimeOffset? ReceiptHorizonUtc { get; }
+
     public AggregateCursor Cursor(CanonicalAggregateKind aggregate) => aggregate switch
     {
         CanonicalAggregateKind.DeviceModes => DeviceModes.Cursor,
@@ -696,7 +710,8 @@ public sealed record CanonicalCompanionState
         WorkspaceAggregate? workspace = null,
         MarkAggregate? marks = null,
         CaptureIntentAggregate? captureIntent = null,
-        IReadOnlyList<RecentCommandReceipt>? recentCommands = null) =>
+        IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
+        DateTimeOffset? receiptHorizonUtc = null) =>
         new(
             AuthorityEpoch,
             WorkspaceId,
@@ -707,7 +722,8 @@ public sealed record CanonicalCompanionState
             workspace ?? Workspace,
             marks ?? Marks,
             captureIntent ?? CaptureIntent,
-            recentCommands ?? RecentCommands);
+            recentCommands ?? RecentCommands,
+            receiptHorizonUtc ?? ReceiptHorizonUtc);
 }
 
 /// <summary>
@@ -764,9 +780,12 @@ public abstract record CanonicalUpdate
     [JsonIgnore]
     public abstract CanonicalAggregateKind Aggregate { get; }
 
-    /// <summary>The v2 stream this aggregate's changes belong to.</summary>
+    /// <summary>
+    /// The v2 stream this aggregate's changes belong to. It is scoped to the authority epoch, whose
+    /// aggregate revisions restart, so a stream's revisions only ever increase.
+    /// </summary>
     [JsonIgnore]
-    public StateStreamId StreamId => new($"paired/{Aggregate}");
+    public StateStreamId StreamId => new($"paired/{AuthorityEpoch.Value:D}/{Aggregate}");
 
     private protected StateChangeId CoreChangeId => new(ChangeId.Value);
 }
@@ -829,14 +848,16 @@ public sealed record MarksCanonicalUpdate : CanonicalUpdate
 
     /// <summary>
     /// The marks this change created or edited, each as the v2 revisioned Core mark on its own
-    /// per-mark stream. A deletion or expiry has no v2 payload and appears only as the aggregate update.
+    /// per-mark stream within the authority epoch. The stream revision is the marks aggregate revision
+    /// of the change, so it increases across edits and across deleting and re-creating one mark id. A
+    /// deletion or expiry has no v2 payload and appears only as the aggregate update.
     /// </summary>
     public IReadOnlyList<RevisionedState<MapMarkState>> ToRevisionedStates() =>
         State.Marks
             .Where(mark => mark.LastChangeId == ChangeId)
             .Select(mark => new RevisionedState<MapMarkState>(
-                new StateStreamId($"paired/Marks/{mark.MarkId.Value:D}"),
-                new StateRevision(mark.Revision),
+                new StateStreamId($"{StreamId.Value}/{mark.MarkId.Value:D}"),
+                new StateRevision(State.Cursor.Revision.Value),
                 CoreChangeId,
                 ContractVersion,
                 Origin,

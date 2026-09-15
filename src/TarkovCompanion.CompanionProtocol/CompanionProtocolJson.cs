@@ -138,6 +138,10 @@ public static class CompanionProtocolJson
             AllowOutOfOrderMetadataProperties = true,
         };
         options.Converters.Add(new JsonStringEnumConverter(namingPolicy: null, allowIntegerValues: false));
+
+        // Reused Core DTOs normalize a timestamp to UTC before protocol validation sees it, so the
+        // explicit zero offset is enforced where the text is read.
+        options.Converters.Add(new ZeroOffsetDateTimeOffsetConverter());
         options.MakeReadOnly(populateMissingResolver: true);
         return options;
     }
@@ -274,6 +278,28 @@ public static class CompanionProtocolJson
         public static ContainerFrame Object() => new(true);
 
         public static ContainerFrame Array() => new(false);
+    }
+}
+
+/// <summary>Reads only timestamps written with a zero UTC offset and writes the serializer's default form.</summary>
+internal sealed class ZeroOffsetDateTimeOffsetConverter : JsonConverter<DateTimeOffset>
+{
+    public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType != JsonTokenType.String ||
+            !reader.TryGetDateTimeOffset(out var value) ||
+            value.Offset != TimeSpan.Zero)
+        {
+            throw new JsonException("A protocol timestamp is ISO 8601 text with an explicit zero UTC offset.");
+        }
+
+        return value;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        writer.WriteStringValue(value);
     }
 }
 

@@ -212,6 +212,39 @@ public sealed class GoldenAndHostileJsonTests
     }
 
     [Fact]
+    public void TimestampsInReusedCoreDtosNeedAnExplicitZeroOffsetAndCoreDtosSerializeAsInCore()
+    {
+        var mark = GoldenNode("commands/upsert-mark.json");
+        mark["command"]!["mark"]!["state"]!["expiresUtc"] = "2026-09-14T22:00:30+02:00";
+        var intent = GoldenNode("server/canonical-update-capture-intent.json");
+        intent["message"]!["update"]!["state"]!["activeIntent"]!["state"]!["armedUtc"] = "2026-09-14T22:00:40+02:00";
+        var zulu = GoldenNode("commands/upsert-mark.json");
+        zulu["command"]!["mark"]!["state"]!["expiresUtc"] = "2026-09-14T20:00:30Z";
+
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(mark.ToJsonString())));
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ServerEnvelope>(Encoding.UTF8.GetBytes(intent.ToJsonString())));
+        Assert.NotNull(CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(zulu.ToJsonString())));
+
+        var update = GoldenRoot<ServerEnvelope>("server/canonical-update-marks.json");
+        var marks = Assert.IsType<MarksCanonicalUpdate>(Assert.IsType<CanonicalUpdateMessage>(update.Message).Update);
+        object[] coreValues =
+        [
+            marks.State.Marks[0].State,
+            marks.Origin,
+            marks.ContractVersion,
+            GoldenRoot<ServerEnvelope>("server/canonical-update-capture-intent.json").Message is CanonicalUpdateMessage { Update: CaptureCanonicalUpdate capture }
+                ? capture.State.ActiveIntent!.State
+                : throw new InvalidOperationException("The capture golden carries an intent."),
+        ];
+        foreach (var value in coreValues)
+        {
+            Assert.Equal(
+                JsonSerializer.SerializeToUtf8Bytes(value, value.GetType(), TarkovCompanion.Core.Abstractions.V2.V2ContractJson.Options),
+                JsonSerializer.SerializeToUtf8Bytes(value, value.GetType(), CompanionProtocolJson.Options));
+        }
+    }
+
+    [Fact]
     public void ANonQueueableCommandCannotSmuggleAnOfflinePreview()
     {
         var node = GoldenNode("commands/set-interaction-mode.json");

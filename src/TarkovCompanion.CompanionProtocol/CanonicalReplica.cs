@@ -57,14 +57,22 @@ public sealed record CanonicalReplica
     }
 
     /// <summary>
-    /// Applies a reconnect plan only where it continues this replica's position. Plans carry no
-    /// request correlation, so a plan whose resume position is behind the replica is a late answer
-    /// to an earlier request and is discarded; a replay that starts after the next expected sequence
-    /// cannot close the gap and requires another resynchronization.
+    /// Applies a reconnect plan only where it continues this replica's position. A delivery stream is
+    /// scoped to one authority epoch, so a snapshot from another epoch is always adopted at its own
+    /// position. Within an epoch, plans carry no request correlation, so a plan whose resume position is
+    /// behind the replica is a late answer to an earlier request and is discarded; a replay that starts
+    /// after the next expected sequence cannot close the gap and requires another resynchronization.
     /// </summary>
     public ReplicaObservation ApplyReconnectPlan(ReconnectPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
+
+        // A snapshot from another authority lifetime restarts the delivery stream at its position.
+        if (plan.Snapshot is { } snapshot && (State is null || snapshot.AuthorityEpoch != State.AuthorityEpoch))
+        {
+            return new(new CanonicalReplica(snapshot, plan.ResumeAfterDeliverySequence, false), ReplicaDisposition.Applied, "snapshot-applied");
+        }
+
         if (plan.ResumeAfterDeliverySequence.Value < LastDeliverySequence.Value)
         {
             return new(this, ReplicaDisposition.Discarded, "stale-reconnect-plan");
@@ -128,6 +136,17 @@ public sealed record CanonicalReplica
 
     private ReplicaObservation Observe(DeliverySequence sequence, ServerMessage message)
     {
+        // A new authority lifetime (a desktop restart or state replacement) restarts the device's
+        // delivery stream, so its sequences are not comparable with the cached position.
+        if (State is not null && EpochOf(message) is { } epoch && epoch != State.AuthorityEpoch)
+        {
+            return CarriedState(message) is { } carried
+                ? new(new CanonicalReplica(carried, sequence, false), ReplicaDisposition.Applied, "authority-epoch-state-applied")
+                : AwaitingResync
+                    ? new(this, ReplicaDisposition.Discarded, "awaiting-resync")
+                    : RequireResync("authority-epoch-changed");
+        }
+
         if (sequence.Value <= LastDeliverySequence.Value)
         {
             return new(this, ReplicaDisposition.Duplicate, "delivery-already-applied");
@@ -198,6 +217,21 @@ public sealed record CanonicalReplica
         };
         return new(new CanonicalReplica(next, sequence, false), ReplicaDisposition.Applied, "update-applied");
     }
+
+    private static AuthorityEpoch? EpochOf(ServerMessage message) => message switch
+    {
+        CanonicalSnapshotMessage snapshot => snapshot.State.AuthorityEpoch,
+        CanonicalUpdateMessage update => update.Update.AuthorityEpoch,
+        CommandAcknowledgementMessage acknowledgement => acknowledgement.Acknowledgement.AuthorityEpoch,
+        _ => null,
+    };
+
+    private static CanonicalCompanionState? CarriedState(ServerMessage message) => message switch
+    {
+        CanonicalSnapshotMessage snapshot => snapshot.State,
+        CommandAcknowledgementMessage { Acknowledgement.CanonicalState: { } included } => included,
+        _ => null,
+    };
 
     private ReplicaObservation RequireResync(string code) =>
         new(new CanonicalReplica(State, LastDeliverySequence, true), ReplicaDisposition.ResyncRequired, code);

@@ -184,6 +184,10 @@ public sealed class HandshakeTests
     [InlineData("Tab\u2028let")]
     [InlineData("Tab\uE000let")]
     [InlineData("Tab\u0007let")]
+    [InlineData("Tab\U000E0001let")]
+    [InlineData("Tab\U000E0041let")]
+    [InlineData("Tab\U0001BCA0let")]
+    [InlineData("Tab\U000F0000let")]
     public void DeviceNamesCannotHideCharactersFromTheApprovalPrompt(string name)
     {
         var secret = SHA256.HashData("name-secret"u8);
