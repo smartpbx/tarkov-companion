@@ -16,15 +16,16 @@ file stores, raid outbox/history/retention services, and the focused persistence
 tests. `docs/DATABASE.md`, ADRs 0003--0006, `docs/TESTING.md`, and the existing #317 baseline were
 then reconciled against source.
 
-Source locations below are exact review evidence. “Covered” means a named current test exercises the
-ordinary property; it never means fault injection unless stated. Required tests are deterministic tests
-to add before the listed disposition can be changed. A same-user process that can change application
+Source locations below are exact **Reviewed** evidence. “Covered” means a named current test appears
+to exercise the ordinary property; it never means that test ran or that fault injection exists unless
+stated. No exact run was observed, so no row is **Tested (automated)**. Required tests are deterministic
+tests to add before the listed disposition can be changed. A same-user process that can change application
 data is in scope: `%LOCALAPPDATA%`, portable install locations, user-selected import/export roots, and
 EFT screenshot roots are not trusted merely because they are local.
 
 ## What V1 demonstrably controls
 
-| Surface | Current source fact and evidence | Current automated evidence | Residual boundary |
+| Surface | Current source fact and evidence | Named test coverage (not run) | Residual boundary |
 | --- | --- | --- | --- |
 | SQLite writes | Every opened connection enables FK enforcement, WAL, and a five-second busy timeout (`SqliteDatabase.cs:31-45`). Individual embedded migrations execute with their `schema_migrations` record in one transaction (`SqliteMigrationRunner.cs:184-208`); catalog replacement helpers and quest changes similarly transact. | `SqliteMigrationTests.cs:43-56`; malformed item refresh preserves prior rows in `SqliteDataPersistenceTests.cs:91-130`; quest persistence/exchange integration suites. | This is atomicity within a successful SQLite transaction, not corruption recovery, multi-process coordination, or downgrade safety. |
 | Quest exchange | Version 2 JSON is bounded (2 MiB, depth 32, eight profiles, 50,000 records), checksummed canonical data, exact scope validated, preview/revision checked, and apply/undo journaled in one SQLite transaction (`ProjectQuestProgressJson.cs:13-59`, `SqliteQuestProgressImportStore.cs:31-186,477-835`). | `QuestProgressExchangeTests.cs`; `QuestImportHistoryTests.cs`; `TarkovTrackerIntegrationTests.cs`. | This protection covers the separate quest exchange format, not the active `profile.json` import or raid history export. |
@@ -106,7 +107,9 @@ EFT screenshot roots are not trusted merely because they are local.
 
 ### PERS-04 — unreadable retention settings silently enable destructive cleanup
 
-- **Severity:** Medium.
+- **Severity:** Low. The behavior mutates player-owned files, but filename selection, keep-newest,
+  reparse/cloud exclusions, and recycle-bin recovery bound the current impact; this matches
+  `RISK-SCREENSHOT-RETENTION-DEFAULT` and DIAG-07.
 - **Source evidence:** `ScreenshotRetentionSettings.Default` is enabled at 24 hours
   (`ScreenshotRetention.cs:10-23`); missing, oversized, malformed, unreadable, or unauthorized
   `screenshots.json` returns that default (`JsonFileScreenshotRetentionStore.cs:27-35,61-79`). The
@@ -199,7 +202,8 @@ EFT screenshot roots are not trusted merely because they are local.
   exported, then opened by a spreadsheet that evaluates it as a formula. CSV quoting does not prevent
   formula interpretation in common spreadsheet import paths.
 - **Current control/evidence:** UTF-8 without BOM and RFC-style quote escaping are used. No formula
-  injection test was found; the existing history tests prove persistence/trails, not hostile export.
+  injection test was found; named history tests contain ordinary persistence/trail cases, but no run
+  was observed and no hostile export case was found.
 - **Residual risk:** This can execute spreadsheet-side actions or exfiltration when a user shares/opens
   their own history. JSON export has a different consumer boundary and is not a CSV mitigation.
 - **Disposition / owner:** **Mitigate; #315** (export/redaction) with storage evidence from **#270**.
@@ -315,12 +319,17 @@ EFT screenshot roots are not trusted merely because they are local.
 
 ## Reconciliation with the existing #317 baseline and V2 work
 
-The existing `RISK-LOCAL-IMPORT-EXPORT-INTEGRITY` row and TB-11 statement in
-`docs/security/CONTROLS_AND_RESIDUAL_RISK.md` / `SYSTEM_AND_TRUST_BOUNDARIES.md` correctly describe
-the broad import/export boundary as open. This audit supplies its concrete persistence sub-findings:
-PERS-03, PERS-05, PERS-08, and PERS-09 are the materialization of that umbrella; PERS-01/02/11 add
-migration/corruption recovery; PERS-04/10 add the local destructive-retention state; PERS-06/12 cover
-other local JSON state. It does not downgrade existing findings or claim a test run that did not occur.
+The existing Medium `RISK-LOCAL-IMPORT-EXPORT-INTEGRITY` row and TB-11 statement in
+`docs/security/CONTROLS_AND_RESIDUAL_RISK.md` / `SYSTEM_AND_TRUST_BOUNDARIES.md` correctly keep the
+broad bounded-document, replay, export-disclosure, and CSV boundary open. PERS-08 remains under that
+umbrella. PERS-03 and PERS-09 are deliberately **not** folded into it: blind active-context
+replacement and cross-context history disclosure can publish or expose the wrong profile, mode, or
+generation, so they retain their audit's High severity as distinct
+`RISK-PROFILE-IMPORT-STATE` and `RISK-CONTEXT-ISOLATION` entries. Those canonical rows name
+#269/#270/#315 ownership, Mitigate dispositions, Reviewed source, and exact hostile-context tests.
+PERS-05 maps separately to local file identity; PERS-01/02/11 add migration/corruption recovery;
+PERS-04/10 add the local destructive-retention state; and PERS-06/12 cover other local JSON state.
+This reconciliation neither downgrades a finding nor claims a test run that did not occur.
 
 | Issue | Current V1 fact | Planned responsibility; not current evidence |
 | --- | --- | --- |

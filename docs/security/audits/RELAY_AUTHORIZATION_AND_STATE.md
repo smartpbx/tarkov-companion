@@ -71,7 +71,13 @@ All entries are **Reviewed** source evidence; the sequences are exact candidates
 
 ## Reconciliation and future-control map
 
-This lane supplies endpoint/state-machine detail behind the existing security register; it does not supersede it.
+This lane supplies endpoint/state-machine detail behind the canonical security register; it does
+not supersede it. Every `RELAY-*` finding has an inbound entry in
+[`../PHASE_STATUS.md`](../PHASE_STATUS.md) and maps there to the stable abuse and risk IDs in
+[`../ABUSE_CASES.md`](../ABUSE_CASES.md) and
+[`../CONTROLS_AND_RESIDUAL_RISK.md`](../CONTROLS_AND_RESIDUAL_RISK.md). Equivalent authorization,
+rate-limit, disclosure, and mark-cap scenarios share their existing canonical risks instead of
+inflating the open-finding count.
 
 | Existing finding / issue | Current fact | Future requirement — not implemented now |
 | --- | --- | --- |
