@@ -45,12 +45,12 @@
       "recall": 0.8666666666666666666666666667,
       "falsePositiveRate": 0.1034482758620689655172413793,
       "f1": 0.8813559322033898305084745763,
-      "abstentionRate": 0.03333333333333333333333333333,
-      "confidentWrongRate": 0.03333333333333333333333333333,
-      "confidenceIntervalLower": 0.7031867331796370159003263296,
-      "confidenceIntervalUpper": 0.9469034451594525674762084266,
+      "abstentionRate": 0.0333333333333333333333333333,
+      "confidentWrongRate": 0.0333333333333333333333333333,
+      "confidenceIntervalLower": 0.7031867331796369464010534432,
+      "confidenceIntervalUpper": 0.9469034451594526369754813126,
       "performanceSampleCount": 11,
-      "meanElapsedMilliseconds": 30.46590909090909090909090909,
+      "meanElapsedMilliseconds": 30.465909090909090909090909091,
       "maximumElapsedMilliseconds": 60.125
     },
     {
@@ -121,8 +121,8 @@
       "f1": 1,
       "abstentionRate": 0,
       "confidentWrongRate": 0,
-      "confidenceIntervalLower": 0.5655175352168252389152171282,
-      "confidenceIntervalUpper": 0.9999999999999999999999999996,
+      "confidenceIntervalLower": 0.5655175352168256822728177888,
+      "confidenceIntervalUpper": 0.9999999999999995566423993396,
       "performanceSampleCount": 5,
       "meanElapsedMilliseconds": 5,
       "maximumElapsedMilliseconds": 5
