@@ -351,6 +351,197 @@ public sealed class FeatureLifecycleCoordinatorTests
         Assert.All(lifecycle.Snapshot.Features, feature => Assert.Equal(FeatureLifecycleState.Stopped, feature.State));
     }
 
+    [Theory]
+    [InlineData(false, FeatureLifecycleState.Running)]
+    [InlineData(true, FeatureLifecycleState.Degraded)]
+    public async Task LaterOptionalDependencySettlementUpdatesAnAlreadyRunningWorkspaceFeature(
+        bool dependencyFails,
+        FeatureLifecycleState expectedState)
+    {
+        var optional = new RuntimeFeatureId("later-optional");
+        var workspaceStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var optionalStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOptional = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lifecycle = Lifecycle(
+        [
+            new(
+                optional,
+                FeatureStartupPriority.Normal,
+                [],
+                async _ =>
+                {
+                    optionalStarted.TrySetResult();
+                    await releaseOptional.Task;
+                    if (dependencyFails)
+                    {
+                        throw new IOException("private");
+                    }
+                }),
+            new(
+                new("workspace"),
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(optional, FeatureDependencyKind.Optional)],
+                _ =>
+                {
+                    workspaceStarted.TrySetResult();
+                    return Task.CompletedTask;
+                }),
+        ]);
+
+        var startup = lifecycle.StartAsync();
+        await workspaceStarted.Task;
+        await optionalStarted.Task;
+        Assert.Equal(FeatureLifecycleState.Running, State(lifecycle.Snapshot, "workspace"));
+
+        releaseOptional.TrySetResult();
+        var snapshot = await startup;
+
+        Assert.Equal(expectedState, State(snapshot, "workspace"));
+        Assert.Equal(
+            dependencyFails ? FeatureLifecycleState.Failed : FeatureLifecycleState.Running,
+            State(snapshot, "later-optional"));
+    }
+
+    [Fact]
+    public async Task SamePhaseOptionalDependencyDoesNotDelayItsDependantAndLateFailureDegradesIt()
+    {
+        var optional = new RuntimeFeatureId("optional");
+        var optionalStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependantStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failOptional = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lifecycle = Lifecycle(
+        [
+            new(
+                optional,
+                FeatureStartupPriority.WorkspaceCritical,
+                [],
+                async _ =>
+                {
+                    optionalStarted.TrySetResult();
+                    await failOptional.Task;
+                    throw new IOException("private");
+                }),
+            new(
+                new("dependant"),
+                FeatureStartupPriority.WorkspaceCritical,
+                [new(optional, FeatureDependencyKind.Optional)],
+                _ =>
+                {
+                    dependantStarted.TrySetResult();
+                    return Task.CompletedTask;
+                }),
+        ], maxParallel: 2);
+
+        var startup = lifecycle.StartAsync();
+        await Task.WhenAll(optionalStarted.Task, dependantStarted.Task);
+        Assert.Equal(FeatureLifecycleState.Running, State(lifecycle.Snapshot, "dependant"));
+
+        failOptional.TrySetResult();
+        var snapshot = await startup;
+
+        Assert.Equal(FeatureLifecycleState.Failed, State(snapshot, "optional"));
+        Assert.Equal(FeatureLifecycleState.Degraded, State(snapshot, "dependant"));
+    }
+
+    [Fact]
+    public async Task SynchronousStartPrefixCannotBlockSiblingStartsOrItsOwnDeadline()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        using var releaseBlockingStart = new ManualResetEventSlim();
+        var blockingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var siblingStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lifecycle = new FeatureLifecycleCoordinator(
+        [
+            new(
+                new("blocking"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ =>
+                {
+                    blockingStarted.TrySetResult();
+                    releaseBlockingStart.Wait();
+                    return Task.CompletedTask;
+                }),
+            new(
+                new("sibling"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ =>
+                {
+                    siblingStarted.TrySetResult();
+                    return Task.CompletedTask;
+                }),
+        ], time, new(2, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+
+        var startup = lifecycle.StartAsync();
+        try
+        {
+            await Task.WhenAll(blockingStarted.Task, siblingStarted.Task);
+            await RuntimeTestTasks.AdvanceUntilAsync(
+                time,
+                TimeSpan.FromSeconds(1),
+                () => startup.IsCompleted);
+            var snapshot = await startup;
+
+            Assert.Equal(FeatureLifecycleState.StartTimedOut, State(snapshot, "blocking"));
+            Assert.Equal(FeatureLifecycleState.Running, State(snapshot, "sibling"));
+        }
+        finally
+        {
+            releaseBlockingStart.Set();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() =>
+            State(lifecycle.Snapshot, "blocking") == FeatureLifecycleState.Failed);
+    }
+
+    [Fact]
+    public async Task SynchronousStopPrefixCannotDefeatTheStopDeadline()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        using var releaseStop = new ManualResetEventSlim();
+        var stopStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lifecycle = new FeatureLifecycleCoordinator(
+        [
+            new(
+                new("blocking-stop"),
+                FeatureStartupPriority.Normal,
+                [],
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    stopStarted.TrySetResult();
+                    releaseStop.Wait();
+                    return Task.CompletedTask;
+                }),
+        ], time, new(1, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1)));
+        await lifecycle.StartAsync();
+
+        var stopping = lifecycle.StopAsync();
+        try
+        {
+            await stopStarted.Task;
+            await RuntimeTestTasks.AdvanceUntilAsync(
+                time,
+                TimeSpan.FromSeconds(1),
+                () => stopping.IsCompleted
+                    && Feature(lifecycle.Snapshot, "blocking-stop").LastFault?.Code.Value
+                    == "feature-stop-timeout");
+            await stopping;
+            var bounded = lifecycle.Snapshot;
+
+            Assert.Equal(FeatureLifecycleState.Stopping, State(bounded, "blocking-stop"));
+            Assert.Equal("feature-stop-timeout", Feature(bounded, "blocking-stop").LastFault?.Code.Value);
+        }
+        finally
+        {
+            releaseStop.Set();
+        }
+
+        var stopped = await lifecycle.StopAsync();
+        Assert.Equal(FeatureLifecycleState.Stopped, State(stopped, "blocking-stop"));
+    }
+
     [Fact]
     public void CyclesAreRejectedBeforeAnyFeatureStarts()
     {

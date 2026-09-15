@@ -160,6 +160,13 @@ public sealed record FeatureLifecycleSnapshot(
 /// nothing new may enter Starting, so the walk cannot pass a feature whose start is in flight:
 /// it waits for that start to return and then stops it, before its dependencies.
 /// </para>
+/// <para>
+/// Start and stop callbacks are scheduled before they are invoked. Several production callbacks
+/// enter synchronous SQLite work before returning a task; invoking one on the coordinator thread
+/// prevented sibling starts and even prevented its own deadline from being armed. Optional work
+/// never delays a dependant's startup, but a later failure is propagated through already-running
+/// dependants as Degraded.
+/// </para>
 /// </remarks>
 public sealed class FeatureLifecycleCoordinator
 {
@@ -360,7 +367,7 @@ public sealed class FeatureLifecycleCoordinator
             cancellationToken.ThrowIfCancellationRequested();
             var ready = _topologicalOrder
                 .Where(remaining.Contains)
-                .Where(featureId => DependenciesReady(featureId, phase))
+                .Where(DependenciesReady)
                 .OrderByDescending(featureId => _nodes[featureId].Definition.Priority)
                 .Take(_options.MaxParallelStarts - running.Count)
                 .ToArray();
@@ -387,18 +394,12 @@ public sealed class FeatureLifecycleCoordinator
 
     private async Task StartOneAsync(FeatureNode node, CancellationToken cancellationToken)
     {
-        bool degraded;
         TaskCompletionSource<Task>? invocation = null;
         CancellationToken startToken = default;
         lock (_gate)
         {
             var failedHard = node.Definition.Dependencies.FirstOrDefault(dependency =>
                 dependency.Kind == FeatureDependencyKind.Hard
-                && (_nodes[dependency.FeatureId].StartupFailed
-                    || _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked));
-            degraded = node.Definition.Dependencies.Any(dependency =>
-                _nodes[dependency.FeatureId].State == FeatureLifecycleState.Degraded
-                || dependency.Kind == FeatureDependencyKind.Optional
                 && (_nodes[dependency.FeatureId].StartupFailed
                     || _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked));
             if (failedHard is not null)
@@ -433,16 +434,10 @@ public sealed class FeatureLifecycleCoordinator
             return;
         }
 
-        Task starting;
-        try
-        {
-            starting = node.Definition.Start(startToken)
-                ?? Task.FromException(new InvalidOperationException("The feature start callback returned no task."));
-        }
-        catch (Exception exception)
-        {
-            starting = Task.FromException(exception);
-        }
+        var starting = InvokeOnScheduler(
+            node.Definition.Start,
+            startToken,
+            "The feature start callback returned no task.");
 
         invocation.TrySetResult(starting);
         try
@@ -509,7 +504,9 @@ public sealed class FeatureLifecycleCoordinator
             node.StartupSettled = true;
             if (node.StopCompletion is null && !_stopStarted)
             {
-                node.State = degraded ? FeatureLifecycleState.Degraded : FeatureLifecycleState.Running;
+                node.State = IsDegradedUnsafe(node)
+                    ? FeatureLifecycleState.Degraded
+                    : FeatureLifecycleState.Running;
                 node.LastFault = null;
                 node.CompletedUtc = _timeProvider.GetUtcNow();
             }
@@ -556,13 +553,16 @@ public sealed class FeatureLifecycleCoordinator
         }
     }
 
-    private bool DependenciesReady(RuntimeFeatureId featureId, HashSet<RuntimeFeatureId> phase)
+    private bool DependenciesReady(RuntimeFeatureId featureId)
     {
         lock (_gate)
         {
-            return _nodes[featureId].Definition.Dependencies.All(dependency =>
-                dependency.Kind == FeatureDependencyKind.Optional && !phase.Contains(dependency.FeatureId)
-                || _nodes[dependency.FeatureId].StartupSettled);
+            // Optional work is never a readiness gate, even in the same priority phase. The
+            // dependant starts usable work immediately and PublishChanged propagates Degraded if
+            // that optional feature later fails. Hard dependencies still settle first.
+            return _nodes[featureId].Definition.Dependencies
+                .Where(dependency => dependency.Kind == FeatureDependencyKind.Hard)
+                .All(dependency => _nodes[dependency.FeatureId].StartupSettled);
         }
     }
 
@@ -664,16 +664,10 @@ public sealed class FeatureLifecycleCoordinator
 
             PublishChanged();
             using var stopCancellation = new CancellationTokenSource();
-            Task stopping;
-            try
-            {
-                stopping = node.Definition.Stop(stopCancellation.Token)
-                    ?? Task.FromException(new InvalidOperationException("The feature stop callback returned no task."));
-            }
-            catch (Exception exception)
-            {
-                stopping = Task.FromException(exception);
-            }
+            var stopping = InvokeOnScheduler(
+                node.Definition.Stop,
+                stopCancellation.Token,
+                "The feature stop callback returned no task.");
 
             try
             {
@@ -816,11 +810,40 @@ public sealed class FeatureLifecycleCoordinator
         _stopStarted,
         [.. _topologicalOrder.Select(featureId => _nodes[featureId].Snapshot())]);
 
+    private bool IsDegradedUnsafe(FeatureNode node) => node.Definition.Dependencies.Any(dependency =>
+        _nodes[dependency.FeatureId].State == FeatureLifecycleState.Degraded
+        || dependency.Kind == FeatureDependencyKind.Optional
+        && (_nodes[dependency.FeatureId].StartupFailed
+            || _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked));
+
+    private void PropagateDegradationUnsafe()
+    {
+        // A degraded feature can itself degrade a dependant, so walk to a fixed point. The graph
+        // is finite and states only move from Running to Degraded here.
+        bool changed;
+        do
+        {
+            changed = false;
+            foreach (var node in _nodes.Values.Where(node => node.State == FeatureLifecycleState.Running))
+            {
+                if (!IsDegradedUnsafe(node))
+                {
+                    continue;
+                }
+
+                node.State = FeatureLifecycleState.Degraded;
+                changed = true;
+            }
+        }
+        while (changed);
+    }
+
     private void PublishChanged()
     {
         EventHandler[] handlers;
         lock (_gate)
         {
+            PropagateDegradationUnsafe();
             handlers = _changed?.GetInvocationList().Cast<EventHandler>().ToArray() ?? [];
         }
 
@@ -835,6 +858,18 @@ public sealed class FeatureLifecycleCoordinator
             }
         }
     }
+
+    private static Task InvokeOnScheduler(
+        Func<CancellationToken, Task> callback,
+        CancellationToken cancellationToken,
+        string missingTaskMessage) =>
+        Task.Factory.StartNew(
+                () => callback(cancellationToken)
+                    ?? Task.FromException(new InvalidOperationException(missingTaskMessage)),
+                default,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default)
+            .Unwrap();
 
     private static async Task ObserveAsync(Task task)
     {

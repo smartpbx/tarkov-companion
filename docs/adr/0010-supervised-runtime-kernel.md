@@ -16,7 +16,9 @@ model workloads, so those implicit lifecycle and ordering rules are no longer su
 Introduce platform-independent execution primitives in Application. Each feature declares a
 validated identity, dependencies, criticality, and lifecycle operation. A coordinator advances
 the dependency graph incrementally, publishes immutable revisioned snapshots, isolates optional
-feature faults, and exposes explicit degraded or failed state.
+feature faults, and exposes explicit degraded or failed state. Hard dependencies settle before a
+dependant starts. Optional dependencies never gate startup, including within one priority phase;
+if one later fails or is degraded, that state propagates through already-running dependants.
 
 ### Shutdown is bounded and truthful
 
@@ -29,8 +31,13 @@ converted into a terminal state:
   slot) until the user work returns. `StopAsync` reports how many operations are unfinished.
   An attempt timeout follows the same rule: the deadline is reported at once, but the slot is not
   reused and no retry starts while the timed-out invocation is still running.
+- Startup, background, and manual data refresh calls join one supervised operation. A manual
+  caller's cancellation or deadline bounds only that caller's wait; the refresh remains observed
+  and keeps its IO admission and refresh lock until every dependency task actually returns.
 - Disposal after a timed-out stop leaves the already-cancelled synchronization objects alive for
-  the late completion, and a composition root disposes a lock only when nothing still owns it.
+  the late completion, and a composition root disposes a lock only when nothing still owns it. The
+  application startup coordinator begins lifecycle and supervisor stop together under one
+  ten-second window and does not add a second supervisor-disposal wait after that bound expires.
 - There is no `StopTimedOut` state in either state machine.
 
 Stopping and starting race safely. Every feature start publishes its invocation before any stop
@@ -39,6 +46,10 @@ therefore cannot pass a feature whose start is in flight: it waits for that star
 stops the feature, and only then continues to that feature's dependencies. A start that exceeds
 its deadline is reported as the non-terminal `StartTimedOut`, and the feature is stopped once the
 callback finally returns before it settles as `Failed`.
+
+Feature start and stop callbacks are scheduled before invocation. Their timeout is therefore
+armed even when a callback enters synchronous SQLite or CPU work before it returns a task, and a
+synchronous prefix cannot serialize otherwise independent feature starts on the coordinator.
 
 ### Scheduling is bounded and starvation-free
 
