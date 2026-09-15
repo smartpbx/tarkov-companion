@@ -304,7 +304,12 @@ public sealed class SqliteV2DataStore(SqliteConnectionFactory connectionFactory)
         command.CommandText = """
             INSERT INTO loadout_plans(plan_id, profile_id, generation, game_mode, name, revision, updated_utc, payload_json, extension_json)
             SELECT $id, $profile, $generation, $mode, $name, $revision, $updated, $payload, $extension
-            WHERE $expected = 0 AND NOT EXISTS (SELECT 1 FROM loadout_plans WHERE plan_id = $id)
+            WHERE ($expected = 0 AND NOT EXISTS (
+                       SELECT 1 FROM loadout_plans WHERE plan_id = $id
+                   ))
+               OR ($expected > 0 AND EXISTS (
+                       SELECT 1 FROM loadout_plans WHERE plan_id = $id AND revision = $expected
+                   ))
             ON CONFLICT(plan_id) DO UPDATE SET
                 profile_id = excluded.profile_id, generation = excluded.generation, game_mode = excluded.game_mode,
                 name = excluded.name, revision = excluded.revision, updated_utc = excluded.updated_utc,
