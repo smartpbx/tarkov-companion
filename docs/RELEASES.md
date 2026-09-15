@@ -199,8 +199,8 @@ The matrix names roles, not people. The repository cannot show who GitHub lets a
 
 ## The relay updater
 
-`deploy/group-server/tarkov-group-update.sh` runs from `tarkov-group-update.timer` every half hour
-and from the panel's **Update now**. Host configuration lives in
+`deploy/group-server/tarkov-group-update.sh` runs as root from `tarkov-group-update.timer` every
+half hour and from the panel's **Update now**. Host configuration lives in
 `/etc/tarkov-group/release-feed.env`, loaded by the service unit:
 
 ```ini
@@ -208,63 +208,127 @@ TARKOV_RELEASE_REPOSITORY=owner/private-feed
 TARKOV_RELEASE_RING=stable
 TARKOV_RELEASE_TOKEN_FILE=/etc/tarkov-group/release-feed.token
 TARKOV_SIGSTORE_TRUST_ROOT=/etc/tarkov-group/sigstore-trusted-root.json
+# A floor for a host with no install history: the version (and optionally the generation) the
+# publish run's summary reported for this ring when the host was provisioned.
+TARKOV_RELEASE_MINIMUM_VERSION=1.0.650
+#TARKOV_RELEASE_MINIMUM_GENERATION=12
+# Optional: refuse to install a decision signed longer ago than this many days.
+#TARKOV_RELEASE_MAX_DECISION_AGE_DAYS=45
 ```
 
 The token file holds a fine-grained token with read-only **Contents** on the feed repository and
-nothing else, readable by root only. The host needs `gh`, `cosign`, `jq`, `flock`, `tar` and
-`wget`.
+nothing else, and must not be readable by anyone but root: the updater refuses a token file with
+any group or other permission. The token is passed to `gh` alone; `cosign`, `wget`, `tar` and
+`systemctl` never see it. The host needs `gh`, `cosign`, `jq`, `flock`, `tar` and `wget`.
 
-Every run, in order, before anything on the host changes:
+### Where its state lives, and why not beside the relay
 
-1. takes an exclusive lock, removes the request marker, undoes any swap a killed run left behind;
-2. requires the trust root, a private or internal feed that is not the source repository, and
-   the token;
-3. selects the newest `release-index-g*.json` in `rings/RING`, verifies its signature, and
-   requires it to name this feed and ring and to follow from the previous generation;
-4. refuses a generation older than one already installed or authenticated for this ring, and a
-   second, different decision at an already authenticated generation;
-5. downloads the manifest from `v2-build-VERSION`, verifies its signature and that its digest is
-   the one the decision names, and that its version, commit and relay protocol agree with it;
-6. records `PUBLISHED_*` — what the panel shows as published is only ever something verified;
-7. decides: already running it and healthy → record and stop; same version with different bytes
-   → refuse; older without a signed rollback → refuse; ring paused → hold (except for a signed
-   rollback); refused at this or a later generation before → wait for a new decision;
-8. downloads the archive, verifies its signature and digest, refuses links, special files and
-   unsafe paths.
+The relay runs as an unprivileged dynamic user and owns `/var/lib/tarkov-group`. The updater
+keeps nothing it decides from there. A journal the relay could write would be a journal it could
+fill with an updater for root to restore, and a work directory inside a directory it owns is one
+it could swap between a signature check and the extraction that follows.
 
-Then it installs:
+| Directory | Owner | What is in it |
+| --- | --- | --- |
+| `/var/lib/tarkov-group-update` | root, `0700` | the lock, `work.*` directories, the swap journal, and every `INSTALLED_*`, `PUBLISHED_*` and `REFUSED_*` stamp |
+| `/var/lib/tarkov-group-update-status` | root, `0755` | copies of `INSTALLED_SHA256`, `INSTALLED_VERSION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION` and `REFUSED_SHA256` for the panel, which reads them and cannot write them |
+| `/var/lib/tarkov-group` | the relay | `UPDATE_NOW`, which the updater unlinks and otherwise ignores |
+
+The updater refuses to run if its state directory is a symbolic link or belongs to another user,
+and tightens it to `0700` if it is root's but looser. The panel refuses a status directory that
+is, or is inside, its own state directory.
+
+### Every run, before anything on the host changes
+
+1. Takes the lock, unlinks the request marker, and undoes any swap a killed run left behind.
+2. Requires the trust root, and the floors and limits above to be well formed. Online, it also
+   requires a private or internal feed that is not the source repository, and the token.
+3. Selects the newest `release-index-g*.json` in `rings/RING` and verifies its signature. The
+   decision must name this feed and ring, and must carry the generation in its own file name, one
+   more than the previous generation it records. That is a monotonic generation number, not a
+   hash chain: nothing links a decision to the bytes of the one before it.
+4. Refuses:
+   - a generation below the configured floor;
+   - a generation older than one already installed or authenticated for this ring;
+   - a second, different decision at an already authenticated generation;
+   - a version below the configured floor, **even with a signed rollback**, because a rollback
+     below the floor is as likely to be an old decision replayed. Lowering the floor is how root
+     says which it is.
+5. Downloads the manifest from `v2-build-VERSION` and verifies its signature, that its digest is
+   the one the decision names, and that its version, commit and relay protocol agree with it.
+6. Records `PUBLISHED_*`, so what the panel shows as published is only ever something verified.
+7. Decides:
+   - already running it and healthy: record and stop;
+   - no install recorded and nothing to anchor the choice (below): refuse;
+   - decision older than the configured age limit: refuse;
+   - same version with different bytes: refuse;
+   - older than the installed version, or the observed one, without a signed rollback: refuse;
+   - ring paused: hold, except for a signed rollback;
+   - refused at this or a later generation before: wait for a new decision.
+8. Downloads the archive into its private work directory, verifies its signature and digest there,
+   and refuses links, special files and unsafe paths.
+
+### Installing
 
 - copies the running tree to `/opt/tarkov-group.lkg` (complete before it replaces the previous
-  copy), and writes a **swap journal** under the state directory holding the current units,
-  updater and `INSTALLED_*` stamps;
+  copy);
+- assembles a **swap journal** holding the current units, updater and `INSTALLED_*` stamps, and
+  renames it into place, so a journal that exists is complete;
 - stops the service, renames the tree aside, renames the new one in, starts the service;
 - requires `/health` to report the signed version, commit and protocol;
 - installs any changed units and the updater itself from the new build;
-- writes `INSTALLED_SHA256`, `_VERSION`, `_COMMIT`, `_RING` and `_GENERATION`, clears
-  `REFUSED_SHA256` and `REFUSED_RELEASE.json`, and removes the journal. That removal is the
-  commit point.
+- writes `INSTALLED_SHA256`, `_VERSION`, `_COMMIT`, `_RING` and `_GENERATION`, and clears
+  `REFUSED_SHA256` and `REFUSED_RELEASE.json`;
+- renames the journal to `swap.committed`. That rename is the commit point.
 
-Any failure after the journal is written — a stop, a rename, the health check, a unit install, a
-stamp rename, `SIGTERM` from the unit's 20-minute timeout — restores the previous tree, units,
-updater and stamps from the journal, records the refusal with its ring and generation, and
-starts the previous relay. A run killed outright is undone by the next run from the same
-journal. So the stamps never name a build that did not prove itself, and the tick after a
-refusal reports the refusal rather than "already on" (`RISK-RELAY-UPDATE-STATE`).
+Any failure while the journal exists is undone from it: a stop, a rename, the health check, a unit
+install, a stamp rename, the commit rename, or `SIGTERM` from the unit's 20-minute timeout. The
+updater restores the previous tree, units, updater and stamps, records the refusal with its ring
+and generation, and starts the previous relay. A run killed outright is undone by the next run
+from the same journal. A `swap.committed` left behind is simply deleted. So the stamps never name
+a build that did not prove itself, and the tick after a refusal reports the refusal rather than
+"already on" (`RISK-RELAY-UPDATE-STATE`).
 
 Generations are per ring. Pointing a host at another ring is a root decision and starts that
 ring's history; a downgrade still needs that ring's signed rollback.
 
 `TARKOV_RELEASE_BUNDLE_DIR` replaces the network with a directory holding a ring decision, the
-manifest, the relay archive and their bundles; every check above still applies.
+manifest, the relay archive and their bundles. Each file is copied into the private work
+directory before it is verified, and every check above still applies.
+
+### A host with no history
+
+A host's own stamps are what refuse a replayed older decision. A host without them believes the
+newest signed decision the feed shows it, and anyone who can delete newer decisions from the feed
+chooses which one that is. The feed token is transport, not authority, and the feed repository's
+writers are not the publisher. So a host without history needs an anchor from somewhere else:
+
+- **its own install record**, once it has one;
+- **the running relay's `/health` version**, when no install is recorded but a relay answers. This
+  covers a host moving from the checksum updater, whose stamps lived where the relay could write
+  them and are not read. The relay could lie. A lie can only choose between signed builds at or
+  above what it claims, or stop its own updates;
+- **`TARKOV_RELEASE_MINIMUM_VERSION` / `_GENERATION`**, provisioned from the publish run's summary
+  rather than from the feed;
+- or, knowingly, **`TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP=1`**, which accepts the newest signed
+  decision the feed shows.
+
+With none of these, the updater refuses and says so. A recorded `PUBLISHED_GENERATION` is not an
+anchor: it was authenticated the same way. **Freshness is optional.** Decisions are signed only
+when a ring changes, so a ring nobody has touched for a month has a month-old decision. With
+`TARKOV_RELEASE_MAX_DECISION_AGE_DAYS` set, older decisions are not installed. Without it, a feed
+that withholds new decisions holds consumers on an old signed build, undetected by them.
 
 ### Moving an existing relay onto the signed feed
 
 The relay on CT 115 follows the public `dev` release today, and `windows-verify.yml` (#279) keeps
 publishing `dev` until this replacement is running; retiring that job is #279's follow-up once
-releases are enabled here. After this merges, the next archive the old updater installs from
-`dev` carries this updater, which refuses to run without the configuration above. That relay then
-stays on the build it has and says why in its journal until the host is configured: it does not
-break, and it does not update. Configure the host before merging if updates must not pause.
+releases are enabled here. After this merges, the next archive the old updater installs from `dev`
+carries this updater and its units. The new updater refuses to run without the configuration
+above. That relay then stays on the build it has and says why in its journal until the host is
+configured: it does not break, and it does not update. Configure the host before merging if
+updates must not pause. Until the new updater has run once, the panel has no status directory to
+read and reports no build.
 
 Because `publish.yml` follows the whole Windows verification run, a failure in its legacy `dev`
 publish job also stops that build from entering canary until the two are separated.
@@ -273,9 +337,10 @@ publish job also stops that build from entering canary until the two are separat
 2. On a trusted machine: `cosign trusted-root create --with-default-services --out
    sigstore-trusted-root.json`; record its sha256; copy it to the host.
 3. Create the read-only feed token; write it to `/etc/tarkov-group/release-feed.token` (mode 0600).
-4. Write `release-feed.env`, then `systemctl start tarkov-group-update.service` and read the
-   journal. A host whose installed archive matches the ring's release and answers as it is
-   adopted without a restart.
+4. Write `release-feed.env`, including the floor, then `systemctl start tarkov-group-update.service`
+   and read the journal. The first run has no install record of its own, takes the running relay's
+   version as its floor, and reinstalls the ring's signed build once, restarting the relay. It
+   does not adopt a running build it did not install itself.
 
 ### Refreshing the trust root
 

@@ -44,13 +44,21 @@ public sealed record RelayUpdateState(
 /// verified is reported.
 /// </para>
 /// <para>
+/// Those files are read from the updater's status directory, never from this relay's own state
+/// directory. The updater runs as root and this process does not; a stamp in a directory this
+/// process can write is a stamp a compromised relay can write, so the updater stopped keeping
+/// anything it decides from there, and this stopped reading anything it reports from there.
+/// </para>
+/// <para>
 /// Asking for an update is a file, not a command. This process runs unprivileged and must not
 /// be able to run one: it writes a marker in the state directory it already owns, and
 /// <c>tarkov-group-update.path</c> turns that into the same update the timer runs. So the
 /// button is the timer's own path, thirty minutes early, with no new privilege anywhere.
 /// </para>
 /// </remarks>
-public sealed class RelayUpdate(string? stateDirectory)
+/// <param name="stateDirectory">This relay's own state directory, where the request marker is written.</param>
+/// <param name="statusDirectory">The directory the updater publishes its status into, which this process only reads.</param>
+public sealed class RelayUpdate(string? stateDirectory, string? statusDirectory)
 {
     public bool IsAvailable => stateDirectory is { Length: > 0 };
 
@@ -62,12 +70,19 @@ public sealed class RelayUpdate(string? stateDirectory)
                 "This relay has no state directory, so it does not know what build it is on.");
         }
 
-        var published = ReadDigest("PUBLISHED_SHA256");
+        var requested = File.Exists(Path.Combine(stateDirectory!, "UPDATE_NOW"));
+        if (!HasSeparateStatusDirectory())
+        {
+            return new(null, null, null, requested, true,
+                "This relay has no updater status directory apart from its own, so it reports no build.");
+        }
+
+        var published = ReadStatus("PUBLISHED_SHA256");
         return new(
-            ReadDigest("INSTALLED_SHA256"),
+            ReadStatus("INSTALLED_SHA256"),
             published,
-            ReadDigest("REFUSED_SHA256"),
-            File.Exists(Path.Combine(stateDirectory!, "UPDATE_NOW")),
+            ReadStatus("REFUSED_SHA256"),
+            requested,
             true,
             published is null ? "The updater has not authenticated a signed release decision yet." : null);
     }
@@ -95,11 +110,31 @@ public sealed class RelayUpdate(string? stateDirectory)
         }
     }
 
-    private string? ReadDigest(string fileName)
+    /// <summary>
+    /// Whether status is configured somewhere other than inside the directory this process writes.
+    /// </summary>
+    /// <remarks>
+    /// Pointing both at one directory would put the panel's claims back where the relay can forge
+    /// them, which is the arrangement this class exists to have left.
+    /// </remarks>
+    private bool HasSeparateStatusDirectory()
+    {
+        if (statusDirectory is not { Length: > 0 })
+        {
+            return false;
+        }
+
+        var status = Path.TrimEndingDirectorySeparator(Path.GetFullPath(statusDirectory));
+        var state = Path.TrimEndingDirectorySeparator(Path.GetFullPath(stateDirectory!));
+        return !string.Equals(status, state, StringComparison.Ordinal)
+            && !status.StartsWith(state + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    private string? ReadStatus(string fileName)
     {
         try
         {
-            var path = Path.Combine(stateDirectory!, fileName);
+            var path = Path.Combine(statusDirectory!, fileName);
             return File.Exists(path) ? File.ReadAllText(path).Trim() is { Length: 64 } sum ? sum : null : null;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

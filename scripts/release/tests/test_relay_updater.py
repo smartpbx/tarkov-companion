@@ -2,8 +2,12 @@
 
 The updater runs as root on the relay host with systemd, cosign and the private feed. Here each
 of those is a small fake on PATH, so every failure path after the swap can be forced and the
-state it leaves behind inspected: the tree, the stamps the panel reads, the refusal record, the
-units and the updater itself.
+state it leaves behind inspected: the tree, the private stamps, the status the panel reads, the
+refusal record, the units and the updater itself.
+
+The relay's own state directory is treated as hostile throughout. The relay runs as an
+unprivileged user that owns it, so anything planted there - a journal, a link where a lock or a
+stamp used to be - must change nothing outside it.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -27,10 +32,13 @@ FEED = "example/tarkov-feed"
 OLD_COMMIT = "a" * 40
 OLD_SHA = "0" * 64
 STAMPS = ("INSTALLED_SHA256", "INSTALLED_VERSION", "INSTALLED_COMMIT", "INSTALLED_RING", "INSTALLED_GENERATION")
+STATUS_STAMPS = ("INSTALLED_SHA256", "INSTALLED_VERSION", "PUBLISHED_SHA256", "PUBLISHED_VERSION", "REFUSED_SHA256")
+SIGNED_AT = "2026-09-15T00:00:00Z"
 
 FAKE_SYSTEMCTL = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "${FAKE_ROOT}/systemctl.log"
+env | grep -E '^(GH_TOKEN|GITHUB_TOKEN)=' >> "${FAKE_ROOT}/leaked-token.log" || true
 verb="$1"
 count_file="${FAKE_ROOT}/count-${verb}"
 count=$(( $(cat "${count_file}" 2>/dev/null || echo 0) + 1 ))
@@ -44,10 +52,18 @@ case "${verb}" in
     stop) rm -f "${FAKE_ROOT}/running" ;;
     start) touch "${FAKE_ROOT}/running" ;;
 esac
+# Delivered to the updater while this command runs, so bash acts on it the moment this returns:
+# the same point a unit timeout's SIGTERM would land between two commands.
+for signal in ${FAKE_SYSTEMCTL_TERM:-}; do
+    if [[ "${signal}" == "${verb}#${count}" ]]; then
+        kill -TERM "${PPID}"
+    fi
+done
 """
 
 FAKE_WGET = """#!/usr/bin/env bash
 set -euo pipefail
+env | grep -E '^(GH_TOKEN|GITHUB_TOKEN)=' >> "${FAKE_ROOT}/leaked-token.log" || true
 output=''
 while (($#)); do
     if [[ "$1" == -O ]]; then output="$2"; shift 2; else shift; fi
@@ -59,6 +75,7 @@ cp "${TARKOV_UPDATE_INSTALL}/health.json" "${output}"
 FAKE_COSIGN = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "${FAKE_ROOT}/cosign.log"
+env | grep -E '^(GH_TOKEN|GITHUB_TOKEN)=' >> "${FAKE_ROOT}/leaked-token.log" || true
 subject="${@: -1}"
 if [[ -n "${FAKE_COSIGN_REJECT:-}" && "$(basename "${subject}")" == *"${FAKE_COSIGN_REJECT}"* ]]; then
     echo "fake cosign: rejected ${subject}" >&2
@@ -66,10 +83,22 @@ if [[ -n "${FAKE_COSIGN_REJECT:-}" && "$(basename "${subject}")" == *"${FAKE_COS
 fi
 """
 
+# Delegates to the real mv, except for the one rename a test names, which fails.
+FAKE_MV = """#!/usr/bin/env bash
+for argument in "$@"; do
+    if [[ -n "${FAKE_MV_FAIL:-}" && "${argument}" == *"${FAKE_MV_FAIL}" ]]; then
+        echo "fake mv: refused ${argument}" >&2
+        exit 1
+    fi
+done
+export PATH="${FAKE_REAL_PATH}"
+exec mv "$@"
+"""
+
 FAKE_GH = """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "${FAKE_ROOT}/gh.log"
-[[ -n "${GH_TOKEN:-}" ]] || { echo "no token" >&2; exit 4; }
+[[ "${GH_TOKEN:-}" == "feed-read-token" ]] || { echo "no token" >&2; exit 4; }
 if [[ "$1" == api ]]; then
     shift
     accept=''
@@ -120,33 +149,43 @@ def sha256(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-class RelayUpdaterTests(unittest.TestCase):
+class UpdaterFixture(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="tarkov-relay-updater-")
         self.root = Path(self.temporary.name)
         self.install = self.root / "opt/tarkov-group"
         self.lkg = self.root / "opt/tarkov-group.lkg"
-        self.state = self.root / "var/state"
+        self.state = self.root / "var/lib/tarkov-group-update"
+        self.status = self.root / "var/lib/tarkov-group-update-status"
+        self.relay_state = self.root / "var/lib/tarkov-group"
         self.bundle = self.root / "bundle"
         self.units = self.root / "units"
         self.bin = self.root / "bin"
         self.feed = self.root / "feed"
         self.updater_copy = self.root / "opt/tarkov-group-update.sh"
-        for path in (self.install, self.state, self.bundle, self.units, self.bin):
+        for path in (self.install, self.relay_state, self.bundle, self.units, self.bin):
             path.mkdir(parents=True)
+        self.state.mkdir(mode=0o700)
+        self.state.chmod(0o700)
         (self.root / "trust.json").write_text('{"mediaType": "trusted-root"}\n', encoding="utf-8")
-        (self.root / "token").write_text("feed-read-token\n", encoding="utf-8")
+        token = self.root / "token"
+        token.write_text("feed-read-token\n", encoding="utf-8")
+        token.chmod(0o600)
         (self.root / "running").touch()
         (self.install / "TarkovCompanion.GroupServer").write_text("old relay\n", encoding="utf-8")
         self.write_health(self.install, "1.0.0", OLD_COMMIT)
         self.write_stamps(OLD_SHA, "1.0.0", OLD_COMMIT, "stable", "0")
         (self.units / "tarkov-group-update.service").write_text("original service\n", encoding="utf-8")
         self.updater_copy.write_text("#!/bin/sh\n# original updater\n", encoding="utf-8")
-        for name, body in (("systemctl", FAKE_SYSTEMCTL), ("wget", FAKE_WGET), ("cosign", FAKE_COSIGN), ("gh", FAKE_GH)):
+        for name, body in (("systemctl", FAKE_SYSTEMCTL), ("wget", FAKE_WGET), ("cosign", FAKE_COSIGN),
+                           ("gh", FAKE_GH), ("mv", FAKE_MV)):
             path = self.bin / name
             path.write_text(body, encoding="utf-8")
             path.chmod(0o755)
-        self.releases: dict[int, dict[str, object]] = {}
+        # Something that must never change, whatever is planted in the relay's directory.
+        self.victim = self.root / "etc/victim"
+        self.victim.parent.mkdir(parents=True)
+        self.victim.write_text("untouched\n", encoding="utf-8")
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -163,10 +202,20 @@ class RelayUpdaterTests(unittest.TestCase):
         for name, value in zip(STAMPS, (sha, version, commit, ring, generation)):
             (self.state / name).write_text(value + "\n", encoding="utf-8")
 
+    def clear_stamps(self) -> None:
+        for name in STAMPS:
+            (self.state / name).unlink(missing_ok=True)
+
     def stamps(self) -> dict[str, str | None]:
         return {
             name: (self.state / name).read_text(encoding="utf-8").strip() if (self.state / name).exists() else None
             for name in STAMPS
+        }
+
+    def status_stamps(self) -> dict[str, str | None]:
+        return {
+            name: (self.status / name).read_text(encoding="utf-8").strip() if (self.status / name).exists() else None
+            for name in STATUS_STAMPS
         }
 
     def running_version(self) -> str:
@@ -188,6 +237,7 @@ class RelayUpdaterTests(unittest.TestCase):
         feed: str = FEED,
         keep_bundle: bool = False,
         manifest_digest: str | None = None,
+        signed_at: str = SIGNED_AT,
     ) -> str:
         """Writes a signed-looking release to the offline bundle and the fake online feed."""
         if not keep_bundle:
@@ -234,6 +284,7 @@ class RelayUpdaterTests(unittest.TestCase):
             "feedRepository": feed,
             "ring": ring,
             "generation": generation,
+            "updatedUtc": signed_at,
             "paused": paused,
             "release": {
                 "version": version, "commit": commit, "buildTag": f"v2-build-{version}",
@@ -270,6 +321,7 @@ class RelayUpdaterTests(unittest.TestCase):
     def run_updater(self, *, online: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
         env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "FAKE_REAL_PATH": os.environ["PATH"],
             "HOME": str(self.root),
             "FAKE_ROOT": str(self.root),
             "FAKE_FEED": FEED,
@@ -279,6 +331,8 @@ class RelayUpdaterTests(unittest.TestCase):
             "TARKOV_UPDATE_INSTALL": str(self.install),
             "TARKOV_UPDATE_LKG": str(self.lkg),
             "TARKOV_UPDATE_STATE": str(self.state),
+            "TARKOV_UPDATE_STATUS": str(self.status),
+            "TARKOV_RELAY_STATE": str(self.relay_state),
             "TARKOV_UPDATE_SELF": str(self.updater_copy),
             "TARKOV_UPDATE_UNITS": str(self.units),
             "TARKOV_UPDATE_HEALTH_ATTEMPTS": "1",
@@ -295,14 +349,21 @@ class RelayUpdaterTests(unittest.TestCase):
         return subprocess.run([str(UPDATER)], text=True, capture_output=True, env=env, check=False, timeout=60)
 
     def assert_no_leftovers(self) -> None:
-        for path in (self.state / ".swap", Path(f"{self.install}.incoming"), Path(f"{self.install}.previous")):
+        for path in (self.state / "swap", self.state / "swap.new", self.state / "swap.committed",
+                     Path(f"{self.install}.incoming"), Path(f"{self.install}.previous")):
             self.assertFalse(path.exists(), f"{path} was left behind")
-        self.assertEqual([], list(self.state.glob(".update.*")))
+        self.assertEqual([], list(self.state.glob("work.*")))
+
+    def assert_relay_directory_untouched(self, expected: set[str]) -> None:
+        self.assertEqual(expected, {path.name for path in self.relay_state.iterdir()})
+        self.assertEqual("untouched\n", self.victim.read_text(encoding="utf-8"))
 
     def systemctl_calls(self) -> list[str]:
         log = self.root / "systemctl.log"
         return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
 
+
+class RelayUpdaterTests(UpdaterFixture):
     # Success and truthfulness -----------------------------------------------------------------
 
     def test_success_commits_every_stamp_and_clears_refusal(self) -> None:
@@ -324,6 +385,19 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual("2.0.0", self.running_version())
         self.assertEqual("1.0.0", json.loads((self.lkg / "health.json").read_text())["version"])
         self.assert_no_leftovers()
+
+    def test_the_status_directory_mirrors_what_was_decided(self) -> None:
+        expected = self.release("2.0.0", "b" * 40, 1)
+
+        self.assertEqual(0, self.run_updater().returncode)
+
+        self.assertEqual(
+            {"INSTALLED_SHA256": expected, "INSTALLED_VERSION": "2.0.0", "PUBLISHED_SHA256": expected,
+             "PUBLISHED_VERSION": "2.0.0", "REFUSED_SHA256": None},
+            self.status_stamps(),
+        )
+        self.assertEqual(0o755, stat.S_IMODE(self.status.stat().st_mode))
+        self.assertEqual(0o700, stat.S_IMODE(self.state.stat().st_mode))
 
     def test_an_installed_decision_is_not_reinstalled(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
@@ -362,6 +436,8 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual("1.0.0", self.running_version())
         self.assertEqual(before, self.stamps())
         self.assertEqual(refused, (self.state / "REFUSED_SHA256").read_text().strip())
+        self.assertEqual(refused, self.status_stamps()["REFUSED_SHA256"])
+        self.assertEqual(OLD_SHA, self.status_stamps()["INSTALLED_SHA256"])
         record = json.loads((self.state / "REFUSED_RELEASE.json").read_text())
         self.assertEqual((refused, "stable", 1), (record["sha256"], record["ring"], record["generation"]))
         self.assertTrue((self.root / "running").exists(), "the previous relay was not started again")
@@ -392,6 +468,7 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
         self.assertFalse((self.state / "REFUSED_SHA256").exists())
         self.assertFalse((self.state / "REFUSED_RELEASE.json").exists())
+        self.assertIsNone(self.status_stamps()["REFUSED_SHA256"])
 
     def test_unit_installation_failure_restores_units_updater_tree_and_stamps(self) -> None:
         before = self.stamps()
@@ -434,6 +511,33 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual(before, self.stamps())
         self.assertTrue((self.root / "running").exists())
 
+    def test_sigterm_after_the_swap_is_rolled_back(self) -> None:
+        # The unit's TimeoutStartSec sends SIGTERM. Landing just after the new relay starts, it
+        # must be undone like any other failure, not leave the new tree under the old stamps.
+        before = self.stamps()
+        target = self.release("3.0.0", "c" * 40, 1)
+
+        result = self.run_updater(FAKE_SYSTEMCTL_TERM="start#1")
+
+        self.assertEqual(143, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual(before, self.stamps())
+        self.assertEqual(target, (self.state / "REFUSED_SHA256").read_text().strip())
+        self.assert_no_leftovers()
+
+    def test_a_commit_rename_that_fails_restores_tree_and_stamps_together(self) -> None:
+        # The stamps are already written when the journal is renamed to commit. If that rename
+        # does not happen the swap did not commit, and the old stamps come back with the old tree.
+        before = self.stamps()
+        self.release("3.0.0", "c" * 40, 1)
+
+        result = self.run_updater(FAKE_MV_FAIL="swap.committed")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual("1.0.0", self.running_version())
+        self.assertEqual(before, self.stamps())
+        self.assertFalse((self.state / "swap").exists())
+
     def test_an_interrupted_swap_is_undone_by_the_next_run(self) -> None:
         # Power lost after the new stamps were written but before the commit point: the next run
         # must put back the tree and the stamps the journal holds, and refuse that build.
@@ -441,7 +545,7 @@ class RelayUpdaterTests(unittest.TestCase):
         target = self.release("3.0.0", "c" * 40, 1)
         previous = Path(f"{self.install}.previous")
         shutil.copytree(self.install, previous)
-        journal = self.state / ".swap"
+        journal = self.state / "swap"
         (journal / "stamps").mkdir(parents=True)
         (journal / "deployment").mkdir()
         for name in STAMPS:
@@ -450,7 +554,6 @@ class RelayUpdaterTests(unittest.TestCase):
         (journal / "target.json").write_text(json.dumps(
             {"sha256": target, "version": "3.0.0", "commit": "c" * 40, "ring": "stable", "generation": 1}
         ))
-        (journal / "complete").touch()
         self.write_health(self.install, "3.0.0", "c" * 40)
         self.write_stamps(target, "3.0.0", "c" * 40, "stable", "1")
 
@@ -463,15 +566,140 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual(before, self.stamps())
         self.assert_no_leftovers()
 
-    def test_an_incomplete_journal_changes_nothing(self) -> None:
+    def test_a_journal_that_was_never_renamed_into_place_changes_nothing(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
-        (self.state / ".swap/stamps").mkdir(parents=True)
+        (self.state / "swap.new/stamps").mkdir(parents=True)
 
         result = self.run_updater()
 
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertNotIn("interrupted", result.stdout)
         self.assertEqual("2.0.0", self.running_version())
+        self.assert_no_leftovers()
+
+    def test_a_committed_journal_left_behind_is_not_undone(self) -> None:
+        # Killed after the commit rename and before the delete: the new build is the installed
+        # one, and the next run must not roll it back.
+        expected = self.release("2.0.0", "b" * 40, 1)
+        self.assertEqual(0, self.run_updater().returncode)
+        (self.state / "swap.committed/stamps").mkdir(parents=True)
+        (self.state / "swap.committed/target.json").write_text("{}")
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("already running 2.0.0", result.stdout)
+        self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
+        self.assert_no_leftovers()
+
+    # The relay's directory is hostile ----------------------------------------------------------
+
+    def test_a_journal_planted_in_the_relay_directory_is_never_restored(self) -> None:
+        # The audit's exploit: the relay user writes a complete-looking journal holding its own
+        # "updater" and units, then asks for an update. Root must install none of it.
+        for name in (".swap", "swap"):
+            journal = self.relay_state / name
+            (journal / "deployment").mkdir(parents=True)
+            (journal / "stamps").mkdir()
+            (journal / "complete").touch()
+            (journal / "deployment/updater").write_text("#!/bin/sh\n# attacker\n")
+            (journal / "deployment/tarkov-group-update.service").write_text("attacker service\n")
+            (journal / "stamps/INSTALLED_SHA256").write_text("f" * 64)
+            (journal / "target.json").write_text(json.dumps({"sha256": "f" * 64, "version": "9.9.9"}))
+        (self.relay_state / "UPDATE_NOW").touch()
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("interrupted", result.stdout)
+        self.assertIn("original updater", self.updater_copy.read_text())
+        self.assertEqual("original service\n", (self.units / "tarkov-group-update.service").read_text())
+        self.assertEqual("2.0.0", self.stamps()["INSTALLED_VERSION"])
+        self.assert_relay_directory_untouched({".swap", "swap"})
+
+    def test_links_planted_in_the_relay_directory_change_nothing_outside_it(self) -> None:
+        names = ("UPDATE.lock", "update.lock", "INSTALLED_SHA256", "INSTALLED_VERSION", "PUBLISHED_SHA256",
+                 "REFUSED_SHA256", "REFUSED_RELEASE.json", "PUBLISHED_GENERATION", ".update.link", "work.link")
+        for name in names:
+            (self.relay_state / name).symlink_to(self.victim)
+        self.release("3.0.0", "c" * 40, 1, health_commit="e" * 40)
+        self.assertNotEqual(0, self.run_updater().returncode)
+        self.release("3.0.1", "d" * 40, 2)
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assert_relay_directory_untouched(set(names))
+        for name in names:
+            self.assertTrue((self.relay_state / name).is_symlink())
+
+    def test_stamps_in_the_relay_directory_are_not_believed(self) -> None:
+        # The checksum updater kept its stamps where the relay could write them. A relay that
+        # names the target as installed there must not stop the signed build being installed.
+        self.clear_stamps()
+        target = self.release("2.0.0", "b" * 40, 1)
+        (self.relay_state / "INSTALLED_SHA256").write_text(target)
+        (self.relay_state / "INSTALLED_VERSION").write_text("2.0.0")
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertNotIn("already running", result.stdout)
+        self.assertIn("start", " ".join(self.systemctl_calls()))
+        self.assertEqual(target, self.stamps()["INSTALLED_SHA256"])
+
+    def test_a_request_marker_that_cannot_be_unlinked_does_not_stop_the_update(self) -> None:
+        (self.relay_state / "UPDATE_NOW").mkdir()
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("could not remove the request marker", result.stdout)
+        self.assertEqual("2.0.0", self.running_version())
+
+    def test_the_request_marker_is_removed_even_when_configuration_is_missing(self) -> None:
+        (self.relay_state / "UPDATE_NOW").touch()
+        (self.root / "trust.json").unlink()
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("trust root", result.stdout)
+        self.assertFalse((self.relay_state / "UPDATE_NOW").exists())
+
+    def test_a_state_directory_that_is_a_link_is_refused(self) -> None:
+        real = self.root / "elsewhere"
+        shutil.move(str(self.state), real)
+        self.state.symlink_to(real)
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("symbolic link", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_a_loose_state_directory_is_tightened_before_use(self) -> None:
+        self.state.chmod(0o777)
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater()
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(0o700, stat.S_IMODE(self.state.stat().st_mode))
+
+    @unittest.skipUnless(hasattr(os, "geteuid") and os.geteuid() == 0, "needs root to give a directory away")
+    def test_a_state_directory_owned_by_another_user_is_refused(self) -> None:
+        os.chown(self.state, 65534, 65534)
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("not by the updater", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
 
     # Authentication before anything changes ----------------------------------------------------
 
@@ -531,6 +759,28 @@ class RelayUpdaterTests(unittest.TestCase):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("without a signed rollback", result.stdout)
+
+    def test_prerelease_labels_order_ordinally_whatever_the_host_locale(self) -> None:
+        # "B" orders before "a" by code point and after it in en_US collation. The publisher
+        # compares ordinally, so a host with a different locale must not call this an upgrade.
+        self.release("2.0.0-a", "b" * 40, 1)
+        self.assertEqual(0, self.run_updater(LC_ALL="en_US.UTF-8", LANG="en_US.UTF-8").returncode)
+        self.release("2.0.0-B", "c" * 40, 2, action="promote")
+
+        result = self.run_updater(LC_ALL="en_US.UTF-8", LANG="en_US.UTF-8")
+
+        self.assertNotEqual(0, result.returncode, result.stdout)
+        self.assertIn("without a signed rollback", result.stdout)
+
+    def test_a_version_the_publisher_would_refuse_is_refused_here(self) -> None:
+        for version in ("2.0.0-01", "02.0.0", "2.0.0+build", "2.0.0-rc..1"):
+            with self.subTest(version=version):
+                self.release(version, "b" * 40, 1)
+
+                result = self.run_updater()
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("unsupported version", result.stdout)
 
     def test_a_signed_rollback_installs_the_older_release(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
@@ -611,45 +861,117 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("not a valid stable decision", result.stdout)
 
-    # Host migration and configuration ----------------------------------------------------------
+    # Anchoring a host without history ----------------------------------------------------------
 
-    def test_legacy_stamp_and_unauthenticated_refusal_are_migrated(self) -> None:
-        (self.state / "INSTALLED_SHA256").unlink()
-        (self.install / "INSTALLED_SHA256").write_text(OLD_SHA, encoding="utf-8")
-        (self.state / "REFUSED_SHA256").write_text("f" * 64, encoding="utf-8")
-        self.release("2.0.0", "b" * 40, 1)
-
-        result = self.run_updater()
-
-        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        self.assertIn("legacy install stamp", result.stdout)
-        self.assertIn("unauthenticated updater", result.stdout)
-        self.assertEqual("2.0.0", self.stamps()["INSTALLED_VERSION"])
-
-    def test_the_request_marker_is_removed_even_when_configuration_is_missing(self) -> None:
-        (self.state / "UPDATE_NOW").touch()
-        (self.root / "trust.json").unlink()
+    def test_a_host_with_no_history_floor_or_running_relay_refuses_to_choose(self) -> None:
+        self.clear_stamps()
+        (self.root / "running").unlink()
+        self.release("1.5.0", "b" * 40, 1)
 
         result = self.run_updater()
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("trust root", result.stdout)
-        self.assertFalse((self.state / "UPDATE_NOW").exists())
+        self.assertIn("no floor is configured", result.stdout)
+        self.assertEqual([], [c for c in self.systemctl_calls() if c.startswith("stop")])
+
+    def test_an_explicitly_unanchored_first_install_proceeds(self) -> None:
+        self.clear_stamps()
+        (self.root / "running").unlink()
+        expected = self.release("1.5.0", "b" * 40, 1)
+
+        result = self.run_updater(TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP="1")
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("without any anchor", result.stdout)
+        self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
+
+    def test_a_fresh_host_refuses_a_decision_below_its_provisioned_floor(self) -> None:
+        # Somebody deleted the newer decisions from the feed. The floor came from the publish
+        # run's summary, not from the feed, so the feed cannot lower it.
+        self.clear_stamps()
+        (self.root / "running").unlink()
+        self.release("1.5.0", "b" * 40, 1)
+
+        result = self.run_updater(TARKOV_RELEASE_MINIMUM_VERSION="2.0.0")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("configured floor is 2.0.0", result.stdout)
+
+    def test_a_fresh_host_refuses_a_generation_below_its_provisioned_floor(self) -> None:
+        self.clear_stamps()
+        (self.root / "running").unlink()
+        self.release("2.5.0", "b" * 40, 3)
+
+        result = self.run_updater(TARKOV_RELEASE_MINIMUM_GENERATION="4")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("configured floor is generation 4", result.stdout)
+
+    def test_the_provisioned_floor_holds_against_a_signed_rollback(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        self.assertEqual(0, self.run_updater().returncode)
+        self.release("1.5.0", "c" * 40, 2, action="rollback", rollback=True)
+
+        result = self.run_updater(TARKOV_RELEASE_MINIMUM_VERSION="1.9.0")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("configured floor is 1.9.0", result.stdout)
+        self.assertEqual("2.0.0", self.running_version())
+
+    def test_a_host_moving_from_the_checksum_updater_keeps_the_running_version_as_floor(self) -> None:
+        # No private history, but a relay answering as 2.0.0: an older signed build still needs a
+        # signed rollback, and a newer one installs.
+        self.clear_stamps()
+        self.write_health(self.install, "2.0.0", OLD_COMMIT)
+        self.release("1.5.0", "b" * 40, 1)
+
+        refused = self.run_updater()
+
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("running relay reports 2.0.0", refused.stdout)
+        self.assertIn("without a signed rollback", refused.stdout)
+
+        expected = self.release("2.1.0", "c" * 40, 2)
+        installed = self.run_updater()
+        self.assertEqual(0, installed.returncode, installed.stdout + installed.stderr)
+        self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
+
+    def test_a_decision_older_than_the_configured_age_is_not_installed(self) -> None:
+        self.release("2.0.0", "b" * 40, 1, signed_at="2020-01-01T00:00:00Z")
+
+        result = self.run_updater(TARKOV_RELEASE_MAX_DECISION_AGE_DAYS="30")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("older than this host's 30-day limit", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_malformed_floors_are_refused(self) -> None:
+        for name, value in (("TARKOV_RELEASE_MINIMUM_VERSION", "2.0"), ("TARKOV_RELEASE_MINIMUM_GENERATION", "0"),
+                            ("TARKOV_RELEASE_MAX_DECISION_AGE_DAYS", "-1"),
+                            ("TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP", "yes")):
+            with self.subTest(name=name):
+                self.release("2.0.0", "b" * 40, 1)
+
+                result = self.run_updater(**{name: value})
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(name, result.stdout)
+
+    # Host configuration and concurrency ---------------------------------------------------------
 
     def test_a_held_lock_leaves_everything_to_the_running_update(self) -> None:
         self.release("2.0.0", "b" * 40, 1)
-        with open(self.state / "UPDATE.lock", "w", encoding="utf-8") as lock:
-            holder = subprocess.Popen(["flock", "-x", str(self.state / "UPDATE.lock"), "sleep", "30"])
-            try:
-                for _ in range(50):
-                    probe = subprocess.run(["flock", "-n", str(self.state / "UPDATE.lock"), "true"], check=False)
-                    if probe.returncode != 0:
-                        break
-                result = self.run_updater()
-            finally:
-                holder.kill()
-                holder.wait()
-            del lock
+        lock = self.state / "update.lock"
+        holder = subprocess.Popen(["flock", "-x", str(lock), "sleep", "30"])
+        try:
+            for _ in range(50):
+                probe = subprocess.run(["flock", "-n", str(lock), "true"], check=False)
+                if probe.returncode != 0:
+                    break
+            result = self.run_updater()
+        finally:
+            holder.kill()
+            holder.wait()
 
         self.assertEqual(0, result.returncode)
         self.assertIn("holds the lock", result.stdout)
@@ -668,6 +990,24 @@ class RelayUpdaterTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual(expected, self.stamps()["INSTALLED_SHA256"])
         self.assertIn("contents/rings/stable/release-index-g0000000002.json", (self.root / "gh.log").read_text())
+
+    def test_the_feed_token_reaches_gh_and_nothing_else(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater(online=True, GH_TOKEN="inherited-token", GITHUB_TOKEN="inherited-token")
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        leaked = self.root / "leaked-token.log"
+        self.assertEqual("", leaked.read_text() if leaked.exists() else "")
+
+    def test_a_feed_token_other_users_can_read_is_refused(self) -> None:
+        (self.root / "token").chmod(0o644)
+        self.release("2.0.0", "b" * 40, 1)
+
+        result = self.run_updater(online=True)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("readable by other users", result.stdout)
 
     def test_online_refuses_a_public_feed_or_the_source_repository(self) -> None:
         self.release("2.0.0", "b" * 40, 1)

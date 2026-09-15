@@ -28,7 +28,7 @@ builder.Services.AddSingleton(provider => new GroupRoomRegistry(
 // Which build is on the box against which build the signed release ring selects, and the file
 // that asks for the difference. Read from the updater's own stamps: only the updater holds the
 // feed credential and the trust root, so the panel makes no release request of its own.
-builder.Services.AddSingleton(_ => new RelayUpdate(StateDirectory()));
+builder.Services.AddSingleton(_ => new RelayUpdate(StateDirectory(), UpdateStatusDirectory()));
 
 // Where the squad's marks are kept, or null to hold them in memory as before.
 //
@@ -50,6 +50,22 @@ static string? StateDirectory()
     return Environment.GetEnvironmentVariable("STATE_DIRECTORY") is { Length: > 0 } stateDirectory
         ? stateDirectory.Split(':')[0]
         : null;
+}
+
+/// <summary>Where the root updater publishes what the panel shows, or null where nothing does.</summary>
+/// <remarks>
+/// Root's directory, which this process reads and cannot write, beside rather than inside its own
+/// state directory: a status this relay could write would be a status a compromised relay could
+/// forge. TARKOV_RELAY_UPDATE_STATUS overrides the path the updater uses by default.
+/// </remarks>
+static string? UpdateStatusDirectory()
+{
+    if (Environment.GetEnvironmentVariable("TARKOV_RELAY_UPDATE_STATUS") is { Length: > 0 } explicitPath)
+    {
+        return explicitPath;
+    }
+
+    return StateDirectory() is null ? null : "/var/lib/tarkov-group-update-status";
 }
 
 /// <summary>One file in whatever directory this deployment keeps state in, or null for none.</summary>

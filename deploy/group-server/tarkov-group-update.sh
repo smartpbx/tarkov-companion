@@ -20,6 +20,11 @@ set -euo pipefail
 # A failure inside $(...) must stop the script too, or a verification that failed halfway
 # through a substitution could still hand its partial output to the next line.
 shopt -s inherit_errexit
+# Version ordering compares prerelease labels with [[ < ]], which follows the locale's collation.
+# The publisher and the offline installer compare ordinally; so does this, whatever the host says.
+export LC_ALL=C
+# The feed credential is handed to gh alone, never inherited by cosign, tar, wget or systemctl.
+unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
 
 readonly SOURCE_REPOSITORY="smartpbx/tarkov-companion"
 readonly RELEASE_REPOSITORY="${TARKOV_RELEASE_REPOSITORY:-}"
@@ -31,18 +36,29 @@ readonly SIGNER_ISSUER="${TARKOV_RELEASE_SIGNER_ISSUER:-https://token.actions.gi
 # A directory holding a signed ring index, its manifest, the relay archive and their bundles.
 # Set, it replaces the network entirely: the recovery path when the feed is down or unreachable.
 readonly OFFLINE_BUNDLE="${TARKOV_RELEASE_BUNDLE_DIR:-}"
+# Anchors a host that has no history of its own. A fresh host believes the newest signed decision
+# the feed shows it, and whoever can delete newer decisions from the feed can choose that one; a
+# floor provisioned beside the trust root, from the publish run's summary, is what refuses it.
+readonly MINIMUM_VERSION="${TARKOV_RELEASE_MINIMUM_VERSION:-}"
+readonly MINIMUM_GENERATION="${TARKOV_RELEASE_MINIMUM_GENERATION:-}"
+readonly MAX_DECISION_AGE_DAYS="${TARKOV_RELEASE_MAX_DECISION_AGE_DAYS:-}"
+readonly ALLOW_UNANCHORED_BOOTSTRAP="${TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP:-0}"
 readonly INSTALL="${TARKOV_UPDATE_INSTALL:-/opt/tarkov-group}"
 readonly LKG="${TARKOV_UPDATE_LKG:-/opt/tarkov-group.lkg}"
-# Outside the tree, because the swap replaces the tree.
+# Everything this script decides from lives here: the lock, the work directories, the swap
+# journal and every stamp. Root's, mode 0700, and nobody else's.
 #
-# The stamp once lived at ${INSTALL}/INSTALLED_SHA256 and the rollback restored the OLD stamp
-# along with the old build, so a refused build looked brand new to the next tick: fetched,
-# swapped and rolled back every thirty minutes, for ever. Moving it out then introduced the
-# opposite bug: the new stamp was written before the health check and survived the rollback,
-# so the next tick said "already on" a build that had just been refused, and so did the panel.
-# Stamps are now written only after success, and restored from a copy if anything after the
-# swap fails.
-readonly STATE="${TARKOV_UPDATE_STATE:-/var/lib/tarkov-group}"
+# It used to be the relay's own state directory. The relay runs as an unprivileged dynamic user
+# precisely so that a compromise of an internet-facing process stays inside it, and that user
+# owns /var/lib/tarkov-group. A journal it could write was a journal it could fill with an
+# "updater" for root to restore; a work directory inside a directory it owned was one it could
+# swap between the signature check and the extraction. The relay's directory is now read for
+# exactly one thing, the request marker, and written by this script not at all.
+readonly STATE="${TARKOV_UPDATE_STATE:-/var/lib/tarkov-group-update}"
+# What the panel shows. Root writes it and the relay only reads it, so the relay cannot make its
+# own panel claim a build, and nothing here ever reads a decision back from it.
+readonly STATUS="${TARKOV_UPDATE_STATUS:-/var/lib/tarkov-group-update-status}"
+readonly RELAY_STATE="${TARKOV_RELAY_STATE:-/var/lib/tarkov-group}"
 readonly SERVICE="${TARKOV_UPDATE_SERVICE:-tarkov-group}"
 readonly SELF="${TARKOV_UPDATE_SELF:-/opt/tarkov-group-update.sh}"
 readonly UNITS="${TARKOV_UPDATE_UNITS:-/etc/systemd/system}"
@@ -54,20 +70,29 @@ readonly PREVIOUS="${INSTALL}.previous"
 readonly SHIPPED="${INSTALL}/deploy"
 # Written by the relay's admin panel and watched by tarkov-group-update.path. The relay runs
 # unprivileged and cannot start a unit; it can write one file in the directory it already owns.
-readonly REQUEST="${STATE}/UPDATE_NOW"
+# It is a trigger and nothing more: its contents, and anything beside it, are never read.
+readonly REQUEST="${RELAY_STATE}/UPDATE_NOW"
 readonly REFUSED_RELEASE="${STATE}/REFUSED_RELEASE.json"
-# The swap journal: what is being installed and everything needed to undo it, written before the
-# service is stopped and removed as the last step of success. If it still exists when a run
-# starts, the previous run died mid-swap - killed, or the machine lost power - and is undone.
-readonly SWAP="${STATE}/.swap"
+# The swap journal: what is being installed and everything needed to undo it. It is assembled in
+# ${SWAP}.new and renamed into place whole, so a journal that exists is a complete one, and it is
+# renamed to ${SWAP}.committed as the commit point, so a journal that still exists names a swap
+# that never committed. Either rename is one directory entry, never half of one.
+readonly SWAP="${STATE}/swap"
 readonly INSTALLED_STAMPS=(INSTALLED_SHA256 INSTALLED_VERSION INSTALLED_COMMIT INSTALLED_RING INSTALLED_GENERATION)
-readonly VERSION_PATTERN='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-([0-9A-Za-z.-]+))?$'
+# The panel reads the digests; the versions are for whoever runs `cat` on the host.
+readonly STATUS_STAMPS=(INSTALLED_SHA256 INSTALLED_VERSION PUBLISHED_SHA256 PUBLISHED_VERSION REFUSED_SHA256)
+# SemVer 2.0 as the publisher's release_policy.py accepts it: no leading zeros in a numeric
+# identifier, and no build metadata. A version one side accepts and the other refuses would be
+# signed, published and then never installed.
+readonly PRERELEASE_IDENTIFIER='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+readonly VERSION_PATTERN="^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-(${PRERELEASE_IDENTIFIER}(\\.${PRERELEASE_IDENTIFIER})*))?\$"
 readonly DEPLOYMENT_UNITS=(tarkov-group-update.service tarkov-group-update.timer tarkov-group-update.path)
 
 TASK_WORK=""
-TASK_SWAPPED=0
-TASK_COMMITTED=0
+TASK_LOCKED=0
+TASK_JOURNALED=0
 TASK_UNITS_CHANGED=0
+TASK_FEED_TOKEN=""
 TARGET_RING="${RELEASE_RING}"
 TARGET_SHA=""
 TARGET_VERSION=""
@@ -123,19 +148,51 @@ safe_root() {
     [[ "$1" == /* && "$1" != "/" && "$1" != "/opt" && "$1" != "/var" && "$1" != "/var/lib" && "$1" != */ ]]
 }
 
+# A directory only this script's user may change: not a link, owned by the user running this, and
+# writable by nobody else. Created with that mode when absent; tightened if it is ours but loose;
+# refused otherwise, because a directory somebody else can write is not one to decide from.
+own_directory() {
+    local path="$1" mode="$2" owner permissions
+    if [[ -L "${path}" ]]; then
+        refuse "${path} is a symbolic link; the updater's own directories must be real directories"
+    fi
+    if [[ ! -e "${path}" ]]; then
+        install -d -m "${mode}" -- "${path}"
+    fi
+    [[ -d "${path}" && ! -L "${path}" ]] || refuse "${path} is not a directory"
+    owner="$(stat -c %u -- "${path}")"
+    [[ "${owner}" == "$(id -u)" ]] || refuse "${path} is owned by uid ${owner}, not by the updater"
+    chmod "${mode}" -- "${path}"
+    permissions="$(stat -c %a -- "${path}")"
+    [[ "${permissions}" == "${mode#0}" ]] || refuse "${path} has mode ${permissions}, not ${mode}"
+}
+
 read_stamp() {
     local value=""
-    [[ -f "${STATE}/$1" ]] && value="$(<"${STATE}/$1")"
+    [[ -f "${STATE}/$1" && ! -L "${STATE}/$1" ]] && value="$(<"${STATE}/$1")"
     printf '%s' "${value//[$'\r\n']/}"
 }
 
-# Written beside and renamed, so a reader sees the old value or the new one and never half.
+# Written beside and renamed, so a reader sees the old value or the new one and never half. Only
+# ever called for files in directories own_directory has vouched for.
 atomic_text() {
     local target="$1" value="$2" temporary
     temporary="$(mktemp "${target}.XXXXXX")"
     printf '%s\n' "${value}" > "${temporary}"
     chmod 0644 "${temporary}"
-    mv -f -- "${temporary}" "${target}"
+    mv -fT -- "${temporary}" "${target}"
+}
+
+# Mirrors the stamps the panel shows from the private state into the status directory.
+sync_status() {
+    local stamp
+    for stamp in "${STATUS_STAMPS[@]}"; do
+        if [[ -f "${STATE}/${stamp}" ]]; then
+            atomic_text "${STATUS}/${stamp}" "$(read_stamp "${stamp}")"
+        else
+            rm -f -- "${STATUS}/${stamp}"
+        fi
+    done
 }
 
 record_refusal() {
@@ -153,24 +210,26 @@ record_refusal() {
         '{schemaVersion: 1, sha256: $sha256, version: $version, commit: $commit, ring: $ring,
           generation: $generation, reason: $reason, refusedUtc: $refusedUtc}' > "${temporary}"
     chmod 0644 "${temporary}"
-    mv -f -- "${temporary}" "${REFUSED_RELEASE}"
+    mv -fT -- "${temporary}" "${REFUSED_RELEASE}"
     atomic_text "${STATE}/REFUSED_SHA256" "${TARGET_SHA}"
 }
 
-# Puts back the tree, the units, this script and the stamps exactly as they were before the swap.
+# Puts back the tree, the units, this script and the stamps exactly as the journal holds them.
 #
 # Deliberately not fail-fast: every step is attempted, because stopping at the first error here
-# is how a relay ends up with neither build installed.
+# is how a relay ends up with neither build installed. The journal is removed only once the
+# previous relay is back and started, so a rollback that is itself interrupted is repeated by
+# the next run rather than forgotten.
 rollback_failed_swap() {
     set +e
-    log "the update failed after the swap; restoring the previous relay"
-    record_refusal "the new relay did not prove its signed identity, or a post-swap step failed" \
+    log "the update failed after the swap began; restoring the previous relay"
+    record_refusal "the new relay did not prove its signed identity, or a step after the swap failed" \
         || log "could not record the refusal; continuing the rollback"
     systemctl stop "${SERVICE}" >/dev/null 2>&1
 
     local restored=0 nothing_to_restore=0 units_restored=0 unit stamp
     if [[ -d "${PREVIOUS}" ]]; then
-        rm -rf -- "${INSTALL}" && mv -- "${PREVIOUS}" "${INSTALL}" && restored=1
+        rm -rf -- "${INSTALL}" && mv -T -- "${PREVIOUS}" "${INSTALL}" && restored=1
     elif [[ -d "${LKG}" ]]; then
         rm -rf -- "${INSTALL}" && cp -a -- "${LKG}" "${INSTALL}" && restored=1
     else
@@ -179,33 +238,29 @@ rollback_failed_swap() {
         nothing_to_restore=1
     fi
 
-    if [[ -d "${SWAP}/deployment" ]]; then
-        for unit in "${DEPLOYMENT_UNITS[@]}"; do
-            if [[ -f "${SWAP}/deployment/${unit}" ]]; then
-                if ! cmp -s "${SWAP}/deployment/${unit}" "${UNITS}/${unit}"; then
-                    install -m 0644 "${SWAP}/deployment/${unit}" "${UNITS}/${unit}"
-                    units_restored=1
-                fi
-            elif [[ -f "${SWAP}/deployment/${unit}.absent" && -f "${UNITS}/${unit}" ]]; then
-                rm -f -- "${UNITS}/${unit}"
+    for unit in "${DEPLOYMENT_UNITS[@]}"; do
+        if [[ -f "${SWAP}/deployment/${unit}" ]]; then
+            if ! cmp -s "${SWAP}/deployment/${unit}" "${UNITS}/${unit}"; then
+                install -m 0644 "${SWAP}/deployment/${unit}" "${UNITS}/${unit}"
                 units_restored=1
             fi
-        done
-        if [[ -f "${SWAP}/deployment/updater" ]] && ! cmp -s "${SWAP}/deployment/updater" "${SELF}"; then
-            install -m 0755 "${SWAP}/deployment/updater" "${SELF}.incoming" && mv -f -- "${SELF}.incoming" "${SELF}"
+        elif [[ -f "${SWAP}/deployment/${unit}.absent" && -f "${UNITS}/${unit}" ]]; then
+            rm -f -- "${UNITS}/${unit}"
+            units_restored=1
         fi
-        ((units_restored)) && systemctl daemon-reload
+    done
+    if [[ -f "${SWAP}/deployment/updater" ]] && ! cmp -s "${SWAP}/deployment/updater" "${SELF}"; then
+        install -m 0755 "${SWAP}/deployment/updater" "${SELF}.incoming" && mv -fT -- "${SELF}.incoming" "${SELF}"
     fi
+    ((units_restored)) && systemctl daemon-reload
 
-    if [[ -f "${SWAP}/complete" ]]; then
-        for stamp in "${INSTALLED_STAMPS[@]}"; do
-            if [[ -f "${SWAP}/stamps/${stamp}" ]]; then
-                cp -f -- "${SWAP}/stamps/${stamp}" "${STATE}/${stamp}"
-            else
-                rm -f -- "${STATE}/${stamp}"
-            fi
-        done
-    fi
+    for stamp in "${INSTALLED_STAMPS[@]}"; do
+        if [[ -f "${SWAP}/stamps/${stamp}" ]]; then
+            cp -f -- "${SWAP}/stamps/${stamp}" "${STATE}/${stamp}"
+        else
+            rm -f -- "${STATE}/${stamp}"
+        fi
+    done
 
     if ((nothing_to_restore)); then
         rm -rf -- "${SWAP}"
@@ -224,11 +279,17 @@ rollback_failed_swap() {
 cleanup() {
     local status=$?
     trap - EXIT INT TERM
-    if ((status != 0 && TASK_SWAPPED == 1 && TASK_COMMITTED == 0)); then
+    set +e
+    # Decided from the journal on disk rather than from a variable. Between the rename that
+    # commits and the line after it there is a moment when only the filesystem is right.
+    if ((status != 0 && TASK_JOURNALED == 1)) && [[ -d "${SWAP}" ]]; then
         rollback_failed_swap
     fi
-    # Never the live tree: either it was renamed into place, or the run stopped before that.
-    rm -rf -- "${INCOMING}"
+    if ((TASK_LOCKED)); then
+        # Never the live tree: either it was renamed into place, or the run stopped before that.
+        rm -rf -- "${INCOMING}"
+        sync_status || log "could not publish the updater's status for the panel"
+    fi
     if [[ -n "${TASK_WORK}" && -d "${TASK_WORK}" ]]; then
         rm -rf -- "${TASK_WORK}"
     fi
@@ -251,16 +312,33 @@ verify_signed() {
     fi
 }
 
+# The only way the feed credential reaches a process, and the only process it reaches.
+feed_gh() {
+    GH_TOKEN="${TASK_FEED_TOKEN}" GH_CONFIG_DIR="${TASK_WORK}/gh" GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1 \
+        gh "$@"
+}
+
+# Every file is copied into the private work directory first and verified there, so what is
+# checked is what is used: an offline bundle on shared media can change after it is read.
 fetch_build_file() {
     local tag="$1" name="$2"
     if [[ -n "${OFFLINE_BUNDLE}" ]]; then
         [[ -f "${OFFLINE_BUNDLE}/${name}" ]] || refuse "the offline bundle has no ${name}"
         cp -- "${OFFLINE_BUNDLE}/${name}" "${TASK_WORK}/${name}"
     else
-        gh release download "${tag}" --repo "${RELEASE_REPOSITORY}" --pattern "${name}" \
+        feed_gh release download "${tag}" --repo "${RELEASE_REPOSITORY}" --pattern "${name}" \
             --dir "${TASK_WORK}" --clobber
         [[ -f "${TASK_WORK}/${name}" ]] || refuse "the build ${tag} has no ${name}"
     fi
+}
+
+# What the running relay says it is, or nothing. Used only as a floor for a host whose private
+# state does not know what it installed; a relay can lie here, but the most a lie buys is to be
+# replaced by a different signed build or to stop its own updates.
+observed_version() {
+    wget -q --timeout=5 -O "${TASK_WORK}/observed.json" "${HEALTH_URL}" 2>/dev/null || return 0
+    jq -r 'if (.version | type) == "string" then .version else empty end' "${TASK_WORK}/observed.json" 2>/dev/null \
+        | head -n 1 || true
 }
 
 # Answering is the test, not starting, and answering as the build that was signed. A process
@@ -287,7 +365,7 @@ health_matches() {
 #
 # Only after the health check, never before: a broken build must not take down the thing that
 # would replace it. Every command is fail-fast, so a unit that will not install follows the
-# same rollback as a build that will not answer, and the originals are copied first so that
+# same rollback as a build that will not answer, and the originals are in the journal so that
 # rollback can put them back. tarkov-group.service is deliberately not touched; it is
 # hand-maintained on the host and carries the admin key drop-in.
 apply_deployment() {
@@ -306,7 +384,7 @@ apply_deployment() {
     # running, and a rename swaps the directory entry while leaving the open inode alone.
     if [[ -f "${SHIPPED}/tarkov-group-update.sh" ]] && ! cmp -s "${SHIPPED}/tarkov-group-update.sh" "${SELF}"; then
         install -m 0755 "${SHIPPED}/tarkov-group-update.sh" "${SELF}.incoming"
-        mv -f -- "${SELF}.incoming" "${SELF}"
+        mv -fT -- "${SELF}.incoming" "${SELF}"
         log "installed the updater itself; the next run is the new one"
     fi
 
@@ -319,41 +397,40 @@ apply_deployment() {
 
 write_swap_journal() {
     local unit stamp
-    rm -rf -- "${SWAP}"
-    mkdir -p "${SWAP}/deployment" "${SWAP}/stamps"
+    rm -rf -- "${SWAP}.new"
+    mkdir -m 0700 -- "${SWAP}.new"
+    mkdir -m 0700 -- "${SWAP}.new/deployment" "${SWAP}.new/stamps"
     for unit in "${DEPLOYMENT_UNITS[@]}"; do
         if [[ -f "${UNITS}/${unit}" ]]; then
-            cp -p -- "${UNITS}/${unit}" "${SWAP}/deployment/${unit}"
+            cp -p -- "${UNITS}/${unit}" "${SWAP}.new/deployment/${unit}"
         else
-            : > "${SWAP}/deployment/${unit}.absent"
+            : > "${SWAP}.new/deployment/${unit}.absent"
         fi
     done
     if [[ -f "${SELF}" ]]; then
-        cp -p -- "${SELF}" "${SWAP}/deployment/updater"
+        cp -p -- "${SELF}" "${SWAP}.new/deployment/updater"
     fi
     for stamp in "${INSTALLED_STAMPS[@]}"; do
         if [[ -f "${STATE}/${stamp}" ]]; then
-            cp -p -- "${STATE}/${stamp}" "${SWAP}/stamps/${stamp}"
+            cp -p -- "${STATE}/${stamp}" "${SWAP}.new/stamps/${stamp}"
         fi
     done
     jq -n \
         --arg sha256 "${TARGET_SHA}" --arg version "${TARGET_VERSION}" --arg commit "${TARGET_COMMIT}" \
         --arg ring "${TARGET_RING}" --argjson generation "${TARGET_GENERATION}" \
         '{sha256: $sha256, version: $version, commit: $commit, ring: $ring, generation: $generation}' \
-        > "${SWAP}/target.json"
-    # Only a journal with this file is trusted to restore stamps; a half-written one is not.
-    : > "${SWAP}/complete"
+        > "${SWAP}.new/target.json"
+    mv -T -- "${SWAP}.new" "${SWAP}"
+    TASK_JOURNALED=1
 }
 
-# Undoes a swap that a previous run started and never finished. Nothing is known about the tree
+# Undoes a swap that a previous run started and never committed. Nothing is known about the tree
 # that run left in place except that it never proved itself, so it is treated as refused.
 recover_interrupted_swap() {
+    # Assembled but never renamed into place, so nothing it describes happened. Or committed and
+    # not yet deleted, so everything it describes did.
+    rm -rf -- "${SWAP}.new" "${SWAP}.committed"
     [[ -d "${SWAP}" ]] || return 0
-    if [[ ! -f "${SWAP}/complete" ]]; then
-        # Killed while writing the journal, which is before anything else changed.
-        rm -rf -- "${SWAP}"
-        return 0
-    fi
     log "a previous update was interrupted during its swap; undoing it"
     if [[ -f "${SWAP}/target.json" ]]; then
         TARGET_SHA="$(jq -r '.sha256 // ""' "${SWAP}/target.json")"
@@ -362,7 +439,7 @@ recover_interrupted_swap() {
         TARGET_RING="$(jq -r '.ring // ""' "${SWAP}/target.json")"
         TARGET_GENERATION="$(jq -r '.generation // 0' "${SWAP}/target.json")"
     fi
-    rollback_failed_swap || refuse "recovering the interrupted update failed"
+    rollback_failed_swap || refuse "recovering the interrupted update failed; it is retried on the next run"
     set -e
     TARGET_RING="${RELEASE_RING}"
     TARGET_SHA=""
@@ -374,7 +451,7 @@ recover_interrupted_swap() {
 commit_installed_stamps() {
     local stamp temporary=()
     # Every value is written to a temporary file first, so the only thing left to fail is a
-    # rename; if one did, the rollback restores the copies taken before the swap.
+    # rename; if one did, the rollback restores the copies the journal holds.
     for stamp in "${INSTALLED_STAMPS[@]}"; do
         temporary+=("$(mktemp "${STATE}/${stamp}.XXXXXX")")
     done
@@ -386,7 +463,7 @@ commit_installed_stamps() {
     local index
     for index in "${!INSTALLED_STAMPS[@]}"; do
         chmod 0644 "${temporary[index]}"
-        mv -f -- "${temporary[index]}" "${STATE}/${INSTALLED_STAMPS[index]}"
+        mv -fT -- "${temporary[index]}" "${STATE}/${INSTALLED_STAMPS[index]}"
     done
 }
 
@@ -396,50 +473,54 @@ clear_refusal() {
 
 # --- Preconditions --------------------------------------------------------------------------
 
-for command_name in base64 cmp cosign flock install jq mktemp sha256sum systemctl tar wget; do
+for command_name in base64 cmp cosign date flock id install jq mktemp sha256sum stat systemctl tar wget; do
     command -v "${command_name}" >/dev/null 2>&1 || refuse "required command is unavailable: ${command_name}"
 done
-if ! safe_root "${INSTALL}" || ! safe_root "${LKG}" || ! safe_root "${STATE}"; then
-    refuse "install, rollback and state paths must be safe absolute directories"
-fi
-if [[ "${INSTALL}" == "${LKG}" || "${INSTALL}" == "${STATE}" || "${LKG}" == "${STATE}" \
-    || "${STATE}" == "${INSTALL}"/* || "${LKG}" == "${INSTALL}"/* ]]; then
-    refuse "install, rollback and state paths overlap"
-fi
-mkdir -p "${STATE}"
-exec 9> "${STATE}/UPDATE.lock"
+for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
+    safe_root "${path}" || refuse "install, rollback, state and status paths must be safe absolute directories"
+done
+distinct=("${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
+for ((left = 0; left < ${#distinct[@]}; left++)); do
+    for ((right = 0; right < ${#distinct[@]}; right++)); do
+        if ((left != right)) && [[ "${distinct[left]}" == "${distinct[right]}" || "${distinct[left]}" == "${distinct[right]}"/* ]]; then
+            refuse "install, rollback, state and status paths overlap: ${distinct[left]} and ${distinct[right]}"
+        fi
+    done
+done
+
+own_directory "${STATE}" 0700
+own_directory "${STATUS}" 0755
+exec 9> "${STATE}/update.lock"
 if ! flock -n 9; then
     log "another relay update holds the lock; leaving it to finish"
     exit 0
 fi
+TASK_LOCKED=1
 
 # Removed first, before anything can fail. Left in place it would retrigger the path unit the
 # instant this run finished, which for an up-to-date relay is a loop that asks the feed for ever.
-rm -f -- "${REQUEST}"
+# Unlinking a name cannot follow a link the relay planted there; if the relay made it something
+# that cannot be unlinked, that is logged and the update goes on.
+if ! rm -f -- "${REQUEST}" 2>/dev/null; then
+    log "could not remove the request marker ${REQUEST}; the path unit may run this again"
+fi
 
 # Holding the lock means no other run is using these. A killed run leaves them behind.
-find "${STATE}" -maxdepth 1 -type d -name '.update.*' -exec rm -rf -- {} +
+find "${STATE}" -mindepth 1 -maxdepth 1 -type d -name 'work.*' -exec rm -rf -- {} +
 recover_interrupted_swap
 if [[ -d "${PREVIOUS}" ]]; then
     # Only left when the final cleanup of a committed update did not finish.
     rm -rf -- "${PREVIOUS}"
 fi
 
-if [[ ! -f "${STATE}/INSTALLED_SHA256" && -f "${INSTALL}/INSTALLED_SHA256" ]]; then
-    mv -- "${INSTALL}/INSTALLED_SHA256" "${STATE}/INSTALLED_SHA256"
-    log "moved the legacy install stamp out of the tree"
-fi
-if [[ -f "${STATE}/REFUSED_SHA256" && ! -f "${REFUSED_RELEASE}" ]]; then
-    # A refusal the checksum-only updater recorded names a build from an unauthenticated feed.
-    # It is not evidence about any signed decision, and leaving it would show as one.
-    rm -f -- "${STATE}/REFUSED_SHA256"
-    log "cleared a refusal recorded by the unauthenticated updater"
-fi
-
 [[ "${RELEASE_RING}" =~ ^(canary|beta|stable)$ ]] || refuse "unknown release ring: ${RELEASE_RING}"
 [[ -f "${TRUST_ROOT}" && -s "${TRUST_ROOT}" ]] || refuse "the Sigstore trust root ${TRUST_ROOT} is absent; see docs/RELEASES.md"
+[[ -z "${MINIMUM_VERSION}" || "${MINIMUM_VERSION}" =~ ${VERSION_PATTERN} ]] || refuse "TARKOV_RELEASE_MINIMUM_VERSION is not a supported version"
+[[ -z "${MINIMUM_GENERATION}" || "${MINIMUM_GENERATION}" =~ ^[1-9][0-9]{0,9}$ ]] || refuse "TARKOV_RELEASE_MINIMUM_GENERATION is not a positive generation"
+[[ -z "${MAX_DECISION_AGE_DAYS}" || "${MAX_DECISION_AGE_DAYS}" =~ ^[1-9][0-9]{0,4}$ ]] || refuse "TARKOV_RELEASE_MAX_DECISION_AGE_DAYS is not a positive number of days"
+[[ "${ALLOW_UNANCHORED_BOOTSTRAP}" =~ ^[01]$ ]] || refuse "TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP must be 0 or 1"
 
-TASK_WORK="$(mktemp -d "${STATE}/.update.XXXXXX")"
+TASK_WORK="$(mktemp -d "${STATE}/work.XXXXXX")"
 if [[ -n "${OFFLINE_BUNDLE}" ]]; then
     [[ -d "${OFFLINE_BUNDLE}" ]] || refuse "the offline bundle directory does not exist"
     index_name="$(find "${OFFLINE_BUNDLE}" -maxdepth 1 -type f -name 'release-index-g[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].json' -printf '%f\n' | sort | tail -n 1)"
@@ -451,15 +532,18 @@ else
     [[ -n "${RELEASE_REPOSITORY}" ]] || refuse "TARKOV_RELEASE_REPOSITORY is not configured; see docs/RELEASES.md"
     [[ "${RELEASE_REPOSITORY,,}" != "${SOURCE_REPOSITORY,,}" ]] || refuse "the public source repository is not a v2 feed"
     [[ -f "${RELEASE_TOKEN_FILE}" && -s "${RELEASE_TOKEN_FILE}" ]] || refuse "the feed credential ${RELEASE_TOKEN_FILE} is absent"
-    GH_TOKEN="$(<"${RELEASE_TOKEN_FILE}")"
-    export GH_TOKEN GH_CONFIG_DIR="${TASK_WORK}/gh" GH_PROMPT_DISABLED=1 GH_NO_UPDATE_NOTIFIER=1
-    visibility="$(gh api "repos/${RELEASE_REPOSITORY}" --jq .visibility)"
+    if (( 8#$(stat -L -c %a -- "${RELEASE_TOKEN_FILE}") & 8#077 )); then
+        refuse "the feed credential ${RELEASE_TOKEN_FILE} is readable by other users; make it mode 0600"
+    fi
+    TASK_FEED_TOKEN="$(<"${RELEASE_TOKEN_FILE}")"
+    TASK_FEED_TOKEN="${TASK_FEED_TOKEN//[$'\r\n']/}"
+    visibility="$(feed_gh api "repos/${RELEASE_REPOSITORY}" --jq .visibility)"
     [[ "${visibility}" == "private" || "${visibility}" == "internal" ]] \
         || refuse "the release repository is ${visibility:-unreadable}, not private or internal"
-    index_name="$(gh api "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}" \
+    index_name="$(feed_gh api "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}" \
         --jq '[.[] | select(.type == "file") | .name | select(test("^release-index-g[0-9]{10}\\.json$"))] | sort | last // ""')"
     [[ -n "${index_name}" ]] || refuse "the ${RELEASE_RING} ring has no signed decision"
-    gh api -H "Accept: application/vnd.github.raw+json" \
+    feed_gh api -H "Accept: application/vnd.github.raw+json" \
         "repos/${RELEASE_REPOSITORY}/contents/rings/${RELEASE_RING}/${index_name}" > "${TASK_WORK}/envelope.json"
 fi
 
@@ -486,6 +570,7 @@ jq -e \
      and ($feed == "" or .feedRepository == $feed)
      and .ring == $ring and .generation == $generation
      and .authorization.previousGeneration == $generation - 1
+     and (.updatedUtc | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
      and (.paused | type == "boolean")
      and (.release.version | type == "string")
      and (.release.commit | type == "string" and test("^[0-9a-f]{40}$"))
@@ -501,6 +586,7 @@ TARGET_COMMIT="$(jq -r '.release.commit' "${TASK_WORK}/index.json")"
 target_tag="$(jq -r '.release.buildTag' "${TASK_WORK}/index.json")"
 target_manifest_sha="$(jq -r '.release.manifestSha256' "${TASK_WORK}/index.json")"
 target_paused="$(jq -r '.paused' "${TASK_WORK}/index.json")"
+target_updated="$(jq -r '.updatedUtc' "${TASK_WORK}/index.json")"
 rollback_authorized="$(jq -r '.rollback != null' "${TASK_WORK}/index.json")"
 [[ "${TARGET_VERSION}" =~ ${VERSION_PATTERN} ]] || refuse "the signed index names an unsupported version"
 
@@ -518,6 +604,9 @@ for value in "${installed_generation}" "${published_generation}"; do
 done
 [[ -z "${installed_version}" || "${installed_version}" =~ ${VERSION_PATTERN} ]] || refuse "the installed version stamp is malformed"
 
+if [[ -n "${MINIMUM_GENERATION}" ]] && ((TARGET_GENERATION < MINIMUM_GENERATION)); then
+    refuse "refusing ${RELEASE_RING} generation ${TARGET_GENERATION}: this host's configured floor is generation ${MINIMUM_GENERATION}"
+fi
 # Generations are per ring. Pointing the host at another ring is a local decision by whoever
 # holds root, so the history of the old ring is not held against the new one.
 if [[ -n "${published_ring}" && "${published_ring}" != "${RELEASE_RING}" ]]; then
@@ -536,6 +625,11 @@ if [[ -n "${published_generation}" ]]; then
     if ((TARGET_GENERATION == published_generation)) && [[ -n "${published_manifest}" && "${published_manifest}" != "${target_manifest_sha}" ]]; then
         refuse "two different signed ${RELEASE_RING} decisions claim generation ${TARGET_GENERATION}; refusing both"
     fi
+fi
+# The operator's floor holds even against a signed rollback: a rollback decision below it is as
+# likely to be an old one replayed as a new one, and lowering the floor is the way to say which.
+if [[ -n "${MINIMUM_VERSION}" ]] && semver_less "${TARGET_VERSION}" "${MINIMUM_VERSION}"; then
+    refuse "refusing ${TARGET_VERSION}: this host's configured floor is ${MINIMUM_VERSION}"
 fi
 
 # --- Authenticate the build ------------------------------------------------------------------
@@ -580,20 +674,46 @@ if [[ "${installed_sha}" == "${TARGET_SHA}" && ( -z "${installed_version}" || "$
     log "the installed stamp names this build but the running relay does not answer as it; reinstalling"
 fi
 
+# A host whose private state has never recorded an install - a new host, or one moving from the
+# checksum updater, whose stamps lived where the relay could write them and are not read - still
+# refuses to go below the build it is observed running. With no history, no floor and no running
+# relay, nothing anchors the choice at all, and that has to be said by whoever holds root.
+current_version="${installed_version}"
+if [[ -z "${current_version}" ]]; then
+    observed="$(observed_version)"
+    if [[ -n "${observed}" && "${observed}" =~ ${VERSION_PATTERN} ]]; then
+        current_version="${observed}"
+        log "no install is recorded here; the running relay reports ${observed}, which is taken as the floor"
+    elif [[ -z "${MINIMUM_VERSION}" && -z "${MINIMUM_GENERATION}" ]]; then
+        # A recorded published generation is not an anchor: it was authenticated the same way.
+        if [[ "${ALLOW_UNANCHORED_BOOTSTRAP}" != "1" ]]; then
+            refuse "no install is recorded, no relay answers and no floor is configured; set TARKOV_RELEASE_MINIMUM_VERSION (or, knowingly, TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP=1); see docs/RELEASES.md"
+        fi
+        log "installing without any anchor, as TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP allows"
+    fi
+fi
+
+if [[ -n "${MAX_DECISION_AGE_DAYS}" ]]; then
+    decision_epoch="$(date -u -d "${target_updated}" +%s)" || refuse "the signed decision's timestamp cannot be read"
+    if (( $(date -u +%s) - decision_epoch > MAX_DECISION_AGE_DAYS * 86400 )); then
+        refuse "the ${RELEASE_RING} decision was signed at ${target_updated}, older than this host's ${MAX_DECISION_AGE_DAYS}-day limit; staying on the installed build"
+    fi
+fi
+
 downgrade=0
-if [[ -n "${installed_version}" && "${installed_version}" != "${TARGET_VERSION}" ]] && semver_less "${TARGET_VERSION}" "${installed_version}"; then
+if [[ -n "${current_version}" && "${current_version}" != "${TARGET_VERSION}" ]] && semver_less "${TARGET_VERSION}" "${current_version}"; then
     downgrade=1
 fi
 if [[ -n "${installed_version}" && "${installed_version}" == "${TARGET_VERSION}" && "${installed_sha}" != "${TARGET_SHA}" ]]; then
     refuse "the signed ${TARGET_VERSION} has a different relay archive from the installed ${TARGET_VERSION}; refusing"
 fi
 if ((downgrade)) && [[ "${rollback_authorized}" != "true" ]]; then
-    refuse "refusing to move from ${installed_version} to ${TARGET_VERSION} without a signed rollback"
+    refuse "refusing to move from ${current_version} to ${TARGET_VERSION} without a signed rollback"
 fi
 # A paused ring holds its consumers where they are. The exception is a signed rollback, which is
 # the reason a ring is usually paused in the first place.
 if [[ "${target_paused}" == "true" ]] && ! ((downgrade)); then
-    log "${RELEASE_RING} is paused at generation ${TARGET_GENERATION}; staying on ${installed_version:-the installed build}"
+    log "${RELEASE_RING} is paused at generation ${TARGET_GENERATION}; staying on ${current_version:-the installed build}"
     exit 0
 fi
 if [[ -f "${REFUSED_RELEASE}" ]] && jq -e \
@@ -633,30 +753,29 @@ if [[ -d "${INSTALL}" ]]; then
     rm -rf -- "${LKG}.incoming"
     cp -a -- "${INSTALL}" "${LKG}.incoming"
     rm -rf -- "${LKG}"
-    mv -- "${LKG}.incoming" "${LKG}"
+    mv -T -- "${LKG}.incoming" "${LKG}"
 fi
+# From the rename inside this call, any failure - a stop that fails, a rename that fails, a
+# SIGTERM from the unit's timeout - restores rather than leaving a stopped service.
 write_swap_journal
 
 log "installing ${TARGET_VERSION} (${TARGET_COMMIT:0:12}) from ${RELEASE_RING} generation ${TARGET_GENERATION}"
-# Marked before the first command that changes anything, so a failure at any later line - a
-# stop that fails, a rename that fails - restores rather than leaving a stopped service.
-TASK_SWAPPED=1
 systemctl stop "${SERVICE}"
 rm -rf -- "${PREVIOUS}"
 if [[ -d "${INSTALL}" ]]; then
-    mv -- "${INSTALL}" "${PREVIOUS}"
+    mv -T -- "${INSTALL}" "${PREVIOUS}"
 fi
-mv -- "${INCOMING}" "${INSTALL}"
+mv -T -- "${INCOMING}" "${INSTALL}"
 systemctl start "${SERVICE}"
 
 health_matches || refuse "the new relay did not answer as ${TARGET_VERSION} (${TARGET_COMMIT:0:12})"
 apply_deployment
 commit_installed_stamps
 clear_refusal
-# The commit point. Before this line an interruption is undone by the next run; after it, the
-# new build is the installed one and its stamps already say so.
-rm -rf -- "${SWAP}"
-TASK_COMMITTED=1
+# The commit point. Before this rename an interruption is undone, by the cleanup of this run or
+# by the next run; after it, the new build is the installed one and its stamps already say so.
+mv -T -- "${SWAP}" "${SWAP}.committed"
+rm -rf -- "${SWAP}.committed" || log "could not remove the committed journal; the next run removes it"
 
 rm -rf -- "${PREVIOUS}" || log "could not remove ${PREVIOUS}; it is unused and can be deleted"
 log "installed ${TARGET_VERSION} (${TARGET_COMMIT:0:12}); last-known-good copy kept at ${LKG}"
