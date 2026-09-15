@@ -124,7 +124,7 @@ jobs:
               "curl -H \"X-Admin-Key: \$TARKOV_RELAY_ADMIN_KEY\" $base/reports/$ref" \
               "\`\`\`" \
               "" \
-              "It contains no game logs, no group key, no screenshots and no coordinates; see docs/OPERATIONS.md." \
+              "It excludes game logs, the group key and screenshot pixels, but can contain folder paths and screenshot coordinates. Do not paste it into this issue; see docs/OPERATIONS.md." \
               > /tmp/report.md
             gh issue create --repo "${{ github.repository }}" --title "$title" --body-file /tmp/report.md --label problem-report
             echo "opened an issue for $ref"

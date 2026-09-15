@@ -14,16 +14,17 @@ public sealed record RegisteredRoom(string Room, string Label, DateTimeOffset Cr
 /// </summary>
 /// <remarks>
 /// <para>
-/// A room was whatever anybody's key hashed to. That is a real access model — a room's name is
-/// not discoverable from outside, so a stranger cannot join a group whose key they do not know —
-/// but it says nothing about who may have a room at all. Anybody who can reach the relay can
-/// invent a key and be in one, and the operator has no list of the rooms that were meant to
-/// exist, so there is nothing to compare what is there against.
+/// A room was whatever anybody's key hashed to. That is a real, if thin, access model — a
+/// stranger cannot join a group without knowing or guessing its key, and nothing limits the
+/// guessing — but it says nothing about who may have a room at all. Anybody who can reach the
+/// relay can invent a key and be in one, and the operator had no list of the rooms that were
+/// meant to exist, so there was nothing to compare what is there against.
 /// </para>
 /// <para>
-/// This is that list. It holds room hashes and labels: never a key, which the relay has never
-/// held and does not start holding now. A key the relay generates is returned once, in the
-/// response to the request that made it, and after that only its hash remains.
+/// This is that list. It holds room hashes and labels, never a key. That is a storage rule, not
+/// blindness: every member request hands the relay its key in plaintext before it is hashed. A
+/// key the relay generates is returned once, in the response to the request that made it, and
+/// after that only its hash is stored.
 /// </para>
 /// <para>
 /// Two ways in, because a relay that already has friends on it should not have to re-key them.
@@ -92,8 +93,8 @@ public sealed class GroupRoomRegistry
     /// Registers a room, generating a key when none was given.
     /// </summary>
     /// <returns>
-    /// The room and the key, where the key is non-null only when this call generated it. It is
-    /// the one moment the key exists outside the group, and it is not stored.
+    /// The room and the key, where the key is non-null only when this call generated it. This is
+    /// the only response that returns it, and it is not stored.
     /// </returns>
     public (RegisteredRoom Room, string? Key)? Add(string label, string? key)
     {
@@ -132,8 +133,8 @@ public sealed class GroupRoomRegistry
     /// <remarks>
     /// The migration path, and the reason closing a relay that already has friends on it does
     /// not mean re-keying them. The relay knows which rooms are in use because it is holding
-    /// them; it does not know their keys and does not need to, because the hash is what the
-    /// allowlist is made of.
+    /// them; it has kept no key for them and needs none, because the hash is what the allowlist
+    /// is made of.
     /// </remarks>
     public RegisteredRoom? Adopt(string room, string label)
     {
@@ -212,9 +213,12 @@ public sealed class GroupRoomRegistry
     /// Reads the list back.
     /// </summary>
     /// <remarks>
-    /// An unreadable file leaves the list empty, which leaves the relay open. That is the right
-    /// direction to fail in: the alternative is a corrupt file locking a group out of a relay
-    /// whose whole job is to be there when they play.
+    /// An unreadable file leaves the list empty, which leaves the relay open. It was chosen as
+    /// the right direction to fail in, because the alternative is a corrupt file locking a group
+    /// out of a relay whose whole job is to be there when they play.
+    ///
+    /// The #317 audit disagrees: it silently reopens a closed relay to invented keys, and nothing
+    /// tells the operator. That is RISK-RELAY-REGISTRY-FAIL-OPEN, open and owned by #310.
     /// </remarks>
     private void Load()
     {

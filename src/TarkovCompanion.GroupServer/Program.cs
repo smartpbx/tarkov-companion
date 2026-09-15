@@ -247,8 +247,9 @@ app.MapPost("/state", Results<Ok<GroupRoomState>, UnauthorizedHttpResult, BadReq
 // One button, one issue. The person with the problem is the one who can see it and the least
 // able to describe it, so the report travels instead of the conversation.
 //
-// Keyed like everything else: the report is filed against the room rather than a person, and
-// the room is a hash of the key, so the relay learns nothing about who reported what.
+// Keyed like everything else: the rate limit counts per room rather than per person. That is
+// not anonymity. The relay sees the key and the caller's address, and the body it keeps can name
+// the reporter's display name and carry their folder paths and coordinates.
 app.MapPost("/report", async Task<Results<Ok<ReportOutcome>, UnauthorizedHttpResult, BadRequest<string>>> (
     HttpRequest request,
     ProblemReports reports,
@@ -574,9 +575,9 @@ app.MapGet("/admin/rooms", Results<Ok<AdminRoomsView>, UnauthorizedHttpResult> (
 // Registers a room: generating a key, adopting one the group already uses, or adopting a room
 // this relay is already holding by its hash.
 //
-// A generated key is in the response to this request and nowhere else. The relay stores its
-// hash, the same as it does for every other room, so there is no second copy of it anywhere and
-// no way to ask for it again.
+// A generated key is in the response to this request and is not persisted. The relay stores its
+// hash, the same as it does for every other room, so there is no way to ask for it again. It is
+// not relay-blind: every member request afterwards carries the key to this process in plaintext.
 app.MapPost("/admin/rooms", Results<Ok<AdminRoomCreated>, UnauthorizedHttpResult, BadRequest<string>> (
     AdminRoomRequest body,
     HttpRequest request) =>

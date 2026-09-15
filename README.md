@@ -104,10 +104,17 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
   key before hashing it for room storage, so transport hardening and scoped credentials remain
   open v2 work in [#304](https://github.com/smartpbx/tarkov-companion/issues/304) and
   [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
+- While it is on, your companion also sends the kit, level, side and scav timer your game logged
+  for the rest of your in-game party, whatever their own switches say, and the relay passes on
+  the entries for people in the room. That is how a group shows you the kit your own game never
+  tells you, and it is an open conflict with
+  [`docs/SAFETY.md`](docs/SAFETY.md) owned by
+  [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
 - Nothing is sent while it is off, and a member is forgotten three minutes after they stop
-  publishing. Positions are held in memory and never written down. What the relay does keep on
-  disk is the waypoints a group placed and the list of rooms its operator registered — both so
-  they survive the relay updating itself, which it does every half hour.
+  publishing. Live positions are held in memory only. On disk the relay keeps the group's
+  waypoints (with who placed and reached each), the rooms its operator registered, problem
+  reports as sent, and its updater's status, so they survive the relay updating itself every
+  half hour.
 
 ### The second screen
 
@@ -122,8 +129,9 @@ own, and somebody playing alone needs none of it. What it should and should not 
 
 ### Running the relay
 
-One container, one unit, no configuration: since the group key became the room, there is
-nothing to set. It updates itself from the published build every half hour, verifies the
+One container and one unit. An open relay needs no per-room setup, because the group key picks
+the room; keeping state across restarts needs a state directory, and the operator page needs an
+admin key. It updates itself from the published build every half hour, verifies the
 checksum before unpacking, and rolls back if the new build does not answer.
 
 Its operator gets a page at `/admin`, behind a key of its own that is not any group's key. It

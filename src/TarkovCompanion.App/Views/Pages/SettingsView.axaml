@@ -63,13 +63,17 @@
               <TextBlock Classes="label" Text="This application's log" />
               <TextBlock Classes="caption" Text="{Binding CompanionLogPath}" TextWrapping="Wrap" />
             </StackPanel>
+            <!-- The caption used to promise a report carried no coordinates while the log tail it
+                 sends names screenshots in full. It now says what can leave, in one line; the
+                 policy lives in docs/SAFETY.md and the gap in RISK-REPORT-REDACTION. -->
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Classes="primary" Command="{Binding ReportProblemCommand}" Content="Report a problem" />
+              <Button Classes="primary" Command="{Binding ReportProblemCommand}" Content="Report a problem"
+                      ToolTip.Tip="Copy diagnostics puts the same text on your clipboard, so you can read it before sending." />
               <Button Command="{Binding CopyDiagnosticsCommand}" Content="Copy diagnostics" />
               <TextBlock Classes="caption" Text="{Binding DiagnosticsStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
             </StackPanel>
             <TextBlock Classes="caption" TextWrapping="Wrap"
-                       Text="Sends build, folders, sync state and this app's own log. Never game logs, the group key or coordinates." />
+                       Text="Sent as written to your group's relay, which may keep it. Can include folder paths and screenshot coordinates." />
             <TextBlock Classes="prose" Text="{Binding UpdateStatus}" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Command="{Binding CheckForUpdateCommand}"

@@ -73,8 +73,9 @@ public sealed class ProblemReports(TimeProvider timeProvider)
     /// to an hour and no secret at all.
     ///
     /// The reference is derived from the room and the moment rather than being random, so a
-    /// player and an issue can be matched up without the relay keeping a list of who reported
-    /// what. It is a hash: the room is not recoverable from it.
+    /// player and an issue can be matched up without a separate index of who reported what.
+    /// It is not an anonymity control: the file name keeps the arrival second, the relay holds
+    /// the candidate room hashes, and the body itself can name the reporter.
     /// </remarks>
     public ReportOutcome Accept(string room, string body)
     {

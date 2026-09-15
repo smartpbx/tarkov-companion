@@ -6,8 +6,10 @@ namespace TarkovCompanion.GroupServer;
 /// One member's own state, as they choose to publish it.
 /// </summary>
 /// <remarks>
-/// Every field here describes the sender and nobody else. A member publishes themselves and
-/// the server relays it; nothing is ever derived from one member and attributed to another.
+/// Every field here describes the sender except Observed, which carries what the sender's game
+/// logged about the rest of their in-game party and is handed to those people by name.
+/// docs/SAFETY.md does not currently allow sending that at all; the conflict is
+/// RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
 ///
 /// This is a deliberate departure from the desktop application's usual promise that nothing
 /// from the game's logs leaves the machine. It is the whole point of the feature, it happens
@@ -173,8 +175,9 @@ public sealed record GroupMemberState(
     /// the group can hand each member back the one thing they cannot read.
     ///
     /// Only the party the game has already told them about, and only the slots the Squad page
-    /// already shows. This adds no new reading of anybody's data; it moves what is already on
-    /// one screen onto the screen of the person it is about.
+    /// already shows. This adds no new reading of anybody's data, but it does transmit it: what
+    /// was on one screen crosses the relay to reach the screen of the person it is about, which
+    /// docs/SAFETY.md rule 1 does not yet permit (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
     /// </remarks>
     [JsonPropertyName("observed")]
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
@@ -366,7 +369,8 @@ public sealed record AdminRoomRequest(string Label, string? Key = null, string? 
 /// A registered room, and the key if this call generated one.
 /// </summary>
 /// <remarks>
-/// The only time a generated key exists outside the group. The relay keeps its hash and nothing
-/// else, so there is no second request that can be made to see it again.
+/// The only response that returns a generated key. The relay persists its hash and not the key,
+/// so no second request can read it back; members who use it still send it to the relay in
+/// plaintext on every request.
 /// </remarks>
 public sealed record AdminRoomCreated(string Room, string Label, string? Key);

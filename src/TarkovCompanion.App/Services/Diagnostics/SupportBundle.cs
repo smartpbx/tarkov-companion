@@ -33,6 +33,16 @@ public static partial class SupportBundle
     /// <summary>How much of the tail of the application's own log to include.</summary>
     private const int LogLines = 120;
 
+    /// <summary>The last line of every bundle, saying what it leaves out and what it can still carry.</summary>
+    /// <remarks>
+    /// It said "no coordinates" while the log tail above it named screenshots in full, and then
+    /// "review before sending" at the end of a report that Report a problem had already sent.
+    /// It is true of the body it ends now; change it together with the filtering it describes.
+    /// </remarks>
+    public const string Footer =
+        "Game logs, the group key, and screenshot pixels are excluded. " +
+        "The log tail and details above can include folder paths and screenshot coordinates.";
+
     /// <summary>
     /// Replaces every digit with a zero, keeping every other character exactly.
     /// </summary>
@@ -40,7 +50,11 @@ public static partial class SupportBundle
     /// A screenshot's name carries the player's own position, and the position is not what
     /// anybody needs: the *shape* is. Masking the digits keeps every separator, every decimal
     /// point, every bracket and any locale comma or exponent — which is the whole diagnosis —
-    /// while the bundle says nothing about where anybody was standing.
+    /// while the screenshot-names section says nothing about where anybody was standing.
+    ///
+    /// Only that section. The log tail is the application's own log, whose watcher lines name
+    /// each screenshot in full, so the bundle as a whole can still carry coordinates
+    /// (RISK-REPORT-REDACTION, owned by #281 and #310).
     /// </remarks>
     public static string MaskDigits(string value) => DigitPattern().Replace(value, "0");
 
@@ -119,19 +133,20 @@ public static partial class SupportBundle
 
         report.AppendLine("```");
         report.AppendLine();
-        report.AppendLine(
-            "Game logs, the group key, and screenshot pixels are excluded. " +
-            "Review the complete report before sending; diagnostic text and masked screenshot names are included.");
+        report.AppendLine(Footer);
         return report.ToString();
     }
 
     /// <summary>
-    /// Removes the things SAFETY.md says must never leave the machine in a report.
+    /// Replaces a Windows user-folder segment and a group key in one log line.
     /// </summary>
     /// <remarks>
     /// A user's own folder name is a real name often enough to matter, and a group key in a log
     /// line would be the one secret protecting a room. Both are replaced rather than the line
     /// being dropped, because a redacted line still says what happened.
+    ///
+    /// That is two of the things SAFETY.md keeps out of a report, not all of them: other paths,
+    /// screenshot names and the coordinates in them pass through unchanged.
     /// </remarks>
     public static string Redact(string line)
     {

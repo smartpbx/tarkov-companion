@@ -31,8 +31,8 @@ public sealed class GroupKeyTests
     [Fact]
     public void TheRoomDoesNotContainTheKey()
     {
-        // The server must never hold the key, because the room identifier is the thing it
-        // stores, logs and hands around.
+        // The server receives the key on every request, but the room identifier is the thing it
+        // stores, logs and hands around, so that identifier must not contain the key.
         var room = GroupKey.RoomFor("correct-horse-battery");
 
         Assert.DoesNotContain("correct", room, StringComparison.OrdinalIgnoreCase);
@@ -48,8 +48,8 @@ public sealed class GroupKeyTests
     [InlineData("   pad   ")]
     public void AKeyTooShortToProtectAnythingIsRefused(string? key)
     {
-        // Not access control. There is nothing to check a key against. This stops somebody
-        // believing that "a" keeps strangers out of their group.
+        // Not access control: an open relay has no registered room to check a key against. This
+        // stops somebody believing that "a" keeps strangers out of their group.
         Assert.False(GroupKey.IsAcceptable(key));
     }
 

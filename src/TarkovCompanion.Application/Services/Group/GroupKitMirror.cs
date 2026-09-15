@@ -48,7 +48,8 @@ public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
 /// your weapon, armour, rig and backpack out of their own logs, and can simply say so.
 ///
 /// This adds no new reading of anybody's data. It moves what is already on one player's Squad
-/// page onto the screen of the person it is about.
+/// page onto the screen of the person it is about, and that move crosses the relay, which
+/// docs/SAFETY.md rule 1 does not yet permit (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
 /// </remarks>
 public static class GroupKitMirror
 {

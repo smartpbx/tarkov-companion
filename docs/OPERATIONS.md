@@ -39,9 +39,20 @@ are ever published there, so the shortcut does not skip the checks.
 | Update timer | `tarkov-group-update.timer`, every 30 minutes |
 | State | `/var/lib/tarkov-group` once `StateDirectory=tarkov-group` is set on the unit |
 
-**What it stores.** The squad's waypoints, and nothing else. Positions are held in memory for
-three minutes and never written down; pings expire in forty-five seconds and are not persisted,
-because one restored from disk would be claiming "now".
+**What it stores.** The state directory holds:
+
+| File | What is in it |
+| --- | --- |
+| `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
+| `rooms.json` | The registered room hashes, with their labels and creation times. |
+| `reports/*.md` | Problem reports exactly as sent, with no expiry. |
+| `INSTALLED_SHA256`, `REFUSED_SHA256`, `UPDATE_NOW` | The updater's status stamps and the panel's update request. |
+
+Live member state (position, recent trail, kit) stays in memory until about three minutes after
+a member stops publishing and is not written to any of those files. Pings expire in forty-five
+seconds and are not persisted, because one restored from disk would be claiming "now". A report
+body can still carry folder paths and screenshot coordinates (`RISK-REPORT-REDACTION`), so
+treat `reports/` as sensitive in backups and migrations.
 
 **How it updates itself.** The timer fetches the published archive, verifies its checksum
 against what the release says, swaps `/opt/tarkov-group`, and rolls back if the new build does
@@ -83,7 +94,8 @@ ways of registering a room mean.
 
 The list is `rooms.json` in the relay's state directory (`/var/lib/tarkov-group`), which is
 outside the tree the updater replaces, so it survives the half-hourly update. Deleting that file
-reopens the relay; it never locks anybody out permanently.
+reopens the relay; so, silently, does a corrupt or unreadable one (`RISK-RELAY-REGISTRY-FAIL-OPEN`,
+#310). After anything touches the state directory, check that the panel still says closed.
 
 The page also says which build is running against which is published, including the case worth
 catching: a build that installed, failed its health check and was rolled back is recorded in

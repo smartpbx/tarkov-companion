@@ -1755,8 +1755,11 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// in one action, without them having to find anything.
     ///
     /// SAFETY.md governs what it may contain: no game logs, no group key, no screenshots, no
-    /// coordinates, and user folder names replaced. What it does carry is the shape of the
-    /// screenshot names, which is the thing that settles the case above.
+    /// coordinates, and user folder names replaced. It meets that only in part today. The log
+    /// tail names screenshots in full, coordinates included; only its Windows user-folder
+    /// segments and group keys are replaced, and the detail lines are not redacted at all
+    /// (RISK-REPORT-REDACTION, owned by #281 and #310). What it is meant to carry is the shape of
+    /// the screenshot names, which is the thing that settles the case above.
     /// </remarks>
     public async Task CopyDiagnosticsAsync(Func<string, Task> toClipboard)
     {

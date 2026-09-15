@@ -51,8 +51,9 @@ public sealed class GroupRoomRegistryTests
     [Fact]
     public void AGeneratedKeyIsNotKeptAnywhere()
     {
-        // The whole reason the relay can hold this list at all. It has never held a key and it
-        // does not start now: what is stored is the hash, the same as for an adopted room.
+        // The whole reason the relay can hold this list at all. It sees keys on requests but has
+        // never stored one, and does not start now: what is stored is the hash, the same as for
+        // an adopted room.
         var registry = new GroupRoomRegistry(TimeProvider.System);
         var created = registry.Add("Tuesday group", null)!.Value;
 
