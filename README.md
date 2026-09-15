@@ -105,8 +105,9 @@ map: position, heading, map, raid state, and their loadout and quests if they sh
   open v2 work in [#304](https://github.com/smartpbx/tarkov-companion/issues/304) and
   [#310](https://github.com/smartpbx/tarkov-companion/issues/310).
 - While it is on, your companion also sends the kit, level, side and scav timer your game logged
-  for the rest of your in-game party, whatever their own switches say, and the relay passes on
-  the entries for people in the room. That is how a group shows you the kit your own game never
+  for the rest of your in-game party, whatever their own switches say, and the relay passes the
+  entries naming people in the room to everyone holding the room key, not only to the person
+  each entry describes. That is how a group shows you the kit your own game never
   tells you, and it is an open conflict with
   [`docs/SAFETY.md`](docs/SAFETY.md) owned by
   [#310](https://github.com/smartpbx/tarkov-companion/issues/310).

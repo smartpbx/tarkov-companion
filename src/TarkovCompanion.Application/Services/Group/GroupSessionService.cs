@@ -487,10 +487,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// is worth keeping on screen, and until now nothing ever decided that anybody had. The
     /// group's own plan was a list that only ever grew.
     ///
-    /// Decided here rather than on the server, because the server is never told where anybody
-    /// is except as the position and trail a member publishes, and it has no business measuring
-    /// distances between people and places. The client knows its own screenshot position and
-    /// says so once.
+    /// Decided here rather than on the server. The server holds every member's published
+    /// position and trail, but it has no business measuring distances between people and
+    /// places. The client knows its own screenshot position and says so once, and that report is
+    /// itself a record of where somebody was: the relay keeps who reached the waypoint and when,
+    /// in marks.json once it has a state directory.
     ///
     /// The state that comes back is a moment old, so the same waypoint can be reported twice
     /// before the next exchange catches up. The server refuses the second, which is why that
@@ -553,9 +554,11 @@ public sealed class GroupSessionService : IAsyncDisposable
     /// a position is not agreeing to share a kit.
     ///
     /// Observed is behind no switch. What this game logged about the rest of the in-game party
-    /// (kit, level, side, scav timer) goes to the relay whenever sharing is on, and a squadmate
-    /// in the room receives theirs whatever they chose. docs/SAFETY.md does not allow that yet;
-    /// it is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
+    /// (kit, level, side, scav timer) goes to the relay whenever sharing is on, whatever the
+    /// people it describes chose. The relay returns every entry naming somebody in the room to
+    /// every holder of the room key, and Fill below shows the observed kit as other members'
+    /// loadouts, so it is not handed only to the person it is about. docs/SAFETY.md does not
+    /// allow that yet; it is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
     /// </remarks>
     private static MemberStateDto Describe(
         ApplicationRuntimeSnapshot snapshot,

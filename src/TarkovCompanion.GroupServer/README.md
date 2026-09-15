@@ -15,9 +15,12 @@ raid state and side, the position, height, heading and recent trail from their o
 with their ages, their loadout and the quests they are working on.
 
 One field is not about the sender. `observed` carries the kit, level, side and scav timer the
-sender's game logged for the rest of their in-game party; the relay keeps only entries naming
-somebody in the room and hands them to those people. `docs/SAFETY.md` does not currently allow
-that transmission, so it is an open policy conflict owned by #310.
+sender's game logged for the rest of their in-game party. The relay keeps only entries naming
+somebody in the room, but it does not hand an entry only to the person it names: each member's
+`POST /state` answer carries every other member's entries and any keyed `GET /state` carries all
+of them, so anybody holding the room key can read whatever was observed about anybody in it, and
+the desktop client fills in other members' kit from them. `docs/SAFETY.md` does not currently allow that transmission, so it is an
+open policy conflict owned by #310 (`RISK-RELAY-OBSERVED-DATA-POLICY`).
 
 This is a deliberate departure from the desktop application's usual promise that nothing from
 the game's logs leaves the machine. It happens only when somebody turns it on, and what is

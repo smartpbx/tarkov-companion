@@ -44,11 +44,12 @@ public sealed record GroupPing(
 /// leaning on a mouse button.
 ///
 /// Waypoints outlive a restart and positions do not, and that distinction is deliberate rather
-/// than an inconsistency. A position is a record of where somebody has been, which this server
-/// makes a point of never writing down. A waypoint is a thing somebody decided on purpose, and
-/// losing the squad's plan because the relay updated itself at the wrong moment would be its
-/// own small betrayal. The relay updates twice an hour, so "it only vanishes on a restart"
-/// was never a rare event.
+/// than an inconsistency. A published position or trail is a record of where somebody has
+/// been, which this server holds only in memory. A waypoint is a thing somebody decided on
+/// purpose, and losing the squad's plan because the relay updated itself at the wrong moment
+/// would be its own small betrayal. The relay updates twice an hour, so "it only vanishes on a
+/// restart" was never a rare event. What is written is not free of where people have been,
+/// though: a reached waypoint keeps who reached it and when (see the constructor).
 ///
 /// That paragraph was written in the same commit as the in-memory dictionary it sits on, and
 /// nothing in this server touched the filesystem, so it described an intention rather than a

@@ -7,9 +7,10 @@ namespace TarkovCompanion.GroupServer;
 /// </summary>
 /// <remarks>
 /// Every field here describes the sender except Observed, which carries what the sender's game
-/// logged about the rest of their in-game party and is handed to those people by name.
-/// docs/SAFETY.md does not currently allow sending that at all; the conflict is
-/// RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
+/// logged about the rest of their in-game party. The relay drops entries naming nobody in the
+/// room, then returns the rest to every key holder who reads the room, not only to the person
+/// each entry names. docs/SAFETY.md does not currently allow sending that at all; the conflict
+/// is RISK-RELAY-OBSERVED-DATA-POLICY, owned by #310.
 ///
 /// This is a deliberate departure from the desktop application's usual promise that nothing
 /// from the game's logs leaves the machine. It is the whole point of the feature, it happens
@@ -176,8 +177,10 @@ public sealed record GroupMemberState(
     ///
     /// Only the party the game has already told them about, and only the slots the Squad page
     /// already shows. This adds no new reading of anybody's data, but it does transmit it: what
-    /// was on one screen crosses the relay to reach the screen of the person it is about, which
-    /// docs/SAFETY.md rule 1 does not yet permit (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
+    /// was on one screen crosses the relay, and GroupRooms.Read hands it to every member's
+    /// exchange and to a keyed GET /state, so every holder of the room key can read whatever was
+    /// observed about anybody in the room, not just the person it is about. docs/SAFETY.md
+    /// rule 1 does not yet permit that (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
     /// </remarks>
     [JsonPropertyName("observed")]
     public IReadOnlyList<GroupObservedMember> Observed { get; init; } = [];
@@ -277,9 +280,11 @@ public sealed record GroupObservedMember(
     /// What somebody else's game says about this player, which their own does not.
     /// </summary>
     /// <remarks>
-    /// The same asymmetry the loadout exploits, and the same rule: this is only ever handed
-    /// back to the person it is about, by the nickname match the kit already uses. Nothing here
-    /// reaches anybody who was not already looking at it on their own screen.
+    /// The same asymmetry the loadout exploits, and the same exposure: the relay keeps it only
+    /// while the nickname it describes is in the room, and then returns it to every holder of
+    /// the room key, not only to the player it describes. A member outside the sender's in-game
+    /// party, or a second screen reading GET /state, receives it too, although their own screen
+    /// never showed it (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
     ///
     /// Init properties so a client that predates them still parses, and so a client that does
     /// not send them is not refused.

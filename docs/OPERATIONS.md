@@ -76,10 +76,14 @@ report describes somebody's machine. To read one:
 curl -H "X-Admin-Key: $TARKOV_RELAY_ADMIN_KEY" https://<relay>/reports/<reference>
 ```
 
-The admin key is in two places and nowhere else: the repository secret
-`TARKOV_RELAY_ADMIN_KEY`, and `/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on
-CT 115. It is not the group key — any member of any group holds one of those, and this lists
-every group's reports.
+The admin key is provisioned in two places: the repository secret `TARKOV_RELAY_ADMIN_KEY`, and
+`/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on CT 115. Those are not the only
+places it exists while in use. The running relay holds it in its environment, the hourly
+`relay-watch.yml` job receives it as an environment variable, the shell that runs the command
+above holds it, and the relay panel copies whatever is typed into it to that browser tab's
+`sessionStorage` for the life of the tab (asset A-6 in `docs/security/ASSETS_AND_ACTORS.md`).
+Rotating it means changing both provisioned copies. It is not the group key — any member of any
+group holds one of those, and this lists every group's reports.
 
 ## The relay panel
 

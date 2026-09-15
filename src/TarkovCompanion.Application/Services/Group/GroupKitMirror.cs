@@ -47,9 +47,10 @@ public sealed record ObservedKit(string Name, IReadOnlyList<string> Loadout)
 /// group, that asymmetry cancels out: a squadmate running this companion is already reading
 /// your weapon, armour, rig and backpack out of their own logs, and can simply say so.
 ///
-/// This adds no new reading of anybody's data. It moves what is already on one player's Squad
-/// page onto the screen of the person it is about, and that move crosses the relay, which
-/// docs/SAFETY.md rule 1 does not yet permit (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
+/// This adds no new reading of anybody's data, but it transmits it. What is on one player's
+/// Squad page crosses the relay, which returns it to every holder of the room key rather than
+/// only to the person it is about; GroupSessionService also uses it to fill in other members'
+/// kit. docs/SAFETY.md rule 1 does not yet permit that (RISK-RELAY-OBSERVED-DATA-POLICY, #310).
 /// </remarks>
 public static class GroupKitMirror
 {
