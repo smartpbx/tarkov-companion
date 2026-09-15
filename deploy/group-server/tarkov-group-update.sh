@@ -141,8 +141,9 @@ refuse() {
 
 VALIDATE_PATHS=0
 if (($#)); then
-    (($# == 1)) && [[ "$1" == "--validate-paths" ]] \
-        || refuse "usage: $0 [--validate-paths]"
+    if (($# != 1)) || [[ "$1" != "--validate-paths" ]]; then
+        refuse "usage: $0 [--validate-paths]"
+    fi
     VALIDATE_PATHS=1
 fi
 readonly VALIDATE_PATHS
@@ -464,8 +465,9 @@ validate_destructive_roots() {
     if [[ -n "${PATH_ROOT}" ]]; then
         # A root such as /tmp or /etc is still an unsafe typo: it must itself be below a
         # top-level directory, and each mutable tree must be a strict child rather than the root.
-        safe_root "${PATH_ROOT}" && [[ "$(dirname -- "${PATH_ROOT}")" != "/" ]] \
-            || refuse "TARKOV_UPDATE_PATH_ROOT must be a safe absolute directory below a top-level directory"
+        if ! safe_root "${PATH_ROOT}" || [[ "$(dirname -- "${PATH_ROOT}")" == "/" ]]; then
+            refuse "TARKOV_UPDATE_PATH_ROOT must be a safe absolute directory below a top-level directory"
+        fi
         secure_managed_directory "${PATH_ROOT}" "update path root"
         for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
             strictly_below "${path}" "${PATH_ROOT}" \
