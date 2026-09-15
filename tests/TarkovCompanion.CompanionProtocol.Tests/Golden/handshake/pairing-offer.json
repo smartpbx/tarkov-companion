@@ -1,0 +1,19 @@
+{
+  "attemptId": {
+    "value": "5a1d3c2e-7b10-4c00-8a00-000000000001"
+  },
+  "desktopIdentityKey": {
+    "keyId": {
+      "value": "0akrzehPX0QPuLpT56Qb6qdp85maXzQjLJoI3_FqCUI"
+    },
+    "algorithm": "EcdsaP256Sha256",
+    "subjectPublicKeyInfoBase64Url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOQrpIJk6Yznhde7a39xwMjXPZztWNguVzI1ZfVDkWHpKJ2Tk1M_oa8Wbbqkg5ExQAx9P0q936kt9dwKfVmnDug"
+  },
+  "desktopEphemeralKey": {
+    "algorithm": "EcdhP256",
+    "subjectPublicKeyInfoBase64Url": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEv-SFRNYV4t8m-WUciTerg1tEh2uk8A_JGL18Mm8s6S3B6oO7W0s8NaRHEPSk2HQZhPPhe5rKLllDATB2gP-WnQ"
+  },
+  "desktopNonceCommitmentBase64Url": "Nyxr9ZjpIMLW7Zw4gIo_DRD7qWBqOVy8TQy40600bGM",
+  "offeredUtc": "2026-09-14T20:00:00+00:00",
+  "expiresUtc": "2026-09-14T20:05:00+00:00"
+}

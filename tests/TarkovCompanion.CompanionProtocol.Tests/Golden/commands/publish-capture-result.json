@@ -1,0 +1,70 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:01:00+00:00",
+  "command": {
+    "type": "publishCaptureResult",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000016"
+    },
+    "requestedRevision": {
+      "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:01:00+00:00",
+    "expiresUtc": "2026-09-14T20:02:00+00:00",
+    "offlineQueuePreview": null,
+    "intentId": {
+      "value": "60000000-0000-4000-8000-000000000001"
+    },
+    "result": {
+      "resultId": "result-1",
+      "artifactId": "artifact-1",
+      "captureOrdinal": 0,
+      "status": {
+        "completeness": "Complete",
+        "freshness": "Current",
+        "code": null,
+        "detail": null
+      },
+      "detectedContext": "Loot",
+      "completedUtc": "2026-09-14T20:01:00+00:00",
+      "provenance": {
+        "sourceClass": "GameWrittenScreenshot",
+        "sourceIdentifier": "fixture://paired-capture",
+        "observedUtc": "2026-09-14T20:01:00+00:00",
+        "dataThroughUtc": null,
+        "generatedUtc": null,
+        "confidence": {
+          "kind": "ProviderScore",
+          "score": 0.9,
+          "calibrationReference": null
+        },
+        "coverage": null,
+        "producer": {
+          "name": "paired-fixture",
+          "version": "2.0",
+          "modelVersion": null
+        },
+        "reference": null,
+        "inputs": [],
+        "evidenceThroughUtc": "2026-09-14T20:01:00+00:00"
+      }
+    },
+    "guidance": [
+      {
+        "kind": "ConfirmResult",
+        "code": "review",
+        "instruction": "Review the recognized items.",
+        "order": 0
+      }
+    ]
+  }
+}

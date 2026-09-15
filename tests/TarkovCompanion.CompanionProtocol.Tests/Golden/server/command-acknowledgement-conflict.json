@@ -1,0 +1,243 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authenticatedOriginDeviceId": {
+    "value": "10000000-0000-4000-8000-000000000002"
+  },
+  "serverUtc": "2026-09-14T20:00:00+00:00",
+  "deliverySequence": {
+    "value": 2
+  },
+  "message": {
+    "type": "commandAcknowledgement",
+    "acknowledgement": {
+      "commandId": {
+        "value": "40000000-0000-4000-8000-000000000099"
+      },
+      "aggregate": "Workspace",
+      "requestedRevision": {
+        "value": 3
+      },
+      "appliedRevision": {
+        "value": 3
+      },
+      "appliedChangeId": {
+        "value": "40000000-0000-4000-8000-000000000003"
+      },
+      "globalRevision": {
+        "value": 7
+      },
+      "authorityEpoch": {
+        "value": "30000000-0000-0000-0000-000000000001"
+      },
+      "disposition": "RejectedConflict",
+      "code": "revision-occupied-by-another-command",
+      "canonicalState": {
+        "authorityEpoch": {
+          "value": "30000000-0000-0000-0000-000000000001"
+        },
+        "workspaceId": {
+          "value": "80000000-0000-4000-8000-000000000001"
+        },
+        "desktopInstanceId": "desktop-install-1",
+        "globalRevision": {
+          "value": 7
+        },
+        "desktopDeviceId": {
+          "value": "10000000-0000-0000-0000-000000000001"
+        },
+        "deviceModes": {
+          "cursor": {
+            "revision": {
+              "value": 2
+            },
+            "lastChangeId": {
+              "value": "40000000-0000-4000-8000-000000000002"
+            }
+          },
+          "devices": [
+            {
+              "deviceId": {
+                "value": "10000000-0000-4000-8000-000000000002"
+              },
+              "mode": "Control",
+              "changedUtc": "2026-09-14T20:00:20+00:00"
+            }
+          ],
+          "pendingControl": null,
+          "controlLease": {
+            "leaseId": {
+              "value": "41000000-0000-4000-8000-000000000001"
+            },
+            "deviceId": {
+              "value": "10000000-0000-4000-8000-000000000002"
+            },
+            "sessionId": {
+              "value": "20000000-0000-4000-8000-000000000002"
+            },
+            "grantedUtc": "2026-09-14T20:00:20+00:00",
+            "expiresUtc": "2026-09-14T20:02:20+00:00"
+          }
+        },
+        "workspace": {
+          "cursor": {
+            "revision": {
+              "value": 3
+            },
+            "lastChangeId": {
+              "value": "40000000-0000-4000-8000-000000000003"
+            }
+          },
+          "projection": {
+            "workspace": "Raid",
+            "mapId": "customs",
+            "floorId": "ground",
+            "viewport": {
+              "center": {
+                "mapId": "customs",
+                "floorId": "ground",
+                "coordinateSpace": "World",
+                "projectionVersion": "tarkov-dev-1",
+                "x": 10.5,
+                "y": 2,
+                "z": -20.25
+              },
+              "zoom": 1.5
+            },
+            "selection": {
+              "kind": "Objective",
+              "referenceId": "objective-1",
+              "originDeepLink": "tarkov-companion://objective/objective-1",
+              "focusToken": "focus-1"
+            },
+            "visibleObjectiveIds": [
+              "objective-1"
+            ],
+            "planIds": [],
+            "searchQuery": "labs keycard",
+            "resultIds": [
+              "item-1"
+            ],
+            "activeLayers": [
+              "extracts",
+              "quests"
+            ],
+            "activeFilters": [
+              "found-in-raid"
+            ],
+            "dialog": null
+          }
+        },
+        "marks": {
+          "cursor": {
+            "revision": {
+              "value": 1
+            },
+            "lastChangeId": {
+              "value": "40000000-0000-4000-8000-000000000004"
+            }
+          },
+          "marks": [
+            {
+              "markId": {
+                "value": "50000000-0000-4000-8000-000000000001"
+              },
+              "revision": 1,
+              "lastChangeId": {
+                "value": "40000000-0000-4000-8000-000000000004"
+              },
+              "kind": "Waypoint",
+              "scope": "PairedDevice",
+              "authorDeviceId": {
+                "value": "10000000-0000-4000-8000-000000000002"
+              },
+              "state": {
+                "mapId": "customs",
+                "floorId": null,
+                "x": 0.25,
+                "y": 0.75,
+                "label": "Stash spot",
+                "expiresUtc": null
+              },
+              "coordinateSpace": "Normalized",
+              "projectionVersion": "tarkov-dev-1",
+              "height": null,
+              "color": "#00AACC",
+              "createdUtc": "2026-09-14T20:00:30+00:00",
+              "updatedUtc": "2026-09-14T20:00:30+00:00"
+            }
+          ]
+        },
+        "captureIntent": {
+          "cursor": {
+            "revision": {
+              "value": 1
+            },
+            "lastChangeId": {
+              "value": "40000000-0000-4000-8000-000000000005"
+            }
+          },
+          "activeIntent": {
+            "intentId": {
+              "value": "60000000-0000-4000-8000-000000000001"
+            },
+            "correlationId": "capture-correlation-1",
+            "captureSessionId": {
+              "value": "70000000-0000-4000-8000-000000000001"
+            },
+            "state": {
+              "intent": "Loot",
+              "armedUtc": "2026-09-14T20:00:40+00:00",
+              "expiresUtc": "2026-09-14T20:02:40+00:00"
+            },
+            "initiatingDeviceId": {
+              "value": "10000000-0000-4000-8000-000000000002"
+            },
+            "initiatingSurface": "TabletLandscape",
+            "status": "Armed",
+            "context": {
+              "mapId": "customs",
+              "floorId": "ground",
+              "profileId": "profile-1",
+              "previousResultId": null,
+              "objectiveIds": [],
+              "planIds": [],
+              "markIds": []
+            },
+            "progress": [
+              {
+                "sequence": 0,
+                "phase": "Armed",
+                "changedUtc": "2026-09-14T20:00:40+00:00",
+                "percent": 0,
+                "artifactId": null,
+                "captureOrdinal": null,
+                "detail": "recognition-intent-armed"
+              }
+            ],
+            "result": null,
+            "guidance": [],
+            "review": null,
+            "corrections": []
+          }
+        },
+        "profilePreferences": {
+          "cursor": {
+            "revision": {
+              "value": 0
+            },
+            "lastChangeId": null
+          },
+          "activeProfile": null,
+          "lastChangedOrigin": null,
+          "changedUtc": null
+        }
+      }
+    }
+  }
+}

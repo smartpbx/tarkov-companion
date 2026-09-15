@@ -1,0 +1,136 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "requestId": {
+    "value": "90000000-0000-4000-8000-000000000001"
+  },
+  "disposition": "Replay",
+  "replay": [
+    {
+      "deliverySequence": {
+        "value": 10
+      },
+      "authenticatedOriginDeviceId": {
+        "value": "10000000-0000-4000-8000-000000000002"
+      },
+      "serverUtc": "2026-09-14T20:00:50+00:00",
+      "message": {
+        "type": "canonicalUpdate",
+        "update": {
+          "type": "marks",
+          "authorityEpoch": {
+            "value": "30000000-0000-0000-0000-000000000001"
+          },
+          "globalRevision": {
+            "value": 6
+          },
+          "changeId": {
+            "value": "40000000-0000-4000-8000-000000000004"
+          },
+          "changedUtc": "2026-09-14T20:00:50+00:00",
+          "origin": {
+            "workspaceId": {
+              "value": "80000000-0000-4000-8000-000000000001"
+            },
+            "deviceId": {
+              "value": "10000000-0000-4000-8000-000000000002"
+            },
+            "kind": "PairedDevice",
+            "instanceId": "tablet-install-1"
+          },
+          "contractVersion": {
+            "major": 2,
+            "minor": 0,
+            "isDefined": true
+          },
+          "state": {
+            "cursor": {
+              "revision": {
+                "value": 1
+              },
+              "lastChangeId": {
+                "value": "40000000-0000-4000-8000-000000000004"
+              }
+            },
+            "marks": [
+              {
+                "markId": {
+                  "value": "50000000-0000-4000-8000-000000000001"
+                },
+                "revision": 1,
+                "lastChangeId": {
+                  "value": "40000000-0000-4000-8000-000000000004"
+                },
+                "kind": "Waypoint",
+                "scope": "PairedDevice",
+                "authorDeviceId": {
+                  "value": "10000000-0000-4000-8000-000000000002"
+                },
+                "state": {
+                  "mapId": "customs",
+                  "floorId": null,
+                  "x": 0.25,
+                  "y": 0.75,
+                  "label": "Stash spot",
+                  "expiresUtc": null
+                },
+                "coordinateSpace": "Normalized",
+                "projectionVersion": "tarkov-dev-1",
+                "height": null,
+                "color": "#00AACC",
+                "createdUtc": "2026-09-14T20:00:30+00:00",
+                "updatedUtc": "2026-09-14T20:00:30+00:00"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "deliverySequence": {
+        "value": 11
+      },
+      "authenticatedOriginDeviceId": {
+        "value": "10000000-0000-4000-8000-000000000002"
+      },
+      "serverUtc": "2026-09-14T20:00:51+00:00",
+      "message": {
+        "type": "commandAcknowledgement",
+        "acknowledgement": {
+          "commandId": {
+            "value": "40000000-0000-4000-8000-000000000001"
+          },
+          "aggregate": "DeviceModes",
+          "requestedRevision": {
+            "value": 1
+          },
+          "appliedRevision": {
+            "value": 1
+          },
+          "appliedChangeId": {
+            "value": "40000000-0000-4000-8000-000000000001"
+          },
+          "globalRevision": {
+            "value": 1
+          },
+          "authorityEpoch": {
+            "value": "30000000-0000-0000-0000-000000000001"
+          },
+          "disposition": "Applied",
+          "code": "mode-applied",
+          "canonicalState": null
+        }
+      }
+    }
+  ],
+  "snapshot": null,
+  "resumeAfterDeliverySequence": {
+    "value": 11
+  },
+  "reason": "bounded-replay"
+}

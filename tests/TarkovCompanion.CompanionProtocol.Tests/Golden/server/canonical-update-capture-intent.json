@@ -1,0 +1,100 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authenticatedOriginDeviceId": {
+    "value": "10000000-0000-4000-8000-000000000002"
+  },
+  "serverUtc": "2026-09-14T20:00:00+00:00",
+  "deliverySequence": {
+    "value": 7
+  },
+  "message": {
+    "type": "canonicalUpdate",
+    "update": {
+      "type": "captureIntent",
+      "authorityEpoch": {
+        "value": "30000000-0000-0000-0000-000000000001"
+      },
+      "globalRevision": {
+        "value": 7
+      },
+      "changeId": {
+        "value": "40000000-0000-4000-8000-000000000005"
+      },
+      "changedUtc": "2026-09-14T20:00:50+00:00",
+      "origin": {
+        "workspaceId": {
+          "value": "80000000-0000-4000-8000-000000000001"
+        },
+        "deviceId": {
+          "value": "10000000-0000-4000-8000-000000000002"
+        },
+        "kind": "PairedDevice",
+        "instanceId": "tablet-install-1"
+      },
+      "contractVersion": {
+        "major": 2,
+        "minor": 0,
+        "isDefined": true
+      },
+      "state": {
+        "cursor": {
+          "revision": {
+            "value": 1
+          },
+          "lastChangeId": {
+            "value": "40000000-0000-4000-8000-000000000005"
+          }
+        },
+        "activeIntent": {
+          "intentId": {
+            "value": "60000000-0000-4000-8000-000000000001"
+          },
+          "correlationId": "capture-correlation-1",
+          "captureSessionId": {
+            "value": "70000000-0000-4000-8000-000000000001"
+          },
+          "state": {
+            "intent": "Loot",
+            "armedUtc": "2026-09-14T20:00:40+00:00",
+            "expiresUtc": "2026-09-14T20:02:40+00:00"
+          },
+          "initiatingDeviceId": {
+            "value": "10000000-0000-4000-8000-000000000002"
+          },
+          "initiatingSurface": "TabletLandscape",
+          "status": "Armed",
+          "context": {
+            "mapId": "customs",
+            "floorId": "ground",
+            "profileId": "profile-1",
+            "previousResultId": null,
+            "objectiveIds": [],
+            "planIds": [],
+            "markIds": []
+          },
+          "progress": [
+            {
+              "sequence": 0,
+              "phase": "Armed",
+              "changedUtc": "2026-09-14T20:00:40+00:00",
+              "percent": 0,
+              "artifactId": null,
+              "captureOrdinal": null,
+              "detail": "recognition-intent-armed"
+            }
+          ],
+          "result": null,
+          "guidance": [],
+          "review": null,
+          "corrections": []
+        }
+      }
+    }
+  }
+}

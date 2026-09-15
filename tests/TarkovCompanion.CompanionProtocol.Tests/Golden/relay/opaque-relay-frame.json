@@ -1,0 +1,23 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "channelId": {
+    "value": "90000000-0000-4000-8000-000000000001"
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "keyEpoch": 1,
+  "senderSequence": 1,
+  "cipherSuite": "P256HkdfSha256Aes256Gcm",
+  "nonceBase64Url": "AAAAAQAAAAAAAAAB",
+  "ciphertextLength": 476,
+  "ciphertextChunksBase64Url": [
+    "jUZ80Lus_QByp9P_rPZzn-RhJP9fUNwWIomqktM2-E2m0wN6MhCVDjV0-PydDt8wDW5GcengVYyq1CVytJPCXeCnnoxxYLH6dgXOLPRWdkbWKpVXhWZZQnv8RCIBEN2XRuaWsfpmPPTzZ4erea4ng-Nn9hCVviNSArSodKoOol2J8_1nmy5uCu-dJNrsnvlMnnYzSlezYR2VPmHRVg_MElZFc4mR5Hn6bBk-MVmS06Em3qiHX6oer8CJE0tH_iMySyDab1AE6mV0tH7FSsqBhfezPNCKjgHgZ0mZClo_NAZAF5XMH9xfsgrc4cr6JAslyk3lwVqYTL13E4P5kzOXUGB7e2VgHbqhOwq35-iAJG0EOK7GLVgbpJHgP_q9HPio5Blf3Ub0wI5nL5_NIC5ItZcW4yc4GUCwvgxKL3dUf8hX2IqtY0P9Q8yWJy1-wJ6nBQap06xLDmYLx0JV16kkVoyVMZUDOiBI_K4kyLstZZm0EFV8aTGlNZG7HtaLDZUP3Ebhg4Shz4RPK4-wA1ySUKk54fAlv5iUTjpe-3Qis3gLZgj52MGLeUJh3kTrDuyS12XivUjJPEUsuLQEVN0WYhmKppz4Gb2jW5hQBRhgilAY1NPYHwTqoypZhOc"
+  ],
+  "authenticationTagBase64Url": "cOP3Q9eD88Ib13X2z_Y9kg",
+  "issuedUtc": "2026-09-14T20:01:00+00:00",
+  "expiresUtc": "2026-09-14T20:02:00+00:00"
+}

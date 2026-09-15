@@ -1,0 +1,29 @@
+{
+  "challengeId": {
+    "value": "5a1d3c2e-7b10-4c00-8a00-000000000011"
+  },
+  "purpose": "SessionResume",
+  "deviceKeyId": {
+    "value": "y2YJoMGRv2GSAs5r4sPqGeFymw4LgjbNI5wLCd6IzE0"
+  },
+  "assignment": {
+    "protocolVersion": {
+      "major": 2,
+      "minor": 0
+    },
+    "deviceId": {
+      "value": "10000000-0000-4000-8000-000000000002"
+    },
+    "sessionId": {
+      "value": "20000000-0000-4000-8000-000000000003"
+    },
+    "relayChannelId": {
+      "value": "90000000-0000-4000-8000-000000000002"
+    },
+    "keyEpoch": 2,
+    "cipherSuite": "P256HkdfSha256Aes256Gcm",
+    "sessionExpiresUtc": "2026-09-15T09:00:00+00:00"
+  },
+  "transcriptHashBase64Url": "ixjv9Es8Dr9wmd85YQ5Zcq7Is1ru2mP4jF40_ah-uEQ",
+  "establishedUtc": "2026-09-14T21:00:10+00:00"
+}

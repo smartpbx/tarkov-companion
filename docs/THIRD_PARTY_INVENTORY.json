@@ -5,6 +5,7 @@
   "sourceProjects": [
     "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
     "src/TarkovCompanion.Application/TarkovCompanion.Application.csproj",
+    "src/TarkovCompanion.CompanionProtocol/TarkovCompanion.CompanionProtocol.csproj",
     "src/TarkovCompanion.Core/TarkovCompanion.Core.csproj",
     "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
     "src/TarkovCompanion.GroupServer/TarkovCompanion.GroupServer.csproj",
@@ -13,6 +14,7 @@
     "src/TarkovCompanion.Platform.Windows/TarkovCompanion.Platform.Windows.csproj"
   ],
   "testProjects": [
+    "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
     "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
     "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
     "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1324,6 +1326,7 @@
         "contentHash": "27jXSV/0DbVqF5jDrAxuQFZ9oaz6gmG03p8ttxAFk+X0M4woFYj7MoWDLCna5EGLb0CE6OE7X6ZH3Wt5smTtaA==",
         "relationship": "direct",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj"
         ],
         "component": "coverlet.collector",
@@ -1342,6 +1345,7 @@
         "contentHash": "zo1hqV+Nz6FlIwdc+aPfrvGzqfKAPPaZ6OPj1W8C0QQE2xH951AZwTUytL3K7XX8brVBUFd7MhrLDl3CtK3U/A==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1365,6 +1369,7 @@
         "contentHash": "0CZZ688UBvpQFB9HKo7wrNJNVe+AOM4UtipgwpER3TTM+d2DDM6QyKkIJZTR3mpbn9/zFbZEtAgVIz4SPTjQZQ==",
         "relationship": "direct",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1388,6 +1393,7 @@
         "contentHash": "aXA7DDbnt6MYu3eLBEDksNdl09QxJ/PpMzrFcSxqEOk3RvRGJzhKI5mezVCEOcvveRhjfw/mvn6xVXC/rTaOog==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1411,6 +1417,7 @@
         "contentHash": "Spu6C7bgz1PmWN+Y7wS0PfGCw9Kwv5RvJbCwyQaEWjcwpMire+qYMrcZ7qk8agjy6nd0sdHLc3ugCSrGuSbZdw==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1434,6 +1441,7 @@
         "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
         "relationship": "direct",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1457,6 +1465,7 @@
         "contentHash": "pot1I4YOxlWjIb5jmwvvQNbTrZ3lJQ+jUGkGjWE3hEFM0l5gOnBWS+H3qsex68s5cO52g+44vpGzhAt+42vwKg==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1480,6 +1489,7 @@
         "contentHash": "OtFMHN8yqIcYP9wcVIgJrq01AfTxijjAqVDy/WeQVSyrDC1RzBWeQPztL49DN2syXRah8TYnfvk035s7L95EZQ==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1503,6 +1513,7 @@
         "contentHash": "/Kq28fCE7MjOV42YLVRAJzRF0WmEqsmflm0cfpMjGtzQ2lR5mYVj1/i0Y8uDAOLczkL3/jArrwehfMD0YogMAA==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1526,6 +1537,7 @@
         "contentHash": "BiAEvqGvyme19wE0wTKdADH+NloYqikiU0mcnmiNyXaF9HyHmE6sr/3DC5vnBkgsWaE6yPyWszKSPSApWdRVeQ==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1549,6 +1561,7 @@
         "contentHash": "kf3si0YTn2a8J8eZNb+zFpwfoyvIrQ7ivNk5ZYA5yuYk1bEtMe4DxJ2CF/qsRgmEnDr7MnW1mxylBaHTZ4qErA==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1572,6 +1585,7 @@
         "contentHash": "yMb6vMESlSrE3Wfj7V6cjQ3S4TXdXpRqYeNEI3zsX31uTsGMJjEw6oD5F5u1cHnMptjhEECnmZSsPxB6ChZHDQ==",
         "relationship": "transitive",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
@@ -1595,6 +1609,7 @@
         "contentHash": "kzLFyBYUnoidpGOXvpNOfIo8C92gVgVR6X8ncHwhcrDYugiOut5rrhDkr0L3cWHd7J2pKXf6LgaeXoBBDlx1ag==",
         "relationship": "direct",
         "projects": [
+          "tests/TarkovCompanion.CompanionProtocol.Tests/TarkovCompanion.CompanionProtocol.Tests.csproj",
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
           "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",

@@ -1,0 +1,32 @@
+{
+  "protocolVersion": {
+    "major": 2,
+    "minor": 0
+  },
+  "sessionId": {
+    "value": "20000000-0000-4000-8000-000000000002"
+  },
+  "authorityEpoch": {
+    "value": "30000000-0000-0000-0000-000000000001"
+  },
+  "clientSentUtc": "2026-09-14T20:00:00+00:00",
+  "command": {
+    "type": "correctCaptureResult",
+    "commandId": {
+      "value": "40000000-0000-4000-8000-000000000018"
+    },
+    "requestedRevision": {
+      "value": 1
+    },
+    "issuedUtc": "2026-09-14T20:00:00+00:00",
+    "expiresUtc": "2026-09-14T20:01:00+00:00",
+    "offlineQueuePreview": null,
+    "intentId": {
+      "value": "60000000-0000-4000-8000-000000000001"
+    },
+    "kind": "ItemIdentity",
+    "fieldId": "loot.items.0.canonicalId",
+    "correctedValue": "item-corrected",
+    "reason": "manual-review"
+  }
+}
