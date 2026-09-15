@@ -220,7 +220,8 @@ public sealed class V2ShellViewModelTests : IDisposable
             attempts == 2 &&
             !shell.HasPersistenceFailure &&
             shell.Pins.Count == 0 &&
-            shell.Router.CurrentAddress == "#/home");
+            shell.Router.CurrentAddress == "#/home" &&
+            shell.PoliteAnnouncement.Contains("reset", StringComparison.OrdinalIgnoreCase));
 
         Assert.Equal("#/home", shell.Router.CurrentAddress);
         Assert.Empty(shell.Recents);
