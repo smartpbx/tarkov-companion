@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "thresholds.v1",
+  "policyVersion": "recognition-scorer-policy.v1",
+  "frozenBeforeTuning": true,
+  "minimumIndependentSplitUnits": 5,
+  "minimumKnownClaims": 30,
+  "candidateThresholds": {
+    "minimumCoverage": 0.9,
+    "maximumAbstentionRate": 0.2,
+    "maximumConfidentWrongRate": 0.05,
+    "minimumF1": 0.85
+  },
+  "unsupportedDisposition": "insufficient-data"
+}

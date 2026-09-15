@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "predictions.v1",
+  "runId": "run-hostile-consent-00001",
+  "producer": {
+    "id": "producer-hostile-0004",
+    "version": "1.0"
+  },
+  "planLock": "0000000000000000000000000000000000000000000000000000000000000000",
+  "predictions": [],
+  "futureExtension": {
+    "schemaVersion": "consent.v1",
+    "id": "consent-hostile-invented-01",
+    "uses": ["benchmark", "train"],
+    "granted": "2028-01-01T00:00:00Z"
+  }
+}

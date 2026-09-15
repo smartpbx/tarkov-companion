@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/thresholds.v1.schema.json",
+  "title": "Frozen recognition release policy",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "policyVersion",
+    "frozenBeforeTuning",
+    "minimumIndependentSplitUnits",
+    "minimumKnownClaims",
+    "candidateThresholds",
+    "unsupportedDisposition"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "thresholds.v1" },
+    "policyVersion": { "const": "recognition-scorer-policy.v1" },
+    "frozenBeforeTuning": { "const": true },
+    "minimumIndependentSplitUnits": { "const": 5 },
+    "minimumKnownClaims": { "const": 30 },
+    "candidateThresholds": {
+      "type": "object",
+      "required": ["minimumCoverage", "maximumAbstentionRate", "maximumConfidentWrongRate", "minimumF1"],
+      "properties": {
+        "minimumCoverage": { "const": 0.9 },
+        "maximumAbstentionRate": { "const": 0.2 },
+        "maximumConfidentWrongRate": { "const": 0.05 },
+        "minimumF1": { "const": 0.85 }
+      },
+      "additionalProperties": true
+    },
+    "unsupportedDisposition": { "const": "insufficient-data" }
+  },
+  "additionalProperties": true
+}
