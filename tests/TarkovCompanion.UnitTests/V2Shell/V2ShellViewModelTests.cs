@@ -16,6 +16,19 @@ public sealed class V2ShellViewModelTests : IDisposable
 
     public void Dispose() => Directory.Delete(_config, recursive: true);
 
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("CurrentPage", true)]
+    [InlineData("WindowTitle", false)]
+    [InlineData("Status", false)]
+    public void Legacy_host_feed_only_refreshes_for_page_context(string? propertyName, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            V2ShellViewModel.ShouldRefreshLegacyContext(isLegacyRoot: true, propertyName));
+        Assert.True(V2ShellViewModel.ShouldRefreshLegacyContext(isLegacyRoot: false, propertyName));
+    }
+
     [Fact]
     public async Task Capture_and_health_modals_cannot_mutate_the_disabled_page_behind_them()
     {

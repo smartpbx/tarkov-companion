@@ -1118,14 +1118,29 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             return;
         }
 
-        if (ReferenceEquals(sender, Legacy) &&
-            (eventArgs.PropertyName is null || eventArgs.PropertyName == nameof(MainWindowViewModel.CurrentPage)))
+        var isLegacyRoot = ReferenceEquals(sender, Legacy);
+        if (!ShouldRefreshLegacyContext(isLegacyRoot, eventArgs.PropertyName))
+        {
+            return;
+        }
+
+        if (isLegacyRoot)
         {
             OnPropertyChanged(nameof(LegacyPage));
         }
 
         _apply.Request();
     }
+
+    /// <summary>Rejects the preview-to-window-title notification from its own context feed.</summary>
+    /// <remarks>
+    /// The preview raises Title, its legacy host forwards that as WindowTitle, and this shell also
+    /// listens to the host for page changes. Treating every host property as page context fed the
+    /// forwarded title straight back into Refresh on the UI thread until the process exhausted its
+    /// stack. Child page models remain broad feeds; only CurrentPage is context on the host itself.
+    /// </remarks>
+    internal static bool ShouldRefreshLegacyContext(bool isLegacyRoot, string? propertyName) =>
+        !isLegacyRoot || propertyName is null or nameof(MainWindowViewModel.CurrentPage);
 
     private void SynchronizeLegacySelection()
     {
