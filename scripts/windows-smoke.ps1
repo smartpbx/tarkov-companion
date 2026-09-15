@@ -33,8 +33,9 @@ $StartedProcesses = [System.Collections.Generic.List[System.Diagnostics.Process]
 $PreviousDiagnosticToken = $env:TARKOV_COMPANION_DIAGNOSTIC_TOKEN
 $PreviousOffline = $env:TARKOV_COMPANION_OFFLINE
 $DemoDataRoot = Join-Path (Join-Path $env:LOCALAPPDATA "TarkovCompanion") "Demo"
-$PersistenceBeforeScans = $null
-$PersistenceAfterScans = $null
+$ScanEventsBefore = $null
+$ScanEventsAfter = $null
+$SqliteProviderAssemblyPath = $null
 
 function Add-Assertion {
     param(
@@ -72,9 +73,38 @@ function Wait-Path {
     }
 }
 
+# Queries a specific durable state through the provider shipped with the package. This avoids
+# treating a file timestamp or size as proof that a transaction actually committed.
+function Get-SqliteScalar {
+    param([string] $DatabasePath, [string] $CommandText)
+
+    if (-not ("Microsoft.Data.Sqlite.SqliteConnection" -as [type])) {
+        if ([string]::IsNullOrWhiteSpace($SqliteProviderAssemblyPath) -or -not (Test-Path -LiteralPath $SqliteProviderAssemblyPath)) {
+            throw "The packaged SQLite provider is unavailable for the durable-state assertion."
+        }
+        [System.Reflection.Assembly]::LoadFrom($SqliteProviderAssemblyPath) | Out-Null
+    }
+
+    $Connection = [Microsoft.Data.Sqlite.SqliteConnection]::new("Data Source=$DatabasePath;Mode=ReadOnly;Cache=Shared")
+    try {
+        $Connection.Open()
+        $Command = $Connection.CreateCommand()
+        try {
+            $Command.CommandText = $CommandText
+            return [int64]$Command.ExecuteScalar()
+        }
+        finally {
+            $Command.Dispose()
+        }
+    }
+    finally {
+        $Connection.Dispose()
+    }
+}
+
 # The command directory exists before the application's asynchronous initialization has
-# completed.  Waiting for a real SQLite file is the readiness boundary: it proves the
-# composition root has initialized persistence, rather than relying on an arbitrary delay.
+# completed. Waiting for a migrated SQLite schema is the readiness boundary: it proves the
+# composition root initialized a usable database, rather than relying on an arbitrary delay.
 function Wait-DatabaseReady {
     param(
         [string] $Root,
@@ -86,14 +116,19 @@ function Wait-DatabaseReady {
     $LastObservedBytes = 0L
     while ([DateTime]::UtcNow -lt $Deadline) {
         if (Test-Path -LiteralPath $DatabasePath) {
-            # SQLite creates its file before migrations and demo seeding have written their
-            # first page. A zero-byte file is therefore an intermediate state, not evidence
-            # that persistence is ready. Keep the readiness bound, but wait for the durable
-            # file the composition root has actually initialized.
+            # SQLite creates its file before migrations and demo seeding have committed their
+            # first page. A migrated schema row is the durable readiness evidence.
             $DatabaseFile = Get-Item -LiteralPath $DatabasePath -ErrorAction Stop
             $LastObservedBytes = [int64]$DatabaseFile.Length
             if ($LastObservedBytes -gt 0) {
-                return [string]$DatabasePath
+                try {
+                    if ((Get-SqliteScalar -DatabasePath $DatabasePath -CommandText "SELECT COUNT(*) FROM schema_migrations;") -gt 0) {
+                        return [string]$DatabasePath
+                    }
+                }
+                catch {
+                    # The writer can still hold an exclusive initialization transaction.
+                }
             }
         }
 
@@ -101,34 +136,6 @@ function Wait-DatabaseReady {
     }
 
     throw "Timed out waiting for initialized SQLite database at $DatabasePath (last observed size: $LastObservedBytes byte(s))."
-}
-
-# A completed diagnostic scan is awaited through RaidActivityCoordinator before its response is
-# written.  Record a bounded, path-free fingerprint of its data directory on both sides so the
-# smoke report proves that the scan changed persistent state without uploading runner paths.
-function Get-DirectoryFingerprint {
-    param([string] $Root)
-
-    if (-not (Test-Path -LiteralPath $Root)) {
-        return [ordered]@{ exists = $false; fileCount = 0; bytes = 0; newestUtc = $null }
-    }
-
-    $Files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -ErrorAction Stop)
-    $Bytes = 0L
-    $Newest = $null
-    foreach ($File in $Files) {
-        $Bytes += $File.Length
-        if ($null -eq $Newest -or $File.LastWriteTimeUtc -gt $Newest) {
-            $Newest = $File.LastWriteTimeUtc
-        }
-    }
-
-    return [ordered]@{
-        exists = $true
-        fileCount = $Files.Count
-        bytes = $Bytes
-        newestUtc = if ($null -eq $Newest) { $null } else { $Newest.ToString("O") }
-    }
 }
 
 function Stop-StartedProcess {
@@ -199,6 +206,7 @@ $Success = $false
 try {
     $ResolvedAppPath = (Resolve-Path -LiteralPath $AppPath).Path
     $ResolvedSimulatorPath = (Resolve-Path -LiteralPath $SimulatorPath).Path
+    $SqliteProviderAssemblyPath = Join-Path (Split-Path -Parent $ResolvedAppPath) "Microsoft.Data.Sqlite.dll"
     New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 
     $SelfTestPath = Join-Path $WorkRoot "self-test.json"
@@ -232,8 +240,8 @@ try {
     Wait-Path -Path (Join-Path $ChannelRoot "commands")
     Add-Assertion -Name "developer-app-process" -Passed (-not $AppProcess.HasExited) -Detail "PID $($AppProcess.Id) is running."
     $DemoDatabase = Wait-DatabaseReady -Root $DemoDataRoot
-    Add-Assertion -Name "demo-persistence-ready" -Passed (Test-Path -LiteralPath $DemoDatabase) -Detail "The demo composition initialized its SQLite database."
-    $PersistenceBeforeScans = Get-DirectoryFingerprint -Root $DemoDataRoot
+    Add-Assertion -Name "demo-persistence-ready" -Passed (Test-Path -LiteralPath $DemoDatabase) -Detail "The demo composition initialized a migrated SQLite database."
+    $ScanEventsBefore = Get-SqliteScalar -DatabasePath $DemoDatabase -CommandText "SELECT COUNT(*) FROM raid_events WHERE type = 'scan';"
 
     for ($Index = 0; $Index -lt $Scenarios.Count; $Index++) {
         $Scenario = $Scenarios[$Index]
@@ -268,11 +276,10 @@ try {
         Stop-StartedProcess -Process $SimulatorProcess
     }
 
-    $PersistenceAfterScans = Get-DirectoryFingerprint -Root $DemoDataRoot
-    $PersistenceChanged = $PersistenceAfterScans.fileCount -gt $PersistenceBeforeScans.fileCount -or
-        $PersistenceAfterScans.bytes -gt $PersistenceBeforeScans.bytes -or
-        $PersistenceAfterScans.newestUtc -ne $PersistenceBeforeScans.newestUtc
-    Add-Assertion -Name "scan-persisted" -Passed $PersistenceChanged -Detail "Completed fixture scans changed the demo persistence fingerprint."
+    $ScanEventsAfter = Get-SqliteScalar -DatabasePath $DemoDatabase -CommandText "SELECT COUNT(*) FROM raid_events WHERE type = 'scan';"
+    $ExpectedScanEvents = [int64]$Scenarios.Count
+    $ObservedScanEvents = $ScanEventsAfter - $ScanEventsBefore
+    Add-Assertion -Name "scan-persisted" -Passed ($ObservedScanEvents -eq $ExpectedScanEvents) -Detail "Completed fixture scans committed $ObservedScanEvents scan row(s); expected $ExpectedScanEvents."
 
     Stop-StartedProcess -Process $AppProcess
 
@@ -316,8 +323,11 @@ finally {
         )
         scenarios = $Scenarios
         persistence = [ordered]@{
-            beforeScans = if ($null -eq $PersistenceBeforeScans) { $null } else { $PersistenceBeforeScans }
-            afterScans = if ($null -eq $PersistenceAfterScans) { $null } else { $PersistenceAfterScans }
+            durableTable = "raid_events"
+            durableEventType = "scan"
+            scanEventCountBefore = $ScanEventsBefore
+            scanEventCountAfter = $ScanEventsAfter
+            expectedScanEventDelta = $Scenarios.Count
         }
         # Keep the artifact schema stable for zero/one/many results. Windows PowerShell
         # otherwise unwraps a single pipeline object, which makes consumers infer shape.

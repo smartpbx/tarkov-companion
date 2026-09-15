@@ -1,0 +1,8 @@
+{
+  "success": false,
+  "assertions": [
+    { "name": "scan-persisted", "passed": false, "detail": "Expected durable row at C:\\Users\\build-user\\AppData\\Local" }
+  ],
+  "errors": ["Smoke error at C:\\Users\\build-user\\temp"],
+  "persistence": { "scanEventCountBefore": 0, "scanEventCountAfter": 0 }
+}

@@ -176,12 +176,11 @@ jobs:
             $Bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
             $Geometry = "$($Bounds.Width)x$($Bounds.Height)"
           } catch {
-            $Geometry = "error: $($_.Exception.Message)"
+            $Geometry = "unavailable"
           }
           $Facts = [ordered]@{
             os = [System.Environment]::OSVersion.VersionString
             userInteractive = [System.Environment]::UserInteractive
-            userName = [System.Environment]::UserName
             virtualScreen = $Geometry
           }
           $Facts | ConvertTo-Json | Set-Content -LiteralPath "verification/runner-session.json" -Encoding utf8
@@ -196,7 +195,9 @@ jobs:
           $Scripts = @(
             "scripts/windows-launch-probe.ps1",
             "scripts/windows-page-gallery.ps1",
-            "scripts/windows-smoke.ps1"
+            "scripts/windows-smoke.ps1",
+            "scripts/windows-verification-evidence.ps1",
+            "scripts/verify-windows-verification-static.ps1"
           )
           foreach ($Script in $Scripts) {
             $ResolvedScript = (Resolve-Path -LiteralPath $Script).Path
@@ -210,6 +211,7 @@ jobs:
               throw ("PowerShell parse errors in {0}: {1}" -f $Script, (@($ParseErrors | ForEach-Object Message) -join "; "))
             }
           }
+          ./scripts/verify-windows-verification-static.ps1 -RepositoryRoot $env:GITHUB_WORKSPACE
 
       - name: Restore
         run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
@@ -238,7 +240,14 @@ jobs:
           Expand-Archive -LiteralPath "dist/TarkovCompanion-v1.0.0-win-x64.zip" -DestinationPath $Target -Force
           "TC_APP=$(Join-Path $Target 'TarkovCompanion.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "TC_SIMULATOR=$(Join-Path $Target 'TarkovCompanion.EftSimulator.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")
+          $BuildInfo = @{}
+          foreach ($Line in Get-Content -LiteralPath (Join-Path $Target "BUILD_INFO.txt")) {
+            if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $BuildInfo[$Matches.key] = $Matches.value }
+          }
+          if ($BuildInfo.version -cne "1.0.${{ github.run_number }}" -or $BuildInfo.commit -cne "${{ github.sha }}") {
+            throw "Extracted package metadata does not match the expected GitHub version and commit."
+          }
+          "Extracted package metadata matches the expected GitHub version and commit."
 
       # Packed here rather than after the gate, because the installer is now something the
       # gate tests rather than something it produces once everything else has passed. Same
@@ -291,8 +300,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-cold.out.txt" `
             -RedirectStandardError "verification/self-test-cold.err.txt"
-          Get-Content -LiteralPath "verification/self-test-cold.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Cold self-test success: $($SelfTest.success)"
+          }
           exit $Process.ExitCode
 
       - name: Headless demo raid replay
@@ -305,8 +316,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/demo-replay.out.txt" `
             -RedirectStandardError "verification/demo-replay.err.txt"
-          Get-Content -LiteralPath "verification/demo-replay.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          if (Test-Path -LiteralPath $Report) {
+            $DemoReplay = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Demo replay success: $($DemoReplay.success)"
+          }
           exit $Process.ExitCode
 
       - name: Reset local application data
@@ -317,7 +330,7 @@ jobs:
           # actually needs proving.
           $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
           if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
-          "Local application data reset: $Root"
+          "Local application data reset."
 
       - name: First-run desktop launch probe
         id: launch-probe
@@ -328,20 +341,13 @@ jobs:
           ./scripts/windows-launch-probe.ps1 `
             -AppPath $env:TC_APP `
             -ExpectedVersion "1.0.${{ github.run_number }}" `
+            -ExpectedCommit "${{ github.sha }}" `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.json") `
             -ScreenshotPath (Join-Path $env:GITHUB_WORKSPACE "verification/launch-probe.png")
 
-      # Opens every destination in turn, photographs it, and now checks what it got.
-      #
-      # Presenting a window was the only thing ever asserted, which is how a ragged sidebar
-      # shipped: the picture was taken and nobody looked. The toolkit's own warnings are now
-      # captured per page and a fault fails the step - a value that will not convert, a
-      # resource that is not there, a path that cannot be resolved. Binding through a null
-      # object is counted and reported instead, because every optional panel does it. How
-      # much each page drew is measured and reported alongside them.
-      # The map now gets three shots of its own on top of the fourteen pages: stacked,
-      # a named floor, and a second map. Seventeen launches rather than fourteen, hence
-      # the longer bound.
+      # This gallery checks responsive visual variation only. Semantic expected-page,
+      # accessibility, and map tile/data readiness remain at the open #279 integration seam
+      # owned by #281; this workflow must not duplicate that Application diagnostic work.
       - name: Photograph every destination
         id: page-gallery
         continue-on-error: true
@@ -364,8 +370,10 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-warm.out.txt" `
             -RedirectStandardError "verification/self-test-warm.err.txt"
-          Get-Content -LiteralPath "verification/self-test-warm.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Warm self-test success: $($SelfTest.success)"
+          }
           exit $Process.ExitCode
 
       # The installer has never been run by anything but Clayton.
@@ -391,7 +399,7 @@ jobs:
           $Marker = Join-Path $Root "install-marker.txt"
           "the data a user already had" | Set-Content -LiteralPath $Marker -Encoding utf8
           "TC_MARKER=$Marker" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "Seeded $Marker"
+          "Seeded install-preservation marker."
 
       - name: Install the way a user would
         id: install
@@ -401,7 +409,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $Setup = Get-ChildItem -LiteralPath "dist/velopack" -Filter "*Setup.exe" | Select-Object -First 1
           if (-not $Setup) { throw "No Setup.exe was packed." }
-          "Installing $($Setup.Name)"
+          "Running the packaged installer."
 
           # --silent so nothing waits for a window that a runner has nobody to close. The exit
           # code is the installer's own verdict and is not swallowed.
@@ -410,16 +418,24 @@ jobs:
 
           $Installed = Join-Path $env:LOCALAPPDATA "TarkovCompanionDesktop/current/TarkovCompanion.exe"
           if (-not (Test-Path -LiteralPath $Installed)) {
-            throw "The installer reported success and there is no application at $Installed."
+            throw "The installer reported success but the application was not installed."
           }
 
           # The regression. A pack id that collides with the data directory renames it aside.
           if (-not (Test-Path -LiteralPath $env:TC_MARKER)) {
-            throw "Installing destroyed the data directory: $($env:TC_MARKER) is gone."
+            throw "Installing destroyed the existing application data marker."
+          }
+
+          $InstalledBuildInfo = @{}
+          foreach ($Line in Get-Content -LiteralPath (Join-Path (Split-Path -Parent $Installed) "BUILD_INFO.txt")) {
+            if ($Line -match '^(?<key>[a-z_]+)=(?<value>.+)$') { $InstalledBuildInfo[$Matches.key] = $Matches.value }
+          }
+          if ($InstalledBuildInfo.version -cne "1.0.${{ github.run_number }}" -or $InstalledBuildInfo.commit -cne "${{ github.sha }}") {
+            throw "Installed package metadata does not match the expected GitHub version and commit."
           }
 
           "TC_INSTALLED=$Installed" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Get-Content -LiteralPath $env:TC_MARKER
+          "Installed package metadata and data preservation marker both match."
 
       # What was installed, rather than what was packed. A self-test here is the first thing in
       # this workflow that exercises the bytes a user will actually run, laid out the way the
@@ -435,38 +451,11 @@ jobs:
             -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput "verification/self-test-installed.out.txt" `
             -RedirectStandardError "verification/self-test-installed.err.txt"
-          Get-Content -LiteralPath "verification/self-test-installed.err.txt" -Raw
-          if (Test-Path -LiteralPath $Report) { Get-Content -LiteralPath $Report -Raw }
-          exit $Process.ExitCode
-
-      - name: Inventory local application data
-        if: always()
-        continue-on-error: true
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Path "verification" -Force | Out-Null
-          $Root = Join-Path $env:LOCALAPPDATA "TarkovCompanion"
-          if (Test-Path -LiteralPath $Root) {
-            Get-ChildItem -LiteralPath $Root -Recurse -File |
-              Select-Object @{ n = "path"; e = { $_.FullName.Substring($Root.Length + 1) } }, Length |
-              Sort-Object path |
-              ConvertTo-Json -Depth 4 |
-              Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
-            Get-Content -LiteralPath "verification/local-appdata.json" -Raw
-
-            $StartupLog = Join-Path $Root "Logs\startup.log"
-            if (Test-Path -LiteralPath $StartupLog) {
-              Copy-Item -LiteralPath $StartupLog -Destination "verification/startup.log" -Force
-              Get-Content -LiteralPath $StartupLog -Raw
-            }
-
-            $Database = Join-Path $Root "Database\tarkov-companion.db"
-            if (Test-Path -LiteralPath $Database) {
-              Copy-Item -LiteralPath $Database -Destination "verification/tarkov-companion.db" -Force
-            }
-          } else {
-            "The application never created $Root." | Set-Content -LiteralPath "verification/local-appdata.json" -Encoding utf8
+          if (Test-Path -LiteralPath $Report) {
+            $SelfTest = Get-Content -LiteralPath $Report -Raw | ConvertFrom-Json
+            "Installed self-test success: $($SelfTest.success)"
           }
+          exit $Process.ExitCode
 
       - name: Developer diagnostic smoke with the simulator
         id: developer-smoke
@@ -479,13 +468,25 @@ jobs:
             -SimulatorPath $env:TC_SIMULATOR `
             -OutputPath (Join-Path $env:GITHUB_WORKSPACE "verification/windows-smoke.json")
 
-      - name: Publish verification evidence
+      - name: Create sanitized verification evidence
+        if: always()
+        shell: powershell
+        run: |
+          ./scripts/windows-verification-evidence.ps1 `
+            -VerificationDirectory (Join-Path $env:GITHUB_WORKSPACE "verification") `
+            -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE "verification/evidence") `
+            -LocalDataRoot (Join-Path $env:LOCALAPPDATA "TarkovCompanion")
+
+      - name: Publish sanitized verification evidence
         if: always()
         uses: actions/upload-artifact@v5
         with:
           name: windows-verification
-          path: verification/**
-          if-no-files-found: warn
+          path: |
+            verification/evidence/windows-verification-summary.json
+            verification/evidence/windows-verification-failures.txt
+          if-no-files-found: error
+          retention-days: 7
 
       # The gate is deliberately after evidence upload. This workflow contains no release
       # publication: release ownership lives in its dedicated child workflow.

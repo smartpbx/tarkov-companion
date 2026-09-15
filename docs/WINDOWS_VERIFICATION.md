@@ -29,14 +29,19 @@ and has neither a step that could publish nor a token that could.
 3. Runs `--self-test` on a machine with no application data.
 4. Runs the headless demo raid replay.
 5. Deletes `%LOCALAPPDATA%\TarkovCompanion` so the next step is a genuine first run.
-6. Runs `scripts/windows-launch-probe.ps1`: starts `TarkovCompanion.exe` with no arguments,
-   waits for a real main window, watches it for thirty seconds, screenshots the desktop,
-   requests a window close, and requires the process to exit cleanly.
+6. Checks `BUILD_INFO.txt` from both the extracted package and installed package against the
+   GitHub SHA for the run, then runs `scripts/windows-launch-probe.ps1`: starts
+   `TarkovCompanion.exe` with no arguments, waits for a real main window, watches it for thirty
+   seconds, screenshots the desktop, requests a window close, and requires the process to exit
+   cleanly after recording the required database observations.
 7. Runs `--self-test` again. Because the local data was wiped in step 5, a warm report
    showing a populated catalog is evidence that the desktop first run produced it.
-8. Runs `scripts/windows-smoke.ps1`, the developer diagnostic surface, against the simulator.
-9. Publishes every report, the screenshot, the startup log, and the resulting SQLite database
-   alongside the package.
+8. Runs `scripts/windows-smoke.ps1`, the developer diagnostic surface, against the simulator,
+   and requires the expected committed `raid_events` rows of type `scan` rather than a changed
+   directory timestamp.
+9. Publishes only an allowlisted sanitized summary and bounded sanitized failure excerpts for
+   seven days. Raw startup logs, SQLite databases, screenshots, runner usernames, and absolute
+   paths are never artifact evidence.
 
 A parallel Linux job builds the solution, runs the full test suite, and runs the safety and
 secret audits.
@@ -48,15 +53,18 @@ secret audits.
 | Launch | the main window appears within the deadline and keeps responding for a 30-second watch |
 | Shutdown | exit code 0, inside the deadline, with no hung process left behind |
 | First-run sync | every json.tarkov.dev endpoint records `current` with no error |
-| Page gallery | every page is opened, photographed, and checked for having drawn anything |
-| Binding warnings | a page that asks for a property it does not get fails the step |
+| Page gallery | each requested launch reaches a responsive window with visible variation |
 
 Deliberately no numbers here. This file used to list the row counts and timings of one
 particular run — items 5,320, map_spawns 3,018, "about eight seconds" — which were true of
 that build and of no other. `map_spawns` has since been dropped entirely, so the table was
 describing a schema that no longer exists, which is worse than describing nothing.
 
-What a given run found is in that run's own artifacts.
+The gallery does not prove semantic expected-page selection, accessibility readiness, or
+map-tile/data readiness. Those remain at the still-open #279 integration seam owned by #281;
+this workflow does not duplicate Application diagnostics there.
+
+What a given run found is in that run's sanitized summary and failure-excerpt artifact.
 
 ## What this does not prove
 
@@ -70,8 +78,7 @@ What a given run found is in that run's own artifacts.
 
 ## Reading the evidence
 
-Download the `windows-verification` artifact from the run. `launch-probe.png` shows the
-running application, `launch-probe.json` records the window and shutdown observations,
-`self-test-warm.json` records what the first run produced, `startup.log` records the
-application's own lifecycle entries, and `tarkov-companion.db` is the database the first run
-built.
+Download the `windows-verification` artifact from the run. It contains
+`windows-verification-summary.json` and, when something fails,
+`windows-verification-failures.txt`; both are sanitized and retention is seven days. The raw
+images, startup log, and database stay on the ephemeral runner and are not published.

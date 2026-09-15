@@ -32,9 +32,11 @@ param(
 
     [string] $LocalDataRoot = (Join-Path $env:LOCALAPPDATA "TarkovCompanion"),
 
-    # The workflow owns the build number.  Check the unpacked package metadata before launch so
+    # The workflow owns the identity. Check the unpacked package metadata before launch so
     # the executable, zip and installer cannot silently describe different builds.
-    [string] $ExpectedVersion = ""
+    [string] $ExpectedVersion = "",
+
+    [string] $ExpectedCommit = ""
 )
 
 Set-StrictMode -Version Latest
@@ -252,14 +254,18 @@ try {
         architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
         powerShell = $PSVersionTable.PSVersion.ToString()
         userInteractive = [System.Environment]::UserInteractive
-        userName = [System.Environment]::UserName
-        packageDirectory = $PackageDirectory
     }
     $PackageIdentity = Get-PackageIdentity -PackageDirectory $PackageDirectory
     $HasExpectedVersion = -not [string]::IsNullOrEmpty($ExpectedVersion)
-    Add-Observation -Name "package-identity" -Passed (-not $HasExpectedVersion -or $PackageIdentity.version -ceq $ExpectedVersion) -Detail "Package version is '$($PackageIdentity.version)'."
+    $HasExpectedCommit = -not [string]::IsNullOrEmpty($ExpectedCommit)
+    $PackageIdentityMatches = (-not $HasExpectedVersion -or $PackageIdentity.version -ceq $ExpectedVersion) -and
+        (-not $HasExpectedCommit -or $PackageIdentity.commit -ceq $ExpectedCommit)
+    Add-Observation -Name "package-identity" -Passed $PackageIdentityMatches -Detail "Package metadata matches the expected version and commit."
     if ($HasExpectedVersion -and $PackageIdentity.version -cne $ExpectedVersion) {
         throw "Expected package version '$ExpectedVersion', but BUILD_INFO.txt says '$($PackageIdentity.version)'."
+    }
+    if ($HasExpectedCommit -and $PackageIdentity.commit -cne $ExpectedCommit) {
+        throw "Expected package commit '$ExpectedCommit', but BUILD_INFO.txt names a different commit."
     }
 
     $Process = Start-Process -FilePath $ResolvedAppPath `
@@ -332,7 +338,7 @@ try {
 
     try {
         $ScreenGeometry = Save-WindowImage -Path $ScreenshotPath -WindowHandle $Process.MainWindowHandle
-        Add-Observation -Name "screenshot" -Passed $true -Detail "Captured $ScreenGeometry desktop to $ScreenshotPath. Display: $DesktopGeometry." -Required:$false
+        Add-Observation -Name "screenshot" -Passed $true -Detail "Captured $ScreenGeometry. Display: $DesktopGeometry." -Required:$false
     }
     catch {
         Add-Observation -Name "screenshot" -Passed $false -Detail $_.Exception.Message -Required:$false
@@ -373,7 +379,6 @@ try {
         Add-Observation -Name "clean-shutdown" -Passed ($ExitCode -eq 0) -Detail "Closing the window exited with code $ExitCode after $ShutdownSeconds second(s) (graceful request accepted: $GracefulClose)."
     }
 
-    $Success = @($Observations | Where-Object { $_.required -and -not $_.passed }).Count -eq 0
 }
 catch {
     $Errors.Add($_.Exception.Message)
@@ -396,6 +401,12 @@ finally {
         -Detail "Local data grew from $($DataBefore.fileCount) file(s)/$($DataBefore.totalBytes) byte(s) to $($DataAfter.fileCount) file(s)/$($DataAfter.totalBytes) byte(s)." `
         -Required:$true
     Add-Observation -Name "database-created" -Passed ($DatabaseBytes -gt 0) -Detail "SQLite database is $DatabaseBytes byte(s)." -Required:$true
+
+    # Success used to be calculated before these required persistence observations existed.
+    # A launch that created no durable data could therefore emit success=true and fail only in
+    # the report body. Errors are finalized here too, so the report and process exit agree.
+    $Success = $Errors.Count -eq 0 -and
+        @($Observations | Where-Object { $_.required -and -not $_.passed }).Count -eq 0
 
     $StandardOutput = Read-ReportText -Path $StandardOutputPath
     $StandardError = Read-ReportText -Path $StandardErrorPath
@@ -440,7 +451,7 @@ finally {
     $OutputDirectory = Split-Path -Parent $ResolvedOutputPath
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
     $Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ResolvedOutputPath -Encoding utf8
-    Write-Host ($Report | ConvertTo-Json -Depth 8)
+    Write-Host "Launch probe completed with success=$Success and $($Observations.Count) observation(s)."
 }
 
 if (-not $Success) {
