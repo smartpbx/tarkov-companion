@@ -7,7 +7,9 @@ Anything that can make an HTTPS request can join a group. This document is the w
 ## The group key
 
 One value, agreed between the people in the group and typed into each of their clients. It is
-not published here and it is not set on the server: **the server holds no secrets at all.**
+not published here and no server-side copy is configured. The relay hashes each presented group
+key for room selection and does not persist the plaintext. A separate operator admin key protects
+administrative and report routes; it is not a group key.
 
 It hashes the key you send and buckets members by the result, so the key is both *which group*
 and *proof you are in it*. Type the same key as your friends and you see each other. Type a
@@ -172,7 +174,8 @@ leaves the stale one standing.
     GET /health   ->   {"status":"ok","protocol":1,"version":"1.0.548", ...}
 
 No key required. `protocol` is the number described above; `version` and `commit` say which
-build is answering.
+build is answering. The current response also includes start time and aggregate room/member
+counts, so it is not a minimal liveness-only route.
 
 ## Who may have a room
 
@@ -265,14 +268,18 @@ typed, then every word starting a word of the name.
 
 ## What the server does not do
 
-- It keeps no history. Where people have been would be easy to record and is deliberately not.
+- It keeps no movement history. Where people have been would be easy to record and is
+  deliberately not; live positions and pings never enter the durable state files.
 - It has no accounts and no identities beyond the display name you send.
-- It never sees your key, only its hash, and never logs either. Registering a room does not
-  change that: the list holds hashes and labels.
+- It uses a presented group key to derive the room hash and does not persist or log the plaintext.
+  Registering a room does not change that: the list holds hashes and labels.
 
-What it does write is two files, both in its state directory and neither about where anybody has
-been: `marks.json`, the waypoints a group placed, and `rooms.json`, the rooms an operator
-registered. Both survive a restart on purpose — the relay updates itself every half hour.
+With a state directory configured, `marks.json` stores group waypoints and `rooms.json` stores
+registered room hashes and labels. `reports/` retains submitted diagnostic bodies, which are
+restricted and may contain sensitive machine details. The updater also stores
+`INSTALLED_SHA256`, `REFUSED_SHA256`, and transient `UPDATE_NOW` controls there. Durable product
+state survives a restart on purpose—the relay updates itself every half hour—but positions and
+pings do not.
 
 ## Which version everything speaks
 

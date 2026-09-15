@@ -1,8 +1,10 @@
 # Deploying the group relay
 
-The relay runs as a systemd service on a small container behind a Cloudflare tunnel. It holds
-nothing on disk, so there is no data to migrate and no backup to take: members re-publish every
-few seconds and a restart costs everybody one blink.
+The relay runs as a systemd service on a small container behind a Cloudflare tunnel. Live member
+positions and pings are memory-only, but a configured state directory persists registered rooms,
+waypoints, problem-report bodies, and updater control files. Back up only the selected durable
+payload described in `docs/runbooks/relay-operations.md`; updater stamps and requests must not be
+restored from backup.
 
 ## First install
 
@@ -30,8 +32,9 @@ bug live. `tarkov-group.service` is still yours — it is hand-maintained, carri
 drop-in, and is the one unit this repository does not know the contents of.
 
 The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.GroupServer` with
-`ASPNETCORE_URLS=http://0.0.0.0:8090`. It takes no configuration: since the group key became
-the room, the server holds no secrets and there is nothing to set.
+`ASPNETCORE_URLS=http://0.0.0.0:8090`. Group traffic needs no server-side copy of a group key,
+but operator routes require the separately protected `TARKOV_RELAY_ADMIN_KEY` drop-in described
+in `docs/OPERATIONS.md`.
 
 ## Updating
 
@@ -71,11 +74,11 @@ journalctl -u tarkov-group-update.service -n 50
 wget -qO- https://tarkov.mannerow.net/health
 ```
 
-## Keeping the squad's marks across an update
+## Keeping relay state across an update
 
-The relay holds waypoints in memory unless it is told where to put them, and the updater
-replaces `/opt/tarkov-group` wholesale — so anything written inside the tree would be
-destroyed by the update it is meant to survive.
+The relay holds durable state in memory unless it is told where to put it, and the updater
+replaces `/opt/tarkov-group` wholesale—so anything written inside the tree would be destroyed by
+the update it is meant to survive.
 
 Add to `/etc/systemd/system/tarkov-group.service`:
 
@@ -85,13 +88,14 @@ StateDirectory=tarkov-group
 ```
 
 systemd then creates `/var/lib/tarkov-group`, owns it correctly whether or not the unit uses
-`DynamicUser=`, and passes the path in `STATE_DIRECTORY`. The server writes one `marks.json`
-there. For a deployment that is not systemd, set `TARKOV_GROUP_STATE` to a writable directory
-instead.
+`DynamicUser=`, and passes the path in `STATE_DIRECTORY`. The server writes `marks.json`,
+`rooms.json`, and `reports/` there; the updater writes its install/refusal stamps and immediate
+update request in the same directory. For a deployment that is not systemd, set
+`TARKOV_GROUP_STATE` to a writable directory instead.
 
-**Waypoints only.** Pings expire in forty-five seconds and mean "now", so one restored from
-disk would be a lie. Positions are never written at all — that is the promise the rest of the
-server makes, and it is why this file can exist.
+**No live movement state.** Pings expire in forty-five seconds and mean "now", so one restored
+from disk would be a lie. Positions are never written at all. Registered rooms, waypoints, and
+submitted report bodies survive deliberately; report bodies are restricted diagnostic material.
 
 Until `StateDirectory=` is set on the running unit, the server behaves exactly as it did
 before: marks live in memory and a restart clears them.
