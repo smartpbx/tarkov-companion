@@ -388,7 +388,15 @@ semver_less() {
 }
 
 safe_root() {
-    [[ "$1" == /* && "$1" != "/" && "$1" != "/opt" && "$1" != "/var" && "$1" != "/var/lib" && "$1" != */ ]]
+    local path="$1" resolved
+    [[ "${path}" == /* && "${path}" != */ ]] || return 1
+    resolved="$(readlink -m -- "${path}")" || return 1
+    # The updater removes trees derived from these names. A lexical alias such as
+    # /opt/../var used to pass the broad-directory check and could therefore turn a rollback's
+    # rm -rf into a removal of /var. Requiring the configured spelling to be the resolved path
+    # also refuses symbolic-link ancestors that could be swapped underneath the updater.
+    [[ "${path}" == "${resolved}" ]] || return 1
+    [[ "${resolved}" != "/" && "${resolved}" != "/opt" && "${resolved}" != "/var" && "${resolved}" != "/var/lib" ]]
 }
 
 # A directory only this script's user may change: not a link, owned by the user running this, and
@@ -813,7 +821,7 @@ done
 for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
     safe_root "${path}" || refuse "install, rollback, state and status paths must be safe absolute directories"
 done
-distinct=("${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
+distinct=("${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
 for ((left = 0; left < ${#distinct[@]}; left++)); do
     for ((right = 0; right < ${#distinct[@]}; right++)); do
         if ((left != right)) && [[ "${distinct[left]}" == "${distinct[right]}" || "${distinct[left]}" == "${distinct[right]}"/* ]]; then

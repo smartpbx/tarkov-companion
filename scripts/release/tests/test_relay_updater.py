@@ -799,7 +799,25 @@ class RelayUpdaterTests(UpdaterFixture):
         result = self.run_updater()
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("symbolic link", result.stdout)
+        self.assertRegex(result.stdout, "safe absolute directories|symbolic link")
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_a_destructive_path_spelled_through_a_parent_alias_is_refused(self) -> None:
+        # The updater removes the install, previous and incoming trees during recovery. A path
+        # that is only lexically below a safe root must not be able to resolve to a broad target.
+        aliased = self.root / "missing" / ".." / "install"
+
+        result = self.run_updater(TARKOV_UPDATE_INSTALL=str(aliased))
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("safe absolute directories", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
+    def test_configured_directories_cannot_claim_an_install_swap_path(self) -> None:
+        result = self.run_updater(TARKOV_UPDATE_LKG=f"{self.install}.incoming")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("paths overlap", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
 
     def test_a_loose_state_directory_is_tightened_before_use(self) -> None:
