@@ -244,7 +244,7 @@ public sealed class PriceHistoryReadBoundaryTests
             )
             INSERT INTO price_history_unresolved_time(
                 item_id, source_ordinal, flea_price, trader_value, source, raw_json)
-            SELECT 'item', value, value, NULL, 'fixture', '{{}}'
+            SELECT 'item', value, value, NULL, 'fixture', json_object()
             FROM sequence;
             INSERT INTO price_history_unresolved_time(
                 item_id, source_ordinal, flea_price, trader_value, source, raw_json)
