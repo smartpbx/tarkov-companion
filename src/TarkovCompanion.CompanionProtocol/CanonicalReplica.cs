@@ -372,12 +372,17 @@ public sealed record CanonicalReplica
         var incoming = CursorOf(update);
         if (update.GlobalRevision.Value <= state.GlobalRevision.Value)
         {
-            return incoming.Revision.Value <= local.Revision.Value
-                ? new(
-                    new CanonicalReplica(state, sequence, false, serverUtc, authenticatedOriginDeviceId),
-                    ReplicaDisposition.AlreadyReflected,
-                    "update-already-reflected")
-                : RequireResync("revision-disagreement");
+            if (incoming.Revision.Value > local.Revision.Value ||
+                (incoming.Revision == local.Revision &&
+                 (incoming.LastChangeId != local.LastChangeId || !UpdateStateEqual(update, state))))
+            {
+                return RequireResync("revision-disagreement");
+            }
+
+            return new(
+                new CanonicalReplica(state, sequence, false, serverUtc, authenticatedOriginDeviceId),
+                ReplicaDisposition.AlreadyReflected,
+                "update-already-reflected");
         }
 
         if (update.GlobalRevision.Value != state.GlobalRevision.Value + 1)
@@ -466,6 +471,21 @@ public sealed record CanonicalReplica
         CanonicalAggregateKind.CaptureIntent => JsonEqual(left.CaptureIntent, right.CaptureIntent),
         CanonicalAggregateKind.ProfilePreferences => JsonEqual(left.ProfilePreferences, right.ProfilePreferences),
         _ => throw new ArgumentOutOfRangeException(nameof(aggregate)),
+    };
+
+    /// <summary>
+    /// An update at the exact cursor already held after a snapshot is redundant only when the
+    /// cursor identity and payload both agree. Treating revision equality alone as proof would let
+    /// a delayed fork advance the delivery sequence while silently preserving unrelated state.
+    /// </summary>
+    private static bool UpdateStateEqual(CanonicalUpdate update, CanonicalCompanionState state) => update switch
+    {
+        DeviceModeCanonicalUpdate modes => JsonEqual(modes.State, state.DeviceModes),
+        WorkspaceCanonicalUpdate workspace => JsonEqual(workspace.State, state.Workspace),
+        MarksCanonicalUpdate marks => JsonEqual(marks.State, state.Marks),
+        CaptureCanonicalUpdate capture => JsonEqual(capture.State, state.CaptureIntent),
+        ProfilePreferencesCanonicalUpdate preferences => JsonEqual(preferences.State, state.ProfilePreferences),
+        _ => throw new ArgumentOutOfRangeException(nameof(update)),
     };
 
     private static bool JsonEqual<T>(T left, T right) =>

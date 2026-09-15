@@ -841,8 +841,14 @@ public sealed record DeviceModeCanonicalUpdate : CanonicalUpdate
         WorkspaceOrigin origin,
         V2ContractVersion contractVersion,
         DeviceModeAggregate state)
-        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion) =>
+        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion)
+    {
         State = ProtocolGuard.NotNull(state, nameof(state));
+        if (State.Cursor.LastChangeId != changeId)
+        {
+            throw new ArgumentException("A canonical update names the change occupying its aggregate cursor.", nameof(state));
+        }
+    }
 
     public DeviceModeAggregate State { get; }
 
@@ -860,8 +866,14 @@ public sealed record WorkspaceCanonicalUpdate : CanonicalUpdate
         WorkspaceOrigin origin,
         V2ContractVersion contractVersion,
         WorkspaceAggregate state)
-        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion) =>
+        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion)
+    {
         State = ProtocolGuard.NotNull(state, nameof(state));
+        if (State.Cursor.LastChangeId != changeId)
+        {
+            throw new ArgumentException("A canonical update names the change occupying its aggregate cursor.", nameof(state));
+        }
+    }
 
     public WorkspaceAggregate State { get; }
 
@@ -879,8 +891,14 @@ public sealed record MarksCanonicalUpdate : CanonicalUpdate
         WorkspaceOrigin origin,
         V2ContractVersion contractVersion,
         MarkAggregate state)
-        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion) =>
+        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion)
+    {
         State = ProtocolGuard.NotNull(state, nameof(state));
+        if (State.Cursor.LastChangeId != changeId)
+        {
+            throw new ArgumentException("A canonical update names the change occupying its aggregate cursor.", nameof(state));
+        }
+    }
 
     public MarkAggregate State { get; }
 
@@ -917,8 +935,14 @@ public sealed record CaptureCanonicalUpdate : CanonicalUpdate
         WorkspaceOrigin origin,
         V2ContractVersion contractVersion,
         CaptureIntentAggregate state)
-        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion) =>
+        : base(authorityEpoch, globalRevision, changeId, changedUtc, origin, contractVersion)
+    {
         State = ProtocolGuard.NotNull(state, nameof(state));
+        if (State.Cursor.LastChangeId != changeId)
+        {
+            throw new ArgumentException("A canonical update names the change occupying its aggregate cursor.", nameof(state));
+        }
+    }
 
     public CaptureIntentAggregate State { get; }
 

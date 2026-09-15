@@ -456,7 +456,8 @@ to the global revision.
 **V2 attribution.** Every canonical update repeats the authority epoch and carries the v2 change
 attribution: the Core `WorkspaceOrigin` (workspace, authenticated device, `PairedDevice` or
 `DesktopApplication`, and client or desktop instance) and the `V2ContractVersion`. Maintenance
-changes are attributed to the desktop device and instance. A marks update projects each mark it
+changes are attributed to the desktop device and instance. The update's change ID must be the ID
+occupying its aggregate cursor. A marks update projects each mark it
 wrote to `RevisionedState<MapMarkState>` on stream `paired/<authority epoch>/Marks/<mark ID>`
 (`MarksCanonicalUpdate.ToRevisionedStates`), and a capture update projects its intent to
 `RevisionedState<CaptureIntentState>` on stream `paired/<authority epoch>/CaptureIntent`
@@ -711,7 +712,7 @@ the executable model:
 | Same-epoch canonical snapshot at a newer sequence | Replaces the cache only when every aggregate cursor dominates the held state and equal cursors have equal content; rollback or divergence requires resync. |
 | Any other delivery while awaiting resync | Discarded. |
 | Sequence other than last + 1 | Resync required: a delivery-sequence gap is never applied as a delta. |
-| Update whose global revision is at or below the cache and whose aggregate revision is not newer | Already reflected (a snapshot contained it); the position advances. |
+| Update whose global revision is at or below the cache and whose aggregate revision is older, or whose equal cursor identity and content exactly match | Already reflected (a snapshot contained it); the position advances. An equal-revision fork requires resync. |
 | Update whose global revision is not exactly the next, or whose aggregate revision is not exactly the next | Resync required. |
 | Next update | Replaces that aggregate and advances the global revision. |
 | Acknowledgement carrying same-epoch canonical state | Applies only when it dominates the cache; stale state is ignored and divergent state requires resync. |

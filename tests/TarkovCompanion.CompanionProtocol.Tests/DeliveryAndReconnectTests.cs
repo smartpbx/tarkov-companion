@@ -193,6 +193,38 @@ public sealed class DeliveryAndReconnectTests
         var duplicate = Observe(replica, flow.Envelope(2));
         var resynced = Observe(discarded.Replica, Delivered(6, new CanonicalSnapshotMessage(flow.Final)));
         var alreadyReflected = Observe(resynced.Replica, Delivered(7, new CanonicalUpdateMessage(flow.Updates[^1]), TabletDevice));
+        var heldMark = Assert.Single(flow.Final.Marks.Marks);
+        var forkedMark = new MapMark(
+            heldMark.MarkId,
+            heldMark.Revision,
+            heldMark.LastChangeId,
+            heldMark.Kind,
+            heldMark.Scope,
+            heldMark.AuthorDeviceId,
+            new MapMarkState(
+                heldMark.State.MapId,
+                heldMark.State.FloorId,
+                heldMark.State.X + 1,
+                heldMark.State.Y,
+                heldMark.State.Label,
+                heldMark.State.ExpiresUtc),
+            heldMark.CoordinateSpace,
+            heldMark.ProjectionVersion,
+            heldMark.Height,
+            heldMark.Color,
+            heldMark.CreatedUtc,
+            heldMark.UpdatedUtc);
+        var forkedUpdate = new MarksCanonicalUpdate(
+            flow.Final.AuthorityEpoch,
+            flow.Final.GlobalRevision,
+            flow.Final.Marks.Cursor.LastChangeId!.Value,
+            Now,
+            TabletOrigin,
+            V2ContractVersion.Current,
+            new MarkAggregate(flow.Final.Marks.Cursor, [forkedMark]));
+        var forkedAlreadyReflected = Observe(
+            resynced.Replica,
+            Delivered(7, new CanonicalUpdateMessage(forkedUpdate), TabletDevice));
 
         Assert.Equal(ReplicaDisposition.ResyncRequired, gap.Disposition);
         Assert.Equal("delivery-sequence-gap", gap.Code);
@@ -202,6 +234,9 @@ public sealed class DeliveryAndReconnectTests
         Assert.Equal(ReplicaDisposition.Applied, resynced.Disposition);
         Assert.False(resynced.Replica.AwaitingResync);
         Assert.Equal(ReplicaDisposition.AlreadyReflected, alreadyReflected.Disposition);
+        Assert.Equal(ReplicaDisposition.ResyncRequired, forkedAlreadyReflected.Disposition);
+        Assert.Equal("revision-disagreement", forkedAlreadyReflected.Code);
+        Assert.Equal(6, forkedAlreadyReflected.Replica.LastDeliverySequence.Value);
         AssertStateEqual(flow.Final, flow.ReplicaThrough(5).State!);
     }
 

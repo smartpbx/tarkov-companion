@@ -249,6 +249,21 @@ public sealed class GoldenAndHostileJsonTests
     }
 
     [Theory]
+    [InlineData("server/canonical-update-device-modes.json")]
+    [InlineData("server/canonical-update-workspace.json")]
+    [InlineData("server/canonical-update-marks.json")]
+    [InlineData("server/canonical-update-capture-intent.json")]
+    [InlineData("server/canonical-update-profile-preferences.json")]
+    public void CanonicalUpdateChangeIdMustOccupyItsAggregateCursor(string file)
+    {
+        var update = GoldenNode(file);
+        update["message"]!["update"]!["changeId"]!["value"] = "40000000-0000-4000-8000-000000000099";
+
+        Assert.ThrowsAny<JsonException>(() => CompanionProtocolJson.Deserialize<ServerEnvelope>(
+            Encoding.UTF8.GetBytes(update.ToJsonString())));
+    }
+
+    [Theory]
     [InlineData("ms-msdt:/id PCWDiagnostic")]
     [InlineData("file:///C:/Windows/System32/calc.exe")]
     [InlineData("https://companion.example/objective/objective-1")]
