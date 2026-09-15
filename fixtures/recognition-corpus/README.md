@@ -6,8 +6,9 @@ contains no pixels, real capture names, absolute paths, private manifests, conse
 records, OCR strings, or real per-sample truth or predictions. The invented traversal/name strings
 under `hostile/` exist only to prove that extension fields cannot smuggle those classes of data
 through validation: a relative traversal, an original-name field, original-name aliases that differ
-only by case or separators, and a complete consent document declared at a position v1 never
-defines.
+only by case or separators, a complete consent document declared at a position v1 never
+defines, Windows root-relative and drive-relative paths, and file URIs and paths behind full-width
+separators or a zero-width space.
 
 `golden/` is the one place with per-sample labels, and every one is invented: a synthetic-raster
 manifest with no consent or privacy records, predictions for it, and the run plan and aggregate

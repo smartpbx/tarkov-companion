@@ -12,6 +12,16 @@ public sealed class CorpusContractTests
     private static readonly DateTimeOffset Future = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly PredictionSource FixtureSource = new("model-fixture-000001", "1.0.0-fixture", PredictionSourceKind.ModelledEstimate);
 
+    /// <summary>Five answered Test-split samples and every interchange built from them, each valid and publishable.</summary>
+    private static readonly Lazy<(CorpusManifest Manifest, RunPlan Plan, PredictionDocument Predictions, string AggregateJson)> ExtensionDocuments = new(() =>
+    {
+        var manifest = Manifest(FindIndependentTestSamples(5, "sample-json-extension"));
+        var plan = PrivateRunPlanner.Create(manifest, "run-json-extension-0001", "producer-json-extension", "1.0", Now);
+        var predictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
+            [new PredictionClaim($"claim-json-extension-{index:0000}", "item", "known-item")])).ToArray();
+        return (manifest, plan, Document(plan, predictions), CorpusJson.SerializeAggregateResults(Score(manifest, plan, predictions)));
+    });
+
     [Fact]
     public void CheckedInBaselineIsExactlyBlockedUntilConsentedPixelsExist()
     {
@@ -126,6 +136,78 @@ public sealed class CorpusContractTests
         // The ordinary members of every checked-in contract stay allowed after normalization.
         Assert.Empty(CorpusValidation.ValidateRunPlanInterchange(RunPlanJson(plan), ManifestJson(manifest), Now));
         Assert.Empty(CorpusValidation.ValidatePrivateManifestInterchange(ManifestJson(manifest), Now));
+    }
+
+    /// <summary>
+    /// The path check used to know "/", "C:\", "\\", "file://", and "..", and it read text exactly
+    /// as written. A Windows root-relative or drive-relative path, a file URI with one slash, and a
+    /// path behind a full-width separator or an invisible character all passed. Each row is refused
+    /// as a value and as a property name in every interchange, and no error repeats it. The rows the
+    /// old check already refused stay as regressions.
+    /// </summary>
+    [Theory]
+    [InlineData(@"\Users\owner-capture\capture.png")]
+    [InlineData(@"C:owner-capture\x.png")]
+    [InlineData("c:owner-capture.png")]
+    [InlineData("file:/home/owner-capture/capture.png")]
+    [InlineData("FILE:/C:/Users/owner-capture/capture.png")]
+    [InlineData("file:owner-capture.png")]
+    [InlineData(@"\\?\C:\Users\owner-capture\capture.png")]
+    [InlineData(@"\\server\owner-capture\capture.png")]
+    [InlineData("/home/owner-capture/capture.png")]
+    [InlineData(@"C:\Users\owner-capture\capture.png")]
+    [InlineData(@"captures\..\owner-capture.png")]
+    [InlineData("~/owner-capture/capture.png")]
+    [InlineData("\uFF0Fhome\uFF0Fowner-capture\uFF0Fcapture.png")]
+    [InlineData("\uFF3CUsers\uFF3Cowner-capture")]
+    [InlineData("\uFF23\uFF1Aowner-capture\uFF3Cx.png")]
+    [InlineData("\uFF46\uFF29\uFF4C\uFF45\uFF1A/home/owner-capture")]
+    [InlineData("\u200B\\Users\\owner-capture")]
+    [InlineData("C\u200D:owner-capture\\x.png")]
+    [InlineData("fi\u00ADle:/home/owner-capture")]
+    [InlineData("\u202E/home/owner-capture")]
+    [InlineData(" \t/home/owner-capture")]
+    [InlineData("\u2215home\u2215owner-capture")]
+    [InlineData("captures/\uFF0E\uFF0E/owner-capture")]
+    [InlineData("captures/\u2025/owner-capture")]
+    [InlineData(@"C: \Users\owner-capture")]
+    public void PathShapedValuesAndNamesAreRefusedInWindowsUriAndUnicodeForms(string hostile)
+    {
+        foreach (var (because, errors) in WithExtensionMember("note", hostile).Concat(WithExtensionMember(hostile, null)))
+        {
+            AssertRefused(errors, "absolute filesystem path or relative traversal", because);
+            Assert.DoesNotContain(errors, error => error.Contains("owner-capture", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>
+    /// Text that only resembles a path keeps passing: no root, no drive, no file scheme, and no
+    /// ".." segment, including after full-width and look-alike characters are folded.
+    /// </summary>
+    [Theory]
+    [InlineData("35/35")]
+    [InlineData("12:34")]
+    [InlineData("01:02:03")]
+    [InlineData("X: 5")]
+    [InlineData("HP: 440/440")]
+    [InlineData("Loading...")]
+    [InlineData("...")]
+    [InlineData("a..b")]
+    [InlineData("5.45x39mm PS gs")]
+    [InlineData("https://tarkovcompanion.local/schemas/recognition-corpus/manifest.v1.schema.json")]
+    [InlineData("profile:default")]
+    [InlineData("~5 minutes")]
+    [InlineData("1\u20442")]
+    [InlineData("\uFF11\uFF12:\uFF13\uFF14")]
+    public void OrdinaryTextThatOnlyResemblesAPathStaysAllowed(string benign)
+    {
+        foreach (var (because, errors) in WithExtensionMember("note", benign).Concat(WithExtensionMember(benign, null)))
+        {
+            if (errors.Count != 0)
+            {
+                Assert.Fail($"Expected no errors for {because}; got: {string.Join(" | ", errors)}");
+            }
+        }
     }
 
     [Fact]
@@ -1173,6 +1255,26 @@ public sealed class CorpusContractTests
         Assert.DoesNotContain(consent.Errors, error => error.Contains("prohibited field", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Paths the earlier check let through, as checked-in documents: Windows root-relative and
+    /// drive-relative values and a root-relative member name; then file URIs with one slash, and
+    /// paths behind full-width separators, a full-width drive, or a zero-width space, as values
+    /// and as a member name. The old check refused none of the nine.
+    /// </summary>
+    [Fact]
+    public void HostileWindowsUriAndUnicodePathFixturesAreRefused()
+    {
+        const string pathError = "absolute filesystem path or relative traversal";
+        var root = CorpusFixtures.FixturePath("hostile");
+        var windows = CorpusJson.ParseRunPlan(File.ReadAllText(Path.Combine(root, "windows-relative-paths-run-plan.v1.json")));
+        Assert.Equal(3, windows.Errors.Count(error => error.Contains(pathError, StringComparison.Ordinal)));
+
+        var unicode = CorpusJson.ParsePredictions(File.ReadAllText(Path.Combine(root, "uri-and-unicode-paths-predictions.v1.json")));
+        Assert.Equal(6, unicode.Errors.Count(error => error.Contains(pathError, StringComparison.Ordinal)));
+
+        Assert.All(windows.Errors.Concat(unicode.Errors), error => Assert.DoesNotContain("invented-owner", error, StringComparison.Ordinal));
+    }
+
     private static CorpusSample Repeated(string sampleId, string sequenceId, string sessionId, string truthId, int ordinal, int frame, decimal overlap) =>
         Sample(sampleId, sequenceId: sequenceId, sessionId: sessionId, ordinal: ordinal, frame: frame, overlap: overlap) with
         {
@@ -1341,6 +1443,33 @@ public sealed class CorpusContractTests
             Thresholds(),
             evidenceClass,
             Now);
+
+    /// <summary>
+    /// Every interchange, each valid on its own, with one extension member added: the name holding
+    /// true when <paramref name="value"/> is null, otherwise the name holding that string.
+    /// </summary>
+    private static IEnumerable<(string Because, IReadOnlyList<string> Errors)> WithExtensionMember(string name, string? value)
+    {
+        var (manifest, plan, predictions, aggregateJson) = ExtensionDocuments.Value;
+        JsonObject Extension() => value is null ? new JsonObject { [name] = true } : new JsonObject { [name] = value };
+        var kind = value is null ? "a property name" : "a value";
+
+        var manifestNode = JsonNode.Parse(ManifestJson(manifest))!.AsObject();
+        manifestNode["samples"]![0]!["futureExtension"] = Extension();
+        yield return ($"{kind} in a private manifest", CorpusValidation.ValidatePrivateManifestInterchange(manifestNode.ToJsonString(), Now));
+
+        var planNode = JsonNode.Parse(RunPlanJson(plan))!.AsObject();
+        planNode["futureExtension"] = Extension();
+        yield return ($"{kind} in a run plan", CorpusValidation.ValidateRunPlanInterchange(planNode.ToJsonString(), ManifestJson(manifest), Now));
+
+        var predictionNode = JsonNode.Parse(PredictionsJson(predictions))!.AsObject();
+        predictionNode["predictions"]![0]!["source"]!["futureExtension"] = Extension();
+        yield return ($"{kind} in predictions", CorpusValidation.ValidatePredictionsInterchange(predictionNode.ToJsonString(), RunPlanJson(plan), Now));
+
+        var aggregateNode = JsonNode.Parse(aggregateJson)!.AsObject();
+        aggregateNode["futureExtension"] = Extension();
+        yield return ($"{kind} in an aggregate", AggregateResultValidation.ValidateInterchange(aggregateNode.ToJsonString(), ThresholdsJson()));
+    }
 
     private static SliceMetrics Slice(AggregateResults aggregate) => Assert.Single(
         aggregate.Slices,

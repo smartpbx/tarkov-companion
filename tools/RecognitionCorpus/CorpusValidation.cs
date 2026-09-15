@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -805,13 +806,71 @@ public static class CorpusValidation
         }
     }
 
-    private static bool LooksFilesystemPath(string value) =>
-        Path.IsPathFullyQualified(value) ||
-        value.StartsWith("/", StringComparison.Ordinal) ||
-        (value.Length >= 3 && char.IsAsciiLetter(value[0]) && value[1] == ':' && value[2] is '\\' or '/') ||
-        value.StartsWith("\\\\", StringComparison.Ordinal) ||
-        value.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
-        value.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..", StringComparer.Ordinal);
+    /// <summary>
+    /// Whether a string value or property name has the syntax of a location a filesystem or URI
+    /// reader resolves: anything rooted ("/home/x", "\Users\x", "\\server\share", "\\?\C:\x"),
+    /// anything that names a drive ("C:\x", "C:x", "C:"), a home-relative "~/x", a file URI, or a
+    /// ".." segment. The previous check knew "/", "C:\", "\\", "file://", and "..", so a
+    /// root-relative "\Users\owner\capture.png", a drive-relative "C:captures\x.png", and a valid
+    /// "file:/home/owner/capture.png" passed although Windows or a URI reader opens each of them.
+    /// It also read the text exactly as written, so a full-width solidus or a zero-width space in
+    /// front of the root hid a path that a lenient reader, or a person, reads through. The text is
+    /// folded first (see <see cref="PathShapeText"/>). Ordinary text stays allowed: "35/35",
+    /// "12:34", "X: 5", "Loading...", and an https URL have no root, drive, file scheme, or ".."
+    /// segment. A letter immediately followed by a colon is refused because to Windows it is a
+    /// drive whatever follows; a label that puts a space after its colon is not.
+    /// </summary>
+    private static bool LooksFilesystemPath(string value)
+    {
+        var text = PathShapeText(value);
+        return Rooted(text) ||
+               (text.Length >= 2 && char.IsAsciiLetter(text[0]) && text[1] == ':' &&
+                (text.Length == 2 || !char.IsWhiteSpace(text[2]) || Rooted(text[2..].TrimStart()))) ||
+               text.StartsWith("file:", StringComparison.OrdinalIgnoreCase) ||
+               Path.IsPathFullyQualified(text) ||
+               text.Split('/', '\\').Any(segment => segment.Trim() is "..");
+
+        static bool Rooted(string text) =>
+            text.Length > 0 && (text[0] is '/' or '\\' || (text.Length > 1 && text[0] == '~' && text[1] is '/' or '\\'));
+    }
+
+    /// <summary>
+    /// The text a path check reads: unpaired surrogates replaced, compatibility-normalized (NFKC
+    /// turns a full-width solidus, reverse solidus, colon, letter, or full stop into its ASCII
+    /// form), format characters such as zero-width spaces, joiners, soft hyphens, and bidi
+    /// controls removed, other non-white-space controls removed, the slash look-alikes that no
+    /// normalization folds read as "/", and surrounding white space trimmed. Unlike
+    /// <see cref="NormalizedPropertyName"/>, separators and punctuation are kept, because they
+    /// are what makes text a path.
+    /// </summary>
+    private static string PathShapeText(string value)
+    {
+        // Enumerating runes substitutes U+FFFD for each unpaired surrogate, which is what would
+        // otherwise make normalization throw and leave the text unfolded.
+        var folded = string.Concat(value.EnumerateRunes().Select(rune => rune.ToString()));
+        try
+        {
+            folded = folded.Normalize(NormalizationForm.FormKC);
+        }
+        catch (Exception exception) when (exception is ArgumentException or PlatformNotSupportedException)
+        {
+            // Without normalization the ASCII and look-alike checks below still apply.
+        }
+
+        var builder = new StringBuilder(folded.Length);
+        foreach (var rune in folded.EnumerateRunes())
+        {
+            var category = Rune.GetUnicodeCategory(rune);
+            if (category == UnicodeCategory.Format || (category == UnicodeCategory.Control && !Rune.IsWhiteSpace(rune)))
+            {
+                continue;
+            }
+
+            builder.Append(rune.Value is 0x2044 or 0x2215 or 0x29F5 or 0x29F8 or 0x29F9 ? "/" : rune.ToString());
+        }
+
+        return builder.ToString().Trim();
+    }
 
     private sealed class ForbiddenNames(IEnumerable<string> wholeNames, IEnumerable<string> fragments)
     {

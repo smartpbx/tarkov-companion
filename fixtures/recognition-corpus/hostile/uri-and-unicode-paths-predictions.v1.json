@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "predictions.v1",
+  "runId": "run-hostile-unicode-00001",
+  "producer": {
+    "id": "producer-hostile-0006",
+    "version": "1.0"
+  },
+  "planLock": "0000000000000000000000000000000000000000000000000000000000000000",
+  "predictions": [],
+  "futureExtension": {
+    "artifactUri": "file:/home/invented-owner/capture.png",
+    "mirrorUri": "FILE:/C:/Users/invented-owner/capture.png",
+    "wideReference": "\uFF0Fhome\uFF0Finvented-owner\uFF0Fcapture.png",
+    "hiddenReference": "\u200B\\Users\\invented-owner\\capture.png",
+    "wideDrive": "\uFF23\uFF1Acaptures\uFF3Cinvented-owner.png",
+    "\uFF0Fhome\uFF0Finvented-owner": true
+  }
+}
