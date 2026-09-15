@@ -85,7 +85,9 @@ for root, _, names in os.walk(golden):
         if folder == "crypto": continue
         path = os.path.join(root, name)
         doc = json.load(open(path))
-        errors = valid(schema, doc)
+        # Strict mode proves every member is declared; lax mode proves the root oneOf is unambiguous
+        # for readers that ignore unknown optional members.
+        errors = valid(schema, doc) + valid(schema, doc, strict=False)
         if errors:
             bad += 1
             print(path); [print("   ", e) for e in errors[:12]]

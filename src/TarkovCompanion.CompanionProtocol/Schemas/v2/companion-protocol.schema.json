@@ -3221,6 +3221,7 @@
         "attemptId",
         "desktopNonceBase64Url"
       ],
+      "$comment": "A handshake challenge also names the attempt and desktop nonce, so the root oneOf excludes it here.",
       "properties": {
         "attemptId": {
           "$ref": "#/$defs/guidId"
@@ -3228,6 +3229,11 @@
         "desktopNonceBase64Url": {
           "$ref": "#/$defs/nonceBase64Url"
         }
+      },
+      "not": {
+        "required": [
+          "challengeId"
+        ]
       }
     },
     "v2ContractVersion": {

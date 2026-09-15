@@ -91,31 +91,26 @@ public sealed class IdempotencyTests
     [Fact]
     public void ARePreviewedOfflineRetryAfterALostAcknowledgementIsTheDuplicateNotASecondApply()
     {
+        var queue = OfflineActionQueue.Empty.Enqueue(new ShowOnDesktopOfflineAction(Command(91), Now, Now.AddMinutes(15), Projection("woods")));
         var state = Apply(InitialState(), SetMode(90, 1, Now, CompanionInteractionMode.Independent), TabletContext()).State;
-        var show = new ShowOnDesktopCommand(
-            Command(91),
-            new AggregateRevision(1),
-            Now,
-            Now.AddMinutes(10),
-            Projection("woods"),
-            new OfflineQueuePreview(Now, Now, Epoch, state.Workspace.Cursor.Revision));
-        var applied = Apply(state, show, TabletContext());
+        var previewedAt = Now.AddSeconds(1);
+        var show = queue.PrepareSubmission(Command(91), state, previewedAt);
+        var applied = Apply(state, show, TabletContext(previewedAt));
+        var changedAt = Now.AddSeconds(2);
         var desktopChange = DesktopCanonicalStateMachine.Apply(
             applied.State,
-            Envelope(new UpdateDesktopWorkspaceCommand(Command(92), new AggregateRevision(2), Now, Now.AddMinutes(1), Projection("customs")), DesktopSession),
-            DesktopContext());
-        var retryAt = Now.AddSeconds(5);
-        var rePreviewed = new ShowOnDesktopCommand(
-            Command(91),
-            new AggregateRevision(3),
-            retryAt,
-            retryAt.AddMinutes(10),
-            Projection("woods"),
-            new OfflineQueuePreview(Now, retryAt, Epoch, desktopChange.State.Workspace.Cursor.Revision));
+            Envelope(new UpdateDesktopWorkspaceCommand(Command(92), new AggregateRevision(2), changedAt, changedAt.AddMinutes(1), Projection("customs")), DesktopSession),
+            DesktopContext(changedAt));
 
+        // The acknowledgement was lost, so the tablet re-previews the same draft against newer state.
+        var retryAt = Now.AddSeconds(5);
+        var rePreviewed = queue.PrepareSubmission(Command(91), desktopChange.State, retryAt);
         var retry = Apply(desktopChange.State, rePreviewed, TabletContext(retryAt));
 
         Assert.Equal(CommandDisposition.Applied, applied.Acknowledgement.Disposition);
+        Assert.Equal(CommandDisposition.Applied, desktopChange.Acknowledgement.Disposition);
+        Assert.NotEqual(show.RequestedRevision, rePreviewed.RequestedRevision);
+        Assert.NotEqual(show.OfflineQueuePreview, rePreviewed.OfflineQueuePreview);
         Assert.Equal(CommandDisposition.Applied, retry.Acknowledgement.Disposition);
         Assert.Equal("duplicate-command", retry.Acknowledgement.Code);
         Assert.Equal(1, retry.Acknowledgement.RequestedRevision.Value);
