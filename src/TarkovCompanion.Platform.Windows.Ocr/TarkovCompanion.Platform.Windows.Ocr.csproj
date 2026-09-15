@@ -17,4 +17,11 @@
   <ItemGroup>
     <ProjectReference Include="../TarkovCompanion.Core/TarkovCompanion.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Compiled in rather than referenced. Tiled Windows reads and coordinated passes must
+         share one bounded duplicate rule, and referencing Infrastructure for one internal class
+         would drag SQLite, Skia and Tesseract into the one Windows-only assembly. It uses only
+         Core types. -->
+    <Compile Include="../TarkovCompanion.Infrastructure/Recognition/OcrLineDeduplicator.cs" Link="Shared/OcrLineDeduplicator.cs" />
+  </ItemGroup>
 </Project>

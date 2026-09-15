@@ -68,9 +68,7 @@ internal static class Program
 
             if (options.OcrProbePath is { Length: > 0 } probePath)
             {
-                return OcrProbe.RunAsync(probePath, options, CancellationToken.None)
-                    .GetAwaiter()
-                    .GetResult();
+                return RunOcrProbe(probePath, options);
             }
 
             // Only the ordinary launch is guarded. A self-test, a headless demo, a page
@@ -192,6 +190,55 @@ internal static class Program
         catch (AggregateException exception)
         {
             CrashLog.Write("shutdown-failure", exception);
+        }
+    }
+
+    /// <summary>
+    /// Runs the OCR probe with a cancellation Ctrl+C can actually reach.
+    /// </summary>
+    /// <remarks>
+    /// The probe used to be handed <see cref="CancellationToken.None"/>, so a long cell run could
+    /// only be stopped by killing the process, mid-way through whatever native OCR it was in.
+    /// The first Ctrl+C now cancels the run at its next bounded check and exits with 130; a
+    /// second one is left to terminate the process the ordinary way.
+    /// </remarks>
+    private static int RunOcrProbe(string probePath, AppCommandLine options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        void Cancel(object? sender, ConsoleCancelEventArgs arguments)
+        {
+            try
+            {
+                if (!cancellation.IsCancellationRequested)
+                {
+                    arguments.Cancel = true;
+                    cancellation.Cancel();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // The probe already finished; let the key press end the process.
+            }
+        }
+
+        Console.CancelKeyPress += Cancel;
+        try
+        {
+            var probe = options.OcrProbeCells
+                ? OcrProbe.RunCellsAsync(probePath, options, cancellation.Token)
+                : OcrProbe.RunAsync(probePath, options, cancellation.Token);
+            return probe
+                .GetAwaiter()
+                .GetResult();
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            Console.Error.WriteLine("OCR probe cancelled; no report was written.");
+            return 130;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= Cancel;
         }
     }
 

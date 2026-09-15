@@ -79,12 +79,20 @@ public static class StashGrid
     /// Nothing rather than a guess. A caller handed a made-up grid would crop arbitrary
     /// rectangles out of a picture and read whatever happened to be in them, which is the
     /// failure that looks like working.
+    ///
+    /// Finding the phase reads every pixel of the region once per axis, which for a whole 4K
+    /// frame is sixteen million reads that nothing could interrupt. The token is checked in
+    /// bounded chunks of them, so a caller's deadline stops the search partway through.
     /// </remarks>
-    public static IReadOnlyList<StashCell> Cells(CapturedImage image, PixelRect region)
+    public static IReadOnlyList<StashCell> Cells(
+        CapturedImage image,
+        PixelRect region,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(region);
-        CapturedImagePixels.Validate(image);
+        CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var pitch = Pitch(image);
         if (region.Width < pitch * 2 || region.Height < pitch * 2)
@@ -92,8 +100,8 @@ public static class StashGrid
             return [];
         }
 
-        if (FindPhase(image, region, pitch, vertical: true) is not { } columnPhase ||
-            FindPhase(image, region, pitch, vertical: false) is not { } rowPhase)
+        if (FindPhase(image, region, pitch, vertical: true, cancellationToken) is not { } columnPhase ||
+            FindPhase(image, region, pitch, vertical: false, cancellationToken) is not { } rowPhase)
         {
             return [];
         }
@@ -127,10 +135,16 @@ public static class StashGrid
     /// scored the same way and both have to clear the same contrast before any cell is
     /// returned.
     /// </remarks>
-    public static int? FindPhase(CapturedImage image, PixelRect region, int pitch, bool vertical)
+    public static int? FindPhase(
+        CapturedImage image,
+        PixelRect region,
+        int pitch,
+        bool vertical,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(region);
+        cancellationToken.ThrowIfCancellationRequested();
         var span = vertical ? region.Width : region.Height;
         var origin = vertical ? region.X : region.Y;
         if (pitch < 2 || span < pitch * 2)
@@ -139,9 +153,10 @@ public static class StashGrid
         }
 
         var means = new double[span];
+        var check = new PixelCancellationCheck(cancellationToken);
         for (var offset = 0; offset < span; offset++)
         {
-            means[offset] = MeanLuminance(image, region, origin + offset, vertical);
+            means[offset] = MeanLuminance(image, region, origin + offset, vertical, ref check);
         }
 
         var average = means.Average();
@@ -175,7 +190,12 @@ public static class StashGrid
         return average / Math.Max(bestDarkness, 0.0001) >= MinimumContrast ? origin + bestPhase : null;
     }
 
-    private static double MeanLuminance(CapturedImage image, PixelRect region, int at, bool vertical)
+    private static double MeanLuminance(
+        CapturedImage image,
+        PixelRect region,
+        int at,
+        bool vertical,
+        ref PixelCancellationCheck check)
     {
         double total = 0;
         var count = 0;
@@ -183,6 +203,7 @@ public static class StashGrid
         {
             for (var y = region.Y; y < region.Y + region.Height; y++)
             {
+                check.Read();
                 total += CapturedImagePixels.GetLuminance(image, at, y);
                 count++;
             }
@@ -191,6 +212,7 @@ public static class StashGrid
         {
             for (var x = region.X; x < region.X + region.Width; x++)
             {
+                check.Read();
                 total += CapturedImagePixels.GetLuminance(image, x, at);
                 count++;
             }

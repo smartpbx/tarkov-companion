@@ -14,6 +14,7 @@
   ],
   "testProjects": [
     "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+    "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
     "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
     "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
     "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1342,6 +1343,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1364,6 +1366,7 @@
         "relationship": "direct",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1386,6 +1389,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1408,6 +1412,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1430,6 +1435,7 @@
         "relationship": "direct",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1452,6 +1458,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1474,6 +1481,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1496,6 +1504,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1518,6 +1527,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1540,6 +1550,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1562,6 +1573,7 @@
         "relationship": "transitive",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
@@ -1584,6 +1596,7 @@
         "relationship": "direct",
         "projects": [
           "tests/TarkovCompanion.IntegrationTests/TarkovCompanion.IntegrationTests.csproj",
+          "tests/TarkovCompanion.Platform.Windows.OcrTests/TarkovCompanion.Platform.Windows.OcrTests.csproj",
           "tests/TarkovCompanion.RecognitionCorpusTests/TarkovCompanion.RecognitionCorpusTests.csproj",
           "tests/TarkovCompanion.RecognitionTests/TarkovCompanion.RecognitionTests.csproj",
           "tests/TarkovCompanion.UnitTests/TarkovCompanion.UnitTests.csproj",
