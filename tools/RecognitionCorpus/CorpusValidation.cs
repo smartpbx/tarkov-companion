@@ -8,6 +8,8 @@ public static class CorpusValidation
     public const string ManifestSchemaVersion = "manifest.v1";
     public const string RunPlanSchemaVersion = "run-plan.v1";
     public const string PredictionsSchemaVersion = "predictions.v1";
+    public const string AggregateResultsSchemaVersion = "aggregate-results.v1";
+    public const string ThresholdsSchemaVersion = "thresholds.v1";
     public const string FrozenPolicyVersion = "recognition-scorer-policy.v1";
     public const string NearDuplicateGraphVersion = "phash-graph.v1";
     public const decimal MaximumElapsedMilliseconds = 120_000m;
@@ -20,13 +22,22 @@ public static class CorpusValidation
 
     private static readonly HashSet<string> ForbiddenInterchangeNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "filename", "fileName", "sourceFilename", "sourcePath", "absolutePath", "path", "pixels", "ocrText", "truth", "labels",
+        "filename", "fileName", "sourceFilename", "sourcePath", "sourceName", "originalName", "originalFileName", "originalFilename",
+        "originalPath", "originalUri", "absolutePath", "path", "pixels", "ocrText", "truth", "labels",
         "consent", "privacyReview", "privateEvidence", "decodedPixelSha256", "observedDecodedPixelSha256", "nearDuplicateHashes",
     };
 
     private static readonly HashSet<string> ForbiddenPrivateManifestNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        "filename", "fileName", "sourceFilename", "sourcePath", "absolutePath", "path", "pixels", "ocrText", "consentRecord",
+        "filename", "fileName", "sourceFilename", "sourcePath", "sourceName", "originalName", "originalFileName", "originalFilename",
+        "originalPath", "originalUri", "absolutePath", "path", "pixels", "ocrText", "consentRecord",
+    };
+
+    private static readonly HashSet<string> ForbiddenAggregateNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sampleId", "claimId", "truthId", "claims", "predictions", "perSample", "perSampleResults", "sampleResults",
+        "provenance", "lineage", "privateEvidence",
+        "consent", "privacyReview", "decodedPixelSha256", "observedDecodedPixelSha256",
     };
 
     private static readonly HashSet<string> AllowedUses = new(StringComparer.Ordinal)
@@ -517,7 +528,79 @@ public static class CorpusValidation
     public static void RejectRepositoryPath(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var directory = new FileInfo(Path.GetFullPath(path)).Directory;
+        var lexicalPath = Path.GetFullPath(path);
+        RejectRepositoryAncestor(lexicalPath);
+        if (File.Exists(lexicalPath) || Directory.Exists(lexicalPath))
+        {
+            RejectRepositoryAncestor(ResolveExistingPath(lexicalPath));
+        }
+    }
+
+    /// <summary>
+    /// Resolves every existing symlink/reparse-point component before the caller opens a private
+    /// interchange. Checking only Path.GetFullPath leaves an outside-looking link free to point
+    /// back into a worktree and publish checked-in fixtures as if they were private evidence.
+    /// </summary>
+    public static string ResolvePrivateInputPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var lexicalPath = Path.GetFullPath(path);
+        RejectRepositoryAncestor(lexicalPath);
+        if (!File.Exists(lexicalPath))
+        {
+            throw new FileNotFoundException("Private recognition corpus input does not exist.", lexicalPath);
+        }
+
+        var resolvedPath = ResolveExistingPath(lexicalPath);
+        RejectRepositoryAncestor(resolvedPath);
+        if (!File.Exists(resolvedPath))
+        {
+            throw new FileNotFoundException("Resolved private recognition corpus input is not a file.", resolvedPath);
+        }
+
+        return resolvedPath;
+    }
+
+    public static string ResolveExistingInputPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var fullPath = Path.GetFullPath(path);
+        if (!File.Exists(fullPath))
+        {
+            throw new FileNotFoundException("Recognition corpus input does not exist.", fullPath);
+        }
+
+        return ResolveExistingPath(fullPath);
+    }
+
+    public static string ResolveOutputPath(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var fullPath = Path.GetFullPath(path);
+        var directory = Path.GetDirectoryName(fullPath) ??
+                        throw new InvalidOperationException("Recognition corpus output requires a parent directory.");
+        if (!Directory.Exists(directory))
+        {
+            throw new DirectoryNotFoundException($"Recognition corpus output directory does not exist: {directory}");
+        }
+
+        var resolvedDirectory = ResolveExistingPath(directory);
+        var output = Path.Combine(resolvedDirectory, Path.GetFileName(fullPath));
+        if (File.Exists(output))
+        {
+            var entry = new FileInfo(output);
+            if (!string.IsNullOrEmpty(entry.LinkTarget) || entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new InvalidOperationException("Recognition corpus output cannot replace a symlink or reparse point.");
+            }
+        }
+
+        return output;
+    }
+
+    private static void RejectRepositoryAncestor(string path)
+    {
+        var directory = Directory.Exists(path) ? new DirectoryInfo(path) : new FileInfo(path).Directory;
         while (directory is not null)
         {
             if (Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
@@ -527,6 +610,34 @@ public static class CorpusValidation
 
             directory = directory.Parent;
         }
+    }
+
+    private static string ResolveExistingPath(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(fullPath) ?? throw new InvalidOperationException("Input path has no filesystem root.");
+        var current = root;
+        foreach (var segment in fullPath[root.Length..].Split(
+                     [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(current, segment);
+            FileSystemInfo entry = Directory.Exists(candidate) ? new DirectoryInfo(candidate) : new FileInfo(candidate);
+            if (!entry.Exists)
+            {
+                throw new FileNotFoundException("Recognition corpus path component does not exist.", candidate);
+            }
+
+            if (!string.IsNullOrEmpty(entry.LinkTarget) || entry.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                entry = entry.ResolveLinkTarget(true) ??
+                        throw new InvalidOperationException($"Recognition corpus link target could not be resolved: {candidate}");
+            }
+
+            current = Path.GetFullPath(entry.FullName);
+        }
+
+        return current;
     }
 
     public static string CanonicalPixelHash(ReadOnlySpan<byte> decodedPixels) =>
@@ -679,6 +790,13 @@ public static class CorpusValidation
         return errors;
     }
 
+    internal static IReadOnlyList<string> AggregatePrivacyErrors(JsonElement root)
+    {
+        var errors = new List<string>();
+        Visit(root, errors, ForbiddenAggregateNames);
+        return errors;
+    }
+
     private static void Visit(JsonElement element, ICollection<string> errors, IReadOnlySet<string> forbiddenNames)
     {
         if (element.ValueKind == JsonValueKind.Object)
@@ -700,18 +818,19 @@ public static class CorpusValidation
                 Visit(value, errors, forbiddenNames);
             }
         }
-        else if (element.ValueKind == JsonValueKind.String && LooksAbsolutePath(element.GetString() ?? string.Empty))
+        else if (element.ValueKind == JsonValueKind.String && LooksFilesystemPath(element.GetString() ?? string.Empty))
         {
-            errors.Add("Interchange cannot contain an absolute filesystem path.");
+            errors.Add("Interchange cannot contain an absolute filesystem path or relative traversal.");
         }
     }
 
-    private static bool LooksAbsolutePath(string value) =>
+    private static bool LooksFilesystemPath(string value) =>
         Path.IsPathFullyQualified(value) ||
         value.StartsWith("/", StringComparison.Ordinal) ||
         (value.Length >= 3 && char.IsAsciiLetter(value[0]) && value[1] == ':' && value[2] is '\\' or '/') ||
         value.StartsWith("\\\\", StringComparison.Ordinal) ||
-        value.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
+        value.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ||
+        value.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries).Contains("..", StringComparer.Ordinal);
 }
 
 internal static class PredictionTypeNames

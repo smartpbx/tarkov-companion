@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "predictions.v1",
+  "runId": "run-hostile-name-000001",
+  "producer": {
+    "id": "producer-hostile-0002",
+    "version": "1.0"
+  },
+  "predictions": [],
+  "futureExtension": {
+    "originalName": "invented-original-capture.png"
+  }
+}

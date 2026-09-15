@@ -34,8 +34,9 @@ The checked-in schemas under `fixtures/recognition-corpus/schemas/` are the v1 c
 
 Readers ignore unknown JSON properties for compatible evolution. They still reject malformed or
 empty documents, missing required fields, malformed hashes, undefined enums, non-opaque IDs,
-filesystem names/paths, labels in a truth-free interchange, and every real-raster eligibility
-failure.
+original-name fields, absolute paths, relative traversal strings, labels in a truth-free
+interchange, and every real-raster eligibility failure. These privacy checks recurse into unknown
+extension fields rather than trusting a known-property projection.
 
 ## Consent, privacy, retention, and revocation
 
@@ -51,9 +52,10 @@ A real raster is eligible only when all of the following are true at score time:
 
 Revocation, expiry, rejected review, a changed pixel hash, a hash-shaped summary without its full
 private record, or a missing record removes the sample from eligibility and invalidates the
-affected split lock/baseline. Ingest never accepts an
-original filename or an absolute/local filesystem path; the CLI rejects a manifest path nested
-under `.git` or a worktree. A consent hash is a correlation check, not a replacement for the
+affected split lock/baseline. Ingest never accepts an original filename or an absolute/local
+filesystem path. Before reading any private input, the CLI canonicalizes it, resolves every
+existing symlink or junction component, and rejects both the lexical and resolved path if either
+enters a repository or worktree. A consent hash is a correlation check, not a replacement for the
 private consent record and human review.
 
 ## Split and lineage
@@ -68,7 +70,8 @@ or cross-split graph edge fails validation.
 
 A truth-free plan cannot prove that private graph on its own. `PrivateRunPlanner` therefore takes
 the validated private manifest, orders every authorized sample canonically, recomputes each split,
-copies the exact bounded context and lineage, and emits a content-derived plan lock. Run-plan
+copies the exact bounded context and lineage, and emits a content-derived plan lock that also
+commits to every canonically ordered truth id, state, kind, value, and bounded region. Run-plan
 validation requires the private manifest again and recomputes the entire plan and lock; it rejects
 missing, duplicate, extra, or reordered samples and any context, lineage, intent, evidence-class,
 split, graph-version, policy-version, or lock change. A lock-shaped string without that private
@@ -91,16 +94,28 @@ positives rather than counting it twice. Truth and prediction rectangles use exp
    aggregates.
 4. #301 is the only human gate for consented real captures and a measured current-main baseline.
 
-The scorer never pools `real-raster`, `synthetic-raster`, and `post-ocr-evidence`. For every
-intent — Loot decision, Full stash, Ammo, Keys, Quest/future-quest items, Map/extracts/timers,
-Health/character, and Auto-detect — it emits a separate evidence-class slice. Each slice includes
-the original numerator/denominator, excluded unknowns, independent split units, attempted eligible
+The scorer requires the still-eligible private manifest, the run plan recomputed from that exact
+manifest, its truth commitment, the frozen threshold policy, and predictions bound to the plan.
+It accepts predictions only for the plan's deterministic `Test` split and rechecks consent,
+retention, revocation, privacy review, and observed pixel hashes at the UTC score time; it has no
+fallback that fabricates an all-Test plan from raw samples.
+
+The scorer never pools `real-raster`, `synthetic-raster`, and `post-ocr-evidence`. One aggregate
+document has one evidence class and exactly one slice for every intent — Loot decision, Full
+stash, Ammo, Keys, Quest/future-quest items, Map/extracts/timers, Health/character, and
+Auto-detect. Each slice includes the original numerator/denominator, excluded unknown truth
+scopes, excluded predictions in those unadjudicable scopes, independent split units, attempted eligible
 truth coverage, accuracy, recall, false-positive rate, F1, each applicable metric numerator and
 denominator, a 95% Wilson recall interval, abstention, confident-wrong, sequence
 missing/reordered-frame and overlap/dedup errors, and available performance. A repeated truth may
 match once from any frame where it remains visible. Every unsupported or underpowered slice is
 `insufficient-data`; powered slices are explicitly `pass` or `fail` against the frozen candidate
 coverage, abstention, confident-wrong, and F1 thresholds.
+
+An unmatched claim in a sample/type scope whose truth is `unknown` is excluded rather than called
+a false positive. A detected result with several claims is confident-wrong for a truth only when
+none of those claims matches; a correct claim plus an extra wrong claim records one TP and one FP,
+not a confident miss.
 
 For this claim-set benchmark, coverage is attempted eligible truth divided by eligible known truth;
 an explicit detected or abstained result of the matching type is an attempt, while missing or
@@ -109,9 +124,12 @@ false-positive rate is `FP / (TP + FP)` because the corpus has no meaningful tru
 universe, and F1 is `2TP / (2TP + FP + FN)`. Each denominator is emitted beside its numerator.
 
 The candidate values in `thresholds/recognition-release.v1.json` are frozen before tuning. They
-are deliberately candidate policy, not an accuracy claim. An aggregate may be committed only when
-it is privacy safe and has at least five independent split units; otherwise it remains
-`insufficient-data`.
+are deliberately candidate policy, not an accuracy claim. An aggregate may be published only when
+every non-empty slice has at least five independent split units. Publication parses the typed
+contract, rejects per-sample/private material even inside extensions, recomputes every arithmetic
+identity, rate, Wilson interval, and threshold status, requires all eight unique slices, and
+verifies that every slice matches the root evidence class. The `safeToPublish` and
+`containsPerSampleResults` fields are assertions to check, never authority.
 
 ## Current baseline
 
@@ -130,13 +148,19 @@ prediction file only when the file is outside a repository/worktree:
 dotnet run --project tools/RecognitionCorpus -- validate-manifest /private/corpus/manifest.json
 dotnet run --project tools/RecognitionCorpus -- validate-run-plan /private/corpus/run-plan.json /private/corpus/manifest.json
 dotnet run --project tools/RecognitionCorpus -- validate-predictions /private/corpus/predictions.json /private/corpus/run-plan.json
+dotnet run --project tools/RecognitionCorpus -- score-and-publish /private/corpus/manifest.json /private/corpus/run-plan.json /private/corpus/predictions.json fixtures/recognition-corpus/thresholds/recognition-release.v1.json real-raster /review/aggregate-results.json
+dotnet run --project tools/RecognitionCorpus -- validate-aggregate /review/aggregate-results.json fixtures/recognition-corpus/thresholds/recognition-release.v1.json
+dotnet run --project tools/RecognitionCorpus -- publish-aggregate /review/aggregate-results.json fixtures/recognition-corpus/thresholds/recognition-release.v1.json ./aggregate-results.v1.json
 ```
 
 The second argument to run-plan validation is the authorized private planner context. The second
 argument to prediction validation is the exact truth-free plan whose run, producer, membership,
-intent, evidence class, dimensions, and timing contract the output must match.
+intent, evidence class, dimensions, and timing contract the output must match. `score-and-publish`
+will not write an unsafe aggregate. `publish-aggregate` validates again and writes only a canonical
+typed projection, dropping benign extension properties after hostile privacy fields have failed.
 
 The test project covers positive, negative, hostile, privacy, split/leakage, region-bound,
-prediction-mismatch, schema-compatible unknown-property, metric, threshold, and sequence cases.
+prediction-mismatch, schema-compatible unknown-property, metric, aggregate-tamper, threshold,
+symlink/junction escape, relative-traversal, original-name, and sequence cases.
 Both projects are registered in the solution so the normal Linux and Windows jobs execute them;
 GitHub Actions stays the required substantive-change gate.

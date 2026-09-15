@@ -196,6 +196,7 @@ public sealed record SliceMetrics(
     int Numerator,
     int Denominator,
     int ExcludedUnknowns,
+    int ExcludedPredictionClaims,
     int IndependentSplitUnits,
     int AttemptedKnownClaims,
     int TruePositives,
@@ -224,3 +225,26 @@ public sealed record SliceMetrics(
     int PerformanceSampleCount,
     decimal? MeanElapsedMilliseconds,
     decimal? MaximumElapsedMilliseconds);
+
+public sealed record AggregatePrivacy(
+    bool SafeToPublish,
+    int MinimumIndependentSplitUnits,
+    bool ContainsPerSampleResults);
+
+/// <summary>
+/// This is the only scorer output allowed to cross the private corpus boundary. It retains
+/// run/plan provenance and aggregate arithmetic, but never sample ids, labels, or private
+/// consent evidence. Publication still requires semantic validation; SafeToPublish is an
+/// asserted field to verify, not authority by itself.
+/// </summary>
+public sealed record AggregateResults(
+    string RunId,
+    string ProducerId,
+    string ProducerVersion,
+    string CorpusId,
+    string PlanLock,
+    string PolicyVersion,
+    CorpusEvidenceClass EvidenceClass,
+    DateTimeOffset ScoredUtc,
+    AggregatePrivacy Privacy,
+    IReadOnlyList<SliceMetrics> Slices);

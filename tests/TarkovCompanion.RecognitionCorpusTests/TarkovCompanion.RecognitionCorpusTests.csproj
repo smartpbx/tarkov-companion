@@ -14,6 +14,7 @@
   <ItemGroup>
     <None Include="../../fixtures/recognition-corpus/baselines/current-main.v1.json" Link="fixtures/recognition-corpus/baselines/current-main.v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/recognition-corpus/examples/synthetic-run-plan.v1.json" Link="fixtures/recognition-corpus/examples/synthetic-run-plan.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../fixtures/recognition-corpus/hostile/*.json" Link="fixtures/recognition-corpus/hostile/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/recognition-corpus/schemas/*.json" Link="fixtures/recognition-corpus/schemas/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

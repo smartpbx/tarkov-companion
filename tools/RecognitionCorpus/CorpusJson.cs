@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace TarkovCompanion.RecognitionCorpus;
@@ -107,6 +108,145 @@ public static class CorpusJson
         }
     }
 
+    public static CorpusParseResult<FrozenThresholds> ParseThresholds(string json)
+    {
+        if (!TryRoot(json, CorpusValidation.ThresholdsSchemaVersion, false, out var document, out var errors))
+        {
+            return new(null, errors);
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            var candidates = Object(root, "candidateThresholds", "$", errors);
+            if (!Boolean(root, "frozenBeforeTuning", "$", errors))
+            {
+                errors.Add("$.frozenBeforeTuning must equal true.");
+            }
+
+            var disposition = String(root, "unsupportedDisposition", "$", errors);
+            if (!string.Equals(disposition, "insufficient-data", StringComparison.Ordinal))
+            {
+                errors.Add("$.unsupportedDisposition must equal insufficient-data.");
+            }
+
+            return new(new FrozenThresholds(
+                String(root, "policyVersion", "$", errors),
+                Integer(root, "minimumIndependentSplitUnits", "$", errors),
+                Integer(root, "minimumKnownClaims", "$", errors),
+                Decimal(candidates, "minimumCoverage", "$.candidateThresholds", errors),
+                Decimal(candidates, "maximumAbstentionRate", "$.candidateThresholds", errors),
+                Decimal(candidates, "maximumConfidentWrongRate", "$.candidateThresholds", errors),
+                Decimal(candidates, "minimumF1", "$.candidateThresholds", errors)), errors);
+        }
+    }
+
+    public static CorpusParseResult<AggregateResults> ParseAggregateResults(string json)
+    {
+        if (!TryRoot(json, CorpusValidation.AggregateResultsSchemaVersion, false, out var document, out var errors))
+        {
+            return new(null, errors);
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+            errors.AddRange(CorpusValidation.AggregatePrivacyErrors(root));
+            var producer = Object(root, "producer", "$", errors);
+            var privacy = Object(root, "privacy", "$", errors);
+            var slices = Array(root, "slices", "$", errors).Select((element, index) =>
+            {
+                var path = $"$.slices[{index}]";
+                return new SliceMetrics(
+                    ParseIntent(String(element, "intent", path, errors), path, errors),
+                    ParseEvidenceClass(String(element, "evidenceClass", path, errors), path, errors),
+                    String(element, "status", path, errors),
+                    Integer(element, "numerator", path, errors),
+                    Integer(element, "denominator", path, errors),
+                    Integer(element, "excludedUnknowns", path, errors),
+                    Integer(element, "excludedPredictionClaims", path, errors),
+                    Integer(element, "independentSplitUnits", path, errors),
+                    Integer(element, "attemptedKnownClaims", path, errors),
+                    Integer(element, "truePositives", path, errors),
+                    Integer(element, "falsePositives", path, errors),
+                    Integer(element, "falseNegatives", path, errors),
+                    Integer(element, "abstentions", path, errors),
+                    Integer(element, "confidentWrong", path, errors),
+                    Integer(element, "missingFrames", path, errors),
+                    Integer(element, "reorderedFrames", path, errors),
+                    Integer(element, "overlapDeduplicationErrors", path, errors),
+                    Integer(element, "accuracyNumerator", path, errors),
+                    Integer(element, "accuracyDenominator", path, errors),
+                    Integer(element, "recallNumerator", path, errors),
+                    Integer(element, "recallDenominator", path, errors),
+                    Integer(element, "falsePositiveNumerator", path, errors),
+                    Integer(element, "falsePositiveDenominator", path, errors),
+                    Decimal(element, "coverage", path, errors),
+                    Decimal(element, "accuracy", path, errors),
+                    Decimal(element, "recall", path, errors),
+                    Decimal(element, "falsePositiveRate", path, errors),
+                    Decimal(element, "f1", path, errors),
+                    Decimal(element, "abstentionRate", path, errors),
+                    Decimal(element, "confidentWrongRate", path, errors),
+                    Decimal(element, "confidenceIntervalLower", path, errors),
+                    Decimal(element, "confidenceIntervalUpper", path, errors),
+                    Integer(element, "performanceSampleCount", path, errors),
+                    NullableDecimal(element, "meanElapsedMilliseconds", path, errors),
+                    NullableDecimal(element, "maximumElapsedMilliseconds", path, errors));
+            }).ToArray();
+            return new(new AggregateResults(
+                String(root, "runId", "$", errors),
+                String(producer, "id", "$.producer", errors),
+                String(producer, "version", "$.producer", errors),
+                String(root, "corpusId", "$", errors),
+                String(root, "planLock", "$", errors),
+                String(root, "policyVersion", "$", errors),
+                ParseEvidenceClass(String(root, "evidenceClass", "$", errors), "$", errors),
+                Utc(root, "scoredUtc", "$", errors),
+                new AggregatePrivacy(
+                    Boolean(privacy, "safeToPublish", "$.privacy", errors),
+                    Integer(privacy, "minimumIndependentSplitUnits", "$.privacy", errors),
+                    Boolean(privacy, "containsPerSampleResults", "$.privacy", errors)),
+                slices), errors);
+        }
+    }
+
+    public static string SerializeAggregateResults(AggregateResults aggregate)
+    {
+        ArgumentNullException.ThrowIfNull(aggregate);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("schemaVersion", CorpusValidation.AggregateResultsSchemaVersion);
+            writer.WriteString("runId", aggregate.RunId);
+            writer.WriteStartObject("producer");
+            writer.WriteString("id", aggregate.ProducerId);
+            writer.WriteString("version", aggregate.ProducerVersion);
+            writer.WriteEndObject();
+            writer.WriteString("corpusId", aggregate.CorpusId);
+            writer.WriteString("planLock", aggregate.PlanLock);
+            writer.WriteString("policyVersion", aggregate.PolicyVersion);
+            writer.WriteString("evidenceClass", FormatEvidenceClass(aggregate.EvidenceClass));
+            writer.WriteString("scoredUtc", aggregate.ScoredUtc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture));
+            writer.WriteStartObject("privacy");
+            writer.WriteBoolean("safeToPublish", aggregate.Privacy.SafeToPublish);
+            writer.WriteNumber("minimumIndependentSplitUnits", aggregate.Privacy.MinimumIndependentSplitUnits);
+            writer.WriteBoolean("containsPerSampleResults", aggregate.Privacy.ContainsPerSampleResults);
+            writer.WriteEndObject();
+            writer.WriteStartArray("slices");
+            foreach (var slice in aggregate.Slices)
+            {
+                WriteSlice(writer, slice);
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray()) + Environment.NewLine;
+    }
+
     private static CorpusSample ParseSample(JsonElement element, string path, ICollection<string> errors)
     {
         RequireObject(element, path, errors);
@@ -212,6 +352,63 @@ public static class CorpusJson
         Integer(element, "y", path, errors),
         Integer(element, "width", path, errors),
         Integer(element, "height", path, errors));
+
+    private static void WriteSlice(Utf8JsonWriter writer, SliceMetrics slice)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("intent", FormatIntent(slice.Intent));
+        writer.WriteString("evidenceClass", FormatEvidenceClass(slice.EvidenceClass));
+        writer.WriteString("status", slice.Status);
+        writer.WriteNumber("numerator", slice.Numerator);
+        writer.WriteNumber("denominator", slice.Denominator);
+        writer.WriteNumber("excludedUnknowns", slice.ExcludedUnknowns);
+        writer.WriteNumber("excludedPredictionClaims", slice.ExcludedPredictionClaims);
+        writer.WriteNumber("independentSplitUnits", slice.IndependentSplitUnits);
+        writer.WriteNumber("attemptedKnownClaims", slice.AttemptedKnownClaims);
+        writer.WriteNumber("truePositives", slice.TruePositives);
+        writer.WriteNumber("falsePositives", slice.FalsePositives);
+        writer.WriteNumber("falseNegatives", slice.FalseNegatives);
+        writer.WriteNumber("abstentions", slice.Abstentions);
+        writer.WriteNumber("confidentWrong", slice.ConfidentWrong);
+        writer.WriteNumber("missingFrames", slice.MissingFrames);
+        writer.WriteNumber("reorderedFrames", slice.ReorderedFrames);
+        writer.WriteNumber("overlapDeduplicationErrors", slice.OverlapDeduplicationErrors);
+        writer.WriteNumber("accuracyNumerator", slice.AccuracyNumerator);
+        writer.WriteNumber("accuracyDenominator", slice.AccuracyDenominator);
+        writer.WriteNumber("recallNumerator", slice.RecallNumerator);
+        writer.WriteNumber("recallDenominator", slice.RecallDenominator);
+        writer.WriteNumber("falsePositiveNumerator", slice.FalsePositiveNumerator);
+        writer.WriteNumber("falsePositiveDenominator", slice.FalsePositiveDenominator);
+        writer.WriteNumber("coverage", slice.Coverage);
+        writer.WriteNumber("accuracy", slice.Accuracy);
+        writer.WriteNumber("recall", slice.Recall);
+        writer.WriteNumber("falsePositiveRate", slice.FalsePositiveRate);
+        writer.WriteNumber("f1", slice.F1);
+        writer.WriteNumber("abstentionRate", slice.AbstentionRate);
+        writer.WriteNumber("confidentWrongRate", slice.ConfidentWrongRate);
+        writer.WriteNumber("confidenceIntervalLower", slice.ConfidenceIntervalLower);
+        writer.WriteNumber("confidenceIntervalUpper", slice.ConfidenceIntervalUpper);
+        writer.WriteNumber("performanceSampleCount", slice.PerformanceSampleCount);
+        if (slice.MeanElapsedMilliseconds is { } mean)
+        {
+            writer.WriteNumber("meanElapsedMilliseconds", mean);
+        }
+        else
+        {
+            writer.WriteNull("meanElapsedMilliseconds");
+        }
+
+        if (slice.MaximumElapsedMilliseconds is { } maximum)
+        {
+            writer.WriteNumber("maximumElapsedMilliseconds", maximum);
+        }
+        else
+        {
+            writer.WriteNull("maximumElapsedMilliseconds");
+        }
+
+        writer.WriteEndObject();
+    }
 
     private static bool TryRoot(
         string json,
@@ -398,6 +595,40 @@ public static class CorpusJson
         return decimal.MinValue;
     }
 
+    private static decimal? NullableDecimal(JsonElement parent, string name, string path, ICollection<string> errors)
+    {
+        if (parent.ValueKind != JsonValueKind.Object || !parent.TryGetProperty(name, out var value))
+        {
+            errors.Add($"{path}.{name} is required (number or null).");
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetDecimal(out var result))
+        {
+            return result;
+        }
+
+        errors.Add($"{path}.{name} must be a finite decimal number or null.");
+        return null;
+    }
+
+    private static bool Boolean(JsonElement parent, string name, string path, ICollection<string> errors)
+    {
+        if (parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var value) &&
+            value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            return value.GetBoolean();
+        }
+
+        errors.Add($"{path}.{name} is required and must be a boolean.");
+        return false;
+    }
+
     private static DateTimeOffset Utc(JsonElement parent, string name, string path, ICollection<string> errors)
     {
         var value = String(parent, name, path, errors);
@@ -485,6 +716,27 @@ public static class CorpusJson
 
         return Invalid(value, path, "prediction type", errors, (PredictionType)(-1));
     }
+
+    internal static string FormatEvidenceClass(CorpusEvidenceClass value) => value switch
+    {
+        CorpusEvidenceClass.RealRaster => "real-raster",
+        CorpusEvidenceClass.SyntheticRaster => "synthetic-raster",
+        CorpusEvidenceClass.PostOcrEvidence => "post-ocr-evidence",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
+
+    internal static string FormatIntent(BenchmarkIntent value) => value switch
+    {
+        BenchmarkIntent.LootDecision => "loot-decision",
+        BenchmarkIntent.FullStash => "full-stash",
+        BenchmarkIntent.Ammo => "ammo",
+        BenchmarkIntent.Keys => "keys",
+        BenchmarkIntent.QuestItems => "quest-items",
+        BenchmarkIntent.MapExtractsTimers => "map-extracts-timers",
+        BenchmarkIntent.HealthCharacter => "health-character",
+        BenchmarkIntent.AutoDetect => "auto-detect",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
 
     private static T Invalid<T>(string value, string path, string kind, ICollection<string> errors, T invalid)
     {

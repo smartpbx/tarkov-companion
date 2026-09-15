@@ -3,28 +3,44 @@
   "$id": "https://tarkovcompanion.local/schemas/recognition-corpus/aggregate-results.v1.schema.json",
   "title": "Privacy-safe recognition benchmark aggregates",
   "type": "object",
-  "required": ["schemaVersion", "policyVersion", "evidenceClass", "privacy", "slices"],
+  "required": ["schemaVersion", "runId", "producer", "corpusId", "planLock", "policyVersion", "evidenceClass", "scoredUtc", "privacy", "slices"],
   "properties": {
     "schemaVersion": { "const": "aggregate-results.v1" },
+    "runId": { "$ref": "#/$defs/opaqueId" },
+    "producer": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueId" },
+        "version": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "additionalProperties": true
+    },
+    "corpusId": { "$ref": "#/$defs/opaqueId" },
+    "planLock": { "$ref": "#/$defs/sha256" },
     "policyVersion": { "const": "recognition-scorer-policy.v1" },
     "evidenceClass": { "$ref": "#/$defs/evidenceClass" },
+    "scoredUtc": { "type": "string", "format": "date-time", "pattern": "Z$" },
     "privacy": {
       "type": "object",
       "required": ["safeToPublish", "minimumIndependentSplitUnits", "containsPerSampleResults"],
       "properties": {
-        "safeToPublish": { "const": true },
-        "minimumIndependentSplitUnits": { "type": "integer", "minimum": 5 },
-        "containsPerSampleResults": { "const": false }
+        "safeToPublish": { "type": "boolean" },
+        "minimumIndependentSplitUnits": { "type": "integer", "const": 5 },
+        "containsPerSampleResults": { "type": "boolean" }
       },
       "additionalProperties": true
     },
     "slices": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 8,
+      "maxItems": 8,
       "items": { "$ref": "#/$defs/slice" }
     }
   },
   "$defs": {
+    "opaqueId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{16,128}$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "intent": {
       "enum": ["loot-decision", "full-stash", "ammo", "keys", "quest-items", "map-extracts-timers", "health-character", "auto-detect"]
     },
@@ -40,6 +56,7 @@
         "numerator",
         "denominator",
         "excludedUnknowns",
+        "excludedPredictionClaims",
         "independentSplitUnits",
         "attemptedKnownClaims",
         "truePositives",
@@ -76,6 +93,7 @@
         "numerator": { "$ref": "#/$defs/count" },
         "denominator": { "$ref": "#/$defs/count" },
         "excludedUnknowns": { "$ref": "#/$defs/count" },
+        "excludedPredictionClaims": { "$ref": "#/$defs/count" },
         "independentSplitUnits": { "$ref": "#/$defs/count" },
         "attemptedKnownClaims": { "$ref": "#/$defs/count" },
         "truePositives": { "$ref": "#/$defs/count" },

@@ -201,6 +201,15 @@ public sealed class CorpusContractTests
             Samples = [plan.Samples[0] with { Context = plan.Samples[0].Context with { Width = 1280 } }, plan.Samples[1]],
         };
         Assert.Contains(CorpusValidation.ValidateRunPlan(changedContext, manifest, Now), error => error.Contains("context", StringComparison.OrdinalIgnoreCase));
+
+        var changedTruth = manifest with
+        {
+            Samples = [manifest.Samples[0] with
+            {
+                Truth = [manifest.Samples[0].Truth[0] with { Value = "different-canonical-answer" }],
+            }, manifest.Samples[1]],
+        };
+        Assert.Contains(CorpusValidation.ValidateRunPlan(plan, changedTruth, Now), error => error.Contains("lock", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -283,14 +292,24 @@ public sealed class CorpusContractTests
     [Fact]
     public void RepeatedTruthCanMatchInLaterOverlapFrameOnlyOnceAndDuplicateOutputIsFalsePositive()
     {
-        var first = Sample("sample-score-overlap001", sequenceId: "sequence-score-overlap1", sessionId: "session-score-overlap-1", ordinal: 0, frame: 0) with
+        var component = FindTestComponent(seed =>
         {
-            Truth = [new TruthClaim("truth-shared-overlap01", TruthState.Known, "item", "known-item")],
-        };
-        var second = Sample("sample-score-overlap002", sequenceId: "sequence-score-overlap1", sessionId: "session-score-overlap-1", ordinal: 1, frame: 1, overlap: 0.5m) with
-        {
-            Truth = [new TruthClaim("truth-shared-overlap01", TruthState.Known, "item", "known-item")],
-        };
+            var sequenceId = $"sequence-score-overlap-{seed:0000}";
+            var sessionId = $"session-score-overlap-{seed:0000}";
+            return
+            [
+                Sample($"sample-score-overlap-a-{seed:0000}", sequenceId: sequenceId, sessionId: sessionId, ordinal: 0, frame: 0) with
+                {
+                    Truth = [new TruthClaim("truth-shared-overlap01", TruthState.Known, "item", "known-item")],
+                },
+                Sample($"sample-score-overlap-b-{seed:0000}", sequenceId: sequenceId, sessionId: sessionId, ordinal: 1, frame: 1, overlap: 0.5m) with
+                {
+                    Truth = [new TruthClaim("truth-shared-overlap01", TruthState.Known, "item", "known-item")],
+                },
+            ];
+        });
+        var first = component[0];
+        var second = component[1];
         var manifest = Manifest(first, second);
         var plan = PrivateRunPlanner.Create(manifest, "run-score-overlap-001", "producer-score-00001", "1.0", Now);
         var secondOnly = new[]
@@ -298,14 +317,14 @@ public sealed class CorpusContractTests
             Prediction(plan.Samples.Single(sample => sample.SampleId == second.SampleId), PredictionType.Item,
                 [new PredictionClaim("claim-later-frame-0001", "item", "known-item")]),
         };
-        var metrics = Slice(IndependentScorer.Score(manifest.Samples, secondOnly, Thresholds()));
+        var metrics = Slice(Score(manifest, plan, secondOnly));
         Assert.Equal(1, metrics.TruePositives);
         Assert.Equal(0, metrics.FalsePositives);
         Assert.Equal(1, metrics.MissingFrames);
 
         var duplicates = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
             [new PredictionClaim($"claim-overlap-duplicate-{index:0000}", "item", "known-item")])).ToArray();
-        metrics = Slice(IndependentScorer.Score(manifest.Samples, duplicates, Thresholds()));
+        metrics = Slice(Score(manifest, plan, duplicates));
         Assert.Equal(1, metrics.TruePositives);
         Assert.Equal(1, metrics.FalsePositives);
         Assert.Equal(1, metrics.OverlapDeduplicationErrors);
@@ -315,10 +334,17 @@ public sealed class CorpusContractTests
     [Fact]
     public void SequenceOverlapErrorsStayScopedToTheSequenceThatDuplicatedTruth()
     {
-        var a0 = Repeated("sample-sequence-a-00001", "sequence-metric-a-0001", "session-metric-a-00001", "truth-sequence-a-00001", 0, 0, 0);
-        var a1 = Repeated("sample-sequence-a-00002", "sequence-metric-a-0001", "session-metric-a-00001", "truth-sequence-a-00001", 1, 1, 0.5m);
-        var b0 = Repeated("sample-sequence-b-00001", "sequence-metric-b-0001", "session-metric-b-00001", "truth-sequence-b-00001", 0, 0, 0);
-        var b1 = Repeated("sample-sequence-b-00002", "sequence-metric-b-0001", "session-metric-b-00001", "truth-sequence-b-00001", 1, 1, 0.5m);
+        var a = FindTestComponent(seed =>
+        [
+            Repeated($"sample-sequence-a0-{seed:0000}", $"sequence-metric-a-{seed:0000}", $"session-metric-a-{seed:0000}", "truth-sequence-a-00001", 0, 0, 0),
+            Repeated($"sample-sequence-a1-{seed:0000}", $"sequence-metric-a-{seed:0000}", $"session-metric-a-{seed:0000}", "truth-sequence-a-00001", 1, 1, 0.5m),
+        ]);
+        var b = FindTestComponent(seed =>
+        [
+            Repeated($"sample-sequence-b0-{seed:0000}", $"sequence-metric-b-{seed:0000}", $"session-metric-b-{seed:0000}", "truth-sequence-b-00001", 0, 0, 0),
+            Repeated($"sample-sequence-b1-{seed:0000}", $"sequence-metric-b-{seed:0000}", $"session-metric-b-{seed:0000}", "truth-sequence-b-00001", 1, 1, 0.5m),
+        ]);
+        var (a0, a1, b0, b1) = (a[0], a[1], b[0], b[1]);
         var manifest = Manifest(a0, a1, b0, b1);
         var plan = PrivateRunPlanner.Create(manifest, "run-sequence-scope-001", "producer-sequence-001", "1.0", Now);
         var predictions = new[]
@@ -328,24 +354,24 @@ public sealed class CorpusContractTests
             Prediction(plan.Samples.Single(sample => sample.SampleId == b1.SampleId), PredictionType.Item, [new PredictionClaim("claim-sequence-b-00001", "item", "known-item")]),
         };
 
-        var metrics = Slice(IndependentScorer.Score(manifest.Samples, predictions, Thresholds()));
+        var metrics = Slice(Score(manifest, plan, predictions));
         Assert.Equal(1, metrics.OverlapDeduplicationErrors);
 
-        var reversed = Slice(IndependentScorer.Score(manifest.Samples, predictions.Reverse().ToArray(), Thresholds()));
+        var reversed = Slice(Score(manifest, plan, predictions.Reverse().ToArray()));
         Assert.Equal(1, reversed.ReorderedFrames);
     }
 
     [Fact]
     public void MetricsReportCoverageAccuracyRecallFalsePositiveRateF1AndThresholdDisposition()
     {
-        var samples = Enumerable.Range(0, 30).Select(index => Sample($"sample-metrics-{index:0000000001}")).ToArray();
+        var samples = FindIndependentTestSamples(30, "sample-metrics");
         var manifest = Manifest(samples);
         var plan = PrivateRunPlanner.Create(manifest, "run-metrics-report-0001", "producer-metrics-0001", "1.0", Now);
         var predictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
         [
             new PredictionClaim($"claim-metrics-{index:0000000001}", "item", index >= 27 ? "wrong-item" : "known-item"),
         ])).ToArray();
-        var metrics = Slice(IndependentScorer.Score(manifest.Samples, predictions, Thresholds()));
+        var metrics = Slice(Score(manifest, plan, predictions));
 
         Assert.Equal("fail", metrics.Status);
         Assert.Equal(30, metrics.AttemptedKnownClaims);
@@ -368,17 +394,26 @@ public sealed class CorpusContractTests
 
         var passingPredictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
             [new PredictionClaim($"claim-passing-{index:0000000001}", "item", "known-item")])).ToArray();
-        var passing = Slice(IndependentScorer.Score(manifest.Samples, passingPredictions, Thresholds()));
+        var passing = Slice(Score(manifest, plan, passingPredictions));
         Assert.Equal("pass", passing.Status);
 
-        var underpowered = Slice(IndependentScorer.Score(manifest.Samples.Take(29).ToArray(), passingPredictions.Take(29).ToArray(), Thresholds()));
+        var underpoweredManifest = Manifest(FindIndependentTestSamples(29, "sample-underpowered"));
+        var underpoweredPlan = PrivateRunPlanner.Create(
+            underpoweredManifest,
+            "run-underpowered-00001",
+            "producer-underpowered-01",
+            "1.0",
+            Now);
+        var underpoweredPredictions = underpoweredPlan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
+            [new PredictionClaim($"claim-underpowered-{index:00000001}", "item", "known-item")])).ToArray();
+        var underpowered = Slice(Score(underpoweredManifest, underpoweredPlan, underpoweredPredictions));
         Assert.Equal("insufficient-data", underpowered.Status);
     }
 
     [Fact]
-    public void UnknownTruthIsExcludedAndDoesNotInflateRecallDenominator()
+    public void UnknownScopesExcludePredictionsAndMultiClaimMatchesAreNotConfidentWrong()
     {
-        var sample = Sample("sample-unknown-metric001") with
+        var sample = FindIndependentTestSamples(1, "sample-unknown-metric")[0] with
         {
             Truth =
             [
@@ -387,12 +422,162 @@ public sealed class CorpusContractTests
             ],
         };
         var manifest = Manifest(sample);
-        var metrics = Slice(IndependentScorer.Score(manifest.Samples, [], Thresholds()));
+        var plan = PrivateRunPlanner.Create(manifest, "run-unknown-metric-001", "producer-unknown-0001", "1.0", Now);
+        var predictions = new[]
+        {
+            Prediction(plan.Samples[0], PredictionType.Item,
+            [
+                new PredictionClaim("claim-correct-metric-001", "item", "known-item"),
+                new PredictionClaim("claim-extra-wrong-00001", "item", "wrong-item"),
+            ]),
+            Prediction(plan.Samples[0], PredictionType.Attribute,
+                [new PredictionClaim("claim-unknown-scope-001", "attribute", "not-adjudicable")]),
+        };
+        var metrics = Slice(Score(manifest, plan, predictions));
 
         Assert.Equal(1, metrics.Denominator);
         Assert.Equal(1, metrics.ExcludedUnknowns);
-        Assert.Equal(0, metrics.Coverage);
+        Assert.Equal(1, metrics.ExcludedPredictionClaims);
+        Assert.Equal(1, metrics.TruePositives);
+        Assert.Equal(1, metrics.FalsePositives);
+        Assert.Equal(0, metrics.ConfidentWrong);
+        Assert.Equal(1m, metrics.Coverage);
         Assert.Equal("insufficient-data", metrics.Status);
+
+        var wrongOnly = predictions.Select(prediction => prediction.Type == PredictionType.Item
+            ? prediction with { Claims = [new PredictionClaim("claim-only-wrong-00001", "item", "wrong-item")] }
+            : prediction).ToArray();
+        Assert.Equal(1, Slice(Score(manifest, plan, wrongOnly)).ConfidentWrong);
+    }
+
+    [Fact]
+    public void IndependentScorerRequiresAuthorizedEligibleTestSplitAtScoreTime()
+    {
+        var testSample = FindIndependentTestSamples(1, "sample-authorized-test", CorpusEvidenceClass.RealRaster)[0];
+        var manifest = Manifest(testSample);
+        var plan = PrivateRunPlanner.Create(manifest, "run-authorized-test-001", "producer-authorized-001", "1.0", Now);
+        var prediction = Prediction(plan.Samples[0], PredictionType.Item,
+            [new PredictionClaim("claim-authorized-test01", "item", "known-item")]);
+        Assert.Equal(CorpusEvidenceClass.RealRaster, Score(manifest, plan, [prediction], CorpusEvidenceClass.RealRaster).EvidenceClass);
+
+        var revoked = manifest with
+        {
+            PrivateEvidence = [manifest.PrivateEvidence[0] with
+            {
+                Consent = manifest.PrivateEvidence[0].Consent! with { RevocationState = "revoked" },
+            }],
+        };
+        Assert.Throws<ArgumentException>(() => Score(revoked, plan, [prediction], CorpusEvidenceClass.RealRaster));
+
+        var expired = manifest with
+        {
+            PrivateEvidence = [manifest.PrivateEvidence[0] with
+            {
+                Consent = manifest.PrivateEvidence[0].Consent! with { RetentionExpiresUtc = Now },
+            }],
+        };
+        Assert.Throws<ArgumentException>(() => Score(expired, plan, [prediction], CorpusEvidenceClass.RealRaster));
+
+        var reviewRejected = manifest with
+        {
+            PrivateEvidence = [manifest.PrivateEvidence[0] with
+            {
+                PrivacyReview = manifest.PrivateEvidence[0].PrivacyReview! with { State = "rejected" },
+            }],
+        };
+        Assert.Throws<ArgumentException>(() => Score(reviewRejected, plan, [prediction], CorpusEvidenceClass.RealRaster));
+
+        var benchmarkUseRemoved = manifest with
+        {
+            PrivateEvidence = [manifest.PrivateEvidence[0] with
+            {
+                Consent = manifest.PrivateEvidence[0].Consent! with { AllowedUses = ["train"] },
+            }],
+        };
+        Assert.Throws<ArgumentException>(() => Score(benchmarkUseRemoved, plan, [prediction], CorpusEvidenceClass.RealRaster));
+
+        var trainSample = FindIndependentSplitSamples(1, "sample-not-test", CorpusSplit.Train)[0];
+        var trainManifest = Manifest(trainSample);
+        var trainPlan = PrivateRunPlanner.Create(trainManifest, "run-not-test-split-001", "producer-not-test-001", "1.0", Now);
+        var trainPrediction = Prediction(trainPlan.Samples[0], PredictionType.Item,
+            [new PredictionClaim("claim-not-test-split01", "item", "known-item")]);
+        Assert.Throws<ArgumentException>(() => Score(trainManifest, trainPlan, [trainPrediction]));
+    }
+
+    [Fact]
+    public void AggregateRoundTripAndSemanticValidatorRejectTamperingMixingAndAssertedPrivacy()
+    {
+        var manifest = Manifest(FindIndependentTestSamples(30, "sample-aggregate"));
+        var plan = PrivateRunPlanner.Create(manifest, "run-aggregate-roundtrip1", "producer-aggregate-001", "1.0", Now);
+        var predictions = plan.Samples.Select((sample, index) => Prediction(sample, PredictionType.Item,
+            [new PredictionClaim($"claim-aggregate-{index:00000001}", "item", "known-item")])).ToArray();
+        var aggregate = Score(manifest, plan, predictions);
+        Assert.True(aggregate.Privacy.SafeToPublish);
+        Assert.Empty(AggregateResultValidation.Validate(aggregate, Thresholds()));
+
+        var json = CorpusJson.SerializeAggregateResults(aggregate);
+        var parsed = CorpusJson.ParseAggregateResults(json);
+        Assert.NotNull(parsed.Value);
+        Assert.Empty(parsed.Errors);
+        Assert.Equal(json, CorpusJson.SerializeAggregateResults(parsed.Value!));
+        Assert.Empty(AggregateResultValidation.ValidateInterchange(json, ThresholdsJson()));
+
+        var loot = Slice(aggregate);
+        var badArithmetic = aggregate with
+        {
+            Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision
+                ? slice with { TruePositives = slice.TruePositives - 1 }
+                : slice).ToArray(),
+        };
+        Assert.Contains(AggregateResultValidation.Validate(badArithmetic, Thresholds()),
+            error => error.Contains("arithmetic", StringComparison.OrdinalIgnoreCase));
+
+        var badRate = aggregate with
+        {
+            Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision
+                ? slice with { Recall = 0.5m }
+                : slice).ToArray(),
+        };
+        Assert.Contains(AggregateResultValidation.Validate(badRate, Thresholds()),
+            error => error.Contains("rates", StringComparison.OrdinalIgnoreCase));
+
+        var badStatus = aggregate with
+        {
+            Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision
+                ? slice with { Status = "fail" }
+                : slice).ToArray(),
+        };
+        Assert.Contains(AggregateResultValidation.Validate(badStatus, Thresholds()),
+            error => error.Contains("status", StringComparison.OrdinalIgnoreCase));
+
+        var duplicateIntent = aggregate with { Slices = aggregate.Slices.Take(aggregate.Slices.Count - 1).Append(loot).ToArray() };
+        Assert.Contains(AggregateResultValidation.Validate(duplicateIntent, Thresholds()),
+            error => error.Contains("unique", StringComparison.OrdinalIgnoreCase) || error.Contains("exactly one", StringComparison.OrdinalIgnoreCase));
+
+        var mixedEvidence = aggregate with
+        {
+            Slices = aggregate.Slices.Select(slice => slice.Intent == BenchmarkIntent.LootDecision
+                ? slice with { EvidenceClass = CorpusEvidenceClass.RealRaster }
+                : slice).ToArray(),
+        };
+        Assert.Contains(AggregateResultValidation.Validate(mixedEvidence, Thresholds()),
+            error => error.Contains("mix", StringComparison.OrdinalIgnoreCase));
+
+        var privateExtension = JsonNode.Parse(json)!.AsObject();
+        privateExtension["futureExtension"] = new JsonObject { ["sampleId"] = "sample-private-leak-001" };
+        Assert.Contains(AggregateResultValidation.ValidateInterchange(privateExtension.ToJsonString(), ThresholdsJson()),
+            error => error.Contains("sampleId", StringComparison.OrdinalIgnoreCase));
+
+        var smallManifest = Manifest(FindIndependentTestSamples(1, "sample-unsafe-aggregate"));
+        var smallPlan = PrivateRunPlanner.Create(smallManifest, "run-unsafe-aggregate01", "producer-unsafe-00001", "1.0", Now);
+        var smallPrediction = Prediction(smallPlan.Samples[0], PredictionType.Item,
+            [new PredictionClaim("claim-unsafe-aggregate1", "item", "known-item")]);
+        var forgedPrivacy = Score(smallManifest, smallPlan, [smallPrediction]) with
+        {
+            Privacy = new AggregatePrivacy(true, CorpusValidation.FrozenMinimumIndependentSplitUnits, false),
+        };
+        Assert.Contains(AggregateResultValidation.Validate(forgedPrivacy, Thresholds()),
+            error => error.Contains("recomputed", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -402,7 +587,7 @@ public sealed class CorpusContractTests
         using var aggregate = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "aggregate-results.v1.schema.json")));
         var sliceRequired = aggregate.RootElement.GetProperty("$defs").GetProperty("slice").GetProperty("required")
             .EnumerateArray().Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
-        foreach (var field in new[] { "accuracy", "recall", "falsePositiveRate", "f1", "sequence", "performance" })
+        foreach (var field in new[] { "excludedPredictionClaims", "accuracy", "recall", "falsePositiveRate", "f1", "sequence", "performance" })
         {
             var expected = field switch
             {
@@ -412,6 +597,12 @@ public sealed class CorpusContractTests
             };
             Assert.Contains(expected, sliceRequired);
         }
+
+        var aggregateRequired = aggregate.RootElement.GetProperty("required").EnumerateArray()
+            .Select(item => item.GetString()!).ToHashSet(StringComparer.Ordinal);
+        Assert.Contains("runId", aggregateRequired);
+        Assert.Contains("planLock", aggregateRequired);
+        Assert.Contains("scoredUtc", aggregateRequired);
 
         using var thresholds = JsonDocument.Parse(File.ReadAllText(Path.Combine(schemaRoot, "thresholds.v1.schema.json")));
         var candidateRequired = thresholds.RootElement.GetProperty("properties").GetProperty("candidateThresholds").GetProperty("required")
@@ -439,8 +630,44 @@ public sealed class CorpusContractTests
     [Fact]
     public void RepositoryPathsCannotBeCorpusRootsAndPixelBytesMustMatch()
     {
-        Assert.Throws<InvalidOperationException>(() => CorpusValidation.RejectRepositoryPath(Directory.GetCurrentDirectory()));
+        Assert.Throws<InvalidOperationException>(() => CorpusValidation.RejectRepositoryPath(RepositoryRoot()));
         Assert.Throws<InvalidDataException>(() => CorpusValidation.RequireExpectedPixelHash(Hash("expected"), Encoding.UTF8.GetBytes("changed")));
+    }
+
+    [Fact]
+    public void PrivateInputResolutionRejectsIntermediateLinksBackIntoAWorktree()
+    {
+        var temporary = Directory.CreateTempSubdirectory("recognition-corpus-link-");
+        try
+        {
+            var link = Path.Combine(temporary.FullName, "linked-worktree");
+            try
+            {
+                Directory.CreateSymbolicLink(link, RepositoryRoot());
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException or PlatformNotSupportedException or IOException)
+            {
+                return;
+            }
+
+            var linkedFixture = Path.Combine(link, "fixtures", "recognition-corpus", "examples", "synthetic-run-plan.v1.json");
+            Assert.Throws<InvalidOperationException>(() => CorpusValidation.ResolvePrivateInputPath(linkedFixture));
+        }
+        finally
+        {
+            temporary.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void HostileExtensionFixturesRejectRelativeTraversalAndOriginalNames()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "fixtures", "recognition-corpus", "hostile");
+        var traversal = CorpusJson.ParseRunPlan(File.ReadAllText(Path.Combine(root, "relative-traversal-run-plan.v1.json")));
+        Assert.Contains(traversal.Errors, error => error.Contains("relative traversal", StringComparison.OrdinalIgnoreCase));
+
+        var originalName = CorpusJson.ParsePredictions(File.ReadAllText(Path.Combine(root, "original-name-predictions.v1.json")));
+        Assert.Contains(originalName.Errors, error => error.Contains("originalName", StringComparison.OrdinalIgnoreCase));
     }
 
     private static CorpusSample Repeated(string sampleId, string sequenceId, string sessionId, string truthId, int ordinal, int frame, decimal overlap) =>
@@ -555,13 +782,107 @@ public sealed class CorpusContractTests
         CorpusValidation.FrozenMaximumConfidentWrongRate,
         CorpusValidation.FrozenMinimumF1);
 
-    private static SliceMetrics Slice(IReadOnlyList<SliceMetrics> metrics) => Assert.Single(
-        metrics,
+    private static AggregateResults Score(
+        CorpusManifest manifest,
+        RunPlan plan,
+        IReadOnlyList<ProducerPrediction> predictions,
+        CorpusEvidenceClass evidenceClass = CorpusEvidenceClass.SyntheticRaster) =>
+        IndependentScorer.Score(
+            manifest,
+            plan,
+            new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, predictions),
+            Thresholds(),
+            evidenceClass,
+            Now);
+
+    private static SliceMetrics Slice(AggregateResults aggregate) => Assert.Single(
+        aggregate.Slices,
         slice => slice.Intent == BenchmarkIntent.LootDecision && slice.EvidenceClass == CorpusEvidenceClass.SyntheticRaster);
+
+    private static CorpusSample[] FindIndependentTestSamples(
+        int count,
+        string prefix,
+        CorpusEvidenceClass evidenceClass = CorpusEvidenceClass.SyntheticRaster) =>
+        FindIndependentSplitSamples(count, prefix, CorpusSplit.Test, evidenceClass);
+
+    private static CorpusSample[] FindIndependentSplitSamples(
+        int count,
+        string prefix,
+        CorpusSplit split,
+        CorpusEvidenceClass evidenceClass = CorpusEvidenceClass.SyntheticRaster)
+    {
+        var result = new List<CorpusSample>(count);
+        for (var candidate = 0; result.Count < count && candidate < 100_000; candidate++)
+        {
+            var id = $"{prefix}-{candidate:00000000}";
+            var sample = evidenceClass == CorpusEvidenceClass.RealRaster
+                ? RealSample(id)
+                : Sample(id, evidenceClass);
+            var manifest = Manifest(sample);
+            var plan = PrivateRunPlanner.Create(manifest, "run-split-search-0001", "producer-split-search1", "1.0", Now);
+            if (plan.Samples[0].Split == split)
+            {
+                result.Add(sample);
+            }
+        }
+
+        return result.Count == count
+            ? result.ToArray()
+            : throw new InvalidOperationException($"Could not find {count} deterministic {split} samples.");
+    }
+
+    private static CorpusSample[] FindTestComponent(Func<int, CorpusSample[]> factory)
+    {
+        for (var seed = 0; seed < 10_000; seed++)
+        {
+            var samples = factory(seed);
+            var manifest = Manifest(samples);
+            var plan = PrivateRunPlanner.Create(manifest, "run-component-search-01", "producer-component-001", "1.0", Now);
+            if (plan.Samples.All(sample => sample.Split == CorpusSplit.Test))
+            {
+                return samples;
+            }
+        }
+
+        throw new InvalidOperationException("Could not find a deterministic Test-split component.");
+    }
 
     private static CorpusSplit Different(CorpusSplit split) => split == CorpusSplit.Train ? CorpusSplit.Test : CorpusSplit.Train;
 
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("The recognition corpus test repository root could not be found.");
+    }
+
     private static string Hash(string value) => CorpusValidation.CanonicalPixelHash(Encoding.UTF8.GetBytes(value));
+
+    private static string ThresholdsJson() => JsonSerializer.Serialize(new
+    {
+        schemaVersion = CorpusValidation.ThresholdsSchemaVersion,
+        policyVersion = CorpusValidation.FrozenPolicyVersion,
+        frozenBeforeTuning = true,
+        minimumIndependentSplitUnits = CorpusValidation.FrozenMinimumIndependentSplitUnits,
+        minimumKnownClaims = CorpusValidation.FrozenMinimumKnownClaims,
+        candidateThresholds = new
+        {
+            minimumCoverage = CorpusValidation.FrozenMinimumCoverage,
+            maximumAbstentionRate = CorpusValidation.FrozenMaximumAbstentionRate,
+            maximumConfidentWrongRate = CorpusValidation.FrozenMaximumConfidentWrongRate,
+            minimumF1 = CorpusValidation.FrozenMinimumF1,
+        },
+        unsupportedDisposition = "insufficient-data",
+    });
 
     private static string ManifestJson(CorpusManifest manifest) => JsonSerializer.Serialize(new
     {

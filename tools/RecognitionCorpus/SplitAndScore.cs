@@ -223,9 +223,28 @@ public static class PrivateRunPlanner
             Append(builder, sample.EvidenceClass.ToString());
             Append(builder, sample.SplitUnitId);
             Append(builder, source.DecodedPixelSha256);
+            Append(builder, "near-duplicate-hashes");
+            Append(builder, source.NearDuplicateHashes.Count.ToString(CultureInfo.InvariantCulture));
             foreach (var nearHash in source.NearDuplicateHashes.OrderBy(value => value, StringComparer.Ordinal))
             {
                 Append(builder, nearHash);
+            }
+
+            // The lock is the scorer's commitment to the private answer key, not merely to
+            // public plan membership. Canonical ordering makes harmless manifest reordering
+            // stable while any truth-state, kind, value, or region change invalidates the run.
+            Append(builder, "canonical-ground-truth");
+            Append(builder, source.Truth.Count.ToString(CultureInfo.InvariantCulture));
+            foreach (var truth in source.Truth.OrderBy(value => value.TruthId, StringComparer.Ordinal))
+            {
+                Append(builder, truth.TruthId);
+                Append(builder, truth.State.ToString());
+                Append(builder, truth.Kind);
+                Append(builder, truth.Value);
+                Append(builder, truth.Region?.X.ToString(CultureInfo.InvariantCulture));
+                Append(builder, truth.Region?.Y.ToString(CultureInfo.InvariantCulture));
+                Append(builder, truth.Region?.Width.ToString(CultureInfo.InvariantCulture));
+                Append(builder, truth.Region?.Height.ToString(CultureInfo.InvariantCulture));
             }
 
             AppendContext(builder, sample.Context);
@@ -308,13 +327,17 @@ public static class PrivateRunPlanner
 
 public static class IndependentScorer
 {
-    public static IReadOnlyList<SliceMetrics> Score(
-        IReadOnlyList<CorpusSample> samples,
-        IReadOnlyList<ProducerPrediction> predictions,
-        FrozenThresholds thresholds)
+    public static AggregateResults Score(
+        CorpusManifest privateManifest,
+        RunPlan authorizedPlan,
+        PredictionDocument predictionDocument,
+        FrozenThresholds thresholds,
+        CorpusEvidenceClass evidenceClass,
+        DateTimeOffset nowUtc)
     {
-        ArgumentNullException.ThrowIfNull(samples);
-        ArgumentNullException.ThrowIfNull(predictions);
+        ArgumentNullException.ThrowIfNull(privateManifest);
+        ArgumentNullException.ThrowIfNull(authorizedPlan);
+        ArgumentNullException.ThrowIfNull(predictionDocument);
         ArgumentNullException.ThrowIfNull(thresholds);
 
         var thresholdErrors = CorpusValidation.ValidateThresholds(thresholds);
@@ -323,41 +346,84 @@ public static class IndependentScorer
             throw new ArgumentException(string.Join("; ", thresholdErrors), nameof(thresholds));
         }
 
-        var manifestErrors = SplitPlanner.ValidateUnits(samples);
+        if (!Enum.IsDefined(evidenceClass) || nowUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("Scoring requires a defined evidence class and an explicit UTC score time.");
+        }
+
+        var manifestErrors = CorpusValidation.ValidateManifest(privateManifest, nowUtc);
         if (manifestErrors.Count > 0)
         {
-            throw new ArgumentException("Private manifest split units must validate before scoring.", nameof(samples));
+            throw new ArgumentException(
+                $"Private scoring manifest is no longer eligible: {string.Join("; ", manifestErrors)}",
+                nameof(privateManifest));
         }
 
-        if (samples.Select(sample => sample.SampleId).Distinct(StringComparer.Ordinal).Count() != samples.Count)
+        var planErrors = CorpusValidation.ValidateRunPlan(authorizedPlan, privateManifest, nowUtc);
+        if (planErrors.Count > 0)
         {
-            throw new ArgumentException("Private scoring samples require unique ids.", nameof(samples));
+            throw new ArgumentException(
+                $"Scoring requires the authorized, currently eligible frozen run plan: {string.Join("; ", planErrors)}",
+                nameof(authorizedPlan));
         }
 
-        var sampleById = samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
-        if (predictions.Any(prediction => !sampleById.TryGetValue(prediction.SampleId, out var sample) ||
-                                          sample.EvidenceClass != prediction.EvidenceClass ||
-                                          IntentFor(sample.Context.CaptureIntentId) != prediction.Intent))
+        var predictionErrors = CorpusValidation.ValidatePredictions(predictionDocument, authorizedPlan);
+        if (predictionErrors.Count > 0)
         {
-            throw new ArgumentException("Predictions must name a known sample with its exact evidence class and intent.", nameof(predictions));
+            throw new ArgumentException(string.Join("; ", predictionErrors), nameof(predictionDocument));
         }
 
-        ValidateScoringPredictions(samples, predictions);
-        var units = SplitPlanner.BuildUnits(samples);
+        var plannedById = authorizedPlan.Samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
+        if (predictionDocument.Predictions.Any(prediction =>
+                !plannedById.TryGetValue(prediction.SampleId, out var planned) ||
+                planned.Split != CorpusSplit.Test || planned.EvidenceClass != evidenceClass))
+        {
+            throw new ArgumentException(
+                "Independent scoring accepts predictions only for the authorized frozen Test split and one evidence class.",
+                nameof(predictionDocument));
+        }
+
+        var testPlanSamples = authorizedPlan.Samples
+            .Where(sample => sample.Split == CorpusSplit.Test && sample.EvidenceClass == evidenceClass)
+            .ToArray();
+        if (testPlanSamples.Length == 0)
+        {
+            throw new ArgumentException(
+                "Independent scoring requires at least one authorized sample in the frozen Test split for the selected evidence class.",
+                nameof(authorizedPlan));
+        }
+
+        var privateById = privateManifest.Samples.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
+        var samples = testPlanSamples.Select(sample => privateById[sample.SampleId]).ToArray();
+        var units = SplitPlanner.BuildUnits(privateManifest.Samples);
         var unitBySample = units.SelectMany(unit => unit.Value.Select(sample => (sample.SampleId, unit.Key)))
             .ToDictionary(pair => pair.SampleId, pair => pair.Key, StringComparer.Ordinal);
-        // Absence is itself an outcome. Emit every intent/evidence-class cell so a report cannot
-        // silently pool a missing health or scrolling-stash slice into a better-supported one.
-        return Enum.GetValues<BenchmarkIntent>()
-            .SelectMany(intent => Enum.GetValues<CorpusEvidenceClass>().Select(evidenceClass =>
-                ScoreSlice(
-                    intent,
-                    evidenceClass,
-                    samples.Where(sample => IntentFor(sample.Context.CaptureIntentId) == intent && sample.EvidenceClass == evidenceClass).ToArray(),
-                    predictions,
-                    unitBySample,
-                    thresholds)))
+        // Every intent remains explicit, including absent ones, but one result document can
+        // represent only one evidence class. This prevents real, synthetic, and post-OCR
+        // evidence from being pooled into a publishable-looking score.
+        var slices = Enum.GetValues<BenchmarkIntent>()
+            .Select(intent => ScoreSlice(
+                intent,
+                evidenceClass,
+                samples.Where(sample => IntentFor(sample.Context.CaptureIntentId) == intent).ToArray(),
+                predictionDocument.Predictions,
+                unitBySample,
+                thresholds))
             .ToArray();
+        var nonEmptySlices = slices.Where(ContainsAggregateEvidence).ToArray();
+        var safeToPublish = nonEmptySlices.Length > 0 &&
+                            nonEmptySlices.All(slice => slice.IndependentSplitUnits >= thresholds.MinimumIndependentSplitUnits);
+        return new AggregateResults(
+            authorizedPlan.RunId,
+            authorizedPlan.ProducerId,
+            authorizedPlan.ProducerVersion,
+            authorizedPlan.CorpusId,
+            authorizedPlan.PlanLock,
+            thresholds.PolicyVersion,
+            evidenceClass,
+            nowUtc,
+            new AggregatePrivacy(safeToPublish, thresholds.MinimumIndependentSplitUnits, false),
+            slices);
     }
 
     public static BenchmarkIntent IntentFor(string captureIntentId)
@@ -404,6 +470,9 @@ public static class IndependentScorer
             .Select(pair => pair.truth.TruthId)
             .Distinct(StringComparer.Ordinal)
             .Count();
+        var unknownScopes = allTruth.Where(pair => pair.truth.State == TruthState.Unknown)
+            .Select(pair => (pair.sample.SampleId, pair.truth.Kind))
+            .ToHashSet();
         var consumedClaims = new HashSet<string>(StringComparer.Ordinal);
         var truePositives = 0;
         var falseNegatives = 0;
@@ -445,14 +514,23 @@ public static class IndependentScorer
                 falseNegatives++;
             }
 
-            if (candidates.Any(pair => pair.prediction.Confidence >= 0.9m && !ClaimMatches(pair.claim, truth)))
+            // A detected result containing both a right and a wrong claim is not a confident
+            // miss for this truth. The extra wrong claim is still adjudicated below as an FP.
+            if (match.claim is null && candidates.Any(pair => pair.prediction.Confidence >= 0.9m))
             {
                 confidentWrong++;
             }
         }
 
-        var allClaims = predictions.SelectMany(prediction => prediction.Claims).ToArray();
-        var falsePositives = allClaims.Count(claim => !consumedClaims.Contains(claim.ClaimId));
+        var unconsumedClaims = predictions
+            .SelectMany(prediction => prediction.Claims.Select(claim => (prediction, claim)))
+            .Where(pair => !consumedClaims.Contains(pair.claim.ClaimId))
+            .ToArray();
+        // Unknown truth marks an unadjudicable sample/type scope. Producer claims there reveal
+        // neither correctness nor error and therefore cannot inflate the FP numerator.
+        var excludedPredictionClaims = unconsumedClaims.Count(pair =>
+            unknownScopes.Contains((pair.prediction.SampleId, pair.claim.Kind)));
+        var falsePositives = unconsumedClaims.Length - excludedPredictionClaims;
         var sequence = SequenceErrors(samples, predictions);
         var denominator = knownGroups.Length;
         var independentUnits = samples.Select(sample => unitBySample[sample.SampleId]).Distinct(StringComparer.Ordinal).Count();
@@ -479,6 +557,7 @@ public static class IndependentScorer
             truePositives,
             denominator,
             excluded,
+            excludedPredictionClaims,
             independentUnits,
             attempted,
             truePositives,
@@ -507,37 +586,6 @@ public static class IndependentScorer
             elapsed.Length,
             elapsed.Length == 0 ? null : elapsed.Average(),
             elapsed.Length == 0 ? null : elapsed.Max());
-    }
-
-    private static void ValidateScoringPredictions(IReadOnlyList<CorpusSample> samples, IReadOnlyList<ProducerPrediction> predictions)
-    {
-        if (predictions.Count == 0)
-        {
-            return;
-        }
-
-        var planSamples = samples.Select(sample => new RunPlanSample(
-            sample.SampleId,
-            CorpusSplit.Test,
-            IntentFor(sample.Context.CaptureIntentId),
-            sample.EvidenceClass,
-            sample.Context,
-            sample.Lineage)).ToArray();
-        var plan = new RunPlan(
-            "private-score-run-0001",
-            "private-score-producer-0001",
-            "private-score-v1",
-            CorpusValidation.FrozenPolicyVersion,
-            "private-score-corpus-0001",
-            CorpusValidation.NearDuplicateGraphVersion,
-            new string('0', 64),
-            planSamples);
-        var document = new PredictionDocument(plan.RunId, plan.ProducerId, plan.ProducerVersion, predictions);
-        var errors = CorpusValidation.ValidatePredictions(document, plan);
-        if (errors.Count != 0)
-        {
-            throw new ArgumentException(string.Join("; ", errors), nameof(predictions));
-        }
     }
 
     private static bool ClaimMatches(PredictionClaim claim, TruthClaim truth) =>
@@ -584,9 +632,9 @@ public static class IndependentScorer
         return (missing, reordered, overlapErrors);
     }
 
-    private static decimal Rate(int numerator, int denominator) => denominator == 0 ? 0 : (decimal)numerator / denominator;
+    internal static decimal Rate(int numerator, int denominator) => denominator == 0 ? 0 : (decimal)numerator / denominator;
 
-    private static (decimal Lower, decimal Upper) Wilson(int successes, int trials)
+    internal static (decimal Lower, decimal Upper) Wilson(int successes, int trials)
     {
         if (trials == 0)
         {
@@ -601,4 +649,9 @@ public static class IndependentScorer
         var margin = z * (decimal)Math.Sqrt((double)((p * (1 - p) + z2 / (4 * n)) / n)) / (1 + z2 / n);
         return (Math.Max(0, center - margin), Math.Min(1, center + margin));
     }
+
+    internal static bool ContainsAggregateEvidence(SliceMetrics slice) =>
+        slice.IndependentSplitUnits != 0 || slice.Denominator != 0 || slice.ExcludedUnknowns != 0 ||
+        slice.ExcludedPredictionClaims != 0 || slice.PerformanceSampleCount != 0 || slice.MissingFrames != 0 ||
+        slice.ReorderedFrames != 0 || slice.OverlapDeduplicationErrors != 0;
 }
