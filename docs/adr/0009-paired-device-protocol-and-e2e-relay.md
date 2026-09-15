@@ -55,7 +55,8 @@ key, and only a commitment to the desktop nonce. The tablet binds a WebAuthn ES2
 own ephemeral key and nonce, and a display name sealed to the desktop ephemeral key. The desktop
 binds that first request, and only then reveals the nonce; the tablet checks it against the
 commitment. Both screens show a six-digit code derived from the request and the revealed nonce, and
-the user approves only on a match; the QR payload additionally pins the identity key. Because the
+the user approves only on a match, in both flows; the QR payload additionally pins the identity key
+for the tablet, but only the compared code authenticates the tablet's request to the desktop. Because the
 request is fixed before the nonce is known, nobody can choose a request that produces a chosen
 code. The desktop then signs a transcript that binds the purpose, version, attempt, commitment,
 device, key, credential, identity key, both ephemeral keys, both nonces, assigned session, relay
@@ -103,15 +104,17 @@ fixed reserve that covers later server-time maintenance.
 Every paired update carries the Core `WorkspaceOrigin` and `V2ContractVersion`; marks carry the Core
 `MapMarkState` with its 80-character label cap, and capture intents carry the Core
 `CaptureIntentState` without flea recognition. Both project to `RevisionedState<T>`. Contract tests
-keep the two documents from drifting.
+keep the two documents from drifting. The amendment was made in the paired-protocol PR under a
+coordinator-approved ownership exception rather than as a separate prerequisite contract PR.
 
 **Delivery.** Every envelope to a device consumes one sequence of a single device stream. Each
 device/channel queue is bounded independently; overflow coalesces that channel to a snapshot marker
 without blocking other channels or devices. A tablet never applies a delivery after a sequence gap,
 from another epoch, or with a non-contiguous revision; it asks to reconnect. Replay requires the
 retained stream to cover every sequence and global revision after the client's position without a
-marker and within the replay and payload bounds; otherwise the desktop sends a snapshot. A tablet
-never applies a late reconnect plan behind its position. Offline
+marker and within the replay and payload bounds; otherwise the desktop sends a snapshot. A delivery
+stream belongs to one authority epoch, so a tablet adopts a snapshot from a new epoch whose stream
+restarted, and within an epoch never applies a late reconnect plan behind its position. Offline
 submission is limited to Show on desktop, mark mutation, and capture-intent request drafts, at most
 64 for fifteen minutes each, and each submission is bound to the epoch and aggregate revision the
 user previewed.
@@ -177,9 +180,11 @@ explicit endpoint-safe metadata and user-reviewed reports; encryption keys and p
 enter relay logs. Metadata such as timing, channel reuse, ciphertext size, handshake public keys,
 and network endpoints is still visible and must not be described as hidden.
 
-A user who pairs by typing the code and approves without comparing the verification code can be
-attacked by a malicious relay; the approval prompt must make the comparison explicit, and a
-QR-scanned pairing avoids the dependency. With commit-then-reveal, a relay that substitutes a
+A user who approves without comparing the verification code can be attacked by a malicious relay,
+whether the tablet scanned the QR payload or typed the code: a relay that forwards the code lookup
+can bind its own request first, and nothing but the compared code tells the desktop which request is
+the user's tablet. The approval prompt therefore cannot approve until the user confirms the codes
+match. With commit-then-reveal, a relay that substitutes a
 request matches the tablet's six-digit code with probability one in a million per attempt, and each
 failed attempt consumes the one-time code within the per-source rate limit. End-to-end encryption
 does not protect against a compromised tablet application origin, which is therefore deployed apart

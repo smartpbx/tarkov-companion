@@ -90,7 +90,8 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
 
 1. `ClientHello`/`ServerHello` fix the negotiated version before pairing.
 2. The desktop creates a random pairing attempt with a five-minute expiry (ten minutes is the hard
-   maximum), a fresh P-256 ECDH ephemeral key, and a 32-byte desktop nonce, and displays a QR
+   maximum), a fresh P-256 ECDH ephemeral key, and a 32-byte desktop nonce from the operating-system
+   CSPRNG, and displays a QR
    payload and a ten-symbol pairing code (see Transport binding). The code is only a rate-limited
    lookup value: it travels in the redacted `Tarkov-Pairing-Code` header, never in JSON or a URL,
    and a live code is never logged or placed in a fixture (the vectors use a fixed test value).
@@ -99,7 +100,9 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
    ‖ bytes(desktop nonce))`, and offer times. The nonce itself stays on the desktop. A tablet that
    scanned the QR code must refuse an offer whose identity key ID differs from the scanned one.
 4. The tablet creates a platform-protected WebAuthn ES256 credential and its own ephemeral key and
-   nonce, seals its requested display name (below), and sends `PairingRequest`. The desktop binds
+   nonce, seals its requested display name (below), and sends `PairingRequest`. It creates exactly
+   one request per offer and resends that identical request on a transport retry; a new request
+   needs a new pairing code, so a relay cannot collect several requests against one nonce. The desktop binds
    the first request to the attempt with `BindResolvedCode`, which also requires the request's
    version to be the connection's negotiated version; another request cannot replace that key. A
    request that reflects the desktop nonce or ephemeral key is refused.
@@ -107,11 +110,13 @@ C# model is `PairingStateMachine`; `Golden/handshake/pairing-*.json` is one comp
    offer's commitment (`PairingCryptography.IsRevealOf`) and refuses to show a code otherwise.
 6. Both screens show the six-digit verification code computed from the pairing commitment, which
    covers the request and the revealed nonce. The desktop approval prompt shows the opened device
-   name, the device key fingerprint, and the code. The user approves only when the tablet shows the
-   same code. Whoever chooses a request, tablet or relay, fixed it before the nonce was known, so a
-   substituted request matches the tablet's code with probability one in a million per attempt, and
-   a failed attempt consumes the one-time code. A tablet that typed the code has no other way to
-   authenticate the desktop identity key, so the comparison is mandatory there.
+   name, the device key fingerprint, and the code, and requires the user to confirm that the tablet
+   shows the same code before approval is possible. The comparison is mandatory in both flows: a
+   scanned QR payload lets the tablet authenticate the desktop, but only the compared code lets the
+   desktop authenticate the tablet's request, because whoever resolves the code, including a relay
+   that forwards the lookup, can bind the first request. Whoever chooses a request fixed it before the
+   nonce was known, so a substituted request matches the tablet's code with probability one in a
+   million per attempt, and a failed attempt consumes the one-time code.
 7. On approval, `CreateChallenge` allocates `SessionAssignment` (negotiated version, device ID,
    session ID, relay channel ID, key epoch, cipher suite, session expiry of at most twelve hours),
    builds the transcript, and signs its hash with the desktop identity key. `Approve` accepts the
@@ -160,8 +165,9 @@ for an already paired device without a new pairing attempt:
 4. `SessionResumption.CompleteAsync` verifies the proof as in pairing step 9 and moves the attempt to
    `Completed`. A completed or expired attempt never establishes another session.
 5. The desktop records the session with `DeviceLifecycle.RecordSession`, which raises
-   `LastKeyEpoch`, ends the device's previous active session as `Replaced`, and applies
-   `ApplySessionTermination` to canonical state.
+   `LastKeyEpoch` and returns the updated device. It then separately ends the device's previous
+   active session with `DeviceLifecycle.EndSession(..., Replaced, ...)` and applies
+   `ApplySessionTermination` with that ended session to canonical state.
 
 Because every established session raises the device's key epoch, a captured proof for that or any
 earlier epoch cannot re-establish a session even if the attempt store is lost, so a relay cannot
@@ -291,7 +297,10 @@ so the code never enters browser history.
 source is the IPv4 address, or the first 64 bits of an IPv6 address, with IPv4-mapped IPv6 read as
 IPv4. At most five attempts per source hash fit a five-minute window, and the limiter keeps at most
 160 observations; when that window is full it refuses every new attempt until an observation ages
-out rather than evicting history.
+out rather than evicting history. Behind the relay the desktop sees only the relay, so the relay
+applies the same limiter keyed by the tablet's source with its own key before forwarding a lookup,
+and the desktop keys lookups forwarded by the relay with the relay connection as one source. The
+160-observation window is therefore also a global bound on code guesses per five minutes.
 
 **WebAuthn relying party and tablet origin.** The tablet application is served as static files from
 one deployment-pinned HTTPS origin that is not the relay API. The WebAuthn RP ID is that origin's
@@ -315,8 +324,9 @@ its operators. It does not protect against a compromised tablet application orig
 code that exfiltrates state inside the browser; that origin is part of the trusted computing base,
 is deployed separately from the relay, and must be protected like a release-signing key. A relay
 that substitutes a typed-code pairing request succeeds if the user approves without comparing the
-verification code, and otherwise with probability one in a million per attempt, each attempt
-consuming a code. Relay-visible metadata remains visible.
+verification code, whether the tablet scanned the QR payload or typed the code, and otherwise with
+probability one in a million per attempt, each attempt consuming a code. Relay-visible metadata
+remains visible.
 
 ## End-to-end relay confidentiality
 
@@ -445,11 +455,14 @@ makes a command stale.
 attribution: the Core `WorkspaceOrigin` (workspace, authenticated device, `PairedDevice` or
 `DesktopApplication`, and client or desktop instance) and the `V2ContractVersion`. Maintenance
 changes are attributed to the desktop device and instance. A marks update projects each mark it
-wrote to `RevisionedState<MapMarkState>` on stream `paired/Marks/<mark ID>` with the mark revision
+wrote to `RevisionedState<MapMarkState>` on stream `paired/<authority epoch>/Marks/<mark ID>`
 (`MarksCanonicalUpdate.ToRevisionedStates`), and a capture update projects its intent to
-`RevisionedState<CaptureIntentState>` on stream `paired/CaptureIntent`
-(`CaptureCanonicalUpdate.ToRevisionedState`), with the update's change ID, origin, contract version,
-and time. Device modes and the workspace projection are paired state, not v2 payloads.
+`RevisionedState<CaptureIntentState>` on stream `paired/<authority epoch>/CaptureIntent`
+(`CaptureCanonicalUpdate.ToRevisionedState`), with the update's aggregate revision, change ID,
+origin, contract version, and time. Scoping streams to the epoch and using the aggregate revision
+keeps every stream's revisions increasing, including when a mark ID is deleted and re-created.
+Device modes and the workspace projection are paired state, not v2 payloads. The paired JSON options
+serialize the reused Core DTOs byte-for-byte as `V2ContractJson.Options` does.
 
 **Delivery budget.** Committed canonical state always fits the wire. After computing a change, the
 reducer serializes the widest possible acknowledgement envelope carrying the full new state
@@ -507,8 +520,8 @@ Rejection reasons, in reducer order:
    `RejectedCommandIdReuse`.
 4. The ID is a version-8 UUID, reserved for desktop maintenance changes, or already occupies an
    aggregate cursor: `RejectedCommandIdReuse`.
-5. The command has expired, or was issued more than one minute in the desktop's future:
-   `RejectedExpired` or `RejectedInvalidState`.
+5. The command has expired, was issued more than one minute in the desktop's future, or was issued
+   at or before the receipt horizon: `RejectedExpired` or `RejectedInvalidState`.
 6. The context lacks the capability: `RejectedUnauthorized`.
 7. The envelope names another authority epoch: `RequiresSnapshot`.
 8. An offline preview is not bound to the current epoch and aggregate revision: `RequiresPreview`.
@@ -523,10 +536,13 @@ to the newest 256; pinned receipts are never evicted. A same-device retry of the
 always the duplicate while its receipt is retained, even when the retry carries a refreshed
 requested revision, lifetime, or offline preview, as a re-previewed offline draft does after a lost
 acknowledgement. The duplicate reports the receipt's revision as both requested and applied
-revision, names the command as the applied change, and reports the current global revision. A
-retry whose receipt was evicted is evaluated as a new command whose revision is already occupied,
-which can never apply twice. Same-device reuse of an ID for a different action, and any other
-device's use of it, is `RejectedCommandIdReuse`.
+revision, names the command as the applied change, and reports the current global revision; it never
+changes the landed action, including a lifetime derived from the original command. When the bound
+forces out a receipt that has not expired, the receipt horizon advances to that command's issue time,
+and any later command without a receipt issued at or before the horizon is `RejectedInvalidState`
+with code `idempotency-window-exceeded`, because a retry repeats its original issue time. So a change
+never applies twice, whatever revision its retry requests. Same-device reuse of an ID for a different
+action, and any other device's use of it, is `RejectedCommandIdReuse`.
 
 The fingerprint is `CanonicalCommandFingerprint`: the command serialized through the closed
 polymorphic model without its delivery metadata (`commandId`, `requestedRevision`, `issuedUtc`,
@@ -535,7 +551,7 @@ sorted by ordinal name, arrays in order, strings as unescaped UTF-8, and numbers
 round-trip text. The discriminator and every action field, including payload revisions such as a
 mark's expected revision, take part. It does not depend on JSON member order or escaping.
 Fingerprints are desktop-local and never cross the wire. Receipts are not part of the serialized
-snapshot; #277 persists them beside canonical state.
+snapshot; #277 persists them and the receipt horizon beside canonical state.
 
 The reducer returns a typed rejection for every hostile or malformed command. An `ArgumentException`,
 `InvalidOperationException`, `UnauthorizedAccessException`, `OverflowException`, `JsonException`, or
@@ -660,8 +676,10 @@ failure after a result keeps that result as history.
 ## Delivery and backpressure
 
 Every server envelope to a device consumes exactly one sequence of that device's single delivery
-stream, in the order the desktop enqueues it, whatever the message. `DeliveryLedger` is the
-executable model:
+stream, in the order the desktop enqueues it, whatever the message. The stream belongs to one
+authority epoch: the desktop persists the ledger's assigned sequences with canonical state for the
+life of the epoch, and a new epoch starts a new ledger whose sequences restart. `DeliveryLedger` is
+the executable model:
 
 - Canonical updates enter the channel of their aggregate; acknowledgements, snapshots, and
   deprecation notices enter the control channel. Each channel of each device is bounded to 64
@@ -679,11 +697,12 @@ executable model:
 
 | Delivery | Replica result |
 | --- | --- |
+| Snapshot, or acknowledgement carrying canonical state, from another authority epoch at any sequence | Replaces the cache and becomes the stream position: the new epoch restarted the stream. |
+| Other delivery from another authority epoch | Resync required (discarded while awaiting resync). |
 | Sequence at or below the last applied | Duplicate; nothing changes. |
 | Canonical snapshot at any newer sequence | Replaces the cache and becomes the stream position. |
 | Any other delivery while awaiting resync | Discarded. |
 | Sequence other than last + 1 | Resync required: a delivery-sequence gap is never applied as a delta. |
-| Update from another authority epoch | Resync required. |
 | Update whose global revision is at or below the cache and whose aggregate revision is not newer | Already reflected (a snapshot contained it); the position advances. |
 | Update whose global revision is not exactly the next, or whose aggregate revision is not exactly the next | Resync required. |
 | Next update | Replaces that aggregate and advances the global revision. |
@@ -712,12 +731,13 @@ handover:
 `ResumeAfterDeliverySequence` is the device's last assigned sequence; the client adopts it after
 applying the plan and live delivery continues from the next sequence. Every plan except
 `UnsupportedVersion` hands the stream over by acknowledging it through that sequence. A snapshot is
-authoritative and atomically replaces the tablet's cache before deltas resume. Plans carry no request
-correlation, so `CanonicalReplica.ApplyReconnectPlan` discards a plan whose resume position is behind
-the replica as a late answer, skips replayed deliveries the replica already applied, requires a
-replay to start no later than the next expected sequence, and applies `UpToDate` only at the
-replica's own position. Expired control or capture commands never replay because commands are never
-replayed, only their canonical results.
+authoritative and atomically replaces the tablet's cache before deltas resume.
+`CanonicalReplica.ApplyReconnectPlan` always adopts a snapshot from another authority epoch at the
+plan's position, because that epoch restarted the stream. Within an epoch, plans carry no request
+correlation, so it discards a plan whose resume position is behind the replica as a late answer,
+skips replayed deliveries the replica already applied, requires a replay to start no later than the
+next expected sequence, and applies `UpToDate` only at the replica's own position. Expired control
+or capture commands never replay because commands are never replayed, only their canonical results.
 
 ## Offline actions
 
@@ -763,7 +783,7 @@ All transports call `CompanionProtocolJson` rather than default serializer optio
 | Offline actions | 64, each for fifteen minutes |
 | Delivery channel | 64 per device and channel |
 | Replay | 256 deliveries |
-| Timestamp | explicit UTC zero offset, millisecond precision |
+| Timestamp | explicit zero UTC offset (`+00:00` or `Z`) when read, including inside reused Core DTOs; millisecond precision |
 | Client clock skew accepted for issue times | one minute |
 | Pairing code | ten Crockford base32 symbols; five attempts per source hash per five minutes; 160 observations, then fail closed |
 | Pairing offer | five minutes normally, ten minutes maximum |
@@ -808,9 +828,10 @@ GitHub Actions runs these tests on every change; local runs are supplementary.
 | Pairing is commit-then-reveal and requires approval, the code, a desktop signature, and a WebAuthn proof; resume is single-use with increasing key epochs; relay substitution is detected; the rate limiter fails closed | `HandshakeTests` |
 | Session roots are framed on every transport; the pairing code, QR payload, and source hash match the independent vectors | `TransportBindingTests` |
 | Acknowledgements satisfy the disposition table and the Core `StateAcknowledgement` rules; hostile command sequences never escape the reducer; this document and `docs/V2_CONTRACT.md` do not drift | `AcknowledgementContractTests` |
-| Duplicates across refreshed delivery metadata, mutated reuse, cross-device reuse, reserved IDs, and bounded receipts | `IdempotencyTests` |
+| Duplicates across refreshed delivery metadata, mutated reuse, cross-device reuse, reserved IDs, bounded receipts, and the receipt horizon | `IdempotencyTests` |
+| Zero-offset timestamps inside Core DTOs; Core DTOs serialize as under `V2ContractJson.Options` | `GoldenAndHostileJsonTests` |
 | Desktop-local changes, disconnect/revoke/expiry to Follow, expired requests and leases, maintenance enforcement and delivery budget, v2 attribution and Core projections, per-capture terminal stages, context construction | `DeviceModeLifecycleTests`, `CanonicalStateMachineTests` |
-| Delivery sequencing, isolation, gap detection, replica resync, late plans, and reconnect plans | `DeliveryAndReconnectTests` |
+| Delivery sequencing, isolation, gap detection, replica resync, late plans, a restarted authority epoch, and reconnect plans | `DeliveryAndReconnectTests` |
 | The 64-action offline bound, expiry, preview binding, and eligibility | `OfflineActionQueueTests` |
 | Negotiation and deprecation | `CompatibilityTests` |
 
@@ -822,10 +843,12 @@ desktop approval UI orchestration, and transport composition. It must:
 - keep the desktop identity key DPAPI-protected behind `IDesktopIdentitySigner`, and implement
   `IDeviceKeyProofVerifier` with the pinned RP ID, origin, signature, and counter checks above;
 - serve the transport binding exactly: the offer endpoint and redacted header, framed-only session
-  traffic on the LAN gateway, relay channel registration, and `ComputeSourceHash` with a per-start
-  random key feeding `PairingRateLimiter`;
+  traffic on the LAN gateway, relay channel registration, `ComputeSourceHash` with a per-start
+  random key feeding `PairingRateLimiter`, and the relay's own per-source limiter for forwarded
+  lookups;
 - bind requests with the connection's negotiated version, release `RevealNonce` only after binding,
-  and show the opened name, key fingerprint, and verification code in the approval prompt;
+  and show the opened name, key fingerprint, and verification code in an approval prompt that cannot
+  approve until the user confirms the codes match, for QR and typed-code pairing alike;
 - create devices with `DeviceLifecycle.Pair`, persist `SessionResumeAttempt` by challenge ID, record
   sessions with `DeviceLifecycle.RecordSession` and frames with `DeviceLifecycle.RecordUse`, and
   persist each session's `RelayFrameReceiver` position;
@@ -833,16 +856,19 @@ desktop approval UI orchestration, and transport composition. It must:
   `DeserializeRelayPayload`, construct authenticated context only with `ForPairedSession`, call
   `ApplySessionTermination`, `ApplyDeviceTermination`, and `ApplyMaintenance` as described, and end a
   device's previous session as `Replaced` after resume;
-- persist canonical state and its receipts atomically, enqueue every returned acknowledgement and
-  update through `DeliveryLedger`, resolve markers at send time, plan reconnects with the negotiated
-  version, and hand the stream over with the ledger returned by `ReconnectPlanner`;
+- persist canonical state, its receipts and receipt horizon, and the delivery ledger atomically for
+  the life of an authority epoch, mint a new epoch whenever that state is lost, enqueue every
+  returned acknowledgement and update through `DeliveryLedger`, resolve markers at send time, plan
+  reconnects with the negotiated version, and hand the stream over with the ledger returned by
+  `ReconnectPlanner`;
 - route selection deep links inside the companion and never pass them to the operating-system shell.
 
 Issue #290 owns tablet presentation and local Independent state. It consumes the schema and golden
 vectors; pins the desktop identity key from the QR payload or verification code and uses that pinned
 key for every resume; checks the nonce reveal against the offer before showing the code and
 `SessionEstablished` against the verified challenge; displays the code and mode/lease/security/
-conflict/expiry state; sends session traffic only in frames; corrects its clock from `ServerUtc`;
+conflict/expiry state; sends session traffic only in frames; resends a command byte-for-byte unchanged
+when it retries one; corrects its clock from `ServerUtc`;
 mirrors `CanonicalReplica` exactly; uses `OfflineActionQueue` semantics for explicit drafts; and keeps
 reusable authorization material out of browser storage. It cannot create a second JavaScript
 state-machine interpretation: server acknowledgements, snapshots, and updates are authoritative.
