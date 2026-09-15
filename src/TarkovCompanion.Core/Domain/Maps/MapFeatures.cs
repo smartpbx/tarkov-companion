@@ -1,3 +1,5 @@
+using TarkovCompanion.Core.Common;
+
 namespace TarkovCompanion.Core.Domain.Maps;
 
 /// <summary>What a marker on the map is.</summary>
@@ -24,7 +26,7 @@ public enum MapFeatureKind
 }
 
 /// <summary>
-/// One fixed thing on a map, from the data tarkov.dev already publishes.
+/// One fixed thing on a map, from the primary catalog or a reviewed supplement.
 /// </summary>
 /// <remarks>
 /// The whole map record, extracts and spawns included, has been downloaded, parsed and stored
@@ -60,6 +62,15 @@ public sealed record MapFeature(
     string? Faction = null,
     string? Detail = null)
 {
+    /// <summary>Where a supplemental fact came from, or null for a primary-catalog feature.</summary>
+    /// <remarks>
+    /// Primary-feature provenance remains on the synced map payload. Reviewed supplements carry
+    /// their own source and review time here so a missing upstream row can be repaired without
+    /// turning a coordinate copied from a snapshot into an unexplained fact. Kept off the
+    /// positional constructor so existing feature producers and consumers remain source-compatible.
+    /// </remarks>
+    public DataProvenance? Provenance { get; init; }
+
     /// <summary>
     /// <see cref="Faction"/> reduced to something that can be drawn.
     /// </summary>

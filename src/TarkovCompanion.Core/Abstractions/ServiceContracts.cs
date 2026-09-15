@@ -114,6 +114,17 @@ public sealed record ExtractRecognitionResult(
     /// a by-product of failing to match something else.
     /// </remarks>
     public IReadOnlyList<string> RawLines { get; init; } = [];
+
+    /// <summary>
+    /// Structurally identified EXFIL rows whose names were absent from this map's catalog.
+    /// </summary>
+    /// <remarks>
+    /// These are preserved as conservative observations instead of disappearing into generic
+    /// unmatched text. Keeping the raw rows separately makes an upstream coverage regression
+    /// measurable while the observation still lets the player see an exit the game offered.
+    /// An unlabelled OCR fragment never enters this list.
+    /// </remarks>
+    public IReadOnlyList<string> CatalogGapLines { get; init; } = [];
 }
 
 public enum ScanCompletionStatus

@@ -10,6 +10,27 @@ Project source is MIT licensed. Dependency and asset obligations are tracked sep
 - TarkovMonitor: GPL-3.0 reference only; no source is copied or linked.
 - eft-ammo.com: inspiration/sanity checking only; no scraping or copied ranking/presentation.
 
+## Reviewed extract coordinate facts
+
+ADR 0012's extract supplement uses nine factual static name/world-coordinate marker records from
+the SPT-DynamicMaps `Plugin/Resources/Maps` configurations at commit
+[`4944764f5f6c42d152dca6bd1b5371c4f6212a9e`](https://github.com/acidphantasm/SPT-DynamicMaps/tree/4944764f5f6c42d152dca6bd1b5371c4f6212a9e/Plugin/Resources/Maps).
+The original plugin license is MIT, copyright 2025 Michael P. Starkweather. Its map/data credit
+file says that marker data was datamined by the program and credits TarkovTracker/tarkovData,
+TarkovDev, and Shebuka for additional information. Retained notice copies are at
+`LICENSES/SPT-DynamicMaps-MIT.txt` and
+`LICENSES/SPT-DynamicMaps-map-and-data-credits.txt`.
+
+No implementation, SVG or other map layer, artwork, icon, marker asset, wording, layout, or live
+behavior is copied. In particular, the separately licensed Shebuka SVG layers named by the
+credit file are outside this factual transcription. Permanent EFT Wiki revisions provide the
+thirteen-map current-list comparison and corroborate supported names and sides, but no wiki prose
+or assets are redistributed. The Lab list does not state a side for Medical Block Elevator, so
+the compiled fact preserves `unknown`. Icebreaker's Helicopter and Terminal's Zubr Boat are
+wiki-list facts with no coordinate and therefore cannot create markers. Each compiled fact links
+its exact review source and records confidence and timestamps. The primary `json.tarkov.dev`
+record supersedes the supplement by normalized identity when it appears.
+
 ## Offline OCR redistribution review
 
 The production OCR provider uses `TesseractOCR` 5.5.2, a .NET wrapper containing
