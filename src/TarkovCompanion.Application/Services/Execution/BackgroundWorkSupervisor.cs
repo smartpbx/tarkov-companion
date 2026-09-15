@@ -587,6 +587,11 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
 
     private async Task ExecuteItemAsync(WorkItem item)
     {
+        // Yield before invoking the user's callback so that a synchronous or CPU-intensive
+        // prefix cannot block the dispatcher thread from dispatching other items or arming
+        // their deadlines. Resources and concurrency counts were already acquired under the
+        // scheduler lock before this call.
+        await Task.Yield();
         var run = item.RunCompletion!;
         try
         {
@@ -715,11 +720,15 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
 
     /// <summary>Chooses the next item that may start, or null.</summary>
     /// <remarks>
-    /// Fairness is bounded in two ways. A higher priority may overtake the oldest eligible item
-    /// at most <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/> times in a row, and
-    /// a pending heavy-exclusive item stops new admissions until running work drains, because a
-    /// continuous stream of small work would otherwise always hold one slot and keep the
-    /// exclusive item ineligible for ever.
+    /// <para>
+    /// Fairness is bounded in three ways. A higher priority may overtake the oldest eligible item
+    /// at most <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/> times in a row.
+    /// A pending heavy-exclusive item blocks lower-priority new admissions until running work
+    /// drains, because a continuous stream of small work would otherwise always hold one slot and
+    /// keep the exclusive item ineligible for ever. Interactive and UserBlocking work is still
+    /// admitted during that drain, also bounded by <see cref="BackgroundWorkSupervisorOptions.MaxPriorityBurst"/>,
+    /// so a long-lived or uncooperative task cannot starve high-priority callers indefinitely.
+    /// </para>
     /// </remarks>
     private WorkItem? ChooseNextUnsafe()
     {
@@ -728,13 +737,24 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
             return null;
         }
 
-        if (_running > 0 && _pending.Any(item =>
-                item.Request.Execution.Policy.WorkloadClass == WorkloadClass.HeavyExclusive))
+        var hasPendingHeavy = _running > 0 && _pending.Any(item =>
+            item.Request.Execution.Policy.WorkloadClass == WorkloadClass.HeavyExclusive);
+
+        // In drain mode, once the priority burst for high-priority items is exhausted, stop
+        // admitting until slots drain so the exclusive item can eventually acquire them all.
+        if (hasPendingHeavy && _priorityBurst >= _options.MaxPriorityBurst)
         {
             return null;
         }
 
-        var eligible = _pending.Where(item => CanRunUnsafe(item.Request.Execution.Policy.WorkloadClass)).ToArray();
+        // In drain mode, restrict eligible items to Interactive or higher so lower-priority work
+        // cannot indefinitely delay the exclusive item by consuming the slots it needs.
+        var eligible = _pending
+            .Where(item =>
+                CanRunUnsafe(item.Request.Execution.Policy.WorkloadClass)
+                && (!hasPendingHeavy || item.Request.Priority >= WorkPriority.Interactive))
+            .ToArray();
+
         if (eligible.Length == 0)
         {
             return null;
@@ -751,6 +771,13 @@ public sealed class BackgroundWorkSupervisor : IBackgroundWorkSupervisor
         {
             _priorityBurst++;
             return highest;
+        }
+
+        if (hasPendingHeavy)
+        {
+            // Count each drain-mode admission against the burst so the bound stays finite.
+            _priorityBurst++;
+            return oldest;
         }
 
         _priorityBurst = 0;

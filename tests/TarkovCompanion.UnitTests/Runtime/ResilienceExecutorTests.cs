@@ -204,6 +204,107 @@ public sealed class ResilienceExecutorTests
         Assert.Equal(jitter.Apply(context), jitter.Apply(context));
     }
 
+    /// <summary>
+    /// A caller cancellation during a half-open probe must release the probe slot without
+    /// closing the circuit or recording a success. Nothing was learned about the dependency.
+    /// </summary>
+    [Fact]
+    public async Task CallerCancellationReleasesHalfOpenProbeWithoutChangingCircuitState()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var executor = new ResilienceExecutor(time, new ExactJitter());
+        var policy = new OperationPolicy(
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10),
+            1,
+            TimeSpan.Zero,
+            TimeSpan.Zero,
+            1,
+            0,
+            2,
+            TimeSpan.FromSeconds(5),
+            WorkloadClass.IO,
+            OperationRestartMode.Manual,
+            IdempotencyRequirement.Guaranteed);
+
+        // Open the circuit.
+        for (var i = 0; i < 2; i++)
+        {
+            await executor.ExecuteAsync<int>(Request(policy), Failure, default);
+        }
+
+        Assert.Equal(CircuitState.Open, Assert.Single(executor.Circuits).State);
+
+        // Advance past the open interval so the circuit moves to HalfOpen.
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(CircuitState.HalfOpen, Assert.Single(executor.Circuits).State);
+
+        // A probe runs but the caller cancels before the operation completes.
+        using var cancellation = new CancellationTokenSource();
+        var probePending = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execution = executor.ExecuteAsync<int>(Request(policy), (_, _) => probePending.Task, cancellation.Token);
+        await RuntimeTestTasks.DrainAsync();
+        Assert.Equal(CircuitState.HalfOpen, Assert.Single(executor.Circuits).State);
+        Assert.True(Assert.Single(executor.Circuits).ProbeInProgress);
+
+        await cancellation.CancelAsync();
+        var result = await execution;
+
+        // Caller cancel: classified as Cancelled, probe released, circuit stays HalfOpen.
+        Assert.False(result.Succeeded);
+        Assert.Equal(RuntimeFailureKind.Cancelled, result.Fault!.Kind);
+        Assert.Equal(CircuitState.HalfOpen, Assert.Single(executor.Circuits).State);
+        Assert.False(Assert.Single(executor.Circuits).ProbeInProgress);
+
+        // The next probe can still acquire the half-open slot and, on success, close the circuit.
+        probePending.TrySetResult(1);
+        var probe = await executor.ExecuteAsync(Request(policy), (_, _) => Task.FromResult(42), default);
+        Assert.True(probe.Succeeded);
+        Assert.Equal(CircuitState.Closed, Assert.Single(executor.Circuits).State);
+
+        static Task<int> Failure(OperationAttemptContext context, CancellationToken token) =>
+            Task.FromException<int>(new IOException("dependency fault"));
+    }
+
+    /// <summary>
+    /// An OperationCanceledException thrown by the dependency itself (not the caller's token)
+    /// must be classified as Timeout, be retryable, and count against the circuit — so a
+    /// dependency that internally times-out can open its circuit.
+    /// </summary>
+    [Fact]
+    public async Task DependencyOriginatedCancellationIsClassifiedAsTimeoutAndCountsAgainstCircuit()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var executor = new ResilienceExecutor(time, new ExactJitter());
+        var policy = new OperationPolicy(
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10),
+            1,
+            TimeSpan.Zero,
+            TimeSpan.Zero,
+            1,
+            0,
+            1,
+            TimeSpan.FromSeconds(5),
+            WorkloadClass.IO,
+            OperationRestartMode.Manual,
+            IdempotencyRequirement.Guaranteed);
+
+        // The dependency throws its own OperationCanceledException (e.g. an HttpClient timeout)
+        // while the caller's token is NOT cancelled.
+        var result = await executor.ExecuteAsync<int>(
+            Request(policy),
+            (_, _) => Task.FromException<int>(new TaskCanceledException("dependency timed out")),
+            default);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(RuntimeFailureKind.Timeout, result.Fault!.Kind);
+        Assert.Equal("operation-dependency-cancelled", result.Fault.Code.Value);
+        Assert.True(result.Fault.IsRetryable);
+        // The single failure should have opened the circuit (threshold = 1).
+        Assert.Equal(CircuitState.Open, Assert.Single(executor.Circuits).State);
+    }
+
     private static OperationExecutionRequest Request(OperationPolicy policy) => new(
         new("runtime-test"),
         OperationId.New(),

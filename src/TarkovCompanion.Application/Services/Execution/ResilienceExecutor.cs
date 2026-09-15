@@ -227,14 +227,35 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
             }
             catch (Exception exception)
             {
-                lastFault = RuntimeFault.FromException(exception, _timeProvider, reference);
-                if (CountsAgainstCircuit(lastFault))
+                if (exception is OperationCanceledException)
                 {
-                    circuit.RecordFailure(_timeProvider.GetUtcNow());
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        // Caller cancelled: classify as Cancelled and release any half-open probe
+                        // without touching the circuit's counters or state. Nothing is known about
+                        // whether the dependency itself is healthy.
+                        lastFault = RuntimeFault.FromException(exception, _timeProvider, reference);
+                        circuit.ReleaseProbe();
+                    }
+                    else
+                    {
+                        // Dependency's own cancellation (e.g. an HttpClient timeout): classify as
+                        // Timeout so it is retryable and counts against the circuit.
+                        lastFault = TimeoutFault(reference, "operation-dependency-cancelled");
+                        circuit.RecordFailure(_timeProvider.GetUtcNow());
+                    }
                 }
                 else
                 {
-                    circuit.RecordSuccess();
+                    lastFault = RuntimeFault.FromException(exception, _timeProvider, reference);
+                    if (CountsAgainstCircuit(lastFault))
+                    {
+                        circuit.RecordFailure(_timeProvider.GetUtcNow());
+                    }
+                    else
+                    {
+                        circuit.RecordSuccess();
+                    }
                 }
             }
 
@@ -456,6 +477,18 @@ public sealed class ResilienceExecutor(TimeProvider timeProvider, IRetryJitter? 
                 _state = CircuitState.Closed;
                 _consecutiveFailures = 0;
                 _openUntilUtc = null;
+                _probeInProgress = false;
+            }
+        }
+
+        /// <summary>
+        /// Releases a half-open probe without recording a success or failure. Used when the caller
+        /// cancelled an in-flight probe: nothing was learned about the dependency's health.
+        /// </summary>
+        public void ReleaseProbe()
+        {
+            lock (_gate)
+            {
                 _probeInProgress = false;
             }
         }

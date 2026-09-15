@@ -210,11 +210,11 @@ public sealed class BackgroundWorkSupervisorTests
 
         releaseA.TrySetResult();
         await a.Handle.Completion;
-        await RuntimeTestTasks.DrainAsync();
+        // One burst-bounded priority admission (c) runs before B finishes draining.
+        await RuntimeTestTasks.UntilAsync(() => { lock (gate) { return order.Count >= 1; } });
         lock (gate)
         {
-            // A slot is free, but the pending exclusive item stops new admissions until B drains.
-            Assert.Empty(order);
+            Assert.Equal(["c"], order);
         }
 
         releaseB.TrySetResult();
@@ -550,6 +550,102 @@ public sealed class BackgroundWorkSupervisorTests
             capacity: 2,
             burst: 1,
             minimumRestartDelay: TimeSpan.Zero));
+    }
+
+    /// <summary>
+    /// A callback that does synchronous work before its first await must not block the dispatcher
+    /// thread from dispatching other items. Concurrency counts are already committed under the
+    /// scheduler lock before the callback is ever invoked.
+    /// </summary>
+    [Fact]
+    public async Task SynchronousCallbackPrefixDoesNotStallTheDispatcher()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(
+            time, Options(capacity: 4, burst: 2, maxConcurrent: 2, lightLimit: 2));
+
+        // A blocking wait inside the callback is the worst-case synchronous prefix:
+        // without a yield before invocation it would occupy the dispatcher thread.
+        var gate = new SemaphoreSlim(0, 1);
+        var bStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var a = supervisor.Submit(Request(WorkPriority.Normal, WorkloadClass.Light), (_, _) =>
+        {
+            gate.Wait();
+            return Task.CompletedTask;
+        });
+        var b = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) =>
+        {
+            bStarted.TrySetResult();
+            return Task.CompletedTask;
+        });
+
+        // B must start even though A is stuck in gate.Wait. If the dispatcher ran A's prefix
+        // synchronously, B would be stuck behind A and bStarted would never fire.
+        await bStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // A's callback has not returned (gate still held), so its slot and completion are live.
+        Assert.False(a.Handle.Completion.IsCompleted);
+
+        gate.Release();
+        await Task.WhenAll(a.Handle.Completion, b.Handle.Completion);
+    }
+
+    /// <summary>
+    /// A never-ending lower-priority task that ignores cancellation must not indefinitely block
+    /// UserBlocking/Interactive work when a HeavyExclusive is also pending. The drain is bounded
+    /// by MaxPriorityBurst admissions; after the burst the heavy waits, but high-priority callers
+    /// are never starved.
+    /// </summary>
+    [Fact]
+    public async Task UserBlockingWorkRunsWhileHeavyExclusiveIsPendingAndLowerPriorityTaskIsUncooperative()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        await using var supervisor = new BackgroundWorkSupervisor(
+            time, Options(capacity: 8, burst: 2, maxConcurrent: 2, lightLimit: 2));
+        var gate = new object();
+        var order = new List<string>();
+        var longRunningStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // A long-running Normal task that ignores cancellation (simulates an uncooperative run).
+        var longRunning = supervisor.Submit(Request(WorkPriority.Normal, WorkloadClass.Light), async (_, _) =>
+        {
+            longRunningStarted.TrySetResult();
+            await release.Task;
+        });
+        await longRunningStarted.Task;
+
+        // Heavy exclusive needs all slots free — can't start while longRunning holds one.
+        var heavy = supervisor.Submit(
+            Request(WorkPriority.Background, WorkloadClass.HeavyExclusive),
+            (_, _) => Add("heavy"));
+
+        // UserBlocking should still start, bounded by the burst count.
+        var ub1 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub1"));
+        var ub2 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub2"));
+        // Third UserBlocking exceeds burst = 2 during drain; it must wait for the drain.
+        var ub3 = supervisor.Submit(Request(WorkPriority.UserBlocking, WorkloadClass.Light), (_, _) => Add("ub3"));
+
+        // ub1 and ub2 run within the burst bound.
+        await Task.WhenAll(ub1.Handle.Completion, ub2.Handle.Completion);
+        lock (gate) { Assert.Equal(["ub1", "ub2"], order); }
+
+        // ub3 and heavy must still be pending (burst exhausted, longRunning still running).
+        Assert.False(ub3.Handle.Completion.IsCompleted);
+        Assert.False(heavy.Handle.Completion.IsCompleted);
+        Assert.Equal(1, supervisor.Snapshot.Resources.Running);
+        Assert.Equal(1, supervisor.Snapshot.Resources.RunningLight);
+
+        release.TrySetResult();
+        await Task.WhenAll(longRunning.Handle.Completion, heavy.Handle.Completion, ub3.Handle.Completion);
+        lock (gate) { Assert.Equal(["ub1", "ub2", "heavy", "ub3"], order); }
+
+        Task Add(string s)
+        {
+            lock (gate) { order.Add(s); }
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>What an operation that ignored cancellation may truthfully end as once it returns.</summary>

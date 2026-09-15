@@ -22,20 +22,26 @@ public sealed class LatestOperationGate : IDisposable
             throw new ArgumentException("An operation scope is required.", nameof(scope));
         }
 
+        Entry? previous;
+        LatestOperationLease lease;
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_current.Remove(scope, out var previous))
-            {
-                previous.Cancellation.Cancel();
-                previous.Cancellation.Dispose();
-            }
-
+            _current.Remove(scope, out previous);
             var generation = new OperationGeneration(checked(++_nextGeneration));
             var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _current.Add(scope, new(generation, cancellation));
-            return new(scope, generation, cancellation.Token);
+            lease = new(scope, generation, cancellation.Token);
         }
+
+        // Cancel and dispose outside the lock so that cancellation callbacks cannot re-enter
+        // _gate through IsCurrent or TryCommit, which would deadlock.
+        if (previous is not null)
+        {
+            TryCancelAndDispose(previous.Cancellation);
+        }
+
+        return lease;
     }
 
     public bool IsCurrent(LatestOperationLease lease)
@@ -67,18 +73,21 @@ public sealed class LatestOperationGate : IDisposable
 
     public void Invalidate(OperationScopeId scope)
     {
+        Entry? removed;
         lock (_gate)
         {
-            if (_current.Remove(scope, out var current))
-            {
-                current.Cancellation.Cancel();
-                current.Cancellation.Dispose();
-            }
+            _current.Remove(scope, out removed);
+        }
+
+        if (removed is not null)
+        {
+            TryCancelAndDispose(removed.Cancellation);
         }
     }
 
     public void Dispose()
     {
+        Entry[] entries;
         lock (_gate)
         {
             if (_disposed)
@@ -87,13 +96,29 @@ public sealed class LatestOperationGate : IDisposable
             }
 
             _disposed = true;
-            foreach (var entry in _current.Values)
-            {
-                entry.Cancellation.Cancel();
-                entry.Cancellation.Dispose();
-            }
-
+            entries = [.. _current.Values];
             _current.Clear();
+        }
+
+        foreach (var entry in entries)
+        {
+            TryCancelAndDispose(entry.Cancellation);
+        }
+    }
+
+    private static void TryCancelAndDispose(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (AggregateException)
+        {
+            // A registered callback threw; the cancellation still fired.
+        }
+        finally
+        {
+            cancellation.Dispose();
         }
     }
 
