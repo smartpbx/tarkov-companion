@@ -8,20 +8,21 @@ namespace TarkovCompanion.UnitTests;
 public sealed class ReviewedExtractCatalogTests
 {
     [Fact]
-    public void Sweep_records_nine_unique_gaps_across_five_maps_with_complete_evidence()
+    public void Sweep_records_eleven_unique_gaps_across_seven_maps_with_complete_evidence()
     {
         var facts = ReviewedExtractCatalog.Facts;
 
-        Assert.Equal(9, facts.Count);
-        Assert.Equal(5, facts.Select(fact => fact.MapId).Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(9, facts.Select(fact => fact.Id).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(11, facts.Count);
+        Assert.Equal(7, facts.Select(fact => fact.MapId).Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(11, facts.Select(fact => fact.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(
-            9,
+            11,
             facts.Select(fact => $"{fact.MapId}\n{fact.Name}")
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Count());
         Assert.Equal(
             [
+                "icebreaker|Helicopter|pmc",
                 "lighthouse|Hideout Under the Landing Stage|scav",
                 "lighthouse|Industrial Zone Gates|scav",
                 "lighthouse|Road to Military Base V-Ex|pmc",
@@ -29,7 +30,8 @@ public sealed class ReviewedExtractCatalogTests
                 "lighthouse|Southern Road|pmc",
                 "reserve|D-2|pmc",
                 "shoreline|Railway Bridge|pmc",
-                "the-lab|Medical Block Elevator|pmc",
+                "the-lab|Medical Block Elevator|unknown",
+                "terminal|Zubr Boat|pmc",
                 "woods|Friendship Bridge (Co-Op)|shared",
             ],
             facts.Select(fact => $"{fact.MapId}|{fact.Name}|{fact.Faction}"));
@@ -37,17 +39,26 @@ public sealed class ReviewedExtractCatalogTests
         {
             Assert.StartsWith("reviewed:", fact.Id, StringComparison.Ordinal);
             Assert.False(string.IsNullOrWhiteSpace(fact.Name));
-            Assert.Contains(fact.Faction, new[] { "pmc", "scav", "shared" });
-            Assert.True(double.IsFinite(fact.Position.X));
-            Assert.True(double.IsFinite(fact.Position.Y));
-            Assert.True(double.IsFinite(fact.Position.Z));
+            Assert.Contains(fact.Faction, new[] { "pmc", "scav", "shared", "unknown" });
+            if (fact.Position is { } position)
+            {
+                Assert.True(double.IsFinite(position.X));
+                Assert.True(double.IsFinite(position.Y));
+                Assert.True(double.IsFinite(position.Z));
+            }
+
             Assert.Equal("reviewed extract supplement", fact.Provenance.Source);
             Assert.NotNull(fact.Provenance.SourceUpdatedUtc);
             Assert.NotNull(fact.Provenance.Confidence);
-            Assert.Equal(0.90, fact.Provenance.Confidence!.Value.Value, 3);
+            Assert.Equal(fact.Position is null ? 0.80 : 0.90, fact.Provenance.Confidence!.Value.Value, 3);
             Assert.NotNull(fact.Provenance.Reference);
-            Assert.Contains("389e23571d7d6fe8c3da354f80fdca9cd14e9098", fact.Provenance.Reference!);
             Assert.Contains("escapefromtarkov.fandom.com/wiki/", fact.Provenance.Reference!);
+            Assert.Contains("?oldid=", fact.Provenance.Reference!);
+            if (fact.Position is not null)
+            {
+                Assert.Contains("acidphantasm/SPT-DynamicMaps", fact.Provenance.Reference!);
+                Assert.Contains("4944764f5f6c42d152dca6bd1b5371c4f6212a9e", fact.Provenance.Reference!);
+            }
         });
     }
 
@@ -58,9 +69,45 @@ public sealed class ReviewedExtractCatalogTests
             fact.MapId == "lighthouse" && fact.Name == "Hideout Under the Landing Stage");
 
         Assert.Equal("scav", stage.Faction);
-        Assert.Equal(133.068, stage.Position.X, 3);
-        Assert.Equal(-0.467, stage.Position.Y, 3);
-        Assert.Equal(286.842, stage.Position.Z, 3);
+        Assert.True(stage.Position.HasValue);
+        Assert.Equal(133.068, stage.Position!.Value.X, 3);
+        Assert.Equal(-0.467, stage.Position!.Value.Y, 3);
+        Assert.Equal(286.842, stage.Position!.Value.Z, 3);
+    }
+
+    [Fact]
+    public void Unverified_lab_side_is_not_presented_as_a_pmc_fact()
+    {
+        var medical = Assert.Single(ReviewedExtractCatalog.Facts, fact =>
+            fact.MapId == "the-lab" && fact.Name == "Medical Block Elevator");
+
+        Assert.Equal("unknown", medical.Faction);
+        var definition = Assert.Single(ReviewedExtractCatalog.MergeDefinitions(
+            "the-lab",
+            "lab-id",
+            Array.Empty<MapExtract>()));
+        Assert.Equal("Faction unverified", definition.Conditions);
+    }
+
+    [Theory]
+    [InlineData("icebreaker", "Helicopter")]
+    [InlineData("terminal", "Zubr Boat")]
+    public void Extracts_without_reviewed_coordinates_are_listed_but_not_plotted(
+        string mapId,
+        string expectedName)
+    {
+        var definition = Assert.Single(ReviewedExtractCatalog.MergeDefinitions(
+            mapId,
+            mapId,
+            Array.Empty<MapExtract>()));
+        var features = ReviewedExtractCatalog.MergeFeatures(
+            mapId,
+            Array.Empty<MapFeature>());
+
+        Assert.Equal(expectedName, definition.Name);
+        Assert.Null(definition.Position);
+        Assert.Equal("PMC only", definition.Conditions);
+        Assert.Empty(features);
     }
 
     [Fact]

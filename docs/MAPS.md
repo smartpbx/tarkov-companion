@@ -12,9 +12,10 @@ Map metadata enters the application through `IMapDefinitionCache` and `MapDataSe
 
 Extracts pass through the reviewed repair layer described by ADR 0012 at both map read
 boundaries. The primary catalog always wins by map-scoped normalized name; only a measured
-omission is supplied locally, with its own provenance. The 2026-09-15 sweep found nine such rows
-across five maps; the evidence and exact count live in
-`docs/research/EXTRACT_CATALOG_COVERAGE.md`.
+omission is supplied locally, with its own provenance. The 2026-09-15 sweep found eleven such
+rows across seven maps. Nine have reviewed positions and can be drawn; Icebreaker's Helicopter
+and Terminal's Zubr Boat remain recognition-only because no reviewed world coordinate was
+available. The evidence and exact count live in `docs/research/EXTRACT_CATALOG_COVERAGE.md`.
 
 ## Coordinate transforms
 

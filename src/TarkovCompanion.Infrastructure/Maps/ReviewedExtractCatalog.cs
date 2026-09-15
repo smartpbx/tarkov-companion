@@ -8,14 +8,14 @@ namespace TarkovCompanion.Infrastructure.Maps;
 /// <param name="Id">A stable companion-owned identity, never confused with an upstream id.</param>
 /// <param name="MapId">The canonical map slug.</param>
 /// <param name="Name">The name shown by the game's extract panel.</param>
-/// <param name="Position">Reviewed world X, height, and world Z coordinates.</param>
-/// <param name="Faction">The side that can use it: pmc, scav, or shared.</param>
-/// <param name="Provenance">The pinned coordinate source and independent current-list check.</param>
+/// <param name="Position">Reviewed world X, height, and world Z coordinates, when published.</param>
+/// <param name="Faction">The side that can use it: pmc, scav, shared, or unknown.</param>
+/// <param name="Provenance">Pinned factual references and review metadata.</param>
 public sealed record ReviewedExtractFact(
     string Id,
     string MapId,
     string Name,
-    WorldPosition Position,
+    WorldPosition? Position,
     string Faction,
     DataProvenance Provenance);
 
@@ -24,10 +24,12 @@ public sealed record ReviewedExtractFact(
 /// </summary>
 /// <remarks>
 /// The primary feed remains authoritative and always wins by map-scoped normalized name. These
-/// rows exist because the 2026-09-15 all-map sweep found nine current extracts absent from that
-/// feed, including Hideout Under the Landing Stage on Lighthouse. Every position is a factual
-/// coordinate read from one pinned MIT-licensed snapshot and every name/side was checked against
-/// the current EFT Wiki extract list. No source code or map artwork is copied.
+/// rows exist because the 2026-09-15 all-map sweep found eleven current extracts absent from that
+/// feed, including Hideout Under the Landing Stage on Lighthouse. Nine positions are factual
+/// coordinates read from one pinned MIT-licensed snapshot; two rows intentionally remain
+/// unplotted because no reviewed world coordinate was available. Names and explicitly recorded
+/// sides were checked against pinned EFT Wiki revisions. No source code, artwork, or marker asset
+/// is copied.
 ///
 /// Keeping the merge here, instead of sprinkling special cases through recognition and drawing,
 /// gives the supplement an automatic retirement path: as soon as the primary feed publishes the
@@ -35,18 +37,23 @@ public sealed record ReviewedExtractFact(
 /// </remarks>
 public static class ReviewedExtractCatalog
 {
-    private const string CoordinateRevision = "389e23571d7d6fe8c3da354f80fdca9cd14e9098";
+    private const string CoordinateRevision = "4944764f5f6c42d152dca6bd1b5371c4f6212a9e";
 
     private static readonly DateTimeOffset ReviewedUtc =
-        new(2026, 9, 15, 16, 54, 41, TimeSpan.Zero);
-
-    private static readonly DateTimeOffset CoordinateSourceUpdatedUtc =
-        new(2026, 9, 15, 0, 50, 31, TimeSpan.Zero);
+        new(2026, 9, 15, 19, 35, 40, TimeSpan.Zero);
 
     private static readonly IReadOnlyList<ReviewedExtractFact> ReviewedFacts =
         Array.AsReadOnly<ReviewedExtractFact>(
     [
-        Fact(
+        UnpositionedFact(
+            "icebreaker",
+            "helicopter",
+            "Helicopter",
+            "pmc",
+            "Icebreaker",
+            359388,
+            new(2026, 9, 13, 20, 15, 20, TimeSpan.Zero)),
+        PositionedFact(
             "lighthouse",
             "hideout-under-the-landing-stage",
             "Hideout Under the Landing Stage",
@@ -54,9 +61,11 @@ public static class ReviewedExtractCatalog
             -0.467,
             286.842,
             "scav",
-            "live-map/maps/lighthouse/Lighthouse_TarkovDev.jsonc",
-            "Lighthouse"),
-        Fact(
+            "Plugin/Resources/Maps/Lighthouse_TarkovData/Lighthouse_TarkovData.jsonc",
+            "Lighthouse",
+            359024,
+            new(2026, 9, 13, 20, 1, 27, TimeSpan.Zero)),
+        PositionedFact(
             "lighthouse",
             "industrial-zone-gates",
             "Industrial Zone Gates",
@@ -64,9 +73,11 @@ public static class ReviewedExtractCatalog
             12.25,
             -794.1,
             "scav",
-            "live-map/maps/lighthouse/Lighthouse_TarkovDev.jsonc",
-            "Lighthouse"),
-        Fact(
+            "Plugin/Resources/Maps/Lighthouse_TarkovData/Lighthouse_TarkovData.jsonc",
+            "Lighthouse",
+            359024,
+            new(2026, 9, 13, 20, 1, 27, TimeSpan.Zero)),
+        PositionedFact(
             "lighthouse",
             "road-to-military-base-v-ex",
             "Road to Military Base V-Ex",
@@ -74,9 +85,11 @@ public static class ReviewedExtractCatalog
             16.73,
             -784.3581,
             "pmc",
-            "live-map/maps/lighthouse/Lighthouse_TarkovDev.jsonc",
-            "Lighthouse"),
-        Fact(
+            "Plugin/Resources/Maps/Lighthouse_TarkovData/Lighthouse_TarkovData.jsonc",
+            "Lighthouse",
+            359024,
+            new(2026, 9, 13, 20, 1, 27, TimeSpan.Zero)),
+        PositionedFact(
             "lighthouse",
             "side-tunnel-co-op",
             "Side Tunnel (Co-Op)",
@@ -84,9 +97,11 @@ public static class ReviewedExtractCatalog
             6.83,
             318.11,
             "shared",
-            "live-map/maps/lighthouse/Lighthouse_TarkovDev.jsonc",
-            "Lighthouse"),
-        Fact(
+            "Plugin/Resources/Maps/Lighthouse_TarkovData/Lighthouse_TarkovData.jsonc",
+            "Lighthouse",
+            359024,
+            new(2026, 9, 13, 20, 1, 27, TimeSpan.Zero)),
+        PositionedFact(
             "lighthouse",
             "southern-road",
             "Southern Road",
@@ -94,9 +109,11 @@ public static class ReviewedExtractCatalog
             11.86,
             420.6,
             "pmc",
-            "live-map/maps/lighthouse/Lighthouse_TarkovDev.jsonc",
-            "Lighthouse"),
-        Fact(
+            "Plugin/Resources/Maps/Lighthouse_TarkovData/Lighthouse_TarkovData.jsonc",
+            "Lighthouse",
+            359024,
+            new(2026, 9, 13, 20, 1, 27, TimeSpan.Zero)),
+        PositionedFact(
             "reserve",
             "d-2",
             "D-2",
@@ -104,9 +121,11 @@ public static class ReviewedExtractCatalog
             -17.0010071,
             172.24913,
             "pmc",
-            "live-map/maps/reserve/Reserve_TarkovDev.jsonc",
-            "Reserve"),
-        Fact(
+            "Plugin/Resources/Maps/Reserve_TarkovData/Reserve_TarkovData.jsonc",
+            "Reserve",
+            357731,
+            new(2026, 9, 6, 19, 44, 51, TimeSpan.Zero)),
+        PositionedFact(
             "shoreline",
             "railway-bridge",
             "Railway Bridge",
@@ -114,19 +133,31 @@ public static class ReviewedExtractCatalog
             -60.79,
             307.59,
             "pmc",
-            "live-map/maps/shoreline/shoreline_TarkovDev.jsonc",
-            "Shoreline"),
-        Fact(
+            "Plugin/Resources/Maps/Shoreline_TarkovData/Shoreline_TarkovData.jsonc",
+            "Shoreline",
+            357755,
+            new(2026, 9, 8, 8, 13, 19, TimeSpan.Zero)),
+        PositionedFact(
             "the-lab",
             "medical-block-elevator",
             "Medical Block Elevator",
             -112.423,
             -3.10999966,
             -343.986,
+            "unknown",
+            "Plugin/Resources/Maps/Labs_TarkovDev/Labs_TarkovDev.jsonc",
+            "The_Lab",
+            354844,
+            new(2026, 8, 16, 20, 28, 45, TimeSpan.Zero)),
+        UnpositionedFact(
+            "terminal",
+            "zubr-boat",
+            "Zubr Boat",
             "pmc",
-            "live-map/maps/labs/labs_TarkovDev.jsonc",
-            "The_Lab"),
-        Fact(
+            "Terminal",
+            359900,
+            new(2026, 9, 13, 20, 25, 46, TimeSpan.Zero)),
+        PositionedFact(
             "woods",
             "friendship-bridge-co-op",
             "Friendship Bridge (Co-Op)",
@@ -134,8 +165,10 @@ public static class ReviewedExtractCatalog
             16.57,
             -843.98,
             "shared",
-            "live-map/maps/woods/Woods_TarkovDev.jsonc",
-            "Woods"),
+            "Plugin/Resources/Maps/Woods_TarkovData/Woods_TarkovData.jsonc",
+            "Woods",
+            355184,
+            new(2026, 8, 19, 1, 15, 9, TimeSpan.Zero)),
         ]);
 
     /// <summary>The complete reviewed set; exposed read-only for coverage and provenance audits.</summary>
@@ -162,11 +195,14 @@ public static class ReviewedExtractCatalog
                 continue;
             }
 
+            MapPoint? position = fact.Position is { } reviewedPosition
+                ? new MapPoint(reviewedPosition.X, reviewedPosition.Z)
+                : null;
             merged.Add(new(
                 fact.Id,
                 resultMapId,
                 fact.Name,
-                new MapPoint(fact.Position.X, fact.Position.Z),
+                position,
                 DescribeFaction(fact.Faction),
                 fact.Provenance));
         }
@@ -189,6 +225,11 @@ public static class ReviewedExtractCatalog
         var merged = new List<MapFeature>(primary);
         foreach (var fact in ForMap(mapId))
         {
+            if (fact.Position is not { } position)
+            {
+                continue;
+            }
+
             if (!known.Add(Identity(fact.Name)))
             {
                 continue;
@@ -197,7 +238,7 @@ public static class ReviewedExtractCatalog
             merged.Add(new(
                 MapFeatureKind.Extract,
                 fact.Name,
-                fact.Position,
+                position,
                 fact.Faction,
                 DescribeFaction(fact.Faction))
             {
@@ -244,7 +285,7 @@ public static class ReviewedExtractCatalog
         _ => "Faction unverified",
     };
 
-    private static ReviewedExtractFact Fact(
+    private static ReviewedExtractFact PositionedFact(
         string mapId,
         string slug,
         string name,
@@ -253,11 +294,13 @@ public static class ReviewedExtractCatalog
         double z,
         string faction,
         string coordinatePath,
-        string wikiPage)
+        string wikiPage,
+        long wikiRevision,
+        DateTimeOffset latestSourceUpdatedUtc)
     {
         var coordinateReference =
-            $"https://github.com/SPT-Leaderboard/Website/blob/{CoordinateRevision}/{coordinatePath}";
-        var listReference = $"https://escapefromtarkov.fandom.com/wiki/{wikiPage}";
+            $"https://github.com/acidphantasm/SPT-DynamicMaps/blob/{CoordinateRevision}/{coordinatePath}";
+        var listReference = WikiReference(wikiPage, wikiRevision);
         return new(
             $"reviewed:{mapId}:{slug}",
             mapId,
@@ -267,8 +310,32 @@ public static class ReviewedExtractCatalog
             new DataProvenance(
                 "reviewed extract supplement",
                 ReviewedUtc,
-                CoordinateSourceUpdatedUtc,
+                latestSourceUpdatedUtc,
                 $"{coordinateReference} | {listReference}",
                 new Confidence(0.90)));
     }
+
+    private static ReviewedExtractFact UnpositionedFact(
+        string mapId,
+        string slug,
+        string name,
+        string faction,
+        string wikiPage,
+        long wikiRevision,
+        DateTimeOffset sourceUpdatedUtc) =>
+        new(
+            $"reviewed:{mapId}:{slug}",
+            mapId,
+            name,
+            null,
+            faction,
+            new DataProvenance(
+                "reviewed extract supplement",
+                ReviewedUtc,
+                sourceUpdatedUtc,
+                WikiReference(wikiPage, wikiRevision),
+                new Confidence(0.80)));
+
+    private static string WikiReference(string wikiPage, long revision) =>
+        $"https://escapefromtarkov.fandom.com/wiki/{wikiPage}?oldid={revision}";
 }

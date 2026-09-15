@@ -9,30 +9,37 @@ the map data synced from `json.tarkov.dev`. A Lighthouse raid offered Hideout Un
 Stage, but the endpoint published no such extract. Recognition discarded the labelled row
 because it had no candidate, and the map could not list or draw a feature it had never loaded.
 
-An all-map comparison found this was not isolated: nine current extracts across Lighthouse,
-Reserve, Shoreline, The Lab, and Woods were absent from the primary response. Waiting for one
-upstream repair would leave the app confidently incomplete, while replacing the primary source
-would duplicate synchronization, cache, validation, and provenance behavior for every map.
+An all-map comparison found this was not isolated: eleven current extracts across Icebreaker,
+Lighthouse, Reserve, Shoreline, The Lab, Terminal, and Woods were absent from the primary
+response. Waiting for one upstream repair would leave the app confidently incomplete, while
+replacing the primary source would duplicate synchronization, cache, validation, and provenance
+behavior for every map.
 
 ## Decision
 
 `json.tarkov.dev` remains the primary runtime structured-data source. Infrastructure contains a
-bounded reviewed supplement comprising only the nine omissions measured in
+bounded reviewed supplement comprising only the eleven omissions measured in
 `docs/research/EXTRACT_CATALOG_COVERAGE.md`. Each row has a companion-owned ID, canonical map and
-display name, faction, world coordinate, confidence, review time, source-update time, and exact
-source references.
+display name, explicitly supported faction or `unknown`, optional world coordinate, confidence,
+review time, source-update time, and exact source references.
 
-The supplement is merged at both existing read boundaries: `IMapDefinitionCache` for screenshot
-recognition and `IMapFeatureCatalog` for desktop markers. Identity is map-scoped and ignores
-case and punctuation. A primary row always wins, so an upstream addition retires the local row
-without a release or duplicate marker. No database migration or second runtime request is added.
+The supplement is merged into `IMapDefinitionCache` for screenshot recognition. Rows with a
+reviewed position are also merged into `IMapFeatureCatalog` for desktop markers; a row without
+one remains listable with “location unavailable” and is never plotted. Identity is map-scoped
+and ignores case and punctuation. A primary row always wins, so an upstream addition retires the
+local row without a release or duplicate marker. No database migration or second runtime
+request is added.
 
-The coordinate facts come from SPT Leaderboard map files pinned to commit
-`389e23571d7d6fe8c3da354f80fdca9cd14e9098`; the current EFT Wiki extract lists independently
-corroborate the names and sides. The reviewed use transcribes factual records only. No source
-code or artwork is copied. The source is MIT licensed, its license text and attribution are
-retained, and the review is recorded in `docs/LICENSING.md` and
-`docs/THIRD_PARTY_NOTICES.md`.
+Nine coordinate facts come from SPT-DynamicMaps static map configurations pinned to commit
+`4944764f5f6c42d152dca6bd1b5371c4f6212a9e`; pinned EFT Wiki revisions corroborate their names
+and explicitly published sides. Icebreaker's Helicopter and Terminal's Zubr Boat have no
+reviewed world coordinate and use only their permanent list references. The Lab list does not
+publish a side for Medical Block Elevator, so that row remains `unknown`.
+
+The reviewed use transcribes factual static records only. SPT-DynamicMaps' `Plugin/LICENSE` is
+MIT, and its map/data credit file is retained beside that license. Its separately licensed SVG
+layers, artwork, icons, marker assets, source code, wording, layout, and live behavior are not
+copied. The review is recorded in `docs/LICENSING.md` and `docs/THIRD_PARTY_NOTICES.md`.
 
 Recognition also gains a source-independent fallback. A line carrying the game's structural
 `EXFIL` slot label that cannot clear catalog matching becomes a conservative, provenance-bearing
@@ -42,13 +49,14 @@ Unlabelled OCR text remains unmatched; competing near-equal catalog candidates r
 
 ## Consequences
 
-The reported Lighthouse extract and the other eight measured omissions are available to both
-recognition and the map. Future upstream omissions remain visible from a user's extract-screen
-screenshot instead of silently disappearing. The static repair set is easy to audit and has a
-defined retirement behavior, but it must be swept after map/extract changes rather than treated
-as timeless game data.
+The reported Lighthouse extract and the other eight coordinate-bearing omissions are available
+to both recognition and the map. The two positionless omissions are available to recognition
+without an invented marker. Future upstream omissions remain visible from a user's
+extract-screen screenshot instead of silently disappearing. The static repair set is easy to
+audit and has a defined retirement behavior, but it must be swept after map/extract changes
+rather than treated as timeless game data.
 
-Every added or changed supplement row requires the same measured comparison, pinned coordinate
-source, independent current-list corroboration, license review, and tests for primary precedence.
-Runtime code must not scrape either review source. If a trusted coordinate cannot be established,
-the screenshot-only row remains listable and unplotted.
+Every added or changed supplement row requires the same measured comparison, permanent factual
+source, license review, and tests for primary precedence. A coordinate or faction may be recorded
+only when its evidence supports it; otherwise that field remains absent or unknown. Runtime code
+must not scrape either review source.

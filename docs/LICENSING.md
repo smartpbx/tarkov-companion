@@ -12,15 +12,24 @@ Project source is MIT licensed. Dependency and asset obligations are tracked sep
 
 ## Reviewed extract coordinate facts
 
-ADR 0012's extract supplement uses nine factual name/faction/world-coordinate records from the
-SPT Leaderboard Website map files at commit
-[`389e23571d7d6fe8c3da354f80fdca9cd14e9098`](https://github.com/SPT-Leaderboard/Website/tree/389e23571d7d6fe8c3da354f80fdca9cd14e9098/live-map/maps).
-The repository is MIT licensed, copyright 2025 SPT Leaderboard; the retained license is
-`LICENSES/SPT-Leaderboard-MIT.txt`. No implementation, artwork, marker assets, wording, or layout
-is copied. Current EFT Wiki extract lists corroborate names and factions, but no wiki prose or
-assets are redistributed. Each compiled fact links both review sources and records confidence
-and timestamps. The primary `json.tarkov.dev` record supersedes the supplement by normalized
-identity when it appears.
+ADR 0012's extract supplement uses nine factual static name/world-coordinate marker records from
+the SPT-DynamicMaps `Plugin/Resources/Maps` configurations at commit
+[`4944764f5f6c42d152dca6bd1b5371c4f6212a9e`](https://github.com/acidphantasm/SPT-DynamicMaps/tree/4944764f5f6c42d152dca6bd1b5371c4f6212a9e/Plugin/Resources/Maps).
+The original plugin license is MIT, copyright 2025 Michael P. Starkweather. Its map/data credit
+file says that marker data was datamined by the program and credits TarkovTracker/tarkovData,
+TarkovDev, and Shebuka for additional information. Exact copies are retained at
+`LICENSES/SPT-DynamicMaps-MIT.txt` and
+`LICENSES/SPT-DynamicMaps-map-and-data-credits.txt`.
+
+No implementation, SVG or other map layer, artwork, icon, marker asset, wording, layout, or live
+behavior is copied. In particular, the separately licensed Shebuka SVG layers named by the
+credit file are outside this factual transcription. Permanent EFT Wiki revisions provide the
+thirteen-map current-list comparison and corroborate supported names and sides, but no wiki prose
+or assets are redistributed. The Lab list does not state a side for Medical Block Elevator, so
+the compiled fact preserves `unknown`. Icebreaker's Helicopter and Terminal's Zubr Boat are
+wiki-list facts with no coordinate and therefore cannot create markers. Each compiled fact links
+its exact review source and records confidence and timestamps. The primary `json.tarkov.dev`
+record supersedes the supplement by normalized identity when it appears.
 
 ## Offline OCR redistribution review
 

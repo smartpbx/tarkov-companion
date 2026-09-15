@@ -26,8 +26,10 @@ Static datasets default to a 9-hour stale-while-revalidate window. Viewed/scanne
 ### Reviewed extract supplements
 
 The primary map payload is supplemented only for measured current extract omissions under ADR
-0012. The bounded 2026-09-15 set contains nine name/faction/coordinate facts across five maps,
-with a pinned MIT-licensed coordinate reference and current EFT Wiki list corroboration. It is
+0012. The bounded 2026-09-15 set contains eleven name facts across seven maps: nine have reviewed
+world coordinates, two deliberately remain unplotted, and one retains an unknown faction. The
+coordinate facts use pinned MIT-licensed SPT-DynamicMaps configurations and retained map/data
+credits; permanent EFT Wiki revisions provide the current-list comparison. The supplement is
 compiled into Infrastructure, performs no additional runtime request, retains per-row
 provenance, and yields whenever the primary publishes the same map-scoped normalized name. See
 `docs/research/EXTRACT_CATALOG_COVERAGE.md` for the reproducible sweep and exclusions.

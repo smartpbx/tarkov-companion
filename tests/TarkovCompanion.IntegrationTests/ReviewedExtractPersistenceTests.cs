@@ -53,6 +53,39 @@ public sealed class ReviewedExtractPersistenceTests
         }
     }
 
+    [Fact]
+    public async Task Positionless_terminal_gap_reaches_recognition_but_not_desktop_markers()
+    {
+        var databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "tarkov-reviewed-extracts-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            var factory = new SqliteConnectionFactory(new(databasePath));
+            await new SqliteMigrationRunner(factory).ApplyAsync(TestContext.Current.CancellationToken);
+            await SeedTerminalAsync(factory);
+
+            var definition = await new SqliteMapDefinitionCache(factory)
+                .GetAsync("terminal", TestContext.Current.CancellationToken);
+            var features = await new SqliteMapFeatureCatalog(factory)
+                .GetAsync("terminal", TestContext.Current.CancellationToken);
+
+            Assert.NotNull(definition);
+            var boat = Assert.Single(definition.Extracts);
+            Assert.Equal("Zubr Boat", boat.Name);
+            Assert.Null(boat.Position);
+            Assert.Equal("PMC only", boat.Conditions);
+            Assert.DoesNotContain(features, feature => feature.Kind == MapFeatureKind.Extract);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            File.Delete(databasePath);
+            File.Delete(databasePath + "-shm");
+            File.Delete(databasePath + "-wal");
+        }
+    }
+
     private static async Task SeedLighthouseAsync(SqliteConnectionFactory factory)
     {
         var primaryExtract = new
@@ -81,6 +114,26 @@ public sealed class ReviewedExtractPersistenceTests
             """;
         command.Parameters.AddWithValue("$payload", payload);
         command.Parameters.AddWithValue("$extractPayload", extractPayload);
+        await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task SeedTerminalAsync(SqliteConnectionFactory factory)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            id = "terminal-id",
+            name = "Terminal",
+            normalizedName = "terminal",
+            extracts = Array.Empty<object>(),
+        });
+
+        await using var connection = await factory.OpenAsync(TestContext.Current.CancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO maps(id, name, normalized_name, pmc_raid_duration_seconds, scav_raid_duration_seconds, source_json)
+            VALUES ('terminal-id', 'Terminal', 'terminal', 2400, 2100, $payload);
+            """;
+        command.Parameters.AddWithValue("$payload", payload);
         await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
     }
 }

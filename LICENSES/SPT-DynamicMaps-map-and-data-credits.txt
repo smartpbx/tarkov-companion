@@ -1,0 +1,46 @@
+Default map data used is from:
+  - TarkovTracker/tarkovData: https://github.com/TarkovTracker/tarkovdata/
+  - TarkovDev: https://github.com/the-hideout/tarkov-dev
+  - Shebuka: https://github.com/the-hideout/tarkov-dev-svg-maps
+
+Interactive web maps using this data are here: https://tarkov.dev/maps/
+
+All marker data was datamined by this program, but additional info about those markers
+gotten from the above sources.
+
+
+Tarkov.dev License
+---
+
+MIT License
+
+Copyright (c) 2019 Oskar Risberg
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Shebuka's License is distributed within each map's SVG folder where required
+License link: https://github.com/the-hideout/tarkov-dev-svg-maps/blob/main/LICENSE.md
+
+If the map has been updated or modified by myself (acidphantasm) the file name for the LICENSE will reflect that I made changes.
+In no way does this indicate those changes were made or endorsed by the original author (Shebuka).
+This is to abide by the license terms of Shebuka's maps.
+
+If the map has been created, and maintained by myself (acidphantasm) there will be a relevant license labeled acidphantasm-LICENSE.md
