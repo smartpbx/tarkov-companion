@@ -13,12 +13,8 @@ public sealed class GoldenAndHostileJsonTests
 
     public static TheoryData<string> GoldenWireFiles()
     {
-        var root = Path.Combine(AppContext.BaseDirectory, "Golden");
         var data = new TheoryData<string>();
-        foreach (var file in Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
-                     .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
-                     .Where(path => !path.StartsWith("crypto/", StringComparison.Ordinal))
-                     .Order(StringComparer.Ordinal))
+        foreach (var file in WireFilePaths())
         {
             data.Add(file);
         }
@@ -29,7 +25,7 @@ public sealed class GoldenAndHostileJsonTests
     [Fact]
     public void EveryWireRootHasGoldenCoverage()
     {
-        var covered = GoldenWireFiles().Select(row => RootFor((string)row[0])).ToHashSet();
+        var covered = WireFilePaths().Select(file => RootFor(file)).ToHashSet();
 
         Assert.True(covered.SetEquals(CompanionProtocolJson.RootTypes), string.Join(", ", covered.Select(type => type.Name)));
         Assert.Equal(14, CompanionProtocolJson.RootTypes.Distinct().Count());
@@ -247,6 +243,16 @@ public sealed class GoldenAndHostileJsonTests
                 Assert.IsAssignableFrom<JsonException>(exception);
             }
         }
+    }
+
+    private static string[] WireFilePaths()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory, "Golden");
+        return Directory.GetFiles(root, "*.json", SearchOption.AllDirectories)
+            .Select(path => Path.GetRelativePath(root, path).Replace('\\', '/'))
+            .Where(path => !path.StartsWith("crypto/", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static IEnumerable<string> Mutations(JsonNode document)
