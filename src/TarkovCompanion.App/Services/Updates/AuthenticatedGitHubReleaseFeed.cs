@@ -374,20 +374,24 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         var fullPath = Path.GetFullPath(destination);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)
             ?? throw new InvalidOperationException("The release destination has no parent directory."));
+        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        // Refuse an occupied destination before entering the partial-download cleanup scope. A
+        // CreateNew failure means the file belongs to the caller; deleting it would turn a safe
+        // no-overwrite refusal into data loss.
+        var output = new FileStream(
+            fullPath,
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None,
+            1024 * 1024,
+            FileOptions.Asynchronous | FileOptions.SequentialScan);
         try
         {
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var output = new FileStream(
-                fullPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                1024 * 1024,
-                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using var ownedOutput = output;
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-            var written = await CopyBoundedAsync(input, output, maximumBytes, cancellationToken, hash)
+            var written = await CopyBoundedAsync(input, ownedOutput, maximumBytes, cancellationToken, hash)
                 .ConfigureAwait(false);
-            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await ownedOutput.FlushAsync(cancellationToken).ConfigureAwait(false);
             if (written == 0 || expectedSize is not null && written != expectedSize ||
                 expectedSha256 is not null &&
                 !Convert.ToHexString(hash.GetHashAndReset()).Equals(expectedSha256, StringComparison.OrdinalIgnoreCase))

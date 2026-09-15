@@ -132,6 +132,45 @@ public sealed class AuthenticatedGitHubReleaseFeedTests : IDisposable
     }
 
     [Fact]
+    public async Task RefusingToOverwriteDoesNotDeleteTheCallersExistingDestination()
+    {
+        Directory.CreateDirectory(_root);
+        var bytes = "verified package"u8.ToArray();
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var handler = new QueueHandler(
+            _ => PrivateRepository(),
+            _ => JsonResponse($$"""
+                {
+                  "draft": false,
+                  "immutable": true,
+                  "tag_name": "v2-build-2.0.0",
+                  "assets": [{
+                    "name": "package.nupkg",
+                    "state": "uploaded",
+                    "size": {{bytes.Length}},
+                    "digest": "sha256:{{digest}}",
+                    "url": "https://api.github.com/repos/acme/private-feed/releases/assets/7"
+                  }]
+                }
+                """),
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
+        using var feed = CreateFeed(handler);
+        var destination = Path.Combine(_root, "package.nupkg");
+        const string previous = "caller-owned download";
+        await File.WriteAllTextAsync(destination, previous);
+
+        await Assert.ThrowsAsync<IOException>(() => feed.DownloadAssetAsync(
+            "v2-build-2.0.0",
+            "package.nupkg",
+            destination,
+            ReleaseFeedLimits.MaximumArtifactBytes,
+            default));
+
+        Assert.Equal(previous, await File.ReadAllTextAsync(destination));
+        Assert.Equal(3, handler.RequestCount);
+    }
+
+    [Fact]
     public void ThePublicSourceRepositoryCannotBeUsedAsThePrivateFeed()
     {
         var options = Options() with { Repository = "smartpbx/tarkov-companion" };
