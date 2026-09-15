@@ -1016,6 +1016,18 @@
         },
         {
           "$ref": "#/$defs/correctCaptureResult"
+        },
+        {
+          "$ref": "#/$defs/activateProfilePreferences"
+        },
+        {
+          "$ref": "#/$defs/mutateProfilePreferences"
+        },
+        {
+          "$ref": "#/$defs/resetProfilePreferences"
+        },
+        {
+          "$ref": "#/$defs/deleteProfilePreferences"
         }
       ]
     },
@@ -1386,6 +1398,581 @@
         },
         "reason": {
           "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "activateProfilePreferences": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "preferences"
+      ],
+      "properties": {
+        "type": {
+          "const": "activateProfilePreferences"
+        },
+        "preferences": {
+          "$ref": "#/$defs/profilePreferencesDocument"
+        }
+      }
+    },
+    "mutateProfilePreferences": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "context",
+        "schemaVersion",
+        "mutation"
+      ],
+      "properties": {
+        "type": {
+          "const": "mutateProfilePreferences"
+        },
+        "context": {
+          "$ref": "#/$defs/preferenceProfileContext"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/preferenceSchemaVersion"
+        },
+        "mutation": {
+          "$ref": "#/$defs/profilePreferenceMutation"
+        }
+      }
+    },
+    "resetProfilePreferences": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "context",
+        "schemaVersion"
+      ],
+      "properties": {
+        "type": {
+          "const": "resetProfilePreferences"
+        },
+        "context": {
+          "$ref": "#/$defs/preferenceProfileContext"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/preferenceSchemaVersion"
+        }
+      }
+    },
+    "deleteProfilePreferences": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/commandBase"
+        }
+      ],
+      "required": [
+        "context",
+        "schemaVersion"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteProfilePreferences"
+        },
+        "context": {
+          "$ref": "#/$defs/preferenceProfileContext"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/preferenceSchemaVersion"
+        }
+      }
+    },
+    "preferenceSchemaVersion": {
+      "type": "object",
+      "required": [
+        "major",
+        "minor"
+      ],
+      "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999
+        }
+      }
+    },
+    "preferenceProfileContext": {
+      "type": "object",
+      "required": [
+        "profileId",
+        "generation",
+        "mode",
+        "wipeSeason",
+        "language",
+        "region",
+        "timeZone",
+        "dataSnapshotId",
+        "dataSnapshotPublishedUtc"
+      ],
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/guidId"
+        },
+        "generation": {
+          "$ref": "#/$defs/shortString"
+        },
+        "mode": {
+          "enum": [
+            "Pvp",
+            "Pve",
+            "Seasonal"
+          ]
+        },
+        "wipeSeason": {
+          "$ref": "#/$defs/shortString"
+        },
+        "language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 35
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "timeZone": {
+          "$ref": "#/$defs/shortString"
+        },
+        "dataSnapshotId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "dataSnapshotPublishedUtc": {
+          "$ref": "#/$defs/utc"
+        }
+      }
+    },
+    "itemPreference": {
+      "type": "object",
+      "required": [
+        "itemId",
+        "pinned",
+        "wishlist",
+        "sortOrder"
+      ],
+      "properties": {
+        "itemId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "wishlist": {
+          "type": "boolean"
+        },
+        "sortOrder": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      },
+      "anyOf": [
+        {
+          "properties": {
+            "pinned": {
+              "const": true
+            }
+          }
+        },
+        {
+          "properties": {
+            "wishlist": {
+              "const": true
+            }
+          }
+        }
+      ]
+    },
+    "protectedItemRule": {
+      "type": "object",
+      "required": [
+        "ruleId",
+        "selectorKind",
+        "selectorId",
+        "disposition",
+        "minimumQuantity"
+      ],
+      "properties": {
+        "ruleId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "selectorKind": {
+          "enum": [
+            "Item",
+            "Category",
+            "Tag"
+          ]
+        },
+        "selectorId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "disposition": {
+          "enum": [
+            "AlwaysKeep",
+            "AskBeforeDiscard"
+          ]
+        },
+        "minimumQuantity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      }
+    },
+    "recommendationOverride": {
+      "type": "object",
+      "required": [
+        "itemId",
+        "action",
+        "reason"
+      ],
+      "properties": {
+        "itemId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "action": {
+          "enum": [
+            "Keep",
+            "Prioritize",
+            "Sell",
+            "Ignore"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/nullableString1024"
+        }
+      }
+    },
+    "favoriteLoadoutItem": {
+      "type": "object",
+      "required": [
+        "slotId",
+        "itemId",
+        "quantity"
+      ],
+      "properties": {
+        "slotId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "itemId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      }
+    },
+    "favoriteLoadout": {
+      "type": "object",
+      "required": [
+        "loadoutId",
+        "name",
+        "items"
+      ],
+      "properties": {
+        "loadoutId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "name": {
+          "$ref": "#/$defs/shortString"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/favoriteLoadoutItem"
+          }
+        }
+      }
+    },
+    "sharedPersonalization": {
+      "type": "object",
+      "required": [
+        "kind",
+        "referenceId",
+        "enabled"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "Loadout",
+            "Plan",
+            "ObjectiveSet",
+            "Route"
+          ]
+        },
+        "referenceId": {
+          "$ref": "#/$defs/shortString"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "profilePreferencesDocument": {
+      "type": "object",
+      "required": [
+        "context",
+        "schemaVersion",
+        "items",
+        "protectedItemRules",
+        "recommendationOverrides",
+        "favoriteLoadouts",
+        "sharedPersonalization"
+      ],
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/preferenceProfileContext"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/preferenceSchemaVersion"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/itemPreference"
+          }
+        },
+        "protectedItemRules": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/protectedItemRule"
+          }
+        },
+        "recommendationOverrides": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/recommendationOverride"
+          }
+        },
+        "favoriteLoadouts": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/favoriteLoadout"
+          }
+        },
+        "sharedPersonalization": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/sharedPersonalization"
+          }
+        }
+      }
+    },
+    "profilePreferenceMutation": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/setItemPreferenceMutation"
+        },
+        {
+          "$ref": "#/$defs/removeItemPreferenceMutation"
+        },
+        {
+          "$ref": "#/$defs/upsertProtectedItemRuleMutation"
+        },
+        {
+          "$ref": "#/$defs/deleteProtectedItemRuleMutation"
+        },
+        {
+          "$ref": "#/$defs/setRecommendationOverrideMutation"
+        },
+        {
+          "$ref": "#/$defs/deleteRecommendationOverrideMutation"
+        },
+        {
+          "$ref": "#/$defs/upsertFavoriteLoadoutMutation"
+        },
+        {
+          "$ref": "#/$defs/deleteFavoriteLoadoutMutation"
+        },
+        {
+          "$ref": "#/$defs/setSharedPersonalizationMutation"
+        },
+        {
+          "$ref": "#/$defs/deleteSharedPersonalizationMutation"
+        }
+      ]
+    },
+    "setItemPreferenceMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "preference"
+      ],
+      "properties": {
+        "type": {
+          "const": "setItem"
+        },
+        "preference": {
+          "$ref": "#/$defs/itemPreference"
+        }
+      }
+    },
+    "removeItemPreferenceMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "itemId"
+      ],
+      "properties": {
+        "type": {
+          "const": "removeItem"
+        },
+        "itemId": {
+          "$ref": "#/$defs/shortString"
+        }
+      }
+    },
+    "upsertProtectedItemRuleMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "rule"
+      ],
+      "properties": {
+        "type": {
+          "const": "upsertProtectedRule"
+        },
+        "rule": {
+          "$ref": "#/$defs/protectedItemRule"
+        }
+      }
+    },
+    "deleteProtectedItemRuleMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "ruleId"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteProtectedRule"
+        },
+        "ruleId": {
+          "$ref": "#/$defs/shortString"
+        }
+      }
+    },
+    "setRecommendationOverrideMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "override"
+      ],
+      "properties": {
+        "type": {
+          "const": "setRecommendationOverride"
+        },
+        "override": {
+          "$ref": "#/$defs/recommendationOverride"
+        }
+      }
+    },
+    "deleteRecommendationOverrideMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "itemId"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteRecommendationOverride"
+        },
+        "itemId": {
+          "$ref": "#/$defs/shortString"
+        }
+      }
+    },
+    "upsertFavoriteLoadoutMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "loadout"
+      ],
+      "properties": {
+        "type": {
+          "const": "upsertFavoriteLoadout"
+        },
+        "loadout": {
+          "$ref": "#/$defs/favoriteLoadout"
+        }
+      }
+    },
+    "deleteFavoriteLoadoutMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "loadoutId"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteFavoriteLoadout"
+        },
+        "loadoutId": {
+          "$ref": "#/$defs/shortString"
+        }
+      }
+    },
+    "setSharedPersonalizationMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "setSharedPersonalization"
+        },
+        "value": {
+          "$ref": "#/$defs/sharedPersonalization"
+        }
+      }
+    },
+    "deleteSharedPersonalizationMutation": {
+      "type": "object",
+      "required": [
+        "type",
+        "kind",
+        "referenceId"
+      ],
+      "properties": {
+        "type": {
+          "const": "deleteSharedPersonalization"
+        },
+        "kind": {
+          "enum": [
+            "Loadout",
+            "Plan",
+            "ObjectiveSet",
+            "Route"
+          ]
+        },
+        "referenceId": {
+          "$ref": "#/$defs/shortString"
         }
       }
     },
@@ -2458,6 +3045,50 @@
         }
       }
     },
+    "profilePreferencesAggregate": {
+      "type": "object",
+      "required": [
+        "cursor",
+        "activeProfile",
+        "lastChangedOrigin",
+        "changedUtc"
+      ],
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/aggregateCursor"
+        },
+        "activeProfile": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/profilePreferencesDocument"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lastChangedOrigin": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/workspaceOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "changedUtc": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/utc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "canonicalState": {
       "type": "object",
       "required": [
@@ -2469,7 +3100,8 @@
         "deviceModes",
         "workspace",
         "marks",
-        "captureIntent"
+        "captureIntent",
+        "profilePreferences"
       ],
       "properties": {
         "authorityEpoch": {
@@ -2498,6 +3130,9 @@
         },
         "captureIntent": {
           "$ref": "#/$defs/captureIntentAggregate"
+        },
+        "profilePreferences": {
+          "$ref": "#/$defs/profilePreferencesAggregate"
         }
       }
     },
@@ -2524,7 +3159,8 @@
             "DeviceModes",
             "Workspace",
             "Marks",
-            "CaptureIntent"
+            "CaptureIntent",
+            "ProfilePreferences"
           ]
         },
         "requestedRevision": {
@@ -2560,7 +3196,8 @@
             "RejectedInvalidState",
             "RequiresPreview",
             "RequiresSnapshot",
-            "RejectedCommandIdReuse"
+            "RejectedCommandIdReuse",
+            "UnsupportedPreferenceSchema"
           ]
         },
         "code": {
@@ -2642,7 +3279,8 @@
                   "RejectedExpired",
                   "RejectedUnauthorized",
                   "RejectedInvalidState",
-                  "RejectedCommandIdReuse"
+                  "RejectedCommandIdReuse",
+                  "UnsupportedPreferenceSchema"
                 ]
               }
             }
@@ -2678,6 +3316,9 @@
         },
         {
           "$ref": "#/$defs/captureCanonicalUpdate"
+        },
+        {
+          "$ref": "#/$defs/profilePreferencesCanonicalUpdate"
         }
       ]
     },
@@ -2774,6 +3415,21 @@
         },
         "state": {
           "$ref": "#/$defs/captureIntentAggregate"
+        }
+      }
+    },
+    "profilePreferencesCanonicalUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/canonicalUpdateBase"
+        }
+      ],
+      "properties": {
+        "type": {
+          "const": "profilePreferences"
+        },
+        "state": {
+          "$ref": "#/$defs/profilePreferencesAggregate"
         }
       }
     },
@@ -2997,7 +3653,8 @@
             "DeviceModes",
             "Workspace",
             "Marks",
-            "CaptureIntent"
+            "CaptureIntent",
+            "ProfilePreferences"
           ]
         },
         "revision": {
@@ -3053,7 +3710,7 @@
         },
         "aggregateAcknowledgements": {
           "type": "array",
-          "maxItems": 4,
+          "maxItems": 5,
           "items": {
             "$ref": "#/$defs/aggregateAcknowledgement"
           }
@@ -3186,7 +3843,7 @@
         },
         "aggregateAcknowledgements": {
           "type": "array",
-          "maxItems": 4,
+          "maxItems": 5,
           "items": {
             "$ref": "#/$defs/aggregateAcknowledgement"
           }

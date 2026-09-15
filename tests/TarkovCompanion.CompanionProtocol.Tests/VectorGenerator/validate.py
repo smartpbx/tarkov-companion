@@ -57,7 +57,9 @@ def valid(s, v, path="$", strict=True):
             errors += [f"{path}: undeclared {k}" for k in v if k not in d]
     if "allOf" in s:
         for sub in s["allOf"]: errors += valid(sub, v, path, False)
-    if "anyOf" in s and not any(not valid(sub, v, path, strict) for sub in s["anyOf"]): errors.append(f"{path}: no anyOf branch")
+    # Strict undeclared-member checks belong to the enclosing shape. An anyOf branch may be only a
+    # condition over one member and must not have to redeclare all of that shape's siblings.
+    if "anyOf" in s and not any(not valid(sub, v, path, False) for sub in s["anyOf"]): errors.append(f"{path}: no anyOf branch")
     if "oneOf" in s:
         matches = [i for i, sub in enumerate(s["oneOf"]) if not valid(sub, v, path, strict)]
         if len(matches) != 1: errors.append(f"{path}: oneOf matched {matches}")

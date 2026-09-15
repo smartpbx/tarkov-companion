@@ -31,6 +31,30 @@ public sealed class GoldenAndHostileJsonTests
         Assert.Equal(15, CompanionProtocolJson.RootTypes.Distinct().Count());
     }
 
+    [Fact]
+    public void EveryClosedCommandAndCanonicalAggregateHasAGoldenDiscriminator()
+    {
+        var commandTypes = WireFilePaths()
+            .Where(file => file.StartsWith("commands/", StringComparison.Ordinal))
+            .Select(file => JsonNode.Parse(Golden(file))!["command"]!["type"]!.GetValue<string>())
+            .ToHashSet(StringComparer.Ordinal);
+        var expectedCommands = typeof(CompanionCommand)
+            .GetCustomAttributes<JsonDerivedTypeAttribute>()
+            .Select(attribute => (string)attribute.TypeDiscriminator!)
+            .ToHashSet(StringComparer.Ordinal);
+        var updateTypes = WireFilePaths()
+            .Where(file => file.StartsWith("server/canonical-update-", StringComparison.Ordinal))
+            .Select(file => JsonNode.Parse(Golden(file))!["message"]!["update"]!["type"]!.GetValue<string>())
+            .ToHashSet(StringComparer.Ordinal);
+        var expectedUpdates = typeof(CanonicalUpdate)
+            .GetCustomAttributes<JsonDerivedTypeAttribute>()
+            .Select(attribute => (string)attribute.TypeDiscriminator!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.True(commandTypes.SetEquals(expectedCommands), string.Join(", ", commandTypes));
+        Assert.True(updateTypes.SetEquals(expectedUpdates), string.Join(", ", updateTypes));
+    }
+
     [Theory]
     [MemberData(nameof(GoldenWireFiles))]
     public void GoldenVectorsRoundTripThroughTheirExactRootAndValidateStrictlyAgainstTheSchema(string file)
@@ -59,6 +83,7 @@ public sealed class GoldenAndHostileJsonTests
         AssertDiscriminators<ServerMessage>(definitions, "serverMessage");
         AssertDiscriminators<CanonicalUpdate>(definitions, "canonicalUpdate");
         AssertDiscriminators<WorkspaceAction>(definitions, "workspaceAction");
+        AssertDiscriminators<ProfilePreferenceMutation>(definitions, "profilePreferenceMutation");
 
         AssertEnum<CommandDisposition>(definitions["commandAcknowledgement"]!["properties"]!["disposition"]!);
         AssertEnum<ReconnectDisposition>(definitions["reconnectPlan"]!["properties"]!["disposition"]!);
@@ -104,6 +129,15 @@ public sealed class GoldenAndHostileJsonTests
             marked.State,
             Envelope(Upsert(48, 2, 1, reviewAt), version: new CompanionProtocolVersion(2, 7)),
             TabletContext(reviewAt));
+        var preferences = Apply(
+            marked.State,
+            new ActivateProfilePreferencesCommand(
+                Command(49),
+                new AggregateRevision(1),
+                reviewAt,
+                reviewAt.AddSeconds(30),
+                Preferences()),
+            DesktopContext(reviewAt));
         Assert.Equal(CommandDisposition.RejectedCommandIdReuse, reuse.Acknowledgement.Disposition);
         Assert.Equal(CommandDisposition.UnsupportedVersion, unsupported.Acknowledgement.Disposition);
 
@@ -112,6 +146,7 @@ public sealed class GoldenAndHostileJsonTests
             new CanonicalUpdateMessage(corrected.Update!),
             new CanonicalUpdateMessage(pending.Update!),
             new CanonicalUpdateMessage(marked.Update!),
+            new CanonicalUpdateMessage(preferences.Update!),
             new CommandAcknowledgementMessage(conflict.Acknowledgement),
             new CommandAcknowledgementMessage(reuse.Acknowledgement),
             new CommandAcknowledgementMessage(unsupported.Acknowledgement),

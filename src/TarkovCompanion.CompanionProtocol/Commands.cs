@@ -52,6 +52,10 @@ public sealed record OfflineQueuePreview
 [JsonDerivedType(typeof(PublishCaptureResultCommand), "publishCaptureResult")]
 [JsonDerivedType(typeof(ReviewCaptureResultCommand), "reviewCaptureResult")]
 [JsonDerivedType(typeof(CorrectCaptureResultCommand), "correctCaptureResult")]
+[JsonDerivedType(typeof(ActivateProfilePreferencesCommand), "activateProfilePreferences")]
+[JsonDerivedType(typeof(MutateProfilePreferencesCommand), "mutateProfilePreferences")]
+[JsonDerivedType(typeof(ResetProfilePreferencesCommand), "resetProfilePreferences")]
+[JsonDerivedType(typeof(DeleteProfilePreferencesCommand), "deleteProfilePreferences")]
 public abstract record CompanionCommand
 {
     private protected CompanionCommand(

@@ -378,8 +378,8 @@ The relay privacy inventory is intentionally small:
 - for handshakes: the public material listed in the wire-roots table, including the sealed name's
   ciphertext length;
 - never: workspace, map, floor, viewport, selection, search, result, mark, coordinate, capture
-  context, progress, correction, device display name, payload kind, traffic key, or reusable
-  authorization material.
+  context, progress, correction, profile context, preference, protected-item rule, favorite loadout,
+  device display name, payload kind, traffic key, or reusable authorization material.
 
 The relay cannot mint canonical acknowledgements. The authenticated desktop assigns server UTC,
 delivery sequence, device identity, revisions, and command results after decryption.
@@ -435,7 +435,7 @@ a JavaScript client reads it exactly.
 
 One `AuthorityEpoch` identifies a continuous desktop authority lifetime. Desktop restart or
 canonical-state replacement mints a new epoch. The state names its v2 `WorkspaceId` and desktop
-instance, has a monotonic global revision for reconnect coverage, and holds four independently
+instance, has a monotonic global revision for reconnect coverage, and holds five independently
 revisioned aggregates:
 
 | Aggregate | Canonical content |
@@ -444,6 +444,7 @@ revisioned aggregates:
 | Workspace | Workspace, map/floor, versioned viewport, selection/deep link/focus token, visible objectives/plans, search/results, layers/filters, and allowed dialogs. |
 | Marks | Manual pings, waypoints, route points, and notes, each a Core `MapMarkState` with author, mark revision, last change ID, scope, coordinate space, projection version, height, color, and times. |
 | Capture intent | One short-lived context whose scan intent, armed time, and expiry are a Core `CaptureIntentState`, with origin, session/correlation, progress, result reference, guidance, review, and corrections. |
+| Profile preferences | Exactly one active profile context (or none), preference schema version, item pins/wishlist, protected-item rules, recommendation overrides, favorite loadouts, and explicit shared-personalization opt-ins. Device-local presentation/accessibility settings and ephemeral pings are excluded. |
 
 Each aggregate cursor holds its revision and the ID of the change occupying it (null exactly at
 revision zero). Each command names the positive aggregate revision it intends to create: if the
@@ -493,6 +494,7 @@ enforces the table on construction and when it is read:
 | `RejectedUnauthorized` | — | applied = 0 | null | absent |
 | `RejectedInvalidState` | — | applied = 0 | null | absent |
 | `RejectedCommandIdReuse` | — | applied = 0 | null | absent |
+| `UnsupportedPreferenceSchema` | — | applied = 0 | null | absent |
 | `RequiresPreview` | — | the aggregate cursor | another change, or null at zero | present |
 | `RequiresSnapshot` | — | the aggregate cursor | another change, or null at zero | present |
 
@@ -742,7 +744,8 @@ or capture commands never replay because commands are never replayed, only their
 ## Offline actions
 
 An offline tablet may cache the last canonical snapshot locally. Local Independent navigation,
-search, filter, selection, control, and capture progress have no offline draft type and are never
+search, filter, selection, control, capture progress, and profile preference edits have no offline
+draft type and are never
 queued. `OfflineActionQueue` holds at most 64 uniquely identified explicit drafts: Show on desktop,
 mark upsert, mark delete, and capture-intent request. Each expires within fifteen minutes of
 queueing and is pruned at expiry. The lifetime bounds how stale a draft can be; it does not know raid
@@ -791,6 +794,10 @@ All transports call `CompanionProtocolJson` rather than default serializer optio
 | Session | twelve hours, and never past the device's expiry |
 | Control lease | two minutes normally, five minutes maximum, whole milliseconds |
 | Capture intent | two minutes |
+| Profile preference items / protected rules / overrides | 256 each |
+| Favorite loadouts / items per loadout | 64 / 64 |
+| Shared-personalization entries | 64 |
+| Preference quantity and sort order | 0–1,000,000; loadout quantity starts at 1 |
 | Device absence expiry | two hours since the last recorded use unless explicitly revoked/replaced sooner |
 | Key epoch | 1 through 2³²−1, strictly increasing per device |
 | Sender sequence | 1 through 2³²−1 per session direction |
@@ -816,6 +823,41 @@ the lexical security checks. Secrets and reusable authorization material are abs
 wire root, schema, golden vector, log, URL, and diagnostic shape. The test-only private keys in the
 crypto vectors are derived from public labels and protect nothing.
 
+## Profile preference continuity
+
+`ProfilePreferences` is a separate delivery channel and revision cursor. Its snapshot contains at
+most one active `PreferenceProfileContext`, never a bag of every profile on the desktop. The context
+key includes stable profile ID, generation, game mode, wipe, locale, and data-snapshot identity and
+publication time. A tablet command repeats that complete key; any difference returns
+`RequiresSnapshot` with the current canonical state. This prevents a command prepared before a
+rapid profile, PvP/PvE, wipe, locale, or catalog switch from mutating the new profile.
+
+The preference document is a closed schema, currently 1.1. Version 1.0 is readable and migrates to
+1.1 by adding the explicit shared-personalization collection; canonical snapshots and persistence
+always carry 1.1. A later minor may add an optional field only with an append-only migration in
+`PreferenceSchemaPolicy`. A higher minor or another major returns `UnsupportedPreferenceSchema`
+without a state change. Unknown optional protocol fields can be ignored safely because paired devices submit
+only one closed field-level `ProfilePreferenceMutation`; they never replace the whole document.
+Thus an older device can change a field it understands without erasing a newer protected rule,
+override, loadout, or sharing decision. Only the authenticated desktop can activate or switch a
+full profile document, after normalizing it to the current schema.
+
+The closed mutations set or remove one item pin/wishlist entry, upsert or delete one protected-item
+rule, set or delete one recommendation override, upsert or delete one favorite loadout, or set or
+delete one shared-personalization opt-in. `ResetProfilePreferencesCommand` preserves the current
+context and replaces its contents with schema defaults. `DeleteProfilePreferencesCommand` visibly
+clears the active document. Both require the same context, schema window, next aggregate revision,
+and `ManageProfilePreferences` capability as a mutation. Activation, mutation, reset, deletion, and
+profile switch are ordinary canonical updates with authority epoch, global and aggregate revision,
+change ID, UTC, and `WorkspaceOrigin`. The aggregate retains its last origin and UTC in snapshots;
+normal delivery and reconnect acknowledgements include its cursor. Generic revision rules provide
+the conflict outcome: stale, equal, and gapped writes cannot silently win.
+
+The collections are deterministic and bounded: 256 item entries, protected rules, and overrides;
+64 favorite loadouts with 64 items each; and 64 shared-personalization entries. Identifiers are
+unique within each collection. Quantity and sort values are 0–1,000,000 (loadout quantities start
+at one), while the enclosing 64 KiB delivery budget remains the tighter whole-document limit.
+
 ## Evidence
 
 GitHub Actions runs these tests on every change; local runs are supplementary.
@@ -834,6 +876,7 @@ GitHub Actions runs these tests on every change; local runs are supplementary.
 | Delivery sequencing, isolation, gap detection, replica resync, late plans, a restarted authority epoch, and reconnect plans | `DeliveryAndReconnectTests` |
 | The 64-action offline bound, expiry, preview binding, and eligibility | `OfflineActionQueueTests` |
 | Negotiation and deprecation | `CompatibilityTests` |
+| Profile context isolation, 1.0→1.1 migration, field-scoped forward compatibility, all closed mutations, reset/delete, bounds, attribution, replica, reconnect, and acknowledgement | `ProfilePreferencesTests` |
 
 ## Consumer handoff
 
@@ -861,6 +904,9 @@ desktop approval UI orchestration, and transport composition. It must:
   returned acknowledgement and update through `DeliveryLedger`, resolve markers at send time, plan
   reconnects with the negotiated version, and hand the stream over with the ledger returned by
   `ReconnectPlanner`;
+- load only the active profile's preferences into `ProfilePreferences`, normalize persisted 1.0
+  documents through `PreferenceSchemaPolicy`, apply the closed commands through the reducer, and
+  atomically persist the resulting profile-scoped document without copying it into another context;
 - route selection deep links inside the companion and never pass them to the operating-system shell.
 
 Issue #290 owns tablet presentation and local Independent state. It consumes the schema and golden

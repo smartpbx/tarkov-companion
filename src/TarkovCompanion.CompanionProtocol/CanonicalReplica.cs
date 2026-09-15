@@ -213,6 +213,8 @@ public sealed record CanonicalReplica
             WorkspaceCanonicalUpdate workspace => state.With(update.GlobalRevision, workspace: workspace.State),
             MarksCanonicalUpdate marks => state.With(update.GlobalRevision, marks: marks.State),
             CaptureCanonicalUpdate capture => state.With(update.GlobalRevision, captureIntent: capture.State),
+            ProfilePreferencesCanonicalUpdate preferences =>
+                state.With(update.GlobalRevision, profilePreferences: preferences.State),
             _ => throw new ArgumentOutOfRangeException(nameof(update)),
         };
         return new(new CanonicalReplica(next, sequence, false), ReplicaDisposition.Applied, "update-applied");
@@ -251,6 +253,7 @@ public sealed record CanonicalReplica
         WorkspaceCanonicalUpdate workspace => workspace.State.Cursor,
         MarksCanonicalUpdate marks => marks.State.Cursor,
         CaptureCanonicalUpdate capture => capture.State.Cursor,
+        ProfilePreferencesCanonicalUpdate preferences => preferences.State.Cursor,
         _ => throw new ArgumentOutOfRangeException(nameof(update)),
     };
 }

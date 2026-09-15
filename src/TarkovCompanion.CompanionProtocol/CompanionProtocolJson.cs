@@ -314,6 +314,7 @@ public static class CanonicalDeliveryBudget
 {
     private static readonly CommandId ProbeCommand = new(Guid.Parse("7f000000-0000-4000-8000-000000000001"));
     private static readonly CommandId ProbeChange = new(Guid.Parse("7f000000-0000-4000-8000-000000000002"));
+    private static readonly CommandId ProbePreferenceChange = new(Guid.Parse("7f000000-0000-4000-8000-000000000005"));
     private static readonly CompanionDeviceId ProbeDevice = new(Guid.Parse("7f000000-0000-4000-8000-000000000003"));
     private static readonly DeviceSessionId ProbeSession = new(Guid.Parse("7f000000-0000-4000-8000-000000000004"));
     private static readonly DateTimeOffset ProbeUtc = new(9999, 12, 31, 23, 59, 59, 999, TimeSpan.Zero);
@@ -340,7 +341,16 @@ public static class CanonicalDeliveryBudget
             state.DeviceModes,
             state.Workspace,
             state.Marks,
-            new CaptureIntentAggregate(new AggregateCursor(widest, ProbeChange), state.CaptureIntent.ActiveIntent));
+            new CaptureIntentAggregate(new AggregateCursor(widest, ProbeChange), state.CaptureIntent.ActiveIntent),
+            new ProfilePreferencesAggregate(
+                new AggregateCursor(widest, ProbePreferenceChange),
+                state.ProfilePreferences.ActiveProfile,
+                state.ProfilePreferences.LastChangedOrigin ?? new WorkspaceOrigin(
+                    state.WorkspaceId,
+                    state.DesktopDeviceId,
+                    WorkspaceOriginKind.DesktopApplication,
+                    state.DesktopInstanceId),
+                state.ProfilePreferences.ChangedUtc ?? ProbeUtc));
         return new ServerEnvelope(
             new CompanionProtocolVersion(CompanionProtocolVersion.MaxMajor, CompanionProtocolVersion.MaxMinor),
             ProbeSession,

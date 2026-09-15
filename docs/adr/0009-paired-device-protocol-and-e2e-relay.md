@@ -1,6 +1,7 @@
 # ADR 0009: Make the desktop canonical and encrypt paired state through the relay
 
-Status: Accepted — 2026-09-14; amended 2026-09-15 after the independent protocol audit and its re-audit
+Status: Accepted — 2026-09-14; amended 2026-09-15 after the independent protocol audit, re-audit,
+and preference-continuity review
 
 ## Context
 
@@ -122,6 +123,18 @@ user previewed.
 Every transport uses the same closed roots, JSON options, centralized bounds, schema, golden vectors,
 reducer, delivery ledger, replica rules, and reconnect planner.
 
+**Profile preferences.** Profile preferences are their own canonical aggregate and delivery
+channel. A snapshot carries only the active full profile context and a normalized preference schema,
+not every local profile. Paired devices submit closed field-level mutations rather than whole
+documents; only the authenticated desktop activates or switches a full document. Reset and delete
+are explicit commands. Context mismatch, stale revision, and unreadable preference schema have
+typed outcomes before mutation. The aggregate includes item pins/wishlist, protected-item rules,
+recommendation overrides, favorite loadouts, and explicit shared-personalization opt-ins, while
+excluding device-local presentation/accessibility state and ephemeral marks. This keeps an older
+tablet from erasing fields it does not understand and prevents state from crossing profile, mode,
+wipe, locale, or catalog boundaries. Preference schema 1.0 migrates append-only to canonical 1.1;
+future migrations extend the policy rather than reinterpret old bytes.
+
 ## Alternatives considered
 
 **Let the relay read paired state.** This would simplify routing and server-side debugging, but the
@@ -158,6 +171,10 @@ that their change occupies one revision. Rejected in favor of global IDs with ca
 **Use last-write-wins or JSON Patch.** This would make concurrent behavior depend on network timing
 and let old/new clients disagree about arbitrary mutation paths. It also creates an extensible
 control channel that the safety boundary cannot close by construction. Rejected.
+
+**Let tablets replace an entire preference document.** It makes a stale or older client capable of
+dropping newer fields it never saw, even if the outer aggregate revision is current. Rejected in
+favor of closed field-level mutations, explicit reset/delete, and desktop-only activation.
 
 **Give the tablet an independent canonical replica.** Multi-primary reconciliation would add
 conflict rules to every aggregate and make control ownership ambiguous. The product already has a

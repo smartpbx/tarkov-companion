@@ -480,6 +480,10 @@ public static class DesktopCanonicalStateMachine
             PublishCaptureResultCommand result => ApplyCaptureResult(scope, result),
             ReviewCaptureResultCommand review => ApplyCaptureReview(scope, review),
             CorrectCaptureResultCommand correction => ApplyCaptureCorrection(scope, correction),
+            ActivateProfilePreferencesCommand activatePreferences => ApplyActivatePreferences(scope, activatePreferences),
+            MutateProfilePreferencesCommand mutatePreferences => ApplyPreferenceMutation(scope, mutatePreferences),
+            ResetProfilePreferencesCommand resetPreferences => ApplyResetPreferences(scope, resetPreferences),
+            DeleteProfilePreferencesCommand deletePreferences => ApplyDeletePreferences(scope, deletePreferences),
             _ => Reject(state, command, CommandDisposition.RejectedInvalidState, "unknown-command"),
         };
 
@@ -899,6 +903,155 @@ public static class DesktopCanonicalStateMachine
             "capture-correction-appended");
     }
 
+    private static CommandReduction ApplyActivatePreferences(
+        Scope scope,
+        ActivateProfilePreferencesCommand command)
+    {
+        if (!scope.Context.IsDesktop)
+        {
+            return Reject(scope, CommandDisposition.RejectedUnauthorized, "desktop-profile-activation-required");
+        }
+
+        if (!PreferenceSchemaVersion.Current.CanRead(command.Preferences.SchemaVersion))
+        {
+            return Reject(scope, CommandDisposition.UnsupportedPreferenceSchema, "preference-schema-unreadable");
+        }
+
+        // Version 1.0 is the first schema. A later implementation may migrate readable older
+        // minors here, but canonical state is always rewritten at the current version before it is
+        // delivered or persisted.
+        var normalized = PreferenceSchemaPolicy.Normalize(command.Preferences);
+        return CommitPreferences(scope, normalized, "profile-preferences-activated");
+    }
+
+    private static CommandReduction ApplyPreferenceMutation(
+        Scope scope,
+        MutateProfilePreferencesCommand command)
+    {
+        if (!PreferenceSchemaVersion.Current.CanRead(command.SchemaVersion))
+        {
+            return Reject(scope, CommandDisposition.UnsupportedPreferenceSchema, "preference-schema-unreadable");
+        }
+
+        var current = scope.State.ProfilePreferences.ActiveProfile;
+        if (current is null || current.Context != command.Context)
+        {
+            return Reject(scope, CommandDisposition.RequiresSnapshot, "preference-profile-context-mismatch");
+        }
+
+        var items = current.Items.ToList();
+        var protectedRules = current.ProtectedItemRules.ToList();
+        var overrides = current.RecommendationOverrides.ToList();
+        var loadouts = current.FavoriteLoadouts.ToList();
+        var shared = current.SharedPersonalization.ToList();
+        switch (command.Mutation)
+        {
+            case SetItemPreferenceMutation set:
+                Upsert(items, item => item.ItemId, set.Preference.ItemId, set.Preference);
+                break;
+            case RemoveItemPreferenceMutation remove:
+                items.RemoveAll(item => string.Equals(item.ItemId, remove.ItemId, StringComparison.Ordinal));
+                break;
+            case UpsertProtectedItemRuleMutation upsert:
+                Upsert(protectedRules, rule => rule.RuleId, upsert.Rule.RuleId, upsert.Rule);
+                break;
+            case DeleteProtectedItemRuleMutation delete:
+                protectedRules.RemoveAll(rule => string.Equals(rule.RuleId, delete.RuleId, StringComparison.Ordinal));
+                break;
+            case SetRecommendationOverrideMutation set:
+                Upsert(overrides, value => value.ItemId, set.Override.ItemId, set.Override);
+                break;
+            case DeleteRecommendationOverrideMutation delete:
+                overrides.RemoveAll(value => string.Equals(value.ItemId, delete.ItemId, StringComparison.Ordinal));
+                break;
+            case UpsertFavoriteLoadoutMutation upsert:
+                Upsert(loadouts, loadout => loadout.LoadoutId, upsert.Loadout.LoadoutId, upsert.Loadout);
+                break;
+            case DeleteFavoriteLoadoutMutation delete:
+                loadouts.RemoveAll(loadout => string.Equals(loadout.LoadoutId, delete.LoadoutId, StringComparison.Ordinal));
+                break;
+            case SetSharedPersonalizationMutation set:
+                var sharedIndex = shared.FindIndex(value =>
+                    value.Kind == set.Value.Kind &&
+                    string.Equals(value.ReferenceId, set.Value.ReferenceId, StringComparison.Ordinal));
+                if (sharedIndex < 0)
+                {
+                    shared.Add(set.Value);
+                }
+                else
+                {
+                    shared[sharedIndex] = set.Value;
+                }
+
+                break;
+            case DeleteSharedPersonalizationMutation delete:
+                shared.RemoveAll(value =>
+                    value.Kind == delete.Kind &&
+                    string.Equals(value.ReferenceId, delete.ReferenceId, StringComparison.Ordinal));
+                break;
+            default:
+                return Reject(scope, CommandDisposition.RejectedInvalidState, "unknown-preference-mutation");
+        }
+
+        var next = new ProfilePreferencesDocument(
+            current.Context,
+            PreferenceSchemaVersion.Current,
+            items,
+            protectedRules,
+            overrides,
+            loadouts,
+            shared);
+        return CommitPreferences(scope, next, "profile-preference-mutated");
+    }
+
+    private static CommandReduction ApplyResetPreferences(
+        Scope scope,
+        ResetProfilePreferencesCommand command)
+    {
+        var current = ValidatePreferenceTarget(scope, command.Context, command.SchemaVersion);
+        return current.Reduction ?? CommitPreferences(
+            scope,
+            ProfilePreferencesDocument.Empty(current.Document!.Context),
+            "profile-preferences-reset");
+    }
+
+    private static CommandReduction ApplyDeletePreferences(
+        Scope scope,
+        DeleteProfilePreferencesCommand command)
+    {
+        var current = ValidatePreferenceTarget(scope, command.Context, command.SchemaVersion);
+        return current.Reduction ?? CommitPreferences(scope, null, "profile-preferences-deleted");
+    }
+
+    private static (ProfilePreferencesDocument? Document, CommandReduction? Reduction) ValidatePreferenceTarget(
+        Scope scope,
+        PreferenceProfileContext context,
+        PreferenceSchemaVersion schemaVersion)
+    {
+        if (!PreferenceSchemaVersion.Current.CanRead(schemaVersion))
+        {
+            return (null, Reject(scope, CommandDisposition.UnsupportedPreferenceSchema, "preference-schema-unreadable"));
+        }
+
+        var current = scope.State.ProfilePreferences.ActiveProfile;
+        return current is null || current.Context != context
+            ? (null, Reject(scope, CommandDisposition.RequiresSnapshot, "preference-profile-context-mismatch"))
+            : (current, null);
+    }
+
+    private static void Upsert<T>(List<T> values, Func<T, string> key, string expectedKey, T value)
+    {
+        var index = values.FindIndex(item => string.Equals(key(item), expectedKey, StringComparison.Ordinal));
+        if (index < 0)
+        {
+            values.Add(value);
+        }
+        else
+        {
+            values[index] = value;
+        }
+    }
+
     private static bool CanExecute(CompanionCommand command, AuthenticatedCommandContext context) => command switch
     {
         SetInteractionModeCommand => context.Has(DeviceCapability.FollowDesktop),
@@ -912,6 +1065,9 @@ public static class DesktopCanonicalStateMachine
         RequestCaptureIntentCommand => context.Has(DeviceCapability.RequestCaptureIntent),
         ReportCaptureProgressCommand or PublishCaptureResultCommand => context.Has(DeviceCapability.ReportCaptureProgress),
         ReviewCaptureResultCommand or CorrectCaptureResultCommand => context.Has(DeviceCapability.ReviewCaptureResult),
+        ActivateProfilePreferencesCommand => context.IsDesktop,
+        MutateProfilePreferencesCommand or ResetProfilePreferencesCommand or DeleteProfilePreferencesCommand =>
+            context.Has(DeviceCapability.ManageProfilePreferences),
         _ => false,
     };
 
@@ -1127,6 +1283,26 @@ public static class DesktopCanonicalStateMachine
             new CaptureIntentAggregate(new AggregateCursor(scope.Command.RequestedRevision, scope.Command.CommandId), intent),
             code);
 
+    private static CommandReduction CommitPreferences(
+        Scope scope,
+        ProfilePreferencesDocument? preferences,
+        string code)
+    {
+        var origin = new WorkspaceOrigin(
+            scope.State.WorkspaceId,
+            scope.Context.DeviceId,
+            scope.Context.IsDesktop ? WorkspaceOriginKind.DesktopApplication : WorkspaceOriginKind.PairedDevice,
+            scope.Context.InstanceId);
+        return Commit(
+            scope,
+            new ProfilePreferencesAggregate(
+                new AggregateCursor(scope.Command.RequestedRevision, scope.Command.CommandId),
+                preferences,
+                origin,
+                scope.Now),
+            code);
+    }
+
     private static CommandReduction Commit(Scope scope, object aggregate, string code)
     {
         var state = scope.State;
@@ -1157,6 +1333,17 @@ public static class DesktopCanonicalStateMachine
             case CaptureIntentAggregate capture:
                 staged = state.With(global, captureIntent: capture);
                 update = new CaptureCanonicalUpdate(state.AuthorityEpoch, global, command.CommandId, scope.Now, origin, contract, capture);
+                break;
+            case ProfilePreferencesAggregate preferences:
+                staged = state.With(global, profilePreferences: preferences);
+                update = new ProfilePreferencesCanonicalUpdate(
+                    state.AuthorityEpoch,
+                    global,
+                    command.CommandId,
+                    scope.Now,
+                    origin,
+                    contract,
+                    preferences);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(aggregate));

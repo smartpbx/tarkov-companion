@@ -243,7 +243,8 @@ public sealed class AcknowledgementContractTests
             initial.DeviceModes,
             new WorkspaceAggregate(new AggregateCursor(new AggregateRevision(revision), change), Projection()),
             initial.Marks,
-            initial.CaptureIntent);
+            initial.CaptureIntent,
+            initial.ProfilePreferences);
     }
 
     private static CompanionCommand RandomCommand(Random random, CanonicalCompanionState state, DateTimeOffset now, int sequence)
@@ -255,7 +256,13 @@ public sealed class AcknowledgementContractTests
             new(Math.Max(1, state.Cursor(aggregate).Revision.Value + random.Next(-1, 3)));
         var capture = state.CaptureIntent.ActiveIntent?.IntentId ?? Capture(1);
         var artifact = random.NextDouble() < 0.5 ? "artifact-1" : null;
-        return random.Next(15) switch
+        var preferenceContext = state.ProfilePreferences.ActiveProfile?.Context ?? PreferenceContext();
+        var preferenceSchema = random.NextDouble() < 0.1
+            ? new PreferenceSchemaVersion(1, 2)
+            : random.NextDouble() < 0.2
+                ? new PreferenceSchemaVersion(1, 0)
+                : PreferenceSchemaVersion.Current;
+        return random.Next(19) switch
         {
             0 => new SetInteractionModeCommand(id, Revision(CanonicalAggregateKind.DeviceModes), issued, expires, random.NextDouble() < 0.5 ? CompanionInteractionMode.Follow : CompanionInteractionMode.Independent),
             1 => new RequestControlCommand(id, Revision(CanonicalAggregateKind.DeviceModes), issued, expires, TimeSpan.FromSeconds(random.Next(1, 300))),
@@ -302,6 +309,34 @@ public sealed class AcknowledgementContractTests
                 []),
             12 => new ReviewCaptureResultCommand(id, Revision(CanonicalAggregateKind.CaptureIntent), issued, expires, capture, random.NextDouble() < 0.5 ? CaptureReviewDisposition.Accepted : CaptureReviewDisposition.NeedsCorrection, null),
             13 => new CorrectCaptureResultCommand(id, Revision(CanonicalAggregateKind.CaptureIntent), issued, expires, capture, CaptureCorrectionKind.Quantity, "loot.items.0.quantity", "2", null),
+            14 => new ActivateProfilePreferencesCommand(
+                id,
+                Revision(CanonicalAggregateKind.ProfilePreferences),
+                issued,
+                expires,
+                Preferences(random.Next(1, 3))),
+            15 => new MutateProfilePreferencesCommand(
+                id,
+                Revision(CanonicalAggregateKind.ProfilePreferences),
+                issued,
+                expires,
+                preferenceContext,
+                preferenceSchema,
+                RandomPreferenceMutation(random)),
+            16 => new ResetProfilePreferencesCommand(
+                id,
+                Revision(CanonicalAggregateKind.ProfilePreferences),
+                issued,
+                expires,
+                preferenceContext,
+                preferenceSchema),
+            17 => new DeleteProfilePreferencesCommand(
+                id,
+                Revision(CanonicalAggregateKind.ProfilePreferences),
+                issued,
+                expires,
+                preferenceContext,
+                preferenceSchema),
             _ => new UpsertMarkCommand(
                 new CommandId(Guid.Parse("40000000-0000-8000-8000-000000000001")),
                 Revision(CanonicalAggregateKind.Marks),
@@ -310,6 +345,40 @@ public sealed class AcknowledgementContractTests
                 Mark(1),
                 0,
                 Draft()),
+        };
+    }
+
+    private static ProfilePreferenceMutation RandomPreferenceMutation(Random random)
+    {
+        var suffix = random.Next(1, 8);
+        return random.Next(10) switch
+        {
+            0 => new SetItemPreferenceMutation(new ItemPreference($"item-{suffix}", true, random.NextDouble() < 0.5, suffix)),
+            1 => new RemoveItemPreferenceMutation($"item-{suffix}"),
+            2 => new UpsertProtectedItemRuleMutation(new ProtectedItemRule(
+                $"rule-{suffix}",
+                (ProtectedItemSelectorKind)random.Next(1, 4),
+                $"selector-{suffix}",
+                (ProtectedItemDisposition)random.Next(1, 3),
+                random.Next(0, 5))),
+            3 => new DeleteProtectedItemRuleMutation($"rule-{suffix}"),
+            4 => new SetRecommendationOverrideMutation(new RecommendationOverride(
+                $"item-{suffix}",
+                (RecommendationOverrideAction)random.Next(1, 5),
+                random.NextDouble() < 0.5 ? null : "fuzz")),
+            5 => new DeleteRecommendationOverrideMutation($"item-{suffix}"),
+            6 => new UpsertFavoriteLoadoutMutation(new FavoriteLoadout(
+                $"loadout-{suffix}",
+                $"Loadout {suffix}",
+                [new FavoriteLoadoutItem("primary", $"item-{suffix}", 1)])),
+            7 => new DeleteFavoriteLoadoutMutation($"loadout-{suffix}"),
+            8 => new SetSharedPersonalizationMutation(new SharedPersonalization(
+                (SharedPersonalizationKind)random.Next(1, 5),
+                $"shared-{suffix}",
+                random.NextDouble() < 0.5)),
+            _ => new DeleteSharedPersonalizationMutation(
+                (SharedPersonalizationKind)random.Next(1, 5),
+                $"shared-{suffix}"),
         };
     }
 }

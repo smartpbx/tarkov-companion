@@ -184,7 +184,11 @@ internal sealed class SchemaValidator(JsonNode schema)
             }
         }
 
-        if (rule["anyOf"] is JsonArray anyOf && !anyOf.Any(branch => Validate(branch!, instance, path, strict).Count == 0))
+        // The strict extension checks undeclared members against the enclosing object shape. An
+        // anyOf branch is often only a condition over one of those members, so applying strictness
+        // again inside it would incorrectly require that condition to redeclare every sibling.
+        if (rule["anyOf"] is JsonArray anyOf &&
+            !anyOf.Any(branch => Validate(branch!, instance, path, strict: false).Count == 0))
         {
             errors.Add($"{path}: no anyOf branch matched");
         }

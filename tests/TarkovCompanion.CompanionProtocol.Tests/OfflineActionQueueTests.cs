@@ -97,7 +97,8 @@ public sealed class OfflineActionQueueTests
             independent.DeviceModes,
             independent.Workspace,
             independent.Marks,
-            independent.CaptureIntent);
+            independent.CaptureIntent,
+            independent.ProfilePreferences);
         var command = queue.PrepareSubmission(Command(20), previewedElsewhere, Now.AddMinutes(1));
 
         var result = Apply(independent, command, TabletContext(Now.AddMinutes(1)));

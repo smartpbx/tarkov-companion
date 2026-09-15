@@ -50,19 +50,25 @@ public sealed class ProtocolPropertyTests
     [Fact]
     public void CommandUpdateMessageActionAndOfflineUnionsAreClosedToKnownSealedTypes()
     {
-        Assert.Equal(14, ConcreteSubtypes<CompanionCommand>().Length);
-        Assert.Equal(4, ConcreteSubtypes<CanonicalUpdate>().Length);
+        Assert.Equal(18, ConcreteSubtypes<CompanionCommand>().Length);
+        Assert.Equal(5, ConcreteSubtypes<CanonicalUpdate>().Length);
         Assert.Equal(4, ConcreteSubtypes<ServerMessage>().Length);
         Assert.Equal(5, ConcreteSubtypes<WorkspaceAction>().Length);
         Assert.Equal(4, ConcreteSubtypes<OfflineAction>().Length);
+        Assert.Equal(10, ConcreteSubtypes<ProfilePreferenceMutation>().Length);
         Assert.All(
             ConcreteSubtypes<CompanionCommand>()
                 .Concat(ConcreteSubtypes<CanonicalUpdate>())
                 .Concat(ConcreteSubtypes<ServerMessage>())
                 .Concat(ConcreteSubtypes<WorkspaceAction>())
-                .Concat(ConcreteSubtypes<OfflineAction>()),
+                .Concat(ConcreteSubtypes<OfflineAction>())
+                .Concat(ConcreteSubtypes<ProfilePreferenceMutation>()),
             type => Assert.True(type.IsSealed, type.Name));
-        foreach (var union in new[] { typeof(CompanionCommand), typeof(CanonicalUpdate), typeof(ServerMessage), typeof(WorkspaceAction), typeof(OfflineAction) })
+        foreach (var union in new[]
+                 {
+                     typeof(CompanionCommand), typeof(CanonicalUpdate), typeof(ServerMessage), typeof(WorkspaceAction),
+                     typeof(OfflineAction), typeof(ProfilePreferenceMutation),
+                 })
         {
             Assert.All(
                 union.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).Where(constructor => constructor.GetParameters().All(parameter => parameter.ParameterType != union)),

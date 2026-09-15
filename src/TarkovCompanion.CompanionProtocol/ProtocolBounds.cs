@@ -72,6 +72,14 @@ public static class ProtocolBounds
     public const int MaxDeviceNameBytes = 128;
     public const int VerificationCodeDigits = 6;
     public const int MaxCaptureProvenanceDepth = 3;
+    public const int MaxProfilePreferenceItems = 256;
+    public const int MaxProtectedItemRules = 256;
+    public const int MaxRecommendationOverrides = 256;
+    public const int MaxFavoriteLoadouts = 64;
+    public const int MaxFavoriteLoadoutItems = 64;
+    public const int MaxSharedPersonalization = 64;
+    public const int MaxPreferenceQuantity = 1_000_000;
+    public const int MaxPreferenceSortOrder = 1_000_000;
 
     public const double MaxWorldCoordinateMagnitude = 1_000_000;
 

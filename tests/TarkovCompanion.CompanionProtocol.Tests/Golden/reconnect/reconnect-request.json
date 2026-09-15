@@ -55,6 +55,14 @@
         "value": "40000000-0000-4000-8000-000000000005"
       },
       "acknowledgedUtc": "2026-09-14T20:01:10+00:00"
+    },
+    {
+      "aggregate": "ProfilePreferences",
+      "revision": {
+        "value": 0
+      },
+      "appliedChangeId": null,
+      "acknowledgedUtc": "2026-09-14T20:01:10+00:00"
     }
   ]
 }

@@ -33,6 +33,7 @@ internal static class ProtocolTestData
         DeviceCapability.ManageOwnMarks,
         DeviceCapability.RequestCaptureIntent,
         DeviceCapability.ReviewCaptureResult,
+        DeviceCapability.ManageProfilePreferences,
     ];
 
     public static CanonicalCompanionState InitialState() => new(
@@ -48,7 +49,28 @@ internal static class ProtocolTestData
             null),
         new WorkspaceAggregate(AggregateCursor.Empty, Projection("customs")),
         new MarkAggregate(AggregateCursor.Empty, []),
-        new CaptureIntentAggregate(AggregateCursor.Empty, null));
+        new CaptureIntentAggregate(AggregateCursor.Empty, null),
+        ProfilePreferencesAggregate.Empty);
+
+    public static PreferenceProfileContext PreferenceContext(int profile = 1) => new(
+        new PreferenceProfileId(Guid.Parse($"81000000-0000-4000-8000-{profile:000000000000}")),
+        "wipe-generation-1",
+        TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Pvp,
+        "2026-09",
+        "en-US",
+        "US",
+        "Etc/UTC",
+        "catalog-2026-09-14",
+        Now.AddDays(-1));
+
+    public static ProfilePreferencesDocument Preferences(int profile = 1) => new(
+        PreferenceContext(profile),
+        PreferenceSchemaVersion.Current,
+        [new ItemPreference("item-ledx", pinned: true, wishlist: true, 0)],
+        [new ProtectedItemRule("rule-ledx", ProtectedItemSelectorKind.Item, "item-ledx", ProtectedItemDisposition.AlwaysKeep, 1)],
+        [new RecommendationOverride("item-ledx", RecommendationOverrideAction.Prioritize, "Future quest")],
+        [new FavoriteLoadout("loadout-1", "Labs", [new FavoriteLoadoutItem("primary", "item-rifle", 1)])],
+        [new SharedPersonalization(SharedPersonalizationKind.Loadout, "loadout-1", enabled: true)]);
 
     public static WorkspaceProjection Projection(string mapId = "customs", WorkspaceDialogKind? dialog = null) => new(
         WorkspaceKind.Raid,

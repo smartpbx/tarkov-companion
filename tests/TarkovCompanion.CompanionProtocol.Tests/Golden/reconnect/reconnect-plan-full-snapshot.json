@@ -193,6 +193,17 @@
         "review": null,
         "corrections": []
       }
+    },
+    "profilePreferences": {
+      "cursor": {
+        "revision": {
+          "value": 0
+        },
+        "lastChangeId": null
+      },
+      "activeProfile": null,
+      "lastChangedOrigin": null,
+      "changedUtc": null
     }
   },
   "resumeAfterDeliverySequence": {

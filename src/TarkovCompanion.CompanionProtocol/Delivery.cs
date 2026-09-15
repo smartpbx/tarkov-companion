@@ -9,6 +9,7 @@ public enum DeliveryChannel
     Workspace,
     Marks,
     CaptureIntent,
+    ProfilePreferences,
 
     /// <summary>Command acknowledgements, snapshots, and deprecation notices.</summary>
     Control,

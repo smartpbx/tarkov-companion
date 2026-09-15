@@ -21,6 +21,7 @@ public enum DeviceCapability
     ManageDevices,
     ResolveControlRequests,
     ReportCaptureProgress,
+    ManageProfilePreferences,
 }
 
 public enum DeviceLifecycleStatus

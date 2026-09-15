@@ -9,6 +9,7 @@ public enum CanonicalAggregateKind
     Workspace,
     Marks,
     CaptureIntent,
+    ProfilePreferences,
 }
 
 public enum CompanionInteractionMode
@@ -574,6 +575,7 @@ public enum CommandDisposition
     RequiresPreview,
     RequiresSnapshot,
     RejectedCommandIdReuse,
+    UnsupportedPreferenceSchema,
 }
 
 /// <summary>
@@ -625,6 +627,7 @@ public sealed record CanonicalCompanionState
         WorkspaceAggregate workspace,
         MarkAggregate marks,
         CaptureIntentAggregate captureIntent,
+        ProfilePreferencesAggregate profilePreferences,
         IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
         DateTimeOffset? receiptHorizonUtc = null)
     {
@@ -643,6 +646,7 @@ public sealed record CanonicalCompanionState
         Workspace = ProtocolGuard.NotNull(workspace, nameof(workspace));
         Marks = ProtocolGuard.NotNull(marks, nameof(marks));
         CaptureIntent = ProtocolGuard.NotNull(captureIntent, nameof(captureIntent));
+        ProfilePreferences = ProtocolGuard.NotNull(profilePreferences, nameof(profilePreferences));
         RecentCommands = ProtocolGuard.List(
             recentCommands ?? [],
             nameof(recentCommands),
@@ -656,11 +660,30 @@ public sealed record CanonicalCompanionState
             throw new ArgumentException("Recent command ids are unique across devices.", nameof(recentCommands));
         }
 
+        var occupiedCursors = new[]
+        {
+            DeviceModes.Cursor.LastChangeId,
+            Workspace.Cursor.LastChangeId,
+            Marks.Cursor.LastChangeId,
+            CaptureIntent.Cursor.LastChangeId,
+            ProfilePreferences.Cursor.LastChangeId,
+        }.Where(change => change is not null).ToArray();
+        if (occupiedCursors.Distinct().Count() != occupiedCursors.Length)
+        {
+            throw new ArgumentException("One command id cannot occupy more than one aggregate cursor.");
+        }
+
         if (DeviceModes.Devices.Any(item => item.DeviceId == DesktopDeviceId) ||
             DeviceModes.PendingControl?.DeviceId == DesktopDeviceId ||
             DeviceModes.ControlLease?.DeviceId == DesktopDeviceId)
         {
             throw new ArgumentException("The canonical desktop is the authority, not a paired interaction mode.", nameof(deviceModes));
+        }
+
+        if (ProfilePreferences.LastChangedOrigin is { } preferenceOrigin &&
+            preferenceOrigin.WorkspaceId != WorkspaceId)
+        {
+            throw new ArgumentException("Preference attribution belongs to this canonical workspace.", nameof(profilePreferences));
         }
     }
 
@@ -684,6 +707,8 @@ public sealed record CanonicalCompanionState
 
     public CaptureIntentAggregate CaptureIntent { get; }
 
+    public ProfilePreferencesAggregate ProfilePreferences { get; }
+
     [JsonIgnore]
     public IReadOnlyList<RecentCommandReceipt> RecentCommands { get; }
 
@@ -701,6 +726,7 @@ public sealed record CanonicalCompanionState
         CanonicalAggregateKind.Workspace => Workspace.Cursor,
         CanonicalAggregateKind.Marks => Marks.Cursor,
         CanonicalAggregateKind.CaptureIntent => CaptureIntent.Cursor,
+        CanonicalAggregateKind.ProfilePreferences => ProfilePreferences.Cursor,
         _ => throw new ArgumentOutOfRangeException(nameof(aggregate)),
     };
 
@@ -710,6 +736,7 @@ public sealed record CanonicalCompanionState
         WorkspaceAggregate? workspace = null,
         MarkAggregate? marks = null,
         CaptureIntentAggregate? captureIntent = null,
+        ProfilePreferencesAggregate? profilePreferences = null,
         IReadOnlyList<RecentCommandReceipt>? recentCommands = null,
         DateTimeOffset? receiptHorizonUtc = null) =>
         new(
@@ -722,6 +749,7 @@ public sealed record CanonicalCompanionState
             workspace ?? Workspace,
             marks ?? Marks,
             captureIntent ?? CaptureIntent,
+            profilePreferences ?? ProfilePreferences,
             recentCommands ?? RecentCommands,
             receiptHorizonUtc ?? ReceiptHorizonUtc);
 }
@@ -737,6 +765,7 @@ public sealed record CanonicalCompanionState
 [JsonDerivedType(typeof(WorkspaceCanonicalUpdate), "workspace")]
 [JsonDerivedType(typeof(MarksCanonicalUpdate), "marks")]
 [JsonDerivedType(typeof(CaptureCanonicalUpdate), "captureIntent")]
+[JsonDerivedType(typeof(ProfilePreferencesCanonicalUpdate), "profilePreferences")]
 public abstract record CanonicalUpdate
 {
     private protected CanonicalUpdate(

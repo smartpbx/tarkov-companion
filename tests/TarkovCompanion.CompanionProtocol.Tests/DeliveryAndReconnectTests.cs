@@ -297,7 +297,8 @@ public sealed class DeliveryAndReconnectTests
             flow.Final.DeviceModes,
             new WorkspaceAggregate(AggregateCursor.Empty, Projection()),
             new MarkAggregate(AggregateCursor.Empty, []),
-            new CaptureIntentAggregate(AggregateCursor.Empty, null));
+            new CaptureIntentAggregate(AggregateCursor.Empty, null),
+            ProfilePreferencesAggregate.Empty);
 
         // After a desktop restart the new ledger has assigned nothing, so the plan resumes at zero.
         var plan = ReconnectPlanner.Plan(
@@ -370,7 +371,8 @@ public sealed class DeliveryAndReconnectTests
             initial.DeviceModes,
             initial.Workspace,
             new MarkAggregate(new AggregateCursor(new AggregateRevision(revision), Command((int)(100 + revision))), []),
-            initial.CaptureIntent);
+            initial.CaptureIntent,
+            initial.ProfilePreferences);
     }
 
     /// <summary>
