@@ -39,25 +39,53 @@ public static class RelayReadiness
     private static RelayReadinessCheckResult Check(RelayReadinessCheck check, bool isReady) => new(check, isReady);
 }
 
-public sealed record RelayReadinessProbe(
-    bool StorageAvailable,
-    int FreeDiskMegabytes,
-    int ClockDriftSeconds,
-    bool BuildKnown,
-    int UpdateAgeMinutes,
-    int LatencyMilliseconds,
-    int ConsecutiveFailures,
-    int RateLimitRejections,
-    int RejectedInputCount)
+public sealed record RelayReadinessProbe
 {
-    public RelayReadinessProbe
+    public RelayReadinessProbe(
+        bool StorageAvailable,
+        int FreeDiskMegabytes,
+        int ClockDriftSeconds,
+        bool BuildKnown,
+        int UpdateAgeMinutes,
+        int LatencyMilliseconds,
+        int ConsecutiveFailures,
+        int RateLimitRejections,
+        int RejectedInputCount)
     {
         if (FreeDiskMegabytes < 0 || UpdateAgeMinutes < 0 || LatencyMilliseconds < 0 ||
             ConsecutiveFailures < 0 || RateLimitRejections < 0 || RejectedInputCount < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(FreeDiskMegabytes));
         }
+
+        this.StorageAvailable = StorageAvailable;
+        this.FreeDiskMegabytes = FreeDiskMegabytes;
+        this.ClockDriftSeconds = ClockDriftSeconds;
+        this.BuildKnown = BuildKnown;
+        this.UpdateAgeMinutes = UpdateAgeMinutes;
+        this.LatencyMilliseconds = LatencyMilliseconds;
+        this.ConsecutiveFailures = ConsecutiveFailures;
+        this.RateLimitRejections = RateLimitRejections;
+        this.RejectedInputCount = RejectedInputCount;
     }
+
+    public bool StorageAvailable { get; }
+
+    public int FreeDiskMegabytes { get; }
+
+    public int ClockDriftSeconds { get; }
+
+    public bool BuildKnown { get; }
+
+    public int UpdateAgeMinutes { get; }
+
+    public int LatencyMilliseconds { get; }
+
+    public int ConsecutiveFailures { get; }
+
+    public int RateLimitRejections { get; }
+
+    public int RejectedInputCount { get; }
 }
 
 public enum RelayReadinessStatus { Ready, Degraded }
