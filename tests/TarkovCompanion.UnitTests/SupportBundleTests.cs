@@ -1,4 +1,6 @@
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.Application.Services.Runtime;
+using TarkovCompanion.Core.Common;
 
 namespace TarkovCompanion.UnitTests;
 
@@ -70,5 +72,45 @@ public sealed class SupportBundleTests
         const string line = "2026-09-13T21:04:11Z [group] the relay did not answer";
 
         Assert.Equal(line, SupportBundle.Redact(line));
+    }
+
+    /// <summary>
+    /// The last line of a report is true of the report above it.
+    /// </summary>
+    /// <remarks>
+    /// It ended "no coordinates are included" while the log tail above it named screenshots in
+    /// full, which is how the watcher logs them, and Report a problem sends that text unread.
+    /// The first assertion measures the gap that is still open (RISK-REPORT-REDACTION). When #281
+    /// filters the whole payload it will fail, and the footer should change in the same commit.
+    /// </remarks>
+    [Fact]
+    public void TheFooterAdmitsTheCoordinatesTheLogTailStillCarries()
+    {
+        var log = Path.Combine(Path.GetTempPath(), $"support-bundle-{Guid.NewGuid():N}.log");
+        File.WriteAllText(
+            log,
+            "2026-09-13T21:04:11Z Read 2026-09-13[20-15]_123.4, 5.6, -78.9_0.0, 0.0, 0.0, 1.0_12.00.png as Raid with status Found.");
+        try
+        {
+            var snapshot = new RuntimeStateStore(new(
+                false,
+                Offline: true,
+                GameMode.Regular,
+                "en",
+                TimeSpan.FromHours(9),
+                TimeSpan.FromMinutes(5))).Current;
+
+            var report = SupportBundle.Describe(snapshot, [], log);
+            var lastLine = report.TrimEnd().Split('\n')[^1];
+
+            Assert.Contains("123.4, 5.6, -78.9", report, StringComparison.Ordinal);
+            Assert.EndsWith(SupportBundle.Footer + Environment.NewLine, report, StringComparison.Ordinal);
+            Assert.Contains("coordinates", lastLine, StringComparison.Ordinal);
+            Assert.DoesNotContain("no coordinates", report, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(log);
+        }
     }
 }

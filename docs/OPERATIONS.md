@@ -39,9 +39,20 @@ are ever published there, so the shortcut does not skip the checks.
 | Update timer | `tarkov-group-update.timer`, every 30 minutes |
 | State | `/var/lib/tarkov-group` once `StateDirectory=tarkov-group` is set on the unit |
 
-**What it stores.** The squad's waypoints, and nothing else. Positions are held in memory for
-three minutes and never written down; pings expire in forty-five seconds and are not persisted,
-because one restored from disk would be claiming "now".
+**What it stores.** The state directory holds:
+
+| File | What is in it |
+| --- | --- |
+| `marks.json` | Every room's waypoints: map, coordinates, label, who placed it, and who reached it and when. Waypoints older than seven days are dropped only when the relay restarts. |
+| `rooms.json` | The registered room hashes, with their labels and creation times. |
+| `reports/*.md` | Problem reports exactly as sent, with no expiry. |
+| `INSTALLED_SHA256`, `REFUSED_SHA256`, `UPDATE_NOW` | The updater's status stamps and the panel's update request. |
+
+Live member state (position, recent trail, kit) stays in memory until about three minutes after
+a member stops publishing and is not written to any of those files. Pings expire in forty-five
+seconds and are not persisted, because one restored from disk would be claiming "now". A report
+body can still carry folder paths and screenshot coordinates (`RISK-REPORT-REDACTION`), so
+treat `reports/` as sensitive in backups and migrations.
 
 **How it updates itself.** The timer fetches the published archive, verifies its checksum
 against what the release says, swaps `/opt/tarkov-group`, and rolls back if the new build does
@@ -65,10 +76,14 @@ report describes somebody's machine. To read one:
 curl -H "X-Admin-Key: $TARKOV_RELAY_ADMIN_KEY" https://<relay>/reports/<reference>
 ```
 
-The admin key is in two places and nowhere else: the repository secret
-`TARKOV_RELAY_ADMIN_KEY`, and `/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on
-CT 115. It is not the group key — any member of any group holds one of those, and this lists
-every group's reports.
+The admin key is provisioned in two places: the repository secret `TARKOV_RELAY_ADMIN_KEY`, and
+`/etc/systemd/system/tarkov-group.service.d/10-reports.conf` on CT 115. Those are not the only
+places it exists while in use. The running relay holds it in its environment, the hourly
+`relay-watch.yml` job receives it as an environment variable, the shell that runs the command
+above holds it, and the relay panel copies whatever is typed into it to that browser tab's
+`sessionStorage` for the life of the tab (asset A-6 in `docs/security/ASSETS_AND_ACTORS.md`).
+Rotating it means changing both provisioned copies. It is not the group key — any member of any
+group holds one of those, and this lists every group's reports.
 
 ## The relay panel
 
@@ -83,7 +98,8 @@ ways of registering a room mean.
 
 The list is `rooms.json` in the relay's state directory (`/var/lib/tarkov-group`), which is
 outside the tree the updater replaces, so it survives the half-hourly update. Deleting that file
-reopens the relay; it never locks anybody out permanently.
+reopens the relay; so, silently, does a corrupt or unreadable one (`RISK-RELAY-REGISTRY-FAIL-OPEN`,
+#310). After anything touches the state directory, check that the panel still says closed.
 
 The page also says which build is running against which is published, including the case worth
 catching: a build that installed, failed its health check and was rolled back is recorded in
@@ -95,9 +111,10 @@ for it and runs the same update the timer runs — the relay runs unprivileged a
 unit itself. If that path unit is not installed the button still works, in the sense that the
 next timer tick picks the file up; it is just no longer immediate.
 
-A report carries no game logs, no group key, no screenshots and no coordinates; user folder
-names are replaced. It does carry the *shape* of the player's screenshot names, with every
-digit masked, which is the thing that usually settles why somebody has no position.
+A report intentionally excludes game logs, the group key, and screenshot pixels. It includes
+diagnostic detail, an application-log tail, and the *shape* of recent screenshot names with every
+digit masked. Complete path, filename, and coordinate filtering plus an outbound preview remain
+release-blocking work in #281 and #310.
 
 **When the group panel says something is wrong:**
 

@@ -96,11 +96,14 @@ and ticks itself off when somebody reaches it. A ping means "look here" and expi
 forty-five seconds, and is never persisted, because one restored from disk would be claiming
 "now".
 
-**What is shared is what the player turned on**, and nothing while it is off. Observations about
-people outside the room are pruned by the relay on the way in and again on the way out: the game
-describes every member of an in-game party, so a five-man filled from matchmaking carries a
-stranger's nickname and kit, and `docs/SAFETY.md` rule 1 says other players' log data is never
-transmitted. The exception that rule records covers the people in the room and nobody else.
+**What is shared is what the player turned on**, and nothing while it is off, with one
+exception the player does not control: a squadmate's companion sends the kit, level, side and
+scav timer its game logged for them. Observations about people outside the room are pruned by
+the relay on the way in and again on the way out, because the game describes every member of an
+in-game party and a five-man filled from matchmaking carries a stranger's nickname and kit.
+`docs/SAFETY.md` rule 1 says other players' log data is never transmitted and records no
+exception for the room, so sending these observations at all is an open conflict
+(`RISK-RELAY-OBSERVED-DATA-POLICY`, #310) rather than a settled product decision.
 
 ## Safety and provenance
 

@@ -2,16 +2,25 @@
 
 A small relay so a group of friends can see each other on one map during a raid.
 
-It holds nothing on disk. Each member publishes their own state, the server keeps the last
-thing each of them said in memory, and hands back everyone else's. A member who stops
-publishing disappears after three minutes, and restarting the server forgets everyone. Keeping
-a history of where people have been would be easy and is the thing worth not doing.
+Live member state is memory-only. Each member publishes their own state, the server keeps the
+last thing each of them said in memory, and hands back everyone else's. A member who stops
+publishing disappears after three minutes, and restarting the server forgets everyone. The state
+directory separately persists waypoints, registered rooms, problem reports, and updater status;
+it does not record member-position history.
 
 ## What is shared
 
-Only what the sender publishes about themselves: their display name, which map they are on,
-their raid state and side, the position and heading from their own screenshot with its age,
-their loadout and the quests they are working on.
+What the sender publishes about themselves: their display name, which map they are on, their
+raid state and side, the position, height, heading and recent trail from their own screenshots
+with their ages, their loadout and the quests they are working on.
+
+One field is not about the sender. `observed` carries the kit, level, side and scav timer the
+sender's game logged for the rest of their in-game party. The relay keeps only entries naming
+somebody in the room, but it does not hand an entry only to the person it names: each member's
+`POST /state` answer carries every other member's entries and any keyed `GET /state` carries all
+of them, so anybody holding the room key can read whatever was observed about anybody in it, and
+the desktop client fills in other members' kit from them. `docs/SAFETY.md` does not currently allow that transmission, so it is an
+open policy conflict owned by #310 (`RISK-RELAY-OBSERVED-DATA-POLICY`).
 
 This is a deliberate departure from the desktop application's usual promise that nothing from
 the game's logs leaves the machine. It happens only when somebody turns it on, and what is
@@ -21,10 +30,11 @@ sent is listed in `GroupContracts.cs` in full so the promise can be read rather 
 
 One value: the group key. Whoever types the same key is in the same group.
 
-The server holds no secrets and has nothing to check a key against. It hashes what it is given
-and buckets members by the result, so a key nobody else uses names a room nobody else is in
-rather than being refused. The key itself is never stored, never logged, and never leaves the
-member's machine in readable form.
+In open mode the server has no registered room verifier to compare a key against. It receives the
+reusable bearer key on every request, then hashes it and buckets members by the result, so a key
+nobody else uses names a room nobody else is in rather than being refused. Stock source does not
+intentionally persist or log the raw key, but the receiving relay and any unprotected transport
+can read it. Scoped credentials and transport hardening are tracked in #304 and #310.
 
 This replaced a room name plus a secret set in the server's environment. That arrangement was
 worse in every way: a member could not choose the secret, the person running the container had
@@ -34,12 +44,12 @@ same either way.
 
 What is genuinely different: a stranger who reaches this server can invent a key and have a
 room of their own, exactly as they could have invented a room name before. What they cannot do
-is join a group whose key they do not know, because the room is the hash of that key and is not
-discoverable from outside. The part that was protecting the group still is; the part that was
-ceremony is gone.
+is join a group without knowing or guessing its key, because the room is the hash of that key.
+Nothing limits guesses, so a short or human-chosen key is weak protection
+(`RISK-RELAY-KEY-BRUTEFORCE`, #304/#310).
 
-Keys shorter than eight characters are refused. That is not access control, since there is
-nothing to check against. It stops somebody believing that `a` keeps strangers out.
+Keys shorter than eight characters are refused. That is not access control: an open relay has no
+registered room to check a key against. It stops somebody believing that `a` keeps strangers out.
 
 ## Running it
 
@@ -47,8 +57,12 @@ nothing to check against. It stops somebody believing that `a` keeps strangers o
 dotnet run --project src/TarkovCompanion.GroupServer
 ```
 
-No configuration. Behind a reverse proxy that terminates TLS; it listens on plain HTTP and
-should never be exposed directly.
+Runs with no configuration; marks and registered rooms then live in memory and reports are not
+kept. `STATE_DIRECTORY` or `TARKOV_GROUP_STATE` keeps marks, the room registry and reports
+across restarts, and `TARKOV_RELAY_ADMIN_KEY` enables the operator routes. It listens on plain
+HTTP and belongs behind a reverse proxy that terminates TLS. The deployed unit binds every
+interface so its tunnel can reach it, which means a LAN client using port 8090 directly sends
+its key in cleartext (`RISK-RELAY-KEY-DISCLOSURE`).
 
 ## Endpoints
 

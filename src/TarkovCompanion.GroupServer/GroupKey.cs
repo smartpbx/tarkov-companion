@@ -14,18 +14,18 @@ namespace TarkovCompanion.GroupServer;
 /// blank list and no reason for it. Two values also meant two ways to be wrong, and the
 /// failure looked identical either way.
 ///
-/// Now there is one. The key IS the room: the server takes its hash and buckets members by
-/// that, and never learns or stores the key itself. Nobody can be refused, because there is
-/// nothing to be refused against. People who type the same key see each other, and people who
-/// type a different one are somewhere else, which is what they asked for whether they meant it
-/// or not.
+/// Now there is one. The key IS the room: every request carries the key to this server, which
+/// takes its hash and buckets members by that. The hash is what it stores; the key itself is
+/// not persisted, but the server does receive it in plaintext and is not blind to it. On an
+/// open relay nobody is refused, because there is no registered room to refuse against. People
+/// who type the same key see each other, and people who type a different one are somewhere
+/// else, which is what they asked for whether they meant it or not.
 ///
 /// That is a real change in what this guarantees and it is worth stating plainly. A stranger
 /// who reaches this server can invent a key and have a room, exactly as they could have
-/// invented a room name before. What they cannot do is join a room whose key they do not know,
-/// because the room's name is not discoverable from outside: it is the hash of a secret. So
-/// the thing that was actually protecting the group before is still protecting it, and the
-/// part that was only ceremony is gone.
+/// invented a room name before. What they cannot do is join a room without knowing or guessing
+/// its key. Nothing here limits guesses, so a short or human-chosen key protects little
+/// (RISK-RELAY-KEY-BRUTEFORCE); scoped credentials and attempt limits are #304 and #310.
 /// </remarks>
 public static class GroupKey
 {
@@ -48,11 +48,12 @@ public static class GroupKey
     /// The room a key names.
     /// </summary>
     /// <remarks>
-    /// Hashed rather than used directly so the server never holds the key in memory or prints
-    /// it in a log, and so a room identifier is a fixed harmless length whatever somebody
-    /// typed. Trimmed first, because a trailing space pasted out of a chat window should not
-    /// put one member in a different room from everybody else, which is precisely the kind of
-    /// invisible mistake this change exists to remove.
+    /// Hashed rather than used directly so the identifier the server stores, logs and hands
+    /// around is not the key, and is a fixed harmless length whatever somebody typed. The key
+    /// is still in memory for every request that carries it. Trimmed first, because a trailing
+    /// space pasted out of a chat window should not put one member in a different room from
+    /// everybody else, which is precisely the kind of invisible mistake this change exists to
+    /// remove.
     /// </remarks>
     public static string RoomFor(string key)
     {

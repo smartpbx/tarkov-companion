@@ -42,10 +42,11 @@ itself; the client works completely without it and sends nothing while group sha
 Four things live there, and the reason they live there rather than in the client is the same
 each time: they are the parts that only make sense between people.
 
-**The room.** A group agrees one key. The relay never sees it — it hashes it and buckets
-members by that hash, so a room's name is not discoverable from outside and the relay holds no
-secret to leak. Members publish themselves and are answered with everyone else in one exchange,
-so there is no subscription to hold open and a companion that is not running shows nothing. A
+**The room.** A group agrees one reusable key. The relay receives it on each request, hashes it,
+and buckets members by that hash. Stock source does not intentionally log or persist the raw key,
+but the transport and receiving process can read it. Members publish themselves and are answered
+with everyone else in one exchange, so there is no subscription to hold open and a companion that
+is not running shows nothing. A
 member is forgotten three minutes after they stop publishing, and observations about anybody
 outside the room are pruned on the way in *and* on the way out, because the game describes
 every member of an in-game party and a five-man filled from matchmaking carries a stranger.
@@ -70,10 +71,12 @@ reads every group's reports, registers which rooms may exist, and asks the relay
 group key can do any of that. Registering the first room closes the relay to unregistered ones,
 and until one is registered it is open, which is what it has always been.
 
-State is two files in a directory outside the tree the updater replaces: the marks, and the
-room list. Positions are never written. The relay cannot start a systemd unit and must not be
-able to — asking it to update writes a file that a `.path` unit watches, and the updater ships
-its own units inside the archive so a fix to them reaches the box.
+Persistent state lives in a directory outside the tree the updater replaces: marks, the room
+registry, submitted problem reports, and updater status stamps. Live member state is not written
+there, but a reached waypoint records who reached it and a report body can carry coordinates.
+The relay cannot start a systemd unit and must not be able to — asking it to update writes a file
+that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
+them reaches the box.
 
 ## Cross-platform contract
 

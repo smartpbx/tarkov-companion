@@ -44,11 +44,12 @@ public sealed record GroupPing(
 /// leaning on a mouse button.
 ///
 /// Waypoints outlive a restart and positions do not, and that distinction is deliberate rather
-/// than an inconsistency. A position is a record of where somebody has been, which this server
-/// makes a point of never keeping. A waypoint is a thing somebody decided on purpose, and
-/// losing the squad's plan because the relay updated itself at the wrong moment would be its
-/// own small betrayal. The relay updates twice an hour, so "it only vanishes on a restart"
-/// was never a rare event.
+/// than an inconsistency. A published position or trail is a record of where somebody has
+/// been, which this server holds only in memory. A waypoint is a thing somebody decided on
+/// purpose, and losing the squad's plan because the relay updated itself at the wrong moment
+/// would be its own small betrayal. The relay updates twice an hour, so "it only vanishes on a
+/// restart" was never a rare event. What is written is not free of where people have been,
+/// though: a reached waypoint keeps who reached it and when (see the constructor).
 ///
 /// That paragraph was written in the same commit as the in-memory dictionary it sits on, and
 /// nothing in this server touched the filesystem, so it described an intention rather than a
@@ -81,9 +82,9 @@ public sealed class GroupMarks
     /// Where the squad's marks are kept, or null to hold them only in memory.
     /// </param>
     /// <remarks>
-    /// Marks only. Positions are never written, which is the promise the rest of this server
-    /// makes and the reason this file can exist at all: it holds places somebody chose, not
-    /// anywhere anybody has been.
+    /// Marks only. Live positions are never written here: the file holds places somebody chose.
+    /// A reached waypoint does record who reached it and when, which is the one thing in it
+    /// that says where somebody has been.
     /// </remarks>
     public GroupMarks(TimeProvider timeProvider, string? storePath = null)
     {
@@ -232,8 +233,8 @@ public sealed class GroupMarks
     /// </summary>
     /// <remarks>
     /// Pings are not written: they expire in forty-five seconds and mean "now", so one
-    /// restored from disk would be a lie. Positions are not written because this server never
-    /// keeps them at all.
+    /// restored from disk would be a lie. Positions are not written because this server holds
+    /// them only in memory, until a few minutes after their member stops publishing.
     ///
     /// Written through a temporary file and moved into place, so a restart during a save
     /// leaves the previous plan rather than a truncated one. A failure is logged nowhere and

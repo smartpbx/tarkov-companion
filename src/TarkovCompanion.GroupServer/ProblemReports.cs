@@ -17,9 +17,9 @@ namespace TarkovCompanion.GroupServer;
 /// machine and already trusted with a key, which is why it is here and not in the client: a
 /// desktop application filing issues would need a token on every player's disk.
 ///
-/// The report is redacted before it leaves the client — no game logs, no group key, no
-/// screenshots, no coordinates — and this adds nothing to it. It is a relay in the literal
-/// sense.
+/// The client intentionally excludes game logs, the group key, and screenshot pixels, but its
+/// current field-by-field redaction is not a whole-payload guarantee. This component persists the
+/// submitted body unchanged; #281 and #310 own the client preview/filter and relay allowlist.
 /// </remarks>
 public sealed class ProblemReports(TimeProvider timeProvider)
 {
@@ -73,8 +73,9 @@ public sealed class ProblemReports(TimeProvider timeProvider)
     /// to an hour and no secret at all.
     ///
     /// The reference is derived from the room and the moment rather than being random, so a
-    /// player and an issue can be matched up without the relay keeping a list of who reported
-    /// what. It is a hash: the room is not recoverable from it.
+    /// player and an issue can be matched up without a separate index of who reported what.
+    /// It is not an anonymity control: the file name keeps the arrival second, the relay holds
+    /// the candidate room hashes, and the body itself can name the reporter.
     /// </remarks>
     public ReportOutcome Accept(string room, string body)
     {

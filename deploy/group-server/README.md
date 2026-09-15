@@ -1,8 +1,9 @@
 # Deploying the group relay
 
-The relay runs as a systemd service on a small container behind a Cloudflare tunnel. It holds
-nothing on disk, so there is no data to migrate and no backup to take: members re-publish every
-few seconds and a restart costs everybody one blink.
+The relay runs as a systemd service on a small container behind a Cloudflare tunnel. Live member
+positions are memory-only and members re-publish every few seconds. Its state directory does
+persist waypoints, the room registry, problem reports, and updater status, so an operator must
+include that directory in migration, retention, and backup decisions.
 
 ## First install
 
@@ -30,8 +31,9 @@ bug live. `tarkov-group.service` is still yours — it is hand-maintained, carri
 drop-in, and is the one unit this repository does not know the contents of.
 
 The service itself wants a unit that runs `/opt/tarkov-group/TarkovCompanion.GroupServer` with
-`ASPNETCORE_URLS=http://0.0.0.0:8090`. It takes no configuration: since the group key became
-the room, the server holds no secrets and there is nothing to set.
+`ASPNETCORE_URLS=http://0.0.0.0:8090`. Open mode needs no per-room configuration: each request
+supplies the reusable group key, which the relay receives before hashing it into a room id. The
+operator/admin credential and optional registered-room state remain separate configuration.
 
 ## Updating
 
@@ -71,9 +73,9 @@ journalctl -u tarkov-group-update.service -n 50
 wget -qO- https://tarkov.mannerow.net/health
 ```
 
-## Keeping the squad's marks across an update
+## Keeping state across an update
 
-The relay holds waypoints in memory unless it is told where to put them, and the updater
+The relay holds its state in memory unless it is told where to put it, and the updater
 replaces `/opt/tarkov-group` wholesale — so anything written inside the tree would be
 destroyed by the update it is meant to survive.
 
@@ -85,13 +87,18 @@ StateDirectory=tarkov-group
 ```
 
 systemd then creates `/var/lib/tarkov-group`, owns it correctly whether or not the unit uses
-`DynamicUser=`, and passes the path in `STATE_DIRECTORY`. The server writes one `marks.json`
-there. For a deployment that is not systemd, set `TARKOV_GROUP_STATE` to a writable directory
-instead.
+`DynamicUser=`, and passes the path in `STATE_DIRECTORY`. For a deployment that is not systemd,
+set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
 
-**Waypoints only.** Pings expire in forty-five seconds and mean "now", so one restored from
-disk would be a lie. Positions are never written at all — that is the promise the rest of the
-server makes, and it is why this file can exist.
+- `marks.json`: waypoints, including who placed and who reached each one
+- `rooms.json`: registered room hashes and their labels
+- `reports/*.md`: problem reports exactly as sent, kept until an operator deletes them
+- `UPDATE_NOW`, beside the updater's own `INSTALLED_SHA256` and `REFUSED_SHA256`
 
-Until `StateDirectory=` is set on the running unit, the server behaves exactly as it did
-before: marks live in memory and a restart clears them.
+Pings are not written: they expire in forty-five seconds and mean "now", so one restored from
+disk would be a lie. Live member positions and trails are not written either. A report body can
+still contain folder paths and screenshot coordinates, so back up and delete `reports/` as
+sensitive data.
+
+Until `StateDirectory=` is set on the running unit, marks and the room registry live in memory
+and a restart clears them, reports are not kept, and the panel cannot ask for an update.
