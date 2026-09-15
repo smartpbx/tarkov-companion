@@ -70,7 +70,9 @@ archives as inputs. It does not describe the publishing run, which built nothing
 **Consumers enforce, not just publishers.** The relay updater:
 - verifies everything before touching the host;
 - refuses older or conflicting generations and unauthorized downgrades;
-- changes its stamps only after the new relay proves the signed identity;
+- commits authenticated and installed identities as complete atomically renamed records, with
+  scalar status mirrors that a killed run can safely repair;
+- changes its installed record only after the new relay proves the signed identity;
 - undoes any failure from a swap journal.
 
 Everything it decides from is in a root-owned `0700` directory. The unprivileged relay can write

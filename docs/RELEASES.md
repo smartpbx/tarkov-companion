@@ -299,7 +299,7 @@ it could swap between a signature check and the extraction that follows.
 
 | Directory | Owner | What is in it |
 | --- | --- | --- |
-| `/var/lib/tarkov-group-update` | root, `0700` | the lock, `work.*` directories, the swap journal, and every `INSTALLED_*`, `PUBLISHED_*` and `REFUSED_*` stamp |
+| `/var/lib/tarkov-group-update` | root, `0700` | the lock, `work.*` directories, the swap journal, authoritative `INSTALLED_RELEASE.json` and `PUBLISHED_RELEASE.json` records, and their human-readable `INSTALLED_*`, `PUBLISHED_*` and `REFUSED_*` mirrors |
 | `/var/lib/tarkov-group-update-status` | root, `0755` | copies of `INSTALLED_SHA256`, `INSTALLED_VERSION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION` and `REFUSED_SHA256` for the panel, which reads them and cannot write them |
 | `/var/lib/tarkov-group` | the relay | `UPDATE_NOW`, which the updater unlinks and otherwise ignores |
 
@@ -333,7 +333,9 @@ rules and makes no filesystem changes.
      says which it is.
 5. Downloads the manifest from `v2-build-VERSION` and verifies its signature, that its digest is
    the one the decision names, and that its version, commit and relay protocol agree with it.
-6. Records `PUBLISHED_*`, so what the panel shows as published is only ever something verified.
+6. Atomically renames a complete `PUBLISHED_RELEASE.json` authenticated-history record into place,
+   then refreshes its `PUBLISHED_*` mirrors. A kill between mirror renames cannot create a mixed
+   replay floor because only the complete record is authoritative.
 7. Decides:
    - already running it and healthy: record and stop;
    - no install recorded and nothing to anchor the choice (below): refuse;
@@ -348,22 +350,23 @@ rules and makes no filesystem changes.
 ### Installing
 
 - copies the running tree to an unpublished LKG incoming directory;
-- assembles a **swap journal** holding the current units, updater, `INSTALLED_*` stamps and whether
-  an LKG existed, and renames it into place, so a journal that exists is complete;
+- assembles a **swap journal** holding the current units, updater, authoritative installed record,
+  `INSTALLED_*` mirrors and whether an LKG existed, and renames it into place, so a journal that
+  exists is complete;
 - preserves the prior LKG by rename, then publishes the incoming LKG by rename;
 - stops the service, renames the tree aside, renames the new one in, starts the service;
 - requires `/health` to report the signed version, commit and protocol;
 - installs any changed units and the updater itself from the new build;
-- writes `INSTALLED_SHA256`, `_VERSION`, `_COMMIT`, `_RING` and `_GENERATION`, and clears
-  `REFUSED_SHA256` and `REFUSED_RELEASE.json`;
+- atomically publishes `INSTALLED_RELEASE.json`, refreshes `INSTALLED_SHA256`, `_VERSION`,
+  `_COMMIT`, `_RING` and `_GENERATION`, and clears `REFUSED_SHA256` and `REFUSED_RELEASE.json`;
 - renames the journal to `swap.committed`. That rename is the commit point.
 
 Any failure while the journal exists is undone from it: a stop, a rename, the health check, a unit
-install, a stamp rename, the commit rename, or `SIGTERM` from the unit's 20-minute timeout. The
-updater restores the previous tree, LKG, units, updater and stamps, records the refusal with its
+install, a state-record or mirror rename, the commit rename, or `SIGTERM` from the unit's 20-minute timeout. The
+updater restores the previous tree, LKG, units, updater and installed state, records the refusal with its
 ring and generation, and starts the previous relay. A run killed outright at any journal, LKG or
 install rename is undone by the next run from the same journal; orphaned incoming trees are
-removed only while holding the updater lock. A `swap.committed` left behind is simply deleted. So the stamps never name
+removed only while holding the updater lock. A `swap.committed` left behind is simply deleted. So the authoritative state never names
 a build that did not prove itself, and the tick after a refusal reports the refusal rather than
 "already on" (`RISK-RELAY-UPDATE-STATE`).
 
@@ -376,7 +379,7 @@ directory before it is verified, and every check above still applies.
 
 ### A host with no history
 
-A host's own stamps are what refuse a replayed older decision. A host without them believes the
+A host's own authenticated and installed records are what refuse a replayed older decision. A host without them believes the
 newest signed decision the feed shows it, and anyone who can delete newer decisions from the feed
 chooses which one that is. The feed token is transport, not authority, and the feed repository's
 writers are not the publisher. So a host without history needs an anchor from somewhere else:
@@ -481,9 +484,12 @@ changes between the check and the use changes nothing that was checked. `verify-
 --output` keeps its verified copy for whatever installs from it.
 
 The PowerShell path runs cosign and the installer with bounded waits and redirected-output
-drainage. Cancellation or timeout kills the process tree and waits independently before deleting
-the private copy. If it cannot prove that exit and drainage completed, it leaves that directory as
-a private quarantine and prints its path instead of racing cleanup against a live child.
+drainage. Cancellation or timeout requests termination of the process tree and waits independently
+for the root and its redirected pipes. The platform APIs do not return waitable handles for every
+descendant, so a timed-out operation is not treated as proof of tree exit even when the root races
+to a natural exit: the private directory is left as a quarantine and its path is printed instead
+of racing cleanup against a detached child. The desktop verifier applies the same fail-closed rule
+to cancellation.
 
 Both require, before anything is used:
 - a pinned cosign;
@@ -547,9 +553,9 @@ longer falls back from an unparsable certificate to a key.
 | Build publication | published build, no decision | adopted by a re-run if it is immutable and the same build |
 | Decision write | conflict or error | the previous decision, whole; a conflict is retried |
 | Pending operator dispatch | cancelled in the Actions UI | nothing changed; dispatch again |
-| Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | its private staging directory is removed after verifier exit and pipe drainage are confirmed; if bounded verifier cleanup cannot prove quiescence, that directory is quarantined for operator cleanup; installed/LKG state is unchanged until the caller atomically activates all components and commits |
+| Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | its private staging directory is removed after an ordinary verifier exit and pipe drainage are confirmed; forced process-tree termination cannot prove descendant exit and therefore quarantines that directory for operator cleanup; installed/LKG state is unchanged until the caller atomically activates all components and commits |
 | Relay updater | any step | pre-journal: only unpublished incoming copies; after the journal exists: previous build, LKG, units, updater and stamps restored |
-| Offline scripts | any check, cancellation or child timeout | nothing installed; the private copy is removed only after child exit/output drainage, otherwise retained as a private quarantine |
+| Offline scripts | any check, cancellation or child timeout | nothing installed; ordinary child exit/output drainage permits removal, while forced termination or any other unproved descendant state retains the private copy as a quarantine |
 
 Re-running a failed publish is always safe: every write is either create-once or checked against
 what already exists.
@@ -604,7 +610,7 @@ publish run URL, the approving reviewer shown on that run, and the signed ring g
 | Workflow policy, including YAML forms the line matcher missed; all-workflow coverage; pins resolved against GitHub in CI | `test_workflow_policy.py`, `check_workflow_policy.py --enforce-all --verify-tags` |
 | Cosign pins equal everywhere; unpinned cosign refused by every script | `test_cosign_pins.py` |
 | Relay updater: root-owned state and a hostile relay directory; kill points around journal/LKG publication, every post-swap failure, SIGTERM and interrupted commit; hostile bundles; pinned cosign; replay, floors, bootstrap, freshness, downgrade, pause, rollback, locale; refusal truthfulness; token scope | `test_relay_updater.py` |
-| Offline verification and the PowerShell installer: every manifest artifact under ring and break-glass, private copies, ring decisions, hostile bundles, unreadable installed versions, and verifier/installer timeout quiescence | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op, wrong-identity, non-installer tamper and child-timeout cases, and refuses inconsistent rollback authority |
+| Offline verification and the PowerShell installer: every manifest artifact under ring and break-glass, private copies, ring decisions, hostile bundles, unreadable installed versions, and fail-closed timeout quarantine | `test_offline.py`; `test-offline-windows.ps1` runs the real installer on Windows with successful, no-op, wrong-identity, non-installer tamper, child-timeout and detached-child cases, and refuses inconsistent rollback authority |
 | Desktop private-feed transport, filesystem staging and one binary/data/model verification transaction; live private-visibility checks, cancellation/process cleanup, real Sigstore verification, feed-and-ring-scoped replay including equal-generation authentication, downgrade, rollback and component-delta selection | `AuthenticatedGitHubReleaseFeedTests.cs`, `CosignReleaseSignatureVerifierTests.cs`, `ReleaseStagingStoreTests.cs`, `SignedReleaseFeedConsumerTests.cs`, and `test-real-sigstore.sh` |
 | Control capture | `test_capture_controls.py` |
 | The verification command against real Sigstore material, and a real GHSA-fx35-mq7g-6g98-shaped legacy bundle | `scripts/release/test-real-sigstore.sh` |

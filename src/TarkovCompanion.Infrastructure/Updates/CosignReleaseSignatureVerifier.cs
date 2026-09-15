@@ -162,12 +162,11 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
-            if (!await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false))
-            {
-                throw new CosignCleanupCanceledException(exception);
-            }
-
-            throw;
+            _ = await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false);
+            // Cancellation means verification never reached its normal completed boundary. Even
+            // if the root races to a natural exit before cleanup observes it, detached descendants
+            // are not waitable through Process, so retain the release staging directory.
+            throw new CosignCleanupCanceledException(exception);
         }
         catch (Exception exception)
         {
@@ -194,10 +193,12 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
         // Cleanup deliberately has its own deadline. Reusing the caller's cancelled token would
         // abandon cosign and its redirected streams at exactly the point cleanup is required.
         using var cleanup = new CancellationTokenSource(_processCleanupTimeout);
+        var forcedTreeTermination = false;
         try
         {
             if (!process.HasExited)
             {
+                forcedTreeTermination = true;
                 process.Kill(entireProcessTree: true);
             }
         }
@@ -266,7 +267,11 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
             }
         }
 
-        return exited && drained;
+        // Process.Kill(true) requests termination recursively, but the Process handle and
+        // WaitForExitAsync represent only the root. Pipe EOF does not prove that a detached child
+        // which closed its inherited handles is gone. Preserve staging after every forced kill;
+        // the cancellation caller also quarantines an exit that raced its cancelled wait.
+        return exited && drained && !forcedTreeTermination;
     }
 
     private static void ObserveEventually(Task task)
@@ -527,7 +532,7 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
         return oneLine.Length <= 512 ? oneLine : oneLine[..512] + "…";
     }
 
-    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9a-f]{64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex LowerHex64();
 }
 

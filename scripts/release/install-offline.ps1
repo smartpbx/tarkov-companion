@@ -71,7 +71,7 @@ $SignerRef = "refs/heads/main"
 $BundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json"
 # SemVer 2.0 exactly as the publisher's release_policy.py accepts it.
 $Identifier = '(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
-$VersionPattern = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$Identifier(\.$Identifier)*)?$"
+$VersionPattern = "^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$Identifier(\.$Identifier)*)?\z"
 $MaximumVersionLength = 128
 $MaximumVersionNumber = 2147483647
 $MaximumJsonBytes = 16MB
@@ -126,14 +126,14 @@ function Test-BoundedInteger($Value, [long] $Minimum, [long] $Maximum) {
 }
 
 function Test-DecimalIdentifier($Value) {
-    return $Value -is [string] -and $Value -cmatch '^[1-9][0-9]{0,19}$'
+    return $Value -is [string] -and $Value -cmatch '^[1-9][0-9]{0,19}\z'
 }
 
 function Test-ReleaseIdentity($Value) {
     if (-not (Test-ExactProperties $Value @("version", "commit", "buildTag", "manifestName", "manifestSha256")) -or
         (Get-Property $Value "version") -isnot [string] -or
-        (Get-Property $Value "commit") -isnot [string] -or [string](Get-Property $Value "commit") -cnotmatch '^[0-9a-f]{40}$' -or
-        (Get-Property $Value "manifestSha256") -isnot [string] -or [string](Get-Property $Value "manifestSha256") -cnotmatch '^[0-9a-f]{64}$' -or
+        (Get-Property $Value "commit") -isnot [string] -or [string](Get-Property $Value "commit") -cnotmatch '^[0-9a-f]{40}\z' -or
+        (Get-Property $Value "manifestSha256") -isnot [string] -or [string](Get-Property $Value "manifestSha256") -cnotmatch '^[0-9a-f]{64}\z' -or
         (Get-Property $Value "manifestName") -cne "release-manifest.json" -or
         (Get-Property $Value "buildTag") -cne ("v2-build-" + [string](Get-Property $Value "version"))) {
         return $false
@@ -197,7 +197,7 @@ function Assert-ReleaseVersion([string] $Value) {
         }
     }
     $Prerelease = $Match.Groups[4].Value.TrimStart("-")
-    foreach ($Part in @($Prerelease.Split(".") | Where-Object { $_ -cmatch '^[0-9]+$' })) {
+    foreach ($Part in @($Prerelease.Split(".") | Where-Object { $_ -cmatch '^[0-9]+\z' })) {
         if ($Part.Length -gt 10 -or [long]$Part -gt $MaximumVersionNumber) {
             throw "Release version '$Value' has a numeric identifier outside the supported range."
         }
@@ -290,7 +290,7 @@ function Copy-BoundedFile([string] $Source, [string] $Target, [long] $MaximumByt
 
 # Copies one named file off the media into the private directory, refusing anything but a plain file.
 function Copy-FromMedia([string] $Name, [string] $Label, [long] $MaximumBytes) {
-    if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$' -or $Name.Contains("..")) {
+    if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*\z' -or $Name.Contains("..")) {
         throw "The offline bundle names an unsafe file: $Name."
     }
     $Source = Join-Path $Root $Name
@@ -335,26 +335,22 @@ function Complete-ChildProcess($Process, [bool] $Terminate) {
         $Process.Refresh()
         if ($Terminate -and -not $Process.HasExited) {
             try {
-                # pwsh runs on modern .NET, whose tree-aware kill is the cancellation boundary.
+                # This requests termination of the tree, but .NET exposes no descendant handles
+                # to wait here. WaitForExit/HasExited below describe only the root process, so a
+                # successful request is not proof that every descendant has stopped using staging.
                 $Process.Kill($true)
-                $TreeTerminationProven = $true
             }
             catch {
                 # Windows PowerShell 5.1 runs on a framework that has no Kill(entireProcessTree).
-                # taskkill /T is its tree-aware equivalent; only a successful command lets this
-                # path remove staging. A failed taskkill falls through to killing the immediate
-                # process, but keeps staging quarantined because a descendant could still have a
-                # verifier, installer, or redirected-output file open.
+                # taskkill /T is its tree-aware request. Neither API returns waitable handles for
+                # every descendant, so either path remains quarantined after forced termination.
                 if (Test-Windows) {
                     try {
                         & taskkill.exe /PID "$($Process.Id)" /T /F *> $null
-                        $TreeTerminationProven = $LASTEXITCODE -eq 0
                     }
-                    catch { $TreeTerminationProven = $false }
+                    catch { }
                 }
-                if (-not $TreeTerminationProven) {
-                    try { $Process.Kill() } catch { }
-                }
+                try { $Process.Kill() } catch { }
             }
         }
         if (-not $Process.HasExited -and
@@ -364,6 +360,10 @@ function Complete-ChildProcess($Process, [bool] $Terminate) {
         # The parameterless wait is intentional after the timed wait: it drains the async
         # redirection workers before their files can be read or staging can be removed.
         $Process.WaitForExit()
+        # A timed-out operation is deliberately not upgraded to "proven" just because the parent
+        # raced to a natural exit, or because a tree-kill request returned and its inherited pipes
+        # reached EOF. A detached descendant can close those pipes and continue reading the
+        # verified installer. The outer finally retains staging instead.
         return $Process.HasExited -and $TreeTerminationProven
     }
     catch {
@@ -475,7 +475,7 @@ function Assert-StandardBundle([string] $Path) {
         (Test-OnlyProperties $Signature @("messageDigest", "signature")) -and
         ([string](Get-Property $Signature "signature")).Length -gt 0 -and
         ((Get-Property $Digest "algorithm") -ceq "SHA2_256") -and
-        ([string](Get-Property $Digest "digest") -cmatch '^[A-Za-z0-9+/]{43}=$')
+        ([string](Get-Property $Digest "digest") -cmatch '^[A-Za-z0-9+/]{43}=\z')
     if (-not $Standard) { throw $Refusal }
     $Hex = Get-Sha256 $Path
     $Bytes = [byte[]]::new(32)
@@ -529,8 +529,8 @@ function Compare-ReleaseVersion([string] $Left, [string] $Right) {
         $a = $LeftParts[$Index]
         $b = $RightParts[$Index]
         if ($a -ceq $b) { continue }
-        $aNumber = $a -cmatch '^[0-9]+$'
-        $bNumber = $b -cmatch '^[0-9]+$'
+        $aNumber = $a -cmatch '^[0-9]+\z'
+        $bNumber = $b -cmatch '^[0-9]+\z'
         if ($aNumber -and $bNumber) { return [math]::Sign([decimal]$a - [decimal]$b) }
         if ($aNumber) { return -1 }
         if ($bNumber) { return 1 }
@@ -545,7 +545,7 @@ if (-not $InstallRoot) {
 if (-not $BreakGlass -and (-not $Ring -or -not $FeedRepository)) {
     throw "Pass -Ring and -FeedRepository so the ring decision on the media can be checked, or -BreakGlass to install without one."
 }
-if ($FeedRepository -and $FeedRepository -cnotmatch '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$') {
+if ($FeedRepository -and $FeedRepository -cnotmatch '^[A-Za-z0-9-]+/[A-Za-z0-9._-]+\z') {
     throw "-FeedRepository must be owner/name."
 }
 if ($FeedRepository -and $FeedRepository -ieq $SignerRepository) {
@@ -571,7 +571,7 @@ try {
     $null = Copy-BoundedFile $CosignSource $StagedCosign $MaximumArtifactBytes "cosign verifier"
     $CosignDigest = Get-Sha256 $StagedCosign
     if ($CosignSha256) {
-        if ($CosignSha256 -cnotmatch '^[0-9a-f]{64}$') { throw "-CosignSha256 is not a sha256." }
+        if ($CosignSha256 -cnotmatch '^[0-9a-f]{64}\z') { throw "-CosignSha256 is not a sha256." }
         if ($CosignDigest -cne $CosignSha256) { throw "$CosignSource is not the cosign -CosignSha256 names." }
     } elseif ($CosignPins -cnotcontains $CosignDigest) {
         throw "$CosignSource (sha256 $CosignDigest) is not a pinned cosign."
@@ -593,7 +593,7 @@ try {
     $ManifestDigest = Get-Sha256 $ManifestPath
 
     $Manifest = Read-BoundedJson $ManifestPath $MaximumJsonBytes "Release manifest"
-    if ($Manifest.schemaVersion -ne 1 -or [string]$Manifest.version -cnotmatch $VersionPattern -or [string]$Manifest.commit -cnotmatch '^[0-9a-f]{40}$') {
+    if ($Manifest.schemaVersion -ne 1 -or [string]$Manifest.version -cnotmatch $VersionPattern -or [string]$Manifest.commit -cnotmatch '^[0-9a-f]{40}\z') {
         throw "The signed manifest does not describe a supported release."
     }
     Assert-ReleaseVersion ([string]$Manifest.version)
@@ -607,18 +607,18 @@ try {
         if (-not (Test-ExactProperties $Artifact @("name", "component", "role", "sha256", "size")) -or
             (Get-Property $Artifact "name") -isnot [string] -or
             (Get-Property $Artifact "component") -isnot [string] -or
-            [string](Get-Property $Artifact "component") -cnotmatch '^[a-z][a-z0-9-]{0,63}$' -or
+            [string](Get-Property $Artifact "component") -cnotmatch '^[a-z][a-z0-9-]{0,63}\z' -or
             (Get-Property $Artifact "role") -isnot [string] -or
-            [string](Get-Property $Artifact "role") -cnotmatch '^[a-z][a-z0-9-]{0,63}$' -or
+            [string](Get-Property $Artifact "role") -cnotmatch '^[a-z][a-z0-9-]{0,63}\z' -or
             (Get-Property $Artifact "sha256") -isnot [string] -or
-            [string](Get-Property $Artifact "sha256") -cnotmatch '^[0-9a-f]{64}$' -or
+            [string](Get-Property $Artifact "sha256") -cnotmatch '^[0-9a-f]{64}\z' -or
             -not (Test-BoundedInteger (Get-Property $Artifact "size") 1 $MaximumArtifactBytes)) {
             throw "The signed manifest artifact table is malformed."
         }
 
         $ArtifactName = [string](Get-Property $Artifact "name")
         if ($ArtifactName.Length -gt 200 -or
-            $ArtifactName -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$' -or
+            $ArtifactName -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*\z' -or
             $ArtifactName.Contains("..") -or
             -not $ArtifactNames.Add($ArtifactName)) {
             throw "The signed manifest names an unsafe or repeated artifact: $ArtifactName."
@@ -671,7 +671,7 @@ try {
                 throw "The offline bundle exceeds its directory-entry limit."
             }
             $Item = Get-Item -LiteralPath $Candidate -Force
-            if (-not $Item.PSIsContainer -and $Item.Name -cmatch '^release-index-g[0-9]{10}\.json$' -and
+            if (-not $Item.PSIsContainer -and $Item.Name -cmatch '^release-index-g[0-9]{10}\.json\z' -and
                 -not ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
                 if ($Decisions.Count -ge $MaximumDecisionFiles) {
                     throw "The offline bundle contains too many ring decision files."

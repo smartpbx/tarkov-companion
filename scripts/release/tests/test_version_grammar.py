@@ -9,6 +9,7 @@ disagreed about which build was newer. The same vectors go through all three her
 
 from __future__ import annotations
 
+import base64
 import functools
 import json
 import os
@@ -88,26 +89,34 @@ class VersionGrammarTests(unittest.TestCase):
                                                      "$MaximumVersionNumber =")))
         functions = "\n".join(re.search(rf"^function {name}.*?^\}}\n", source, re.S | re.M).group(0)
                               for name in ("Assert-ReleaseVersion", "Compare-ReleaseVersion"))
-        vectors = "@(" + ",".join(f"'{version}'" for version in VALID + INVALID) + ")"
-        order = "@(" + ",".join(f"'{version}'" for version in ORDER) + ")"
+        encoded_vectors = base64.b64encode(json.dumps(VECTORS).encode("utf-8")).decode("ascii")
         script = f"""
 {declarations}
 {functions}
-foreach ($Version in {vectors}) {{
-  try {{ Assert-ReleaseVersion $Version; "$Version|True" }} catch {{ "$Version|False" }}
+$FixtureJson = [System.Text.Encoding]::UTF8.GetString(
+  [System.Convert]::FromBase64String($env:TARKOV_VERSION_VECTORS))
+$Fixture = ConvertFrom-Json $FixtureJson
+foreach ($Version in @($Fixture.valid) + @($Fixture.invalid)) {{
+  try {{ Assert-ReleaseVersion $Version; $Accepted = $true }} catch {{ $Accepted = $false }}
+  $Encoded = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Version))
+  "$Encoded|$Accepted"
 }}
-$Order = {order}
+$Order = @($Fixture.precedence)
 for ($i = 0; $i -lt $Order.Count; $i++) {{
   for ($j = $i + 1; $j -lt $Order.Count; $j++) {{
     "order|$($Order[$i])|$($Order[$j])|$(Compare-ReleaseVersion $Order[$i] $Order[$j])|$(Compare-ReleaseVersion $Order[$j] $Order[$i])"
   }}
 }}
-"""
+        """
         result = subprocess.run([pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
-                                capture_output=True, text=True, check=False, timeout=120)
+                                capture_output=True, text=True, check=False, timeout=120,
+                                env={**os.environ, "TARKOV_VERSION_VECTORS": encoded_vectors})
         self.assertEqual(0, result.returncode, result.stderr)
         lines = result.stdout.splitlines()
-        matches = dict(line.rsplit("|", 1) for line in lines if not line.startswith("order|"))
+        matches = {
+            base64.b64decode(encoded).decode("utf-8"): accepted
+            for encoded, accepted in (line.rsplit("|", 1) for line in lines if not line.startswith("order|"))
+        }
         for version in VALID + INVALID:
             with self.subTest(version=version):
                 self.assertEqual(str(version in VALID), matches[version])

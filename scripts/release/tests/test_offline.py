@@ -40,6 +40,28 @@ case "${FAKE_INSTALL_MODE:-install}" in
   noop) exit 0 ;;
   wrong) version=0.0.1; commit=dddddddddddddddddddddddddddddddddddddddd ;;
   hang) sleep 30; exit 99 ;;
+  orphan)
+    python3 - "$0" "${FAKE_INSTALL_ROOT}/orphan-pid" <<'PY'
+import os
+import pathlib
+import sys
+import time
+
+if os.fork():
+    raise SystemExit(0)
+os.setsid()
+null = os.open(os.devnull, os.O_RDWR)
+for descriptor in (0, 1, 2):
+    os.dup2(null, descriptor)
+held_installer = open(sys.argv[1], "rb")
+pathlib.Path(sys.argv[2]).write_text(str(os.getpid()), encoding="ascii")
+time.sleep(30)
+held_installer.close()
+PY
+    while [[ ! -s "${FAKE_INSTALL_ROOT}/orphan-pid" ]]; do sleep 0.01; done
+    sleep 30
+    exit 99
+    ;;
   install) version="${FAKE_INSTALL_VERSION}"; commit="${FAKE_INSTALL_COMMIT}" ;;
   *) exit 9 ;;
 esac
@@ -451,7 +473,7 @@ class InstallOfflineTests(OfflineFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("is not the cosign -CosignSha256 names", plain(result))
 
-    def test_verifier_timeout_kills_and_drains_before_staging_cleanup(self) -> None:
+    def test_verifier_timeout_quarantines_staging_without_descendant_exit_proof(self) -> None:
         executable_log = self.root / "timed-out-cosign.log"
 
         result = self.install(
@@ -462,17 +484,44 @@ class InstallOfflineTests(OfflineFixture):
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("did not exit within 1 seconds", plain(result))
+        self.assertIn("quarantined", plain(result))
         staged = [Path(line) for line in executable_log.read_text(encoding="utf-8").splitlines()]
         self.assertTrue(staged)
-        self.assertTrue(all(not path.exists() for path in staged), "timed-out verifier survived staging cleanup")
+        self.assertTrue(all(path.exists() for path in staged), "unproved verifier staging was not quarantined")
+        for directory in {path.parent for path in staged}:
+            shutil.rmtree(directory)
 
-    def test_installer_timeout_kills_and_drains_before_staging_cleanup(self) -> None:
+    def test_installer_timeout_quarantines_staging_without_descendant_exit_proof(self) -> None:
         result = self.install("-InstallerTimeoutSeconds", "1", FAKE_INSTALL_MODE="hang")
 
         self.assertNotEqual(0, result.returncode)
         self.assertIn("did not exit within 1 seconds", plain(result))
+        self.assertIn("quarantined", plain(result))
         staged_installer = Path((self.install_root / "ran-from").read_text(encoding="utf-8").strip())
-        self.assertFalse(staged_installer.exists(), "timed-out installer survived staging cleanup")
+        self.assertTrue(staged_installer.exists(), "unproved installer staging was not quarantined")
+        shutil.rmtree(staged_installer.parent)
+
+    def test_an_orphaned_installer_child_keeps_its_private_staging_quarantined(self) -> None:
+        orphan_pid_path = self.install_root / "orphan-pid"
+        orphan_pid: int | None = None
+        staged_installer: Path | None = None
+        try:
+            result = self.install("-InstallerTimeoutSeconds", "1", FAKE_INSTALL_MODE="orphan")
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("quarantined", plain(result))
+            orphan_pid = int(orphan_pid_path.read_text(encoding="ascii"))
+            os.kill(orphan_pid, 0)
+            staged_installer = Path((self.install_root / "ran-from").read_text(encoding="utf-8").strip())
+            self.assertTrue(staged_installer.exists(), "staging was deleted under a live detached child")
+        finally:
+            if orphan_pid is not None:
+                try:
+                    os.kill(orphan_pid, 9)
+                except ProcessLookupError:
+                    pass
+            if staged_installer is not None:
+                shutil.rmtree(staged_installer.parent, ignore_errors=True)
 
     def test_the_installer_refuses_a_downgrade_without_a_signed_rollback_or_permission(self) -> None:
         self.installed("1.0.700")

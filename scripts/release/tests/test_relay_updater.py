@@ -37,6 +37,8 @@ FEED = "example/tarkov-feed"
 OLD_COMMIT = "a" * 40
 OLD_SHA = "0" * 64
 STAMPS = ("INSTALLED_SHA256", "INSTALLED_VERSION", "INSTALLED_COMMIT", "INSTALLED_RING", "INSTALLED_GENERATION")
+INSTALLED_RECORD = "INSTALLED_RELEASE.json"
+PUBLISHED_RECORD = "PUBLISHED_RELEASE.json"
 STATUS_STAMPS = ("INSTALLED_SHA256", "INSTALLED_VERSION", "PUBLISHED_SHA256", "PUBLISHED_VERSION", "REFUSED_SHA256")
 SIGNED_AT = "2026-09-15T00:00:00Z"
 
@@ -206,7 +208,7 @@ class UpdaterFixture(unittest.TestCase):
             (self.state / name).write_text(value + "\n", encoding="utf-8")
 
     def clear_stamps(self) -> None:
-        for name in STAMPS:
+        for name in (*STAMPS, INSTALLED_RECORD):
             (self.state / name).unlink(missing_ok=True)
 
     def stamps(self) -> dict[str, str | None]:
@@ -241,31 +243,35 @@ class UpdaterFixture(unittest.TestCase):
         keep_bundle: bool = False,
         manifest_digest: str | None = None,
         signed_at: str = SIGNED_AT,
+        archive_bytes: bytes | None = None,
     ) -> str:
         """Writes a signed-looking release to the offline bundle and the fake online feed."""
         if not keep_bundle:
             shutil.rmtree(self.bundle)
             self.bundle.mkdir()
-        archive_bytes = io.BytesIO()
-        with tarfile.open(fileobj=archive_bytes, mode="w:gz") as archive:
-            def add(name: str, value: bytes, mode: int = 0o644) -> None:
-                info = tarfile.TarInfo(name)
-                info.size = len(value)
-                info.mode = mode
-                archive.addfile(info, io.BytesIO(value))
+        if archive_bytes is None:
+            archive_buffer = io.BytesIO()
+            with tarfile.open(fileobj=archive_buffer, mode="w:gz") as archive:
+                def add(name: str, value: bytes, mode: int = 0o644) -> None:
+                    info = tarfile.TarInfo(name)
+                    info.size = len(value)
+                    info.mode = mode
+                    archive.addfile(info, io.BytesIO(value))
 
-            add("./TarkovCompanion.GroupServer", f"relay {version}\n".encode(), 0o755)
-            add("./health.json", json.dumps({
-                "status": "ok", "version": version, "commit": health_commit or commit, "protocol": 1,
-            }).encode())
-            for name, value in (shipped or {}).items():
-                add(f"./deploy/{name}", value, 0o755 if name.endswith(".sh") else 0o644)
-            if symlink:
-                link = tarfile.TarInfo("./escape")
-                link.type = tarfile.SYMTYPE
-                link.linkname = "/etc/passwd"
-                archive.addfile(link)
-        archive_value = archive_bytes.getvalue()
+                add("./TarkovCompanion.GroupServer", f"relay {version}\n".encode(), 0o755)
+                add("./health.json", json.dumps({
+                    "status": "ok", "version": version, "commit": health_commit or commit, "protocol": 1,
+                }).encode())
+                for name, value in (shipped or {}).items():
+                    add(f"./deploy/{name}", value, 0o755 if name.endswith(".sh") else 0o644)
+                if symlink:
+                    link = tarfile.TarInfo("./escape")
+                    link.type = tarfile.SYMTYPE
+                    link.linkname = "/etc/passwd"
+                    archive.addfile(link)
+            archive_value = archive_buffer.getvalue()
+        else:
+            archive_value = archive_bytes
         archive_name = "TarkovCompanion-GroupServer-linux-x64.tar.gz"
         manifest = {
             "schemaVersion": 1,
@@ -823,8 +829,9 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assert_relay_directory_untouched({".swap", "swap"})
 
     def test_links_planted_in_the_relay_directory_change_nothing_outside_it(self) -> None:
-        names = ("UPDATE.lock", "update.lock", "INSTALLED_SHA256", "INSTALLED_VERSION", "PUBLISHED_SHA256",
-                 "REFUSED_SHA256", "REFUSED_RELEASE.json", "PUBLISHED_GENERATION", ".update.link", "work.link")
+        names = ("UPDATE.lock", "update.lock", "INSTALLED_RELEASE.json", "PUBLISHED_RELEASE.json",
+                 "INSTALLED_SHA256", "INSTALLED_VERSION", "PUBLISHED_SHA256", "REFUSED_SHA256",
+                 "REFUSED_RELEASE.json", "PUBLISHED_GENERATION", ".update.link", "work.link")
         for name in names:
             (self.relay_state / name).symlink_to(self.victim)
         self.release("3.0.0", "c" * 40, 1, health_commit="e" * 40)
@@ -1202,6 +1209,64 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("already installed", result.stdout)
         self.assertEqual("5", (self.state / "PUBLISHED_GENERATION").read_text().strip())
+
+    def test_power_loss_at_each_authenticated_state_rename_is_recoverable(self) -> None:
+        boundaries = (
+            PUBLISHED_RECORD,
+            "PUBLISHED_RING",
+            "PUBLISHED_GENERATION",
+            "PUBLISHED_MANIFEST_SHA256",
+            "PUBLISHED_VERSION",
+            "PUBLISHED_SHA256",
+        )
+        for generation, boundary in enumerate(boundaries, start=1):
+            with self.subTest(boundary=boundary):
+                version = f"2.0.{generation}"
+                self.release(version, format(generation, "x") * 40, generation, action="pause", paused=True)
+
+                killed = self.run_updater(FAKE_MV_KILL_AFTER=str(self.state / boundary))
+
+                self.assertEqual(-9, killed.returncode, killed.stdout + killed.stderr)
+                recovered = self.run_updater()
+                self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+                self.assertIn("is paused", recovered.stdout)
+                authenticated = json.loads((self.state / PUBLISHED_RECORD).read_text(encoding="utf-8"))
+                self.assertEqual(("stable", generation, version),
+                                 (authenticated["ring"], authenticated["generation"], authenticated["version"]))
+                self.assertEqual(str(generation), (self.state / "PUBLISHED_GENERATION").read_text().strip())
+
+    def test_same_bytes_ring_switch_recovers_at_each_installed_state_rename(self) -> None:
+        expected = self.release("2.0.0", "b" * 40, 1)
+        archive_name = "TarkovCompanion-GroupServer-linux-x64.tar.gz"
+        archive_bytes = (self.bundle / archive_name).read_bytes()
+        self.assertEqual(0, self.run_updater().returncode)
+        boundaries = (INSTALLED_RECORD, *STAMPS)
+
+        for offset, boundary in enumerate(boundaries, start=2):
+            with self.subTest(boundary=boundary):
+                ring = "beta" if offset % 2 == 0 else "stable"
+                self.assertEqual(
+                    expected,
+                    self.release("2.0.0", "b" * 40, offset, ring=ring, archive_bytes=archive_bytes),
+                )
+
+                killed = self.run_updater(
+                    TARKOV_RELEASE_RING=ring,
+                    FAKE_MV_KILL_AFTER=str(self.state / boundary),
+                )
+
+                self.assertEqual(-9, killed.returncode, killed.stdout + killed.stderr)
+                self.assertFalse((self.state / "swap").exists())
+                recovered = self.run_updater(TARKOV_RELEASE_RING=ring)
+                self.assertEqual(0, recovered.returncode, recovered.stdout + recovered.stderr)
+                self.assertIn("already running 2.0.0", recovered.stdout)
+                installed = json.loads((self.state / INSTALLED_RECORD).read_text(encoding="utf-8"))
+                self.assertEqual((ring, offset, expected),
+                                 (installed["ring"], installed["generation"], installed["sha256"]))
+                self.assertEqual(ring, self.stamps()["INSTALLED_RING"])
+                self.assertEqual(str(offset), self.stamps()["INSTALLED_GENERATION"])
+                self.assertEqual([], list(self.state.glob("INSTALLED_*.??????")))
+                self.assertEqual([], [call for call in self.systemctl_calls() if call.startswith(("stop", "start"))])
 
     def test_two_different_decisions_at_one_generation_are_both_refused(self) -> None:
         self.release("2.0.0", "b" * 40, 1, action="pause", paused=True)

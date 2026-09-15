@@ -1264,32 +1264,32 @@ public sealed partial class SignedReleaseFeedConsumer
             int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out number) && number >= 0;
     }
 
-    [GeneratedRegex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+\\z", RegexOptions.CultureInvariant)]
     private static partial Regex Repository();
 
-    [GeneratedRegex("^release-index-g([0-9]{10})\\.json$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^release-index-g([0-9]{10})\\.json\\z", RegexOptions.CultureInvariant)]
     private static partial Regex RingFile();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]*\\z", RegexOptions.CultureInvariant)]
     private static partial Regex SafeName();
 
-    [GeneratedRegex("^[a-z][a-z0-9-]{0,63}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[a-z][a-z0-9-]{0,63}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex Role();
 
-    [GeneratedRegex("^[0-9a-f]{40}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9a-f]{40}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex LowerHex40();
 
-    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9a-f]{64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex LowerHex64();
 
-    [GeneratedRegex("^[0-9]{4}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9]{4}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex FourDigits();
 
-    [GeneratedRegex("^(?:0|[1-9][0-9]{0,9})\\.(?:0|[1-9][0-9]{0,9})$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^(?:0|[1-9][0-9]{0,9})\\.(?:0|[1-9][0-9]{0,9})\\z", RegexOptions.CultureInvariant)]
     private static partial Regex BoundedContractVersion();
 
     [GeneratedRegex(
-        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?$",
+        "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?\\z",
         RegexOptions.CultureInvariant)]
     private static partial Regex SemVer();
 }

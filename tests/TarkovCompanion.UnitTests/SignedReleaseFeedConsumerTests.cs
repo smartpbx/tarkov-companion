@@ -297,6 +297,10 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
     public static IEnumerable<object[]> InvalidReleaseVersions() =>
         LoadVersionVectors().Invalid.Select(static version => new object[] { version });
 
+    public static IEnumerable<object[]> AdjacentReleaseVersionPrecedence() =>
+        LoadVersionVectors().Precedence
+            .Zip(LoadVersionVectors().Precedence.Skip(1), static (older, newer) => new object[] { older, newer });
+
     [Theory]
     [MemberData(nameof(ValidReleaseVersions))]
     public async Task DesktopConsumerAcceptsEverySharedBoundedVersion(string version)
@@ -316,6 +320,32 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         var fixture = CreateFixture(version);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Consumer.PrepareAsync(default));
+        Assert.Empty(fixture.Feed.AssetDownloads);
+    }
+
+    [Theory]
+    [MemberData(nameof(AdjacentReleaseVersionPrecedence))]
+    public async Task DesktopConsumerUsesEverySharedVersionPrecedenceBoundary(string older, string newer)
+    {
+        var downgradeState = ReleaseConsumerState.Empty with
+        {
+            Current = Identity(newer, VersionCommitMarker(newer)),
+        };
+        var downgrade = CreateFixture(older, state: downgradeState);
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(
+            () => downgrade.Consumer.PrepareAsync(default));
+        Assert.Contains("downgrade", exception.Message, StringComparison.Ordinal);
+
+        var upgradeState = ReleaseConsumerState.Empty with
+        {
+            Current = Identity(older, VersionCommitMarker(older)),
+        };
+        var upgrade = CreateFixture(newer, state: upgradeState);
+
+        var prepared = await upgrade.Consumer.PrepareAsync(default);
+        var plan = Assert.IsType<VerifiedReleasePlan>(prepared.Plan);
+        upgrade.Consumer.Abandon(plan);
     }
 
     [Fact]

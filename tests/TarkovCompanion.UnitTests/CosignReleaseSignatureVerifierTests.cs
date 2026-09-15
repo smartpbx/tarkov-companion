@@ -85,7 +85,7 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
     }
 
     [Fact]
-    public async Task CancellationKillsTheProcessTreeThenWaitsAndDrainsWithAnIndependentToken()
+    public async Task CancellationKillsAndDrainsButQuarantinesWithoutDescendantExitProof()
     {
         var fixture = CreateFixture();
         var process = FakeCosignProcess.BlockedUntilKilled();
@@ -103,6 +103,7 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
             () => verification.WaitAsync(TimeSpan.FromSeconds(5)));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.IsAssignableFrom<IReleaseStagingQuarantineRequired>(exception);
         Assert.True(process.Killed);
         Assert.True(process.KilledEntireTree);
         Assert.True(process.StandardInputClosed);

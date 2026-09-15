@@ -112,6 +112,9 @@ readonly REFUSED_RELEASE="${STATE}/REFUSED_RELEASE.json"
 # that never committed. Either rename is one directory entry, never half of one.
 readonly SWAP="${STATE}/swap"
 readonly INSTALLED_STAMPS=(INSTALLED_SHA256 INSTALLED_VERSION INSTALLED_COMMIT INSTALLED_RING INSTALLED_GENERATION)
+readonly INSTALLED_RELEASE="${STATE}/INSTALLED_RELEASE.json"
+readonly PUBLISHED_RELEASE="${STATE}/PUBLISHED_RELEASE.json"
+readonly INSTALLED_STATE_FILES=(INSTALLED_RELEASE.json "${INSTALLED_STAMPS[@]}")
 # The panel reads the digests; the versions are for whoever runs `cat` on the host.
 readonly STATUS_STAMPS=(INSTALLED_SHA256 INSTALLED_VERSION PUBLISHED_SHA256 PUBLISHED_VERSION REFUSED_SHA256)
 # SemVer 2.0 as the publisher's release_policy.py accepts it: no leading zeros in a numeric
@@ -564,6 +567,89 @@ atomic_text() {
     mv -fT -- "${temporary}" "${target}"
 }
 
+# The scalar files remain for the status mirror and for operators using `cat`, but the updater
+# never makes replay or rollback decisions from a mixture of them once a record exists. A process
+# can be killed between any two renames below; publishing the complete JSON record first makes the
+# new state authoritative in one rename, and the next run repairs any scalar mirrors left behind.
+commit_published_state() {
+    local temporary
+    temporary="$(mktemp "${PUBLISHED_RELEASE}.XXXXXX")"
+    jq -n \
+        --arg sha256 "${TARGET_SHA}" \
+        --arg version "${TARGET_VERSION}" \
+        --arg commit "${TARGET_COMMIT}" \
+        --arg ring "${RELEASE_RING}" \
+        --argjson generation "${TARGET_GENERATION}" \
+        --arg manifestSha256 "${target_manifest_sha}" \
+        '{schemaVersion: 1, sha256: $sha256, version: $version, commit: $commit,
+          ring: $ring, generation: $generation, manifestSha256: $manifestSha256}' \
+        > "${temporary}"
+    chmod 0644 "${temporary}"
+    mv -fT -- "${temporary}" "${PUBLISHED_RELEASE}"
+    atomic_text "${STATE}/PUBLISHED_RING" "${RELEASE_RING}"
+    atomic_text "${STATE}/PUBLISHED_GENERATION" "${TARGET_GENERATION}"
+    atomic_text "${STATE}/PUBLISHED_MANIFEST_SHA256" "${target_manifest_sha}"
+    atomic_text "${STATE}/PUBLISHED_VERSION" "${TARGET_VERSION}"
+    atomic_text "${STATE}/PUBLISHED_SHA256" "${TARGET_SHA}"
+}
+
+load_installed_state() {
+    installed_sha="$(read_stamp INSTALLED_SHA256)"
+    installed_version="$(read_stamp INSTALLED_VERSION)"
+    installed_commit="$(read_stamp INSTALLED_COMMIT)"
+    installed_ring="$(read_stamp INSTALLED_RING)"
+    installed_generation="$(read_stamp INSTALLED_GENERATION)"
+    [[ -e "${INSTALLED_RELEASE}" || -L "${INSTALLED_RELEASE}" ]] || return 0
+    [[ -f "${INSTALLED_RELEASE}" && ! -L "${INSTALLED_RELEASE}" ]] \
+        || refuse "the installed release state is not a plain file"
+    validate_json_file "${INSTALLED_RELEASE}" 4096 "installed release state" \
+        || refuse "the installed release state is not bounded valid JSON"
+    jq -e '
+        (keys == ["commit", "generation", "ring", "schemaVersion", "sha256", "version"])
+        and .schemaVersion == 1
+        and (.sha256 | type == "string")
+        and (.version | type == "string")
+        and (.commit | type == "string")
+        and (.ring | type == "string")
+        and (.generation | type == "number" and floor == .)' \
+        "${INSTALLED_RELEASE}" >/dev/null || refuse "the installed release state is malformed"
+    installed_sha="$(jq -er '.sha256' "${INSTALLED_RELEASE}")"
+    installed_version="$(jq -er '.version' "${INSTALLED_RELEASE}")"
+    installed_commit="$(jq -er '.commit' "${INSTALLED_RELEASE}")"
+    installed_ring="$(jq -er '.ring' "${INSTALLED_RELEASE}")"
+    installed_generation="$(jq -er '.generation' "${INSTALLED_RELEASE}")"
+}
+
+load_published_state() {
+    published_sha="$(read_stamp PUBLISHED_SHA256)"
+    published_version="$(read_stamp PUBLISHED_VERSION)"
+    published_commit=""
+    published_ring="$(read_stamp PUBLISHED_RING)"
+    published_generation="$(read_stamp PUBLISHED_GENERATION)"
+    published_manifest="$(read_stamp PUBLISHED_MANIFEST_SHA256)"
+    [[ -e "${PUBLISHED_RELEASE}" || -L "${PUBLISHED_RELEASE}" ]] || return 0
+    [[ -f "${PUBLISHED_RELEASE}" && ! -L "${PUBLISHED_RELEASE}" ]] \
+        || refuse "the authenticated release state is not a plain file"
+    validate_json_file "${PUBLISHED_RELEASE}" 4096 "authenticated release state" \
+        || refuse "the authenticated release state is not bounded valid JSON"
+    jq -e '
+        (keys == ["commit", "generation", "manifestSha256", "ring", "schemaVersion", "sha256", "version"])
+        and .schemaVersion == 1
+        and (.sha256 | type == "string")
+        and (.version | type == "string")
+        and (.commit | type == "string")
+        and (.ring | type == "string")
+        and (.generation | type == "number" and floor == .)
+        and (.manifestSha256 | type == "string")' \
+        "${PUBLISHED_RELEASE}" >/dev/null || refuse "the authenticated release state is malformed"
+    published_sha="$(jq -er '.sha256' "${PUBLISHED_RELEASE}")"
+    published_version="$(jq -er '.version' "${PUBLISHED_RELEASE}")"
+    published_commit="$(jq -er '.commit' "${PUBLISHED_RELEASE}")"
+    published_ring="$(jq -er '.ring' "${PUBLISHED_RELEASE}")"
+    published_generation="$(jq -er '.generation' "${PUBLISHED_RELEASE}")"
+    published_manifest="$(jq -er '.manifestSha256' "${PUBLISHED_RELEASE}")"
+}
+
 # Mirrors the stamps the panel shows from the private state into the status directory.
 sync_status() {
     local stamp
@@ -661,7 +747,7 @@ rollback_failed_swap() {
     fi
     ((units_restored)) && systemctl daemon-reload
 
-    for stamp in "${INSTALLED_STAMPS[@]}"; do
+    for stamp in "${INSTALLED_STATE_FILES[@]}"; do
         if [[ -f "${SWAP}/stamps/${stamp}" ]]; then
             cp -f -- "${SWAP}/stamps/${stamp}" "${STATE}/${stamp}"
         else
@@ -906,7 +992,7 @@ write_swap_journal() {
     else
         : > "${SWAP}.new/deployment/updater.absent"
     fi
-    for stamp in "${INSTALLED_STAMPS[@]}"; do
+    for stamp in "${INSTALLED_STATE_FILES[@]}"; do
         if [[ -f "${STATE}/${stamp}" ]]; then
             cp -p -- "${STATE}/${stamp}" "${SWAP}.new/stamps/${stamp}"
         fi
@@ -954,23 +1040,28 @@ recover_interrupted_swap() {
     TARGET_GENERATION=""
 }
 
-commit_installed_stamps() {
-    local stamp temporary=()
-    # Every value is written to a temporary file first, so the only thing left to fail is a
-    # rename; if one did, the rollback restores the copies the journal holds.
-    for stamp in "${INSTALLED_STAMPS[@]}"; do
-        temporary+=("$(mktemp "${STATE}/${stamp}.XXXXXX")")
-    done
-    printf '%s\n' "${TARGET_SHA}" > "${temporary[0]}"
-    printf '%s\n' "${TARGET_VERSION}" > "${temporary[1]}"
-    printf '%s\n' "${TARGET_COMMIT}" > "${temporary[2]}"
-    printf '%s\n' "${RELEASE_RING}" > "${temporary[3]}"
-    printf '%s\n' "${TARGET_GENERATION}" > "${temporary[4]}"
-    local index
-    for index in "${!INSTALLED_STAMPS[@]}"; do
-        chmod 0644 "${temporary[index]}"
-        mv -fT -- "${temporary[index]}" "${STATE}/${INSTALLED_STAMPS[index]}"
-    done
+commit_installed_state() {
+    local record_temporary
+    # The complete record becomes authoritative in one rename before its human-readable mirrors.
+    # During a real swap the journal restores all of them; on the no-swap/same-bytes path the next
+    # run reads the record and repairs the mirrors. Creating each mirror only when it is published
+    # also means SIGKILL cannot strand a set of prepared temporary files in the state directory.
+    record_temporary="$(mktemp "${INSTALLED_RELEASE}.XXXXXX")"
+    jq -n \
+        --arg sha256 "${TARGET_SHA}" \
+        --arg version "${TARGET_VERSION}" \
+        --arg commit "${TARGET_COMMIT}" \
+        --arg ring "${RELEASE_RING}" \
+        --argjson generation "${TARGET_GENERATION}" \
+        '{schemaVersion: 1, sha256: $sha256, version: $version, commit: $commit,
+          ring: $ring, generation: $generation}' > "${record_temporary}"
+    chmod 0644 "${record_temporary}"
+    mv -fT -- "${record_temporary}" "${INSTALLED_RELEASE}"
+    atomic_text "${STATE}/INSTALLED_SHA256" "${TARGET_SHA}"
+    atomic_text "${STATE}/INSTALLED_VERSION" "${TARGET_VERSION}"
+    atomic_text "${STATE}/INSTALLED_COMMIT" "${TARGET_COMMIT}"
+    atomic_text "${STATE}/INSTALLED_RING" "${RELEASE_RING}"
+    atomic_text "${STATE}/INSTALLED_GENERATION" "${TARGET_GENERATION}"
 }
 
 clear_refusal() {
@@ -1195,21 +1286,20 @@ fi
 
 # --- Refuse replays --------------------------------------------------------------------------
 
-installed_sha="$(read_stamp INSTALLED_SHA256)"
-installed_version="$(read_stamp INSTALLED_VERSION)"
-installed_ring="$(read_stamp INSTALLED_RING)"
-installed_generation="$(read_stamp INSTALLED_GENERATION)"
-published_ring="$(read_stamp PUBLISHED_RING)"
-published_generation="$(read_stamp PUBLISHED_GENERATION)"
-published_manifest="$(read_stamp PUBLISHED_MANIFEST_SHA256)"
+load_installed_state
+load_published_state
 [[ -z "${installed_sha}" || "${installed_sha}" =~ ^[0-9a-f]{64}$ ]] || refuse "the installed digest stamp is malformed"
+[[ -z "${installed_commit}" || "${installed_commit}" =~ ^[0-9a-f]{40}$ ]] || refuse "the installed commit stamp is malformed"
 [[ -z "${published_manifest}" || "${published_manifest}" =~ ^[0-9a-f]{64}$ ]] || refuse "the published manifest stamp is malformed"
+[[ -z "${published_sha}" || "${published_sha}" =~ ^[0-9a-f]{64}$ ]] || refuse "the published digest stamp is malformed"
+[[ -z "${published_commit}" || "${published_commit}" =~ ^[0-9a-f]{40}$ ]] || refuse "the published commit stamp is malformed"
 [[ -z "${installed_ring}" || "${installed_ring}" =~ ^(canary|beta|stable)$ ]] || refuse "the installed ring stamp is malformed"
 [[ -z "${published_ring}" || "${published_ring}" =~ ^(canary|beta|stable)$ ]] || refuse "the published ring stamp is malformed"
 for value in "${installed_generation}" "${published_generation}"; do
     [[ -z "${value}" ]] || valid_generation "${value}" || refuse "a recorded generation stamp is malformed or unbounded"
 done
 [[ -z "${installed_version}" ]] || valid_semver "${installed_version}" || refuse "the installed version stamp is malformed or unbounded"
+[[ -z "${published_version}" ]] || valid_semver "${published_version}" || refuse "the published version stamp is malformed or unbounded"
 
 if [[ -n "${MINIMUM_GENERATION}" ]] && ((TARGET_GENERATION < MINIMUM_GENERATION)); then
     refuse "refusing ${RELEASE_RING} generation ${TARGET_GENERATION}: this host's configured floor is generation ${MINIMUM_GENERATION}"
@@ -1269,17 +1359,13 @@ if [[ ! "${archive_name}" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ || "${archive_name}" 
 fi
 
 # What the panel reports as published: only ever something this run authenticated.
-atomic_text "${STATE}/PUBLISHED_RING" "${RELEASE_RING}"
-atomic_text "${STATE}/PUBLISHED_GENERATION" "${TARGET_GENERATION}"
-atomic_text "${STATE}/PUBLISHED_MANIFEST_SHA256" "${target_manifest_sha}"
-atomic_text "${STATE}/PUBLISHED_VERSION" "${TARGET_VERSION}"
-atomic_text "${STATE}/PUBLISHED_SHA256" "${TARGET_SHA}"
+commit_published_state
 
 # --- Decide ----------------------------------------------------------------------------------
 
 if [[ "${installed_sha}" == "${TARGET_SHA}" && ( -z "${installed_version}" || "${installed_version}" == "${TARGET_VERSION}" ) ]]; then
     if health_matches; then
-        commit_installed_stamps
+        commit_installed_state
         clear_refusal
         log "already running ${TARGET_VERSION} (${TARGET_COMMIT:0:12}) at ${RELEASE_RING} generation ${TARGET_GENERATION}"
         exit 0
@@ -1373,7 +1459,7 @@ systemctl start "${SERVICE}"
 
 health_matches || refuse "the new relay did not answer as ${TARGET_VERSION} (${TARGET_COMMIT:0:12})"
 apply_deployment
-commit_installed_stamps
+commit_installed_state
 clear_refusal
 # The commit point. Before this rename an interruption is undone, by the cleanup of this run or
 # by the next run; after it, the new build is the installed one and its stamps already say so.

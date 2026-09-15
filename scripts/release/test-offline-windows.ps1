@@ -15,15 +15,50 @@ $Feed = "example/tarkov-feed"
 $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "../..")).Path
 $InstallerScript = Join-Path $RepositoryRoot "scripts/release/install-offline.ps1"
 $FixtureScript = Join-Path $RepositoryRoot "scripts/release/tests/create_windows_offline_fixture.py"
+$OrphanWorker = Join-Path $Root "orphan-worker.py"
+$OrphanLauncher = Join-Path $Root "orphan-launcher.py"
+$OrphanPid = Join-Path $Install "orphan-pid"
 
 New-Item -ItemType Directory -Path $Bundle -Force | Out-Null
 try {
+    @'
+import os
+import pathlib
+import sys
+import time
+
+held_installer = open(sys.argv[1], "rb")
+pathlib.Path(sys.argv[2]).write_text(str(os.getpid()), encoding="ascii")
+time.sleep(120)
+held_installer.close()
+'@ | Set-Content -LiteralPath $OrphanWorker -Encoding ascii
+    @'
+import subprocess
+import sys
+
+flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+child = subprocess.Popen(
+    [sys.executable, sys.argv[1], sys.argv[2], sys.argv[3]],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    close_fds=True,
+    creationflags=flags,
+)
+with open(sys.argv[3], "w", encoding="ascii") as stream:
+    stream.write(str(child.pid))
+'@ | Set-Content -LiteralPath $OrphanLauncher -Encoding ascii
     @"
 @echo off
 setlocal
 echo %~f0>"%FAKE_INSTALL_ROOT%\ran-from"
 if /I "%FAKE_INSTALL_MODE%"=="noop" exit /b 0
 if /I "%FAKE_INSTALL_MODE%"=="hang-installer" (
+  ping -n 31 127.0.0.1 >nul
+  exit /b 99
+)
+if /I "%FAKE_INSTALL_MODE%"=="orphan-installer" (
+  python "%FAKE_ORPHAN_LAUNCHER%" "%FAKE_ORPHAN_WORKER%" "%~f0" "%FAKE_ORPHAN_PID%"
   ping -n 31 127.0.0.1 >nul
   exit /b 99
 )
@@ -75,6 +110,9 @@ exit /b 0
         $env:FAKE_INSTALL_COMMIT = $Commit
         $env:FAKE_COSIGN_EXECUTABLE_LOG = $CosignLog
         $env:FAKE_COSIGN_MODE = if ($Mode -ceq "reject-signature") { "reject" } elseif ($Mode -ceq "hang-cosign") { "hang" } else { "accept" }
+        $env:FAKE_ORPHAN_LAUNCHER = $OrphanLauncher
+        $env:FAKE_ORPHAN_WORKER = $OrphanWorker
+        $env:FAKE_ORPHAN_PID = $OrphanPid
         $Stdout = Join-Path $Root "$Mode.out.txt"
         $Stderr = Join-Path $Root "$Mode.err.txt"
         $Arguments = @(
@@ -83,7 +121,7 @@ exit /b 0
             "-CosignSha256", $CosignDigest, "-InstallRoot", $Install, "-Headless",
             "-Ring", "stable", "-FeedRepository", $Feed)
         if ($Mode -ceq "hang-cosign") { $Arguments += @("-VerifierTimeoutSeconds", "1") }
-        if ($Mode -ceq "hang-installer") { $Arguments += @("-InstallerTimeoutSeconds", "1") }
+        if ($Mode -in @("hang-installer", "orphan-installer")) { $Arguments += @("-InstallerTimeoutSeconds", "1") }
         $Process = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList $Arguments `
             -Wait -PassThru -RedirectStandardOutput $Stdout -RedirectStandardError $Stderr
         return [ordered]@{
@@ -117,14 +155,37 @@ exit /b 0
     $TimedOutCosign = Invoke-InstallerCase "hang-cosign" $false
     $TimedOutCosignPath = @(Get-Content -LiteralPath $CosignLog)[-1]
     if ($TimedOutCosign.ExitCode -eq 0 -or $TimedOutCosign.Output -notmatch "did not exit within 1 seconds" -or
-        (Test-Path -LiteralPath $TimedOutCosignPath)) {
-        throw "Windows did not quiesce a timed-out verifier before cleanup: $($TimedOutCosign.Output)"
+        $TimedOutCosign.Output -notmatch "quarantined" -or -not (Test-Path -LiteralPath $TimedOutCosignPath)) {
+        throw "Windows did not quarantine a timed-out verifier whose descendants were unproved: $($TimedOutCosign.Output)"
     }
+    Remove-Item -LiteralPath (Split-Path -Parent $TimedOutCosignPath) -Recurse -Force
     $TimedOutInstaller = Invoke-InstallerCase "hang-installer" $false
     $TimedOutInstallerPath = Get-Content -LiteralPath (Join-Path $Install "ran-from") -Raw
     if ($TimedOutInstaller.ExitCode -eq 0 -or $TimedOutInstaller.Output -notmatch "did not exit within 1 seconds" -or
-        (Test-Path -LiteralPath $TimedOutInstallerPath.Trim())) {
-        throw "Windows did not quiesce a timed-out installer before cleanup: $($TimedOutInstaller.Output)"
+        $TimedOutInstaller.Output -notmatch "quarantined" -or -not (Test-Path -LiteralPath $TimedOutInstallerPath.Trim())) {
+        throw "Windows did not quarantine a timed-out installer whose descendants were unproved: $($TimedOutInstaller.Output)"
+    }
+    Remove-Item -LiteralPath (Split-Path -Parent $TimedOutInstallerPath.Trim()) -Recurse -Force
+    $OrphanProcessId = $null
+    $OrphanedInstallerPath = $null
+    try {
+        $OrphanedInstaller = Invoke-InstallerCase "orphan-installer" $false
+        $OrphanProcessId = [int](Get-Content -LiteralPath $OrphanPid -Raw)
+        $null = Get-Process -Id $OrphanProcessId -ErrorAction Stop
+        $OrphanedInstallerPath = (Get-Content -LiteralPath (Join-Path $Install "ran-from") -Raw).Trim()
+        if ($OrphanedInstaller.ExitCode -eq 0 -or $OrphanedInstaller.Output -notmatch "quarantined" -or
+            -not (Test-Path -LiteralPath $OrphanedInstallerPath)) {
+            throw "Windows deleted staging while a detached installer child was live: $($OrphanedInstaller.Output)"
+        }
+    }
+    finally {
+        if ($null -ne $OrphanProcessId) {
+            Stop-Process -Id $OrphanProcessId -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $OrphanProcessId -Timeout 10 -ErrorAction SilentlyContinue
+        }
+        if ($null -ne $OrphanedInstallerPath) {
+            Remove-Item -LiteralPath (Split-Path -Parent $OrphanedInstallerPath) -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
     'tampered' | Set-Content -LiteralPath (Join-Path $Bundle $CompanionName) -Encoding ascii
     $TamperedCompanion = Invoke-InstallerCase "tampered-companion" $false

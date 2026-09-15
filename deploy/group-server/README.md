@@ -85,12 +85,14 @@ three owners:
 
 | Directory | Owner and mode | Holds | Read by |
 | --- | --- | --- | --- |
-| `/var/lib/tarkov-group-update` | root, `0700` (the update unit's `StateDirectory=`) | `update.lock`; `work.*` download and verification directories; the `swap` journal (assembled as `swap.new`, committed by renaming to `swap.committed`); `INSTALLED_SHA256`, `INSTALLED_VERSION`, `INSTALLED_COMMIT`, `INSTALLED_RING`, `INSTALLED_GENERATION`; `PUBLISHED_SHA256`, `PUBLISHED_VERSION`, `PUBLISHED_RING`, `PUBLISHED_GENERATION`, `PUBLISHED_MANIFEST_SHA256`; `REFUSED_SHA256`, `REFUSED_RELEASE.json` | the updater only |
+| `/var/lib/tarkov-group-update` | root, `0700` (the update unit's `StateDirectory=`) | `update.lock`; `work.*` download and verification directories; the `swap` journal (assembled as `swap.new`, committed by renaming to `swap.committed`); authoritative `INSTALLED_RELEASE.json` and `PUBLISHED_RELEASE.json`; their `INSTALLED_SHA256`, `INSTALLED_VERSION`, `INSTALLED_COMMIT`, `INSTALLED_RING`, `INSTALLED_GENERATION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION`, `PUBLISHED_RING`, `PUBLISHED_GENERATION`, `PUBLISHED_MANIFEST_SHA256` mirrors; `REFUSED_SHA256`, `REFUSED_RELEASE.json` | the updater only |
 | `/var/lib/tarkov-group-update-status` | root, `0755`, files `0644` | copies of `INSTALLED_SHA256`, `INSTALLED_VERSION`, `PUBLISHED_SHA256`, `PUBLISHED_VERSION` and `REFUSED_SHA256` | the relay's panel; never read back by the updater |
 | `/var/lib/tarkov-group` | the relay's dynamic user | the relay's own state, below, and `UPDATE_NOW` | the updater unlinks `UPDATE_NOW` and touches nothing else |
 
 The updater refuses to run if its state directory is a link, belongs to anyone else, or cannot be
-made `0700`. `INSTALLED_SHA256` and `REFUSED_SHA256` files that the checksum updater left in
+made `0700`. Each release record is committed by one rename before its scalar mirrors, so a killed
+run cannot combine a new generation with an old decision digest; the next run repairs any mirrors
+it interrupted. `INSTALLED_SHA256` and `REFUSED_SHA256` files that the checksum updater left in
 `/var/lib/tarkov-group` are no longer read or written by anything and can be deleted.
 Its default install, rollback and updater paths must stay below `/opt`, all state trees below
 `/var/lib`, and units in `/etc/systemd/system`. A custom layout must set

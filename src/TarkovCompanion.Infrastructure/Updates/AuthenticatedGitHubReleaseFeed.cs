@@ -517,15 +517,15 @@ public sealed partial class AuthenticatedGitHubReleaseFeed : IAuthenticatedRelea
         }
     }
 
-    [GeneratedRegex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Za-z0-9-]+/[A-Za-z0-9._-]+\\z", RegexOptions.CultureInvariant)]
     private static partial Regex Repository();
 
-    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._+-]*\\z", RegexOptions.CultureInvariant)]
     private static partial Regex SafeAssetName();
 
-    [GeneratedRegex("^v2-build-(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^v2-build-(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?\\z", RegexOptions.CultureInvariant)]
     private static partial Regex BuildTag();
 
-    [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[0-9a-f]{64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex LowerHex64();
 }
