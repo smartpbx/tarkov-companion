@@ -8,6 +8,12 @@ public sealed record OutboxProcessResult(
     int LostLeaseRaces);
 
 /// <summary>Runs one deterministic, bounded at-least-once delivery batch.</summary>
+/// <remarks>
+/// A handler is deliberately started away from the pump continuation: a synchronous prefix must
+/// not prevent its attempt deadline from arming or hold unrelated aggregate heads hostage. Once
+/// an attempt times out, its lease and cancellation source remain owned here until that exact
+/// handler returns. Retrying earlier would let the same aggregate overtake a late side effect.
+/// </remarks>
 public sealed class OutboxProcessor(
     IOutboxStore store,
     IOutboxCommandHandler handler,
@@ -31,52 +37,45 @@ public sealed class OutboxProcessor(
                 maximumCount,
                 cancellationToken)
             .ConfigureAwait(false);
-        var completed = 0;
-        var retrying = 0;
-        var deadLettered = 0;
-        var lostLeaseRaces = 0;
-        foreach (var stored in leased)
+
+        // LeaseNextAsync returns at most one ordered head per aggregate. Running those independent
+        // heads together preserves aggregate order while one hostile synchronous handler cannot
+        // serialize every other aggregate in this batch.
+        var outcomes = await Task.WhenAll(leased.Select(stored =>
+                ProcessOneAsync(stored, leaseDuration, cancellationToken)))
+            .ConfigureAwait(false);
+        return new(
+            leased.Length,
+            outcomes.Sum(outcome => outcome.Completed),
+            outcomes.Sum(outcome => outcome.Retrying),
+            outcomes.Sum(outcome => outcome.DeadLettered),
+            outcomes.Sum(outcome => outcome.LostLeaseRaces));
+    }
+
+    private async Task<OutboxProcessResult> ProcessOneAsync(
+        OutboxStoredItem stored,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var item = stored.Item;
+        var leaseToken = stored.LeaseToken
+            ?? throw new InvalidOperationException("A processing outbox item must have a lease token.");
+        using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var handling = StartHandling(item, stored.AttemptCount, attemptCancellation.Token);
+        RuntimeFault? fault = null;
+
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var item = stored.Item;
-            var leaseToken = stored.LeaseToken
-                ?? throw new InvalidOperationException("A processing outbox item must have a lease token.");
-            RuntimeFault? fault = null;
-            using var attemptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             try
             {
-                var handling = _handler.HandleAsync(
-                        item,
-                        new(
-                            item.OperationId,
-                            item.IdempotencyKey,
-                            item.CorrelationId,
-                            item.FeatureId,
-                            stored.AttemptCount),
-                        attemptCancellation.Token)
-                    ?? throw new InvalidOperationException("The outbox handler returned no task.");
                 await handling
                     .WaitAsync(item.AttemptPolicy.AttemptTimeout, _timeProvider, cancellationToken)
                     .ConfigureAwait(false);
-                if (await _store.CompleteAsync(
-                        item.OperationId,
-                        leaseToken,
-                        _timeProvider.GetUtcNow(),
-                        cancellationToken)
-                    .ConfigureAwait(false))
-                {
-                    completed++;
-                }
-                else
-                {
-                    lostLeaseRaces++;
-                }
-
-                continue;
             }
             catch (TimeoutException exception)
             {
                 TryCancel(attemptCancellation);
+                await KeepLeaseAndObserveAsync(handling, item, leaseToken, leaseDuration).ConfigureAwait(false);
                 fault = RuntimeFault.FromException(
                     exception,
                     _timeProvider,
@@ -84,10 +83,10 @@ public sealed class OutboxProcessor(
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Cancelled explicitly before the attempt source is disposed on the way out:
-                // relying on the token link lost the cancellation whenever this wait observed it
-                // first, and a handler still running would never be told to stop.
+                // Cancellation may have interrupted the wait before the handler saw its linked
+                // token. Keep both ownership objects alive until it has actually stopped.
                 TryCancel(attemptCancellation);
+                await KeepLeaseAndObserveAsync(handling, item, leaseToken, leaseDuration).ConfigureAwait(false);
                 throw;
             }
             catch (RuntimeFaultException exception)
@@ -102,60 +101,136 @@ public sealed class OutboxProcessor(
                     new($"operation:{item.OperationId}"));
             }
 
-            var now = _timeProvider.GetUtcNow();
-            var mayRetry = fault.IsRetryable
-                && stored.AttemptCount < item.AttemptPolicy.MaxAttempts
-                && now < item.ExpiresUtc;
-            if (mayRetry)
+            if (fault is null)
             {
-                var retryAt = AddBounded(now, RetryDelay(item, stored.AttemptCount));
-                if (retryAt < item.ExpiresUtc
-                    && await _store.RetryAsync(
+                // An acknowledgement failure is a store/pump failure, never a handler failure.
+                // In particular, do not call RetryAsync or DeadLetterAsync after the handler may
+                // already have produced its side effect.
+                if (await _store.CompleteAsync(
+                        item.OperationId,
+                        leaseToken,
+                        _timeProvider.GetUtcNow(),
+                        cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    return new(0, 1, 0, 0, 0);
+                }
+
+                return new(0, 0, 0, 0, 1);
+            }
+
+            return await SettleHandlerFaultAsync(item, stored.AttemptCount, leaseToken, fault, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            // Every exceptional path above waits for an unfinished handler before arriving here.
+            // Keeping the source alive is required because handlers can retain and observe it.
+            if (!handling.IsCompleted)
+            {
+                await KeepLeaseAndObserveAsync(handling, item, leaseToken, leaseDuration).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private Task StartHandling(OutboxItem item, int attempt, CancellationToken attemptCancellation) =>
+        Task.Factory.StartNew(
+                () => _handler.HandleAsync(
+                        item,
+                        new(
                             item.OperationId,
-                            leaseToken,
-                            retryAt,
-                            fault,
-                            cancellationToken)
-                        .ConfigureAwait(false))
-                {
-                    retrying++;
-                }
-                else if (retryAt < item.ExpiresUtc)
-                {
-                    lostLeaseRaces++;
-                }
-                else if (await _store.DeadLetterAsync(
-                             item.OperationId,
-                             leaseToken,
-                             fault,
-                             now,
-                             cancellationToken)
-                         .ConfigureAwait(false))
-                {
-                    deadLettered++;
-                }
-                else
-                {
-                    lostLeaseRaces++;
-                }
-            }
-            else if (await _store.DeadLetterAsync(
-                         item.OperationId,
-                         leaseToken,
-                         fault,
-                         now,
-                         cancellationToken)
-                     .ConfigureAwait(false))
+                            item.IdempotencyKey,
+                            item.CorrelationId,
+                            item.FeatureId,
+                            attempt),
+                        attemptCancellation)
+                    ?? throw new InvalidOperationException("The outbox handler returned no task."),
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default)
+            .Unwrap();
+
+    private async Task KeepLeaseAndObserveAsync(
+        Task handling,
+        OutboxItem item,
+        OutboxLeaseToken leaseToken,
+        TimeSpan leaseDuration)
+    {
+        using var leaseLifetime = new CancellationTokenSource();
+        var renewal = KeepLeaseUntilSettledAsync(handling, item.OperationId, leaseToken, leaseDuration, leaseLifetime.Token);
+        await ObserveAsync(handling).ConfigureAwait(false);
+        TryCancel(leaseLifetime);
+        if (!await renewal.ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("The outbox lost a timed-out handler lease before the handler returned.");
+        }
+    }
+
+    private async Task<bool> KeepLeaseUntilSettledAsync(
+        Task handling,
+        OperationId operationId,
+        OutboxLeaseToken leaseToken,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        var cadence = TimeSpan.FromTicks(Math.Max(1, leaseDuration.Ticks / 2));
+        while (!handling.IsCompleted)
+        {
+            if (!await _store.RenewLeaseAsync(
+                    operationId,
+                    leaseToken,
+                    _timeProvider.GetUtcNow(),
+                    leaseDuration,
+                    CancellationToken.None)
+                .ConfigureAwait(false))
             {
-                deadLettered++;
+                return false;
             }
-            else
+
+            try
             {
-                lostLeaseRaces++;
+                await Task.Delay(cadence, _timeProvider, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return true;
             }
         }
 
-        return new(leased.Length, completed, retrying, deadLettered, lostLeaseRaces);
+        return true;
+    }
+
+    private async Task<OutboxProcessResult> SettleHandlerFaultAsync(
+        OutboxItem item,
+        int attemptCount,
+        OutboxLeaseToken leaseToken,
+        RuntimeFault fault,
+        CancellationToken cancellationToken)
+    {
+        var now = _timeProvider.GetUtcNow();
+        var mayRetry = fault.IsRetryable
+            && attemptCount < item.AttemptPolicy.MaxAttempts
+            && now < item.ExpiresUtc;
+        if (mayRetry)
+        {
+            var retryAt = AddBounded(now, RetryDelay(item, attemptCount));
+            if (retryAt < item.ExpiresUtc
+                && await _store.RetryAsync(item.OperationId, leaseToken, retryAt, fault, cancellationToken)
+                    .ConfigureAwait(false))
+            {
+                return new(0, 0, 1, 0, 0);
+            }
+
+            if (retryAt < item.ExpiresUtc)
+            {
+                return new(0, 0, 0, 0, 1);
+            }
+        }
+
+        return await _store.DeadLetterAsync(item.OperationId, leaseToken, fault, now, cancellationToken)
+            .ConfigureAwait(false)
+            ? new(0, 0, 0, 1, 0)
+            : new(0, 0, 0, 0, 1);
     }
 
     private TimeSpan RetryDelay(OutboxItem item, int completedAttempt)
@@ -188,7 +263,20 @@ public sealed class OutboxProcessor(
         }
         catch (AggregateException)
         {
-            // A callback registered by the handler threw; the attempt's own fault reports it.
+            // Handler cancellation callbacks are untrusted. The handler task is still observed.
+        }
+    }
+
+    private static async Task ObserveAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // A late handler fault belongs to the timed-out attempt. It must be observed, but it
+            // cannot replace the timeout fault or trigger a second delivery decision.
         }
     }
 

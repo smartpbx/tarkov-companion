@@ -322,7 +322,17 @@ public sealed record OutboxDeadLetterSnapshot(
     OutboxCommandKind Command,
     int AttemptCount,
     RuntimeFault? LastFault,
-    DateTimeOffset? DeadLetteredUtc);
+    DateTimeOffset? DeadLetteredUtc)
+{
+    /// <summary>Whether the command remains inside its retention window and can be retried.</summary>
+    public bool CanRetry { get; init; } = true;
+
+    /// <summary>
+    /// Whether the command must be explicitly resolved instead of retried. Resolution records a
+    /// deliberate discard and releases the next command in this aggregate; it is never implicit.
+    /// </summary>
+    public bool RequiresResolution => !CanRetry;
+}
 
 /// <summary>Store counts plus the delivery health an adapter publishes into runtime state.</summary>
 public sealed record OutboxSnapshot(OutboxCounts Counts, TimeSpan? OldestOutstandingAge)
@@ -354,8 +364,9 @@ public sealed class OutboxCapacityException() : Exception("The bounded outbox ha
 /// <summary>A leased, ordered, at-least-once command store.</summary>
 /// <remarks>
 /// A store may forget a <see cref="OutboxDeliveryState.Completed"/> row once it has been
-/// retained long enough; it must keep every <see cref="OutboxDeliveryState.DeadLetter"/> row until
-/// it is retried, because a dead-lettered head is what holds the rest of its aggregate in order.
+/// retained long enough. Dead letters count against bounded admission until an operator retries
+/// or explicitly resolves them, because a dead-lettered head is what holds the rest of its
+/// aggregate in order.
 /// </remarks>
 public interface IOutboxStore
 {
@@ -383,6 +394,17 @@ public interface IOutboxStore
         DateTimeOffset completedUtc,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Extends a processing lease without changing its attempt count. A processor uses this only
+    /// while a timed-out handler is still running, so another delivery cannot overtake it.
+    /// </summary>
+    Task<bool> RenewLeaseAsync(
+        OperationId operationId,
+        OutboxLeaseToken leaseToken,
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken) => Task.FromResult(false);
+
     Task<bool> RetryAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
@@ -400,6 +422,15 @@ public interface IOutboxStore
     Task<int> RecoverExpiredLeasesAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 
     Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Explicitly resolves a dead letter that must not be replayed. This is the only operation
+    /// that may release a dead-lettered aggregate head without delivering that command.
+    /// </summary>
+    Task<bool> ResolveDeadLetterAsync(
+        OperationId operationId,
+        DateTimeOffset resolvedUtc,
+        CancellationToken cancellationToken) => Task.FromResult(false);
 
     Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 

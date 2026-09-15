@@ -31,6 +31,12 @@ public interface IAtLeastOnceRaidHistoryService
     /// <summary>Returns a dead-lettered command to delivery; false if it is not dead-lettered.</summary>
     Task<bool> RetryDeadLetterAsync(OperationId operationId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Records a deliberate decision not to replay a dead-lettered command, releasing its
+    /// aggregate head. This is required for expired commands, which are never replayed blindly.
+    /// </summary>
+    Task<bool> ResolveDeadLetterAsync(OperationId operationId, CancellationToken cancellationToken);
+
     /// <summary>Wakes a paused or backed-off delivery pump now, restarting it if it ended.</summary>
     bool RequestPumpRecovery();
 }
@@ -350,6 +356,36 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         return true;
     }
 
+    public async Task<bool> ResolveDeadLetterAsync(OperationId operationId, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!_accepting)
+            {
+                return false;
+            }
+        }
+
+        var resolved = await _store.ResolveDeadLetterAsync(
+                operationId,
+                _timeProvider.GetUtcNow(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!resolved)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            WakeUnsafe();
+        }
+
+        PublishChanged();
+        return true;
+    }
+
     public bool RequestPumpRecovery()
     {
         lock (_gate)
@@ -389,15 +425,21 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
 
             // An acceptance already past its admission check may still be storing commands.
             // Waiting for it means none can be accepted after the pump below drains and stops.
-            var entering = _enqueueLock.WaitAsync();
+            // A timed-out SemaphoreSlim wait remains queued unless its own token is cancelled.
+            // The previous wait stole the lock after this method returned, permanently wedging a
+            // later dispose and every acceptance. The deadline owns and observes that waiter.
+            using var enteringDeadline = new CancellationTokenSource(StopTimeout, _timeProvider);
+            var entering = _enqueueLock.WaitAsync(enteringDeadline.Token);
             try
             {
-                await entering.WaitAsync(StopTimeout, _timeProvider).ConfigureAwait(false);
+                await entering.ConfigureAwait(false);
             }
-            catch (TimeoutException)
+            catch (OperationCanceledException) when (enteringDeadline.IsCancellationRequested)
             {
                 // That acceptance still owns the lock and the signal. Leave both alive and the
-                // state non-terminal; a later DisposeAsync can finish once it returns.
+                // state non-terminal; cancellation removes this waiter, so a later DisposeAsync
+                // can acquire the lock once the acceptance returns.
+                await ObserveAsync(entering).ConfigureAwait(false);
                 return;
             }
 

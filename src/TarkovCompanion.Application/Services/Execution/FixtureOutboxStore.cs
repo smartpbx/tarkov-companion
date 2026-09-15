@@ -7,11 +7,10 @@ namespace TarkovCompanion.Application.Services.Execution;
 /// It intentionally makes no process-restart durability claim; issue #270 owns SQLite durability.
 /// </summary>
 /// <remarks>
-/// Capacity bounds outstanding work only. Counting every row made one completed batch — or a
-/// poison command waiting for someone to retry it — permanently brick a bounded process-local
-/// store. Completed rows are instead kept for a bounded retention window so they stay
-/// inspectable without growing for the life of the process; dead letters are kept until retried,
-/// because a dead-lettered head is what holds the rest of its aggregate in order.
+/// Capacity bounds every unresolved command. Completed rows have a separate bounded retention
+/// window, while a dead letter stays admitted until it is retried or explicitly resolved. That
+/// makes a poison head visible and recoverable without letting process-local history grow forever
+/// or silently dropping the command that holds its aggregate in order.
 /// </remarks>
 public sealed class FixtureOutboxStore : IOutboxStore
 {
@@ -98,8 +97,8 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 receipts[index] = new(true, item.OperationId);
             }
 
-            var activeCount = _items.Values.Count(stored => IsActive(stored.State));
-            if (added.Count > 0 && activeCount + added.Count > _capacity)
+            var unresolvedCount = _items.Values.Count(stored => stored.State != OutboxDeliveryState.Completed);
+            if (added.Count > 0 && unresolvedCount + added.Count > _capacity)
             {
                 throw new OutboxCapacityException();
             }
@@ -183,6 +182,26 @@ public sealed class FixtureOutboxStore : IOutboxStore
             },
             cancellationToken);
 
+    public Task<bool> RenewLeaseAsync(
+        OperationId operationId,
+        OutboxLeaseToken leaseToken,
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        if (leaseDuration <= TimeSpan.Zero || leaseDuration > OperationPolicy.MaximumDuration)
+        {
+            throw new ArgumentOutOfRangeException(nameof(leaseDuration));
+        }
+
+        var renewedAt = nowUtc.ToUniversalTime();
+        return MutateLeaseAsync(
+            operationId,
+            leaseToken,
+            item => item.LeaseExpiresUtc = AddBounded(renewedAt, leaseDuration),
+            cancellationToken);
+    }
+
     public Task<bool> RetryAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
@@ -262,17 +281,43 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 return Task.FromResult(false);
             }
 
-            if (_items.Values.Count(existing => IsActive(existing.State)) >= _capacity)
-            {
-                // A retried dead letter becomes outstanding work again and is bounded like it.
-                return Task.FromResult(false);
-            }
-
             item.State = OutboxDeliveryState.Retrying;
             item.AttemptCount = 0;
             item.NextAttemptUtc = nowUtc.ToUniversalTime();
             item.CompletedUtc = null;
             item.LastFault = null;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<bool> ResolveDeadLetterAsync(
+        OperationId operationId,
+        DateTimeOffset resolvedUtc,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var resolvedAt = resolvedUtc.ToUniversalTime();
+        lock (_gate)
+        {
+            if (!_items.TryGetValue(operationId, out var item)
+                || item.State != OutboxDeliveryState.DeadLetter)
+            {
+                return Task.FromResult(false);
+            }
+
+            if (resolvedAt < item.Item.CreatedUtc)
+            {
+                throw new ArgumentOutOfRangeException(nameof(resolvedUtc));
+            }
+
+            // Resolution is an operator's recorded decision not to replay this command. It is
+            // terminal, so the next aggregate sequence can progress and normal retention bounds
+            // the process-local idempotency and history maps.
+            item.State = OutboxDeliveryState.Completed;
+            item.CompletedUtc = resolvedAt;
+            item.LeaseToken = null;
+            item.LeaseExpiresUtc = null;
+            PruneCompletedUnsafe();
             return Task.FromResult(true);
         }
     }
@@ -290,7 +335,7 @@ public sealed class FixtureOutboxStore : IOutboxStore
                 _items.Values.Count(item => item.State == OutboxDeliveryState.DeadLetter),
                 _items.Values.Count(item => item.State == OutboxDeliveryState.Completed));
             var oldest = _items.Values
-                .Where(item => item.State != OutboxDeliveryState.Completed)
+                .Where(item => IsActive(item.State))
                 .Select(item => (DateTimeOffset?)item.Item.CreatedUtc)
                 .Min();
             var age = oldest is null
@@ -302,7 +347,8 @@ public sealed class FixtureOutboxStore : IOutboxStore
             {
                 DeadLetters = [.. _items.Values
                     .Where(item => item.State == OutboxDeliveryState.DeadLetter)
-                    .OrderBy(item => item.CompletedUtc)
+                    .OrderByDescending(item => item.Item.ExpiresUtc > nowUtc)
+                    .ThenBy(item => item.CompletedUtc)
                     .ThenBy(item => item.Item.AggregateId.Value, StringComparer.Ordinal)
                     .ThenBy(item => item.Item.AggregateSequence)
                     .Take(OutboxSnapshot.MaxListedDeadLetters)
@@ -313,7 +359,10 @@ public sealed class FixtureOutboxStore : IOutboxStore
                         item.Item.Command,
                         item.AttemptCount,
                         item.LastFault,
-                        item.CompletedUtc))],
+                        item.CompletedUtc)
+                    {
+                        CanRetry = item.Item.ExpiresUtc > nowUtc,
+                    })],
             });
         }
     }

@@ -324,6 +324,30 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task ExplicitResolutionUnwedgesADeadLetterWithoutReplayingIt()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore(capacity: 2);
+        var history = new RecordingHistory { FailuresBeforeSuccess = 1 };
+        await using var outbox = new RaidHistoryOutbox(history, timeProvider: time, store: store);
+        var raidId = Guid.NewGuid();
+
+        var accepted = await outbox.AcceptAsync(
+            [RaidHistoryCommand.RecordState(raidId, Evidence()), RaidHistoryCommand.EndRaid(raidId, Epoch, null, null)],
+            default);
+        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.DeadLetters.Length == 1);
+
+        var deadLetter = Assert.Single(outbox.Snapshot.DeadLetters);
+        Assert.True(deadLetter.CanRetry);
+        Assert.True(await outbox.ResolveDeadLetterAsync(Assert.Single(accepted), default));
+        await outbox.FlushAsync(default);
+
+        Assert.Equal(["end"], history.Types);
+        Assert.Equal(OutboxDeliveryState.Completed, Assert.Single(
+            await store.ListAsync(default), item => item.Item.OperationId == accepted[1]).State);
+    }
+
+    [Fact]
     public async Task DisposeWaitsForAnAcceptanceAlreadyStoringItsCommands()
     {
         var store = new BlockingEnqueueStore();
@@ -346,6 +370,28 @@ public sealed class RaidHistoryOutboxRuntimeTests
         await Assert.ThrowsAsync<ObjectDisposedException>(() => outbox.AcceptAsync(
             [RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())],
             default));
+    }
+
+    [Fact]
+    public async Task TimedOutDisposeCancelsItsWaiterAndLaterDisposeCanFinish()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new BlockingEnqueueStore();
+        var outbox = new RaidHistoryOutbox(new RecordingHistory(), timeProvider: time, store: store);
+
+        var accepting = outbox.AcceptAsync([RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())], default);
+        await store.Entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var firstDispose = outbox.DisposeAsync().AsTask();
+        time.Advance(TimeSpan.FromSeconds(10));
+        await firstDispose.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // The bounded wait was cancelled rather than left queued. Once acceptance releases its
+        // lock, a second disposal can take the lock and complete normally.
+        store.Release.TrySetResult();
+        await accepting.WaitAsync(TimeSpan.FromSeconds(30));
+        await outbox.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
     }
 
     private static RaidEvidence Evidence() => new(
