@@ -20,10 +20,19 @@ public sealed class TarkovDevDataRefreshOperation(
         SyncRequest request,
         CancellationToken cancellationToken)
     {
-        var results = new List<SyncEndpointResult>(7)
+        var runId = await syncStateRepository.BeginRunAsync(
+            ModeSlug(request.GameMode),
+            request.Language.ToLowerInvariant(),
+            7,
+            _timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+        try
         {
-            await RunAsync(
+            return new List<SyncEndpointResult>(7)
+            {
+                await RunAsync(
                 "items",
+                runId,
                 request,
                 () => client.GetItemsAsync(request.GameMode, request.Language, request.Force, cancellationToken),
                 response => refreshRepository.RefreshItemsAsync(response.Data, _timeProvider.GetUtcNow(), cancellationToken),
@@ -31,6 +40,7 @@ public sealed class TarkovDevDataRefreshOperation(
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
                 "maps",
+                runId,
                 request,
                 () => client.GetMapsAsync(request.GameMode, request.Language, request.Force, cancellationToken),
                 response => refreshRepository.RefreshMapsAsync(response.Data, cancellationToken),
@@ -45,6 +55,7 @@ public sealed class TarkovDevDataRefreshOperation(
                     : null).ConfigureAwait(false),
             await RunAsync(
                 "tasks",
+                runId,
                 request,
                 () => client.GetTasksAsync(request.GameMode, request.Language, request.Force, cancellationToken),
                 response => refreshRepository.RefreshTasksAsync(
@@ -58,6 +69,7 @@ public sealed class TarkovDevDataRefreshOperation(
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
                 "hideout",
+                runId,
                 request,
                 () => client.GetHideoutAsync(request.GameMode, request.Language, request.Force, cancellationToken),
                 response => refreshRepository.RefreshHideoutAsync(response.Data, cancellationToken),
@@ -65,6 +77,7 @@ public sealed class TarkovDevDataRefreshOperation(
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
                 "traders",
+                runId,
                 request,
                 () => client.GetTradersAsync(request.GameMode, request.Language, request.Force, cancellationToken),
                 response => refreshRepository.RefreshTradersAsync(response.Data, cancellationToken),
@@ -72,6 +85,7 @@ public sealed class TarkovDevDataRefreshOperation(
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
                 "crafts",
+                runId,
                 request,
                 () => client.GetCraftsAsync(request.GameMode, request.Force, cancellationToken),
                 response => refreshRepository.RefreshCraftsAsync(response.Data, cancellationToken),
@@ -79,18 +93,26 @@ public sealed class TarkovDevDataRefreshOperation(
                 cancellationToken).ConfigureAwait(false),
             await RunAsync(
                 "barters",
+                runId,
                 request,
                 () => client.GetBartersAsync(request.GameMode, request.Force, cancellationToken),
                 response => refreshRepository.RefreshBartersAsync(response.Data, cancellationToken),
                 response => response.Data.Count,
                 cancellationToken).ConfigureAwait(false),
-        };
-
-        return results;
+            };
+        }
+        finally
+        {
+            // A cancelled half-run remains explicit partial evidence. Recovery is a short local
+            // write and must not be skipped merely because the caller's token initiated it.
+            await syncStateRepository.CompleteRunAsync(runId, _timeProvider.GetUtcNow(), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
     }
 
     private async Task<SyncEndpointResult> RunAsync<T>(
         string endpoint,
+        string runId,
         SyncRequest request,
         Func<Task<TarkovDevResponse<T>>> fetch,
         Func<TarkovDevResponse<T>, Task> persist,
@@ -117,7 +139,9 @@ public sealed class TarkovDevDataRefreshOperation(
                         "refused",
                         refusal),
                     null,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    runId,
+                    0).ConfigureAwait(false);
                 return new(endpoint, false, false, 0, refusal);
             }
 
@@ -135,7 +159,9 @@ public sealed class TarkovDevDataRefreshOperation(
                     status,
                     null),
                 Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(response.RawSourceJson ?? response.Json))),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                runId,
+                count(response)).ConfigureAwait(false);
             return new(endpoint, !response.IsStale, response.IsStale, count(response), null);
         }
         catch (OperationCanceledException)
@@ -157,7 +183,9 @@ public sealed class TarkovDevDataRefreshOperation(
                     "failed",
                     error),
                 null,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                runId,
+                0).ConfigureAwait(false);
             return new(endpoint, false, false, 0, error);
         }
     }

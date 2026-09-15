@@ -85,9 +85,9 @@ public sealed class TarkovDevTraderPrice
 {
     public required string Trader { get; init; }
 
-    public long Price { get; init; }
+    public long? Price { get; init; }
 
-    public long PriceRub { get; init; }
+    public long? PriceRub { get; init; }
 
     public string Currency { get; init; } = "RUB";
 
@@ -197,16 +197,16 @@ public sealed class TarkovDevMap
 
 public sealed class TarkovDevMapPosition
 {
-    public required double X { get; init; }
+    public double? X { get; init; }
 
-    public required double Y { get; init; }
+    public double? Y { get; init; }
 
-    public required double Z { get; init; }
+    public double? Z { get; init; }
 }
 
 public sealed class TarkovDevMapSpawn
 {
-    public required TarkovDevMapPosition Position { get; init; }
+    public TarkovDevMapPosition? Position { get; init; }
 
     public string? ZoneName { get; init; }
 
@@ -264,7 +264,7 @@ public sealed class TarkovDevMapLock
 
 public sealed class TarkovDevMapLoot
 {
-    public required TarkovDevMapPosition Position { get; init; }
+    public TarkovDevMapPosition? Position { get; init; }
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
@@ -567,7 +567,7 @@ public sealed class TarkovDevBarter
 
 public sealed class TarkovDevPricePoint
 {
-    public required long Timestamp { get; init; }
+    public long? Timestamp { get; init; }
 
     public long? Price { get; init; }
 

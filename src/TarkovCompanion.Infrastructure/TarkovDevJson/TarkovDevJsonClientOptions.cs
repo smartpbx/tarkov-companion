@@ -22,6 +22,10 @@ public sealed record TarkovDevJsonClientOptions
 
     public TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(12);
 
+    public long MaximumResponseBytes { get; init; } = 16L * 1024 * 1024;
+
+    public int MaximumJsonDepth { get; init; } = 32;
+
     public TimeSpan StaticFreshFor { get; init; } = TimeSpan.FromHours(9);
 
     public TimeSpan PriceFreshFor { get; init; } = TimeSpan.FromMinutes(10);
@@ -29,6 +33,15 @@ public sealed record TarkovDevJsonClientOptions
     public TimeSpan InitialRetryDelay { get; init; } = TimeSpan.FromMilliseconds(250);
 
     public int MaxAttempts { get; init; } = 3;
+
+    /// <summary>Re-evaluated for every request so a long-running process can observe reconnect.</summary>
+    public Func<bool> OfflineProbe { get; init; } = static () =>
+        string.Equals(Environment.GetEnvironmentVariable("TARKOV_COMPANION_OFFLINE"), "1", StringComparison.Ordinal) ||
+        string.Equals(Environment.GetEnvironmentVariable("TARKOV_COMPANION_OFFLINE"), "true", StringComparison.OrdinalIgnoreCase);
+
+    public TimeSpan OfflineReconnectDelay { get; init; } = TimeSpan.FromSeconds(1);
+
+    public int MaximumOfflineReconnectAttempts { get; init; } = 6;
 
     internal void Validate()
     {
@@ -47,6 +60,16 @@ public sealed record TarkovDevJsonClientOptions
             throw new ArgumentOutOfRangeException(nameof(RequestTimeout));
         }
 
+        if (MaximumResponseBytes is < 1024 or > 256L * 1024 * 1024)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumResponseBytes));
+        }
+
+        if (MaximumJsonDepth is < 4 or > 64)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumJsonDepth));
+        }
+
         if (StaticFreshFor <= TimeSpan.Zero || PriceFreshFor <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(StaticFreshFor), "Cache freshness windows must be positive.");
@@ -60,6 +83,18 @@ public sealed record TarkovDevJsonClientOptions
         if (InitialRetryDelay < TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(InitialRetryDelay));
+        }
+
+
+        ArgumentNullException.ThrowIfNull(OfflineProbe);
+        if (OfflineReconnectDelay < TimeSpan.Zero || OfflineReconnectDelay > TimeSpan.FromMinutes(5))
+        {
+            throw new ArgumentOutOfRangeException(nameof(OfflineReconnectDelay));
+        }
+
+        if (MaximumOfflineReconnectAttempts is < 0 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaximumOfflineReconnectAttempts));
         }
     }
 }
