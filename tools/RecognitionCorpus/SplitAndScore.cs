@@ -143,7 +143,8 @@ internal sealed record PrivatePlannedSample(
     CorpusEvidenceClass EvidenceClass,
     CaptureContext Context,
     SequenceLineage Lineage,
-    string SplitUnitId);
+    string SplitUnitId,
+    bool ConsentPermitsSplit);
 
 public static class PrivateRunPlanner
 {
@@ -154,6 +155,12 @@ public static class PrivateRunPlanner
         string producerVersion,
         DateTimeOffset nowUtc)
     {
+        ArgumentNullException.ThrowIfNull(privateManifest);
+        if (!CorpusValidation.OpaqueId(runId) || !CorpusValidation.OpaqueId(producerId) || !CorpusValidation.BoundedToken(producerVersion))
+        {
+            throw new ArgumentException("A run plan requires opaque run/producer ids and a bounded producer version.");
+        }
+
         var errors = CorpusValidation.ValidateManifest(privateManifest, nowUtc);
         if (errors.Count != 0)
         {
@@ -161,6 +168,11 @@ public static class PrivateRunPlanner
         }
 
         var expected = ExpectedSamples(privateManifest);
+        if (expected.Count == 0)
+        {
+            throw new ArgumentException("No sample in the private manifest has consent for the split it is assigned to.", nameof(privateManifest));
+        }
+
         var planSamples = expected.Select(sample => new RunPlanSample(
             sample.SampleId,
             sample.Split,
@@ -180,22 +192,57 @@ public static class PrivateRunPlanner
             planSamples);
     }
 
-    internal static IReadOnlyList<PrivatePlannedSample> ExpectedSamples(CorpusManifest privateManifest)
+    /// <summary>
+    /// The samples a producer may be handed. A real capture consented only for benchmarking
+    /// keeps its content-stable split, because moving it would break the split unit it shares
+    /// with its crops and scroll frames, but it is withheld from the plan when that split is
+    /// Train or Tune: handing it to a producer there would be training on pixels the contributor
+    /// never allowed training on.
+    /// </summary>
+    internal static IReadOnlyList<PrivatePlannedSample> ExpectedSamples(CorpusManifest privateManifest) =>
+        PlannedSamples(privateManifest).Where(sample => sample.ConsentPermitsSplit).ToArray();
+
+    internal static IReadOnlyList<PrivatePlannedSample> PlannedSamples(CorpusManifest privateManifest)
     {
+        // Units are built from every sample, withheld ones included: a withheld original still
+        // joins its crop and its redaction into one unit.
         var units = SplitPlanner.BuildUnits(privateManifest.Samples);
         var unitBySample = units.SelectMany(unit => unit.Value.Select(sample => (sample.SampleId, Unit: unit.Key)))
             .ToDictionary(pair => pair.SampleId, pair => pair.Unit, StringComparer.Ordinal);
+        var evidenceBySample = privateManifest.PrivateEvidence.ToDictionary(item => item.SampleId, StringComparer.Ordinal);
         return privateManifest.Samples
             .OrderBy(sample => sample.SampleId, StringComparer.Ordinal)
-            .Select(sample => new PrivatePlannedSample(
-                sample.SampleId,
-                SplitPlanner.StableAssignment(unitBySample[sample.SampleId]),
-                IndependentScorer.IntentFor(sample.Context.CaptureIntentId),
-                sample.EvidenceClass,
-                sample.Context,
-                sample.Lineage,
-                unitBySample[sample.SampleId]))
+            .Select(sample =>
+            {
+                var split = SplitPlanner.StableAssignment(unitBySample[sample.SampleId]);
+                return new PrivatePlannedSample(
+                    sample.SampleId,
+                    split,
+                    IndependentScorer.IntentFor(sample.Context.CaptureIntentId),
+                    sample.EvidenceClass,
+                    sample.Context,
+                    sample.Lineage,
+                    unitBySample[sample.SampleId],
+                    ConsentPermits(sample, evidenceBySample.GetValueOrDefault(sample.SampleId), split));
+            })
             .ToArray();
+    }
+
+    internal static bool ConsentPermits(CorpusSample sample, PrivateSampleEvidence? evidence, CorpusSplit split)
+    {
+        if (sample.EvidenceClass != CorpusEvidenceClass.RealRaster)
+        {
+            return true;
+        }
+
+        var use = split switch
+        {
+            CorpusSplit.Train => "train",
+            CorpusSplit.Tune => "tune",
+            CorpusSplit.Test => "benchmark",
+            _ => null,
+        };
+        return use is not null && evidence?.Consent?.AllowedUses is { } allowedUses && allowedUses.Contains(use, StringComparer.Ordinal);
     }
 
     internal static string ComputeLock(

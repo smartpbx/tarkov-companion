@@ -294,7 +294,9 @@ public static class CorpusValidation
             return errors;
         }
 
-        var expected = PrivateRunPlanner.ExpectedSamples(privateManifest);
+        var planned = PrivateRunPlanner.PlannedSamples(privateManifest);
+        var plannedById = planned.ToDictionary(sample => sample.SampleId, StringComparer.Ordinal);
+        var expected = planned.Where(sample => sample.ConsentPermitsSplit).ToArray();
         var actualIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var sample in plan.Samples)
         {
@@ -317,7 +319,9 @@ public static class CorpusValidation
 
         foreach (var extra in actualOrderedIds.Except(expectedIds, StringComparer.Ordinal))
         {
-            errors.Add($"Run plan names unauthorized sample {extra}.");
+            errors.Add(plannedById.TryGetValue(extra, out var withheld)
+                ? $"Run plan names sample {extra} in split {withheld.Split}, which its private consent does not permit."
+                : $"Run plan names unauthorized sample {extra}.");
         }
 
         if (expectedIds.Length == actualOrderedIds.Length && !expectedIds.SequenceEqual(actualOrderedIds, StringComparer.Ordinal))
@@ -342,7 +346,7 @@ public static class CorpusValidation
         }
 
         foreach (var splitUnit in plan.Samples.Where(sample => sample is not null)
-                     .GroupBy(sample => expectedById.TryGetValue(sample.SampleId, out var item) ? item.SplitUnitId : sample.SampleId, StringComparer.Ordinal))
+                     .GroupBy(sample => plannedById.TryGetValue(sample.SampleId, out var item) ? item.SplitUnitId : sample.SampleId, StringComparer.Ordinal))
         {
             if (splitUnit.Select(sample => sample.Split).Distinct().Skip(1).Any())
             {
@@ -666,7 +670,7 @@ public static class CorpusValidation
 
     private static bool OptionalIdInvalid(string? value) => value is not null && !OpaqueId(value);
 
-    private static bool BoundedToken(string? value) => value is { Length: >= 1 and <= 128 } && !string.IsNullOrWhiteSpace(value);
+    internal static bool BoundedToken(string? value) => value is { Length: >= 1 and <= 128 } && !string.IsNullOrWhiteSpace(value);
 
     internal static IReadOnlyList<string> PrivacyErrors(JsonElement root, bool privateManifest)
     {
