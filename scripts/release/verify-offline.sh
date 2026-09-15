@@ -121,6 +121,14 @@ from release_policy import semver_key
 semver_key(sys.argv[2])
 PY
 
+readonly TASK_ARTIFACT_TABLE="${TASK_WORK}/artifacts.tsv"
+# A process substitution would hide jq's exit status from this shell. Materialize the signed
+# table first so a malformed later row cannot turn verification of an artifact prefix into a
+# successful verification of the whole manifest.
+jq -er '.artifacts[] | [.name, .sha256, (.size | tostring)] | @tsv' \
+    "${TASK_MANIFEST}" > "${TASK_ARTIFACT_TABLE}" \
+    || fail "the signed manifest artifact table is malformed"
+
 count=0
 while IFS=$'\t' read -r name expected size; do
     [[ "${expected}" =~ ^[0-9a-f]{64}$ && "${size}" =~ ^(0|[1-9][0-9]{0,9})$ ]] \
@@ -134,7 +142,9 @@ while IFS=$'\t' read -r name expected size; do
         || fail "${name} does not match the signed manifest"
     "${TASK_VERIFY}" "${file}" "${file}.sigstore.json" "${TASK_TRUST_ROOT}"
     count=$((count + 1))
-done < <(jq -r '.artifacts[] | [.name, .sha256, (.size | tostring)] | @tsv' "${TASK_MANIFEST}")
+done < "${TASK_ARTIFACT_TABLE}"
+((count == $(jq '.artifacts | length' "${TASK_MANIFEST}"))) \
+    || fail "the signed manifest artifact table is incomplete"
 
 manifest_sha="$(sha256sum "${TASK_MANIFEST}" | awk '{print $1}')"
 if ((break_glass)); then

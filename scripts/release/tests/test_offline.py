@@ -255,6 +255,18 @@ class VerifyOfflineTests(OfflineFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("unsafe artifact", result.stderr)
 
+    def test_a_malformed_later_artifact_cannot_hide_behind_a_verified_prefix(self) -> None:
+        manifest = json.loads((self.bundle / "release-manifest.json").read_text())
+        manifest["artifacts"][1]["name"] = ["not-a-file-name"]
+        value = json.dumps(manifest).encode()
+        (self.bundle / "release-manifest.json").write_bytes(value)
+        (self.bundle / "release-manifest.json.sigstore.json").write_text(bundle_text(value))
+
+        result = self.verify("--break-glass")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("artifact table is malformed", result.stderr)
+
     def test_the_output_is_the_verified_copy_not_the_media(self) -> None:
         output = self.root / "verified"
 
