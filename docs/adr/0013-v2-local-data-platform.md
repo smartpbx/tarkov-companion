@@ -1,4 +1,4 @@
-# ADR 0011: Publish V2 data through an evidence-preserving local platform
+# ADR 0013: Publish V2 data through an evidence-preserving local platform
 
 Status: Accepted — 2026-09-15
 
