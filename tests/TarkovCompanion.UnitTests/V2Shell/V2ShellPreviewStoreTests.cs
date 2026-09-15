@@ -191,6 +191,21 @@ public sealed class V2ShellPreviewStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_and_reset_surface_storage_failures_instead_of_reporting_success()
+    {
+        var store = new V2ShellPreviewStore(_config, V2ShellMode.VariantA);
+        Directory.CreateDirectory(store.DirectoryPath);
+        Directory.CreateDirectory(store.FilePath);
+
+        await Assert.ThrowsAnyAsync<Exception>(() => store.SaveAsync(
+            V2ShellPreviewState.For(V2ShellMode.VariantA) with { Address = "#/raid" },
+            CancellationToken.None));
+        await Assert.ThrowsAnyAsync<Exception>(() => store.ResetAsync(CancellationToken.None));
+
+        Assert.True(Directory.Exists(store.FilePath));
+    }
+
+    [Fact]
     public void Window_placement_preserves_reachable_overlap_and_clamps_a_stranded_monitor()
     {
         ScreenBounds[] screens = [new(0, 0, 1920, 1080)];

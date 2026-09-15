@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
 using TarkovCompanion.App.Services;
@@ -7,6 +9,9 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
+using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Quests;
+using TarkovCompanion.Core.Domain.Raids;
 
 namespace TarkovCompanion.App.ViewModels.V2.Shell;
 
@@ -42,7 +47,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private readonly TimeProvider _clock;
     private readonly CoalescingDispatch _apply;
     private readonly SynchronizationContext? _dispatcherContext;
+    private readonly ConcurrentQueue<V2ShellPersistenceResult> _persistenceResults = new();
+    private readonly List<INotifyPropertyChanged> _legacyContextSources = [];
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationToken _lifetimeToken;
     private readonly object _disposeSync = new();
     private string _address = string.Empty;
     private string _politeAnnouncement = string.Empty;
@@ -62,6 +70,15 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private Task? _disposeTask;
     private V2ReadinessCheck? _activeReadinessTarget;
     private V2FocusRequest? _playerActionStateFocus;
+    private V2CaptureShellState _captureState = V2CaptureShellState.Empty;
+    private V2CaptureShellState? _renderedCaptureState;
+    private ScanIntent _selectedCaptureIntent = ScanIntent.Auto;
+    private string _persistenceFailure = string.Empty;
+    private V2ShellPersistenceOperationKind? _persistenceFailureKind;
+    private bool _persistenceRetryPending;
+    private V2ShellSuggestionKind _suggestionFilter = V2ShellSuggestionKind.All;
+    private IReadOnlyList<V2PlannedItemSuggestion> _plannedSuggestions = [];
+    private ITimer? _headerTimer;
 
     public V2ShellViewModel(
         AppCommandLine options,
@@ -69,20 +86,61 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         IRuntimeStateStore runtime,
         MainWindowViewModel legacy,
         TimeProvider? clock = null)
+        : this(
+            RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
+            options.StartPage,
+            runtime,
+            legacy,
+            new V2ShellPreviewStore(
+                (paths ?? throw new ArgumentNullException(nameof(paths))).Config,
+                options.UiShell,
+                clock),
+            clock,
+            save: null,
+            reset: null)
     {
-        if (!options.UiShell.IsPreview())
-        {
-            throw new ArgumentException("A V2 shell view model requires a preview launch mode.", nameof(options));
-        }
+    }
 
+    /// <summary>Builds the actual shell behavior in tests without composing a second V1 graph.</summary>
+    internal V2ShellViewModel(
+        V2ShellMode mode,
+        string configDirectory,
+        IRuntimeStateStore runtime,
+        TimeProvider? clock = null,
+        Func<V2ShellPreviewState, CancellationToken, Task>? save = null,
+        Func<CancellationToken, Task>? reset = null)
+        : this(
+            RequirePreview(mode),
+            requestedAddress: null,
+            runtime,
+            legacy: null,
+            new V2ShellPreviewStore(configDirectory, mode, clock),
+            clock,
+            save,
+            reset)
+    {
+    }
+
+    private V2ShellViewModel(
+        V2ShellMode mode,
+        string? requestedAddress,
+        IRuntimeStateStore runtime,
+        MainWindowViewModel? legacy,
+        V2ShellPreviewStore preview,
+        TimeProvider? clock,
+        Func<V2ShellPreviewState, CancellationToken, Task>? save,
+        Func<CancellationToken, Task>? reset)
+    {
+        _lifetimeToken = _lifetime.Token;
         _runtime = runtime;
         _clock = clock ?? TimeProvider.System;
         Legacy = legacy;
         Registry = V2RouteRegistry.Default;
-        Variant = V2ShellVariants.For(options.UiShell);
+        Variant = V2ShellVariants.For(mode);
         Router = new V2ShellRouter(Variant, Registry);
-        _preview = new V2ShellPreviewStore(paths.Config, options.UiShell, _clock);
-        _persistence = new(_preview.SaveAsync, _preview.ResetAsync);
+        _preview = preview;
+        _persistence = new(save ?? _preview.SaveAsync, reset ?? _preview.ResetAsync);
+        _persistence.Completed += PersistenceCompleted;
         PrimaryDestinations = new ObservableCollection<V2ShellDestinationViewModel>(
             Variant.Destinations.Select(destination => new V2ShellDestinationViewModel(
                 destination,
@@ -111,10 +169,22 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         CopyAddressCommand = new AsyncDelegateCommand(CopyAddressAsync);
         CloseTransientCommand = new DelegateCommand(CloseTransient);
         ResetPreviewCommand = new AsyncDelegateCommand(ResetPreviewAsync);
+        ResetPreviewCommand.CanExecuteChanged += ResetPreviewCanExecuteChanged;
+        RetryPersistenceCommand = new DelegateCommand(RetryPersistence);
         PaletteAddressCommand = new DelegateCommand(OpenPaletteAddress);
+        ArmCaptureCommand = new DelegateCommand(ArmSelectedCaptureIntent);
         Commands = V2ShellCommands.For(Variant, Registry);
         CommandItems = new ObservableCollection<V2ShellCommandViewModel>(
             Commands.Select(command => new V2ShellCommandViewModel(command, CreateCommand(command))));
+        CaptureIntents = Enum.GetValues<ScanIntent>()
+            .Select(intent => new V2CaptureIntentViewModel(intent, SelectCaptureIntent))
+            .ToArray();
+        CaptureIntents.Single(intent => intent.Intent == SelectedCaptureIntent).SetSelected(true);
+        SuggestionFilters = Enum.GetValues<V2ShellSuggestionKind>()
+            .Select(kind => new V2ShellSuggestionFilterViewModel(kind, SelectSuggestionFilter))
+            .ToArray();
+        SuggestionFilters.Single(filter => filter.Kind == SuggestionFilter).IsSelected = true;
+        BrowseCategories = V2BrowseCategoryViewModel.Create(Variant, GoTo);
 
         var synchronizationContext = SynchronizationContext.Current;
         _dispatcherContext = synchronizationContext?.GetType().Namespace?
@@ -131,19 +201,37 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
         Router.Navigated += RouterNavigated;
         _runtime.Changed += RuntimeChanged;
-        Restore(options.StartPage);
+        WireLegacyContext();
+        Restore(requestedAddress);
         SynchronizeLegacyRoute();
         RebuildSectionItems();
         Refresh(announceBackgroundChange: false);
+        if (_dispatcherContext is not null)
+        {
+            _headerTimer = _clock.CreateTimer(
+                _ => _apply.Request(),
+                state: null,
+                dueTime: TimeSpan.FromSeconds(1),
+                period: TimeSpan.FromSeconds(1));
+        }
     }
 
+    private static V2ShellMode RequirePreview(V2ShellMode mode) => mode.IsPreview()
+        ? mode
+        : throw new ArgumentException("A V2 shell view model requires a preview launch mode.", nameof(mode));
+
     public event EventHandler<V2FocusRequest>? FocusRequested;
+
+    public event EventHandler<V2CaptureArmRequest>? CaptureArmRequested;
+
+    public event EventHandler<V2CaptureResolutionRequest>? CaptureResolutionRequested;
 
     /// <summary>Assigned by the attached view because a clipboard belongs to a top-level window.</summary>
     public Func<string, Task> Clipboard { get; set; } = _ =>
         Task.FromException(new InvalidOperationException("The shell is not attached to a clipboard."));
 
-    public MainWindowViewModel Legacy { get; }
+    public MainWindowViewModel? Legacy { get; }
+    public object? LegacyPage => Legacy?.CurrentPage;
     public V2RouteRegistry Registry { get; }
     public V2ShellVariantDefinition Variant { get; }
     public V2ShellRouter Router { get; }
@@ -157,16 +245,32 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public IReadOnlyList<V2SavedAddressViewModel> RecentItems { get; private set; } = [];
     public IReadOnlyList<V2SavedAddressViewModel> ContinueItems { get; private set; } = [];
     public IReadOnlyList<V2SavedAddressViewModel> PinItems { get; private set; } = [];
+    public IReadOnlyList<V2CaptureIntentViewModel> CaptureIntents { get; }
+    public IReadOnlyList<V2CaptureProgressViewModel> CaptureProgressItems { get; private set; } = [];
+    public IReadOnlyList<V2CaptureActionViewModel> CaptureAttentionActions { get; private set; } = [];
+    public IReadOnlyList<V2CaptureActionViewModel> CaptureReviewActions { get; private set; } = [];
+    public IReadOnlyList<V2ShellSuggestionViewModel> SuggestionItems { get; private set; } = [];
+    public IReadOnlyList<V2ShellSuggestionFilterViewModel> SuggestionFilters { get; }
+    public IReadOnlyList<V2BrowseCategoryViewModel> BrowseCategories { get; }
     public string AppName => V2ShellText.Get("V2.Shell.AppName");
     public string ProvisionalLabel => V2ShellText.Get("V2.Shell.Provisional");
     public string VariantName => V2ShellText.Get(Variant.NameKey);
     public string NavigationRegionName => V2ShellText.Get("V2.Shell.Region.Navigation");
+    public string ContextRegionName => V2ShellText.Get("V2.Shell.Region.Context");
     public string SectionRegionName => V2ShellText.Get("V2.Shell.Region.Sections");
     public string MainRegionName => V2ShellText.Get("V2.Shell.Region.Main");
     public string SetupSectionLabel => V2ShellText.Get("V2.Shell.Region.SetupSection");
     public string BackLabel => V2ShellText.Get("V2.Shell.Command.Back");
     public string ForwardLabel => V2ShellText.Get("V2.Shell.Command.Forward");
-    public string CaptureLabel => V2ShellText.Get("V2.Shell.Command.Capture");
+    public string CaptureLabel => CaptureState.Attention is not null
+        ? V2ShellText.Get("V2.Shell.Capture.NeedsDecision")
+        : CaptureState.IntentRevision.Value > 0
+            ? V2ShellText.Format(
+                "V2.Shell.Capture.ArmedHeader",
+                CultureInfo.CurrentCulture,
+                IntentLabel(CaptureState.ArmedIntent),
+                CaptureState.IntentRevision.Value)
+            : V2ShellText.Get("V2.Shell.Command.Capture");
     public string HealthLabel => HealthSummary;
     public string PaletteLabel => V2ShellText.Get("V2.Shell.Command.Palette");
     public string CopyAddressLabel => V2ShellText.Get("V2.Shell.Command.CopyAddress");
@@ -188,8 +292,87 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public string HealthHeading => V2ShellText.Get("V2.Shell.Health.Heading");
     public string CaptureHeading => V2ShellText.Get("V2.Shell.Capture.Heading");
     public string CaptureGuidance => V2ShellText.Get("V2.Shell.Capture.Guidance");
+    public string CaptureIntentHeading => V2ShellText.Get("V2.Shell.Capture.IntentHeading");
+    public string CaptureArmLabel => V2ShellText.Get("V2.Shell.Capture.Arm");
+    public string CaptureProgressHeading => V2ShellText.Get("V2.Shell.Capture.ProgressHeading");
+    public string CapturePriorHeading => V2ShellText.Get("V2.Shell.Capture.PriorHeading");
+    public string CapturePrior => Router.Context.PriorScan is { } prior
+        ? V2ShellText.Format("V2.Shell.Capture.Prior", CultureInfo.CurrentCulture, prior)
+        : V2ShellText.Get("V2.Shell.Capture.NoPrior");
+    public string CaptureReference => CaptureState.CorrelationId is { } correlation
+        ? V2ShellText.Format("V2.Shell.Capture.Reference", CultureInfo.CurrentCulture, correlation)
+        : V2ShellText.Get("V2.Shell.Capture.NoReference");
+    public string CaptureWatchingStatus => _runtime.Current.Observation.IsWatchingScreenshots
+        ? V2ShellText.Get("V2.Shell.Capture.Watching")
+        : V2ShellText.Get("V2.Shell.Capture.NotWatching");
+    public string CaptureArmedStatus => CaptureState.IntentRevision.Value == 0
+        ? V2ShellText.Get("V2.Shell.Capture.NotArmed")
+        : V2ShellText.Format(
+            "V2.Shell.Capture.Armed",
+            CultureInfo.CurrentCulture,
+            IntentLabel(CaptureState.ArmedIntent),
+            CaptureState.IntentRevision.Value,
+            CaptureState.SettingDevice);
+    public string CaptureAttentionHeading => CaptureState.Attention is { } attention
+        ? V2ShellText.Format(
+            $"V2.Shell.Capture.Attention.{attention.Kind}",
+            CultureInfo.CurrentCulture,
+            (attention.CaptureOrdinal ?? 0) + 1,
+            attention.DetectedContext is { } context ? ContextLabel(context) : IntentLabel(attention.BoundIntent))
+        : string.Empty;
+    public string CaptureAttentionDetail => CaptureState.Attention is { } attention
+        ? attention.Detail ?? V2ShellText.Get($"V2.Shell.Capture.AttentionDetail.{attention.Kind}")
+        : string.Empty;
+    public string CaptureReviewHeading => V2ShellText.Get("V2.Shell.Capture.Review");
+    public string CaptureReviewSummary => CaptureState.Review?.Summary ?? string.Empty;
+    public string CaptureReviewEvidence => CaptureState.Review is { } review
+        ? V2ShellText.Format(
+            "V2.Shell.Capture.Evidence",
+            CultureInfo.CurrentCulture,
+            review.Provenance,
+            review.CapturedUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture))
+        : string.Empty;
     public string CaptureShortcutStatus => V2ShellText.Get(
         CaptureShortcutEnabled ? "V2.Shell.Capture.ShortcutOn" : "V2.Shell.Capture.ShortcutOff");
+    public string ProfileContextLabel => Router.Context.ProfileName is { } profile
+        ? V2ShellText.Format(
+            "V2.Shell.Context.ProfileMode",
+            CultureInfo.CurrentCulture,
+            profile,
+            Router.Context.ProfileMode ?? V2ShellText.Get("V2.Shell.Context.UnknownMode"))
+        : V2ShellText.Get("V2.Shell.Context.NoProfile");
+    public string LocalTimeLabel => V2ShellText.Format(
+        "V2.Shell.Context.LocalTime",
+        CultureInfo.CurrentCulture,
+        _clock.GetLocalNow().ToString("t", CultureInfo.CurrentCulture));
+    public string RaidContextLabel => FormatRaidContext(_runtime.Current.Raid, _clock.GetUtcNow());
+    public string PlanContextLabel => Router.Context.PlanId is { } plan
+        ? V2ShellText.Format(
+            "V2.Shell.Context.Plan",
+            CultureInfo.CurrentCulture,
+            plan,
+            Router.Context.ObjectiveId ?? V2ShellText.Get("V2.Shell.Context.NoObjective"))
+        : V2ShellText.Get("V2.Shell.Context.NoPlan");
+    public string TeamContextLabel => V2ShellText.Format(
+        "V2.Shell.Context.Team",
+        CultureInfo.CurrentCulture,
+        Router.Context.TeamMemberKeys.Count);
+    public string DeviceContextLabel => V2ShellText.Format(
+        "V2.Shell.Context.Device",
+        CultureInfo.CurrentCulture,
+        Router.Context.InitiatingDevice);
+    public string SelectionContextLabel => Router.Context.SelectedEntity is { } selected
+        ? V2ShellText.Format("V2.Shell.Context.Selection", CultureInfo.CurrentCulture, selected)
+        : V2ShellText.Get("V2.Shell.Context.NoSelection");
+    public string PersistenceFailure => _persistenceFailure;
+    public string PersistenceRetryLabel => V2ShellText.Get(_persistenceRetryPending
+        ? "V2.Shell.Persistence.Retrying"
+        : _persistenceFailureKind == V2ShellPersistenceOperationKind.Reset
+            ? "V2.Shell.Persistence.RetryReset"
+            : "V2.Shell.Persistence.RetrySave");
+    public string SuggestionsHeading => V2ShellText.Get("V2.Shell.Suggestions.Heading");
+    public string BrowseHeading => V2ShellText.Get("V2.Shell.Suggestions.Browse");
+    public string SuggestionsEmpty => V2ShellText.Get("V2.Shell.Suggestions.Empty");
     public string IntelHeading => V2ShellText.Get("V2.Shell.Intel.Heading");
     public string IntelDescription => V2ShellText.Format("V2.Shell.Intel.Item", CultureInfo.CurrentCulture, IntelItem);
     public string ReadinessSummary => V2ShellText.Format(
@@ -242,7 +425,17 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public string PoliteAnnouncement { get => _politeAnnouncement; private set => SetProperty(ref _politeAnnouncement, value); }
     public string AssertiveAnnouncement { get => _assertiveAnnouncement; private set => SetProperty(ref _assertiveAnnouncement, value); }
     public string Announcement => string.IsNullOrEmpty(AssertiveAnnouncement) ? PoliteAnnouncement : AssertiveAnnouncement;
-    public string SearchText { get => _searchText; set => SetProperty(ref _searchText, value); }
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            if (SetProperty(ref _searchText, value))
+            {
+                RaiseSuggestionsChanged();
+            }
+        }
+    }
     public string PaletteQuery
     {
         get => _paletteQuery;
@@ -287,6 +480,42 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public bool IsCaptureOpen => ActiveDialog == V2ShellDialogKind.Capture;
     public bool IsPaletteOpen => ActiveDialog == V2ShellDialogKind.Commands;
     public bool IsHealthOpen => ActiveDialog == V2ShellDialogKind.Health;
+    public V2CaptureShellState CaptureState => Volatile.Read(ref _captureState);
+    public ScanIntent SelectedCaptureIntent
+    {
+        get => _selectedCaptureIntent;
+        private set
+        {
+            if (SetProperty(ref _selectedCaptureIntent, value))
+            {
+                foreach (var intent in CaptureIntents)
+                {
+                    intent.SetSelected(intent.Intent == value);
+                }
+            }
+        }
+    }
+    public bool HasCaptureProgress => CaptureProgressItems.Count > 0;
+    public bool HasNoCaptureProgress => !HasCaptureProgress;
+    public bool HasCaptureAttention => CaptureState.Attention is not null;
+    public bool HasCaptureReview => CaptureState.Review is not null;
+    public bool HasCaptureReference => CaptureState.CorrelationId is not null;
+    public bool HasPersistenceFailure => !string.IsNullOrEmpty(PersistenceFailure);
+    public bool PersistenceRetryPending => _persistenceRetryPending;
+    public bool CanRetryPersistence => HasPersistenceFailure &&
+        !PersistenceRetryPending &&
+        (_persistenceFailureKind != V2ShellPersistenceOperationKind.Reset || ResetPreviewCommand.CanExecute(null));
+    public V2ShellSuggestionKind SuggestionFilter => _suggestionFilter;
+    public IReadOnlyList<V2ShellSuggestionViewModel> FilteredSuggestionItems => SuggestionItems
+        .Where(item => SuggestionFilter == V2ShellSuggestionKind.All || item.Kind == SuggestionFilter)
+        .Where(item => string.IsNullOrWhiteSpace(SearchText) ||
+            item.Label.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase) ||
+            item.Provenance.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase) ||
+            item.Category.Contains(SearchText, StringComparison.CurrentCultureIgnoreCase))
+        .ToArray();
+    public bool ShowsSuggestions => Router.Current.Location.Route == V2Routes.Items;
+    public bool HasSuggestions => FilteredSuggestionItems.Count > 0;
+    public bool HasNoSuggestions => !HasSuggestions;
     public bool CaptureShortcutEnabled
     {
         get => _captureShortcutEnabled;
@@ -376,7 +605,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     public ICommand CopyAddressCommand { get; }
     public ICommand CloseTransientCommand { get; }
     public AsyncDelegateCommand ResetPreviewCommand { get; }
+    public ICommand RetryPersistenceCommand { get; }
     public ICommand PaletteAddressCommand { get; }
+    public ICommand ArmCaptureCommand { get; }
 
     public void GoTo(V2RouteId route) => GoTo(route, V2ShellFocusTargets.Destination(route));
     public void Back() => Act(Router.Back());
@@ -440,9 +671,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             Act(moved);
         }
 
+        if (Legacy is null)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.SearchUnavailable"), V2Announcement.Assertive);
+            return;
+        }
+
         Legacy.Items.SearchQuery = query;
         await Legacy.Items.SearchCommand.ExecuteAsync().ConfigureAwait(true);
         Announce(Legacy.Items.SearchStatus, V2Announcement.Polite);
+        RebuildSuggestions();
         FocusRequested?.Invoke(this, new(SearchFocusTarget, V2FocusReason.Invoker));
     }
 
@@ -501,9 +739,26 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             return false;
         }
 
+        if (HasOpenDialog && !CanExecuteFromOpenDialog(command))
+        {
+            // Capture and Health are modal decisions, not translucent page chrome. Consuming a
+            // background shortcut here prevents it changing the disabled page underneath them.
+            Announce(V2ShellText.Get("V2.Shell.Announce.CloseDialogFirst"), V2Announcement.Assertive);
+            FocusRequested?.Invoke(this, new(ActiveDialogFocusTarget(), V2FocusReason.Restored));
+            return true;
+        }
+
         ExecuteCommand(command, focusedAutomationId);
         return true;
     }
+
+    private bool CanExecuteFromOpenDialog(V2ShellCommand command) => IsPaletteOpen || command.Kind is
+        V2ShellCommandKind.CloseTransient or
+        V2ShellCommandKind.ToggleCapture or
+        V2ShellCommandKind.ToggleHealth or
+        V2ShellCommandKind.TogglePalette or
+        V2ShellCommandKind.NextRegion or
+        V2ShellCommandKind.PreviousRegion;
 
     public void UpdateEffectiveWidth(double effectiveWidth, string? focusedAutomationId = null)
     {
@@ -553,6 +808,130 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             RequireContextValue(initiatingDevice, nameof(initiatingDevice), optional: false)!);
         Volatile.Write(ref _continuity, continuity);
         _apply.Request();
+    }
+
+    /// <summary>
+    /// Projects #271's typed state into shared chrome. It never starts capture work or reads EFT.
+    /// </summary>
+    public void UpdateCaptureState(V2CaptureShellState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        Volatile.Write(ref _captureState, state);
+        var continuity = Volatile.Read(ref _continuity);
+        Volatile.Write(ref _continuity, continuity with
+        {
+            CaptureCorrelationId = state.CorrelationId,
+            InitiatingDevice = state.SettingDevice,
+        });
+        _apply.Request();
+    }
+
+    /// <summary>Accepts plan-owned suggestions without making the shell own plan persistence.</summary>
+    public void UpdatePlannedSuggestions(IReadOnlyList<V2PlannedItemSuggestion> suggestions)
+    {
+        ArgumentNullException.ThrowIfNull(suggestions);
+        if (suggestions.Any(suggestion => suggestion is null))
+        {
+            throw new ArgumentException("A planned suggestion list cannot contain null entries.", nameof(suggestions));
+        }
+
+        Volatile.Write(ref _plannedSuggestions, suggestions
+            .DistinctBy(suggestion => suggestion.ItemId, StringComparer.Ordinal)
+            .Take(20)
+            .ToArray());
+        _apply.Request();
+    }
+
+    private void SelectCaptureIntent(ScanIntent intent)
+    {
+        SelectedCaptureIntent = intent;
+        OnPropertyChanged(nameof(CaptureArmLabel));
+    }
+
+    private void ArmSelectedCaptureIntent()
+    {
+        var requested = CaptureArmRequested;
+        if (requested is null)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureUnavailable"), V2Announcement.Assertive);
+            return;
+        }
+
+        try
+        {
+            requested(this, new(
+                SelectedCaptureIntent,
+                CaptureState.IntentRevision,
+                V2NavigationContext.ThisDesktop));
+        }
+        catch (OperationCanceledException)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureRequestCancelled"), V2Announcement.Polite);
+            return;
+        }
+        catch (Exception)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureRequestFailed"), V2Announcement.Assertive);
+            return;
+        }
+
+        Announce(
+            V2ShellText.Format(
+                "V2.Shell.Announce.CaptureRequested",
+                CultureInfo.CurrentCulture,
+                IntentLabel(SelectedCaptureIntent)),
+            V2Announcement.Polite);
+        if (IsCaptureOpen)
+        {
+            CloseDialog(restoreInvoker: true);
+        }
+    }
+
+    private void RequestCaptureResolution(V2CaptureResolutionKind resolution)
+    {
+        var requested = CaptureResolutionRequested;
+        if (requested is null)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureUnavailable"), V2Announcement.Assertive);
+            return;
+        }
+
+        var attention = CaptureState.Attention;
+        var review = CaptureState.Review;
+        var intent = resolution switch
+        {
+            V2CaptureResolutionKind.AnalyzeAsArmed => attention?.BoundIntent,
+            V2CaptureResolutionKind.AnalyzeAsDetected => attention?.DetectedContext is { } detected
+                ? IntentForContext(detected)
+                : null,
+            V2CaptureResolutionKind.AnalyzeAsSelected or
+                V2CaptureResolutionKind.ArmSelectedIntent or
+                V2CaptureResolutionKind.Correct => SelectedCaptureIntent,
+            _ => null,
+        };
+        try
+        {
+            requested(this, new(
+                attention?.SessionId ?? review?.SessionId,
+                attention?.ArtifactId ?? review?.ArtifactId,
+                attention?.CaptureOrdinal ?? review?.CaptureOrdinal,
+                resolution,
+                intent,
+                CaptureState.IntentRevision,
+                V2NavigationContext.ThisDesktop));
+        }
+        catch (OperationCanceledException)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureRequestCancelled"), V2Announcement.Polite);
+            return;
+        }
+        catch (Exception)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.CaptureRequestFailed"), V2Announcement.Assertive);
+            return;
+        }
+
+        Announce(V2ShellText.Get("V2.Shell.Announce.CaptureActionRequested"), V2Announcement.Polite);
     }
 
     public void RecordFocusedTarget(string? automationId)
@@ -673,28 +1052,108 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     private void RouterNavigated(object? sender, V2NavigationChange change)
     {
+        var resetting = Volatile.Read(ref _resetInProgress) != 0;
         _activeReadinessTarget = null;
         SynchronizeLegacyRoute();
         CurrentAddress = Router.CurrentAddress;
-        Recents = Recents
-            .Where(address => !string.Equals(address, CurrentAddress, StringComparison.Ordinal))
-            .Prepend(CurrentAddress)
-            .Take(V2ShellPreviewState.MaxRecents)
-            .ToArray();
+        if (!resetting)
+        {
+            Recents = Recents
+                .Where(address => !string.Equals(address, CurrentAddress, StringComparison.Ordinal))
+                .Prepend(CurrentAddress)
+                .Take(V2ShellPreviewState.MaxRecents)
+                .ToArray();
+        }
+
         RebuildSavedAddresses();
         RebuildSectionItems();
         _playerActionStateFocus = null;
         Refresh(
             announceBackgroundChange: false,
             playerAction: change.Kind != V2NavigationKind.Restore);
-        QueueSave();
+        if (!resetting)
+        {
+            QueueSave();
+        }
     }
 
     private void SynchronizeLegacyRoute()
     {
-        if (Registry[Router.Current.Location.Route].LegacyPage is { } page)
+        if (Legacy is not null && Registry[Router.Current.Location.Route].LegacyPage is { } page)
         {
             Legacy.Navigate(page);
+            OnPropertyChanged(nameof(LegacyPage));
+        }
+    }
+
+    private void WireLegacyContext()
+    {
+        if (Legacy is null)
+        {
+            return;
+        }
+
+        _legacyContextSources.AddRange(
+        [
+            Legacy,
+            Legacy.Map,
+            Legacy.Items,
+            Legacy.Quests,
+            Legacy.Ammo,
+            Legacy.Keys,
+            Legacy.Flea,
+            Legacy.Hideout,
+            Legacy.Events,
+        ]);
+        foreach (var source in _legacyContextSources)
+        {
+            source.PropertyChanged += LegacyContextChanged;
+        }
+    }
+
+    private void LegacyContextChanged(object? sender, PropertyChangedEventArgs eventArgs)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(sender, Legacy) &&
+            (eventArgs.PropertyName is null || eventArgs.PropertyName == nameof(MainWindowViewModel.CurrentPage)))
+        {
+            OnPropertyChanged(nameof(LegacyPage));
+        }
+
+        _apply.Request();
+    }
+
+    private void SynchronizeLegacySelection()
+    {
+        if (Legacy is null)
+        {
+            return;
+        }
+
+        var selected = Router.Current.Location.Route switch
+        {
+            var route when route == V2Routes.Raid => Legacy.Map.SelectedLocation?.Id,
+            var route when route == V2Routes.Ammo => Legacy.Ammo.SelectedRound?.ItemId,
+            var route when route == V2Routes.Keys => Legacy.Keys.Selected?.ItemId,
+            var route when route == V2Routes.Flea => Legacy.Flea.Selected?.ItemId,
+            var route when route == V2Routes.Plan => Legacy.Quests.SelectedTask?.TaskId,
+            var route when route == V2Routes.Hideout => Legacy.Hideout.Selected?.StationId,
+            var route when route == V2Routes.Events => Legacy.Events.Selected?.EventId,
+            _ => Router.Current.SelectedEntity,
+        };
+        if (selected is not null && !V2AddressCodec.IsValidItem(selected))
+        {
+            selected = null;
+        }
+
+        if (!string.Equals(selected, Router.Current.SelectedEntity, StringComparison.Ordinal))
+        {
+            Router.Select(selected);
+            QueueSave();
         }
     }
 
@@ -702,19 +1161,23 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     private void Refresh(bool announceBackgroundChange, bool playerAction = false)
     {
+        ApplyPersistenceResults();
         var snapshot = _runtime.Current;
         var continuity = Volatile.Read(ref _continuity);
-        var selectedTask = Legacy.Quests.SelectedTask;
+        SynchronizeLegacySelection();
+        var selectedTask = Legacy?.Quests.SelectedTask;
         var selectedObjective = selectedTask?.Objectives.FirstOrDefault(objective => objective.Model.IsPinned)?.ObjectiveId;
         var priorScan = snapshot.Scan.Succeeded
             ? snapshot.Scan.CanonicalItemId
             : continuity.PriorScan ?? Router.Context.PriorScan;
         Router.UpdateContext(new(
             snapshot.Profile?.Name,
-            snapshot.Raid.MapId,
+            snapshot.Raid.MapId ?? Legacy?.Map.SelectedLocation?.Id,
             continuity.PlanId ?? selectedTask?.TaskId ?? Router.Context.PlanId,
             priorScan,
-            continuity.InitiatingDevice)
+            CaptureState.IntentRevision.Value > 0 || CaptureState.CorrelationId is not null
+                ? CaptureState.SettingDevice
+                : continuity.InitiatingDevice)
         {
             ProfileId = snapshot.Profile?.Id.ToString("D", CultureInfo.InvariantCulture),
             ProfileMode = snapshot.Profile?.GameMode.ToString(),
@@ -722,7 +1185,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             RaidState = snapshot.Raid.State.ToString(),
             ObjectiveId = continuity.ObjectiveId ?? selectedObjective ?? Router.Context.ObjectiveId,
             TeamMemberKeys = snapshot.Squad.Members.Select(member => member.Key).Take(5).ToArray(),
-            CaptureCorrelationId = continuity.CaptureCorrelationId ?? Router.Context.CaptureCorrelationId,
+            CaptureCorrelationId = CaptureState.CorrelationId ?? continuity.CaptureCorrelationId ?? Router.Context.CaptureCorrelationId,
             WorkspaceId = (Router.CurrentDestination ?? Registry.RootOf(Router.Current.Location.Route)).Value,
             SelectedEntity = Router.Current.SelectedEntity,
         });
@@ -768,6 +1231,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         }
 
         _surfaceInitialized = true;
+        RebuildCapturePresentation();
+        RebuildSuggestions();
         foreach (var destination in PrimaryDestinations.Append(SetupDestination))
         {
             destination.IsCurrent = Router.CurrentDestination == destination.Route;
@@ -809,8 +1274,15 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
                 ToggleDialog(V2ShellDialogKind.Capture, $"v2-shell-recovery-{action.Id}", V2ShellFocusTargets.CaptureDialog);
                 break;
             case "sync":
-                Legacy.Settings.SyncCommand.Execute(null);
-                Announce(V2ShellText.Get("V2.Shell.Announce.SyncStarted"), V2Announcement.Polite);
+                if (Legacy is not null)
+                {
+                    Legacy.Settings.SyncCommand.Execute(null);
+                    Announce(V2ShellText.Get("V2.Shell.Announce.SyncStarted"), V2Announcement.Polite);
+                }
+                else
+                {
+                    Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
+                }
                 break;
             default:
                 Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
@@ -845,6 +1317,393 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             V2FocusReason.PageHeading));
     }
 
+    private void RebuildCapturePresentation()
+    {
+        var state = CaptureState;
+        if (ReferenceEquals(state, _renderedCaptureState))
+        {
+            return;
+        }
+
+        var armedIntentChanged = _renderedCaptureState is null ||
+            _renderedCaptureState.IntentRevision != state.IntentRevision ||
+            _renderedCaptureState.ArmedIntent != state.ArmedIntent;
+        _renderedCaptureState = state;
+        if (armedIntentChanged)
+        {
+            // Progress updates replace the immutable projection too. Preserve a radio choice the
+            // player has not armed yet unless the authoritative intent revision actually moved.
+            SelectedCaptureIntent = state.ArmedIntent;
+        }
+        CaptureProgressItems = state.Session?.Progress
+            .Select(progress => new V2CaptureProgressViewModel(
+                progress.Sequence,
+                V2ShellText.Get($"V2.Shell.Capture.Stage.{progress.Stage}"),
+                progress.Detail ?? V2ShellText.Get($"V2.Shell.Capture.StageDetail.{progress.Stage}"),
+                progress.CaptureOrdinal is { } ordinal
+                    ? V2ShellText.Format(
+                        "V2.Shell.Capture.Artifact",
+                        CultureInfo.CurrentCulture,
+                        ordinal + 1,
+                        progress.ArtifactId)
+                    : V2ShellText.Get("V2.Shell.Capture.Session"),
+                progress.Percent is { } percent
+                    ? V2ShellText.Format("V2.Shell.Capture.Percent", CultureInfo.CurrentCulture, percent)
+                    : string.Empty,
+                state.CorrelationId ?? string.Empty))
+            .ToArray() ?? [];
+        CaptureAttentionActions = state.Attention is { } attention
+            ? AttentionActions(attention)
+            : [];
+        CaptureReviewActions = state.Review is { } review
+            ? ReviewActions(review)
+            : [];
+
+        foreach (var property in new[]
+        {
+            nameof(CaptureState), nameof(CaptureLabel), nameof(CaptureProgressItems),
+            nameof(HasCaptureProgress), nameof(HasNoCaptureProgress), nameof(HasCaptureAttention),
+            nameof(HasCaptureReview), nameof(HasCaptureReference), nameof(CaptureReference),
+            nameof(CaptureArmedStatus), nameof(CaptureAttentionHeading), nameof(CaptureAttentionDetail),
+            nameof(CaptureAttentionActions), nameof(CaptureReviewSummary), nameof(CaptureReviewEvidence),
+            nameof(CaptureReviewActions),
+        })
+        {
+            OnPropertyChanged(property);
+        }
+    }
+
+    private IReadOnlyList<V2CaptureActionViewModel> AttentionActions(V2CaptureAttention attention)
+    {
+        var resolutions = attention.Kind switch
+        {
+            V2CaptureAttentionKind.IntentMismatch => new[]
+            {
+                V2CaptureResolutionKind.Skip,
+                V2CaptureResolutionKind.AnalyzeAsArmed,
+                V2CaptureResolutionKind.AnalyzeAsDetected,
+            },
+            V2CaptureAttentionKind.UnknownContext =>
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.AnalyzeAsSelected],
+            V2CaptureAttentionKind.StillWriting =>
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.Retry],
+            V2CaptureAttentionKind.Duplicate =>
+            [V2CaptureResolutionKind.AnalyzeAgain],
+            V2CaptureAttentionKind.DeviceRace =>
+            [V2CaptureResolutionKind.KeepCurrentIntent, V2CaptureResolutionKind.ArmSelectedIntent],
+            V2CaptureAttentionKind.SourceUnavailable =>
+            [V2CaptureResolutionKind.Skip, V2CaptureResolutionKind.Retry],
+            _ => [],
+        };
+        return resolutions.Select(ActionFor).ToArray();
+    }
+
+    private IReadOnlyList<V2CaptureActionViewModel> ReviewActions(V2CaptureReview review)
+    {
+        var actions = new List<V2CaptureActionViewModel> { ActionFor(V2CaptureResolutionKind.Review) };
+        if (review.CanCorrect)
+        {
+            actions.Add(ActionFor(V2CaptureResolutionKind.Correct));
+        }
+
+        return actions;
+    }
+
+    private V2CaptureActionViewModel ActionFor(V2CaptureResolutionKind resolution) => new(
+        resolution,
+        V2ShellText.Get($"V2.Shell.Capture.Action.{resolution}"),
+        $"v2-shell-capture-action-{resolution.ToString().ToLowerInvariant()}",
+        RequestCaptureResolution);
+
+    private void RebuildSuggestions()
+    {
+        var suggestions = new List<V2ShellSuggestionViewModel>();
+        AddAddressSuggestions(Pins, V2ShellSuggestionKind.Pinned, "V2.Shell.Suggestions.Source.Pinned", suggestions);
+        AddAddressSuggestions(Recents, V2ShellSuggestionKind.Recent, "V2.Shell.Suggestions.Source.Recent", suggestions);
+
+        foreach (var planned in Volatile.Read(ref _plannedSuggestions))
+        {
+            var itemId = planned.ItemId;
+            var automationId = $"v2-shell-suggestion-planned-{itemId}";
+            suggestions.Add(new(
+                itemId,
+                planned.DisplayName,
+                V2ShellText.Format(
+                    "V2.Shell.Suggestions.Source.Planned",
+                    CultureInfo.CurrentCulture,
+                    planned.PlanLabel,
+                    planned.ObjectiveLabel),
+                V2ShellText.Get("V2.Shell.Suggestions.Category.Planned"),
+                V2ShellSuggestionKind.Planned,
+                () => OpenSuggestedItem(itemId, automationId)));
+        }
+
+        if (Legacy is not null)
+        {
+            var selected = Legacy.Quests.SelectedTask;
+            var tasks = selected is not null
+                ? new[] { selected }
+                : Legacy.Quests.Tasks.Where(task => task.Model.IsPinned).Take(3).ToArray();
+            var seenItems = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var task in tasks)
+            {
+                foreach (var objective in task.Objectives
+                    .Where(objective => objective.Model.RecordedState != RecordedObjectiveState.Completed)
+                    .SelectMany(objective => objective.Model.ItemTargets.Select(target => (objective, target)))
+                    .Where(pair => seenItems.Add(pair.target.ItemId))
+                    .Take(8))
+                {
+                    var itemId = objective.target.ItemId;
+                    var automationId = $"v2-shell-suggestion-planned-{itemId}";
+                    suggestions.Add(new(
+                        itemId,
+                        Legacy.Quests.NameOfItem(itemId),
+                        V2ShellText.Format(
+                            "V2.Shell.Suggestions.Source.Planned",
+                            CultureInfo.CurrentCulture,
+                            task.Name,
+                            objective.objective.Description),
+                        V2ShellText.Get("V2.Shell.Suggestions.Category.Planned"),
+                        V2ShellSuggestionKind.Planned,
+                        () => OpenSuggestedItem(itemId, automationId)));
+                }
+            }
+        }
+
+        SuggestionItems = suggestions
+            .GroupBy(item => (item.Kind, item.Key))
+            .Select(group => group.First())
+            .Take(30)
+            .ToArray();
+        RaiseSuggestionsChanged();
+    }
+
+    private void AddAddressSuggestions(
+        IReadOnlyList<string> addresses,
+        V2ShellSuggestionKind kind,
+        string provenanceKey,
+        ICollection<V2ShellSuggestionViewModel> suggestions)
+    {
+        foreach (var address in addresses.Take(8))
+        {
+            var parsed = Router.Addresses.Parse(address);
+            if (parsed.Location is not { } location)
+            {
+                continue;
+            }
+
+            var route = Registry[location.Route];
+            var selectedItem = location.Item ?? location.IntelItem;
+            var label = selectedItem is { } item
+                ? V2ShellText.Format(
+                    "V2.Shell.Suggestions.Item",
+                    CultureInfo.CurrentCulture,
+                    item,
+                    V2ShellText.Get(route.HeadingKey))
+                : V2ShellText.Get(route.HeadingKey);
+            var automationId = V2ShellFocusTargets.SavedAddress(kind.ToString().ToLowerInvariant(), suggestions.Count);
+            suggestions.Add(new(
+                address,
+                label,
+                V2ShellText.Get(provenanceKey),
+                V2ShellText.Get(route.HeadingKey),
+                kind,
+                () => OpenSavedAddress(address, automationId)));
+        }
+    }
+
+    private void OpenSuggestedItem(string itemId, string automationId)
+    {
+        if (HasOpenDialog)
+        {
+            CloseDialog(restoreInvoker: false);
+        }
+
+        Act(Router.OpenIntel(itemId, automationId));
+    }
+
+    private void SelectSuggestionFilter(V2ShellSuggestionKind kind)
+    {
+        _suggestionFilter = kind;
+        foreach (var filter in SuggestionFilters)
+        {
+            filter.IsSelected = filter.Kind == kind;
+        }
+
+        RaiseSuggestionsChanged();
+    }
+
+    private void RaiseSuggestionsChanged()
+    {
+        OnPropertyChanged(nameof(SuggestionItems));
+        OnPropertyChanged(nameof(FilteredSuggestionItems));
+        OnPropertyChanged(nameof(ShowsSuggestions));
+        OnPropertyChanged(nameof(HasSuggestions));
+        OnPropertyChanged(nameof(HasNoSuggestions));
+        OnPropertyChanged(nameof(SuggestionFilter));
+    }
+
+    private void PersistenceCompleted(V2ShellPersistenceResult result)
+    {
+        if (_disposed || result.Kind == V2ShellPersistenceOperationKind.Reset)
+        {
+            // Reset is awaited by ResetPreviewAsync so the durable result and the visible state
+            // change stay one operation. Publishing its queue event first could expose Retry
+            // while the original command was still unwinding and make that click a no-op.
+            return;
+        }
+
+        _persistenceResults.Enqueue(result);
+        _apply.Request();
+    }
+
+    private void ApplyPersistenceResults()
+    {
+        while (_persistenceResults.TryDequeue(out var result))
+        {
+            if (result.Succeeded)
+            {
+                if (_persistenceFailureKind == result.Kind && (HasPersistenceFailure || _persistenceRetryPending))
+                {
+                    _persistenceFailure = string.Empty;
+                    _persistenceFailureKind = null;
+                    _persistenceRetryPending = false;
+                    Announce(V2ShellText.Get("V2.Shell.Announce.PersistenceRestored"), V2Announcement.Polite);
+                }
+
+                continue;
+            }
+
+            if (_persistenceFailureKind == V2ShellPersistenceOperationKind.Reset &&
+                result.Kind == V2ShellPersistenceOperationKind.Save)
+            {
+                // A later navigation save cannot make an earlier reset true. Keep Reset as the
+                // retry target until that delete itself succeeds or the player retries it.
+                continue;
+            }
+
+            _persistenceRetryPending = false;
+            _persistenceFailureKind = result.Kind;
+            _persistenceFailure = V2ShellText.Format(
+                result.Kind == V2ShellPersistenceOperationKind.Reset
+                    ? "V2.Shell.Persistence.ResetFailed"
+                    : "V2.Shell.Persistence.SaveFailed",
+                CultureInfo.CurrentCulture,
+                StorageFailureDetail(result.Error));
+            Announce(_persistenceFailure, V2Announcement.Assertive);
+        }
+
+        OnPropertyChanged(nameof(PersistenceFailure));
+        OnPropertyChanged(nameof(HasPersistenceFailure));
+        OnPropertyChanged(nameof(PersistenceRetryPending));
+        OnPropertyChanged(nameof(CanRetryPersistence));
+        OnPropertyChanged(nameof(PersistenceRetryLabel));
+    }
+
+    private void RetryPersistence()
+    {
+        if (_disposed || !CanRetryPersistence)
+        {
+            return;
+        }
+
+        _persistenceRetryPending = true;
+        OnPropertyChanged(nameof(PersistenceRetryPending));
+        OnPropertyChanged(nameof(CanRetryPersistence));
+        OnPropertyChanged(nameof(PersistenceRetryLabel));
+        if (_persistenceFailureKind == V2ShellPersistenceOperationKind.Reset)
+        {
+            ResetPreviewCommand.Execute(null);
+        }
+        else
+        {
+            _persistence.QueueSave(Snapshot());
+        }
+        Announce(V2ShellText.Get("V2.Shell.Announce.PersistenceRetrying"), V2Announcement.Polite);
+    }
+
+    private void ResetPreviewCanExecuteChanged(object? sender, EventArgs eventArgs) =>
+        OnPropertyChanged(nameof(CanRetryPersistence));
+
+    private string FormatRaidContext(RaidSnapshot raid, DateTimeOffset nowUtc)
+    {
+        var map = raid.MapId ?? Router.Context.MapId ?? V2ShellText.Get("V2.Shell.Context.NoMap");
+        var state = V2ShellText.Get($"V2.Shell.Context.RaidState.{raid.State}");
+        if (raid.RaidClock is { } observedRemaining && raid.RaidClockReadUtc is { } readUtc)
+        {
+            // A clock read from a screenshot is a reading at that instant. Showing the original
+            // value forever is the full-raid-time defect #267's context strip must not repeat.
+            var age = nowUtc - readUtc;
+            var remaining = observedRemaining - (age < TimeSpan.Zero ? TimeSpan.Zero : age);
+            return V2ShellText.Format(
+                "V2.Shell.Context.RaidRemaining",
+                CultureInfo.CurrentCulture,
+                map,
+                state,
+                FormatDuration(remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining));
+        }
+
+        if (raid.StartedUtc is { } started && raid.State == RaidLifecycleState.InRaid)
+        {
+            var elapsed = nowUtc - started;
+            return V2ShellText.Format(
+                "V2.Shell.Context.RaidElapsed",
+                CultureInfo.CurrentCulture,
+                map,
+                state,
+                FormatDuration(elapsed < TimeSpan.Zero ? TimeSpan.Zero : elapsed));
+        }
+
+        return V2ShellText.Format("V2.Shell.Context.RaidOnMap", CultureInfo.CurrentCulture, map, state);
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        var totalHours = Math.Max(0, (int)duration.TotalHours);
+        return totalHours > 0
+            ? string.Create(CultureInfo.CurrentCulture, $"{totalHours}:{duration.Minutes:00}:{duration.Seconds:00}")
+            : string.Create(CultureInfo.CurrentCulture, $"{duration.Minutes:00}:{duration.Seconds:00}");
+    }
+
+    private static string StorageFailureDetail(Exception? exception)
+    {
+        if (string.IsNullOrWhiteSpace(exception?.Message))
+        {
+            return V2ShellText.Get("V2.Shell.Persistence.UnknownFailure");
+        }
+
+        const int maximumLength = 200;
+        var printable = new string(exception.Message
+            .Select(character => char.IsControl(character) ? ' ' : character)
+            .Take(maximumLength + 1)
+            .ToArray())
+            .Trim();
+        if (printable.Length == 0)
+        {
+            return V2ShellText.Get("V2.Shell.Persistence.UnknownFailure");
+        }
+
+        return printable.Length <= maximumLength ? printable : $"{printable[..maximumLength]}…";
+    }
+
+    private static string IntentLabel(ScanIntent intent) => V2ShellText.Get($"V2.Shell.Intent.{intent}");
+
+    private static string ContextLabel(RecognizedContext context) =>
+        V2ShellText.Get($"V2.Shell.Capture.Context.{context}");
+
+    private static ScanIntent IntentForContext(RecognizedContext context) => context switch
+    {
+        RecognizedContext.Loot => ScanIntent.Loot,
+        RecognizedContext.Stash => ScanIntent.Stash,
+        RecognizedContext.Ammo => ScanIntent.Ammo,
+        RecognizedContext.Keys => ScanIntent.Keys,
+        RecognizedContext.QuestItems => ScanIntent.QuestItems,
+        RecognizedContext.ExtractsAndMap => ScanIntent.ExtractsAndMap,
+        RecognizedContext.HealthAndCharacter => ScanIntent.HealthAndCharacter,
+        RecognizedContext.Flea => ScanIntent.Flea,
+        _ => ScanIntent.Auto,
+    };
+
     private void RaisePresentationChanged()
     {
         foreach (var property in new[]
@@ -862,6 +1721,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(SectionItems), nameof(ShowsSectionNavigation),
             nameof(ShowsReadinessTarget), nameof(ReadinessTargetAutomationId), nameof(ReadinessTargetHeading),
             nameof(ReadinessTargetDetail), nameof(ReadinessTargetAutomationName),
+            nameof(ProfileContextLabel), nameof(LocalTimeLabel), nameof(RaidContextLabel), nameof(PlanContextLabel),
+            nameof(TeamContextLabel), nameof(DeviceContextLabel), nameof(SelectionContextLabel),
+            nameof(CaptureWatchingStatus), nameof(CapturePrior), nameof(CaptureReference), nameof(CaptureLabel),
+            nameof(ShowsSuggestions), nameof(FilteredSuggestionItems), nameof(HasSuggestions), nameof(HasNoSuggestions),
+            nameof(PersistenceFailure), nameof(HasPersistenceFailure), nameof(PersistenceRetryPending),
+            nameof(CanRetryPersistence), nameof(PersistenceRetryLabel),
         })
         {
             OnPropertyChanged(property);
@@ -1029,7 +1894,12 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     private async Task ResetPreviewAsync()
     {
-        if (_disposed || Interlocked.Exchange(ref _resetInProgress, 1) != 0)
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _resetInProgress, 1) != 0)
         {
             return;
         }
@@ -1044,15 +1914,47 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
                     return;
                 }
 
+                _persistenceFailure = string.Empty;
+                _persistenceFailureKind = null;
+                _persistenceRetryPending = false;
                 Pins = [];
                 Recents = [];
                 var restored = Router.Restore(new(Variant.Landing), selectedEntity: null, focusTarget: null);
                 Announce(V2ShellText.Get("V2.Shell.Announce.PreviewReset"), V2Announcement.Polite);
                 Act(restored);
-            }, _lifetime.Token).ConfigureAwait(false);
+                OnPropertyChanged(nameof(PersistenceFailure));
+                OnPropertyChanged(nameof(HasPersistenceFailure));
+                OnPropertyChanged(nameof(PersistenceRetryPending));
+                OnPropertyChanged(nameof(CanRetryPersistence));
+                OnPropertyChanged(nameof(PersistenceRetryLabel));
+            }, _lifetimeToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (_lifetimeToken.IsCancellationRequested)
         {
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                await InvokeOnDispatcherAsync(() =>
+                {
+                    _persistenceFailure = V2ShellText.Format(
+                        "V2.Shell.Persistence.ResetFailed",
+                        CultureInfo.CurrentCulture,
+                        StorageFailureDetail(exception));
+                    _persistenceFailureKind = V2ShellPersistenceOperationKind.Reset;
+                    _persistenceRetryPending = false;
+                    OnPropertyChanged(nameof(PersistenceFailure));
+                    OnPropertyChanged(nameof(HasPersistenceFailure));
+                    OnPropertyChanged(nameof(PersistenceRetryPending));
+                    OnPropertyChanged(nameof(CanRetryPersistence));
+                    OnPropertyChanged(nameof(PersistenceRetryLabel));
+                    Announce(_persistenceFailure, V2Announcement.Assertive);
+                }, _lifetimeToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (_lifetimeToken.IsCancellationRequested)
+            {
+            }
         }
         finally
         {
@@ -1089,6 +1991,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         OnPropertyChanged(nameof(HasContinueItems));
         OnPropertyChanged(nameof(HasNoContinueItems));
         OnPropertyChanged(nameof(HasPins));
+        RebuildSuggestions();
     }
 
     private void RebuildSectionItems()
@@ -1238,10 +2141,21 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         var finalState = Snapshot();
         var resetWasInProgress = Volatile.Read(ref _resetInProgress) != 0;
         _disposed = true;
+        _headerTimer?.Dispose();
+        _headerTimer = null;
         _runtime.Changed -= RuntimeChanged;
         Router.Navigated -= RouterNavigated;
+        ResetPreviewCommand.CanExecuteChanged -= ResetPreviewCanExecuteChanged;
+        _persistence.Completed -= PersistenceCompleted;
+        foreach (var source in _legacyContextSources)
+        {
+            source.PropertyChanged -= LegacyContextChanged;
+        }
+
+        _legacyContextSources.Clear();
         _lifetime.Cancel();
         await _persistence.DisposeAsync(finalState, suppressFinalSave: resetWasInProgress).ConfigureAwait(false);
+        _lifetime.Dispose();
     }
 }
 

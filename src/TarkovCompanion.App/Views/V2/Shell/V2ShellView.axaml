@@ -55,6 +55,24 @@
             <TextBlock Classes="v2-label" Text="{Binding ProvisionalLabel}" />
           </StackPanel>
           <WrapPanel Classes="v2-toolbar"
+                     AutomationProperties.AccessibilityView="Control"
+                     AutomationProperties.Name="{Binding ContextRegionName}">
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-profile"
+                       Text="{Binding ProfileContextLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-local-time"
+                       Text="{Binding LocalTimeLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-raid"
+                       Text="{Binding RaidContextLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-plan"
+                       Text="{Binding PlanContextLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-team"
+                       Text="{Binding TeamContextLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-device"
+                       Text="{Binding DeviceContextLabel}" />
+            <TextBlock Classes="v2-label" AutomationProperties.AutomationId="v2-shell-context-selection"
+                       Text="{Binding SelectionContextLabel}" />
+          </WrapPanel>
+          <WrapPanel Classes="v2-toolbar"
                      HorizontalAlignment="Stretch"
                      AutomationProperties.AccessibilityView="Control"
                      AutomationProperties.ControlTypeOverride="ToolBar"
@@ -87,6 +105,18 @@
             <Button Classes="v2-target" AutomationProperties.AutomationId="v2-shell-palette"
                     AutomationProperties.Name="{Binding PaletteLabel}" Content="{Binding PaletteLabel}" Command="{Binding PaletteCommand}" />
           </WrapPanel>
+          <Border Classes="v2-card" IsVisible="{Binding HasPersistenceFailure}"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.AutomationId="v2-shell-persistence-failure"
+                  AutomationProperties.Name="{Binding PersistenceFailure}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Grid.Column="0" Classes="v2-body" Text="{Binding PersistenceFailure}" />
+              <Button Grid.Column="1" Classes="v2-target"
+                      AutomationProperties.AutomationId="v2-shell-persistence-retry"
+                      Content="{Binding PersistenceRetryLabel}" IsEnabled="{Binding CanRetryPersistence}"
+                      Command="{Binding RetryPersistenceCommand}" />
+            </Grid>
+          </Border>
         </StackPanel>
       </Border>
 
@@ -231,6 +261,60 @@
                 </Grid>
               </StackPanel>
 
+              <Border Classes="v2-card" IsVisible="{Binding ShowsSuggestions}"
+                      AutomationProperties.AccessibilityView="Control"
+                      AutomationProperties.AutomationId="v2-shell-suggestions">
+                <StackPanel Classes="v2-stack">
+                  <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2"
+                             Text="{Binding SuggestionsHeading}" />
+                  <ItemsControl ItemsSource="{Binding SuggestionFilters}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellSuggestionFilterViewModel">
+                        <Button Classes="v2-target v2-destination" Classes.selected="{Binding IsSelected}"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}"
+                                Content="{Binding DisplayLabel}" Command="{Binding SelectCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="v2-label" IsVisible="{Binding HasNoSuggestions}"
+                             Text="{Binding SuggestionsEmpty}" />
+                  <ItemsControl ItemsSource="{Binding FilteredSuggestionItems}" IsVisible="{Binding HasSuggestions}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2ShellSuggestionViewModel">
+                        <Button Classes="v2-target" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Label}" Command="{Binding OpenCommand}">
+                          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Classes="v2-stack">
+                              <TextBlock Classes="v2-body" Text="{Binding Label}" />
+                              <TextBlock Classes="v2-label" Text="{Binding Provenance}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding Category}" />
+                          </Grid>
+                        </Button>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <TextBlock Classes="v2-heading-3" Text="{Binding BrowseHeading}" />
+                  <ItemsControl ItemsSource="{Binding BrowseCategories}">
+                    <ItemsControl.ItemsPanel>
+                      <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="vm:V2BrowseCategoryViewModel">
+                        <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                                AutomationProperties.Name="{Binding Detail}" Content="{Binding Label}"
+                                Command="{Binding OpenCommand}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Border>
+
               <StackPanel Classes="v2-stack" IsVisible="{Binding ShowsReadiness}">
                 <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="2" Text="{Binding ReadinessHeading}" />
                 <TextBlock Classes="v2-body" Text="{Binding ReadinessSummary}"
@@ -314,7 +398,7 @@
               </Border>
             </StackPanel>
           </ScrollViewer>
-          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding Legacy.CurrentPage}" />
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a
@@ -352,7 +436,89 @@
                        AutomationProperties.AutomationId="v2-shell-capture-dialog-title"
                        AutomationProperties.HeadingLevel="1" Text="{Binding CaptureHeading}" />
             <TextBlock Classes="v2-body" Text="{Binding CaptureGuidance}" />
+            <TextBlock Classes="v2-label" Text="{Binding CaptureWatchingStatus}" />
+            <TextBlock Classes="v2-label" Text="{Binding CaptureArmedStatus}" />
             <TextBlock Classes="v2-label" Text="{Binding CaptureShortcutStatus}" />
+            <TextBlock Classes="v2-heading-3" Text="{Binding CaptureIntentHeading}" />
+            <ItemsControl ItemsSource="{Binding CaptureIntents}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2CaptureIntentViewModel">
+                  <RadioButton Classes="v2-target" GroupName="v2-capture-intent"
+                               AutomationProperties.AutomationId="{Binding AutomationId}"
+                               AutomationProperties.Name="{Binding Label}"
+                               Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Button Classes="v2-target" HorizontalAlignment="Left"
+                    AutomationProperties.AutomationId="v2-shell-capture-arm"
+                    Content="{Binding CaptureArmLabel}" Command="{Binding ArmCaptureCommand}" />
+            <Border Classes="v2-card" IsVisible="{Binding HasCaptureAttention}"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-shell-capture-attention"
+                    AutomationProperties.Name="{Binding CaptureAttentionHeading}">
+              <StackPanel Classes="v2-stack">
+                <TextBlock Classes="v2-heading-3" Text="{Binding CaptureAttentionHeading}" />
+                <TextBlock Classes="v2-body" Text="{Binding CaptureAttentionDetail}" />
+                <ItemsControl ItemsSource="{Binding CaptureAttentionActions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2CaptureActionViewModel">
+                      <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Label}" Content="{Binding Label}"
+                              Command="{Binding InvokeCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+            <TextBlock Classes="v2-heading-3" IsVisible="{Binding HasCaptureProgress}"
+                       Text="{Binding CaptureProgressHeading}" />
+            <ItemsControl ItemsSource="{Binding CaptureProgressItems}" IsVisible="{Binding HasCaptureProgress}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:V2CaptureProgressViewModel">
+                  <Border Classes="v2-card" AutomationProperties.AutomationId="{Binding AutomationId}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                      <TextBlock Grid.Column="0" Classes="v2-label" Text="{Binding Stage}" />
+                      <StackPanel Grid.Column="1" Classes="v2-stack">
+                        <TextBlock Classes="v2-body" Text="{Binding Detail}" />
+                        <TextBlock Classes="v2-label" Text="{Binding Artifact}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="2" Classes="v2-label" Text="{Binding Percent}" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <Border Classes="v2-card" IsVisible="{Binding HasCaptureReview}"
+                    AutomationProperties.AccessibilityView="Control"
+                    AutomationProperties.AutomationId="v2-shell-capture-review">
+              <StackPanel Classes="v2-stack">
+                <TextBlock Classes="v2-heading-3" Text="{Binding CaptureReviewHeading}" />
+                <TextBlock Classes="v2-body" Text="{Binding CaptureReviewSummary}" />
+                <TextBlock Classes="v2-label" Text="{Binding CaptureReviewEvidence}" />
+                <ItemsControl ItemsSource="{Binding CaptureReviewActions}">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="8" /></ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:V2CaptureActionViewModel">
+                      <Button Classes="v2-target" AutomationProperties.AutomationId="{Binding AutomationId}"
+                              AutomationProperties.Name="{Binding Label}" Content="{Binding Label}"
+                              Command="{Binding InvokeCommand}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+            <TextBlock Classes="v2-heading-3" Text="{Binding CapturePriorHeading}" />
+            <TextBlock Classes="v2-body" Text="{Binding CapturePrior}" />
+            <TextBlock Classes="v2-label" IsVisible="{Binding HasCaptureReference}" Text="{Binding CaptureReference}" />
             <Button Classes="v2-target" HorizontalAlignment="Left"
                     AutomationProperties.AutomationId="v2-shell-capture-dialog-close"
                     Content="{Binding CloseLabel}" Command="{Binding CloseTransientCommand}" />

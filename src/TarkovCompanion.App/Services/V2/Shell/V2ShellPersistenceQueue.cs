@@ -1,5 +1,16 @@
 namespace TarkovCompanion.App.Services.V2.Shell;
 
+internal enum V2ShellPersistenceOperationKind
+{
+    Save = 1,
+    Reset,
+}
+
+internal sealed record V2ShellPersistenceResult(
+    V2ShellPersistenceOperationKind Kind,
+    bool Succeeded,
+    Exception? Error);
+
 /// <summary>Serializes preview saves, resets, and the final close-time save.</summary>
 /// <remarks>
 /// Reset used to suspend the save loop across UI-context awaits. If the window closed while the
@@ -27,6 +38,12 @@ internal sealed class V2ShellPersistenceQueue
         _save = save ?? throw new ArgumentNullException(nameof(save));
         _reset = reset ?? throw new ArgumentNullException(nameof(reset));
     }
+
+    /// <summary>
+    /// Reports the durable outcome after an operation leaves the serialized queue. A subscriber
+    /// cannot break the queue; the UI uses this to keep a failed save visible and retryable.
+    /// </summary>
+    public event Action<V2ShellPersistenceResult>? Completed;
 
     public void QueueSave(V2ShellPreviewState state)
     {
@@ -156,6 +173,13 @@ internal sealed class V2ShellPersistenceQueue
                         reset.Completion.TrySetResult();
                         break;
                 }
+
+                lock (_sync)
+                {
+                    _failure = null;
+                }
+
+                Publish(new(OperationKind(operation), true, null));
             }
             catch (Exception exception)
             {
@@ -166,8 +190,39 @@ internal sealed class V2ShellPersistenceQueue
 
                 lock (_sync)
                 {
-                    _failure ??= exception;
+                    _failure = exception;
                 }
+
+                Publish(new(OperationKind(operation), false, exception));
+            }
+        }
+    }
+
+    private static V2ShellPersistenceOperationKind OperationKind(Operation operation) => operation switch
+    {
+        SaveOperation => V2ShellPersistenceOperationKind.Save,
+        ResetOperation => V2ShellPersistenceOperationKind.Reset,
+        _ => throw new InvalidOperationException("Unknown preview persistence operation."),
+    };
+
+    private void Publish(V2ShellPersistenceResult result)
+    {
+        var completed = Completed;
+        if (completed is null)
+        {
+            return;
+        }
+
+        foreach (Action<V2ShellPersistenceResult> subscriber in completed.GetInvocationList())
+        {
+            try
+            {
+                subscriber(result);
+            }
+            catch
+            {
+                // Persistence completed independently of observers. A presentation callback
+                // cannot strand later saves or turn a successful durable write into a failure.
             }
         }
     }

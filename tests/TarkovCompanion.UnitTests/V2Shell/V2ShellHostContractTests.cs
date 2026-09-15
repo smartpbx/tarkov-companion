@@ -27,7 +27,7 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("LegacyPageHost", main, StringComparison.Ordinal);
         Assert.Contains("V2ShellView", main, StringComparison.Ordinal);
         Assert.Contains("IsVisible=\"{Binding IsPreviewShell}\"", main, StringComparison.Ordinal);
-        Assert.Contains("Content=\"{Binding Legacy.CurrentPage}\"", shell, StringComparison.Ordinal);
+        Assert.Contains("Content=\"{Binding LegacyPage}\"", shell, StringComparison.Ordinal);
         Assert.Contains("new V2ShellRouter(Variant, Registry)", model, StringComparison.Ordinal);
         Assert.DoesNotContain("LayoutTransformControl", shell, StringComparison.Ordinal);
     }
@@ -52,6 +52,29 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("AutomationProperties.AutomationId=\"v2-shell-dialog\"", shell, StringComparison.Ordinal);
         Assert.Contains("AutomationProperties.Name=\"{Binding DialogAutomationName}\"", shell, StringComparison.Ordinal);
         foreach (var state in Enum.GetNames<V2SurfaceStateKind>()) Assert.Contains($"V2SurfaceStateKind.{state}", states, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Capture_context_persistence_and_suggestions_are_real_bound_shell_surfaces()
+    {
+        var shell = File.ReadAllText(V2ShellTestData.RepositoryPath("src", "TarkovCompanion.App", "Views", "V2", "Shell", "V2ShellView.axaml"));
+
+        foreach (var binding in new[]
+        {
+            "CaptureIntents", "CaptureProgressItems", "CaptureAttentionActions", "CaptureReviewActions",
+            "CaptureReference", "ProfileContextLabel", "LocalTimeLabel", "RaidContextLabel", "PlanContextLabel",
+            "TeamContextLabel", "DeviceContextLabel", "SelectionContextLabel", "FilteredSuggestionItems",
+            "SuggestionFilters", "BrowseCategories", "PersistenceFailure", "RetryPersistenceCommand",
+        })
+        {
+            Assert.Contains($"{{Binding {binding}}}", shell, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("Mode=TwoWay", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-capture-arm", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-capture-attention", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-capture-review", shell, StringComparison.Ordinal);
+        Assert.Contains("v2-shell-persistence-retry", shell, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -154,7 +177,7 @@ public sealed class V2ShellHostContractTests
         Assert.Contains("ProfileMode = snapshot.Profile?.GameMode.ToString()", model, StringComparison.Ordinal);
         Assert.Contains("RaidId = snapshot.Raid.RaidId", model, StringComparison.Ordinal);
         Assert.Contains("TeamMemberKeys = snapshot.Squad.Members", model, StringComparison.Ordinal);
-        Assert.Contains("CaptureCorrelationId = continuity.CaptureCorrelationId", model, StringComparison.Ordinal);
+        Assert.Contains("CaptureState.CorrelationId ?? continuity.CaptureCorrelationId", model, StringComparison.Ordinal);
     }
 
     [Fact]

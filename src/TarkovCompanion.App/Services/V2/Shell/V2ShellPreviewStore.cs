@@ -230,10 +230,6 @@ public sealed class V2ShellPreviewStore
                 Encoding.UTF8.GetString(bytes),
                 cancellationToken).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Losing where a preview was left is not worth interrupting anybody for.
-        }
         finally
         {
             _gate.Release();
@@ -247,9 +243,6 @@ public sealed class V2ShellPreviewStore
         try
         {
             File.Delete(FilePath);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
         }
         finally
         {

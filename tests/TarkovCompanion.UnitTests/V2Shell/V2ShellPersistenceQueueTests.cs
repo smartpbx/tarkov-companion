@@ -69,6 +69,51 @@ public sealed class V2ShellPersistenceQueueTests
         Assert.Equal(["reset"], observed);
     }
 
+    [Fact]
+    public async Task A_failed_save_is_reported_and_a_later_success_clears_the_terminal_failure()
+    {
+        var attempts = 0;
+        var results = new ConcurrentQueue<V2ShellPersistenceResult>();
+        var queue = new V2ShellPersistenceQueue(
+            (_, _) => ++attempts == 1
+                ? Task.FromException(new IOException("fixture write failed"))
+                : Task.CompletedTask,
+            _ => Task.CompletedTask);
+        queue.Completed += results.Enqueue;
+
+        queue.QueueSave(State("#/raid"));
+        await WaitUntilAsync(() => results.Count == 1);
+        queue.QueueSave(State("#/team"));
+        await WaitUntilAsync(() => results.Count == 2);
+        await queue.DisposeAsync(State("#/plan"), suppressFinalSave: true);
+
+        Assert.Collection(
+            results,
+            result =>
+            {
+                Assert.Equal(V2ShellPersistenceOperationKind.Save, result.Kind);
+                Assert.False(result.Succeeded);
+                Assert.IsType<IOException>(result.Error);
+            },
+            result =>
+            {
+                Assert.Equal(V2ShellPersistenceOperationKind.Save, result.Kind);
+                Assert.True(result.Succeeded);
+                Assert.Null(result.Error);
+            });
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(2);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.True(condition());
+    }
+
     private static V2ShellPreviewState State(string address) =>
         V2ShellPreviewState.For(V2ShellMode.VariantA) with { Address = address };
 }
