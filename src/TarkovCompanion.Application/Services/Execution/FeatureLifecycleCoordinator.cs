@@ -679,17 +679,24 @@ public sealed class FeatureLifecycleCoordinator
             {
                 await stopping.WaitAsync(_options.StopTimeout, _timeProvider).ConfigureAwait(false);
             }
-            catch (TimeoutException) when (!stopping.IsCompleted)
+            catch (TimeoutException)
             {
-                TryCancel(stopCancellation);
-                lock (_gate)
+                // The stop's own task decides the outcome, not the wait: it may have finished in
+                // the instant after the deadline, and classifying the deadline as a stop failure
+                // then reported a feature that stopped cleanly as StopFailed.
+                if (!stopping.IsCompleted)
                 {
-                    node.State = FeatureLifecycleState.Stopping;
-                    node.CompletedUtc = null;
-                    node.LastFault = FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout");
+                    TryCancel(stopCancellation);
+                    lock (_gate)
+                    {
+                        node.State = FeatureLifecycleState.Stopping;
+                        node.CompletedUtc = null;
+                        node.LastFault = FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout");
+                    }
+
+                    PublishChanged();
                 }
 
-                PublishChanged();
                 try
                 {
                     await stopping.ConfigureAwait(false);
