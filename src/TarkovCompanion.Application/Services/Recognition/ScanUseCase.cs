@@ -11,6 +11,30 @@ namespace TarkovCompanion.Application.Services.Recognition;
 
 public sealed class ScanUseCase : IScanUseCase
 {
+    /// <summary>
+    /// Codes the recogniser gives a reading that lost nothing: a conclusion about complete text.
+    /// </summary>
+    /// <remarks>
+    /// Every other code on a recognition names missing evidence, such as a timed-out pass,
+    /// missing tiles, truncated lines, an exhausted budget or a failed provider. The list is of
+    /// the harmless codes rather than the degraded ones on purpose. A degradation code nobody
+    /// has listed yet then makes a scan Partial instead of letting it publish Complete, and the
+    /// scan tests that run a complete provider through the real recogniser for every context
+    /// fail if a harmless code is missing here.
+    /// </remarks>
+    private static readonly HashSet<string> ConclusionCodes = new(StringComparer.Ordinal)
+    {
+        "context_unknown",
+        "extract_context",
+        "item_not_auto_selected",
+        "no_match",
+        "ambiguous",
+        "ambiguous_runner_up",
+        "low_confidence_candidates",
+        "ocr_no_text",
+        "ocr_region_empty",
+    };
+
     private readonly IScreenCaptureService _capture;
     private readonly IRecognitionService _recognition;
     private readonly IExtractRecognitionService _extracts;
@@ -25,6 +49,7 @@ public sealed class ScanUseCase : IScanUseCase
     private readonly IScanResultPublisher _publisher;
     private readonly ILogger<ScanUseCase>? _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly ScanFrameOptions _frameOptions;
 
     public ScanUseCase(
         IScreenCaptureService capture,
@@ -40,7 +65,8 @@ public sealed class ScanUseCase : IScanUseCase
         IScanEventRepository events,
         IScanResultPublisher publisher,
         ILogger<ScanUseCase>? logger = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ScanFrameOptions? frameOptions = null)
     {
         _capture = capture ?? throw new ArgumentNullException(nameof(capture));
         _recognition = recognition ?? throw new ArgumentNullException(nameof(recognition));
@@ -56,6 +82,7 @@ public sealed class ScanUseCase : IScanUseCase
         _logger = logger;
         _publisher = publisher ?? throw new ArgumentNullException(nameof(publisher));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _frameOptions = ScanFrameDeadline.Validate(frameOptions);
     }
 
     public async Task<ScanOutcome> ScanAsync(ScanRequest request, CancellationToken cancellationToken)
@@ -130,9 +157,44 @@ public sealed class ScanUseCase : IScanUseCase
         return ReadAsync(scanId, image, cancellationToken);
     }
 
+    /// <summary>
+    /// Reads the frame under one deadline, then records what was read under the caller's token.
+    /// </summary>
+    /// <remarks>
+    /// Recording is not reading. The scan event, the publication and the raid's extract record
+    /// take the caller's token, so a frame that ran out of budget still records what it found and
+    /// that it stopped, instead of vanishing along with the reason it did.
+    /// </remarks>
     private async Task<ScanOutcome> ReadAsync(Guid scanId, CapturedImage image, CancellationToken cancellationToken)
     {
-        var recognition = await _recognition.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
+        ScanOutcome outcome;
+        using (var frame = ScanFrameDeadline.Start(_frameOptions.Timeout, cancellationToken, _timeProvider))
+        {
+            outcome = await ReadFrameAsync(scanId, image, frame, cancellationToken).ConfigureAwait(false);
+        }
+
+        return await FinishAsync(outcome, new(0, 0, image.Width, image.Height), cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<ScanOutcome> ReadFrameAsync(
+        Guid scanId,
+        CapturedImage image,
+        ScanFrameDeadline frame,
+        CancellationToken cancellationToken)
+    {
+        var (recognized, recognition) = await WithinFrameAsync(
+                frame,
+                token => _recognition.RecognizeAsync(image, token))
+            .ConfigureAwait(false);
+        if (!recognized)
+        {
+            recognition = new(ScanContext.Unknown, [], image.CapturedUtc, ScanFrameDeadline.DiagnosticCode)
+            {
+                Detail = $"The {frame.Timeout.TotalSeconds:F0}s frame budget ran out before recognition finished.",
+            };
+        }
+
         _logger?.LogInformation(
             "Scan {ScanId} recognised context {Context} with {Candidates} candidate(s). {Diagnostic} {Detail}",
             scanId,
@@ -181,22 +243,38 @@ public sealed class ScanUseCase : IScanUseCase
         long? valuePerSlot = null;
         var status = ScanCompletionStatus.Complete;
         string? diagnostic = null;
+        var recognitionDegradation = DegradationOf(recognition);
 
         switch (recognition.Context)
         {
             case ScanContext.SingleItem:
                 (recommendation, status, diagnostic, economicValue, valuePerSlot) =
-                    await RecommendAsync(recognition, evidence, cancellationToken).ConfigureAwait(false);
+                    await RecommendAsync(recognition, evidence, frame).ConfigureAwait(false);
                 break;
 
             case ScanContext.ExtractList:
-                (extracts, status, diagnostic) = await RecognizeExtractsAsync(image, evidence, cancellationToken)
+                (extracts, status, diagnostic) = await RecognizeExtractsAsync(image, evidence, frame, cancellationToken)
                     .ConfigureAwait(false);
                 break;
 
             case ScanContext.Container:
-                container = await _containers.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
-                status = container.IsPartial ? ScanCompletionStatus.Partial : ScanCompletionStatus.Complete;
+                var (containerRead, containerResult) = await WithinFrameAsync(
+                        frame,
+                        token => _containers.RecognizeAsync(image, token))
+                    .ConfigureAwait(false);
+                if (!containerRead)
+                {
+                    status = ScanCompletionStatus.Partial;
+                    diagnostic = ScanFrameDeadline.DiagnosticCode;
+                    break;
+                }
+
+                container = containerResult;
+                // A code on a result that does not call itself partial is still a code. Nothing
+                // produces that today; the scan must not be the place that finds out.
+                status = container.IsPartial || container.DiagnosticCode is not null
+                    ? ScanCompletionStatus.Partial
+                    : ScanCompletionStatus.Complete;
                 diagnostic = container.DiagnosticCode;
                 evidence.Add(new(
                     "container_grid",
@@ -207,10 +285,24 @@ public sealed class ScanUseCase : IScanUseCase
                 break;
 
             case ScanContext.FleaListings:
-                flea = await _flea.RecognizeAsync(image, cancellationToken).ConfigureAwait(false);
+                var (fleaRead, fleaResult) = await WithinFrameAsync(
+                        frame,
+                        token => _flea.RecognizeAsync(image, token))
+                    .ConfigureAwait(false);
+                if (!fleaRead)
+                {
+                    status = ScanCompletionStatus.Partial;
+                    diagnostic = ScanFrameDeadline.DiagnosticCode;
+                    break;
+                }
+
+                flea = fleaResult;
+                // Rows that parsed are not a complete page when the read that found them was
+                // degraded. The flea recogniser carries that code, and it used to be published
+                // beside a Complete status.
                 status = !flea.ProviderAvailable
-                    ? ScanCompletionStatus.Unavailable
-                    : flea.Listings.Count == 0
+                    ? UnavailableUnlessOutOfTime(flea.DiagnosticCode)
+                    : flea.Listings.Count == 0 || flea.DiagnosticCode is not null
                         ? ScanCompletionStatus.Partial
                         : ScanCompletionStatus.Complete;
                 diagnostic = flea.DiagnosticCode;
@@ -226,7 +318,23 @@ public sealed class ScanUseCase : IScanUseCase
                     ? ScanCompletionStatus.Unavailable
                     : ScanCompletionStatus.Partial;
                 diagnostic = recognition.DiagnosticCode ?? "context_unknown";
+                // Already the scan's whole diagnostic; there is nothing to add it to.
+                recognitionDegradation = null;
                 break;
+        }
+
+        if (recognitionDegradation is not null)
+        {
+            // The reading that chose this dispatch was itself degraded. Each dispatch used to
+            // decide the scan's status and code from its own reading alone, so a context found in
+            // a timed-out or tile-short frame, followed by a clean extract, container or flea
+            // read, published Complete, and a single item whose price lookup then failed had its
+            // degraded code overwritten. The code is kept, first, beside whatever the dispatch
+            // said, and the scan can be no better than Partial.
+            status = status == ScanCompletionStatus.Unavailable
+                ? ScanCompletionStatus.Unavailable
+                : ScanCompletionStatus.Partial;
+            diagnostic = Combine(recognitionDegradation, diagnostic);
         }
 
         if (!string.IsNullOrWhiteSpace(diagnostic))
@@ -234,7 +342,7 @@ public sealed class ScanUseCase : IScanUseCase
             evidence.Add(new("diagnostic", diagnostic, Confidence.Unknown, image.CapturedUtc.ToUniversalTime()));
         }
 
-        var outcome = new ScanOutcome(
+        return new ScanOutcome(
             scanId,
             status,
             recognition.Context,
@@ -250,8 +358,6 @@ public sealed class ScanUseCase : IScanUseCase
             EconomicValue = economicValue,
             ValuePerSlot = valuePerSlot,
         };
-        return await FinishAsync(outcome, new(0, 0, image.Width, image.Height), cancellationToken)
-            .ConfigureAwait(false);
     }
 
     /// <summary>
@@ -262,29 +368,56 @@ public sealed class ScanUseCase : IScanUseCase
     /// This method already fetched the price before deciding whether a recommendation was
     /// possible, and used to throw it away when it was not, so the application reported "value
     /// unavailable" for an item whose price was sitting in a local variable one line above.
+    ///
+    /// Every lookup spends from the frame's budget. They used to run on the caller's token after
+    /// recognition had already spent its own, so a slow catalog or context provider could hold
+    /// a scan open indefinitely. Whatever was fetched before the budget ran out is kept.
     /// </remarks>
     private async Task<(RecommendationResult? Result, ScanCompletionStatus Status, string? Diagnostic, long? Value, long? PerSlot)> RecommendAsync(
         RecognitionResult recognition,
         List<ScanEvidence> evidence,
-        CancellationToken cancellationToken)
+        ScanFrameDeadline frame)
     {
-        var selected = recognition.Selected;
-        if (selected is null)
+        if (recognition.Selected is not { } selected)
         {
             return (null, ScanCompletionStatus.Partial, recognition.DiagnosticCode ?? "item_not_auto_selected", null, null);
         }
 
-        var item = await _items.GetAsync(selected.CanonicalId, cancellationToken).ConfigureAwait(false);
-        var price = await _items.GetPriceAsync(selected.CanonicalId, cancellationToken).ConfigureAwait(false);
-        if (item is null || price is null)
+        var (itemRead, item) = await WithinFrameAsync(
+                frame,
+                token => _items.GetAsync(selected.CanonicalId, token))
+            .ConfigureAwait(false);
+        if (!itemRead)
+        {
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, null, null);
+        }
+
+        var (priceRead, price) = await WithinFrameAsync(
+                frame,
+                token => _items.GetPriceAsync(selected.CanonicalId, token))
+            .ConfigureAwait(false);
+        if (!priceRead)
+        {
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, null, null);
+        }
+
+        if (item is not { } knownItem || price is not { } knownPrice)
         {
             return (null, ScanCompletionStatus.Partial, "canonical_item_or_price_unavailable", null, null);
         }
 
-        var value = price.BestEconomicValue;
-        var perSlot = value / Math.Max(1, item.Dimensions.Width * item.Dimensions.Height);
+        var value = knownPrice.BestEconomicValue;
+        var perSlot = value / Math.Max(1, knownItem.Dimensions.Width * knownItem.Dimensions.Height);
 
-        var context = await _recommendationContext.GetAsync(item, selected, cancellationToken).ConfigureAwait(false);
+        var (contextRead, context) = await WithinFrameAsync(
+                frame,
+                token => _recommendationContext.GetAsync(knownItem, selected, token))
+            .ConfigureAwait(false);
+        if (!contextRead)
+        {
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, value, perSlot);
+        }
+
         if (context is null)
         {
             // No advice, but the price is known and the player asked what this is. Withholding
@@ -292,41 +425,110 @@ public sealed class ScanUseCase : IScanUseCase
             return (null, ScanCompletionStatus.Partial, "recommendation_context_unavailable", value, perSlot);
         }
 
-        var recommendation = _recommendations.Recommend(item, price, context, ValueTierThresholds.Default);
+        if (frame.IsExpired)
+        {
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode, value, perSlot);
+        }
+
+        var recommendation = _recommendations.Recommend(knownItem, knownPrice, context, ValueTierThresholds.Default);
         evidence.Add(new(
             "recommendation",
             recommendation.Action + ": " + recommendation.Explanation,
             recommendation.Confidence,
             recognition.ObservedUtc.ToUniversalTime()));
-        // The recogniser gives a selected item a code only when the text it was read from was
-        // degraded: a timed-out pass, missing tiles, truncated lines. The advice still stands, but
-        // the scan used to call itself complete on that evidence, and now says what was missing.
-        return recognition.DiagnosticCode is { } degraded
-            ? (recommendation, ScanCompletionStatus.Partial, degraded, value, perSlot)
-            : (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
+        // A degraded recognition still gets its advice; ReadFrameAsync marks the scan Partial with
+        // the code, here and on every earlier return that has a code of its own.
+        return (recommendation, ScanCompletionStatus.Complete, null, value, perSlot);
     }
+
+    /// <summary>
+    /// Runs one stage of reading a frame on the frame's token, and says whether the frame's budget
+    /// let it finish.
+    /// </summary>
+    /// <remarks>
+    /// The budget is checked before the stage starts as well as observed during it, so a stage
+    /// whose implementation never looks at its token still does not start once the budget has
+    /// run out. The caller cancelling still throws.
+    /// </remarks>
+    private static async Task<(bool Completed, T Value)> WithinFrameAsync<T>(
+        ScanFrameDeadline frame,
+        Func<CancellationToken, Task<T>> stage)
+    {
+        try
+        {
+            frame.Token.ThrowIfCancellationRequested();
+            return (true, await stage(frame.Token).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (frame.IsExpired)
+        {
+            return (false, default!);
+        }
+    }
+
+    /// <summary>A result that could not read is unavailable, unless it was the frame's budget that stopped it.</summary>
+    private static ScanCompletionStatus UnavailableUnlessOutOfTime(string? diagnostic) =>
+        diagnostic == ScanFrameDeadline.DiagnosticCode
+            ? ScanCompletionStatus.Partial
+            : ScanCompletionStatus.Unavailable;
+
+    /// <summary>The code of whatever degraded the recognition's own reading, or null.</summary>
+    /// <remarks>
+    /// The recogniser gives an auto-selected item a code only when the text it was read from was
+    /// degraded, so any code on a selected item counts, whatever it says.
+    /// </remarks>
+    private static string? DegradationOf(RecognitionResult recognition) =>
+        recognition.DiagnosticCode is { } code &&
+        (recognition.Selected is not null || !ConclusionCodes.Contains(code))
+            ? code
+            : null;
+
+    /// <summary>The recognition's degradation first, then the dispatch's own code where it adds one.</summary>
+    private static string Combine(string degradation, string? dispatch) =>
+        dispatch is null ||
+        dispatch.Split(';', StringSplitOptions.TrimEntries).Contains(degradation, StringComparer.Ordinal)
+            ? dispatch ?? degradation
+            : degradation + "; " + dispatch;
 
     private async Task<(ExtractRecognitionResult? Result, ScanCompletionStatus Status, string? Diagnostic)> RecognizeExtractsAsync(
         CapturedImage image,
         List<ScanEvidence> evidence,
+        ScanFrameDeadline frame,
         CancellationToken cancellationToken)
     {
-        var mapId = _raid.Current.MapId;
-        if (string.IsNullOrWhiteSpace(mapId))
+        if (_raid.Current.MapId is not { } mapId || string.IsNullOrWhiteSpace(mapId))
         {
             return (null, ScanCompletionStatus.Partial, "current_map_unavailable");
         }
 
-        var map = await _maps.GetAsync(mapId, cancellationToken).ConfigureAwait(false);
-        if (map is null)
+        var (mapRead, map) = await WithinFrameAsync(frame, token => _maps.GetAsync(mapId, token))
+            .ConfigureAwait(false);
+        if (!mapRead)
+        {
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode);
+        }
+
+        if (map is not { } currentMap)
         {
             return (null, ScanCompletionStatus.Partial, "current_map_catalog_unavailable");
         }
 
-        var result = await _extracts.RecognizeAsync(image, map, cancellationToken).ConfigureAwait(false);
+        var (read, result) = await WithinFrameAsync(
+                frame,
+                token => _extracts.RecognizeAsync(image, currentMap, token))
+            .ConfigureAwait(false);
+        if (!read)
+        {
+            // Nothing was matched, so nothing is written to the raid: an empty extract list would
+            // replace the exits the last good scan found.
+            return (null, ScanCompletionStatus.Partial, ScanFrameDeadline.DiagnosticCode);
+        }
+
         if (!result.ProviderAvailable)
         {
-            return (result, ScanCompletionStatus.Unavailable, result.DiagnosticCode ?? "ocr_provider_unavailable");
+            return (
+                result,
+                UnavailableUnlessOutOfTime(result.DiagnosticCode),
+                result.DiagnosticCode ?? "ocr_provider_unavailable");
         }
 
         // The game draws the remaining time on this screen, so the same picture that named the
@@ -345,13 +547,21 @@ public sealed class ScanUseCase : IScanUseCase
         // next log line to redraw, and left ApplyExtractsAsync — the only writer of an
         // "extracts" raid event — with no callers at all, so no raid has ever recorded which
         // exits it was offered.
-        await _raid.ApplyExtractsAsync(
-            result.Extracts,
-            image.CapturedUtc,
-            cancellationToken,
-            clock,
-            leftover,
-            result.Transits).ConfigureAwait(false);
+        //
+        // On the caller's token: this records exits already read, and a raid write abandoned
+        // halfway because the frame's reading budget ran out would be worse than either outcome.
+        // A reading the budget cut before it matched anything records nothing: its empty list
+        // would replace the exits the last complete scan found with a claim nobody checked.
+        if (result.Observations.Count > 0 || result.DiagnosticCode != ScanFrameDeadline.DiagnosticCode)
+        {
+            await _raid.ApplyExtractsAsync(
+                result.Extracts,
+                image.CapturedUtc,
+                cancellationToken,
+                clock,
+                leftover,
+                result.Transits).ConfigureAwait(false);
+        }
         foreach (var observation in result.Observations)
         {
             evidence.Add(new(
@@ -361,7 +571,12 @@ public sealed class ScanUseCase : IScanUseCase
                 observation.ObservedUtc));
         }
 
-        var partial = result.AmbiguousLines.Count > 0 || result.UnmatchedLines.Count > 0;
+        // A code is partial on its own. The extract recogniser gives a degraded full-frame or panel
+        // reading its code even when every row that arrived matched, and the scan used to ask
+        // only whether any rows had failed.
+        var partial = result.AmbiguousLines.Count > 0 ||
+                      result.UnmatchedLines.Count > 0 ||
+                      result.DiagnosticCode is not null;
         return (
             result,
             partial ? ScanCompletionStatus.Partial : ScanCompletionStatus.Complete,
@@ -395,6 +610,119 @@ public sealed class ScanUseCase : IScanUseCase
             cancellationToken).ConfigureAwait(false);
         await _publisher.PublishAsync(outcome, cancellationToken).ConfigureAwait(false);
         return outcome;
+    }
+}
+
+/// <summary>How long reading one captured frame may take, from recognition to the last lookup.</summary>
+public sealed record ScanFrameOptions
+{
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
+}
+
+/// <summary>
+/// The one deadline a captured frame is read under, which every stage reading it spends from.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Each recognition component used to start its own. The recogniser's coordinator took thirty
+/// seconds, the extract, flea or container recogniser then started again on the caller's token, the
+/// container recogniser gave itself a fresh thirty seconds, and resolver, price and context lookups
+/// ran outside all of them. One capture could take a minute and then some, with the lookups after it
+/// unbounded. A scan now starts this once, and a component handed its token joins it rather than
+/// starting a budget of its own. A component started outside a scan starts one, and the components
+/// it calls with that token join it in turn, so no budget is ever nested inside another.
+/// </para>
+/// <para>
+/// Joining is by token, not merely by flow. The deadline is found through the asynchronous flow
+/// that started it, but a component joins only when the token it was handed is this deadline's own,
+/// so unrelated work started inside a scan with some other token cannot be cut short by it.
+/// </para>
+/// <para>
+/// Expiry is a measured outcome rather than cancellation: a stage it stops keeps whatever finished
+/// and says <see cref="DiagnosticCode"/>. The caller cancelling still throws.
+/// </para>
+/// </remarks>
+public sealed class ScanFrameDeadline : IDisposable
+{
+    public const string DiagnosticCode = "ocr_pipeline_timeout";
+
+    private static readonly TimeSpan MaximumTimeout = TimeSpan.FromDays(1);
+    private static readonly AsyncLocal<ScanFrameDeadline?> CurrentFrame = new();
+
+    private readonly CancellationTokenSource _timer;
+    private readonly CancellationTokenSource _source;
+    private readonly CancellationToken _caller;
+    private readonly ScanFrameDeadline? _previous;
+    private int _disposed;
+
+    private ScanFrameDeadline(TimeSpan timeout, CancellationToken caller, TimeProvider timeProvider)
+    {
+        _caller = caller;
+        _timer = new CancellationTokenSource(timeout, timeProvider);
+        _source = CancellationTokenSource.CreateLinkedTokenSource(caller, _timer.Token);
+        // Kept rather than read from the source, which refuses once disposed; a disposed
+        // deadline must still compare unequal to a live token instead of throwing.
+        Token = _source.Token;
+        Timeout = timeout;
+        _previous = CurrentFrame.Value;
+    }
+
+    /// <summary>The whole budget the frame was given.</summary>
+    public TimeSpan Timeout { get; }
+
+    /// <summary>Cancelled when the budget runs out or the caller cancels.</summary>
+    public CancellationToken Token { get; }
+
+    /// <summary>True when the budget, rather than the caller, ended the work.</summary>
+    public bool IsExpired => _timer.IsCancellationRequested && !_caller.IsCancellationRequested;
+
+    public static ScanFrameOptions Validate(ScanFrameOptions? options)
+    {
+        options ??= new ScanFrameOptions();
+        if (options.Timeout <= TimeSpan.Zero || options.Timeout > MaximumTimeout)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "The frame deadline must be positive and bounded.");
+        }
+
+        return options;
+    }
+
+    /// <summary>
+    /// Starts the frame's deadline and makes it the one components in this asynchronous flow join.
+    /// </summary>
+    public static ScanFrameDeadline Start(
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        TimeProvider? timeProvider = null)
+    {
+        Validate(new ScanFrameOptions { Timeout = timeout });
+        var frame = new ScanFrameDeadline(timeout, cancellationToken, timeProvider ?? TimeProvider.System);
+        CurrentFrame.Value = frame;
+        return frame;
+    }
+
+    /// <summary>The frame deadline this token belongs to, if a frame in this flow issued it.</summary>
+    public static ScanFrameDeadline? Joining(CancellationToken cancellationToken) =>
+        cancellationToken.CanBeCanceled &&
+        CurrentFrame.Value is { } frame &&
+        frame.Token == cancellationToken
+            ? frame
+            : null;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(CurrentFrame.Value, this))
+        {
+            CurrentFrame.Value = _previous;
+        }
+
+        _source.Dispose();
+        _timer.Dispose();
     }
 }
 

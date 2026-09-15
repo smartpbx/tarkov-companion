@@ -266,9 +266,11 @@ public sealed class OcrCoordinator
     }
 
     /// <summary>
-    /// Reads the frame and then its detected context under one deadline linked to the caller.
+    /// Reads the frame and then its detected context under the frame's one deadline.
     /// </summary>
     /// <remarks>
+    /// Inside a scan that deadline is the scan's, joined through its token, and the recognizer and
+    /// every stage after it spend from what these passes leave; called alone, this starts one.
     /// The deadline expiring is a measured outcome, not cancellation: whatever a finished pass
     /// read is kept and the result says <c>ocr_pipeline_timeout</c>. Caller cancellation still
     /// throws. A provider that ran out of memory on the frame is not asked for a second pass.

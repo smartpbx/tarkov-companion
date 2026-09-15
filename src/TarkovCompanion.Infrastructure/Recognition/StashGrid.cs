@@ -91,7 +91,7 @@ public static class StashGrid
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(region);
-        CapturedImagePixels.Validate(image);
+        CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
         cancellationToken.ThrowIfCancellationRequested();
 
         var pitch = Pitch(image);

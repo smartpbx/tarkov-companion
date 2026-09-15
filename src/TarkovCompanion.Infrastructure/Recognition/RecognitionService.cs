@@ -46,7 +46,9 @@ public sealed class RecognitionService : IRecognitionService
         // Read off the same pixels whatever the context turns out to be, and read before the
         // early returns, because the frames that come back with nothing are exactly the ones
         // where knowing the game had faded its display out is worth having.
-        var hud = HudProbe.Read(image);
+        //
+        // Not over the pixel ceiling, which the providers have already refused the frame for.
+        var hud = CapturedImagePixels.ExceedsPixelCeiling(image) ? null : HudProbe.Read(image);
         if (!coordinated.FullFrame.IsAvailable)
         {
             // A timeout or a rejected frame is not a missing provider. Only an actually absent
@@ -88,8 +90,25 @@ public sealed class RecognitionService : IRecognitionService
             };
         }
 
-        var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
-        var candidates = ResolveOcrCandidates(coordinated.Candidates, resolver)
+        // Loading the catalog and resolving every line is work on this frame, so inside a scan it
+        // spends from the frame's deadline like the passes that read the lines. It used to run on
+        // the caller's token after the passes had spent theirs. The deadline running out keeps the
+        // candidates resolved so far and says so; the caller cancelling still throws.
+        var resolved = new List<RecognitionCandidate>();
+        try
+        {
+            var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var candidate in ResolveOcrCandidates(coordinated.Candidates, resolver, cancellationToken))
+            {
+                resolved.Add(candidate);
+            }
+        }
+        catch (OperationCanceledException) when (OcrPipelineDeadline.HasExpired(cancellationToken))
+        {
+            degraded ??= OcrPipelineDeadline.DiagnosticCode;
+        }
+
+        var candidates = resolved
             .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
             .Select(group => group.OrderByDescending(candidate => candidate.Confidence.Value).First())
             .OrderByDescending(candidate => candidate.Confidence.Value)
@@ -135,10 +154,13 @@ public sealed class RecognitionService : IRecognitionService
 
     private IEnumerable<RecognitionCandidate> ResolveOcrCandidates(
         OcrResult result,
-        FuzzyCanonicalItemResolver resolver)
+        FuzzyCanonicalItemResolver resolver,
+        CancellationToken cancellationToken)
     {
         foreach (var line in result.Lines)
         {
+            // A provider may return thousands of lines, and each is a fuzzy search of the catalog.
+            cancellationToken.ThrowIfCancellationRequested();
             var normalized = _normalizer.NormalizeForLookup(line.Text);
             if (normalized.Length < 2 || IsUiChrome(normalized))
             {

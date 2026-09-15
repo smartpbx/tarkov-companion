@@ -37,7 +37,9 @@ public sealed class ContainerGridDetector
     /// </remarks>
     public ContainerGridSpec? Detect(CapturedImage image, CancellationToken cancellationToken = default)
     {
-        CapturedImagePixels.Validate(image);
+        // Refused over the pixel ceiling before the first read. Providers already refused such a
+        // frame, but this walks it before any provider is asked.
+        CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
         cancellationToken.ThrowIfCancellationRequested();
         var check = new PixelCancellationCheck(cancellationToken);
         var vertical = SelectRegularRun(FindLinePositions(image, vertical: true, ref check), cancellationToken);
@@ -186,7 +188,7 @@ public sealed class ContainerGridSegmenter
         ContainerGridSpec grid,
         CancellationToken cancellationToken = default)
     {
-        CapturedImagePixels.Validate(image);
+        CapturedImagePixels.Validate(image, CapturedImagePixels.MaximumPixels);
         ArgumentNullException.ThrowIfNull(grid);
         cancellationToken.ThrowIfCancellationRequested();
         if (grid.Columns <= 0 || grid.Rows <= 0)
@@ -289,10 +291,16 @@ public sealed record ContainerItemValuation(string CanonicalId, long ValueRouble
 
 public sealed class ContainerScanAnalyzer
 {
+    /// <summary>Matches candidates to occupied cells and totals them, checking cancellation per cell.</summary>
+    /// <remarks>
+    /// The analysis is #273's. The token is #299's: every occupied cell searches every candidate,
+    /// and both counts are bounded only by the grid and the lines a provider returned.
+    /// </remarks>
     public ContainerScanResult Analyze(
         IReadOnlyList<ContainerSegment> segments,
         IReadOnlyList<RecognitionCandidate> candidates,
-        IReadOnlyList<ContainerItemValuation> valuations)
+        IReadOnlyList<ContainerItemValuation> valuations,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(candidates);
@@ -303,6 +311,7 @@ public sealed class ContainerScanAnalyzer
         var ambiguous = new List<ContainerCellIssue>();
         foreach (var cell in segments.Where(segment => segment.IsOccupied))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var ranked = candidates
                 .Where(candidate => candidate.Bounds is not null && Overlaps(candidate.Bounds, cell.Bounds))
                 .GroupBy(candidate => candidate.CanonicalId, StringComparer.Ordinal)
@@ -464,12 +473,20 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
     {
         CapturedImagePixels.Validate(image);
         cancellationToken.ThrowIfCancellationRequested();
+        if (CapturedImagePixels.ExceedsPixelCeiling(image))
+        {
+            // The answer a provider gives a frame this size, given before grid detection walks it.
+            return Empty(OcrExecutionBudget.InputLimitExceeded);
+        }
+
         // Grid detection, segmentation and analysis belong to #273. The #299 changes here are the
-        // shared deadline and the diagnostics. The deadline starts before the first pixel is read:
-        // grid detection walks the whole frame, and it used to run before the budget existed, so
-        // the most expensive pixel work in a container scan was the one part nothing bounded. The
-        // whole-grid pass and every cell fallback then spend from the same budget, and running out
-        // keeps what was already read as explicit partial evidence.
+        // shared deadline and the diagnostics. Inside a scan the deadline is the scan's, joined
+        // through its token; alone, this starts one. Either way it is running before the first
+        // pixel is read: grid detection walks the whole frame, and it used to run before the
+        // budget existed, so the most expensive pixel work in a container scan was the one part
+        // nothing bounded. The whole-grid pass, every cell fallback, the resolver, the analyses and
+        // the price lookups then spend from the same budget, and running out keeps what was
+        // already read as explicit partial evidence.
         using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
         ContainerGridSpec? grid;
         IReadOnlyList<ContainerSegment> segments;
@@ -497,11 +514,26 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             return Empty(ocr.DiagnosticCode ?? "ocr_provider_unavailable");
         }
 
-        var resolver = await _resolverCache.GetAsync(cancellationToken).ConfigureAwait(false);
-        var candidates = ocr.Lines
-            .SelectMany(line => ResolveLine(resolver, line))
-            .ToList();
-        var preliminary = _analyzer.Analyze(segments, candidates, []);
+        // The catalog, the resolution of every line and the analyses are work on this frame as
+        // much as the passes are, and they used to run on the caller's token once the passes had
+        // spent the budget: the price lookups, one per item, had no bound at all. They spend from
+        // the same deadline now. The deadline running out before the first analysis finishes
+        // leaves nothing to report but the code; after it, the result is the last analysis that
+        // finished, and the code names what the deadline kept out of it.
+        FuzzyCanonicalItemResolver resolver;
+        List<RecognitionCandidate> candidates;
+        ContainerScanResult preliminary;
+        try
+        {
+            resolver = await _resolverCache.GetAsync(deadline.Token).ConfigureAwait(false);
+            candidates = ResolveLines(resolver, ocr.Lines, deadline.Token);
+            preliminary = _analyzer.Analyze(segments, candidates, [], deadline.Token);
+        }
+        catch (OperationCanceledException) when (deadline.IsExpired)
+        {
+            return Empty(OcrPipelineDeadline.DiagnosticCode);
+        }
+
         // A grid pass that ran out of memory is not followed by more passes, as in the coordinator.
         var fallbackCells = OcrOutcome.IsMemoryExhausted(ocr)
             ? Array.Empty<ContainerCellIssue>()
@@ -552,21 +584,42 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
 
             if (cellOcr.IsAvailable)
             {
-                candidates.AddRange(cellOcr.Lines.SelectMany(line => ResolveLine(resolver, line)));
+                try
+                {
+                    candidates.AddRange(ResolveLines(resolver, cellOcr.Lines, deadline.Token));
+                }
+                catch (OperationCanceledException) when (deadline.IsExpired)
+                {
+                    stopped = OcrPipelineDeadline.DiagnosticCode;
+                    cellDegradations.Add(((cell.Row, cell.Column), stopped));
+                }
             }
         }
 
         var valuations = new List<ContainerItemValuation>();
-        foreach (var itemId in candidates.Select(candidate => candidate.CanonicalId).Distinct(StringComparer.Ordinal))
+        ContainerScanResult result;
+        try
         {
-            var price = await _items.GetPriceAsync(itemId, cancellationToken).ConfigureAwait(false);
-            if (price is not null && price.BestEconomicValue > 0)
+            foreach (var itemId in candidates.Select(candidate => candidate.CanonicalId).Distinct(StringComparer.Ordinal))
             {
-                valuations.Add(new(itemId, price.BestEconomicValue));
+                // Checked before each lookup as well as inside it, so a repository that never
+                // looks at its token still does not start a lookup the deadline has ruled out.
+                deadline.Token.ThrowIfCancellationRequested();
+                var price = await _items.GetPriceAsync(itemId, deadline.Token).ConfigureAwait(false);
+                if (price is not null && price.BestEconomicValue > 0)
+                {
+                    valuations.Add(new(itemId, price.BestEconomicValue));
+                }
             }
+
+            result = _analyzer.Analyze(segments, candidates, valuations, deadline.Token);
+        }
+        catch (OperationCanceledException) when (deadline.IsExpired)
+        {
+            stopped = OcrPipelineDeadline.DiagnosticCode;
+            result = preliminary;
         }
 
-        var result = _analyzer.Analyze(segments, candidates, valuations);
         // The deadline explains every cell it cut off, so it names the scan. Otherwise the first
         // degraded read does: the whole-grid pass, then cells in reading order. A partial grid
         // pass that was still available used to be analyzed as though it were complete.
@@ -608,6 +661,22 @@ public sealed class ContainerRecognitionService : IContainerRecognitionService
             bounds.Y + vertical,
             Math.Max(1, bounds.Width - (horizontal * 2)),
             Math.Max(1, bounds.Height - (vertical * 2)));
+    }
+
+    private static List<RecognitionCandidate> ResolveLines(
+        FuzzyCanonicalItemResolver resolver,
+        IReadOnlyList<OcrLine> lines,
+        CancellationToken cancellationToken)
+    {
+        var candidates = new List<RecognitionCandidate>();
+        foreach (var line in lines)
+        {
+            // Each line is a fuzzy search of the catalog, over as many lines as a provider returned.
+            cancellationToken.ThrowIfCancellationRequested();
+            candidates.AddRange(ResolveLine(resolver, line));
+        }
+
+        return candidates;
     }
 
     private static IEnumerable<RecognitionCandidate> ResolveLine(

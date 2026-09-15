@@ -9,13 +9,29 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
 {
     private readonly IOcrEngine _ocrEngine;
     private readonly OcrTextNormalizer _normalizer;
+    private readonly OcrPipelineOptions _pipeline;
 
-    public ExtractRecognitionService(IOcrEngine ocrEngine, OcrTextNormalizer? normalizer = null)
+    public ExtractRecognitionService(
+        IOcrEngine ocrEngine,
+        OcrTextNormalizer? normalizer = null,
+        OcrPipelineOptions? pipelineOptions = null)
     {
         _ocrEngine = ocrEngine ?? throw new ArgumentNullException(nameof(ocrEngine));
         _normalizer = normalizer ?? new OcrTextNormalizer();
+        _pipeline = OcrPipelineDeadline.Validate(pipelineOptions);
     }
 
+    /// <summary>
+    /// Reads the frame and then the panel, and matches both, under the frame's one deadline.
+    /// </summary>
+    /// <remarks>
+    /// Inside a scan the deadline is the scan's, joined through its token; alone, this starts one.
+    /// The two passes used to run on the caller's token after recognition had already spent its
+    /// budget, so one capture could take the recognizer's thirty seconds and then these two
+    /// readings' fifteen each. The deadline cutting the frame reading returns no extracts, as
+    /// not available with <c>ocr_pipeline_timeout</c>; cutting the panel reading or the matching
+    /// keeps what the frame already matched, with that code. The caller cancelling still throws.
+    /// </remarks>
     public async Task<ExtractRecognitionResult> RecognizeAsync(
         CapturedImage image,
         MapDefinition currentMap,
@@ -23,36 +39,22 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
     {
         ArgumentNullException.ThrowIfNull(currentMap);
         CapturedImagePixels.Validate(image);
-        var ocr = await _ocrEngine
-            .RecognizeAsync(image, new OcrRequest(ScanContext.ExtractList), cancellationToken)
-            .ConfigureAwait(false);
+        using var deadline = OcrPipelineDeadline.Start(_pipeline, cancellationToken);
+        OcrResult ocr;
+        try
+        {
+            ocr = await _ocrEngine
+                .RecognizeAsync(image, new OcrRequest(ScanContext.ExtractList), deadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (deadline.IsExpired)
+        {
+            return new([], [], [], [], false, OcrPipelineDeadline.DiagnosticCode);
+        }
+
         if (!ocr.IsAvailable)
         {
             return new([], [], [], [], false, ocr.DiagnosticCode ?? "ocr_provider_unavailable");
-        }
-
-        // A second reading of the panel on its own, untouched. Measured against a real screen:
-        // reading the whole 3840x1080 frame returned 240 lines of which the exit names were not
-        // among the first dozen, and reading the panel alone returned sixteen with every name
-        // legible. The bright-half preparation that suits a full frame also hurts here, because
-        // the names are drawn lighter and smaller than the slot labels beside them and thin
-        // pale text is what a threshold eats first.
-        //
-        // Added to the full-frame reading rather than replacing it. If the panel has moved, or
-        // this is some other screen entirely, the frame still answers.
-        var panel = await _ocrEngine
-            .RecognizeAsync(
-                image,
-                new OcrRequest(ScanContext.ExtractList, PanelRegion(image))
-                {
-                    Preparation = OcrPreparation.AsCaptured,
-                },
-                cancellationToken)
-            .ConfigureAwait(false);
-        IReadOnlyList<OcrLine> lines = ocr.Lines;
-        if (panel.IsAvailable && panel.Lines.Count > 0)
-        {
-            lines = [.. ocr.Lines, .. panel.Lines];
         }
 
         var matched = new Dictionary<string, ObservedExtract>(StringComparer.Ordinal);
@@ -69,86 +71,154 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         // Collapsing them before ranking is the whole fix: one name is one candidate, and the
         // runner-up is then a genuinely different exit.
         var candidates = DistinctByName(currentMap.Extracts);
-        foreach (var line in lines)
+
+        // The frame's lines are matched before the panel is read, in the order both readings
+        // were always matched in. A deadline that cuts the panel reading then keeps the exits
+        // the frame already named, instead of cutting the matching of both.
+        IReadOnlyList<OcrLine> lines = ocr.Lines;
+        var degraded = OcrOutcome.Degradation(ocr);
+        if (!MatchLines(ocr.Lines))
         {
-            // The slot label comes off first and says what the row is. Every row on this panel
-            // carries one, on the same line as the name, and against a catalog entry that has
-            // none it is eight to ten characters of dead weight that sank every short name.
-            var (text, kind) = ExtractLineMatcher.StripRowPrefix(line.Text);
-            if (kind == ExtractLineMatcher.RowKind.Transit)
+            degraded ??= OcrPipelineDeadline.DiagnosticCode;
+        }
+        else if (!OcrOutcome.IsMemoryExhausted(ocr))
+        {
+            // A second reading of the panel on its own, untouched. Measured against a real screen:
+            // reading the whole 3840x1080 frame returned 240 lines of which the exit names were not
+            // among the first dozen, and reading the panel alone returned sixteen with every name
+            // legible. The bright-half preparation that suits a full frame also hurts here, because
+            // the names are drawn lighter and smaller than the slot labels beside them and thin
+            // pale text is what a threshold eats first.
+            //
+            // Added to the full-frame reading rather than replacing it. If the panel has moved, or
+            // this is some other screen entirely, the frame still answers.
+            //
+            // Both readings carry what degraded them, the frame first and then the panel. An
+            // available frame that lost tiles or lines, and a panel reading that timed out or failed
+            // outright, used to leave no trace on the result: the lines that did arrive matched, and
+            // the scan called a half-read panel complete. A frame that ran out of memory is not
+            // followed by a panel reading, as in the coordinator; it would ask for the same memory.
+            try
             {
-                // A way to another map, which no extract catalog contains. Kept as its own
-                // list rather than matched and failed.
-                if (text.Length > 0)
+                var panel = await _ocrEngine
+                    .RecognizeAsync(
+                        image,
+                        new OcrRequest(ScanContext.ExtractList, PanelRegion(image))
+                        {
+                            Preparation = OcrPreparation.AsCaptured,
+                        },
+                        deadline.Token)
+                    .ConfigureAwait(false);
+                degraded ??= OcrOutcome.Degradation(panel);
+                if (panel.IsAvailable && panel.Lines.Count > 0)
                 {
-                    transits.Add(text);
+                    lines = [.. ocr.Lines, .. panel.Lines];
+                    if (!MatchLines(panel.Lines))
+                    {
+                        degraded ??= OcrPipelineDeadline.DiagnosticCode;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (deadline.IsExpired)
+            {
+                degraded ??= OcrPipelineDeadline.DiagnosticCode;
+            }
+        }
+
+        // Matches one reading's lines into the lists above, in order. False when the deadline
+        // stopped it, with every line matched before that point kept.
+        bool MatchLines(IReadOnlyList<OcrLine> source)
+        {
+            foreach (var line in source)
+            {
+                // Each line is scored against every exit on the map, over as many lines as a
+                // reading returned.
+                if (deadline.HasRunOut())
+                {
+                    return false;
                 }
 
-                continue;
-            }
-
-            var (observed, status) = ParseExtractLine(ExtractLineMatcher.StripTrailingMeasure(text));
-            if (observed.Length == 0 || IsHeader(observed))
-            {
-                continue;
-            }
-
-            var ranked = candidates
-                .Select(extract => new
+                // The slot label comes off first and says what the row is. Every row on this panel
+                // carries one, on the same line as the name, and against a catalog entry that has
+                // none it is eight to ten characters of dead weight that sank every short name.
+                var (text, kind) = ExtractLineMatcher.StripRowPrefix(line.Text);
+                if (kind == ExtractLineMatcher.RowKind.Transit)
                 {
-                    Extract = extract,
-                    Similarity = ExtractLineMatcher.Score(
-                        observed,
-                        _normalizer.NormalizeForLookup(extract.Name),
-                        _normalizer.NormalizeForLookup(ExtractLineMatcher.WithoutQualifier(extract.Name))),
-                })
-                .OrderByDescending(match => match.Similarity)
-                .ThenBy(match => match.Extract.Name, StringComparer.Ordinal)
-                .Take(2)
-                .ToArray();
-            if (ranked.Length == 0)
-            {
-                unmatched.Add(line.Text);
-                continue;
+                    // A way to another map, which no extract catalog contains. Kept as its own
+                    // list rather than matched and failed.
+                    if (text.Length > 0)
+                    {
+                        transits.Add(text);
+                    }
+
+                    continue;
+                }
+
+                var (observed, status) = ParseExtractLine(ExtractLineMatcher.StripTrailingMeasure(text));
+                if (observed.Length == 0 || IsHeader(observed))
+                {
+                    continue;
+                }
+
+                var ranked = candidates
+                    .Select(extract => new
+                    {
+                        Extract = extract,
+                        Similarity = ExtractLineMatcher.Score(
+                            observed,
+                            _normalizer.NormalizeForLookup(extract.Name),
+                            _normalizer.NormalizeForLookup(ExtractLineMatcher.WithoutQualifier(extract.Name))),
+                    })
+                    .OrderByDescending(match => match.Similarity)
+                    .ThenBy(match => match.Extract.Name, StringComparer.Ordinal)
+                    .Take(2)
+                    .ToArray();
+                if (ranked.Length == 0)
+                {
+                    unmatched.Add(line.Text);
+                    continue;
+                }
+
+                var best = ranked[0];
+                // Same rule as the item resolver: an engine with no opinion is not an engine with a
+                // bad one. Blended in as zero, the containment match that catches an abbreviated
+                // exit name scored 0.688 against a threshold of 0.70 and never matched.
+                var score = line.Confidence is { } reported
+                    ? Math.Clamp((best.Similarity * 0.80) + (reported.Value * 0.20), 0, 1)
+                    : best.Similarity;
+                if (best.Similarity < 0.65 || score < RecognitionThresholds.Ambiguous)
+                {
+                    unmatched.Add(line.Text);
+                    continue;
+                }
+
+                // Two exits whose names differ by one character are near-identical to a fuzzy
+                // score however clean the reading was, so the lead rule discarded both of them
+                // every time. Woods has ZB-014 and ZB-016 and Customs has two dorms; a line that
+                // reads as one of them exactly is not ambiguous, it is that one.
+                if (ranked.Length > 1 &&
+                    best.Similarity - ranked[1].Similarity < RecognitionThresholds.MinimumRunnerUpLead &&
+                    !IsExact(observed, best.Extract.Name))
+                {
+                    ambiguous.Add(line.Text);
+                    continue;
+                }
+
+                var recognition = new ObservedExtract(
+                    best.Extract.Id,
+                    best.Extract.Name,
+                    status,
+                    new Confidence(score),
+                    $"ocr:{ocr.Engine}; map={currentMap.Id}; status={status}",
+                    image.CapturedUtc.ToUniversalTime());
+                if (!matched.TryGetValue(recognition.ExtractId, out var existing) ||
+                    recognition.Confidence.Value > existing.Confidence.Value)
+                {
+                    matched[recognition.ExtractId] = recognition;
+                }
             }
 
-            var best = ranked[0];
-            // Same rule as the item resolver: an engine with no opinion is not an engine with a
-            // bad one. Blended in as zero, the containment match that catches an abbreviated
-            // exit name scored 0.688 against a threshold of 0.70 and never matched.
-            var score = line.Confidence is { } reported
-                ? Math.Clamp((best.Similarity * 0.80) + (reported.Value * 0.20), 0, 1)
-                : best.Similarity;
-            if (best.Similarity < 0.65 || score < RecognitionThresholds.Ambiguous)
-            {
-                unmatched.Add(line.Text);
-                continue;
-            }
-
-            // Two exits whose names differ by one character are near-identical to a fuzzy
-            // score however clean the reading was, so the lead rule discarded both of them
-            // every time. Woods has ZB-014 and ZB-016 and Customs has two dorms; a line that
-            // reads as one of them exactly is not ambiguous, it is that one.
-            if (ranked.Length > 1 &&
-                best.Similarity - ranked[1].Similarity < RecognitionThresholds.MinimumRunnerUpLead &&
-                !IsExact(observed, best.Extract.Name))
-            {
-                ambiguous.Add(line.Text);
-                continue;
-            }
-
-            var recognition = new ObservedExtract(
-                best.Extract.Id,
-                best.Extract.Name,
-                status,
-                new Confidence(score),
-                $"ocr:{ocr.Engine}; map={currentMap.Id}; status={status}",
-                image.CapturedUtc.ToUniversalTime());
-            if (!matched.TryGetValue(recognition.ExtractId, out var existing) ||
-                recognition.Confidence.Value > existing.Confidence.Value)
-            {
-                matched[recognition.ExtractId] = recognition;
-            }
+            return true;
         }
 
         var observations = matched.Values
@@ -165,13 +235,17 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         // Two readings of the same screen produce the same line twice. The matched exits are
         // already keyed by id; these are not, and a diagnostic that says the same thing twice
         // reads as two problems.
+        //
+        // A degraded reading's code wins over "extracts_partial", as it does in the recogniser:
+        // the unmatched and ambiguous lists already say which rows failed, and only the code can
+        // say that rows may be missing from both.
         return new(
             active,
             observations,
             [.. ambiguous.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             [.. unmatched.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             true,
-            ambiguous.Count > 0 || unmatched.Count > 0 ? "extracts_partial" : null)
+            degraded ?? (ambiguous.Count > 0 || unmatched.Count > 0 ? "extracts_partial" : null))
         {
             Transits = [.. transits.Distinct(StringComparer.CurrentCultureIgnoreCase)],
             // As read, before StripRowPrefix and StripTrailingMeasure take anything off. What

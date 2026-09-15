@@ -30,6 +30,32 @@ internal struct PixelCancellationCheck(CancellationToken cancellationToken)
 
 internal static class CapturedImagePixels
 {
+    /// <summary>
+    /// The most pixels a whole-frame walk accepts: the providers' default source ceiling and the
+    /// screenshot loader's decode ceiling.
+    /// </summary>
+    /// <remarks>
+    /// The providers refused a frame over it, but container grid detection and segmentation walk
+    /// the frame before any provider sees it, and they accepted any size the buffer covered.
+    /// </remarks>
+    public const long MaximumPixels = 40_000_000;
+
+    /// <summary>True when the frame is over <see cref="MaximumPixels"/>, measured without reading a pixel.</summary>
+    public static bool ExceedsPixelCeiling(CapturedImage image) =>
+        (long)image.Width * image.Height > MaximumPixels;
+
+    /// <summary>Validates the frame and refuses one over <paramref name="maximumPixels"/> before any pixel is read.</summary>
+    public static void Validate(CapturedImage image, long maximumPixels)
+    {
+        Validate(image);
+        if ((long)image.Width * image.Height > maximumPixels)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(image),
+                $"Captured image has more than the {maximumPixels:N0} pixels a whole-frame walk accepts.");
+        }
+    }
+
     public static void Validate(CapturedImage image)
     {
         ArgumentNullException.ThrowIfNull(image);

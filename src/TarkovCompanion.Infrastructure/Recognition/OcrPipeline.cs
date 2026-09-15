@@ -1,42 +1,63 @@
+using TarkovCompanion.Application.Services.Recognition;
 using TarkovCompanion.Core.Domain.Recognition;
 
 namespace TarkovCompanion.Infrastructure.Recognition;
 
 /// <summary>
-/// One deadline for every OCR pass a single captured frame receives from one recognizer.
+/// The deadline a recognizer starts for a frame when it is not already reading one inside a scan.
 /// </summary>
 /// <remarks>
 /// Each provider call already stops at its own frame timeout. That bounded a call, not a scan:
 /// the coordinator reads a frame twice and the container recognizer up to twenty-five times, so
-/// fifteen seconds per call quietly became minutes per frame. The deadline starts once, is
-/// linked to the caller's token, and every pass for the frame spends from it. A provider's own
-/// frame timeout remains an inner cap on each call.
+/// fifteen seconds per call quietly became minutes per frame. Inside a scan the frame's deadline
+/// is <see cref="ScanFrameDeadline"/>, started once by the scan, and a recognizer handed its token
+/// joins it; this budget then plays no part. A recognizer called on its own starts this one, and
+/// the components it calls join that. A provider's own frame timeout remains an inner cap on each
+/// call.
 /// </remarks>
 public sealed record OcrPipelineOptions
 {
-    /// <summary>Wall-clock budget shared by every OCR pass for one frame.</summary>
+    /// <summary>Wall-clock budget for one frame read outside a scan.</summary>
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
-/// <summary>A started pipeline deadline linked to the caller's cancellation.</summary>
+/// <summary>The frame deadline a recognizer reads under: the scan's, or one it started itself.</summary>
 internal sealed class OcrPipelineDeadline : IDisposable
 {
-    public const string DiagnosticCode = "ocr_pipeline_timeout";
+    public const string DiagnosticCode = ScanFrameDeadline.DiagnosticCode;
 
     private static readonly TimeSpan MaximumTimeout = TimeSpan.FromDays(1);
-    private readonly CancellationTokenSource _source;
-    private readonly CancellationToken _caller;
+    private readonly ScanFrameDeadline _frame;
+    private readonly bool _owned;
 
-    private OcrPipelineDeadline(CancellationTokenSource source, CancellationToken caller)
+    private OcrPipelineDeadline(ScanFrameDeadline frame, bool owned)
     {
-        _source = source;
-        _caller = caller;
+        _frame = frame;
+        _owned = owned;
     }
 
-    public CancellationToken Token => _source.Token;
+    public CancellationToken Token => _frame.Token;
 
     /// <summary>True when the deadline, rather than the caller, ended the work.</summary>
-    public bool IsExpired => _source.IsCancellationRequested && !_caller.IsCancellationRequested;
+    public bool IsExpired => _frame.IsExpired;
+
+    /// <summary>False when this joined a deadline somebody else started and will end.</summary>
+    public bool IsOwned => _owned;
+
+    /// <summary>
+    /// True once the deadline has run out, for work that checks between bounded steps and keeps
+    /// what it finished. Throws when the caller cancelled instead.
+    /// </summary>
+    public bool HasRunOut()
+    {
+        if (IsExpired)
+        {
+            return true;
+        }
+
+        Token.ThrowIfCancellationRequested();
+        return false;
+    }
 
     public static OcrPipelineOptions Validate(OcrPipelineOptions? options)
     {
@@ -49,14 +70,29 @@ internal sealed class OcrPipelineDeadline : IDisposable
         return options;
     }
 
-    public static OcrPipelineDeadline Start(OcrPipelineOptions options, CancellationToken cancellationToken)
-    {
-        var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        source.CancelAfter(options.Timeout);
-        return new(source, cancellationToken);
-    }
+    /// <summary>
+    /// Joins the frame deadline the token belongs to, or starts one linked to it when it belongs
+    /// to none. Never a second budget inside the first.
+    /// </summary>
+    public static OcrPipelineDeadline Start(OcrPipelineOptions options, CancellationToken cancellationToken) =>
+        ScanFrameDeadline.Joining(cancellationToken) is { } frame
+            ? new(frame, owned: false)
+            : new(ScanFrameDeadline.Start(options.Timeout, cancellationToken), owned: true);
 
-    public void Dispose() => _source.Dispose();
+    /// <summary>
+    /// True when the token is a frame deadline's and that deadline, rather than a caller, ended
+    /// the work. False for any other token, whose cancellation is the caller's.
+    /// </summary>
+    public static bool HasExpired(CancellationToken cancellationToken) =>
+        ScanFrameDeadline.Joining(cancellationToken)?.IsExpired == true;
+
+    public void Dispose()
+    {
+        if (_owned)
+        {
+            _frame.Dispose();
+        }
+    }
 }
 
 /// <summary>How an OCR result reads once provider detail is gone.</summary>
