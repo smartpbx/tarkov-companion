@@ -95,6 +95,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
     private DateTimeOffset? _lastSuccessfulPumpUtc;
     private int _consecutivePumpFaults;
     private bool _accepting = true;
+    private bool _processorStopping;
     private bool _disposing;
     private bool _disposed;
 
@@ -109,7 +110,12 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _store = store ?? new FixtureOutboxStore();
-        _processor = new(_store, new RaidHistoryCommandHandler(_inner), _timeProvider, jitter);
+        _processor = new(
+            _store,
+            new RaidHistoryCommandHandler(_inner),
+            _timeProvider,
+            jitter,
+            progress: SignalProcessorProgress);
         _pump = StartPump();
     }
 
@@ -346,6 +352,9 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             return false;
         }
 
+        // Manual retry is an explicit operator decision to replay an acknowledgement-unknown
+        // delivery. Release its local fence only after the store made that decision durable.
+        _processor.NotifyReconciled(operationId);
         lock (_gate)
         {
             _accepted[operationId] = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -377,6 +386,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             return false;
         }
 
+        _processor.NotifyReconciled(operationId);
         lock (_gate)
         {
             WakeUnsafe();
@@ -422,13 +432,20 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         try
         {
             PublishChanged();
+            var stopDeadlineUtc = AddBounded(_timeProvider.GetUtcNow(), StopTimeout);
 
             // An acceptance already past its admission check may still be storing commands.
             // Waiting for it means none can be accepted after the pump below drains and stops.
             // A timed-out SemaphoreSlim wait remains queued unless its own token is cancelled.
             // The previous wait stole the lock after this method returned, permanently wedging a
             // later dispose and every acceptance. The deadline owns and observes that waiter.
-            using var enteringDeadline = new CancellationTokenSource(StopTimeout, _timeProvider);
+            var enteringBudget = stopDeadlineUtc - _timeProvider.GetUtcNow();
+            if (enteringBudget <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            using var enteringDeadline = new CancellationTokenSource(enteringBudget, _timeProvider);
             var entering = _enqueueLock.WaitAsync(enteringDeadline.Token);
             try
             {
@@ -447,7 +464,7 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             Task pump;
             lock (_gate)
             {
-                if (_pump.IsCompleted)
+                if (_pump.IsCompleted && !_processorStopping && !_lifetime.IsCancellationRequested)
                 {
                     _pump = StartPump();
                 }
@@ -456,14 +473,35 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                 pump = _pump;
             }
 
-            if (!await CompletesWithinStopTimeoutAsync(pump).ConfigureAwait(false))
+            if (!await CompletesBeforeDeadlineAsync(pump, stopDeadlineUtc).ConfigureAwait(false))
             {
                 var cancelling = ObserveAsync(_lifetime.CancelAsync());
-                if (!await CompletesWithinStopTimeoutAsync(Task.WhenAll(pump, cancelling)).ConfigureAwait(false))
+                if (!await CompletesBeforeDeadlineAsync(Task.WhenAll(pump, cancelling), stopDeadlineUtc)
+                        .ConfigureAwait(false))
                 {
                     // A handler that ignores cancellation still owns the pump and its semaphores.
                     return;
                 }
+            }
+
+            await _processor.DisposeAsync().ConfigureAwait(false);
+            lock (_gate)
+            {
+                _processorStopping = true;
+            }
+
+            if (!await CompletesBeforeDeadlineAsync(_processor.StopCompletion, stopDeadlineUtc).ConfigureAwait(false))
+            {
+                // A handler or cancellation callback still owns its bounded processor state and
+                // store lease. Leave this outbox non-terminal and all dependencies alive so a
+                // later disposal can finish once that exact invocation settles.
+                lock (_gate)
+                {
+                    _pumpState = OutboxPumpState.Stopping;
+                }
+
+                PublishChanged();
+                return;
             }
 
             lock (_gate)
@@ -521,7 +559,34 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                         nextDue = result.Leased > 0
                             ? _timeProvider.GetUtcNow()
                             : await FindNextDueUtcAsync(_lifetime.Token).ConfigureAwait(false);
-                        MarkPassSucceeded();
+                        if (result.Leased == 0
+                            && result.InFlight > 0
+                            && nextDue <= _timeProvider.GetUtcNow())
+                        {
+                            // Every processor slot may be retained by work that has already
+                            // reported. Due store rows cannot start until one settles, so poll at a
+                            // bounded cadence instead of spinning the pump at full speed.
+                            nextDue = AddBounded(_timeProvider.GetUtcNow(), InitialPumpBackoff);
+                        }
+
+                        // A timed-out handler or uncertain acknowledgement is degraded delivery
+                        // health, not a failed pump pass. Keep it visible while still calculating
+                        // the next due work and allowing shutdown to observe normal pump progress.
+                        MarkPassCompleted(result.LastFault);
+                        if (result.LastFault is not null)
+                        {
+                            bool stopForDeliveryFault;
+                            lock (_gate)
+                            {
+                                stopForDeliveryFault = !_accepting;
+                            }
+
+                            if (stopForDeliveryFault)
+                            {
+                                SetPumpState(OutboxPumpState.Stopped);
+                                return;
+                            }
+                        }
                     }
                     catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
                     {
@@ -660,14 +725,16 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
             .Min();
     }
 
-    private void MarkPassSucceeded()
+    private void MarkPassCompleted(RuntimeFault? deliveryFault)
     {
         lock (_gate)
         {
             _lastSuccessfulPumpUtc = _timeProvider.GetUtcNow();
-            _lastPumpFault = null;
+            _lastPumpFault = deliveryFault;
             _consecutivePumpFaults = 0;
-            _pumpState = OutboxPumpState.Running;
+            _pumpState = deliveryFault is null
+                ? OutboxPumpState.Running
+                : OutboxPumpState.Faulted;
         }
 
         PublishChanged();
@@ -683,7 +750,9 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
                 _consecutivePumpFaults++;
             }
 
-            _lastPumpFault = RuntimeFault.FromException(exception, _timeProvider, OutboxReference);
+            _lastPumpFault = exception is RuntimeFaultException classified
+                ? classified.Fault
+                : RuntimeFault.FromException(exception, _timeProvider, OutboxReference);
             _pumpState = OutboxPumpState.Faulted;
             var exponent = Math.Min(_consecutivePumpFaults - 1, 16);
             var ticks = Math.Min(
@@ -744,6 +813,17 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         _signal.Release();
     }
 
+    private void SignalProcessorProgress()
+    {
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _signal.Release();
+            }
+        }
+    }
+
     private OutboxSnapshot ComposeUnsafe() => _storeSnapshot with
     {
         PumpState = _pumpState,
@@ -753,11 +833,17 @@ public sealed class RaidHistoryOutbox : IRaidHistoryService, IAtLeastOnceRaidHis
         LastAcceptanceFault = _lastAcceptanceFault,
     };
 
-    private async Task<bool> CompletesWithinStopTimeoutAsync(Task task)
+    private async Task<bool> CompletesBeforeDeadlineAsync(Task task, DateTimeOffset deadlineUtc)
     {
+        var remaining = deadlineUtc - _timeProvider.GetUtcNow();
+        if (remaining <= TimeSpan.Zero)
+        {
+            return task.IsCompleted;
+        }
+
         try
         {
-            await task.WaitAsync(StopTimeout, _timeProvider).ConfigureAwait(false);
+            await task.WaitAsync(remaining, _timeProvider).ConfigureAwait(false);
             return true;
         }
         catch (TimeoutException)

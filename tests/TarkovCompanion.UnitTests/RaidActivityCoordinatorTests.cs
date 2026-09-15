@@ -212,8 +212,16 @@ public sealed class RaidActivityCoordinatorTests
         public Task<bool> CompleteAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset completedUtc, CancellationToken cancellationToken) =>
             _inner.CompleteAsync(operationId, leaseToken, completedUtc, cancellationToken);
 
-        public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken) =>
-            _inner.RetryAsync(operationId, leaseToken, notBeforeUtc, fault, cancellationToken);
+        public Task<bool> RenewLeaseAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken) =>
+            _inner.RenewLeaseAsync(operationId, leaseToken, nowUtc, leaseDuration, cancellationToken);
+
+        public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset retryingUtc, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken) =>
+            _inner.RetryAsync(operationId, leaseToken, retryingUtc, notBeforeUtc, fault, cancellationToken);
 
         public Task<bool> DeadLetterAsync(OperationId operationId, OutboxLeaseToken leaseToken, RuntimeFault fault, DateTimeOffset deadLetteredUtc, CancellationToken cancellationToken) =>
             _inner.DeadLetterAsync(operationId, leaseToken, fault, deadLetteredUtc, cancellationToken);
@@ -223,6 +231,12 @@ public sealed class RaidActivityCoordinatorTests
 
         public Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             _inner.ManualRetryAsync(operationId, nowUtc, cancellationToken);
+
+        public Task<bool> ResolveDeadLetterAsync(
+            OperationId operationId,
+            DateTimeOffset resolvedUtc,
+            CancellationToken cancellationToken) =>
+            _inner.ResolveDeadLetterAsync(operationId, resolvedUtc, cancellationToken);
 
         public Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             _inner.GetSnapshotAsync(nowUtc, cancellationToken);

@@ -162,25 +162,40 @@ public sealed class FixtureOutboxStore : IOutboxStore
         OperationId operationId,
         OutboxLeaseToken leaseToken,
         DateTimeOffset completedUtc,
-        CancellationToken cancellationToken) =>
-        MutateLeaseAsync(
-            operationId,
-            leaseToken,
-            item =>
-            {
-                if (completedUtc.ToUniversalTime() < item.Item.CreatedUtc)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(completedUtc));
-                }
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!leaseToken.IsDefined)
+        {
+            throw new ArgumentException("A lease token is required.", nameof(leaseToken));
+        }
 
-                item.State = OutboxDeliveryState.Completed;
-                item.CompletedUtc = completedUtc.ToUniversalTime();
-                item.LeaseToken = null;
-                item.LeaseExpiresUtc = null;
-                item.LastFault = null;
-                PruneCompletedUnsafe();
-            },
-            cancellationToken);
+        var completedAt = completedUtc.ToUniversalTime();
+        lock (_gate)
+        {
+            if (!_items.TryGetValue(operationId, out var item)
+                || item.State != OutboxDeliveryState.Processing
+                || item.LeaseToken != leaseToken
+                || item.LeaseExpiresUtc is not { } leaseExpiresUtc
+                || leaseExpiresUtc <= completedAt)
+            {
+                return Task.FromResult(false);
+            }
+
+            if (completedAt < item.Item.CreatedUtc)
+            {
+                throw new ArgumentOutOfRangeException(nameof(completedUtc));
+            }
+
+            item.State = OutboxDeliveryState.Completed;
+            item.CompletedUtc = completedAt;
+            item.LeaseToken = null;
+            item.LeaseExpiresUtc = null;
+            item.LastFault = null;
+            PruneCompletedUnsafe();
+            return Task.FromResult(true);
+        }
+    }
 
     public Task<bool> RenewLeaseAsync(
         OperationId operationId,
@@ -194,31 +209,54 @@ public sealed class FixtureOutboxStore : IOutboxStore
             throw new ArgumentOutOfRangeException(nameof(leaseDuration));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!leaseToken.IsDefined)
+        {
+            throw new ArgumentException("A lease token is required.", nameof(leaseToken));
+        }
+
         var renewedAt = nowUtc.ToUniversalTime();
-        return MutateLeaseAsync(
-            operationId,
-            leaseToken,
-            item => item.LeaseExpiresUtc = AddBounded(renewedAt, leaseDuration),
-            cancellationToken);
+        lock (_gate)
+        {
+            if (!_items.TryGetValue(operationId, out var item)
+                || item.State != OutboxDeliveryState.Processing
+                || item.LeaseToken != leaseToken
+                || item.LeaseExpiresUtc is not { } leaseExpiresUtc
+                || leaseExpiresUtc <= renewedAt)
+            {
+                return Task.FromResult(false);
+            }
+
+            item.LeaseExpiresUtc = AddBounded(renewedAt, leaseDuration);
+            return Task.FromResult(true);
+        }
     }
 
     public Task<bool> RetryAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
+        DateTimeOffset retryingUtc,
         DateTimeOffset notBeforeUtc,
         RuntimeFault fault,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fault);
+        var retryingAt = retryingUtc.ToUniversalTime();
         return MutateLeaseAsync(
             operationId,
             leaseToken,
+            retryingAt,
             item =>
             {
                 var retryUtc = notBeforeUtc.ToUniversalTime();
-                if (retryUtc < item.Item.CreatedUtc || retryUtc >= item.Item.ExpiresUtc)
+                if (retryingAt < item.Item.CreatedUtc
+                    || retryUtc < retryingAt
+                    || retryUtc >= item.Item.ExpiresUtc)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(notBeforeUtc));
+                    throw new ArgumentOutOfRangeException(
+                        retryingAt < item.Item.CreatedUtc
+                            ? nameof(retryingUtc)
+                            : nameof(notBeforeUtc));
                 }
 
                 item.State = OutboxDeliveryState.Retrying;
@@ -238,18 +276,20 @@ public sealed class FixtureOutboxStore : IOutboxStore
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(fault);
+        var deadLetteredAt = deadLetteredUtc.ToUniversalTime();
         return MutateLeaseAsync(
             operationId,
             leaseToken,
+            deadLetteredAt,
             item =>
             {
-                if (deadLetteredUtc.ToUniversalTime() < item.Item.CreatedUtc)
+                if (deadLetteredAt < item.Item.CreatedUtc)
                 {
                     throw new ArgumentOutOfRangeException(nameof(deadLetteredUtc));
                 }
 
                 item.State = OutboxDeliveryState.DeadLetter;
-                item.CompletedUtc = deadLetteredUtc.ToUniversalTime();
+                item.CompletedUtc = deadLetteredAt;
                 item.LeaseToken = null;
                 item.LeaseExpiresUtc = null;
                 item.LastFault = fault;
@@ -383,6 +423,7 @@ public sealed class FixtureOutboxStore : IOutboxStore
     private Task<bool> MutateLeaseAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
+        DateTimeOffset mutatedUtc,
         Action<MutableItem> mutate,
         CancellationToken cancellationToken)
     {
@@ -396,7 +437,9 @@ public sealed class FixtureOutboxStore : IOutboxStore
         {
             if (!_items.TryGetValue(operationId, out var item)
                 || item.State != OutboxDeliveryState.Processing
-                || item.LeaseToken != leaseToken)
+                || item.LeaseToken != leaseToken
+                || item.LeaseExpiresUtc is not { } leaseExpiresUtc
+                || leaseExpiresUtc <= mutatedUtc)
             {
                 return Task.FromResult(false);
             }

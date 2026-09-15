@@ -339,7 +339,10 @@ public sealed record OutboxSnapshot(OutboxCounts Counts, TimeSpan? OldestOutstan
 {
     public const int MaxListedDeadLetters = 16;
 
-    /// <summary>The oldest dead letters, at most <see cref="MaxListedDeadLetters"/>, for manual retry.</summary>
+    /// <summary>
+    /// A bounded recovery-prioritized dead-letter window. Retryable rows come first, then each
+    /// class is oldest-first so permanently un-retryable rows cannot hide actionable failures.
+    /// </summary>
     public ImmutableArray<OutboxDeadLetterSnapshot> DeadLetters { get; init; } = [];
 
     public OutboxPumpState PumpState { get; init; } = OutboxPumpState.Idle;
@@ -366,7 +369,9 @@ public sealed class OutboxCapacityException() : Exception("The bounded outbox ha
 /// A store may forget a <see cref="OutboxDeliveryState.Completed"/> row once it has been
 /// retained long enough. Dead letters count against bounded admission until an operator retries
 /// or explicitly resolves them, because a dead-lettered head is what holds the rest of its
-/// aggregate in order.
+/// aggregate in order. A processor may issue one lease renewal concurrently with one terminal
+/// mutation for the same operation. Implementations must make every mutation an exact-token
+/// atomic compare-and-swap and remain thread-safe under that bounded overlap.
 /// </remarks>
 public interface IOutboxStore
 {
@@ -388,6 +393,10 @@ public interface IOutboxStore
         int maximumCount,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Completes only the unexpired processing lease identified by the exact token. A false
+    /// result is an ownership loss, never a reason to invoke an already-successful handler again.
+    /// </summary>
     Task<bool> CompleteAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
@@ -395,23 +404,35 @@ public interface IOutboxStore
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// Extends a processing lease without changing its attempt count. A processor uses this only
-    /// while a timed-out handler is still running, so another delivery cannot overtake it.
+    /// Extends the unexpired processing lease identified by the exact token without changing its
+    /// attempt count. The owner renews from handler launch through terminal store acknowledgement,
+    /// including while a timed-out handler or an acknowledgement retry remains outstanding.
     /// </summary>
+    /// <returns>
+    /// <see langword="true"/> only when the same token still owns an unexpired processing row;
+    /// otherwise <see langword="false"/>.
+    /// </returns>
     Task<bool> RenewLeaseAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
         DateTimeOffset nowUtc,
         TimeSpan leaseDuration,
-        CancellationToken cancellationToken) => Task.FromResult(false);
+        CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Returns only the unexpired processing lease identified by the exact token to retry state.
+    /// <paramref name="retryingUtc"/> is the injected-clock transition time; the later
+    /// <paramref name="notBeforeUtc"/> controls when the next attempt becomes eligible.
+    /// </summary>
     Task<bool> RetryAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
+        DateTimeOffset retryingUtc,
         DateTimeOffset notBeforeUtc,
         RuntimeFault fault,
         CancellationToken cancellationToken);
 
+    /// <summary>Dead-letters only the unexpired processing lease identified by the exact token.</summary>
     Task<bool> DeadLetterAsync(
         OperationId operationId,
         OutboxLeaseToken leaseToken,
@@ -430,7 +451,7 @@ public interface IOutboxStore
     Task<bool> ResolveDeadLetterAsync(
         OperationId operationId,
         DateTimeOffset resolvedUtc,
-        CancellationToken cancellationToken) => Task.FromResult(false);
+        CancellationToken cancellationToken);
 
     Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken);
 

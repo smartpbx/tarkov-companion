@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using TarkovCompanion.Application.Services.Execution;
 
@@ -48,7 +49,7 @@ public sealed class OutboxProcessorTests
                     new("test:poison"),
                     time.GetUtcNow()))
                 : null);
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
         await EnqueueAsync(store, Item("aggregate-a", 1));
         await EnqueueAsync(store, Item("aggregate-a", 2));
         await EnqueueAsync(store, Item("aggregate-b", 1));
@@ -84,6 +85,25 @@ public sealed class OutboxProcessorTests
             default));
 
         time.Advance(TimeSpan.FromSeconds(5));
+        var expiredFault = new RuntimeFault(
+            RuntimeFailureKind.Transient,
+            new("expired-lease"),
+            RuntimeRecoveryAction.RetryAutomatically,
+            new("test:expired-lease"),
+            time.GetUtcNow());
+        Assert.False(await store.RetryAsync(
+            item.OperationId,
+            first.LeaseToken!.Value,
+            time.GetUtcNow(),
+            time.GetUtcNow().AddSeconds(1),
+            expiredFault,
+            default));
+        Assert.False(await store.DeadLetterAsync(
+            item.OperationId,
+            first.LeaseToken!.Value,
+            expiredFault,
+            time.GetUtcNow(),
+            default));
         Assert.Equal(1, await store.RecoverExpiredLeasesAsync(time.GetUtcNow(), default));
         var replay = Assert.Single(await store.LeaseNextAsync(
             time.GetUtcNow(),
@@ -177,7 +197,11 @@ public sealed class OutboxProcessorTests
     {
         var time = new ManualTimeProvider(Epoch);
         var store = new FixtureOutboxStore(capacity: 10, completedRetention: 2);
-        var processor = new OutboxProcessor(store, new RecordingHandler(_ => null), time, new ExactJitter());
+        await using var processor = new OutboxProcessor(
+            store,
+            new RecordingHandler(_ => null),
+            time,
+            new ExactJitter());
         for (var sequence = 1; sequence <= 5; sequence++)
         {
             await EnqueueAsync(store, Item($"aggregate-{sequence}", 1));
@@ -203,7 +227,7 @@ public sealed class OutboxProcessorTests
             RuntimeRecoveryAction.None,
             new("test:poison"),
             time.GetUtcNow())));
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
         var poison = Item("aggregate-a", 1);
         await EnqueueAsync(store, poison);
         await EnqueueAsync(store, Item("aggregate-a", 2));
@@ -237,7 +261,7 @@ public sealed class OutboxProcessorTests
                 new("test:bounded-retry"),
                 time.GetUtcNow())))
             : Task.CompletedTask);
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
         var poison = Item("aggregate-a", 1);
         await EnqueueAsync(store, poison);
         await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
@@ -254,17 +278,17 @@ public sealed class OutboxProcessorTests
     {
         var time = new ManualTimeProvider(Epoch);
         var store = new FixtureOutboxStore();
-        var keys = new List<IdempotencyKey>();
+        var keys = new ConcurrentQueue<IdempotencyKey>();
         var sideEffects = 0;
         var handler = new DelegateHandler((item, context, token) =>
         {
-            keys.Add(context.IdempotencyKey);
-            sideEffects++;
-            return sideEffects == 1
+            keys.Enqueue(context.IdempotencyKey);
+            var invocation = Interlocked.Increment(ref sideEffects);
+            return invocation == 1
                 ? Task.FromException(new IOException("crash after side effect"))
                 : Task.CompletedTask;
         });
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
         var item = Item("aggregate-a", 1);
         await EnqueueAsync(store, item);
 
@@ -276,81 +300,535 @@ public sealed class OutboxProcessorTests
         var replay = await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
 
         Assert.Equal(1, replay.Completed);
-        Assert.Equal(2, sideEffects);
+        Assert.Equal(2, Volatile.Read(ref sideEffects));
         Assert.Single(keys.Distinct());
-        Assert.Equal(item.IdempotencyKey, keys[0]);
+        Assert.Equal(item.IdempotencyKey, keys.First());
     }
 
     [Fact]
-    public async Task TimedOutHandlerKeepsItsLeaseUntilItsLateFaultIsObserved()
+    public async Task AttemptDeadlineReturnsWhileABlockedPrefixCannotHoldUnrelatedWork()
     {
         var time = new ManualTimeProvider(Epoch);
         var store = new FixtureOutboxStore();
-        var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var unrelated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var synchronousPrefix = new ManualResetEventSlim();
-        CancellationToken attemptToken = default;
         var handler = new DelegateHandler((item, context, token) =>
         {
             if (item.AggregateId.Value == "aggregate-a")
             {
-                attemptToken = token;
-                token.Register(static () => throw new InvalidOperationException("hostile cancellation callback"));
                 entered.TrySetResult();
                 synchronousPrefix.Wait();
-                return late.Task;
+                return Task.CompletedTask;
             }
 
             unrelated.TrySetResult();
             return Task.CompletedTask;
         });
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
-        var head = Item("aggregate-a", 1);
-        await EnqueueAsync(store, head);
-        await EnqueueAsync(store, Item("aggregate-a", 2));
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await EnqueueAsync(store, Item("aggregate-a", 1));
         await EnqueueAsync(store, Item("aggregate-b", 1));
 
         var processing = processor.ProcessBatchAsync(2, TimeSpan.FromSeconds(5), default);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        await unrelated.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        await RuntimeTestTasks.DrainAsync();
-        time.Advance(TimeSpan.FromSeconds(1));
-        await RuntimeTestTasks.DrainAsync();
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await unrelated.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromSeconds(1));
 
-        Assert.True(attemptToken.IsCancellationRequested);
-        Assert.False(processing.IsCompleted);
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+            await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 1);
 
-        // The timeout renewed the head lease. A second pump cannot replay it or let sequence 2
-        // overtake the still-running handler, even after the original lease would have expired.
-        time.Advance(TimeSpan.FromSeconds(4));
-        var competing = await new OutboxProcessor(store, handler, time, new ExactJitter())
-            .ProcessBatchAsync(2, TimeSpan.FromSeconds(5), default);
-        Assert.Equal(0, competing.Leased);
-        Assert.Equal(OutboxDeliveryState.Processing, Assert.Single(
-            await store.ListAsync(default), item => item.Item.OperationId == head.OperationId).State);
-        Assert.Equal(OutboxDeliveryState.Pending, Assert.Single(
-            await store.ListAsync(default), item => item.Item.AggregateSequence == 2).State);
+            Assert.Equal(2, result.Leased);
+            Assert.Equal(1, result.Completed);
+            Assert.Equal(1, result.TimedOut);
+            Assert.Equal("outbox-handler-timeout", result.LastFault!.Code.Value);
+            Assert.Equal(1, processor.InFlightCount);
+        }
+        finally
+        {
+            synchronousPrefix.Set();
+        }
 
-        synchronousPrefix.Set();
-        late.TrySetException(new IOException("late handler fault"));
-        var result = await processing;
-        Assert.Equal(1, result.Retrying);
-        Assert.Equal(OutboxDeliveryState.Retrying, Assert.Single(
-            await store.ListAsync(default), item => item.Item.OperationId == head.OperationId).State);
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
     }
 
     [Fact]
-    public async Task CompletionAcknowledgementFailureDoesNotRetryTheSuccessfulHandler()
+    public async Task TimedOutHandlerLateFaultIsObservedBeforeTheHeadBecomesRetryable()
     {
         var time = new ManualTimeProvider(Epoch);
-        var store = new CompleteFailureStore();
-        var calls = 0;
-        var processor = new OutboxProcessor(
+        var store = new FixtureOutboxStore();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerCalls = 0;
+        await using var processor = new OutboxProcessor(
             store,
             new DelegateHandler((item, context, token) =>
             {
-                calls++;
+                Interlocked.Increment(ref handlerCalls);
+                entered.TrySetResult();
+                return late.Task;
+            }),
+            time,
+            new ExactJitter());
+        var item = Item("aggregate-a", 1);
+        await EnqueueAsync(store, item);
+        await EnqueueAsync(store, Item("aggregate-a", 2));
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromSeconds(1));
+            var timedOut = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(1, timedOut.TimedOut);
+            Assert.Equal(1, processor.InFlightCount);
+            Assert.Equal(
+                OutboxDeliveryState.Processing,
+                Assert.Single(
+                    await store.ListAsync(default),
+                    stored => stored.Item.AggregateSequence == 1).State);
+            Assert.Equal(0, (await processor.ProcessBatchAsync(
+                1,
+                TimeSpan.FromSeconds(5),
+                default)).Leased);
+
+            late.TrySetException(new IOException("late handler fault"));
+            await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+            var settled = await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+
+            Assert.Equal(1, settled.Retrying);
+            Assert.Equal(1, Volatile.Read(ref handlerCalls));
+            Assert.Equal(
+                OutboxDeliveryState.Retrying,
+                Assert.Single(
+                    await store.ListAsync(default),
+                    stored => stored.Item.AggregateSequence == 1).State);
+            Assert.Equal(
+                OutboxDeliveryState.Pending,
+                Assert.Single(
+                    await store.ListAsync(default),
+                    stored => stored.Item.AggregateSequence == 2).State);
+        }
+        finally
+        {
+            late.TrySetException(new IOException("test cleanup"));
+        }
+    }
+
+    [Fact]
+    public async Task BlockingCancellationCallbackCannotBlockThePumpDeadline()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var callbackRelease = new ManualResetEventSlim();
+        CancellationToken handlerToken = default;
+        CancellationTokenRegistration registration = default;
+        var handler = new DelegateHandler((item, context, token) =>
+        {
+            handlerToken = token;
+            registration = token.Register(() =>
+            {
+                callbackEntered.TrySetResult();
+                callbackRelease.Wait();
+                throw new InvalidOperationException("hostile cancellation callback");
+            });
+            handlerEntered.TrySetResult();
+            return handlerRelease.Task;
+        });
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await EnqueueAsync(store, Item("aggregate-a", 1));
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+        try
+        {
+            await handlerEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromSeconds(1));
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(1, result.TimedOut);
+            Assert.True(handlerToken.IsCancellationRequested);
+            Assert.False(handlerRelease.Task.IsCompleted);
+        }
+        finally
+        {
+            handlerRelease.TrySetResult();
+            callbackRelease.Set();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        await registration.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task LeaseRenewsAcrossMultiplePeriodsAndFencesAConcurrentProcessor()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new ControlledStore();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstCalls = 0;
+        var competingCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref firstCalls);
+                entered.TrySetResult();
+                return release.Task;
+            }),
+            time,
+            new ExactJitter());
+        await using var competing = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref competingCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            for (var period = 1; period <= 6; period++)
+            {
+                time.Advance(TimeSpan.FromMilliseconds(100));
+                var expectedRenewals = period;
+                await RuntimeTestTasks.UntilAsync(() => store.SuccessfulRenewals >= expectedRenewals);
+                var competingPass = await competing.ProcessBatchAsync(
+                    1,
+                    TimeSpan.FromMilliseconds(200),
+                    default);
+                Assert.Equal(0, competingPass.Leased);
+            }
+
+            release.TrySetResult();
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(1, result.Completed);
+            Assert.Equal(1, Volatile.Read(ref firstCalls));
+            Assert.Equal(0, Volatile.Read(ref competingCalls));
+            Assert.True(store.RenewCalls >= 6);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedLeaseHeartbeatIsReportedBeforeTheHandlerDeadline(bool throws)
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new ControlledStore
+        {
+            RenewOverride = (_, _, _, _, _, _) => throws
+                ? Task.FromException<bool>(new IOException("renew unavailable"))
+                : Task.FromResult(false),
+        };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                entered.TrySetResult();
+                return release.Task;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(1, result.AcknowledgementsUnknown);
+            Assert.Equal(1, result.LostLeaseRaces);
+            Assert.Equal("outbox-acknowledgement-unknown", result.LastFault!.Code.Value);
+            Assert.True(time.GetUtcNow() < Epoch.AddSeconds(1));
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+    }
+
+    [Fact]
+    public async Task DelayedLeaseHeartbeatLosesOwnershipAtTheLeaseDeadline()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var renewalEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var renewalRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellationRelease = new ManualResetEventSlim();
+        CancellationTokenRegistration renewalRegistration = default;
+        var store = new ControlledStore
+        {
+            RenewOverride = (_, _, _, _, _, cancellationToken) =>
+            {
+                renewalRegistration = cancellationToken.Register(() =>
+                {
+                    cancellationEntered.TrySetResult();
+                    cancellationRelease.Wait();
+                    throw new InvalidOperationException("hostile store cancellation callback");
+                });
+                renewalEntered.TrySetResult();
+                return renewalRelease.Task;
+            },
+        };
+        var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                handlerEntered.TrySetResult();
+                return handlerRelease.Task;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await handlerEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            await renewalEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+            await cancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(1, result.AcknowledgementsUnknown);
+            Assert.Equal("outbox-acknowledgement-unknown", result.LastFault!.Code.Value);
+            Assert.False(renewalRelease.Task.IsCompleted);
+        }
+        finally
+        {
+            renewalRelease.TrySetResult(true);
+            handlerRelease.TrySetResult();
+            cancellationRelease.Set();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        await renewalRegistration.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ExpiredLeaseReturnedByTheStoreIsNotInvoked()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var handlerCalls = 0;
+        var store = new ControlledStore
+        {
+            AfterLease = call =>
+            {
+                if (call == 1)
+                {
+                    time.Advance(TimeSpan.FromMilliseconds(100));
+                }
+            },
+        };
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var result = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(100), default);
+
+        Assert.Equal(2, result.Leased);
+        Assert.Equal(1, result.LostLeaseRaces);
+        Assert.Equal(1, result.Completed);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
+        Assert.Equal(2, Assert.Single(await store.ListAsync(default)).AttemptCount);
+    }
+
+    [Fact]
+    public async Task SlowAcknowledgementDoesNotBlockLeaseHeartbeats()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var acknowledgementEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledgementRelease = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new ControlledStore
+        {
+            CompleteOverride = async (_, _, _, _, _) =>
+            {
+                acknowledgementEntered.TrySetResult();
+                return await acknowledgementRelease.Task.ConfigureAwait(false);
+            },
+        };
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) => Task.CompletedTask),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await acknowledgementEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            for (var period = 1; period <= 4; period++)
+            {
+                time.Advance(TimeSpan.FromMilliseconds(100));
+                var expectedRenewals = period;
+                await RuntimeTestTasks.UntilAsync(() => store.SuccessfulRenewals >= expectedRenewals);
+            }
+
+            acknowledgementRelease.TrySetResult(true);
+            var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(1, result.Completed);
+            Assert.True(store.RenewCalls >= 4);
+            Assert.Single(store.CompleteTokens.Concat(store.RenewTokens).Distinct());
+            await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        }
+        finally
+        {
+            acknowledgementRelease.TrySetResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentHeartbeatLossCannotDowngradeTheUnknownAcknowledgementFence()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var acknowledgementEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledgementRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new ControlledStore
+        {
+            CompleteOverride = async (_, _, _, _, _) =>
+            {
+                acknowledgementEntered.TrySetResult();
+                await acknowledgementRelease.Task.ConfigureAwait(false);
+                throw new IOException("late acknowledgement fault");
+            },
+            RenewOverride = (_, _, _, _, _, _) => Task.FromResult(false),
+        };
+        var handlerCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await acknowledgementEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            var lost = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(1, lost.AcknowledgementsUnknown);
+            Assert.Equal("outbox-acknowledgement-unknown", lost.LastFault!.Code.Value);
+        }
+        finally
+        {
+            acknowledgementRelease.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        var fenced = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+
+        Assert.Equal(1, fenced.AcknowledgementsUnknown);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
+    }
+
+    [Fact]
+    public async Task CallerCancellationDuringAcknowledgementRetainsTheUnknownFence()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var acknowledgementEntered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledgementRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var store = new ControlledStore
+        {
+            CompleteOverride = async (_, _, _, _, _) =>
+            {
+                acknowledgementEntered.TrySetResult();
+                await acknowledgementRelease.Task.ConfigureAwait(false);
+                throw new IOException("acknowledgement unavailable after caller cancellation");
+            },
+        };
+        var handlerCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+        using var callerCancellation = new CancellationTokenSource();
+
+        var processing = processor.ProcessBatchAsync(
+            1,
+            TimeSpan.FromMilliseconds(200),
+            callerCancellation.Token);
+        try
+        {
+            await acknowledgementEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await callerCancellation.CancelAsync();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processing);
+        }
+        finally
+        {
+            acknowledgementRelease.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        time.Advance(TimeSpan.FromMilliseconds(200));
+        var fenced = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+
+        Assert.Equal(1, fenced.AcknowledgementsUnknown);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
+    }
+
+    [Fact]
+    public async Task AcknowledgementRetriesBeyondOriginalExpiryWithoutReplayingHandler()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new ControlledStore(completeFailures: 7);
+        var handlerCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
                 return Task.CompletedTask;
             }),
             time,
@@ -358,12 +836,222 @@ public sealed class OutboxProcessorTests
         var item = Item("aggregate-a", 1);
         await store.EnqueueAsync(item, default);
 
-        await Assert.ThrowsAsync<IOException>(() => processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default));
+        var first = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        Assert.Equal(1, first.AcknowledgementsPending);
+        Assert.Equal("outbox-acknowledgement-pending", first.LastFault!.Code.Value);
 
-        Assert.Equal(1, calls);
+        await RuntimeTestTasks.AdvanceUntilAsync(
+            time,
+            TimeSpan.FromMilliseconds(50),
+            () => processor.InFlightCount == 0);
+        var settled = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+
+        Assert.True(time.GetUtcNow() > Epoch.AddMilliseconds(200));
+        Assert.Equal(1, settled.Completed);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
+        Assert.Equal(8, store.CompleteCalls);
+        Assert.True(store.RenewCalls > 0);
+        Assert.Single(store.CompleteTokens.Concat(store.RenewTokens).Distinct());
+        Assert.Equal(0, store.RetryCalls);
+        Assert.Equal(0, store.DeadLetterCalls);
+        Assert.Equal(OutboxDeliveryState.Completed, Assert.Single(await store.ListAsync(default)).State);
+    }
+
+    [Fact]
+    public async Task LostAcknowledgementOwnershipIsExplicitAndNeverBecomesAHandlerRetry()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new ControlledStore
+        {
+            CompleteOverride = (_, _, _, _, _) => Task.FromResult(false),
+        };
+        var handlerCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter());
+        await store.EnqueueAsync(Item("aggregate-a", 1), default);
+
+        var result = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+
+        Assert.Equal(1, result.AcknowledgementsUnknown);
+        Assert.Equal("outbox-acknowledgement-unknown", result.LastFault!.Code.Value);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
         Assert.Equal(0, store.RetryCalls);
         Assert.Equal(0, store.DeadLetterCalls);
         Assert.Equal(OutboxDeliveryState.Processing, Assert.Single(await store.ListAsync(default)).State);
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        time.Advance(TimeSpan.FromMilliseconds(200));
+        var afterExpiry = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+
+        Assert.Equal(1, afterExpiry.Leased);
+        Assert.Equal(1, afterExpiry.AcknowledgementsUnknown);
+        Assert.Equal(1, Volatile.Read(ref handlerCalls));
+        Assert.Equal(1, store.CompleteCalls);
+        await processor.DisposeAsync();
+        await processor.StopCompletion.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task UnknownOperationStaysFencedWhileAnUnrelatedHeadStillProgresses()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var fenced = Item("aggregate-a", 1);
+        var store = new ControlledStore
+        {
+            RenewOverride = (_, operationId, _, _, _, _) =>
+                Task.FromResult(operationId != fenced.OperationId),
+        };
+        var fencedEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fencedRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var fencedCalls = 0;
+        var unrelatedCalls = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                if (item.OperationId == fenced.OperationId)
+                {
+                    Interlocked.Increment(ref fencedCalls);
+                    fencedEntered.TrySetResult();
+                    return fencedRelease.Task;
+                }
+
+                Interlocked.Increment(ref unrelatedCalls);
+                return Task.CompletedTask;
+            }),
+            time,
+            new ExactJitter(),
+            maximumConcurrentAttempts: 1);
+        await store.EnqueueAsync(fenced, default);
+
+        var firstPass = processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        try
+        {
+            await fencedEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromMilliseconds(100));
+            var lost = await firstPass.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(1, lost.AcknowledgementsUnknown);
+        }
+        finally
+        {
+            fencedRelease.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        time.Advance(TimeSpan.FromMilliseconds(100));
+        var unrelated = Item(
+            "aggregate-b",
+            1,
+            createdUtc: time.GetUtcNow(),
+            notBeforeUtc: time.GetUtcNow());
+        await store.EnqueueAsync(unrelated, default);
+
+        var progressed = await processor.ProcessBatchAsync(1, TimeSpan.FromMilliseconds(200), default);
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+
+        Assert.Equal(2, progressed.Leased);
+        Assert.Equal(1, progressed.Completed);
+        Assert.Equal(1, progressed.AcknowledgementsUnknown);
+        Assert.Equal(1, Volatile.Read(ref fencedCalls));
+        Assert.Equal(1, Volatile.Read(ref unrelatedCalls));
+        Assert.Equal(0, processor.InFlightCount);
+        Assert.Equal(
+            OutboxDeliveryState.Completed,
+            Assert.Single(
+                await store.ListAsync(default),
+                stored => stored.Item.OperationId == unrelated.OperationId).State);
+
+        await processor.DisposeAsync();
+        await processor.StopCompletion.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task HandlerConcurrencyAndRetainedAttemptStateStayBounded()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var twoEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = 0;
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                if (Interlocked.Increment(ref entered) == 2)
+                {
+                    twoEntered.TrySetResult();
+                }
+
+                return release.Task;
+            }),
+            time,
+            new ExactJitter(),
+            maximumConcurrentAttempts: 2);
+        await EnqueueAsync(store, Item("aggregate-a", 1));
+        await EnqueueAsync(store, Item("aggregate-b", 1));
+        await EnqueueAsync(store, Item("aggregate-c", 1));
+
+        var firstPass = processor.ProcessBatchAsync(3, TimeSpan.FromSeconds(5), default);
+        try
+        {
+            await twoEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            time.Advance(TimeSpan.FromSeconds(1));
+            var timedOut = await firstPass.WaitAsync(TimeSpan.FromSeconds(30));
+            var fullPass = await processor.ProcessBatchAsync(3, TimeSpan.FromSeconds(5), default);
+
+            Assert.Equal(2, timedOut.Leased);
+            Assert.Equal(2, timedOut.TimedOut);
+            Assert.Equal(2, processor.InFlightCount);
+            Assert.Equal(0, fullPass.Leased);
+            Assert.Equal(2, Volatile.Read(ref entered));
+            Assert.Equal(OutboxDeliveryState.Pending, Assert.Single(
+                await store.ListAsync(default), item => item.Item.AggregateId.Value == "aggregate-c").State);
+
+            await processor.DisposeAsync();
+            Assert.Equal(2, processor.InFlightCount);
+            Assert.False(processor.StopCompletion.IsCompleted);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await RuntimeTestTasks.UntilAsync(() => processor.InFlightCount == 0);
+        await processor.StopCompletion.WaitAsync(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public async Task DisposeCompletesAnAdmittedBatchWhenItsHandlerHonorsCancellation()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var processor = new OutboxProcessor(
+            store,
+            new DelegateHandler((item, context, token) =>
+            {
+                entered.TrySetResult();
+                return Task.Delay(TimeSpan.FromHours(1), time, token);
+            }),
+            time,
+            new ExactJitter());
+        await EnqueueAsync(store, Item("aggregate-a", 1));
+
+        var processing = processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await processor.DisposeAsync();
+
+        var result = await processing.WaitAsync(TimeSpan.FromSeconds(30));
+        await processor.StopCompletion.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(RuntimeFailureKind.Cancelled, result.LastFault!.Kind);
+        Assert.Equal(0, processor.InFlightCount);
     }
 
     [Fact]
@@ -412,8 +1100,8 @@ public sealed class OutboxProcessorTests
 
         time.Advance(TimeSpan.FromSeconds(1));
         var visible = await store.GetSnapshotAsync(time.GetUtcNow(), default);
-        Assert.Equal(retryable.OperationId, Assert.First(visible.DeadLetters).OperationId);
-        Assert.True(Assert.First(visible.DeadLetters).CanRetry);
+        Assert.Equal(retryable.OperationId, visible.DeadLetters[0].OperationId);
+        Assert.True(visible.DeadLetters[0].CanRetry);
     }
 
     [Fact]
@@ -430,7 +1118,7 @@ public sealed class OutboxProcessorTests
                 new("test:manual"),
                 time.GetUtcNow())))
             : Task.CompletedTask);
-        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        await using var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
         var item = Item("aggregate-a", 1);
         await EnqueueAsync(store, item);
         await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
@@ -465,9 +1153,12 @@ public sealed class OutboxProcessorTests
         long sequence,
         IdempotencyKey? key = null,
         DateTimeOffset? expiresUtc = null,
-        int maxAttempts = 3)
+        int maxAttempts = 3,
+        DateTimeOffset? createdUtc = null,
+        DateTimeOffset? notBeforeUtc = null)
     {
         var operation = OperationId.New();
+        var created = createdUtc ?? Epoch;
         return new(
             operation,
             key ?? new($"key:{operation}"),
@@ -477,8 +1168,8 @@ public sealed class OutboxProcessorTests
             OutboxContractVersion.Current,
             new(aggregate),
             sequence,
-            Epoch,
-            Epoch,
+            created,
+            notBeforeUtc ?? created,
             expiresUtc ?? Epoch.AddHours(1),
             OutboxPayload.CreateGenericJson("{\"state\":\"ready\"}"),
             new(
@@ -496,14 +1187,30 @@ public sealed class OutboxProcessorTests
 
     private sealed class RecordingHandler(Func<OutboxItem, Exception?> failure) : IOutboxCommandHandler
     {
-        public List<OutboxItem> Delivered { get; } = [];
+        private readonly Lock _gate = new();
+        private readonly List<OutboxItem> _delivered = [];
+
+        public IReadOnlyList<OutboxItem> Delivered
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return [.. _delivered];
+                }
+            }
+        }
 
         public Task HandleAsync(
             OutboxItem item,
             OutboxDeliveryContext context,
             CancellationToken cancellationToken)
         {
-            Delivered.Add(item);
+            lock (_gate)
+            {
+                _delivered.Add(item);
+            }
+
             return failure(item) is { } exception
                 ? Task.FromException(exception)
                 : Task.CompletedTask;
@@ -520,13 +1227,50 @@ public sealed class OutboxProcessorTests
             handle(item, context, cancellationToken);
     }
 
-    private sealed class CompleteFailureStore : IOutboxStore
+    private sealed class ControlledStore(int completeFailures = 0) : IOutboxStore
     {
         private readonly FixtureOutboxStore _inner = new();
+        private readonly ConcurrentQueue<OutboxLeaseToken> _completeTokens = new();
+        private readonly ConcurrentQueue<OutboxLeaseToken> _renewTokens = new();
+        private int _completeCalls;
+        private int _leaseCalls;
+        private int _renewCalls;
+        private int _successfulRenewals;
+        private int _retryCalls;
+        private int _deadLetterCalls;
 
-        public int RetryCalls { get; private set; }
+        public Func<
+            int,
+            OperationId,
+            OutboxLeaseToken,
+            DateTimeOffset,
+            TimeSpan,
+            CancellationToken,
+            Task<bool>>? RenewOverride { get; init; }
 
-        public int DeadLetterCalls { get; private set; }
+        public Func<
+            int,
+            OperationId,
+            OutboxLeaseToken,
+            DateTimeOffset,
+            CancellationToken,
+            Task<bool>>? CompleteOverride { get; init; }
+
+        public Action<int>? AfterLease { get; init; }
+
+        public int CompleteCalls => Volatile.Read(ref _completeCalls);
+
+        public int RenewCalls => Volatile.Read(ref _renewCalls);
+
+        public int SuccessfulRenewals => Volatile.Read(ref _successfulRenewals);
+
+        public int RetryCalls => Volatile.Read(ref _retryCalls);
+
+        public int DeadLetterCalls => Volatile.Read(ref _deadLetterCalls);
+
+        public IReadOnlyList<OutboxLeaseToken> CompleteTokens => _completeTokens.ToArray();
+
+        public IReadOnlyList<OutboxLeaseToken> RenewTokens => _renewTokens.ToArray();
 
         public Task<OutboxEnqueueReceipt> EnqueueAsync(OutboxItem item, CancellationToken cancellationToken) =>
             _inner.EnqueueAsync(item, cancellationToken);
@@ -535,25 +1279,76 @@ public sealed class OutboxProcessorTests
             ImmutableArray<OutboxItem> items,
             CancellationToken cancellationToken) => _inner.EnqueueBatchAsync(items, cancellationToken);
 
-        public Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
+        public async Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
             DateTimeOffset nowUtc,
             TimeSpan leaseDuration,
             int maximumCount,
-            CancellationToken cancellationToken) =>
-            _inner.LeaseNextAsync(nowUtc, leaseDuration, maximumCount, cancellationToken);
-
-        public Task<bool> CompleteAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset completedUtc, CancellationToken cancellationToken) =>
-            Task.FromException<bool>(new IOException("acknowledgement unavailable"));
-
-        public async Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken)
+            CancellationToken cancellationToken)
         {
-            RetryCalls++;
-            return await _inner.RetryAsync(operationId, leaseToken, notBeforeUtc, fault, cancellationToken);
+            var leased = await _inner.LeaseNextAsync(
+                    nowUtc,
+                    leaseDuration,
+                    maximumCount,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            AfterLease?.Invoke(Interlocked.Increment(ref _leaseCalls));
+            return leased;
+        }
+
+        public Task<bool> CompleteAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset completedUtc,
+            CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _completeCalls);
+            _completeTokens.Enqueue(leaseToken);
+            return CompleteOverride?.Invoke(call, operationId, leaseToken, completedUtc, cancellationToken)
+                ?? (call <= completeFailures
+                    ? Task.FromException<bool>(new IOException("acknowledgement unavailable"))
+                    : _inner.CompleteAsync(operationId, leaseToken, completedUtc, cancellationToken));
+        }
+
+        public async Task<bool> RenewLeaseAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken)
+        {
+            var call = Interlocked.Increment(ref _renewCalls);
+            _renewTokens.Enqueue(leaseToken);
+            var renewed = await (RenewOverride?.Invoke(
+                        call,
+                        operationId,
+                        leaseToken,
+                        nowUtc,
+                        leaseDuration,
+                        cancellationToken)
+                    ?? _inner.RenewLeaseAsync(
+                        operationId,
+                        leaseToken,
+                        nowUtc,
+                        leaseDuration,
+                        cancellationToken))
+                .ConfigureAwait(false);
+            if (renewed)
+            {
+                Interlocked.Increment(ref _successfulRenewals);
+            }
+
+            return renewed;
+        }
+
+        public async Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset retryingUtc, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _retryCalls);
+            return await _inner.RetryAsync(operationId, leaseToken, retryingUtc, notBeforeUtc, fault, cancellationToken);
         }
 
         public async Task<bool> DeadLetterAsync(OperationId operationId, OutboxLeaseToken leaseToken, RuntimeFault fault, DateTimeOffset deadLetteredUtc, CancellationToken cancellationToken)
         {
-            DeadLetterCalls++;
+            Interlocked.Increment(ref _deadLetterCalls);
             return await _inner.DeadLetterAsync(operationId, leaseToken, fault, deadLetteredUtc, cancellationToken);
         }
 
@@ -562,6 +1357,12 @@ public sealed class OutboxProcessorTests
 
         public Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             _inner.ManualRetryAsync(operationId, nowUtc, cancellationToken);
+
+        public Task<bool> ResolveDeadLetterAsync(
+            OperationId operationId,
+            DateTimeOffset resolvedUtc,
+            CancellationToken cancellationToken) =>
+            _inner.ResolveDeadLetterAsync(operationId, resolvedUtc, cancellationToken);
 
         public Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             _inner.GetSnapshotAsync(nowUtc, cancellationToken);

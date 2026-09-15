@@ -135,6 +135,52 @@ public sealed class RaidHistoryOutboxRuntimeTests
     }
 
     [Fact]
+    public async Task UnknownAcknowledgementStaysVisibleWithoutBecomingAPumpBackoff()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var history = new RecordingHistory();
+        var outbox = new RaidHistoryOutbox(
+            history,
+            timeProvider: time,
+            store: new AcknowledgementLosingStore());
+
+        await outbox.AcceptAsync(
+            [RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())],
+            default);
+        await RuntimeTestTasks.UntilAsync(() =>
+            outbox.Snapshot.LastPumpFault?.Code.Value == "outbox-acknowledgement-unknown");
+
+        Assert.Equal(0, outbox.Snapshot.ConsecutivePumpFaults);
+        Assert.Equal(["state"], history.Types);
+        await outbox.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(OutboxPumpState.Stopped, outbox.Snapshot.PumpState);
+    }
+
+    [Fact]
+    public async Task LateAcknowledgementSettlementWakesThePumpAndRefreshesHealth()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var history = new RecordingHistory();
+        await using var outbox = new RaidHistoryOutbox(
+            history,
+            timeProvider: time,
+            store: new OneAcknowledgementFaultStore());
+
+        await outbox.AcceptAsync(
+            [RaidHistoryCommand.RecordState(Guid.NewGuid(), Evidence())],
+            default);
+        await RuntimeTestTasks.UntilAsync(() =>
+            outbox.Snapshot.LastPumpFault?.Code.Value == "outbox-acknowledgement-pending");
+
+        time.Advance(TimeSpan.FromSeconds(1));
+        await RuntimeTestTasks.UntilAsync(() => outbox.Snapshot.Counts.Completed == 1);
+
+        Assert.Null(outbox.Snapshot.LastPumpFault);
+        Assert.Equal(0, outbox.Snapshot.ConsecutivePumpFaults);
+        Assert.Equal(["state"], history.Types);
+    }
+
+    [Fact]
     public async Task GenericEventJsonCannotEnterTheOutbox()
     {
         await using var outbox = new RaidHistoryOutbox(
@@ -538,11 +584,19 @@ public sealed class RaidHistoryOutboxRuntimeTests
             CancellationToken cancellationToken) =>
             Inner.LeaseNextAsync(nowUtc, leaseDuration, maximumCount, cancellationToken);
 
-        public Task<bool> CompleteAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset completedUtc, CancellationToken cancellationToken) =>
+        public virtual Task<bool> CompleteAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset completedUtc, CancellationToken cancellationToken) =>
             Inner.CompleteAsync(operationId, leaseToken, completedUtc, cancellationToken);
 
-        public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken) =>
-            Inner.RetryAsync(operationId, leaseToken, notBeforeUtc, fault, cancellationToken);
+        public Task<bool> RenewLeaseAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset nowUtc,
+            TimeSpan leaseDuration,
+            CancellationToken cancellationToken) =>
+            Inner.RenewLeaseAsync(operationId, leaseToken, nowUtc, leaseDuration, cancellationToken);
+
+        public Task<bool> RetryAsync(OperationId operationId, OutboxLeaseToken leaseToken, DateTimeOffset retryingUtc, DateTimeOffset notBeforeUtc, RuntimeFault fault, CancellationToken cancellationToken) =>
+            Inner.RetryAsync(operationId, leaseToken, retryingUtc, notBeforeUtc, fault, cancellationToken);
 
         public Task<bool> DeadLetterAsync(OperationId operationId, OutboxLeaseToken leaseToken, RuntimeFault fault, DateTimeOffset deadLetteredUtc, CancellationToken cancellationToken) =>
             Inner.DeadLetterAsync(operationId, leaseToken, fault, deadLetteredUtc, cancellationToken);
@@ -552,6 +606,12 @@ public sealed class RaidHistoryOutboxRuntimeTests
 
         public Task<bool> ManualRetryAsync(OperationId operationId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Inner.ManualRetryAsync(operationId, nowUtc, cancellationToken);
+
+        public Task<bool> ResolveDeadLetterAsync(
+            OperationId operationId,
+            DateTimeOffset resolvedUtc,
+            CancellationToken cancellationToken) =>
+            Inner.ResolveDeadLetterAsync(operationId, resolvedUtc, cancellationToken);
 
         public Task<OutboxSnapshot> GetSnapshotAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
             Inner.GetSnapshotAsync(nowUtc, cancellationToken);
@@ -566,6 +626,29 @@ public sealed class RaidHistoryOutboxRuntimeTests
             ImmutableArray<OutboxItem> items,
             CancellationToken cancellationToken) =>
             Task.FromException<ImmutableArray<OutboxEnqueueReceipt>>(new IOException("private store failure"));
+    }
+
+    private sealed class AcknowledgementLosingStore : DelegatingStore
+    {
+        public override Task<bool> CompleteAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset completedUtc,
+            CancellationToken cancellationToken) => Task.FromResult(false);
+    }
+
+    private sealed class OneAcknowledgementFaultStore : DelegatingStore
+    {
+        private int _completeCalls;
+
+        public override Task<bool> CompleteAsync(
+            OperationId operationId,
+            OutboxLeaseToken leaseToken,
+            DateTimeOffset completedUtc,
+            CancellationToken cancellationToken) =>
+            Interlocked.Increment(ref _completeCalls) == 1
+                ? Task.FromException<bool>(new IOException("acknowledgement unavailable"))
+                : base.CompleteAsync(operationId, leaseToken, completedUtc, cancellationToken);
     }
 
     private sealed class CancelAfterAcceptStore(CancellationTokenSource cancellation) : DelegatingStore

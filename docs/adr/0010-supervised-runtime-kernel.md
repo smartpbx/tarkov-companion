@@ -90,7 +90,25 @@ aggregate identity. Processing is leased and at-least-once. A target must make o
 idempotent. Commands are ordered within an aggregate: a poison or dead-lettered head blocks
 later commands for that aggregate until an explicit retry or resolution, while unrelated
 aggregates continue. A lease that expires counts as an attempt, so a command whose handler
-crashes dead-letters once its attempt budget is spent instead of replaying for ever.
+crashes dead-letters once its attempt budget is spent instead of replaying for ever. The
+processor serializes batch admission and bounds handler fan-out. A deadline reports without
+releasing its operation-keyed owner: renewal and observation continue until that exact handler
+settles, while unrelated aggregates may make progress in later passes. If ownership becomes
+unknowable, the settled invocation remains as a lightweight local fence rather than becoming
+eligible for handler replay. Active owners and retained fences have explicit process bounds.
+An explicit retry or terminal resolution releases that fence only after any retained invocation
+settles and the store has made the operator's reconciliation decision durable.
+
+Handler settlement and store acknowledgement are separate phases. Once a handler succeeds,
+`CompleteAsync` is retried under the same lease and delivery token while heartbeats continue; the
+handler is not invoked again. The terminal compare-and-swap and heartbeat may overlap, with no
+more than one of each call per operation at once, so a slow acknowledgement cannot suppress lease
+renewal. Every complete, heartbeat, retry, and dead-letter mutation carries injected-clock time
+and accepts only the exact unexpired lease token. A lost lease is published as acknowledgement
+unknown rather than as a handler failure. #270's target-side operation ledger is the reconciliation
+boundary if another process acquires that command after ownership becomes unknowable.
+Late owner settlement wakes the delivery pump, so completion and health do not remain stale until
+an earlier lease-expiry timer or unrelated acceptance fires.
 
 Command kinds form a closed set with pinned numeric values. Raid history crosses the outbox only
 as `RaidHistoryCommand` values — start, state, extracts, scan, sale, quest, position, end — each
@@ -116,11 +134,14 @@ Acceptance is the publication boundary:
 Delivery health is runtime state. The delivery pump never ends on a store or processor fault: it
 records a sanitized `LastPumpFault`, counts consecutive faults, backs off on injected time from
 one to thirty seconds, and resumes by itself. `OutboxSnapshot` publishes counts, pump state,
-the last successful pass, the acceptance fault, and the oldest dead letters by identity and fault
-(never payload) into `ApplicationRuntimeSnapshot.Outbox`. The manual recovery seam is
-`RequestPumpRecovery`, which wakes the pump immediately or restarts one that ended, and
-`RetryDeadLetterAsync`, which returns one dead letter to delivery; `RaidActivityCoordinator`
-exposes both. Because the supervisor, lifecycle, and delivery pump all publish from background
+the last successful pass, the acceptance fault, and a recovery-prioritized dead-letter window by
+identity and fault (never payload) into `ApplicationRuntimeSnapshot.Outbox`. The manual recovery
+seam is `RequestPumpRecovery`, which wakes the pump immediately or restarts one that ended, and
+`RetryDeadLetterAsync`, which returns one dead letter to delivery. Health lists a bounded,
+recovery-prioritized window — retryable rows first and oldest-first within each class — and
+explicit resolution is the only way to release an expired or deliberately discarded aggregate
+head; `RaidActivityCoordinator` exposes both recovery actions. Because the supervisor, lifecycle,
+and delivery pump all publish from background
 threads, `RuntimeStateStore` serializes subscriber notification; the snapshot is still computed
 under its own lock, and no subscriber runs while that lock is held.
 
@@ -129,9 +150,10 @@ cancellation before a linked token has passed it on, and tearing the link down a
 drop it, so the executor, outbox processor, and feature starts cancel an unfinished attempt
 directly and keep its token source alive until the attempt returns.
 
-This change includes an in-process bounded fixture store only. Its capacity bounds outstanding
-work; completed rows are retained within a bounded window and dead letters until retried, so
-neither permanently consumes admission. #270 owns the SQLite implementation, migrations,
+This change includes an in-process bounded fixture store only. Its capacity bounds unresolved
+work, including dead letters; completed rows have a separate bounded retention window. A dead
+letter keeps its aggregate ordered and consumes admission until it is retried or explicitly
+resolved. #270 owns the SQLite implementation, migrations,
 crash/restart durability, retention, the target-side operation ledger, and durable aggregate
 sequence allocation, which the process-local sequence here cannot provide across restart. #271
 moves capture producers onto the supervisor, #281 owns presenting delivery health and the

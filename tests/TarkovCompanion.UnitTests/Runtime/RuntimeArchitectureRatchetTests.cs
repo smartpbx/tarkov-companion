@@ -86,6 +86,8 @@ public sealed partial class RuntimeArchitectureRatchetTests
         Assert.Contains(
             typeof(IOutboxStore).GetMethods(),
             method => method.Name == nameof(IOutboxStore.EnqueueBatchAsync));
+        Assert.True(typeof(IOutboxStore).GetMethod(nameof(IOutboxStore.RenewLeaseAsync))!.IsAbstract);
+        Assert.True(typeof(IOutboxStore).GetMethod(nameof(IOutboxStore.ResolveDeadLetterAsync))!.IsAbstract);
         var snapshotProperties = typeof(OutboxSnapshot).GetProperties().Select(property => property.Name).ToArray();
         Assert.Contains(nameof(OutboxSnapshot.LastPumpFault), snapshotProperties);
         Assert.Contains(nameof(OutboxSnapshot.DeadLetters), snapshotProperties);
