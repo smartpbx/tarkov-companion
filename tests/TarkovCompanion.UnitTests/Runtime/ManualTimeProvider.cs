@@ -159,4 +159,41 @@ internal static class RuntimeTestTasks
             await Task.Yield();
         }
     }
+
+    /// <summary>Waits, on real time, for background work to reach an observable condition.</summary>
+    /// <remarks>
+    /// A fixed number of yields raced the thread pool: a continuation scheduled by a cancellation
+    /// callback could still be queued when the assertion ran. Polling a condition removes the
+    /// race without making the production code wait on anything but its injected clock.
+    /// </remarks>
+    public static async Task UntilAsync(Func<bool> condition, int maximumPolls = 3000)
+    {
+        for (var index = 0; index < maximumPolls && !condition(); index++)
+        {
+            await Task.Delay(1);
+        }
+
+        Assert.True(condition(), "The awaited runtime condition was not reached.");
+    }
+
+    /// <summary>Advances injected time step by step until a condition holds.</summary>
+    /// <remarks>
+    /// A timer is registered by whichever continuation reaches it, which may be after a test has
+    /// already observed the state that precedes it. Advancing again until the effect appears is
+    /// deterministic about the outcome without guessing when the timer came into existence.
+    /// </remarks>
+    public static async Task AdvanceUntilAsync(
+        ManualTimeProvider time,
+        TimeSpan step,
+        Func<bool> condition,
+        int maximumSteps = 500)
+    {
+        for (var index = 0; index < maximumSteps && !condition(); index++)
+        {
+            time.Advance(step);
+            await Task.Delay(1);
+        }
+
+        Assert.True(condition(), "Advancing injected time did not reach the awaited runtime condition.");
+    }
 }

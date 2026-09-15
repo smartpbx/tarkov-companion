@@ -97,6 +97,157 @@ public sealed class OutboxProcessorTests
     }
 
     [Fact]
+    public async Task LeaseCrashAtMaxAttemptsDeadLettersInsteadOfExceedingTheBudget()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var item = Item("aggregate-a", 1, maxAttempts: 1);
+        await EnqueueAsync(store, item);
+        await store.LeaseNextAsync(time.GetUtcNow(), TimeSpan.FromSeconds(5), 1, default);
+
+        time.Advance(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, await store.RecoverExpiredLeasesAsync(time.GetUtcNow(), default));
+
+        var stored = Assert.Single(await store.ListAsync(default));
+        Assert.Equal(OutboxDeliveryState.DeadLetter, stored.State);
+        Assert.Equal(1, stored.AttemptCount);
+        Assert.Empty(await store.LeaseNextAsync(time.GetUtcNow(), TimeSpan.FromSeconds(5), 1, default));
+    }
+
+    [Fact]
+    public async Task TerminalRowsRemainInspectableWithoutPermanentlyConsumingCapacity()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore(capacity: 1);
+        var completed = Item("aggregate-a", 1);
+        await EnqueueAsync(store, completed);
+        var completedLease = Assert.Single(await store.LeaseNextAsync(
+            time.GetUtcNow(), TimeSpan.FromSeconds(5), 1, default));
+        Assert.True(await store.CompleteAsync(
+            completed.OperationId,
+            completedLease.LeaseToken!.Value,
+            time.GetUtcNow(),
+            default));
+
+        var deadLetter = Item("aggregate-b", 1);
+        await EnqueueAsync(store, deadLetter);
+        var deadLease = Assert.Single(await store.LeaseNextAsync(
+            time.GetUtcNow(), TimeSpan.FromSeconds(5), 1, default));
+        Assert.True(await store.DeadLetterAsync(
+            deadLetter.OperationId,
+            deadLease.LeaseToken!.Value,
+            new(
+                RuntimeFailureKind.Validation,
+                new("fixture-poison"),
+                RuntimeRecoveryAction.RetryManually,
+                new("test:capacity"),
+                time.GetUtcNow()),
+            time.GetUtcNow(),
+            default));
+
+        await EnqueueAsync(store, Item("aggregate-c", 1));
+        Assert.Equal(3, (await store.ListAsync(default)).Length);
+    }
+
+    [Fact]
+    public async Task BatchAcceptanceStoresEveryItemOrNone()
+    {
+        var store = new FixtureOutboxStore(capacity: 2);
+
+        await Assert.ThrowsAsync<OutboxCapacityException>(() => store.EnqueueBatchAsync(
+            [Item("aggregate-a", 1), Item("aggregate-a", 2), Item("aggregate-a", 3)],
+            default));
+        Assert.Empty(await store.ListAsync(default));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.EnqueueBatchAsync(
+            [Item("aggregate-b", 1), Item("aggregate-b", 1)],
+            default));
+        Assert.Empty(await store.ListAsync(default));
+
+        var receipts = await store.EnqueueBatchAsync([Item("aggregate-c", 1), Item("aggregate-c", 2)], default);
+        Assert.All(receipts, receipt => Assert.True(receipt.Added));
+        Assert.Equal([1L, 2L], (await store.ListAsync(default)).Select(item => item.Item.AggregateSequence));
+    }
+
+    [Fact]
+    public async Task CompletedRowsAreRetainedOnlyWithinTheirBound()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore(capacity: 10, completedRetention: 2);
+        var processor = new OutboxProcessor(store, new RecordingHandler(_ => null), time, new ExactJitter());
+        for (var sequence = 1; sequence <= 5; sequence++)
+        {
+            await EnqueueAsync(store, Item($"aggregate-{sequence}", 1));
+        }
+
+        var result = await processor.ProcessBatchAsync(10, TimeSpan.FromSeconds(5), default);
+
+        Assert.Equal(5, result.Completed);
+        var stored = await store.ListAsync(default);
+        Assert.Equal(2, stored.Length);
+        Assert.All(stored, item => Assert.Equal(OutboxDeliveryState.Completed, item.State));
+        Assert.Equal(2, (await store.GetSnapshotAsync(time.GetUtcNow(), default)).Counts.Completed);
+    }
+
+    [Fact]
+    public async Task DeadLetterHealthNamesTheCommandWithoutItsPayload()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore();
+        var handler = new RecordingHandler(_ => new RuntimeFaultException(new(
+            RuntimeFailureKind.Validation,
+            new("poison-command"),
+            RuntimeRecoveryAction.None,
+            new("test:poison"),
+            time.GetUtcNow())));
+        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        var poison = Item("aggregate-a", 1);
+        await EnqueueAsync(store, poison);
+        await EnqueueAsync(store, Item("aggregate-a", 2));
+
+        await processor.ProcessBatchAsync(10, TimeSpan.FromSeconds(5), default);
+        var snapshot = await store.GetSnapshotAsync(time.GetUtcNow(), default);
+
+        var deadLetter = Assert.Single(snapshot.DeadLetters);
+        Assert.Equal(poison.OperationId, deadLetter.OperationId);
+        Assert.Equal(OutboxCommandKind.RaidStateRecorded, deadLetter.Command);
+        Assert.Equal("poison-command", deadLetter.LastFault!.Code.Value);
+        Assert.Equal(1, snapshot.Counts.DeadLetter);
+        Assert.Equal(1, snapshot.Counts.Pending);
+        Assert.DoesNotContain(
+            typeof(OutboxDeadLetterSnapshot).GetProperties(),
+            property => property.PropertyType == typeof(OutboxPayload)
+                || property.Name.Contains("Payload", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ManualRetryIsBoundedByOutstandingCapacity()
+    {
+        var time = new ManualTimeProvider(Epoch);
+        var store = new FixtureOutboxStore(capacity: 1);
+        var shouldFail = true;
+        var handler = new DelegateHandler((item, context, token) => shouldFail
+            ? Task.FromException(new RuntimeFaultException(new(
+                RuntimeFailureKind.Validation,
+                new("poison-command"),
+                RuntimeRecoveryAction.None,
+                new("test:bounded-retry"),
+                time.GetUtcNow())))
+            : Task.CompletedTask);
+        var processor = new OutboxProcessor(store, handler, time, new ExactJitter());
+        var poison = Item("aggregate-a", 1);
+        await EnqueueAsync(store, poison);
+        await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+        await EnqueueAsync(store, Item("aggregate-b", 1));
+
+        Assert.False(await store.ManualRetryAsync(poison.OperationId, time.GetUtcNow(), default));
+
+        shouldFail = false;
+        await processor.ProcessBatchAsync(1, TimeSpan.FromSeconds(5), default);
+        Assert.True(await store.ManualRetryAsync(poison.OperationId, time.GetUtcNow(), default));
+    }
+
+    [Fact]
     public async Task RetryAndCrashReplayKeepTheSameIdempotencyKey()
     {
         var time = new ManualTimeProvider(Epoch);
@@ -202,7 +353,8 @@ public sealed class OutboxProcessorTests
         string aggregate,
         long sequence,
         IdempotencyKey? key = null,
-        DateTimeOffset? expiresUtc = null)
+        DateTimeOffset? expiresUtc = null,
+        int maxAttempts = 3)
     {
         var operation = OperationId.New();
         return new(
@@ -210,7 +362,7 @@ public sealed class OutboxProcessorTests
             key ?? new($"key:{operation}"),
             CorrelationId.New(),
             new("outbox-test"),
-            OutboxCommandKind.RaidEventRecorded,
+            OutboxCommandKind.RaidStateRecorded,
             OutboxContractVersion.Current,
             new(aggregate),
             sequence,
@@ -219,7 +371,7 @@ public sealed class OutboxProcessorTests
             expiresUtc ?? Epoch.AddHours(1),
             OutboxPayload.CreateGenericJson("{\"state\":\"ready\"}"),
             new(
-                3,
+                maxAttempts,
                 TimeSpan.FromSeconds(1),
                 TimeSpan.FromMilliseconds(100),
                 TimeSpan.FromSeconds(1),

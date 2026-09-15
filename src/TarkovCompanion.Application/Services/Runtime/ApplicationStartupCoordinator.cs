@@ -105,6 +105,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 stopTimeout: TimeSpan.FromSeconds(10)));
         _supervisor.Changed += PublishSupervisorState;
         _lifecycle.Changed += PublishLifecycleState;
+        _raidActivityCoordinator.OutboxChanged += PublishOutboxState;
     }
 
     private readonly IOcrEngineStatus? _ocrStatus;
@@ -155,7 +156,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         var snapshot = await _lifecycle.StartAsync(cancellationToken).ConfigureAwait(false);
-        _stateStore.Update(current => current with { Lifecycle = snapshot });
+        _stateStore.Update(current => current with
+        {
+            Lifecycle = snapshot,
+            Outbox = _raidActivityCoordinator.OutboxSnapshot,
+        });
     }
 
     public void BeginBackgroundRefresh()
@@ -312,14 +317,34 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops features and supervised work, then releases what nothing still owns.</summary>
+    /// <remarks>
+    /// This used to unsubscribe from lifecycle and supervisor state before stopping them, so the
+    /// shutdown itself was never published, and it disposed the refresh lock unconditionally —
+    /// under a refresh that had ignored cancellation and would release that lock when it
+    /// finally returned. A stop that runs out of time now leaves the lock alive for that late
+    /// release, and the published state says which work is still unfinished.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
+        var lifecycle = await _lifecycle.StopAsync().ConfigureAwait(false);
+        var supervisor = await _supervisor.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        _stateStore.Update(current => current with
+        {
+            Lifecycle = _lifecycle.Snapshot,
+            Supervisor = _supervisor.Snapshot,
+            Outbox = _raidActivityCoordinator.OutboxSnapshot,
+        });
         _supervisor.Changed -= PublishSupervisorState;
         _lifecycle.Changed -= PublishLifecycleState;
-        await _lifecycle.StopAsync().ConfigureAwait(false);
-        await _supervisor.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+        _raidActivityCoordinator.OutboxChanged -= PublishOutboxState;
         await _supervisor.DisposeAsync().ConfigureAwait(false);
-        _refreshLock.Dispose();
+        if (supervisor.CompletedWithinDeadline && lifecycle.IsQuiescent && _refreshLock.Wait(0))
+        {
+            // Held while disposing, so a caller arriving now fails as disposed rather than
+            // entering a lock that is about to disappear under it.
+            _refreshLock.Dispose();
+        }
     }
 
     private RuntimeDataState Describe(CachedDataSnapshot cached)
@@ -564,4 +589,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     private void PublishLifecycleState(object? sender, EventArgs eventArgs) =>
         _stateStore.Update(current => current with { Lifecycle = _lifecycle.Snapshot });
+
+    private void PublishOutboxState(object? sender, EventArgs eventArgs) =>
+        _stateStore.Update(current => current with { Outbox = _raidActivityCoordinator.OutboxSnapshot });
 }

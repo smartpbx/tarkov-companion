@@ -26,7 +26,12 @@ public enum FeatureLifecycleState
     Stopping,
     Stopped,
     StopFailed,
-    StopTimedOut,
+
+    /// <summary>
+    /// Start exceeded its deadline and its callback has not returned. Not terminal: the feature
+    /// is stopped once the callback does return, and only then settles as failed.
+    /// </summary>
+    StartTimedOut,
 }
 
 public sealed record RuntimeFeatureDependency
@@ -132,9 +137,30 @@ public sealed record FeatureLifecycleSnapshot(
     ImmutableArray<RuntimeFeatureSnapshot> Features)
 {
     public static FeatureLifecycleSnapshot Empty { get; } = new(false, false, []);
+
+    /// <summary>Whether no feature is still starting, running, or stopping.</summary>
+    public bool IsQuiescent => Features.IsDefault || Features.All(feature => feature.State is
+        FeatureLifecycleState.NotStarted
+        or FeatureLifecycleState.Failed
+        or FeatureLifecycleState.Blocked
+        or FeatureLifecycleState.Stopped
+        or FeatureLifecycleState.StopFailed);
 }
 
 /// <summary>Starts a feature DAG incrementally and stops it in reverse topological order.</summary>
+/// <remarks>
+/// <para>
+/// Stop used to walk the graph once and skip anything that was not yet running. A feature whose
+/// start was still in flight was passed over, finished starting afterwards, and stayed Running
+/// after shutdown had reported completion — with its dependencies already released beneath it.
+/// </para>
+/// <para>
+/// Every start now publishes its invocation before any stop can look at it, and only this
+/// coordinator's shutdown walk launches stops once stopping has begun. Once stopping has begun
+/// nothing new may enter Starting, so the walk cannot pass a feature whose start is in flight:
+/// it waits for that start to return and then stops it, before its dependencies.
+/// </para>
+/// </remarks>
 public sealed class FeatureLifecycleCoordinator
 {
     private readonly object _gate = new();
@@ -142,10 +168,12 @@ public sealed class FeatureLifecycleCoordinator
     private readonly FeatureLifecycleOptions _options;
     private readonly ImmutableDictionary<RuntimeFeatureId, FeatureNode> _nodes;
     private readonly ImmutableArray<RuntimeFeatureId> _topologicalOrder;
+    private readonly CancellationTokenSource _startupCancellation = new();
     private EventHandler? _changed;
     private bool _startupCompleted;
     private bool _stopStarted;
     private bool _startInvoked;
+    private TaskCompletionSource? _shutdown;
 
     public FeatureLifecycleCoordinator(
         IEnumerable<RuntimeFeatureDefinition> features,
@@ -214,95 +242,109 @@ public sealed class FeatureLifecycleCoordinator
     {
         lock (_gate)
         {
-            if (_startInvoked)
+            if (_startInvoked || _stopStarted)
             {
+                _startInvoked = true;
                 return SnapshotUnsafe();
             }
 
             _startInvoked = true;
         }
 
-        var priorityClosure = WorkspacePriorityClosure();
-        await StartPhaseAsync(priorityClosure, cancellationToken).ConfigureAwait(false);
-        await StartPhaseAsync(
-                _topologicalOrder.Where(featureId => !priorityClosure.Contains(featureId)).ToHashSet(),
-                cancellationToken)
-            .ConfigureAwait(false);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _startupCancellation.Token);
+        try
+        {
+            var priorityClosure = WorkspacePriorityClosure();
+            await StartPhaseAsync(priorityClosure, linked.Token).ConfigureAwait(false);
+            await StartPhaseAsync(
+                    _topologicalOrder.Where(featureId => !priorityClosure.Contains(featureId)).ToHashSet(),
+                    linked.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            _startupCancellation.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return Snapshot;
+        }
+
         lock (_gate)
         {
-            _startupCompleted = true;
+            _startupCompleted = !_stopStarted;
         }
 
         PublishChanged();
         return Snapshot;
     }
 
+    /// <summary>Stops every started feature in reverse dependency order, within a bound.</summary>
+    /// <remarks>
+    /// The returned snapshot is truthful rather than terminal: a feature whose start or stop
+    /// has not returned when the bound expires is still reported as stopping. The same
+    /// shutdown continues, and a later call waits for it again.
+    /// </remarks>
     public async Task<FeatureLifecycleSnapshot> StopAsync(CancellationToken cancellationToken = default)
     {
+        TaskCompletionSource? owner = null;
+        Task shutdown;
         lock (_gate)
         {
-            if (_stopStarted)
+            _stopStarted = true;
+            if (_shutdown is null)
             {
-                return SnapshotUnsafe();
+                _shutdown = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                owner = _shutdown;
             }
 
-            _stopStarted = true;
+            shutdown = _shutdown.Task;
         }
 
-        PublishChanged();
-        foreach (var featureId in _topologicalOrder.Reverse())
+        // Bounded from the moment stop is requested, before any callback is allowed to run.
+        var bounded = shutdown.WaitAsync(_options.StopTimeout, _timeProvider, cancellationToken);
+        if (owner is not null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var node = _nodes[featureId];
-            FeatureLifecycleState state;
-            lock (_gate)
-            {
-                state = node.State;
-                if (state is FeatureLifecycleState.Running or FeatureLifecycleState.Degraded)
-                {
-                    node.State = FeatureLifecycleState.Stopping;
-                }
-            }
-
-            if (state is not (FeatureLifecycleState.Running or FeatureLifecycleState.Degraded))
-            {
-                continue;
-            }
-
+            var cancelling = ObserveAsync(_startupCancellation.CancelAsync());
             PublishChanged();
-            using var stopCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            try
-            {
-                var stopping = node.Definition.Stop(stopCancellation.Token)
-                    ?? throw new InvalidOperationException("The feature stop callback returned no task.");
-                await stopping.WaitAsync(_options.StopTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-                SetTerminal(node, FeatureLifecycleState.Stopped, null);
-            }
-            catch (TimeoutException)
-            {
-                stopCancellation.Cancel();
-                SetTerminal(node, FeatureLifecycleState.StopTimedOut, FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout"));
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (RuntimeFaultException exception)
-            {
-                SetTerminal(node, FeatureLifecycleState.StopFailed, exception.Fault);
-            }
-            catch (Exception exception)
-            {
-                SetTerminal(
-                    node,
-                    FeatureLifecycleState.StopFailed,
-                    RuntimeFault.FromException(exception, _timeProvider, FeatureReference(node)));
-            }
+            RunShutdown(owner, cancelling);
+        }
 
-            PublishChanged();
+        try
+        {
+            await bounded.ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            // The retained workflow continues in reverse dependency order. Returning a bounded
+            // snapshot does not claim the still-stopping nodes are terminal.
         }
 
         return Snapshot;
+    }
+
+    /// <summary>Starts the shutdown walk; its completion is observed through the owner.</summary>
+    private void RunShutdown(TaskCompletionSource owner, Task cancelling) => RunShutdownAsync(owner, cancelling);
+
+    private async Task RunShutdownAsync(TaskCompletionSource owner, Task cancelling)
+    {
+        try
+        {
+            foreach (var featureId in _topologicalOrder.Reverse())
+            {
+                var stopping = EnsureStopTask(_nodes[featureId]);
+                if (stopping is not null)
+                {
+                    await stopping.ConfigureAwait(false);
+                }
+            }
+
+            await cancelling.ConfigureAwait(false);
+        }
+        finally
+        {
+            owner.TrySetResult();
+            PublishChanged();
+        }
     }
 
     private async Task StartPhaseAsync(HashSet<RuntimeFeatureId> phase, CancellationToken cancellationToken)
@@ -341,66 +383,174 @@ public sealed class FeatureLifecycleCoordinator
 
     private async Task StartOneAsync(FeatureNode node, CancellationToken cancellationToken)
     {
-        RuntimeFeatureDependency? failedHard;
         bool degraded;
+        TaskCompletionSource<Task>? invocation = null;
+        CancellationToken startToken = default;
         lock (_gate)
         {
-            failedHard = node.Definition.Dependencies.FirstOrDefault(dependency =>
+            var failedHard = node.Definition.Dependencies.FirstOrDefault(dependency =>
                 dependency.Kind == FeatureDependencyKind.Hard
-                && _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked);
+                && (_nodes[dependency.FeatureId].StartupFailed
+                    || _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked));
             degraded = node.Definition.Dependencies.Any(dependency =>
                 _nodes[dependency.FeatureId].State == FeatureLifecycleState.Degraded
                 || dependency.Kind == FeatureDependencyKind.Optional
-                && _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked);
+                && (_nodes[dependency.FeatureId].StartupFailed
+                    || _nodes[dependency.FeatureId].State is FeatureLifecycleState.Failed or FeatureLifecycleState.Blocked));
             if (failedHard is not null)
             {
                 node.State = FeatureLifecycleState.Blocked;
+                node.StartupFailed = true;
+                node.StartupSettled = true;
                 node.CompletedUtc = _timeProvider.GetUtcNow();
                 node.LastFault = FeatureFault(node, RuntimeFailureKind.Conflict, "feature-hard-dependency-failed");
+            }
+            else if (_stopStarted)
+            {
+                // Stopping has begun, so nothing new may start. The node stays NotStarted and
+                // there is nothing for the shutdown walk to stop.
+                node.StartupFailed = true;
+                node.StartupSettled = true;
             }
             else
             {
                 node.State = FeatureLifecycleState.Starting;
                 node.StartedUtc = _timeProvider.GetUtcNow();
+                node.StartCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                startToken = node.StartCancellation.Token;
+                invocation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                node.StartInvocation = invocation;
             }
         }
 
         PublishChanged();
-        if (failedHard is not null)
+        if (invocation is null)
         {
             return;
         }
 
-        using var startCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task starting;
         try
         {
-            var starting = node.Definition.Start(startCancellation.Token)
-                ?? throw new InvalidOperationException("The feature start callback returned no task.");
-            await starting.WaitAsync(_options.StartTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
-            SetTerminal(node, degraded ? FeatureLifecycleState.Degraded : FeatureLifecycleState.Running, null);
-        }
-        catch (TimeoutException)
-        {
-            startCancellation.Cancel();
-            SetTerminal(node, FeatureLifecycleState.Failed, FeatureFault(node, RuntimeFailureKind.Timeout, "feature-start-timeout"));
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (RuntimeFaultException exception)
-        {
-            SetTerminal(node, FeatureLifecycleState.Failed, exception.Fault);
+            starting = node.Definition.Start(startToken)
+                ?? Task.FromException(new InvalidOperationException("The feature start callback returned no task."));
         }
         catch (Exception exception)
         {
-            SetTerminal(
+            starting = Task.FromException(exception);
+        }
+
+        invocation.TrySetResult(starting);
+        try
+        {
+            await starting.WaitAsync(_options.StartTimeout, _timeProvider, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (
+            exception is TimeoutException or OperationCanceledException
+            && (!starting.IsCompleted || starting.IsCompletedSuccessfully))
+        {
+            // The wait gave up but the start itself did not fail: it is still running, or it
+            // succeeded in the instant after the deadline. Either way something may have
+            // started, so it is stopped once the callback returns rather than recorded as a
+            // plain failure and left running.
+            var timedOut = exception is TimeoutException;
+            if (timedOut)
+            {
+                TryCancelStart(node);
+            }
+
+            SettleUnfinishedStart(
                 node,
-                FeatureLifecycleState.Failed,
-                RuntimeFault.FromException(exception, _timeProvider, FeatureReference(node)));
+                timedOut
+                    ? FeatureFault(node, RuntimeFailureKind.Timeout, "feature-start-timeout")
+                    : FeatureFault(node, RuntimeFailureKind.Cancelled, "feature-start-cancelled"),
+                timedOut);
+            if (!timedOut && !_startupCancellation.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return;
+        }
+        catch (Exception exception)
+        {
+            var fault = exception is RuntimeFaultException classified
+                ? classified.Fault
+                : RuntimeFault.FromException(exception, _timeProvider, FeatureReference(node));
+            lock (_gate)
+            {
+                node.StartupFailed = true;
+                node.StartupSettled = true;
+                node.LastFault = fault;
+                if (node.StopCompletion is null)
+                {
+                    node.State = FeatureLifecycleState.Failed;
+                    node.CompletedUtc = _timeProvider.GetUtcNow();
+                }
+            }
+
+            DisposeStartCancellation(node);
+            PublishChanged();
+            if (exception is OperationCanceledException
+                && cancellationToken.IsCancellationRequested
+                && !_startupCancellation.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            return;
+        }
+
+        lock (_gate)
+        {
+            node.StartupSettled = true;
+            if (node.StopCompletion is null && !_stopStarted)
+            {
+                node.State = degraded ? FeatureLifecycleState.Degraded : FeatureLifecycleState.Running;
+                node.LastFault = null;
+                node.CompletedUtc = _timeProvider.GetUtcNow();
+            }
+            else if (node.StopCompletion is null)
+            {
+                // Stop won the race. The shutdown walk reaches this node after its dependants and
+                // stops it then; it must not be reported as running in the meantime.
+                node.State = FeatureLifecycleState.Stopping;
+                node.CompletedUtc = null;
+            }
+        }
+
+        DisposeStartCancellation(node);
+        PublishChanged();
+    }
+
+    /// <summary>Records a start that has not returned and arranges its compensating stop.</summary>
+    private void SettleUnfinishedStart(FeatureNode node, RuntimeFault fault, bool timedOut)
+    {
+        bool stopStarted;
+        lock (_gate)
+        {
+            stopStarted = _stopStarted;
+            node.StartupFailed = true;
+            node.StartupSettled = true;
+            node.CompletedUtc = null;
+            node.LastFault = fault;
+            if (node.StopCompletion is null)
+            {
+                node.State = stopStarted
+                    ? FeatureLifecycleState.Stopping
+                    : timedOut
+                        ? FeatureLifecycleState.StartTimedOut
+                        : FeatureLifecycleState.Starting;
+            }
         }
 
         PublishChanged();
+        if (!stopStarted)
+        {
+            // Outside shutdown nobody else will stop this feature once its start returns.
+            // During shutdown the walk owns the stop so dependency order is preserved.
+            EnsureStopTask(node);
+        }
     }
 
     private bool DependenciesReady(RuntimeFeatureId featureId, HashSet<RuntimeFeatureId> phase)
@@ -409,7 +559,7 @@ public sealed class FeatureLifecycleCoordinator
         {
             return _nodes[featureId].Definition.Dependencies.All(dependency =>
                 dependency.Kind == FeatureDependencyKind.Optional && !phase.Contains(dependency.FeatureId)
-                || _nodes[dependency.FeatureId].State is not (FeatureLifecycleState.NotStarted or FeatureLifecycleState.Starting));
+                || _nodes[dependency.FeatureId].StartupSettled);
         }
     }
 
@@ -439,20 +589,213 @@ public sealed class FeatureLifecycleCoordinator
         }
     }
 
-    private void SetTerminal(FeatureNode node, FeatureLifecycleState state, RuntimeFault? fault)
+    /// <summary>Returns the one stop of a node whose start was invoked, launching it once.</summary>
+    private Task? EnsureStopTask(FeatureNode node)
+    {
+        TaskCompletionSource? owner = null;
+        Task stop;
+        lock (_gate)
+        {
+            if (node.StopCompletion is null)
+            {
+                var startedOrStarting = node.State is
+                    FeatureLifecycleState.Running or
+                    FeatureLifecycleState.Degraded or
+                    FeatureLifecycleState.Starting or
+                    FeatureLifecycleState.StartTimedOut or
+                    FeatureLifecycleState.Stopping;
+                if (!startedOrStarting || node.StartInvocation is null)
+                {
+                    return null;
+                }
+
+                node.StopCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                owner = node.StopCompletion;
+                if (_stopStarted || node.State is FeatureLifecycleState.Running or FeatureLifecycleState.Degraded)
+                {
+                    node.State = FeatureLifecycleState.Stopping;
+                    node.CompletedUtc = null;
+                }
+            }
+
+            stop = node.StopCompletion.Task;
+        }
+
+        if (owner is not null)
+        {
+            PublishChanged();
+            RunStop(node, owner);
+        }
+
+        return stop;
+    }
+
+    /// <summary>Starts one node's stop; its completion is observed through the owner.</summary>
+    private void RunStop(FeatureNode node, TaskCompletionSource owner) => StopAfterStartAsync(node, owner);
+
+    private async Task StopAfterStartAsync(FeatureNode node, TaskCompletionSource owner)
+    {
+        try
+        {
+            var starting = await node.StartInvocation!.Task.ConfigureAwait(false);
+            var started = true;
+            try
+            {
+                await starting.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                started = false;
+            }
+
+            DisposeStartCancellation(node);
+            if (!started)
+            {
+                // The start itself failed, so nothing began and there is nothing to stop.
+                SettleStopped(node, stopFault: null, startSucceeded: false);
+                return;
+            }
+
+            lock (_gate)
+            {
+                node.State = FeatureLifecycleState.Stopping;
+                node.CompletedUtc = null;
+            }
+
+            PublishChanged();
+            using var stopCancellation = new CancellationTokenSource();
+            Task stopping;
+            try
+            {
+                stopping = node.Definition.Stop(stopCancellation.Token)
+                    ?? Task.FromException(new InvalidOperationException("The feature stop callback returned no task."));
+            }
+            catch (Exception exception)
+            {
+                stopping = Task.FromException(exception);
+            }
+
+            try
+            {
+                await stopping.WaitAsync(_options.StopTimeout, _timeProvider).ConfigureAwait(false);
+            }
+            catch (TimeoutException) when (!stopping.IsCompleted)
+            {
+                TryCancel(stopCancellation);
+                lock (_gate)
+                {
+                    node.State = FeatureLifecycleState.Stopping;
+                    node.CompletedUtc = null;
+                    node.LastFault = FeatureFault(node, RuntimeFailureKind.Timeout, "feature-stop-timeout");
+                }
+
+                PublishChanged();
+                try
+                {
+                    await stopping.ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    SettleStopped(node, StopFault(node, exception), startSucceeded: true);
+                    return;
+                }
+            }
+            catch (Exception exception)
+            {
+                SettleStopped(node, StopFault(node, exception), startSucceeded: true);
+                return;
+            }
+
+            SettleStopped(node, stopFault: null, startSucceeded: true);
+        }
+        finally
+        {
+            owner.TrySetResult();
+        }
+    }
+
+    private void SettleStopped(FeatureNode node, RuntimeFault? stopFault, bool startSucceeded)
     {
         lock (_gate)
         {
-            node.State = state;
-            node.LastFault = fault;
+            if (stopFault is not null)
+            {
+                node.State = FeatureLifecycleState.StopFailed;
+                node.LastFault = stopFault;
+            }
+            else if (node.StartupFailed && !_stopStarted)
+            {
+                // A compensating stop after a timed-out or cancelled start: the feature never
+                // became usable, and the fault that says why is kept.
+                node.State = FeatureLifecycleState.Failed;
+                node.LastFault ??= FeatureFault(node, RuntimeFailureKind.Timeout, "feature-start-timeout");
+            }
+            else
+            {
+                node.State = FeatureLifecycleState.Stopped;
+                if (startSucceeded)
+                {
+                    node.LastFault = null;
+                }
+            }
+
             node.CompletedUtc = _timeProvider.GetUtcNow();
         }
+
+        PublishChanged();
+    }
+
+    private RuntimeFault StopFault(FeatureNode node, Exception exception) =>
+        exception is RuntimeFaultException classified
+            ? classified.Fault
+            : RuntimeFault.FromException(exception, _timeProvider, FeatureReference(node));
+
+    private void TryCancelStart(FeatureNode node)
+    {
+        CancellationTokenSource? cancellation;
+        lock (_gate)
+        {
+            cancellation = node.StartCancellation;
+        }
+
+        if (cancellation is not null)
+        {
+            TryCancel(cancellation);
+        }
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The start returned and its token was released between the deadline and here.
+        }
+        catch (AggregateException)
+        {
+            // A callback registered by the feature threw; the feature's own result reports it.
+        }
+    }
+
+    private void DisposeStartCancellation(FeatureNode node)
+    {
+        CancellationTokenSource? cancellation;
+        lock (_gate)
+        {
+            cancellation = node.StartCancellation;
+            node.StartCancellation = null;
+        }
+
+        cancellation?.Dispose();
     }
 
     private RuntimeFault FeatureFault(FeatureNode node, RuntimeFailureKind kind, string code) => new(
         kind,
         new(code),
-        kind == RuntimeFailureKind.Timeout
+        kind is RuntimeFailureKind.Timeout or RuntimeFailureKind.Cancelled
             ? RuntimeRecoveryAction.RetryManually
             : RuntimeRecoveryAction.ResolveConflict,
         FeatureReference(node),
@@ -483,6 +826,19 @@ public sealed class FeatureLifecycleCoordinator
             catch (Exception)
             {
             }
+        }
+    }
+
+    private static async Task ObserveAsync(Task task)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // A cancellation callback registered by a feature threw. The feature's own start
+            // result records its failure; shutdown still proceeds.
         }
     }
 
@@ -536,6 +892,14 @@ public sealed class FeatureLifecycleCoordinator
         public DateTimeOffset? StartedUtc { get; set; }
         public DateTimeOffset? CompletedUtc { get; set; }
         public RuntimeFault? LastFault { get; set; }
+        public bool StartupSettled { get; set; }
+        public bool StartupFailed { get; set; }
+        public CancellationTokenSource? StartCancellation { get; set; }
+
+        /// <summary>The task the start callback returned, published before any stop may run.</summary>
+        public TaskCompletionSource<Task>? StartInvocation { get; set; }
+
+        public TaskCompletionSource? StopCompletion { get; set; }
 
         public RuntimeFeatureSnapshot Snapshot() => new(
             Definition.FeatureId,

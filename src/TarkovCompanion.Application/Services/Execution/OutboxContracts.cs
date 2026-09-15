@@ -4,11 +4,17 @@ using System.Text.Json;
 
 namespace TarkovCompanion.Application.Services.Execution;
 
+/// <summary>The closed set of durable commands. Values are persisted and must never be reused.</summary>
 public enum OutboxCommandKind
 {
     RaidStarted = 1,
-    RaidEventRecorded,
-    RaidEnded,
+    RaidStateRecorded = 2,
+    RaidEnded = 3,
+    RaidPositionRecorded = 4,
+    RaidExtractsRecorded = 5,
+    RaidScanRecorded = 6,
+    RaidSaleRecorded = 7,
+    RaidQuestRecorded = 8,
 }
 
 public enum OutboxDeliveryState
@@ -18,6 +24,15 @@ public enum OutboxDeliveryState
     Retrying,
     DeadLetter,
     Completed,
+}
+
+public enum OutboxPumpState
+{
+    Idle = 1,
+    Running,
+    Faulted,
+    Stopping,
+    Stopped,
 }
 
 public readonly record struct OutboxContractVersion
@@ -126,6 +141,16 @@ public sealed class OutboxPayload
         "deadLetterCount", "completedCount",
     ];
 
+    // Typed command payloads are read back strictly: a member the codec did not write, a
+    // missing constructor argument, or a null where the contract says none is a corrupt command
+    // rather than something to tolerate and deliver.
+    private static readonly JsonSerializerOptions ClosedTypedJson = new()
+    {
+        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true,
+    };
+
     private OutboxPayload(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length is < 1 or > MaxBytes)
@@ -168,7 +193,7 @@ public sealed class OutboxPayload
     }
 
     internal T ReadTypedJson<T>() where T : class =>
-        JsonSerializer.Deserialize<T>(Bytes.AsSpan())
+        JsonSerializer.Deserialize<T>(Bytes.AsSpan(), ClosedTypedJson)
         ?? throw new InvalidDataException("The typed outbox payload was empty.");
 
     private static void ValidateGenericObject(JsonElement element)
@@ -289,8 +314,36 @@ public sealed record OutboxCounts(
     public int Total => checked(Pending + Processing + Retrying + DeadLetter + Completed);
 }
 
+/// <summary>A dead-lettered command as health reporting may show it: identity and fault, never payload.</summary>
+public sealed record OutboxDeadLetterSnapshot(
+    OperationId OperationId,
+    OutboxAggregateId AggregateId,
+    long AggregateSequence,
+    OutboxCommandKind Command,
+    int AttemptCount,
+    RuntimeFault? LastFault,
+    DateTimeOffset? DeadLetteredUtc);
+
+/// <summary>Store counts plus the delivery health an adapter publishes into runtime state.</summary>
 public sealed record OutboxSnapshot(OutboxCounts Counts, TimeSpan? OldestOutstandingAge)
 {
+    public const int MaxListedDeadLetters = 16;
+
+    /// <summary>The oldest dead letters, at most <see cref="MaxListedDeadLetters"/>, for manual retry.</summary>
+    public ImmutableArray<OutboxDeadLetterSnapshot> DeadLetters { get; init; } = [];
+
+    public OutboxPumpState PumpState { get; init; } = OutboxPumpState.Idle;
+
+    /// <summary>The store or processor failure that paused delivery, until a pass succeeds.</summary>
+    public RuntimeFault? LastPumpFault { get; init; }
+
+    public int ConsecutivePumpFaults { get; init; }
+
+    public DateTimeOffset? LastSuccessfulPumpUtc { get; init; }
+
+    /// <summary>Why the most recent acceptance was refused, until one is accepted.</summary>
+    public RuntimeFault? LastAcceptanceFault { get; init; }
+
     public static OutboxSnapshot Empty { get; } = new(new(0, 0, 0, 0, 0), null);
 }
 
@@ -298,9 +351,25 @@ public sealed record OutboxEnqueueReceipt(bool Added, OperationId OperationId);
 
 public sealed class OutboxCapacityException() : Exception("The bounded outbox has no admission capacity.");
 
+/// <summary>A leased, ordered, at-least-once command store.</summary>
+/// <remarks>
+/// A store may forget a <see cref="OutboxDeliveryState.Completed"/> row once it has been
+/// retained long enough; it must keep every <see cref="OutboxDeliveryState.DeadLetter"/> row until
+/// it is retried, because a dead-lettered head is what holds the rest of its aggregate in order.
+/// </remarks>
 public interface IOutboxStore
 {
     Task<OutboxEnqueueReceipt> EnqueueAsync(OutboxItem item, CancellationToken cancellationToken);
+
+    /// <summary>Accepts every item or none of them, returning one receipt per item in order.</summary>
+    /// <remarks>
+    /// One observed transition can need several commands — a raid start, its state, and the end
+    /// of the raid before it. Accepting them one at a time let a later refusal leave an earlier
+    /// command stored for a transition that was never applied.
+    /// </remarks>
+    Task<ImmutableArray<OutboxEnqueueReceipt>> EnqueueBatchAsync(
+        ImmutableArray<OutboxItem> items,
+        CancellationToken cancellationToken);
 
     Task<ImmutableArray<OutboxStoredItem>> LeaseNextAsync(
         DateTimeOffset nowUtc,
