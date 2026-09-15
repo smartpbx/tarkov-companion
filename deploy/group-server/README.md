@@ -92,6 +92,12 @@ three owners:
 The updater refuses to run if its state directory is a link, belongs to anyone else, or cannot be
 made `0700`. `INSTALLED_SHA256` and `REFUSED_SHA256` files that the checksum updater left in
 `/var/lib/tarkov-group` are no longer read or written by anything and can be deleted.
+Its default install, rollback and updater paths must stay below `/opt`, all state trees below
+`/var/lib`, and units in `/etc/systemd/system`. A custom layout must set
+`TARKOV_UPDATE_PATH_ROOT` to a deeper common ancestor and put every mutable tree, the updater and
+unit directory below it. Those managed destinations must be canonical, root/updater-owned and
+not group/world-writable. Run `tarkov-group-update.sh --validate-paths` for a non-mutating
+containment, ownership and overlap check before enabling the service.
 
 ## Why wget and not curl
 

@@ -112,6 +112,14 @@ python3 "${TASK_LIMITS}" validate-json --maximum "${TASK_MAX_SIGNATURE_BYTES}" "
 jq -e '.schemaVersion == 1
        and (.version | type == "string") and (.commit | type == "string" and test("^[0-9a-f]{40}$"))
        and (.artifacts | type == "array" and length > 0 and length <= 4096)
+       and all(.artifacts[];
+           type == "object"
+           and ((.name | type) == "string")
+           and ((.sha256 | type) == "string")
+           and (.sha256 | test("^[0-9a-f]{64}$"))
+           and ((.size | type) == "number")
+           and (.size == (.size | floor))
+           and (.size > 0 and .size <= 536870912))
        and ([.artifacts[].name] | length == (unique | length))' \
     "${TASK_MANIFEST}" >/dev/null || fail "the signed manifest is malformed"
 python3 - "${TASK_PROJECT_ROOT}/scripts/release" "$(jq -r .version "${TASK_MANIFEST}")" <<'PY' || fail "the signed manifest names an unsupported version"

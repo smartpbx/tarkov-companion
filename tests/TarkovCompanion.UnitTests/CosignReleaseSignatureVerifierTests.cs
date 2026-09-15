@@ -122,6 +122,35 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
     }
 
     [Fact]
+    public async Task CancellationQuarantinesStagingWhenTheProcessCannotBeKilledOrObservedExiting()
+    {
+        var fixture = CreateFixture();
+        var process = FakeCosignProcess.BlockedAfterFailedKill();
+        var verifier = CreateVerifier(
+            fixture,
+            new FakeCosignProcessFactory(process),
+            processCleanupTimeout: TimeSpan.FromMilliseconds(50));
+        using var cancellation = new CancellationTokenSource();
+
+        var verification = verifier.VerifyAsync(
+            fixture.PayloadPath,
+            fixture.BundlePath,
+            cancellation.Token);
+        await process.FirstWaitEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => verification.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.IsAssignableFrom<IReleaseStagingQuarantineRequired>(exception);
+        Assert.True(process.Killed);
+        Assert.True(process.KilledEntireTree);
+        Assert.True(process.WasRunningWhenDisposed);
+        Assert.True(process.Disposed);
+    }
+
+    [Fact]
     public async Task ARealV03BundleIsAcceptedAndAlteredBytesAreRefusedByTheProductionProcessBoundary()
     {
         // The release gate supplies pinned public Sigstore material and the reviewed cosign
@@ -218,13 +247,14 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
     private static CosignReleaseSignatureVerifier CreateVerifier(
         Fixture fixture,
         ICosignProcessFactory processFactory,
-        Func<string, CancellationToken, Task<string>>? cosignDigest = null)
+        Func<string, CancellationToken, Task<string>>? cosignDigest = null,
+        TimeSpan? processCleanupTimeout = null)
     {
         return new CosignReleaseSignatureVerifier(
             fixture.Options,
             processFactory,
             cosignDigest ?? (static (_, _) => Task.FromResult(ReviewedCosignDigest)),
-            TimeSpan.FromSeconds(2));
+            processCleanupTimeout ?? TimeSpan.FromSeconds(2));
     }
 
     private sealed record Fixture(
@@ -251,15 +281,25 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
     {
         private readonly int _exitCode;
         private readonly bool _completeOnStart;
+        private readonly bool _completeOnKill;
+        private readonly bool _killThrows;
         private readonly string _output;
         private readonly string _error;
         private readonly TaskCompletionSource<bool> _exited = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        private FakeCosignProcess(int exitCode, bool completeOnStart, string output, string error)
+        private FakeCosignProcess(
+            int exitCode,
+            bool completeOnStart,
+            bool completeOnKill,
+            bool killThrows,
+            string output,
+            string error)
         {
             _exitCode = exitCode;
             _completeOnStart = completeOnStart;
+            _completeOnKill = completeOnKill;
+            _killThrows = killThrows;
             _output = output;
             _error = error;
         }
@@ -286,6 +326,8 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
 
         public bool Disposed { get; private set; }
 
+        public bool WasRunningWhenDisposed { get; private set; }
+
         public ConcurrentQueue<CancellationToken> WaitTokens { get; } = new();
 
         public TaskCompletionSource<bool> FirstWaitEntered { get; } = new(
@@ -294,10 +336,31 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
         public static FakeCosignProcess Completed(
             int exitCode,
             string output = "",
-            string error = "") => new(exitCode, completeOnStart: true, output, error);
+            string error = "") => new(
+                exitCode,
+                completeOnStart: true,
+                completeOnKill: true,
+                killThrows: false,
+                output: output,
+                error: error);
 
         public static FakeCosignProcess BlockedUntilKilled() =>
-            new(exitCode: 137, completeOnStart: false, output: "", error: "");
+            new(
+                exitCode: 137,
+                completeOnStart: false,
+                completeOnKill: true,
+                killThrows: false,
+                output: "",
+                error: "");
+
+        public static FakeCosignProcess BlockedAfterFailedKill() =>
+            new(
+                exitCode: 137,
+                completeOnStart: false,
+                completeOnKill: false,
+                killThrows: true,
+                output: "",
+                error: "");
 
         public bool Start()
         {
@@ -326,11 +389,20 @@ public sealed class CosignReleaseSignatureVerifierTests : IDisposable
         {
             Killed = true;
             KilledEntireTree = entireProcessTree;
-            Complete();
+            if (_killThrows)
+            {
+                throw new InvalidOperationException("fixture cannot kill process tree");
+            }
+
+            if (_completeOnKill)
+            {
+                Complete();
+            }
         }
 
         public void Dispose()
         {
+            WasRunningWhenDisposed = !HasExited;
             Disposed = true;
             Complete();
         }

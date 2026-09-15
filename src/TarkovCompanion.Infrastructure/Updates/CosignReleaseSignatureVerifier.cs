@@ -8,6 +8,24 @@ using TarkovCompanion.Application.Services.Updates;
 
 namespace TarkovCompanion.Infrastructure.Updates;
 
+internal sealed class CosignCleanupCanceledException(
+    OperationCanceledException cancellation)
+    : OperationCanceledException(
+        "Cosign cancellation could not prove that the verifier process exited and drained; release staging was quarantined.",
+        cancellation,
+        cancellation.CancellationToken),
+      IReleaseStagingQuarantineRequired
+{
+}
+
+internal sealed class CosignCleanupException(Exception failure)
+    : InvalidOperationException(
+        "Cosign cleanup could not prove that the verifier process exited and drained; release staging was quarantined.",
+        failure),
+      IReleaseStagingQuarantineRequired
+{
+}
+
 /// <summary>Verifies only the project's standardized v0.3 bundles with a content-pinned cosign.</summary>
 public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVerifier
 {
@@ -142,19 +160,27 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
                 throw new InvalidDataException($"Release signature verification failed: {Sanitize(detail)}");
             }
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
-            await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false);
+            if (!await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false))
+            {
+                throw new CosignCleanupCanceledException(exception);
+            }
+
             throw;
         }
-        catch
+        catch (Exception exception)
         {
-            await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false);
+            if (!await TerminateAndDrainAsync(process, started, outputTask, errorTask).ConfigureAwait(false))
+            {
+                throw new CosignCleanupException(exception);
+            }
+
             throw;
         }
     }
 
-    private async Task TerminateAndDrainAsync(
+    private async Task<bool> TerminateAndDrainAsync(
         ICosignProcess process,
         bool started,
         Task<(string Text, bool Truncated)>? outputTask,
@@ -162,7 +188,7 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
     {
         if (!started)
         {
-            return;
+            return true;
         }
 
         // Cleanup deliberately has its own deadline. Reusing the caller's cancelled token would
@@ -181,13 +207,27 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
             // verification exception. The independent wait below still gets a chance to settle.
         }
 
+        var exited = false;
         try
         {
             await process.WaitForExitAsync(cleanup.Token).ConfigureAwait(false);
+            exited = process.HasExited;
         }
         catch
         {
-            // Preserve the original failure, including its original cancellation token.
+            // The final HasExited probe below distinguishes a timeout from a racing natural exit.
+        }
+
+        if (!exited)
+        {
+            try
+            {
+                exited = process.HasExited;
+            }
+            catch
+            {
+                // A process whose state cannot be observed is not proven quiescent.
+            }
         }
 
         var outputTasks = new List<Task>(2);
@@ -203,17 +243,20 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
 
         if (outputTasks.Count == 0)
         {
-            return;
+            return exited;
         }
 
+        var drained = false;
         try
         {
             await Task.WhenAll(outputTasks).WaitAsync(cleanup.Token).ConfigureAwait(false);
+            drained = true;
         }
         catch
         {
-            // The process wrapper is disposed on return. Observe any late pipe fault as well so
-            // bounded cleanup never creates an unobserved task while preserving the root cause.
+            // A completed fault is quiescent even though its diagnostic read failed. Pending
+            // reads mean a process or pipe can still be live, so staging must be retained.
+            drained = outputTasks.All(static task => task.IsCompleted);
         }
         finally
         {
@@ -222,6 +265,8 @@ public sealed partial class CosignReleaseSignatureVerifier : IReleaseSignatureVe
                 ObserveEventually(task);
             }
         }
+
+        return exited && drained;
     }
 
     private static void ObserveEventually(Task task)

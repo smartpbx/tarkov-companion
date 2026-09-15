@@ -342,7 +342,13 @@ class UpdaterFixture(unittest.TestCase):
         envelope["sigstoreBundle"] = bundle_for(payload_bytes)
         path.write_text(json.dumps(envelope), encoding="utf-8")
 
-    def run_updater(self, *, online: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
+    def run_updater(
+        self,
+        *,
+        online: bool = False,
+        validate_paths: bool = False,
+        **environment: str,
+    ) -> subprocess.CompletedProcess[str]:
         env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
             "FAKE_REAL_PATH": os.environ["PATH"],
@@ -353,6 +359,7 @@ class UpdaterFixture(unittest.TestCase):
             "TARKOV_RELEASE_RING": "stable",
             "TARKOV_SIGSTORE_TRUST_ROOT": str(self.root / "trust.json"),
             "TARKOV_RELEASE_TOKEN_FILE": str(self.root / "token"),
+            "TARKOV_UPDATE_PATH_ROOT": str(self.root),
             "TARKOV_UPDATE_INSTALL": str(self.install),
             "TARKOV_UPDATE_LKG": str(self.lkg),
             "TARKOV_UPDATE_STATE": str(self.state),
@@ -371,7 +378,10 @@ class UpdaterFixture(unittest.TestCase):
         for counter in self.root.glob("count-*"):
             counter.unlink()
         (self.root / "systemctl.log").unlink(missing_ok=True)
-        return subprocess.run([str(UPDATER)], text=True, capture_output=True, env=env, check=False, timeout=60)
+        command = [str(UPDATER)]
+        if validate_paths:
+            command.append("--validate-paths")
+        return subprocess.run(command, text=True, capture_output=True, env=env, check=False, timeout=60)
 
     def assert_no_leftovers(self) -> None:
         for path in (self.state / "swap", self.state / "swap.new", self.state / "swap.committed",
@@ -812,6 +822,98 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("safe absolute directories", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
+
+    def test_default_paths_pass_the_non_mutating_preflight(self) -> None:
+        result = self.run_updater(
+            validate_paths=True,
+            TARKOV_UPDATE_PATH_ROOT="",
+            TARKOV_UPDATE_INSTALL="/opt/tarkov-group",
+            TARKOV_UPDATE_LKG="/opt/tarkov-group.lkg",
+            TARKOV_UPDATE_STATE="/var/lib/tarkov-group-update",
+            TARKOV_UPDATE_STATUS="/var/lib/tarkov-group-update-status",
+            TARKOV_RELAY_STATE="/var/lib/tarkov-group",
+            TARKOV_UPDATE_SELF="/opt/tarkov-group-update.sh",
+            TARKOV_UPDATE_UNITS="/etc/systemd/system",
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("path preflight passed", result.stdout)
+
+    def test_broad_install_roots_are_refused_without_mutating_them(self) -> None:
+        safe_defaults = {
+            "TARKOV_UPDATE_PATH_ROOT": "",
+            "TARKOV_UPDATE_LKG": "/opt/tarkov-group.lkg",
+            "TARKOV_UPDATE_STATE": "/var/lib/tarkov-group-update",
+            "TARKOV_UPDATE_STATUS": "/var/lib/tarkov-group-update-status",
+            "TARKOV_RELAY_STATE": "/var/lib/tarkov-group",
+            "TARKOV_UPDATE_SELF": "/opt/tarkov-group-update.sh",
+            "TARKOV_UPDATE_UNITS": "/etc/systemd/system",
+        }
+        for broad in ("/", "/opt", "/var", "/var/lib", "/etc", "/usr", "/home", "/root", "/run", "/tmp"):
+            with self.subTest(path=broad):
+                result = self.run_updater(
+                    validate_paths=True,
+                    TARKOV_UPDATE_INSTALL=broad,
+                    **safe_defaults,
+                )
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertRegex(result.stdout, "safe absolute directories|must be below /opt")
+
+    def test_custom_path_root_contains_every_mutable_tree(self) -> None:
+        outside = self.root.parent / f"{self.root.name}-outside"
+
+        result = self.run_updater(
+            validate_paths=True,
+            TARKOV_UPDATE_INSTALL=str(outside),
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("must be below TARKOV_UPDATE_PATH_ROOT", result.stdout)
+        self.assertFalse(outside.exists())
+
+    def test_custom_path_root_cannot_be_a_top_level_directory(self) -> None:
+        result = self.run_updater(
+            validate_paths=True,
+            TARKOV_UPDATE_PATH_ROOT="/tmp",
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("must be a safe absolute directory below a top-level directory", result.stdout)
+
+    def test_updater_executable_cannot_claim_an_install_swap_path(self) -> None:
+        claimed = Path(f"{self.install}.incoming")
+
+        result = self.run_updater(
+            validate_paths=True,
+            TARKOV_UPDATE_SELF=str(claimed),
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("update paths overlap", result.stdout)
+        self.assertTrue(self.install.is_dir())
+
+    def test_systemd_unit_target_cannot_be_a_link(self) -> None:
+        target = self.units / "tarkov-group-update.service"
+        target.unlink()
+        target.symlink_to(self.victim)
+
+        result = self.run_updater(validate_paths=True)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("systemd unit", result.stdout)
+        self.assertRegex(result.stdout, "resolves somewhere else|not a plain file")
+        self.assertEqual("untouched\n", self.victim.read_text(encoding="utf-8"))
+
+    def test_updater_executable_cannot_be_a_link(self) -> None:
+        self.updater_copy.unlink()
+        self.updater_copy.symlink_to(self.victim)
+
+        result = self.run_updater(validate_paths=True)
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("updater executable", result.stdout)
+        self.assertEqual("untouched\n", self.victim.read_text(encoding="utf-8"))
 
     def test_configured_directories_cannot_claim_an_install_swap_path(self) -> None:
         result = self.run_updater(TARKOV_UPDATE_LKG=f"{self.install}.incoming")

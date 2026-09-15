@@ -116,6 +116,17 @@ public interface IReleaseSignatureVerifier
     Task VerifyAsync(string filePath, string bundlePath, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// Marks a verification exception for which a child process may still hold files in staging.
+/// </summary>
+/// <remarks>
+/// The preparation transaction must quarantine rather than delete that directory. An operator
+/// can remove it after the process has been confirmed absent or the machine has restarted.
+/// </remarks>
+public interface IReleaseStagingQuarantineRequired
+{
+}
+
 /// <summary>Metadata for a bounded, unredirected file in release staging.</summary>
 public sealed record ReleaseStagedFile(string FullPath, long Length);
 

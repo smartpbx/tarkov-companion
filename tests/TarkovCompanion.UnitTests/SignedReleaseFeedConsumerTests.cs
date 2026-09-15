@@ -181,6 +181,32 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         Assert.Equal(initial, fixture.State.Value);
     }
 
+    [Fact]
+    public async Task AnOrdinaryVerifierFailureRemovesItsStagingDirectory()
+    {
+        var fixture = CreateFixture("2.0.0");
+        fixture.Verifier.Failure = new InvalidDataException("fixture rejection");
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Consumer.PrepareAsync(default));
+
+        Assert.Empty(Directory.EnumerateDirectories(_root));
+    }
+
+    [Fact]
+    public async Task AnUnquiescedVerifierProcessQuarantinesItsStagingDirectory()
+    {
+        var fixture = CreateFixture("2.0.0");
+        fixture.Verifier.Failure = new QuarantineRequiredException();
+
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fixture.Consumer.PrepareAsync(default));
+
+        Assert.IsAssignableFrom<IReleaseStagingQuarantineRequired>(exception);
+        var staging = Assert.Single(Directory.EnumerateDirectories(_root));
+        Assert.NotEmpty(Directory.EnumerateFiles(staging));
+        Assert.Equal(0, fixture.State.Value.SeenGeneration);
+    }
+
     private Fixture CreateFixture(
         string version,
         bool paused = false,
@@ -465,14 +491,26 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
     {
         public List<string> Verified { get; } = [];
 
+        public Exception? Failure { get; set; }
+
         public Task VerifyAsync(string filePath, string bundlePath, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Assert.True(File.Exists(filePath));
             Assert.True(File.Exists(bundlePath));
             Verified.Add(Path.GetFileName(filePath));
+            if (Failure is not null)
+            {
+                return Task.FromException(Failure);
+            }
+
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class QuarantineRequiredException
+        : OperationCanceledException, IReleaseStagingQuarantineRequired
+    {
     }
 
     private sealed class FakeStateStore(ReleaseConsumerState value) : IReleaseConsumerStateStore

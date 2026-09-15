@@ -267,6 +267,35 @@ class VerifyOfflineTests(OfflineFixture):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("artifact table is malformed", result.stderr)
 
+    def test_json_types_cannot_coerce_two_manifest_rows_to_the_same_file(self) -> None:
+        manifest = json.loads((self.bundle / "release-manifest.json").read_text())
+        relay = manifest["artifacts"][1]
+        relay["name"] = 1
+        manifest["artifacts"].append({**relay, "name": "1"})
+        relay_bytes = (self.bundle / RELAY).read_bytes()
+        (self.bundle / "1").write_bytes(relay_bytes)
+        (self.bundle / "1.sigstore.json").write_text(bundle_text(relay_bytes))
+        value = json.dumps(manifest).encode()
+        (self.bundle / "release-manifest.json").write_bytes(value)
+        (self.bundle / "release-manifest.json.sigstore.json").write_text(bundle_text(value))
+
+        result = self.verify("--break-glass")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("signed manifest is malformed", result.stderr)
+
+    def test_a_string_artifact_size_is_not_coerced_to_a_number(self) -> None:
+        manifest = json.loads((self.bundle / "release-manifest.json").read_text())
+        manifest["artifacts"][0]["size"] = str(manifest["artifacts"][0]["size"])
+        value = json.dumps(manifest).encode()
+        (self.bundle / "release-manifest.json").write_bytes(value)
+        (self.bundle / "release-manifest.json.sigstore.json").write_text(bundle_text(value))
+
+        result = self.verify("--break-glass")
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("signed manifest is malformed", result.stderr)
+
     def test_the_output_is_the_verified_copy_not_the_media(self) -> None:
         output = self.root / "verified"
 

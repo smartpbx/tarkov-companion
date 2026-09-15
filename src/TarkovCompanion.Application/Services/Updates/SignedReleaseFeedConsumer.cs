@@ -275,6 +275,14 @@ public sealed partial class SignedReleaseFeedConsumer
             staging = null;
             return new ReleasePreparation(ReleasePreparationStatus.Ready, plan);
         }
+        catch (Exception exception) when (exception is IReleaseStagingQuarantineRequired)
+        {
+            // The verifier could not prove its child process exited and drained. Deleting files
+            // it may still be reading would cross the process boundary and turn cancellation
+            // into a race; retain this private per-release directory for operator cleanup.
+            staging = null;
+            throw;
+        }
         catch
         {
             if (staging is not null)

@@ -68,6 +68,10 @@ readonly MINIMUM_VERSION="${TARKOV_RELEASE_MINIMUM_VERSION:-}"
 readonly MINIMUM_GENERATION="${TARKOV_RELEASE_MINIMUM_GENERATION:-}"
 readonly MAX_DECISION_AGE_DAYS="${TARKOV_RELEASE_MAX_DECISION_AGE_DAYS:-}"
 readonly ALLOW_UNANCHORED_BOOTSTRAP="${TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP:-0}"
+# A custom deployment may put all updater-owned trees below one explicit root. Without one,
+# install trees must remain below /opt and state trees below /var/lib. This is a containment
+# boundary, not a convenience default: several recovery paths recursively remove derived names.
+readonly PATH_ROOT="${TARKOV_UPDATE_PATH_ROOT:-}"
 readonly INSTALL="${TARKOV_UPDATE_INSTALL:-/opt/tarkov-group}"
 readonly LKG="${TARKOV_UPDATE_LKG:-/opt/tarkov-group.lkg}"
 # Everything this script decides from lives here: the lock, the work directories, the swap
@@ -93,6 +97,7 @@ readonly HEALTH_INTERVAL="${TARKOV_UPDATE_HEALTH_INTERVAL:-2}"
 readonly INCOMING="${INSTALL}.incoming"
 readonly PREVIOUS="${INSTALL}.previous"
 readonly LKG_INCOMING="${LKG}.incoming"
+readonly SELF_INCOMING="${SELF}.incoming"
 readonly SHIPPED="${INSTALL}/deploy"
 # Written by the relay's admin panel and watched by tarkov-group-update.path. The relay runs
 # unprivileged and cannot start a unit; it can write one file in the directory it already owns.
@@ -133,6 +138,14 @@ refuse() {
     log "$*"
     exit 1
 }
+
+VALIDATE_PATHS=0
+if (($#)); then
+    (($# == 1)) && [[ "$1" == "--validate-paths" ]] \
+        || refuse "usage: $0 [--validate-paths]"
+    VALIDATE_PATHS=1
+fi
+readonly VALIDATE_PATHS
 
 decimal_at_most() {
     local value="${1#"${1%%[!0]*}"}" maximum="$2"
@@ -400,6 +413,114 @@ safe_root() {
     [[ "${resolved}" != "/" && "${resolved}" != "/opt" && "${resolved}" != "/var" && "${resolved}" != "/var/lib" ]]
 }
 
+strictly_below() {
+    [[ "$1" == "$2"/* ]]
+}
+
+paths_overlap() {
+    [[ "$1" == "$2" || "$1" == "$2"/* || "$2" == "$1"/* ]]
+}
+
+trusted_owner_and_mode() {
+    local path="$1" label="$2" owner permissions
+    owner="$(stat -c %u -- "${path}")" || return 1
+    [[ "${owner}" == 0 || "${owner}" == "$(id -u)" ]] \
+        || refuse "${label} ${path} belongs to uid ${owner}, not root or the updater"
+    permissions="$(stat -c %a -- "${path}")" || return 1
+    ((8#${permissions} & 8#022)) \
+        && refuse "${label} ${path} is writable by other users"
+    return 0
+}
+
+secure_managed_directory() {
+    local path="$1" label="$2" resolved
+    [[ "${path}" == /* && "${path}" != */ && -d "${path}" && ! -L "${path}" ]] \
+        || refuse "${label} ${path} must be an existing plain absolute directory"
+    resolved="$(readlink -f -- "${path}")" || refuse "${label} ${path} cannot be resolved"
+    [[ "${resolved}" == "${path}" ]] || refuse "${label} ${path} resolves somewhere else"
+    trusted_owner_and_mode "${path}" "${label}"
+}
+
+secure_managed_file_destination() {
+    local path="$1" label="$2" parent resolved
+    [[ "${path}" == /* && "${path}" != */ ]] \
+        || refuse "${label} ${path} must be a plain absolute file destination"
+    resolved="$(readlink -m -- "${path}")" || refuse "${label} ${path} cannot be resolved"
+    [[ "${resolved}" == "${path}" ]] || refuse "${label} ${path} resolves somewhere else"
+    parent="$(dirname -- "${path}")"
+    secure_managed_directory "${parent}" "the directory holding ${label}"
+    if [[ -e "${path}" || -L "${path}" ]]; then
+        [[ -f "${path}" && ! -L "${path}" ]] || refuse "${label} ${path} is not a plain file"
+        trusted_owner_and_mode "${path}" "${label}"
+    fi
+}
+
+validate_destructive_roots() {
+    local path unit target path_index other_index
+    for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
+        safe_root "${path}" || refuse "install, rollback, state and status paths must be safe absolute directories"
+    done
+
+    if [[ -n "${PATH_ROOT}" ]]; then
+        # A root such as /tmp or /etc is still an unsafe typo: it must itself be below a
+        # top-level directory, and each mutable tree must be a strict child rather than the root.
+        safe_root "${PATH_ROOT}" && [[ "$(dirname -- "${PATH_ROOT}")" != "/" ]] \
+            || refuse "TARKOV_UPDATE_PATH_ROOT must be a safe absolute directory below a top-level directory"
+        secure_managed_directory "${PATH_ROOT}" "update path root"
+        for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
+            strictly_below "${path}" "${PATH_ROOT}" \
+                || refuse "${path} must be below TARKOV_UPDATE_PATH_ROOT ${PATH_ROOT}"
+        done
+        for path in "${SELF}" "${UNITS}"; do
+            strictly_below "${path}" "${PATH_ROOT}" \
+                || refuse "${path} must be below TARKOV_UPDATE_PATH_ROOT ${PATH_ROOT}"
+        done
+    else
+        for path in "${INSTALL}" "${LKG}"; do
+            strictly_below "${path}" /opt \
+                || refuse "install and rollback paths must be below /opt unless TARKOV_UPDATE_PATH_ROOT is set"
+        done
+        for path in "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
+            strictly_below "${path}" /var/lib \
+                || refuse "state and status paths must be below /var/lib unless TARKOV_UPDATE_PATH_ROOT is set"
+        done
+        strictly_below "${SELF}" /opt \
+            || refuse "the updater executable must be below /opt unless TARKOV_UPDATE_PATH_ROOT is set"
+        [[ "${UNITS}" == /etc/systemd/system ]] \
+            || refuse "the systemd unit directory must be /etc/systemd/system unless TARKOV_UPDATE_PATH_ROOT is set"
+    fi
+
+    for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
+        secure_managed_directory "$(dirname -- "${path}")" "the directory holding ${path}"
+    done
+    secure_managed_directory "${UNITS}" "systemd unit directory"
+    secure_managed_file_destination "${SELF}" "updater executable"
+    secure_managed_file_destination "${SELF_INCOMING}" "updater incoming file"
+    for unit in "${DEPLOYMENT_UNITS[@]}"; do
+        secure_managed_file_destination "${UNITS}/${unit}" "systemd unit"
+    done
+
+    # SELF is replaced by renaming SELF_INCOMING; the installation and rollback directories are
+    # recursively removed or renamed. None may claim another managed output or one of its parents.
+    local destructive=(
+        "${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${LKG_INCOMING}"
+        "${STATE}" "${STATUS}" "${RELAY_STATE}" "${SELF}" "${SELF_INCOMING}"
+    )
+    for ((path_index = 0; path_index < ${#destructive[@]}; path_index++)); do
+        for ((other_index = path_index + 1; other_index < ${#destructive[@]}; other_index++)); do
+            paths_overlap "${destructive[path_index]}" "${destructive[other_index]}" \
+                && refuse "update paths overlap: ${destructive[path_index]} and ${destructive[other_index]}"
+        done
+        paths_overlap "${destructive[path_index]}" "${UNITS}" \
+            && refuse "update paths overlap: ${destructive[path_index]} and ${UNITS}"
+        for unit in "${DEPLOYMENT_UNITS[@]}"; do
+            target="${UNITS}/${unit}"
+            paths_overlap "${destructive[path_index]}" "${target}" \
+                && refuse "update paths overlap: ${destructive[path_index]} and ${target}"
+        done
+    done
+}
+
 # A directory only this script's user may change: not a link, owned by the user running this, and
 # writable by nobody else. Created with that mode when absent; tightened if it is ours but loose;
 # refused otherwise, because a directory somebody else can write is not one to decide from.
@@ -502,7 +623,7 @@ rollback_failed_swap() {
         fi
     done
     if [[ -f "${SWAP}/deployment/updater" ]] && ! cmp -s "${SWAP}/deployment/updater" "${SELF}"; then
-        install -m 0755 "${SWAP}/deployment/updater" "${SELF}.incoming" && mv -fT -- "${SELF}.incoming" "${SELF}"
+        install -m 0755 "${SWAP}/deployment/updater" "${SELF_INCOMING}" && mv -fT -- "${SELF_INCOMING}" "${SELF}"
     elif [[ -f "${SWAP}/deployment/updater.absent" && ( -e "${SELF}" || -L "${SELF}" ) ]]; then
         rm -f -- "${SELF}"
     fi
@@ -724,8 +845,8 @@ apply_deployment() {
     # Renamed into place, never written over. bash keeps a file offset into the script it is
     # running, and a rename swaps the directory entry while leaving the open inode alone.
     if [[ -f "${SHIPPED}/tarkov-group-update.sh" ]] && ! cmp -s "${SHIPPED}/tarkov-group-update.sh" "${SELF}"; then
-        install -m 0755 "${SHIPPED}/tarkov-group-update.sh" "${SELF}.incoming"
-        mv -fT -- "${SELF}.incoming" "${SELF}"
+        install -m 0755 "${SHIPPED}/tarkov-group-update.sh" "${SELF_INCOMING}"
+        mv -fT -- "${SELF_INCOMING}" "${SELF}"
         log "installed the updater itself; the next run is the new one"
     fi
 
@@ -819,17 +940,12 @@ clear_refusal() {
 for command_name in base64 cmp date dirname flock head id install jq mktemp od python3 readlink sha256sum stat systemctl wget; do
     command -v "${command_name}" >/dev/null 2>&1 || refuse "required command is unavailable: ${command_name}"
 done
-for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
-    safe_root "${path}" || refuse "install, rollback, state and status paths must be safe absolute directories"
-done
-distinct=("${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${LKG_INCOMING}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
-for ((left = 0; left < ${#distinct[@]}; left++)); do
-    for ((right = 0; right < ${#distinct[@]}; right++)); do
-        if ((left != right)) && [[ "${distinct[left]}" == "${distinct[right]}" || "${distinct[left]}" == "${distinct[right]}"/* ]]; then
-            refuse "install, rollback, state and status paths overlap: ${distinct[left]} and ${distinct[right]}"
-        fi
-    done
-done
+validate_destructive_roots
+
+if ((VALIDATE_PATHS)); then
+    log "updater path preflight passed"
+    exit 0
+fi
 
 own_directory "${STATE}" 0700
 own_directory "${STATUS}" 0755

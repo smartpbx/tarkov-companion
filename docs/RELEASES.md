@@ -274,6 +274,8 @@ TARKOV_RELEASE_MINIMUM_VERSION=1.0.650
 #TARKOV_RELEASE_MINIMUM_GENERATION=12
 # Optional: refuse to install a decision signed longer ago than this many days.
 #TARKOV_RELEASE_MAX_DECISION_AGE_DAYS=45
+# Custom layouts must put every mutable tree, the updater, and its unit directory below one root.
+#TARKOV_UPDATE_PATH_ROOT=/srv/tarkov-companion
 ```
 
 The token file holds a fine-grained token with read-only **Contents** on the feed repository and
@@ -303,7 +305,13 @@ it could swap between a signature check and the extraction that follows.
 
 The updater refuses to run if its state directory is a symbolic link or belongs to another user,
 and tightens it to `0700` if it is root's but looser. The panel refuses a status directory that
-is, or is inside, its own state directory.
+is, or is inside, its own state directory. Without `TARKOV_UPDATE_PATH_ROOT`, install, rollback
+and updater paths must be strict children of `/opt`; update, status and relay state trees must be
+strict children of `/var/lib`; and units must live in `/etc/systemd/system`. A custom root must
+itself be below a top-level directory and contain those paths and the unit directory. Every
+managed destination and parent is canonical, root/updater-owned and not group/world-writable.
+`tarkov-group-update.sh --validate-paths` checks only these containment, ownership and overlap
+rules and makes no filesystem changes.
 
 ### Every run, before anything on the host changes
 
@@ -530,7 +538,7 @@ longer falls back from an unparsable certificate to a key.
 | Build publication | published build, no decision | adopted by a re-run if it is immutable and the same build |
 | Decision write | conflict or error | the previous decision, whole; a conflict is retried |
 | Pending operator dispatch | cancelled in the Actions UI | nothing changed; dispatch again |
-| Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | only its private staging directory is removed; installed/LKG state is unchanged until the caller atomically activates all components and commits |
+| Desktop feed preparation | cancellation, malformed input, signature/digest mismatch or explicit refusal | its private staging directory is removed after verifier exit and pipe drainage are confirmed; if bounded verifier cleanup cannot prove quiescence, that directory is quarantined for operator cleanup; installed/LKG state is unchanged until the caller atomically activates all components and commits |
 | Relay updater | any step | pre-swap: nothing changed; after the journal exists: previous build, units, updater and stamps restored |
 | Offline scripts | any check | nothing installed; the private copy removed |
 
