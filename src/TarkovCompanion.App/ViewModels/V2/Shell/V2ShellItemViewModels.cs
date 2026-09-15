@@ -48,16 +48,25 @@ public sealed record V2CaptureProgressViewModel(
     public string AutomationId => $"v2-shell-capture-progress-{Sequence.ToString(CultureInfo.InvariantCulture)}";
 }
 
-public sealed class V2CaptureActionViewModel(
-    V2CaptureResolutionKind resolution,
-    string label,
-    string automationId,
-    Action<V2CaptureResolutionKind> invoke)
+public sealed class V2CaptureActionViewModel
 {
-    public V2CaptureResolutionKind Resolution { get; } = resolution;
-    public string Label { get; } = label;
-    public string AutomationId { get; } = automationId;
-    public ICommand InvokeCommand { get; } = new DelegateCommand(() => invoke(resolution));
+    public V2CaptureActionViewModel(
+        V2CaptureResolutionKind resolution,
+        string label,
+        string automationId,
+        Action<V2CaptureResolutionKind> invoke)
+    {
+        ArgumentNullException.ThrowIfNull(invoke);
+        Resolution = resolution;
+        Label = label;
+        AutomationId = automationId;
+        InvokeCommand = new DelegateCommand(() => invoke(Resolution));
+    }
+
+    public V2CaptureResolutionKind Resolution { get; }
+    public string Label { get; }
+    public string AutomationId { get; }
+    public ICommand InvokeCommand { get; }
 }
 
 public enum V2ShellSuggestionKind
@@ -96,21 +105,31 @@ public sealed class V2ShellSuggestionFilterViewModel : BindableViewModel
     public ICommand SelectCommand { get; }
 }
 
-public sealed class V2ShellSuggestionViewModel(
-    string key,
-    string label,
-    string provenance,
-    string category,
-    V2ShellSuggestionKind kind,
-    Action open)
+public sealed class V2ShellSuggestionViewModel
 {
-    public string Key { get; } = key;
-    public string Label { get; } = label;
-    public string Provenance { get; } = provenance;
-    public string Category { get; } = category;
-    public V2ShellSuggestionKind Kind { get; } = kind;
+    public V2ShellSuggestionViewModel(
+        string key,
+        string label,
+        string provenance,
+        string category,
+        V2ShellSuggestionKind kind,
+        Action open)
+    {
+        Key = key;
+        Label = label;
+        Provenance = provenance;
+        Category = category;
+        Kind = kind;
+        OpenCommand = new DelegateCommand(open ?? throw new ArgumentNullException(nameof(open)));
+    }
+
+    public string Key { get; }
+    public string Label { get; }
+    public string Provenance { get; }
+    public string Category { get; }
+    public V2ShellSuggestionKind Kind { get; }
     public string AutomationId => $"v2-shell-suggestion-{Kind.ToString().ToLowerInvariant()}-{StableToken(Key)}";
-    public ICommand OpenCommand { get; } = new DelegateCommand(open);
+    public ICommand OpenCommand { get; }
 
     private static string StableToken(string value)
     {
@@ -122,17 +141,26 @@ public sealed class V2ShellSuggestionViewModel(
     }
 }
 
-public sealed class V2BrowseCategoryViewModel(
-    V2RouteId route,
-    string label,
-    string detail,
-    Action<V2RouteId> navigate)
+public sealed class V2BrowseCategoryViewModel
 {
-    public V2RouteId Route { get; } = route;
-    public string Label { get; } = label;
-    public string Detail { get; } = detail;
-    public string AutomationId => $"v2-shell-browse-{route.Value}";
-    public ICommand OpenCommand { get; } = new DelegateCommand(() => navigate(route));
+    public V2BrowseCategoryViewModel(
+        V2RouteId route,
+        string label,
+        string detail,
+        Action<V2RouteId> navigate)
+    {
+        ArgumentNullException.ThrowIfNull(navigate);
+        Route = route;
+        Label = label;
+        Detail = detail;
+        OpenCommand = new DelegateCommand(() => navigate(Route));
+    }
+
+    public V2RouteId Route { get; }
+    public string Label { get; }
+    public string Detail { get; }
+    public string AutomationId => $"v2-shell-browse-{Route.Value}";
+    public ICommand OpenCommand { get; }
 
     public static IReadOnlyList<V2BrowseCategoryViewModel> Create(
         V2ShellVariantDefinition variant,
