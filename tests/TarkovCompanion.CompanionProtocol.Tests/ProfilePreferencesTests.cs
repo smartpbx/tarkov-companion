@@ -56,6 +56,9 @@ public sealed class ProfilePreferencesTests
         var update = Assert.IsType<ProfilePreferencesCanonicalUpdate>(mutated.Update);
         Assert.Equal(update.Origin, update.State.LastChangedOrigin);
         Assert.Equal(update.ChangedUtc, update.State.ChangedUtc);
+        Assert.Equal(
+            DeliveryChannel.ProfilePreferences,
+            DeliveryLedger.ChannelOf(new CanonicalUpdateMessage(update)));
     }
 
     [Fact]
@@ -68,7 +71,7 @@ public sealed class ProfilePreferencesTests
         var envelope = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(
             Encoding.UTF8.GetBytes(node.ToJsonString()));
         var command = Assert.IsType<ActivateProfilePreferencesCommand>(envelope.Command);
-        var applied = DesktopCanonicalStateMachine.Apply(InitialState(), envelope, DesktopContext());
+        var applied = Apply(InitialState(), command, DesktopContext());
 
         Assert.Empty(command.Preferences.SharedPersonalization);
         Assert.Equal(CommandDisposition.Applied, applied.Acknowledgement.Disposition);
@@ -302,7 +305,7 @@ public sealed class ProfilePreferencesTests
             "mutate-profile-preferences.json")))!;
         node["command"]!["mutation"]!["futureRecommendationPolicy"] = "leave-existing";
         var envelope = CompanionProtocolJson.Deserialize<ClientCommandEnvelope>(Encoding.UTF8.GetBytes(node.ToJsonString()));
-        var applied = DesktopCanonicalStateMachine.Apply(active, envelope, TabletContext(Now.AddMinutes(1)));
+        var applied = Apply(active, envelope.Command, TabletContext(Now.AddMinutes(1)));
 
         Assert.Equal(CommandDisposition.Applied, applied.Acknowledgement.Disposition);
         Assert.Single(applied.State.ProfilePreferences.ActiveProfile!.ProtectedItemRules);
@@ -345,6 +348,22 @@ public sealed class ProfilePreferencesTests
             Preferences(),
             null,
             null));
+        Assert.Throws<ArgumentException>(() => new ProfilePreferencesAggregate(
+            AggregateCursor.Empty,
+            Preferences(),
+            null,
+            null));
+    }
+
+    [Fact]
+    public void CanonicalWireStateRequiresTheCurrentPreferenceSchema()
+    {
+        var node = GoldenNode("server/canonical-update-profile-preferences.json");
+        node["message"]!["update"]!["state"]!["activeProfile"]!["schemaVersion"]!["minor"] = 0;
+
+        Assert.NotEmpty(new SchemaValidator(SchemaNode()).Validate(node));
+        Assert.Throws<JsonException>(() => CompanionProtocolJson.Deserialize<ServerEnvelope>(
+            Encoding.UTF8.GetBytes(node.ToJsonString())));
     }
 
     private static CanonicalCompanionState Activate() => ActivateReduction(InitialState()).State;

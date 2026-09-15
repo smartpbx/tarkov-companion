@@ -414,6 +414,11 @@ public sealed record ProfilePreferencesAggregate
             throw new ArgumentException("Canonical preference state uses the current normalized schema.", nameof(activeProfile));
         }
 
+        if (cursor.Revision.Value == 0 && activeProfile is not null)
+        {
+            throw new ArgumentException("Revision-zero preference state cannot contain an active profile.", nameof(activeProfile));
+        }
+
         var hasAttribution = lastChangedOrigin is not null && ChangedUtc is not null;
         if ((cursor.Revision.Value == 0 && (lastChangedOrigin is not null || ChangedUtc is not null)) ||
             (cursor.Revision.Value > 0 && !hasAttribution))

@@ -1805,6 +1805,22 @@
         }
       ]
     },
+    "canonicalProfilePreferencesDocument": {
+      "$ref": "#/$defs/profilePreferencesDocument",
+      "properties": {
+        "schemaVersion": {
+          "type": "object",
+          "properties": {
+            "major": {
+              "const": 1
+            },
+            "minor": {
+              "const": 1
+            }
+          }
+        }
+      }
+    },
     "profilePreferenceMutation": {
       "oneOf": [
         {
@@ -3082,7 +3098,7 @@
         "activeProfile": {
           "oneOf": [
             {
-              "$ref": "#/$defs/profilePreferencesDocument"
+              "$ref": "#/$defs/canonicalProfilePreferencesDocument"
             },
             {
               "type": "null"
@@ -3109,7 +3125,49 @@
             }
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "cursor": {
+                "properties": {
+                  "revision": {
+                    "properties": {
+                      "value": {
+                        "const": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "activeProfile": {
+                "type": "null"
+              },
+              "lastChangedOrigin": {
+                "type": "null"
+              },
+              "changedUtc": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "lastChangedOrigin": {
+                "$ref": "#/$defs/workspaceOrigin"
+              },
+              "changedUtc": {
+                "$ref": "#/$defs/utc"
+              }
+            }
+          }
+        }
+      ]
     },
     "canonicalState": {
       "type": "object",

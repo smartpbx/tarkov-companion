@@ -102,6 +102,23 @@ public sealed class GoldenAndHostileJsonTests
         AssertEnum<ContextualCaptureProgressPhase>(definitions["captureProgressPhase"]!);
         AssertEnum<CaptureCorrectionKind>(definitions["captureCorrectionKind"]!);
         AssertEnum<CanonicalAggregateKind>(definitions["aggregateAcknowledgement"]!["properties"]!["aggregate"]!);
+        Assert.Equal(
+            Enum.GetNames<TarkovCompanion.Core.Domain.Profiles.ProfileGameMode>()
+                .Where(name => name != nameof(TarkovCompanion.Core.Domain.Profiles.ProfileGameMode.Unknown))
+                .Order(StringComparer.Ordinal),
+            definitions["preferenceProfileContext"]!["properties"]!["mode"]!["enum"]!.AsArray()
+                .Select(item => item!.GetValue<string>())
+                .Order(StringComparer.Ordinal));
+        AssertEnum<ProtectedItemSelectorKind>(definitions["protectedItemRule"]!["properties"]!["selectorKind"]!);
+        AssertEnum<ProtectedItemDisposition>(definitions["protectedItemRule"]!["properties"]!["disposition"]!);
+        AssertEnum<RecommendationOverrideAction>(definitions["recommendationOverride"]!["properties"]!["action"]!);
+        AssertEnum<SharedPersonalizationKind>(definitions["sharedPersonalization"]!["properties"]!["kind"]!);
+        Assert.Equal(
+            PreferenceSchemaVersion.Current.Major,
+            definitions["canonicalProfilePreferencesDocument"]!["properties"]!["schemaVersion"]!["properties"]!["major"]!["const"]!.GetValue<int>());
+        Assert.Equal(
+            PreferenceSchemaVersion.Current.Minor,
+            definitions["canonicalProfilePreferencesDocument"]!["properties"]!["schemaVersion"]!["properties"]!["minor"]!["const"]!.GetValue<int>());
         Assert.DoesNotContain("GroupProtocol", schema.ToJsonString(), StringComparison.Ordinal);
     }
 
