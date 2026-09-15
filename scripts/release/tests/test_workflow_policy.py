@@ -106,6 +106,12 @@ class WorkflowPolicyTests(unittest.TestCase):
 
         self.assertEqual(0, result.returncode, result.stdout)
 
+    def test_secret_detection_only_reads_the_github_secrets_context(self) -> None:
+        self.assertTrue(check_workflow_policy.reads_secret("${{ secrets.V2_RELEASE_TOKEN }}"))
+        self.assertTrue(check_workflow_policy.reads_secret("${{ secrets['V2_RELEASE_TOKEN'] }}"))
+        self.assertFalse(check_workflow_policy.reads_secret("./scripts/scan-secrets.sh"))
+        self.assertFalse(check_workflow_policy.reads_secret("${{ github.token }}"))
+
     def test_publisher_violations_fail(self) -> None:
         cases = {
             "pull request trigger": GOOD_PUBLISHER.replace("  workflow_dispatch:", "  workflow_dispatch:\n  pull_request:"),

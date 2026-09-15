@@ -278,12 +278,15 @@ def top_level_conjuncts(expression: str) -> list[str]:
 
 
 def reads_secret(value: Any) -> bool:
-    """Recognise both ``secrets.NAME`` and ``secrets['NAME']`` in any scalar."""
+    """Recognise secret-context reads inside GitHub expressions in any scalar."""
     if isinstance(value, dict):
         return any(reads_secret(key) or reads_secret(item) for key, item in value.items())
     if isinstance(value, list):
         return any(reads_secret(item) for item in value)
-    return isinstance(value, str) and re.search(r"(?<![A-Za-z0-9_])secrets\s*(?:\.|\[)", value) is not None
+    if not isinstance(value, str):
+        return False
+    expressions = re.findall(r"\$\{\{(?:(?!\}\}).)*\}\}", value, flags=re.DOTALL)
+    return any(re.search(r"(?<![A-Za-z0-9_])secrets\s*(?:\.|\[)", expression) for expression in expressions)
 
 
 def check_publisher(triggers: set[str], workflow_writes: set[str], jobs: dict[str, dict[str, Any]],

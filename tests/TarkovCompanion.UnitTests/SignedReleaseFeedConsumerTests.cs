@@ -147,7 +147,7 @@ public sealed class SignedReleaseFeedConsumerTests : IDisposable
         Assert.Equal(Sha256("{\"data\":true}"u8.ToArray()), plan.Components["data"]);
         if (baseMatches)
         {
-            var delta = Assert.Single(plan.Artifacts.Where(artifact => artifact.Role == "delta"));
+            var delta = Assert.Single(plan.Artifacts, artifact => artifact.Role == "delta");
             Assert.Equal("data", delta.Component);
             Assert.Equal(baseDigest, delta.BaseSha256);
         }
