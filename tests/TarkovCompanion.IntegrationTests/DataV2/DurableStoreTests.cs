@@ -629,8 +629,9 @@ public sealed class DurableStoreTests
         Assert.Equal(plan.ExtensionJson, (await store.ReadLoadoutPlanAsync(
             planId, plan.ProfileId, plan.Generation, plan.GameMode,
             TestContext.Current.CancellationToken))!.ExtensionJson);
-        var readOverload = Assert.Single(typeof(SqliteV2DataStore).GetMethods()
-            .Where(method => method.Name == nameof(SqliteV2DataStore.ReadLoadoutPlanAsync)));
+        var readOverload = Assert.Single(
+            typeof(SqliteV2DataStore).GetMethods(),
+            method => method.Name == nameof(SqliteV2DataStore.ReadLoadoutPlanAsync));
         Assert.Equal(
             [typeof(Guid), typeof(Guid), typeof(string), typeof(string), typeof(CancellationToken)],
             readOverload.GetParameters().Select(parameter => parameter.ParameterType));
