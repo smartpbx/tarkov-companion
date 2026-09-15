@@ -1,14 +1,18 @@
-# Regenerates the locked third-party inventory.
+# Regenerates the locked third-party inventory, and gates changes to the release supply chain.
 #
 # The licence audit is fail-closed: it rebuilds the inventory from the dependency graph and
 # fails if the committed copy differs, so a new dependency cannot arrive unreviewed. That is
 # the right behaviour and it leaves one question, which is how to produce the new copy when
-# nobody may run .NET outside CI. Hence this: run it, read the diff, commit the result.
+# nobody may run .NET outside CI. Hence `regenerate`: run it, read the diff, commit the result.
+#
+# `supply-chain` is the other half. A pull request that changes a dependency, the release
+# tooling, the relay updater or a release workflow is reviewed here before it can reach main,
+# and nothing in this workflow can write to the repository, a release or a tag.
 name: License lock
 
-# Runs when the dependency graph could have changed, which is exactly when the lock needs
-# rewriting, rather than on demand. Dispatch only works from the default branch, and the work
-# that invalidates this lock happens on feature branches.
+# Runs when the dependency graph or the release machinery could have changed, rather than on
+# demand. Dispatch only works from the default branch, and the work that invalidates the lock
+# happens on feature branches.
 on:
   workflow_dispatch:
   push:
@@ -17,23 +21,118 @@ on:
       - 'TarkovCompanion.sln'
       - 'Directory.Packages.props'
       - 'scripts/audit-licenses.sh'
+      - 'scripts/scan-secrets.sh'
+      - 'scripts/release/**'
+      - 'deploy/group-server/tarkov-group-update.*'
+      - 'docs/THIRD_PARTY_NOTICES.md'
+      - 'docs/THIRD_PARTY_INVENTORY.json'
       - '.github/workflows/license-lock.yml'
+      - '.github/workflows/publish.yml'
       # The mapping decides how a package is described in the lock, so editing it
       # invalidates the lock just as surely as adding the package did. Leaving this out
       # meant adding a dependency and describing it in two commits regenerated nothing on
       # the second, and the audit then failed on a branch with no way to fix it from there.
+      - 'licenses/dependency-license-map.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.csproj'
+      - 'TarkovCompanion.sln'
+      - 'Directory.Packages.props'
+      - 'scripts/audit-licenses.sh'
+      - 'scripts/scan-secrets.sh'
+      - 'scripts/release/**'
+      - 'deploy/group-server/tarkov-group-update.*'
+      - 'docs/THIRD_PARTY_NOTICES.md'
+      - 'docs/THIRD_PARTY_INVENTORY.json'
+      - '.github/workflows/license-lock.yml'
+      - '.github/workflows/publish.yml'
       - 'licenses/dependency-license-map.json'
 
 permissions:
   contents: read
 
 jobs:
+  supply-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes and known advisories
+        if: github.event_name == 'pull_request'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          comment-summary-in-pr: never
+          fail-on-severity: moderate
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.401
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore the exact graph
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+
+      - name: Refuse known vulnerable dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet list TarkovCompanion.sln package --vulnerable --include-transitive --no-restore --format json \
+            > "${RUNNER_TEMP}/vulnerabilities.json"
+          python3 scripts/release/gates.py vulnerabilities --report "${RUNNER_TEMP}/vulnerabilities.json"
+
+      - name: Require the locked inventory and third-party notices to match the graph
+        run: ./scripts/audit-licenses.sh
+
+      - name: Scan for secret patterns
+        run: ./scripts/scan-secrets.sh
+
+      - name: Hold release workflows to the pinning and trigger policy
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release/check_workflow_policy.py \
+            --enforce publish.yml --enforce license-lock.yml --verify-tags \
+            --summary "${GITHUB_STEP_SUMMARY}"
+
+      # Checked by digest committed here, not by a checksum file from the same release.
+      - name: Lint the release workflows with a pinned actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --output "${RUNNER_TEMP}/actionlint.tar.gz" \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  ${RUNNER_TEMP}/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/actionlint.tar.gz" -C "${RUNNER_TEMP}" actionlint
+          "${RUNNER_TEMP}/actionlint" -color .github/workflows/publish.yml .github/workflows/license-lock.yml
+
+      - name: Install a pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Exercise release policy, feed, manifest, offline and relay updater fixtures
+        env:
+          TARKOV_RELEASE_REQUIRE_TOOLS: '1'
+        run: ./scripts/release/test.sh
+
+      - name: Verify real Sigstore bundles with the release verification command
+        run: ./scripts/release/test-real-sigstore.sh
+
   regenerate:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: 10.0.401
           cache: true
@@ -47,7 +146,7 @@ jobs:
       # Published rather than committed. A workflow that can push to the branch is a bigger
       # thing to own than a file somebody downloads and commits after reading the diff, and
       # reading the diff is the point of the audit being fail-closed in the first place.
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: third-party-inventory
           path: docs/THIRD_PARTY_INVENTORY.json

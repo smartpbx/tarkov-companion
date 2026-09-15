@@ -1,0 +1,465 @@
+name: Publish signed internal release
+
+# Verification builds and proves; this workflow is the only thing that changes a release.
+#
+# It is reachable two ways and neither is a pull request. A Windows verification run that
+# finished successfully on main offers its build to canary; every other transition is a person
+# dispatching it from main. Both run the workflow file from the default branch, so a branch
+# cannot rewrite what this does - and a dispatch from a branch is refused below, while the
+# protected environments it would need are restricted to main in repository settings (an
+# external control recorded in docs/RELEASES.md, not something this file can prove).
+#
+# The three jobs hold three different kinds of authority on purpose. `candidate` reads and
+# checks, `relay-smoke` executes the relay it is about to release and so holds nothing worth
+# stealing, and only `release` - inside the ring's environment - can sign, attest and write the
+# private feed. Nothing `release` relies on is taken from the other two on trust: it downloads
+# the verified artifacts itself and re-derives every digest.
+on:
+  workflow_run:
+    workflows: ["Windows verification"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Ring transition
+        type: choice
+        required: true
+        options: [promote, pause, resume, mark-lkg, rollback]
+      ring:
+        description: Ring to change
+        type: choice
+        required: true
+        options: [canary, beta, stable]
+      reason:
+        description: Why, recorded in the signed decision
+        type: string
+        required: true
+
+permissions: {}
+
+# Verified builds queue behind each other and a newer one may replace an older pending one,
+# which only ever skips a build that was about to be superseded anyway. Operator transitions get
+# a group of their own each, because a pending pause or rollback silently replaced by the next
+# canary build is the one thing that must never happen. Correctness does not depend on either:
+# every ring write is a create-once file named by generation, so a lost race fails and retries.
+concurrency:
+  group: ${{ github.event_name == 'workflow_run' && 'v2-release-canary-publish' || format('v2-release-operator-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  # Releases are off until the repository variable V2_RELEASES_ENABLED is `true`. Turning them on
+  # is a deliberate operator act, taken after the environments and the private feed exist: a job
+  # that names an environment GitHub has not been told about creates it, unprotected, on the spot.
+  # While off, verified builds skip this workflow quietly and an operator dispatch fails loudly.
+  request:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.V2_RELEASES_ENABLED == 'true'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      action: ${{ steps.resolve.outputs.action }}
+      ring: ${{ steps.resolve.outputs.ring }}
+      verification_run_id: ${{ steps.resolve.outputs.verification_run_id }}
+      actor: ${{ steps.resolve.outputs.actor }}
+      reason: ${{ steps.resolve.outputs.reason }}
+    steps:
+      - name: Resolve the requested transition
+        id: resolve
+        shell: bash
+        # Inputs arrive through the environment only. Interpolating them into the script would
+        # let a crafted reason become shell.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_RING: ${{ inputs.ring }}
+          INPUT_REASON: ${{ inputs.reason }}
+          VERIFICATION_RUN_ID: ${{ github.event.workflow_run.id }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RELEASES_ENABLED: ${{ vars.V2_RELEASES_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Release transitions run only from main." >&2
+            exit 1
+          fi
+          if [[ "${RELEASES_ENABLED}" != "true" ]]; then
+            echo "Releases are not enabled: set the repository variable V2_RELEASES_ENABLED to true once the release environments and private feed exist (docs/RELEASES.md)." >&2
+            exit 1
+          fi
+          if [[ "${EVENT_NAME}" == "workflow_run" ]]; then
+            action=publish
+            ring=canary
+            actor="github-actions"
+            reason="verified build from Windows verification run ${VERIFICATION_RUN_ID}"
+            [[ "${VERIFICATION_RUN_ID}" =~ ^[0-9]+$ ]] || { echo "No verification run id." >&2; exit 1; }
+          else
+            action="${INPUT_ACTION}"
+            ring="${INPUT_RING}"
+            actor="${TRIGGERING_ACTOR}"
+            reason="$(tr -d '\r\n' <<<"${INPUT_REASON}")"
+            VERIFICATION_RUN_ID=""
+            [[ "${action}" =~ ^(promote|pause|resume|mark-lkg|rollback)$ ]] || { echo "Unknown action." >&2; exit 1; }
+            [[ "${ring}" =~ ^(canary|beta|stable)$ ]] || { echo "Unknown ring." >&2; exit 1; }
+            if [[ -z "${reason// }" || ${#reason} -gt 500 ]]; then
+              echo "A reason of 1-500 characters is required for an operator transition." >&2
+              exit 1
+            fi
+          fi
+          {
+            echo "action=${action}"
+            echo "ring=${ring}"
+            echo "verification_run_id=${VERIFICATION_RUN_ID}"
+            echo "actor=${actor}"
+            echo "reason=${reason}"
+          } >> "${GITHUB_OUTPUT}"
+
+  candidate:
+    needs: request
+    if: github.ref == 'refs/heads/main' && needs.request.outputs.action == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_sha: ${{ steps.verification.outputs.source_sha }}
+      version: ${{ steps.identity.outputs.version }}
+      relay_archive_sha256: ${{ steps.identity.outputs.relay_archive_sha256 }}
+      relay_protocol: ${{ steps.identity.outputs.relay_protocol }}
+      sbom_sha256: ${{ steps.sbom-digest.outputs.sha256 }}
+    env:
+      VERIFICATION_RUN_ID: ${{ needs.request.outputs.verification_run_id }}
+    steps:
+      - name: Check out the release tooling that is running
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require a successful protected-main verification run
+        id: verification
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          result="$(python3 scripts/release/gates.py verification-run --repository "${GITHUB_REPOSITORY}" --run-id "${VERIFICATION_RUN_ID}")"
+          echo "source_sha=$(jq -r .sha <<<"${result}")" >> "${GITHUB_OUTPUT}"
+
+      # The Windows run does not include the Linux test suite, dependency vulnerability audit or
+      # secret scan; CI does. A build whose CI failed is not a release candidate, however green
+      # its Windows run was.
+      - name: Require CI to have passed for the same commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.verification.outputs.source_sha }}
+        run: python3 scripts/release/gates.py ci-run --repository "${GITHUB_REPOSITORY}" --sha "${SOURCE_SHA}" --timeout-seconds 2400
+
+      - name: Check out the verified commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ steps.verification.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Download the verified artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${VERIFICATION_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name windows-release-payload --dir "${RUNNER_TEMP}/verified/windows"
+          gh run download "${VERIFICATION_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name group-server-release --dir "${RUNNER_TEMP}/verified/relay"
+          python3 scripts/release/build_manifest.py collect \
+            --source "${RUNNER_TEMP}/verified/windows" --source "${RUNNER_TEMP}/verified/relay" \
+            --output "${RUNNER_TEMP}/payload"
+
+      - name: Reconcile package, assembly, manifest, commit, schema and protocol versions
+        id: identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.verification.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/build_manifest.py reconcile \
+            --payload "${RUNNER_TEMP}/payload" --source-root source \
+            --commit "${SOURCE_SHA}" --verification-run-id "${VERIFICATION_RUN_ID}" \
+            --output "${RUNNER_TEMP}/identity.json"
+          jq . "${RUNNER_TEMP}/identity.json"
+          {
+            echo "version=$(jq -r .version "${RUNNER_TEMP}/identity.json")"
+            echo "relay_archive_sha256=$(jq -r .relayArchiveSha256 "${RUNNER_TEMP}/identity.json")"
+            echo "relay_protocol=$(jq -r .sources.relayProtocol "${RUNNER_TEMP}/identity.json")"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up the .NET SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.401
+
+      - name: Restore the verified commit's dependency graph
+        working-directory: source
+        run: dotnet restore TarkovCompanion.sln --disable-parallel -p:RestoreDisableParallel=true -p:BuildInParallel=false
+
+      # Run at release time, not only when the commit merged: an advisory published since then
+      # applies to this release even though nothing in the repository changed.
+      - name: Refuse known vulnerable dependencies
+        shell: bash
+        working-directory: source
+        run: |
+          set -euo pipefail
+          dotnet list TarkovCompanion.sln package --vulnerable --include-transitive --no-restore --format json \
+            > "${RUNNER_TEMP}/vulnerabilities.json"
+          python3 "${GITHUB_WORKSPACE}/scripts/release/gates.py" vulnerabilities --report "${RUNNER_TEMP}/vulnerabilities.json"
+
+      - name: Require the locked inventory and third-party notices to match the dependency graph
+        working-directory: source
+        run: ./scripts/audit-licenses.sh
+
+      - name: Scan the verified commit for secret patterns
+        working-directory: source
+        run: ./scripts/scan-secrets.sh
+
+      - name: Unpack the release for the SBOM
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.verification.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release/build_manifest.py sbom-input \
+            --payload "${RUNNER_TEMP}/payload" --source-root source \
+            --commit "${SOURCE_SHA}" --verification-run-id "${VERIFICATION_RUN_ID}" \
+            --output "${RUNNER_TEMP}/sbom-input"
+          mkdir -p "${RUNNER_TEMP}/sbom"
+
+      - name: Generate the SPDX SBOM with a pinned Syft
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: ${{ runner.temp }}/sbom-input
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sbom/TarkovCompanion.spdx.json
+          syft-version: v1.51.1
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Record the SBOM digest
+        id: sbom-digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '(.spdxVersion | startswith("SPDX-"))
+                 and ([.packages[].externalRefs[]? | select(.referenceType == "purl") | .referenceLocator | select(startswith("pkg:nuget/"))] | length > 0)' \
+            "${RUNNER_TEMP}/sbom/TarkovCompanion.spdx.json" >/dev/null
+          echo "sha256=$(sha256sum "${RUNNER_TEMP}/sbom/TarkovCompanion.spdx.json" | awk '{print $1}')" >> "${GITHUB_OUTPUT}"
+
+      - name: Hand the SBOM to the release job
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: release-sbom
+          path: ${{ runner.temp }}/sbom/TarkovCompanion.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Runs the relay package it is about to release, so it holds no signing identity, no feed
+  # credential and no write scope, and runs the relay under an emptied environment.
+  relay-smoke:
+    needs: [request, candidate]
+    if: github.ref == 'refs/heads/main' && needs.request.outputs.action == 'publish'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.health.outputs.version }}
+      commit: ${{ steps.health.outputs.commit }}
+      protocol: ${{ steps.health.outputs.protocol }}
+      archive_sha256: ${{ steps.health.outputs.archive_sha256 }}
+    steps:
+      - name: Check out the release tooling that is running
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Download the verified relay package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFICATION_RUN_ID: ${{ needs.request.outputs.verification_run_id }}
+        run: gh run download "${VERIFICATION_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name group-server-release --dir "${RUNNER_TEMP}/relay"
+
+      - name: Extract the package and require it to answer as this release
+        id: health
+        shell: bash
+        env:
+          ARCHIVE_SHA256: ${{ needs.candidate.outputs.relay_archive_sha256 }}
+          VERSION: ${{ needs.candidate.outputs.version }}
+          SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+          PROTOCOL: ${{ needs.candidate.outputs.relay_protocol }}
+        run: |
+          set -euo pipefail
+          ./scripts/release/verify-relay-package.sh \
+            "${RUNNER_TEMP}/relay/TarkovCompanion-GroupServer-linux-x64.tar.gz" \
+            "${ARCHIVE_SHA256}" "${VERSION}" "${SOURCE_SHA}" "${PROTOCOL}" \
+            "${RUNNER_TEMP}/relay-package-health.json"
+          {
+            echo "version=$(jq -r .version "${RUNNER_TEMP}/relay-package-health.json")"
+            echo "commit=$(jq -r .commit "${RUNNER_TEMP}/relay-package-health.json")"
+            echo "protocol=$(jq -r .protocol "${RUNNER_TEMP}/relay-package-health.json")"
+            echo "archive_sha256=$(jq -r .archiveSha256 "${RUNNER_TEMP}/relay-package-health.json")"
+          } >> "${GITHUB_OUTPUT}"
+
+  release:
+    needs: [request, candidate, relay-smoke]
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.request.result == 'success' && (needs.request.outputs.action != 'publish' || (needs.candidate.result == 'success' && needs.relay-smoke.result == 'success')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment:
+      name: v2-${{ needs.request.outputs.ring }}-release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      ACTION: ${{ needs.request.outputs.action }}
+      RING: ${{ needs.request.outputs.ring }}
+      FEED_REPOSITORY: ${{ vars.V2_RELEASE_REPOSITORY }}
+      VERIFICATION_RUN_ID: ${{ needs.request.outputs.verification_run_id }}
+      SOURCE_SHA: ${{ needs.candidate.outputs.source_sha }}
+    steps:
+      - name: Check out the release tooling that is running
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Require the environment to name a feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${FEED_REPOSITORY}" ]]; then
+            echo "The v2-${RING}-release environment has no V2_RELEASE_REPOSITORY variable; nothing was changed." >&2
+            exit 1
+          fi
+
+      - name: Install a pinned cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      # The same trust material an operator provisions on a relay host, created from Sigstore's
+      # own TUF root. Verifying against it here proves consumers holding it can verify too.
+      - name: Create the Sigstore trust root used for every verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARKOV_SIGSTORE_TRUST_ROOT="${RUNNER_TEMP}/sigstore-trusted-root.json"
+          echo "TARKOV_SIGSTORE_TRUST_ROOT=${TARKOV_SIGSTORE_TRUST_ROOT}" >> "${GITHUB_ENV}"
+          cosign trusted-root create --with-default-services --out "${TARKOV_SIGSTORE_TRUST_ROOT}"
+          echo "Trust root sha256: $(sha256sum "${TARKOV_SIGSTORE_TRUST_ROOT}" | awk '{print $1}')" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Download the verified artifacts again
+        if: env.ACTION == 'publish'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${VERIFICATION_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name windows-release-payload --dir "${RUNNER_TEMP}/verified/windows"
+          gh run download "${VERIFICATION_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name group-server-release --dir "${RUNNER_TEMP}/verified/relay"
+          python3 scripts/release/build_manifest.py collect \
+            --source "${RUNNER_TEMP}/verified/windows" --source "${RUNNER_TEMP}/verified/relay" \
+            --output "${RUNNER_TEMP}/release"
+
+      - name: Check out the verified commit
+        if: env.ACTION == 'publish'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ needs.candidate.outputs.source_sha }}
+          path: source
+          persist-credentials: false
+
+      - name: Collect the SBOM
+        if: env.ACTION == 'publish'
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: release-sbom
+          path: ${{ runner.temp }}/sbom
+
+      - name: Assemble and reconcile the release manifest
+        if: env.ACTION == 'publish'
+        shell: bash
+        env:
+          SBOM_SHA256: ${{ needs.candidate.outputs.sbom_sha256 }}
+          CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}
+          HEALTH_VERSION: ${{ needs.relay-smoke.outputs.version }}
+          HEALTH_COMMIT: ${{ needs.relay-smoke.outputs.commit }}
+          HEALTH_PROTOCOL: ${{ needs.relay-smoke.outputs.protocol }}
+          HEALTH_ARCHIVE: ${{ needs.relay-smoke.outputs.archive_sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$(sha256sum "${RUNNER_TEMP}/sbom/TarkovCompanion.spdx.json" | awk '{print $1}')" == "${SBOM_SHA256}" ]]
+          cp "${RUNNER_TEMP}/sbom/TarkovCompanion.spdx.json" "${RUNNER_TEMP}/release/"
+          cp source/docs/THIRD_PARTY_NOTICES.md source/docs/THIRD_PARTY_INVENTORY.json "${RUNNER_TEMP}/release/"
+          jq -n \
+            --arg version "${HEALTH_VERSION}" --arg commit "${HEALTH_COMMIT}" \
+            --argjson protocol "${HEALTH_PROTOCOL}" --arg archiveSha256 "${HEALTH_ARCHIVE}" \
+            '{schemaVersion: 1, status: "ok", version: $version, commit: $commit, protocol: $protocol, archiveSha256: $archiveSha256}' \
+            > "${RUNNER_TEMP}/release/relay-package-health.json"
+          python3 scripts/release/build_manifest.py manifest \
+            --payload "${RUNNER_TEMP}/release" --source-root source \
+            --commit "${SOURCE_SHA}" --verification-run-id "${VERIFICATION_RUN_ID}" \
+            --repository "${GITHUB_REPOSITORY}" --output "${RUNNER_TEMP}/release/release-manifest.json"
+          jq -e --arg version "${CANDIDATE_VERSION}" '.version == $version' "${RUNNER_TEMP}/release/release-manifest.json" >/dev/null
+
+      - name: Sign every artifact and the manifest, then verify each signature
+        if: env.ACTION == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t subjects < <(jq -r --arg dir "${RUNNER_TEMP}/release" '.artifacts[].name | "\($dir)/\(.)"' "${RUNNER_TEMP}/release/release-manifest.json")
+          ((${#subjects[@]} > 0))
+          ./scripts/release/sign-files.sh "${subjects[@]}" "${RUNNER_TEMP}/release/release-manifest.json"
+          jq -r '.artifacts[] | "\(.sha256)  \(.name)"' "${RUNNER_TEMP}/release/release-manifest.json" > "${RUNNER_TEMP}/subjects.sha256"
+          ( cd "${RUNNER_TEMP}/release" && sha256sum release-manifest.json ) >> "${RUNNER_TEMP}/subjects.sha256"
+
+      - name: Attest build provenance
+        if: env.ACTION == 'publish'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/subjects.sha256
+
+      - name: Attest the SBOM
+        if: env.ACTION == 'publish'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-checksums: ${{ runner.temp }}/subjects.sha256
+          sbom-path: ${{ runner.temp }}/release/TarkovCompanion.spdx.json
+
+      - name: Apply the ring transition to the private feed
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.V2_RELEASE_TOKEN }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ needs.request.outputs.actor }}
+          REASON: ${{ needs.request.outputs.reason }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: ./scripts/release/transition.sh
+
+      - name: Record what this run did and did not prove
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Signed internal release"
+            echo
+            echo "- Requested: ${ACTION} on ${RING}; outcome: see the transition step above."
+            echo "- Verified here: the signing identity each signature was checked against, artifact digests, the relay package's health identity, and the feed's private visibility."
+            echo "- Not provable from inside this run: the environment's reviewers and branch restriction, the ruleset protecting main, who approved this deployment, and the state of any deployed host. Capture those as described in docs/RELEASES.md."
+          } >> "${GITHUB_STEP_SUMMARY}"
