@@ -33,6 +33,20 @@ readonly RELEASE_TOKEN_FILE="${TARKOV_RELEASE_TOKEN_FILE:-/etc/tarkov-group/rele
 readonly TRUST_ROOT="${TARKOV_SIGSTORE_TRUST_ROOT:-/etc/tarkov-group/sigstore-trusted-root.json}"
 readonly SIGNER_IDENTITY="${TARKOV_RELEASE_SIGNER_IDENTITY:-https://github.com/smartpbx/tarkov-companion/.github/workflows/publish.yml@refs/heads/main}"
 readonly SIGNER_ISSUER="${TARKOV_RELEASE_SIGNER_ISSUER:-https://token.actions.githubusercontent.com}"
+# The certificate's GitHub claims, required beside its subject, so a workflow in another
+# repository that calls ours cannot present the same subject.
+readonly SIGNER_REPOSITORY="${TARKOV_RELEASE_SIGNER_REPOSITORY:-smartpbx/tarkov-companion}"
+readonly SIGNER_REF="${TARKOV_RELEASE_SIGNER_REF:-refs/heads/main}"
+# The cosign builds this host accepts, by content: v3.1.3 for linux amd64 and arm64, the digests
+# in cosign's own Sigstore-signed checksums and in scripts/release/cosign.sha256. Before v3.1.3 a
+# legacy bundle carrying a bare public key skipped the identity check (GHSA-fx35-mq7g-6g98), so
+# "whatever cosign is on PATH" is not a verifier. TARKOV_COSIGN_SHA256 names a different build
+# explicitly; it does not turn the check off.
+readonly COSIGN_PINS=(
+    4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71
+    c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a
+)
+readonly BUNDLE_MEDIA_TYPE="application/vnd.dev.sigstore.bundle.v0.3+json"
 # A directory holding a signed ring index, its manifest, the relay archive and their bundles.
 # Set, it replaces the network entirely: the recovery path when the feed is down or unreachable.
 readonly OFFLINE_BUNDLE="${TARKOV_RELEASE_BUNDLE_DIR:-}"
@@ -93,6 +107,7 @@ TASK_LOCKED=0
 TASK_JOURNALED=0
 TASK_UNITS_CHANGED=0
 TASK_FEED_TOKEN=""
+TASK_COSIGN=""
 TARGET_RING="${RELEASE_RING}"
 TARGET_SHA=""
 TARGET_VERSION=""
@@ -299,16 +314,73 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# Settles which cosign verifies, once: a pinned build, and one only root (or this user) can replace.
+resolve_cosign() {
+    local candidate path owner digest pin accepted=0
+    candidate="${TARKOV_COSIGN:-$(command -v cosign || true)}"
+    [[ -n "${candidate}" && -f "${candidate}" && -x "${candidate}" ]] || refuse "required command is unavailable: cosign"
+    candidate="$(readlink -f -- "${candidate}")"
+    for path in "${candidate}" "$(dirname -- "${candidate}")"; do
+        owner="$(stat -c %u -- "${path}")"
+        [[ "${owner}" == 0 || "${owner}" == "$(id -u)" ]] || refuse "${path} belongs to uid ${owner}; cosign must be root's"
+        if (( 8#$(stat -c %a -- "${path}") & 8#022 )); then
+            refuse "${path} is writable by other users; cosign must be replaceable only by root"
+        fi
+    done
+    digest="$(sha256sum -- "${candidate}" | awk '{print $1}')"
+    if [[ -n "${TARKOV_COSIGN_SHA256:-}" ]]; then
+        [[ "${TARKOV_COSIGN_SHA256}" =~ ^[0-9a-f]{64}$ ]] || refuse "TARKOV_COSIGN_SHA256 is not a sha256"
+        if [[ "${digest}" == "${TARKOV_COSIGN_SHA256}" ]]; then
+            accepted=1
+        fi
+    else
+        for pin in "${COSIGN_PINS[@]}"; do
+            if [[ "${digest}" == "${pin}" ]]; then
+                accepted=1
+            fi
+        done
+    fi
+    ((accepted)) || refuse "${candidate} (sha256 ${digest}) is not a pinned cosign; see docs/RELEASES.md"
+    TASK_COSIGN="${candidate}"
+}
+
 verify_signed() {
-    local output
-    if ! output="$(cosign verify-blob \
-        --bundle "$2" \
+    local file="$1" bundle="$2" encoded signed output
+    # The bundle format is settled here rather than by cosign's format detection: exactly one
+    # standardized v0.3 message-signature bundle, one certificate, one log entry, and a digest
+    # of these bytes. The legacy format, DSSE envelopes, bare keys and chains are refused.
+    if ! encoded="$(jq -r \
+        --arg mediaType "${BUNDLE_MEDIA_TYPE}" \
+        'if type == "object"
+            and (keys - ["mediaType", "verificationMaterial", "messageSignature"] | length == 0)
+            and .mediaType == $mediaType
+            and (.verificationMaterial | type == "object")
+            and (.verificationMaterial | keys - ["certificate", "tlogEntries", "timestampVerificationData"] | length == 0)
+            and (.verificationMaterial.certificate | type == "object")
+            and (.verificationMaterial.certificate.rawBytes | type == "string" and length > 0)
+            and (.verificationMaterial.tlogEntries | type == "array" and length == 1)
+            and (.messageSignature | type == "object")
+            and (.messageSignature | keys - ["messageDigest", "signature"] | length == 0)
+            and (.messageSignature.signature | type == "string" and length > 0)
+            and .messageSignature.messageDigest.algorithm == "SHA2_256"
+            and (.messageSignature.messageDigest.digest | type == "string" and test("^[A-Za-z0-9+/]{43}=$"))
+         then .messageSignature.messageDigest.digest else error("not a standardized bundle") end' \
+        "${bundle}" 2>/dev/null)"; then
+        refuse "the signature bundle for $(basename "${file}") is not a standardized v0.3 Sigstore bundle"
+    fi
+    signed="$(base64 --decode <<<"${encoded}" | od -An -v -tx1 | tr -d ' \n')"
+    [[ "${signed}" == "$(sha256sum -- "${file}" | awk '{print $1}')" ]] \
+        || refuse "the signature bundle for $(basename "${file}") signs different bytes"
+    if ! output="$("${TASK_COSIGN}" verify-blob \
+        --bundle "${bundle}" \
         --trusted-root "${TRUST_ROOT}" \
         --certificate-identity "${SIGNER_IDENTITY}" \
         --certificate-oidc-issuer "${SIGNER_ISSUER}" \
-        "$1" 2>&1)"; then
+        --certificate-github-workflow-repository "${SIGNER_REPOSITORY}" \
+        --certificate-github-workflow-ref "${SIGNER_REF}" \
+        "${file}" 2>&1)"; then
         log "${output}"
-        refuse "the signature on $(basename "$1") does not verify for the release publisher"
+        refuse "the signature on $(basename "${file}") does not verify for the release publisher"
     fi
 }
 
@@ -473,7 +545,7 @@ clear_refusal() {
 
 # --- Preconditions --------------------------------------------------------------------------
 
-for command_name in base64 cmp cosign date flock id install jq mktemp sha256sum stat systemctl tar wget; do
+for command_name in base64 cmp date flock id install jq mktemp od readlink sha256sum stat systemctl tar wget; do
     command -v "${command_name}" >/dev/null 2>&1 || refuse "required command is unavailable: ${command_name}"
 done
 for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
@@ -519,6 +591,9 @@ fi
 [[ -z "${MINIMUM_GENERATION}" || "${MINIMUM_GENERATION}" =~ ^[1-9][0-9]{0,9}$ ]] || refuse "TARKOV_RELEASE_MINIMUM_GENERATION is not a positive generation"
 [[ -z "${MAX_DECISION_AGE_DAYS}" || "${MAX_DECISION_AGE_DAYS}" =~ ^[1-9][0-9]{0,4}$ ]] || refuse "TARKOV_RELEASE_MAX_DECISION_AGE_DAYS is not a positive number of days"
 [[ "${ALLOW_UNANCHORED_BOOTSTRAP}" =~ ^[01]$ ]] || refuse "TARKOV_RELEASE_ALLOW_UNANCHORED_BOOTSTRAP must be 0 or 1"
+[[ -n "${SIGNER_IDENTITY}" && -n "${SIGNER_ISSUER}" && -n "${SIGNER_REPOSITORY}" && -n "${SIGNER_REF}" ]] \
+    || refuse "the signer identity, issuer, repository and ref must all be set"
+resolve_cosign
 
 TASK_WORK="$(mktemp -d "${STATE}/work.XXXXXX")"
 if [[ -n "${OFFLINE_BUNDLE}" ]]; then

@@ -21,9 +21,14 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from sigstore_fixture import bundle_for, bundle_text, hostile_bundles, install_fake_cosign  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -70,17 +75,6 @@ while (($#)); do
 done
 [[ -f "${FAKE_ROOT}/running" && -s "${TARKOV_UPDATE_INSTALL}/health.json" ]]
 cp "${TARKOV_UPDATE_INSTALL}/health.json" "${output}"
-"""
-
-FAKE_COSIGN = """#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\\n' "$*" >> "${FAKE_ROOT}/cosign.log"
-env | grep -E '^(GH_TOKEN|GITHUB_TOKEN)=' >> "${FAKE_ROOT}/leaked-token.log" || true
-subject="${@: -1}"
-if [[ -n "${FAKE_COSIGN_REJECT:-}" && "$(basename "${subject}")" == *"${FAKE_COSIGN_REJECT}"* ]]; then
-    echo "fake cosign: rejected ${subject}" >&2
-    exit 1
-fi
 """
 
 # Delegates to the real mv, except for the one rename a test names, which fails.
@@ -177,11 +171,11 @@ class UpdaterFixture(unittest.TestCase):
         self.write_stamps(OLD_SHA, "1.0.0", OLD_COMMIT, "stable", "0")
         (self.units / "tarkov-group-update.service").write_text("original service\n", encoding="utf-8")
         self.updater_copy.write_text("#!/bin/sh\n# original updater\n", encoding="utf-8")
-        for name, body in (("systemctl", FAKE_SYSTEMCTL), ("wget", FAKE_WGET), ("cosign", FAKE_COSIGN),
-                           ("gh", FAKE_GH), ("mv", FAKE_MV)):
+        for name, body in (("systemctl", FAKE_SYSTEMCTL), ("wget", FAKE_WGET), ("gh", FAKE_GH), ("mv", FAKE_MV)):
             path = self.bin / name
             path.write_text(body, encoding="utf-8")
             path.chmod(0o755)
+        self.cosign_sha256 = install_fake_cosign(self.bin)
         # Something that must never change, whatever is planted in the relay's directory.
         self.victim = self.root / "etc/victim"
         self.victim.parent.mkdir(parents=True)
@@ -295,18 +289,19 @@ class UpdaterFixture(unittest.TestCase):
             "rollback": {"generation": generation, "from": {}} if rollback else None,
             "authorization": {"action": action, "previousGeneration": generation - 1},
         }
+        index_value = json.dumps(index).encode()
         envelope = json.dumps({
             "schemaVersion": 1,
             "mediaType": "application/vnd.tarkov-companion.signed-release-index.v1+json",
-            "payloadBase64": base64.b64encode(json.dumps(index).encode()).decode(),
-            "sigstoreBundle": {"fixture": True},
+            "payloadBase64": base64.b64encode(index_value).decode(),
+            "sigstoreBundle": bundle_for(index_value),
         }).encode()
         index_name = f"release-index-g{generation:010d}.json"
         build_files = {
             archive_name: archive_value,
-            f"{archive_name}.sigstore.json": b"{}",
+            f"{archive_name}.sigstore.json": bundle_text(archive_value).encode(),
             "release-manifest.json": manifest_value,
-            "release-manifest.json.sigstore.json": b"{}",
+            "release-manifest.json.sigstore.json": bundle_text(manifest_value).encode(),
         }
         for directory, files in (
             (self.bundle, {**build_files, index_name: envelope}),
@@ -337,6 +332,8 @@ class UpdaterFixture(unittest.TestCase):
             "TARKOV_UPDATE_UNITS": str(self.units),
             "TARKOV_UPDATE_HEALTH_ATTEMPTS": "1",
             "TARKOV_UPDATE_HEALTH_INTERVAL": "0",
+            "TARKOV_COSIGN_SHA256": self.cosign_sha256,
+            "FAKE_COSIGN_LOG": str(self.root / "cosign.log"),
         }
         if online:
             env["TARKOV_RELEASE_REPOSITORY"] = FEED
@@ -423,6 +420,88 @@ class RelayUpdaterTests(UpdaterFixture):
                 call,
             )
             self.assertIn("--certificate-oidc-issuer https://token.actions.githubusercontent.com", call)
+            self.assertIn("--certificate-github-workflow-repository smartpbx/tarkov-companion", call)
+            self.assertIn("--certificate-github-workflow-ref refs/heads/main", call)
+
+    def test_a_signature_from_another_repository_calling_the_workflow_is_refused(self) -> None:
+        # Same certificate subject, different repository claim: what a reusable-workflow caller
+        # elsewhere would present. The fake binds the claims into the bundle it checks.
+        self.release("2.0.0", "b" * 40, 1)
+        for name in ("TarkovCompanion-GroupServer-linux-x64.tar.gz", "release-manifest.json"):
+            value = (self.bundle / name).read_bytes()
+            (self.bundle / f"{name}.sigstore.json").write_text(bundle_text(value, repository="attacker/fork"))
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("does not verify", result.stdout)
+        self.assertEqual("1.0.0", self.running_version())
+
+    # The verifier itself -----------------------------------------------------------------------
+
+    def test_a_cosign_that_is_not_a_pinned_build_is_refused_before_anything_is_read(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        for environment in ({"TARKOV_COSIGN_SHA256": "0" * 64}, {"TARKOV_COSIGN_SHA256": ""}):
+            with self.subTest(environment=environment):
+                result = self.run_updater(**environment)
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("is not a pinned cosign", result.stdout)
+                self.assertFalse((self.root / "cosign.log").exists())
+                self.assertEqual("1.0.0", self.running_version())
+
+    def test_a_cosign_other_users_can_replace_is_refused(self) -> None:
+        self.release("2.0.0", "b" * 40, 1)
+        (self.bin / "cosign").chmod(0o777)
+
+        result = self.run_updater()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("writable by other users", result.stdout)
+
+    def test_the_updater_pins_the_same_cosign_builds_as_the_repository(self) -> None:
+        pins = {line.split()[0] for line in (ROOT / "scripts/release/cosign.sha256").read_text().splitlines()
+                if line.split()[1].startswith("cosign-linux-")}
+        source = UPDATER.read_text(encoding="utf-8")
+        block = source[source.index("readonly COSIGN_PINS=("):]
+        embedded = {line.strip() for line in block[:block.index(")")].splitlines()[1:] if line.strip()}
+
+        self.assertEqual(pins, embedded)
+
+    def test_every_hostile_bundle_is_refused_before_cosign_runs(self) -> None:
+        for target in ("index", "release-manifest.json", "TarkovCompanion-GroupServer-linux-x64.tar.gz"):
+            for label, hostile in hostile_bundles(b"placeholder").items():
+                with self.subTest(target=target, bundle=label):
+                    # Each case is a host that has never seen this generation, so a refusal is the
+                    # bundle's and not a replay check remembering the previous case's manifest.
+                    for published in self.state.glob("PUBLISHED_*"):
+                        published.unlink()
+                    self.release("2.0.0", "b" * 40, 1)
+                    self.rewrite_bundle(target, label)
+                    (self.root / "cosign.log").unlink(missing_ok=True)
+
+                    result = self.run_updater()
+
+                    self.assertNotEqual(0, result.returncode, result.stdout)
+                    self.assertRegex(
+                        result.stdout,
+                        "not a standardized v0.3 Sigstore bundle|signs different bytes|ring envelope is malformed",
+                    )
+                    self.assertFalse((self.root / "cosign.log").exists() and target in (self.root / "cosign.log").read_text())
+                    self.assertEqual("1.0.0", self.running_version())
+                    self.assertEqual([], [c for c in self.systemctl_calls() if c.startswith("stop")])
+
+    def rewrite_bundle(self, target: str, label: str) -> None:
+        """Replaces one signed object's bundle with the named hostile bundle for its bytes."""
+        if target == "index":
+            index_file = next(self.bundle.glob("release-index-g*.json"))
+            envelope = json.loads(index_file.read_text())
+            payload = base64.b64decode(envelope["payloadBase64"])
+            envelope["sigstoreBundle"] = hostile_bundles(payload)[label]
+            index_file.write_text(json.dumps(envelope))
+            return
+        value = (self.bundle / target).read_bytes()
+        (self.bundle / f"{target}.sigstore.json").write_text(json.dumps(hostile_bundles(value)[label]))
 
     # Failure after the swap -------------------------------------------------------------------
 

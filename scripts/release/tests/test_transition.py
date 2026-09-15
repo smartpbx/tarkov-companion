@@ -22,33 +22,15 @@ from pathlib import Path
 
 RELEASE_DIRECTORY = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RELEASE_DIRECTORY))
+sys.path.insert(0, str(RELEASE_DIRECTORY / "tests"))
 
 import release_policy  # noqa: E402
+from sigstore_fixture import install_fake_cosign  # noqa: E402
 
 
 TRANSITION = RELEASE_DIRECTORY / "transition.sh"
 SIGN = RELEASE_DIRECTORY / "sign-files.sh"
 FEED = "example/tarkov-feed"
-IDENTITY = "https://github.com/smartpbx/tarkov-companion/.github/workflows/publish.yml@refs/heads/main"
-
-FAKE_COSIGN = f"""#!/usr/bin/env python3
-import hashlib, json, sys
-arguments = sys.argv[1:]
-def option(name):
-    return arguments[arguments.index(name) + 1] if name in arguments else None
-subject = arguments[-1]
-digest = hashlib.sha256(open(subject, "rb").read()).hexdigest()
-if arguments[0] == "sign-blob":
-    json.dump({{"sha256": digest, "identity": "{IDENTITY}"}}, open(option("--bundle"), "w"))
-elif arguments[0] == "verify-blob":
-    bundle = json.load(open(option("--bundle")))
-    if not open(option("--trusted-root")).read().strip():
-        sys.exit("no trust root")
-    if bundle.get("sha256") != digest or bundle.get("identity") != option("--certificate-identity"):
-        sys.exit("fake cosign: signature does not match")
-else:
-    sys.exit("unexpected cosign command")
-"""
 
 
 class TransitionTests(unittest.TestCase):
@@ -59,10 +41,9 @@ class TransitionTests(unittest.TestCase):
         self.state.mkdir()
         self.bin = self.root / "bin"
         self.bin.mkdir()
-        (self.bin / "cosign").write_text(FAKE_COSIGN, encoding="utf-8")
+        self.cosign_sha256 = install_fake_cosign(self.bin)
         (self.bin / "gh").write_text(f'#!/usr/bin/env bash\nexec {sys.executable} {RELEASE_DIRECTORY / "tests/fake_gh.py"} "$@"\n', encoding="utf-8")
-        for name in ("cosign", "gh"):
-            (self.bin / name).chmod(0o755)
+        (self.bin / "gh").chmod(0o755)
         self.trust = self.root / "trusted-root.json"
         self.trust.write_text('{"mediaType": "trusted-root"}', encoding="utf-8")
 
@@ -83,6 +64,7 @@ class TransitionTests(unittest.TestCase):
             "ACTOR": "release-operator",
             "REASON": "fixture",
             "TARKOV_SIGSTORE_TRUST_ROOT": str(self.trust),
+            "TARKOV_COSIGN_SHA256": self.cosign_sha256,
             **extra,
         }
 
@@ -180,7 +162,7 @@ class TransitionTests(unittest.TestCase):
         result = self.transition("resume", "canary")
 
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("signature does not match", result.stderr)
+        self.assertIn("signs different bytes", result.stderr)
         self.assertEqual([1], sorted(self.ring("canary")))
 
     def test_a_public_feed_is_refused_before_anything_is_written(self) -> None:

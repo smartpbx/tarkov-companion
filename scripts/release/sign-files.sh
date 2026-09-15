@@ -13,10 +13,9 @@ TASK_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly TASK_PROJECT_ROOT
 readonly TASK_TRUST_ROOT="${TARKOV_SIGSTORE_TRUST_ROOT:-}"
 
-if ! command -v cosign >/dev/null 2>&1; then
-    printf 'Release signing failed: cosign is unavailable\n' >&2
-    exit 1
-fi
+# The same pinned build that verifies, so a signature is never made by a cosign nobody reviewed.
+TASK_COSIGN="$("${TASK_PROJECT_ROOT}/scripts/release/pinned-cosign.sh")" || exit 1
+readonly TASK_COSIGN
 if [[ -z "${TASK_TRUST_ROOT}" || ! -s "${TASK_TRUST_ROOT}" ]]; then
     printf 'Release signing failed: the trust root to verify against is missing\n' >&2
     exit 1
@@ -28,7 +27,7 @@ for file in "$@"; do
         exit 1
     fi
     rm -f -- "${file}.sigstore.json"
-    cosign sign-blob --yes --bundle "${file}.sigstore.json" "${file}" >/dev/null
+    "${TASK_COSIGN}" sign-blob --yes --bundle "${file}.sigstore.json" "${file}" >/dev/null
     "${TASK_PROJECT_ROOT}/scripts/release/verify-signed-file.sh" \
         "${file}" "${file}.sigstore.json" "${TASK_TRUST_ROOT}"
 done
