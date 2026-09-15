@@ -820,6 +820,18 @@ class RelayUpdaterTests(UpdaterFixture):
         self.assertIn("paths overlap", result.stdout)
         self.assertEqual("1.0.0", self.running_version())
 
+    def test_the_install_cannot_claim_the_last_known_good_swap_path(self) -> None:
+        claimed = Path(f"{self.lkg}.incoming")
+        shutil.copytree(self.install, claimed)
+        victim = claimed / "must-survive"
+        victim.write_text("caller-owned", encoding="utf-8")
+
+        result = self.run_updater(TARKOV_UPDATE_INSTALL=str(claimed))
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("paths overlap", result.stdout)
+        self.assertEqual("caller-owned", victim.read_text(encoding="utf-8"))
+
     def test_a_loose_state_directory_is_tightened_before_use(self) -> None:
         self.state.chmod(0o777)
         self.release("2.0.0", "b" * 40, 1)

@@ -92,6 +92,7 @@ readonly HEALTH_ATTEMPTS="${TARKOV_UPDATE_HEALTH_ATTEMPTS:-10}"
 readonly HEALTH_INTERVAL="${TARKOV_UPDATE_HEALTH_INTERVAL:-2}"
 readonly INCOMING="${INSTALL}.incoming"
 readonly PREVIOUS="${INSTALL}.previous"
+readonly LKG_INCOMING="${LKG}.incoming"
 readonly SHIPPED="${INSTALL}/deploy"
 # Written by the relay's admin panel and watched by tarkov-group-update.path. The relay runs
 # unprivileged and cannot start a unit; it can write one file in the directory it already owns.
@@ -821,7 +822,7 @@ done
 for path in "${INSTALL}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}"; do
     safe_root "${path}" || refuse "install, rollback, state and status paths must be safe absolute directories"
 done
-distinct=("${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
+distinct=("${INSTALL}" "${INCOMING}" "${PREVIOUS}" "${LKG}" "${LKG_INCOMING}" "${STATE}" "${STATUS}" "${RELAY_STATE}")
 for ((left = 0; left < ${#distinct[@]}; left++)); do
     for ((right = 0; right < ${#distinct[@]}; right++)); do
         if ((left != right)) && [[ "${distinct[left]}" == "${distinct[right]}" || "${distinct[left]}" == "${distinct[right]}"/* ]]; then
@@ -1188,10 +1189,10 @@ chmod 0755 "${INCOMING}/TarkovCompanion.GroupServer"
 # The rollback copy is complete before it replaces the old one, so a copy that fails halfway
 # leaves the previous last-known-good in place rather than none.
 if [[ -d "${INSTALL}" ]]; then
-    rm -rf -- "${LKG}.incoming"
-    cp -a -- "${INSTALL}" "${LKG}.incoming"
+    rm -rf -- "${LKG_INCOMING}"
+    cp -a -- "${INSTALL}" "${LKG_INCOMING}"
     rm -rf -- "${LKG}"
-    mv -T -- "${LKG}.incoming" "${LKG}"
+    mv -T -- "${LKG_INCOMING}" "${LKG}"
 fi
 # From the rename inside this call, any failure - a stop that fails, a rename that fails, a
 # SIGTERM from the unit's timeout - restores rather than leaving a stopped service.
