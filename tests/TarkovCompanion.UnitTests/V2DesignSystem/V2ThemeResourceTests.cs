@@ -72,6 +72,9 @@ public sealed class V2ThemeResourceTests
         Assert.IsType<double>(Resolve(tokens, "V2.Space.Md.Gap", ThemeVariant.Dark));
         Assert.IsType<Thickness>(Resolve(tokens, "V2.Density.Compact.Inset", ThemeVariant.Dark));
         Assert.IsType<CornerRadius>(Resolve(tokens, "V2.Shape.Card", ThemeVariant.Dark));
+        Assert.Equal(10d, Assert.IsType<double>(Resolve(tokens, "V2.Shape.Card.Radius", ThemeVariant.Dark)));
+        Assert.Equal(6d, Assert.IsType<double>(Resolve(tokens, "V2.Shape.Control.Radius", ThemeVariant.Dark)));
+        Assert.Equal("⚠", Assert.IsType<string>(Resolve(tokens, "V2.Glyph.WarningSign", ThemeVariant.Dark)));
         Assert.Equal(TimeSpan.FromMilliseconds(160), Assert.IsType<TimeSpan>(Resolve(tokens, "V2.Motion.Full.Duration", ThemeVariant.Dark)));
         Assert.Equal(TimeSpan.Zero, Assert.IsType<TimeSpan>(Resolve(tokens, "V2.Motion.Reduced.Duration", ThemeVariant.Dark)));
     }

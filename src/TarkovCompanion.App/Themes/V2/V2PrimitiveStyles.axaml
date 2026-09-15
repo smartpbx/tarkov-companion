@@ -1,10 +1,15 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!-- Native V2 primitive styles. Every colour, type size, spacing step, radius, target minimum, and
-       shadow comes from a V2 resource; the numbers left here are layout details private to one
-       primitive (a swatch size, a dash length). Rendering at each text scale, the focus visuals
-       against the Fluent templates, and the high-contrast result still need the packaged Windows
-       evidence #279 owns. -->
+  <!-- Native V2 primitive styles. Every colour, type size, line height, gap, radius, target minimum,
+       and shadow set here comes from a V2 resource, and V2DesignSystemContractTests holds the
+       setters to that. The literal numbers left are details private to one primitive: border and
+       stroke widths, the badge and button inner insets, the legend swatch size, and dash lengths.
+
+       Only the V2 focus and error borders are drawn over Fluent's control templates. The rest of the
+       Button, TextBox, and Expander chrome (fill, hover, pressed, and disabled brushes) is still
+       Fluent's, so the V2 theme variants do not recolour it and CI does not measure its contrast.
+       Rendering at each text scale, the focus visuals, and the high-contrast result still need the
+       packaged Windows evidence #279 owns. -->
   <Styles.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
@@ -85,32 +90,46 @@
   <Style Selector=".v2-density-comfortable Border.v2-card">
     <Setter Property="Padding" Value="{DynamicResource V2.Density.Comfortable.Inset}" />
   </Style>
-  <Style Selector="Border.v2-banner">
-    <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Info}" />
-    <Setter Property="BorderThickness" Value="4,1,1,1" />
-    <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
-    <Setter Property="Padding" Value="{DynamicResource V2.Space.Md.Inset}" />
-    <Setter Property="BoxShadow" Value="{DynamicResource V2.Elevation.Raised.Shadow}" />
+  <!-- State banner: tone word, glyph, role colour, and the tone's outline pattern from the manifest.
+       The first banner showed its tone only as a coloured left border, which monochrome erased.
+       A Border cannot dash its outline, so the outline is a Rectangle behind the content; the
+       banner keeps no shadow because a Rectangle cannot cast one and a shadow would add no meaning. -->
+  <Style Selector="Panel.v2-banner > Rectangle.v2-banner-outline">
+    <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
+    <Setter Property="StrokeThickness" Value="3" />
+    <Setter Property="RadiusX" Value="{DynamicResource V2.Shape.Card.Radius}" />
+    <Setter Property="RadiusY" Value="{DynamicResource V2.Shape.Card.Radius}" />
   </Style>
-  <Style Selector="Border.v2-banner.v2-tone-warning">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+  <Style Selector="Panel.v2-banner.v2-tone-info > Rectangle.v2-banner-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
   </Style>
-  <Style Selector="Border.v2-banner.v2-tone-danger">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+  <Style Selector="Panel.v2-banner.v2-tone-warning > Rectangle.v2-banner-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Warning}" />
+  </Style>
+  <Style Selector="Panel.v2-banner.v2-tone-danger > Rectangle.v2-banner-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Danger}" />
+  </Style>
+  <Style Selector="Panel.v2-banner > StackPanel.v2-banner-content">
+    <Setter Property="Margin" Value="{DynamicResource V2.Space.Md.Inset}" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
+  </Style>
+  <Style Selector="StackPanel.v2-banner-tone">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
   </Style>
 
   <!-- Status badge: word, glyph, role colour, and an outline pattern from the manifest. A Border
        cannot dash its outline, so the outline is a Rectangle behind the content. -->
-  <Style Selector="Panel.v2-badge">
-    <Setter Property="Margin" Value="0,0,8,8" />
+  <Style Selector="WrapPanel.v2-badge-row">
+    <Setter Property="ItemSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
+    <Setter Property="LineSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
   </Style>
   <Style Selector="Panel.v2-badge > Rectangle.v2-badge-outline">
     <Setter Property="Fill" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
     <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Border}" />
     <Setter Property="StrokeThickness" Value="2" />
-    <Setter Property="RadiusX" Value="6" />
-    <Setter Property="RadiusY" Value="6" />
+    <Setter Property="RadiusX" Value="{DynamicResource V2.Shape.Control.Radius}" />
+    <Setter Property="RadiusY" Value="{DynamicResource V2.Shape.Control.Radius}" />
   </Style>
   <Style Selector="Panel.v2-badge > StackPanel.v2-badge-content">
     <Setter Property="Orientation" Value="Horizontal" />
@@ -119,6 +138,9 @@
   </Style>
   <Style Selector="Panel.v2-availability-ready > Rectangle.v2-badge-outline">
     <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Success}" />
+  </Style>
+  <Style Selector="Panel.v2-availability-loading > Rectangle.v2-badge-outline">
+    <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Info}" />
   </Style>
   <Style Selector="Panel.v2-availability-unknown > Rectangle.v2-badge-outline">
     <Setter Property="Stroke" Value="{DynamicResource V2.Brush.Unknown}" />
@@ -213,10 +235,6 @@
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
     <Setter Property="FontSize" Value="{DynamicResource V2.Type.Body.Size}" />
   </Style>
-  <Style Selector="TextBox.v2-field-input.v2-field-error">
-    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
-    <Setter Property="BorderThickness" Value="2" />
-  </Style>
   <Style Selector="TextBlock.v2-field-message">
     <Setter Property="FontSize" Value="{DynamicResource V2.Type.Label.Size}" />
     <Setter Property="LineHeight" Value="{DynamicResource V2.Type.Label.LineHeight}" />
@@ -225,8 +243,9 @@
   </Style>
 
   <!-- Actions. Wrapping panels keep a toolbar reachable at 200% text instead of clipping it. -->
-  <Style Selector="WrapPanel.v2-toolbar > Button">
-    <Setter Property="Margin" Value="0,0,8,8" />
+  <Style Selector="WrapPanel.v2-toolbar">
+    <Setter Property="ItemSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
+    <Setter Property="LineSpacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
   </Style>
   <Style Selector="Button.v2-target">
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Desktop}" />
@@ -238,11 +257,26 @@
     <Setter Property="MinHeight" Value="{DynamicResource V2.Target.Touch}" />
     <Setter Property="MinWidth" Value="{DynamicResource V2.Target.Touch}" />
   </Style>
-  <Style Selector="Button.v2-target:focus-visible">
+
+  <!-- Focus and error borders. Fluent 12.1.2 draws a TextBox border on Border#PART_BorderElement and
+       a Button border on ContentPresenter#PART_ContentPresenter, and its :pointerover, :pressed, and
+       :focus styles set those parts directly. A triggered setter outranks the template binding from
+       the control, so a border set on the TextBox or Button itself was replaced by Fluent's hover or
+       focus brush exactly while the field was in use, and the 3 DIP focus indicator never drew on a
+       text box. These rules therefore target the template parts: a triggered setter from this style
+       sheet outranks the same trigger in Fluent's control theme.
+
+       The error rule comes before the focus rule so keyboard focus wins while both apply; the error
+       sentence under the field and the TextBox help text keep carrying the error in the meantime. -->
+  <Style Selector="TextBox.v2-field-input.v2-field-error /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Danger}" />
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="TextBox.v2-field-input:focus-visible /template/ Border#PART_BorderElement">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
   </Style>
-  <Style Selector="TextBox.v2-field-input:focus-visible">
+  <Style Selector="Button.v2-target:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Focus}" />
     <Setter Property="BorderThickness" Value="{DynamicResource V2.Focus.Indicator.Thickness}" />
   </Style>

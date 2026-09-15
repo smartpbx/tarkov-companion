@@ -196,11 +196,11 @@ public sealed class V2DesignSystemContractTests
             elements.Where(element => Array.Exists(Classes(element), name => name.StartsWith("v2-heading-", StringComparison.Ordinal))),
             element => Assert.NotNull(Attr(element, "AutomationProperties.HeadingLevel")));
 
-        // A panel's NoneAutomationPeer is outside the UIA control view unless told otherwise, so a
-        // landmark, name, or control type on one is invisible to Narrator without this.
+        // A panel's NoneAutomationPeer is outside the UIA control view unless told otherwise, so an
+        // automation id, landmark, name, or control type on one is invisible to Narrator without this.
         foreach (var panel in elements.Where(element => Panels.Contains(element.Name.LocalName)))
         {
-            var exposes = Attr(panel, "AutomationProperties.LandmarkType") ?? Attr(panel, "AutomationProperties.ControlTypeOverride") ?? Attr(panel, "AutomationProperties.Name");
+            var exposes = Attr(panel, "AutomationProperties.AutomationId") ?? Attr(panel, "AutomationProperties.LandmarkType") ?? Attr(panel, "AutomationProperties.ControlTypeOverride") ?? Attr(panel, "AutomationProperties.Name");
             if (exposes is not null)
             {
                 Assert.Equal("Control", Attr(panel, "AutomationProperties.AccessibilityView"));
@@ -233,6 +233,37 @@ public sealed class V2DesignSystemContractTests
     }
 
     [Fact]
+    public void EveryGalleryAutomationIdIsInTheControlViewWithAnAccessibleName()
+    {
+        var elements = ReadXaml(GalleryPath).Descendants().ToArray();
+        var identified = elements.Where(element => Attr(element, "AutomationProperties.AutomationId") is not null).ToArray();
+        var ids = identified.Select(element => Attr(element, "AutomationProperties.AutomationId")!).ToArray();
+
+        Assert.Equal(ids.Length, ids.Distinct(StringComparer.Ordinal).Count());
+
+        // Eight primitive ids once sat on bare Borders and StackPanels: present in the XAML, absent
+        // from the control view that Narrator, NVDA, and the #279 tree dump read.
+        var hidden = new List<string>();
+        foreach (var element in identified)
+        {
+            var id = Attr(element, "AutomationProperties.AutomationId");
+            var view = Attr(element, "AutomationProperties.AccessibilityView");
+            if (view is "Raw" || (Panels.Contains(element.Name.LocalName) && view is not "Control"))
+            {
+                hidden.Add($"{id} on {element.Name.LocalName} has AccessibilityView={view ?? "Default"}");
+            }
+
+            if (AccessibleName(element) is null)
+            {
+                hidden.Add($"{id} on {element.Name.LocalName} has no accessible name");
+            }
+        }
+
+        Assert.Empty(hidden);
+        Assert.All(V2PrimitiveContracts.GalleryExamples.Values, automationId => Assert.Contains(automationId, ids));
+    }
+
+    [Fact]
     public void GalleryTableAvoidsIneffectiveHeaderPropertiesAndNamesEveryRow()
     {
         var gallery = ReadXaml(GalleryPath);
@@ -258,6 +289,15 @@ public sealed class V2DesignSystemContractTests
         {
             Assert.Equal("Control", Attr(row, "AutomationProperties.AccessibilityView"));
             Assert.EndsWith(".Sentence}", Attr(row, "AutomationProperties.Name"), StringComparison.Ordinal);
+        });
+
+        // A row sentence is its own resource so a translation can reorder it, which also lets it
+        // drift from the cells it summarises. The English source at least has to name every cell.
+        var english = ReadStrings(EnglishStringsPath);
+        Assert.All(rows, row =>
+        {
+            var sentence = english[ResourceKey(Attr(row, "AutomationProperties.Name"))];
+            Assert.All(row.Elements(AvaloniaXmlns + "TextBlock"), cell => Assert.Contains(english[ResourceKey(Attr(cell, "Text"))], sentence, StringComparison.OrdinalIgnoreCase));
         });
     }
 
@@ -291,6 +331,9 @@ public sealed class V2DesignSystemContractTests
                 value => (Word: value.GetProperty("wordingKey").GetString()!, Glyph: value.GetProperty("glyph").GetString()!, Pattern: value.GetProperty("border").GetString()!),
                 StringComparer.Ordinal);
 
+        var styleSelectors = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").Select(style => Attr(style, "Selector")).OfType<string>().ToArray();
+        Assert.All(availability.Keys, id => Assert.Contains($"Panel.v2-availability-{id} > Rectangle.v2-badge-outline", styleSelectors));
+
         var badges = elements.Where(element => Classes(element).Contains("v2-badge")).ToArray();
         Assert.NotEmpty(badges);
         foreach (var badge in badges)
@@ -320,6 +363,61 @@ public sealed class V2DesignSystemContractTests
                     Assert.Equal($"{{DynamicResource {wordingKey.GetString()}}}", Attr(word, "Text"));
                 }
             }
+        }
+    }
+
+    [Fact]
+    public void BannerTonesCarryAWordAGlyphAndAPatternAndGalleryBannersShowAllThree()
+    {
+        using var manifest = ReadJson(ManifestPath);
+        var english = ReadStrings(EnglishStringsPath);
+        var glyphKeys = KeysOf(ReadXaml(TokensPath));
+        var styles = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").ToArray();
+        var tones = manifest.RootElement.GetProperty("banner").GetProperty("tones").EnumerateArray()
+            .ToDictionary(
+                tone => tone.GetProperty("id").GetString()!,
+                tone => (Word: tone.GetProperty("wordingKey").GetString()!, Glyph: "V2.Glyph." + Pascal(tone.GetProperty("glyph").GetString()!), Pattern: tone.GetProperty("pattern").GetString()!),
+                StringComparer.Ordinal);
+
+        string[] expectedTones = ["danger", "info", "warning"];
+        Assert.Equal(expectedTones, tones.Keys.Order(StringComparer.Ordinal));
+
+        // Without colour, one tone must still look unlike another and unlike every status value.
+        var statusGlyphs = manifest.RootElement.GetProperty("status").GetProperty("axes").EnumerateObject()
+            .SelectMany(axis => axis.Value.GetProperty("values").EnumerateArray())
+            .Select(value => "V2.Glyph." + Pascal(value.GetProperty("glyph").GetString()!));
+        var glyphs = statusGlyphs.Concat(tones.Values.Select(tone => tone.Glyph)).ToArray();
+        Assert.Equal(glyphs.Length, glyphs.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(tones.Count, tones.Values.Select(tone => tone.Pattern).Distinct(StringComparer.Ordinal).Count());
+
+        foreach (var (id, tone) in tones)
+        {
+            var hasWord = english.ContainsKey(tone.Word);
+            Assert.True(hasWord, $"Banner tone {id} wording {tone.Word} is not a string resource.");
+            Assert.Contains(tone.Glyph, glyphKeys);
+            Assert.Equal($"{{DynamicResource V2.Brush.{Pascal(id)}}}", Setters(styles, $"Panel.v2-banner.v2-tone-{id} > Rectangle.v2-banner-outline")["Stroke"]);
+        }
+
+        // The first banner carried its tone only as a coloured left border, which monochrome, where
+        // every status brush is the primary text colour, erased entirely.
+        var banners = ReadXaml(GalleryPath).Descendants().Where(element => Classes(element).Contains("v2-banner")).ToArray();
+        Assert.NotEmpty(banners);
+        foreach (var banner in banners)
+        {
+            var tone = tones[Classes(banner).Single(name => name.StartsWith("v2-tone-", StringComparison.Ordinal))["v2-tone-".Length..]];
+            AssertPattern(tone.Pattern, banner.Elements(AvaloniaXmlns + "Rectangle").Single());
+
+            var texts = banner.Descendants(AvaloniaXmlns + "TextBlock").ToArray();
+            var glyph = Assert.Single(texts, text => Classes(text).Contains("v2-glyph"));
+            Assert.Equal($"{{DynamicResource {tone.Glyph}}}", Attr(glyph, "Text"));
+            Assert.Single(texts, text => Attr(text, "Text") == $"{{DynamicResource {tone.Word}}}");
+
+            // The group name is one localized message; in English it names the tone and the title.
+            Assert.Equal("Control", Attr(banner, "AutomationProperties.AccessibilityView"));
+            var name = english[ResourceKey(Attr(banner, "AutomationProperties.Name"))];
+            var title = Assert.Single(texts, text => Attr(text, "AutomationProperties.HeadingLevel") is not null);
+            Assert.Contains(english[tone.Word], name, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains(english[ResourceKey(Attr(title, "Text"))], name, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -424,11 +522,31 @@ public sealed class V2DesignSystemContractTests
         Assert.All(cases, item => Assert.Contains(item.GetProperty("effectiveWidth").GetString()!, widths));
         Assert.Contains(cases, item => item.GetProperty("effectiveWidth").GetString() == "narrow");
         Assert.Contains(cases, item => Strings(item, "mustShow").Contains("focusRing"));
-        Assert.Contains(cases, item => Strings(item, "mustShow").Contains("orderedDataAlternative"));
 
-        var variants = Strings(root, "variants").ToArray();
-        var colourVision = Strings(manifest.RootElement.GetProperty("variants"), "colorVision").Where(name => name != "standard");
-        Assert.All(new[] { "dark", "light", "highContrast" }.Concat(colourVision), name => Assert.Contains(name, variants));
+        // Every token a case must show names gallery automation ids. The matrix once asked for
+        // stacked cards, a table overflow affordance, and an ordered data alternative that the
+        // gallery does not contain, which #279 could never have captured.
+        var automationIds = ReadXaml(GalleryPath).Descendants()
+            .Select(element => Attr(element, "AutomationProperties.AutomationId"))
+            .OfType<string>()
+            .ToHashSet(StringComparer.Ordinal);
+        var elements = root.GetProperty("elements").EnumerateObject()
+            .ToDictionary(element => element.Name, element => element.Value.EnumerateArray().Select(id => id.GetString()!).ToArray(), StringComparer.Ordinal);
+        Assert.All(elements.Values.SelectMany(ids => ids), id => Assert.Contains(id, automationIds));
+
+        // A token is either mapped to gallery ids or listed, with an owner, as not in the gallery yet.
+        var pending = root.GetProperty("notInGallery");
+        var pendingTokens = Strings(pending, "elements").ToArray();
+        Assert.StartsWith("#", pending.GetProperty("owner").GetString(), StringComparison.Ordinal);
+        var unresolved = cases.SelectMany(item => Strings(item, "mustShow"))
+            .Concat(pendingTokens)
+            .Where(token => elements.ContainsKey(token) == pendingTokens.Contains(token))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Empty(unresolved);
+
+        // The matrix once named six variants while nine concrete theme dictionaries exist.
+        Assert.Equal(ThemeDictionaries().Keys.Order(StringComparer.Ordinal), Strings(root, "variants").Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -442,14 +560,168 @@ public sealed class V2DesignSystemContractTests
     }
 
     [Fact]
-    public void FormattingUsesTheSuppliedCultureAndTimeZoneRatherThanTheHost()
+    public void FocusAndErrorBordersTargetTheFluentTemplatePartsAndFocusWins()
     {
-        var zone = TimeZoneInfo.CreateCustomTimeZone("V2 test +02:00", TimeSpan.FromHours(2), "V2 test", "V2 test");
+        var styles = ReadXaml(StylesPath).Elements(AvaloniaXmlns + "Style").ToArray();
+        var selectors = styles.Select(style => Attr(style, "Selector")!).ToArray();
+        string[] borderProperties = ["BorderBrush", "BorderThickness"];
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["TextBox"] = " /template/ Border#PART_BorderElement",
+            ["Button"] = " /template/ ContentPresenter#PART_ContentPresenter",
+        };
+
+        // Fluent 12.1.2 sets these parts' borders under :pointerover, :pressed, and :focus. A
+        // triggered setter outranks the TemplateBinding from the control, so a border set on the
+        // TextBox or Button itself was replaced exactly while the control was in use, and the V2
+        // focus indicator never drew on a text box.
+        var onControl = new List<string>();
+        foreach (var style in styles)
+        {
+            var selector = Attr(style, "Selector")!;
+            foreach (var (control, part) in parts)
+            {
+                var targetsControl = selector.StartsWith(control + ".", StringComparison.Ordinal) || selector.StartsWith(control + ":", StringComparison.Ordinal);
+                if (targetsControl && Setters(style).Keys.Intersect(borderProperties).Any() && !selector.EndsWith(part, StringComparison.Ordinal))
+                {
+                    onControl.Add(selector);
+                }
+            }
+        }
+
+        Assert.Empty(onControl);
+
+        const string error = "TextBox.v2-field-input.v2-field-error /template/ Border#PART_BorderElement";
+        const string textFocus = "TextBox.v2-field-input:focus-visible /template/ Border#PART_BorderElement";
+        const string buttonFocus = "Button.v2-target:focus-visible /template/ ContentPresenter#PART_ContentPresenter";
+
+        Assert.Equal("{DynamicResource V2.Brush.Danger}", Setters(styles, error)["BorderBrush"]);
+        foreach (var focus in new[] { textFocus, buttonFocus })
+        {
+            var setters = Setters(styles, focus);
+            Assert.Equal("{DynamicResource V2.Brush.Focus}", setters["BorderBrush"]);
+            Assert.Equal("{DynamicResource V2.Focus.Indicator.Thickness}", setters["BorderThickness"]);
+        }
+
+        // Both are triggered setters from the same style sheet, so the later one wins while both
+        // apply: keyboard focus stays visible on a field in error, whose sentence still says so.
+        Assert.InRange(Array.IndexOf(selectors, error), 0, Array.IndexOf(selectors, textFocus) - 1);
+    }
+
+    [Fact]
+    public void StylesTakeEveryColourTypeSizeGapRadiusTargetAndShadowFromV2Resources()
+    {
+        string[] tokenised = ["Foreground", "Background", "BorderBrush", "Fill", "Stroke", "FontSize", "LineHeight", "Spacing", "ItemSpacing", "LineSpacing", "CornerRadius", "RadiusX", "RadiusY", "MinHeight", "MinWidth", "BoxShadow"];
+
+        // The styles header claimed this while badges and toolbars still carried literal gaps and radii.
+        var literal = ReadXaml(StylesPath).Descendants(AvaloniaXmlns + "Setter")
+            .Where(setter => Attr(setter, "Property") is { } property && tokenised.Contains(property))
+            .Where(setter => !(Attr(setter, "Value") ?? string.Empty).StartsWith("{DynamicResource V2.", StringComparison.Ordinal))
+            .Select(setter => $"{Attr(setter.Parent!, "Selector")} {Attr(setter, "Property")}={Attr(setter, "Value")}")
+            .ToArray();
+        Assert.Empty(literal);
+    }
+
+    [Fact]
+    public void MessageTemplatesAreLocalizedResourcesWhosePlaceholdersMatchTheManifest()
+    {
+        using var manifest = ReadJson(ManifestPath);
+        var english = ReadStrings(EnglishStringsPath);
+        var pseudo = ReadStrings(PseudoStringsPath);
+        var templates = manifest.RootElement.GetProperty("localization").GetProperty("templates").EnumerateArray().ToArray();
+        var ids = templates.Select(template => template.GetProperty("id").GetString()!).ToArray();
+
+        // The status automation name was once an English sentence inside the platform-neutral manifest.
+        var statusTemplate = manifest.RootElement.GetProperty("status").GetProperty("composition").GetProperty("automationTemplate").GetString()!;
+        Assert.Contains(statusTemplate, ids);
+        Assert.DoesNotContain("{", statusTemplate, StringComparison.Ordinal);
+
+        foreach (var template in templates)
+        {
+            var key = template.GetProperty("wordingKey").GetString()!;
+            var placeholders = Strings(template, "placeholders").Order(StringComparer.Ordinal).ToArray();
+            Assert.Equal(placeholders, Placeholders(english[key]));
+            Assert.Equal(placeholders, Placeholders(pseudo[key]));
+
+            var values = placeholders.ToDictionary(name => name, name => $"<{name}>", StringComparer.Ordinal);
+            var filled = V2PresentationFormatting.Message(pseudo[key], values);
+            Assert.All(values.Values, value => Assert.Contains(value, filled, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void MessageFillsEveryPlaceholderAndRefusesAMissingOrExtraOne()
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal) { ["count"] = "3", ["unit"] = "items" };
+
+        Assert.Equal("3 items waiting", V2PresentationFormatting.Message("{count} {unit} waiting", values));
+        Assert.Equal("waiting: items, 3", V2PresentationFormatting.Message("waiting: {unit}, {count}", values));
+        Assert.Throws<FormatException>(() => V2PresentationFormatting.Message("{count} waiting", values));
+        Assert.Throws<FormatException>(() => V2PresentationFormatting.Message("{count} {unit} {age}", values));
+        Assert.Throws<FormatException>(() => V2PresentationFormatting.Message("{count} {unit", values));
+    }
+
+    [Fact]
+    public void DateTimeAlwaysNamesTheUtcOffsetThroughALocalizedTemplate()
+    {
+        var template = ReadStrings(EnglishStringsPath)["V2.String.Template.ZonedDateTime"];
+        var plusTwo = TimeZoneInfo.CreateCustomTimeZone("V2 test +02:00", TimeSpan.FromHours(2), "V2 test", "V2 test");
+        var minusFiveThirty = TimeZoneInfo.CreateCustomTimeZone("V2 test -05:30", new TimeSpan(-5, -30, 0), "V2 test", "V2 test");
         var utc = new DateTimeOffset(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
 
-        Assert.Equal("Tuesday, 01 September 2026 14:00", V2PresentationFormatting.DateTime(utc, CultureInfo.InvariantCulture, zone));
+        // The first version converted the time and then printed "Tuesday, 01 September 2026 14:00"
+        // with no zone, a different claim from the stored 12:00 UTC fact.
+        Assert.Equal("Tuesday, 01 September 2026 14:00 (UTC+02:00)", V2PresentationFormatting.DateTimeWithZone(utc, CultureInfo.InvariantCulture, plusTwo, template));
+        Assert.Equal("Tuesday, 01 September 2026 06:30 (UTC-05:30)", V2PresentationFormatting.DateTimeWithZone(utc, CultureInfo.InvariantCulture, minusFiveThirty, template));
+        Assert.Equal("Tuesday, 01 September 2026 12:00 (UTC+00:00)", V2PresentationFormatting.DateTimeWithZone(utc, CultureInfo.InvariantCulture, TimeZoneInfo.Utc, template));
+
+        // A template, or a translation of one, that drops the zone fails instead of printing an unlabelled time.
+        Assert.Throws<FormatException>(() => V2PresentationFormatting.DateTimeWithZone(utc, CultureInfo.InvariantCulture, plusTwo, "{dateTime}"));
         Assert.Equal("1,234.50", V2PresentationFormatting.Number(1234.5m, CultureInfo.InvariantCulture));
-        Assert.Equal("¤1,234.50", V2PresentationFormatting.Currency(1234.5m, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void CurrencyTakesItsCodeFromTheDataAndOnlyNumberShapeFromTheCulture()
+    {
+        const string noBreakSpace = "\u00A0";
+
+        // The first version used the culture's own symbol, so a rouble price read "¤1,234.50" here
+        // and "$1,234.50" under en-US.
+        Assert.Equal($"RUB{noBreakSpace}1,234.50", V2PresentationFormatting.Currency(1234.5m, "RUB", 2, CultureInfo.InvariantCulture));
+        Assert.Equal($"(USD{noBreakSpace}1,234.50)", V2PresentationFormatting.Currency(-1234.5m, "USD", 2, CultureInfo.InvariantCulture));
+        Assert.Equal($"RUB{noBreakSpace}45,001", V2PresentationFormatting.Currency(45000.5m, "RUB", 0, CultureInfo.InvariantCulture));
+        Assert.Equal($"EUR{noBreakSpace}0.00", V2PresentationFormatting.Currency(-0.001m, "EUR", 2, CultureInfo.InvariantCulture));
+
+        // A culture with its own symbol, separators, digits, and spaced symbol-after patterns: only
+        // the separators and the side of the digits carry through.
+        var suffixed = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        suffixed.NumberFormat.CurrencySymbol = "€";
+        suffixed.NumberFormat.CurrencyGroupSeparator = ".";
+        suffixed.NumberFormat.CurrencyDecimalSeparator = ",";
+        suffixed.NumberFormat.CurrencyDecimalDigits = 3;
+        suffixed.NumberFormat.CurrencyPositivePattern = 3;
+        suffixed.NumberFormat.CurrencyNegativePattern = 8;
+        Assert.Equal($"1.234,50{noBreakSpace}RUB", V2PresentationFormatting.Currency(1234.5m, "RUB", 2, suffixed));
+        Assert.Equal($"-45.001{noBreakSpace}RUB", V2PresentationFormatting.Currency(-45000.5m, "RUB", 0, suffixed));
+
+        // The host's current culture is never consulted.
+        var (hostCulture, hostUiCulture) = (CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+        try
+        {
+            CultureInfo.CurrentCulture = suffixed;
+            CultureInfo.CurrentUICulture = suffixed;
+            Assert.Equal($"RUB{noBreakSpace}1,234.50", V2PresentationFormatting.Currency(1234.5m, "RUB", 2, CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = hostCulture;
+            CultureInfo.CurrentUICulture = hostUiCulture;
+        }
+
+        Assert.Throws<ArgumentException>(() => V2PresentationFormatting.Currency(1m, "rub", 0, CultureInfo.InvariantCulture));
+        Assert.Throws<ArgumentException>(() => V2PresentationFormatting.Currency(1m, "₽", 0, CultureInfo.InvariantCulture));
+        Assert.Throws<ArgumentException>(() => V2PresentationFormatting.Currency(1m, "RUBL", 0, CultureInfo.InvariantCulture));
+        Assert.Throws<ArgumentOutOfRangeException>(() => V2PresentationFormatting.Currency(1m, "RUB", -1, CultureInfo.InvariantCulture));
     }
 
     private static bool Names(string key, string name) =>
@@ -488,6 +760,34 @@ public sealed class V2DesignSystemContractTests
                 }
             }
         }
+    }
+
+    /// <summary>The name UIA would report, as far as the declared XAML can say.</summary>
+    private static string? AccessibleName(XElement element) => element.Name.LocalName switch
+    {
+        // A TextBlock's automation name is always its text; AutomationProperties.Name is ignored.
+        "TextBlock" => Attr(element, "Text"),
+        "Button" => Attr(element, "AutomationProperties.Name") ?? Attr(element, "Content"),
+        _ => Attr(element, "AutomationProperties.Name"),
+    };
+
+    private static string ResourceKey(string? reference)
+    {
+        const string prefix = "{DynamicResource ";
+        Assert.NotNull(reference);
+        Assert.StartsWith(prefix, reference, StringComparison.Ordinal);
+        return reference[prefix.Length..^1];
+    }
+
+    private static string[] Placeholders(string template)
+    {
+        var names = new List<string>();
+        for (var open = template.IndexOf('{', StringComparison.Ordinal); open >= 0; open = template.IndexOf('{', open + 1))
+        {
+            names.Add(template[(open + 1)..template.IndexOf('}', open)]);
+        }
+
+        return names.Order(StringComparer.Ordinal).ToArray();
     }
 
     private static XElement ById(IEnumerable<XElement> elements, string automationId) =>

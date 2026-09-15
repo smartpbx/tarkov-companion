@@ -6,7 +6,7 @@
        DynamicResource follows the theme of the element that owns its dictionary, not of the
        control painting with it, so a ThemeVariantScope could never have changed it.
 
-       V2DesignSystemContractTests loads this dictionary through the compiled XAML loader and
+       V2ThemeResourceTests loads this dictionary through the compiled XAML loader and
        measures every text, status, boundary, chart, and map pair, including the simulated
        colour-vision distances for the variants below. Change a value and that test says whether
        the palette still holds; it does not replace the human review #279 owns. -->

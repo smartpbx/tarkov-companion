@@ -8,10 +8,15 @@
     "V2.String.Section.Tables": "Tables and legends",
     "V2.String.Section.Operations": "Devices and captures",
     "V2.String.Section.Announcements": "Announcements",
+    "V2.String.Tone.Info": "Information",
+    "V2.String.Tone.Warning": "Warning",
+    "V2.String.Tone.Critical": "Critical",
     "V2.String.Banner.Title": "Some prices are partial",
     "V2.String.Banner.Body": "2 of 3 sample regions have prices. Items that depend on the missing region are marked.",
+    "V2.String.Banner.Name": "Warning: Some prices are partial",
     "V2.String.Status.Badges": "Status badges",
     "V2.String.Availability.Ready": "Ready",
+    "V2.String.Availability.Loading": "Loading",
     "V2.String.Availability.Unknown": "Unknown",
     "V2.String.Availability.Unavailable": "Unavailable",
     "V2.String.Availability.Offline": "Offline",
@@ -64,6 +69,8 @@
     "V2.String.Capture.Title": "Capture queue",
     "V2.String.Capture.Detail": "1 capture is waiting for review.",
     "V2.String.Live.Polite": "Background updates are announced here.",
-    "V2.String.Live.Assertive": "Refused or failed actions are announced here."
+    "V2.String.Live.Assertive": "Refused or failed actions are announced here.",
+    "V2.String.Template.StatusName": "{availability}, {completeness}, {freshness}: {detail}",
+    "V2.String.Template.ZonedDateTime": "{dateTime} ({zone})"
   }
 }

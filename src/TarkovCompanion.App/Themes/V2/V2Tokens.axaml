@@ -31,8 +31,11 @@
   <x:Double x:Key="V2.Space.Xl.Gap">24</x:Double>
   <Thickness x:Key="V2.Space.Xl.Inset">24</Thickness>
 
+  <!-- A Border takes a CornerRadius and a Rectangle two doubles, so each shape has both forms. -->
   <CornerRadius x:Key="V2.Shape.Control">6</CornerRadius>
+  <x:Double x:Key="V2.Shape.Control.Radius">6</x:Double>
   <CornerRadius x:Key="V2.Shape.Card">10</CornerRadius>
+  <x:Double x:Key="V2.Shape.Card.Radius">10</x:Double>
 
   <!-- Density changes whitespace only. Type sizes and target minimums are deliberately absent. -->
   <x:Double x:Key="V2.Density.Compact.Gap">8</x:Double>
@@ -52,9 +55,10 @@
   <x:TimeSpan x:Key="V2.Motion.Full.Duration">00:00:00.16</x:TimeSpan>
   <x:TimeSpan x:Key="V2.Motion.Reduced.Duration">00:00:00</x:TimeSpan>
 
-  <!-- Shape cues named by the manifest's status glyph ids. They are decorative beside the state
-       word, so views mark them AccessibilityView="Raw" and never translate them. -->
+  <!-- Shape cues named by the manifest's status and banner-tone glyph ids. They are decorative beside
+       the state word, so views mark them AccessibilityView="Raw" and never translate them. -->
   <x:String x:Key="V2.Glyph.Check">✓</x:String>
+  <x:String x:Key="V2.Glyph.QuarterCircle">◔</x:String>
   <x:String x:Key="V2.Glyph.Question">?</x:String>
   <x:String x:Key="V2.Glyph.Minus">−</x:String>
   <x:String x:Key="V2.Glyph.SlashedCircle">⊘</x:String>
@@ -66,4 +70,7 @@
   <x:String x:Key="V2.Glyph.FilledDiamond">◆</x:String>
   <x:String x:Key="V2.Glyph.EmptyDiamond">◇</x:String>
   <x:String x:Key="V2.Glyph.InsetDiamond">◈</x:String>
+  <x:String x:Key="V2.Glyph.CircledInfo">ⓘ</x:String>
+  <x:String x:Key="V2.Glyph.WarningSign">⚠</x:String>
+  <x:String x:Key="V2.Glyph.DoubleExclamation">‼</x:String>
 </ResourceDictionary>

@@ -22,11 +22,16 @@ public static class V2PrimitiveContracts
     /// Primitive id to the automation id of its static example in V2PrimitiveGallery.axaml. An
     /// example shows one synthetic state; it is not evidence that every state renders.
     /// </summary>
+    /// <remarks>
+    /// Each id sits on an element in the UIA control view that has an accessible name. Half of them
+    /// once sat on bare panels, which Avalonia keeps out of the control view, so a screen reader or
+    /// a UIA tree dump could never have found them.
+    /// </remarks>
     public static readonly IReadOnlyDictionary<string, string> GalleryExamples = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["pageHeading"] = "v2-page-heading",
         ["stateBanner"] = "v2-state-banner",
-        ["fieldError"] = "v2-field-error",
+        ["fieldError"] = "v2-field-error-input",
         ["statusBadge"] = "v2-status-badge",
         ["evidenceSummary"] = "v2-evidence-summary",
         ["emptyState"] = "v2-empty-state",

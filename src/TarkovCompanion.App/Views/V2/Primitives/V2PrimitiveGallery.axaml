@@ -7,9 +7,10 @@
        #279's evidence. All reader-facing text is a resource so the fixture also catches literal UI copy.
 
        Two Avalonia 12.1.2 facts shape the markup. A panel has a NoneAutomationPeer that is hidden
-       from the UIA control view, so a landmark, group name, or ToolBar type on a panel needs
-       AccessibilityView="Control" to be exposed at all. And a TextBlock's automation name is always
-       its text, so a name that has to say more belongs on the containing group. -->
+       from the UIA control view, so every panel that carries an automation id, landmark, group name,
+       or ToolBar type also sets AccessibilityView="Control" and a name; the contract test holds each
+       automation id to that. And a TextBlock's automation name is always its text, so a name that
+       has to say more belongs on the containing group. -->
   <UserControl.Styles>
     <StyleInclude Source="avares://TarkovCompanion/Themes/V2/V2PrimitiveStyles.axaml" />
   </UserControl.Styles>
@@ -28,15 +29,27 @@
       <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2"
                  Text="{DynamicResource V2.String.Section.Status}" />
 
-      <Border Classes="v2-banner v2-tone-warning" AutomationProperties.AutomationId="v2-state-banner">
-        <StackPanel Classes="v2-stack">
+      <!-- A banner's tone is a word, a glyph, and an outline pattern from the manifest as well as a
+           role colour, so it survives monochrome and high contrast. Like a badge, the patterned
+           outline is a Rectangle behind the content because a Border cannot dash. -->
+      <Panel Classes="v2-banner v2-tone-warning"
+             AutomationProperties.AutomationId="v2-state-banner"
+             AutomationProperties.AccessibilityView="Control"
+             AutomationProperties.Name="{DynamicResource V2.String.Banner.Name}">
+        <Rectangle Classes="v2-banner-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+        <StackPanel Classes="v2-banner-content">
+          <StackPanel Classes="v2-banner-tone">
+            <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.WarningSign}" />
+            <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Tone.Warning}" />
+          </StackPanel>
           <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                      Text="{DynamicResource V2.String.Banner.Title}" />
           <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Banner.Body}" />
         </StackPanel>
-      </Border>
+      </Panel>
 
-      <WrapPanel AutomationProperties.AutomationId="v2-status-badge"
+      <WrapPanel Classes="v2-badge-row"
+                 AutomationProperties.AutomationId="v2-status-badge"
                  AutomationProperties.AccessibilityView="Control"
                  AutomationProperties.Name="{DynamicResource V2.String.Status.Badges}">
         <Panel Classes="v2-badge v2-availability-ready">
@@ -44,6 +57,13 @@
           <StackPanel Classes="v2-badge-content">
             <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.Check}" />
             <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Availability.Ready}" />
+          </StackPanel>
+        </Panel>
+        <Panel Classes="v2-badge v2-availability-loading">
+          <Rectangle Classes="v2-badge-outline v2-pattern-dash-dot" AutomationProperties.AccessibilityView="Raw" />
+          <StackPanel Classes="v2-badge-content">
+            <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.QuarterCircle}" />
+            <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Availability.Loading}" />
           </StackPanel>
         </Panel>
         <Panel Classes="v2-badge v2-availability-unknown">
@@ -69,7 +89,10 @@
         </Panel>
       </WrapPanel>
 
-      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-evidence-summary">
+      <Border Classes="v2-card"
+              AutomationProperties.AutomationId="v2-evidence-summary"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.Name="{DynamicResource V2.String.Evidence.Summary}">
         <StackPanel Classes="v2-stack">
           <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Evidence.Summary}" />
           <!-- An Expander's automation name is not taken from its header, so it is set explicitly. -->
@@ -92,7 +115,9 @@
       <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2"
                  Text="{DynamicResource V2.String.Section.Fields}" />
 
-      <StackPanel Classes="v2-field" AutomationProperties.AutomationId="v2-field-error">
+      <!-- The field's automation id is on the TextBox, whose name is the label and whose help text is
+           the error; the panel around them is layout only. -->
+      <StackPanel Classes="v2-field">
         <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Field.Label}" />
         <!-- LabeledBy is not mapped to UIA LabeledBy in Avalonia 12.1.2 and TextBox takes no name from
              its label, so the visible label's resource is also the automation name. -->
@@ -116,7 +141,10 @@
                 Content="{DynamicResource V2.String.Action.Close}" />
       </WrapPanel>
 
-      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-empty-state">
+      <Border Classes="v2-card"
+              AutomationProperties.AutomationId="v2-empty-state"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.Name="{DynamicResource V2.String.Empty.Title}">
         <StackPanel Classes="v2-stack">
           <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                      Text="{DynamicResource V2.String.Empty.Title}" />
@@ -157,7 +185,10 @@
         </Grid>
       </StackPanel>
 
-      <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-map-legend">
+      <StackPanel Classes="v2-stack"
+                  AutomationProperties.AutomationId="v2-map-legend"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.Name="{DynamicResource V2.String.Map.Legend}">
         <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                    Text="{DynamicResource V2.String.Map.Legend}" />
         <StackPanel Classes="v2-legend-entry">
@@ -178,7 +209,10 @@
         </StackPanel>
       </StackPanel>
 
-      <StackPanel Classes="v2-stack" AutomationProperties.AutomationId="v2-chart-legend">
+      <StackPanel Classes="v2-stack"
+                  AutomationProperties.AutomationId="v2-chart-legend"
+                  AutomationProperties.AccessibilityView="Control"
+                  AutomationProperties.Name="{DynamicResource V2.String.Chart.Legend}">
         <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                    Text="{DynamicResource V2.String.Chart.Legend}" />
         <StackPanel Classes="v2-legend-entry">
@@ -202,7 +236,10 @@
       <TextBlock Classes="v2-heading-2" AutomationProperties.HeadingLevel="2"
                  Text="{DynamicResource V2.String.Section.Operations}" />
 
-      <Border Classes="v2-card" AutomationProperties.AutomationId="v2-paired-device">
+      <Border Classes="v2-card"
+              AutomationProperties.AutomationId="v2-paired-device"
+              AutomationProperties.AccessibilityView="Control"
+              AutomationProperties.Name="{DynamicResource V2.String.Device.Title}">
         <StackPanel Classes="v2-stack">
           <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                      Text="{DynamicResource V2.String.Device.Title}" />
@@ -212,7 +249,10 @@
       </Border>
 
       <StackPanel Classes="v2-density-compact">
-        <Border Classes="v2-card" AutomationProperties.AutomationId="v2-capture-queue">
+        <Border Classes="v2-card"
+                AutomationProperties.AutomationId="v2-capture-queue"
+                AutomationProperties.AccessibilityView="Control"
+                AutomationProperties.Name="{DynamicResource V2.String.Capture.Title}">
           <StackPanel Classes="v2-stack">
             <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                        Text="{DynamicResource V2.String.Capture.Title}" />

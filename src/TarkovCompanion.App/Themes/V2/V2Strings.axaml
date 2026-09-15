@@ -10,10 +10,15 @@
   <x:String x:Key="V2.String.Section.Tables">Tables and legends</x:String>
   <x:String x:Key="V2.String.Section.Operations">Devices and captures</x:String>
   <x:String x:Key="V2.String.Section.Announcements">Announcements</x:String>
+  <x:String x:Key="V2.String.Tone.Info">Information</x:String>
+  <x:String x:Key="V2.String.Tone.Warning">Warning</x:String>
+  <x:String x:Key="V2.String.Tone.Critical">Critical</x:String>
   <x:String x:Key="V2.String.Banner.Title">Some prices are partial</x:String>
   <x:String x:Key="V2.String.Banner.Body">2 of 3 sample regions have prices. Items that depend on the missing region are marked.</x:String>
+  <x:String x:Key="V2.String.Banner.Name">Warning: Some prices are partial</x:String>
   <x:String x:Key="V2.String.Status.Badges">Status badges</x:String>
   <x:String x:Key="V2.String.Availability.Ready">Ready</x:String>
+  <x:String x:Key="V2.String.Availability.Loading">Loading</x:String>
   <x:String x:Key="V2.String.Availability.Unknown">Unknown</x:String>
   <x:String x:Key="V2.String.Availability.Unavailable">Unavailable</x:String>
   <x:String x:Key="V2.String.Availability.Offline">Offline</x:String>
@@ -67,4 +72,6 @@
   <x:String x:Key="V2.String.Capture.Detail">1 capture is waiting for review.</x:String>
   <x:String x:Key="V2.String.Live.Polite">Background updates are announced here.</x:String>
   <x:String x:Key="V2.String.Live.Assertive">Refused or failed actions are announced here.</x:String>
+  <x:String x:Key="V2.String.Template.StatusName">{availability}, {completeness}, {freshness}: {detail}</x:String>
+  <x:String x:Key="V2.String.Template.ZonedDateTime">{dateTime} ({zone})</x:String>
 </ResourceDictionary>

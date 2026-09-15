@@ -8,10 +8,15 @@
     "V2.String.Section.Tables": "[Tåblës åñd lëgëñds ········]",
     "V2.String.Section.Operations": "[Dëvïçës åñd çåptûrës ········]",
     "V2.String.Section.Announcements": "[Åññöûñçëmëñts ······]",
+    "V2.String.Tone.Info": "[Ïñförmåtïöñ ·····]",
+    "V2.String.Tone.Warning": "[Wårñïñg ···]",
+    "V2.String.Tone.Critical": "[Çrïtïçål ····]",
     "V2.String.Banner.Title": "[Sömë prïçës årë pårtïål ··········]",
     "V2.String.Banner.Body": "[2 öf 3 såmplë rëgïöñs håvë prïçës. Ïtëms thåt dëpëñd öñ thë mïssïñg rëgïöñ årë mårkëd. ···································]",
+    "V2.String.Banner.Name": "[Wårñïñg: Sömë prïçës årë pårtïål ·············]",
     "V2.String.Status.Badges": "[Ståtûs bådgës ······]",
     "V2.String.Availability.Ready": "[Rëådÿ ··]",
+    "V2.String.Availability.Loading": "[Löådïñg ···]",
     "V2.String.Availability.Unknown": "[Ûñkñöwñ ···]",
     "V2.String.Availability.Unavailable": "[Ûñåvåïlåblë ·····]",
     "V2.String.Availability.Offline": "[Öfflïñë ···]",
@@ -64,6 +69,8 @@
     "V2.String.Capture.Title": "[Çåptûrë qûëûë ······]",
     "V2.String.Capture.Detail": "[1 çåptûrë ïs wåïtïñg för rëvïëw. ·············]",
     "V2.String.Live.Polite": "[Båçkgröûñd ûpdåtës årë åññöûñçëd hërë. ················]",
-    "V2.String.Live.Assertive": "[Rëfûsëd ör fåïlëd åçtïöñs årë åññöûñçëd hërë. ··················]"
+    "V2.String.Live.Assertive": "[Rëfûsëd ör fåïlëd åçtïöñs årë åññöûñçëd hërë. ··················]",
+    "V2.String.Template.StatusName": "[{availability}, {completeness}, {freshness}: {detail} ······················]",
+    "V2.String.Template.ZonedDateTime": "[{dateTime} ({zone}) ········]"
   }
 }
