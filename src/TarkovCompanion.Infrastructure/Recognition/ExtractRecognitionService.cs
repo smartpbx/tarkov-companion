@@ -9,6 +9,12 @@ namespace TarkovCompanion.Infrastructure.Recognition;
 
 public sealed class ExtractRecognitionService : IExtractRecognitionService
 {
+    // Kept aligned with GroupMemberState.Validate. A recognised panel is published as group
+    // state, so accepting a larger name or list here would turn one noisy screenshot into a
+    // repeatable 400 response until the raid state changed again.
+    private const int MaximumPublishedExtracts = 16;
+    private const int MaximumExtractNameLength = 64;
+
     private readonly IOcrEngine _ocrEngine;
     private readonly OcrTextNormalizer _normalizer;
     private readonly OcrPipelineOptions _pipeline;
@@ -63,6 +69,7 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         var ambiguous = new List<string>();
         var unmatched = new List<string>();
         var catalogGaps = new List<string>();
+        var catalogGapIds = new HashSet<string>(StringComparer.Ordinal);
         var transits = new List<string>();
         // Upstream lists an exit both factions can use once per faction, and the refresh stores
         // both rows. Two identical names tie at a similarity difference of exactly zero, which
@@ -181,7 +188,10 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 {
                     if (kind == ExtractLineMatcher.RowKind.Extract)
                     {
-                        AddCatalogGap(line, observed, displayName, status);
+                        if (!TryAddCatalogGap(line, observed, displayName, status))
+                        {
+                            unmatched.Add(line.Text);
+                        }
                     }
                     else
                     {
@@ -202,7 +212,10 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 {
                     if (kind == ExtractLineMatcher.RowKind.Extract)
                     {
-                        AddCatalogGap(line, observed, displayName, status);
+                        if (!TryAddCatalogGap(line, observed, displayName, status))
+                        {
+                            unmatched.Add(line.Text);
+                        }
                     }
                     else
                     {
@@ -246,13 +259,24 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
         // match threshold: a missing catalog row and a badly read catalog row are deliberately
         // indistinguishable here. The map can list the offered name immediately and draw it only
         // when a reviewed coordinate exists.
-        void AddCatalogGap(
+        bool TryAddCatalogGap(
             OcrLine line,
             string normalizedName,
             string displayName,
             ExtractStatus status)
         {
+            if (!IsPlausibleCatalogGap(line, normalizedName, displayName))
+            {
+                return false;
+            }
+
             var id = CatalogGapId(currentMap.Id, normalizedName);
+            if (!catalogGapIds.Contains(id) && catalogGapIds.Count >= MaximumPublishedExtracts)
+            {
+                return false;
+            }
+
+            var firstReading = catalogGapIds.Add(id);
             var recognition = new ObservedExtract(
                 id,
                 displayName,
@@ -266,14 +290,25 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
                 matched[id] = recognition;
             }
 
-            catalogGaps.Add(line.Text);
+            if (firstReading)
+            {
+                catalogGaps.Add(line.Text);
+            }
+
+            return true;
         }
 
         var observations = matched.Values
             .OrderBy(extract => extract.Name, StringComparer.Ordinal)
             .ToArray();
-        var active = observations
+        var activeObservations = observations
             .Where(extract => extract.Status == ExtractStatus.Active)
+            // Trusted catalog matches win the bounded relay payload. A noisy screen cannot use
+            // sixteen speculative rows to evict a real offered extract.
+            .OrderBy(extract => IsCatalogGap(extract.ExtractId) ? 1 : 0)
+            .ThenBy(extract => extract.Name, StringComparer.Ordinal)
+            .Take(MaximumPublishedExtracts);
+        var active = activeObservations
             .Select(extract => new ActiveExtract(
                 extract.ExtractId,
                 extract.Name,
@@ -357,6 +392,31 @@ public sealed class ExtractRecognitionService : IExtractRecognitionService
 
         return (normalized, displayName, ExtractStatus.Active);
     }
+
+    /// <summary>
+    /// A structural EXFIL label is useful evidence only when the OCR result beside it still
+    /// resembles a name and is confident enough to be a recognition candidate.
+    /// </summary>
+    private static bool IsPlausibleCatalogGap(
+        OcrLine line,
+        string normalizedName,
+        string displayName)
+    {
+        if (line.Confidence is { Value: < RecognitionThresholds.Candidate } ||
+            string.IsNullOrWhiteSpace(displayName) ||
+            displayName.Length > MaximumExtractNameLength ||
+            IsHeader(normalizedName) ||
+            normalizedName is "closed" or "pending" or "waiting" or "available" or "active" or "open" or "unknown")
+        {
+            return false;
+        }
+
+        var characters = displayName.Where(char.IsLetterOrDigit).ToArray();
+        return characters.Length >= 2 && char.IsLetter(characters[0]);
+    }
+
+    private static bool IsCatalogGap(string extractId) =>
+        extractId.StartsWith("catalog-gap:", StringComparison.Ordinal);
 
     /// <summary>A stable local identity for the same unknown map/name across repeated scans.</summary>
     private static string CatalogGapId(string mapId, string normalizedName)

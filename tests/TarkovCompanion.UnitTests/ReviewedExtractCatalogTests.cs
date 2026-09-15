@@ -1,3 +1,4 @@
+using System.Text.Json;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Maps;
@@ -63,6 +64,130 @@ public sealed class ReviewedExtractCatalogTests
     }
 
     [Fact]
+    public void Retained_normalized_sweep_reproduces_the_exact_gap_set_and_variant_collapse()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(CoverageFixturePath()));
+        var root = document.RootElement;
+
+        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        var primarySource = root.GetProperty("primarySource");
+        Assert.Equal(17, primarySource.GetProperty("recordCount").GetInt32());
+        Assert.Equal(152, primarySource.GetProperty("extractRowCountBeforeIdentityCollapse").GetInt32());
+        Assert.Equal(
+            "c53a327dcdcff67a49b9fe2d150731edb4c1611dfc2f75db2ce97444dee2ef77",
+            root.GetProperty("canonicalCatalog").GetProperty("sha256").GetString());
+
+        var primaryRecords = root.GetProperty("primaryRecords").EnumerateArray().ToArray();
+        Assert.Equal(17, primaryRecords.Length);
+        Assert.Equal(
+            [
+                "ground-zero-21|ground-zero",
+                "ground-zero-tutorial|ground-zero",
+                "night-factory|factory",
+                "the-lab-dark|the-lab",
+            ],
+            primaryRecords
+                .Select(record =>
+                    $"{record.GetProperty("mapId").GetString()}|{record.GetProperty("canonicalMapId").GetString()}")
+                .Where(mapping =>
+                {
+                    var separator = mapping.IndexOf('|', StringComparison.Ordinal);
+                    return !string.Equals(
+                        mapping[..separator],
+                        mapping[(separator + 1)..],
+                        StringComparison.Ordinal);
+                })
+                .OrderBy(mapping => mapping, StringComparer.Ordinal)
+                .ToArray());
+
+        var referenceMaps = root.GetProperty("referenceMaps").EnumerateArray().ToArray();
+        Assert.Equal(
+            [
+                "customs",
+                "factory",
+                "ground-zero",
+                "icebreaker",
+                "interchange",
+                "lighthouse",
+                "reserve",
+                "shoreline",
+                "streets-of-tarkov",
+                "terminal",
+                "the-lab",
+                "the-labyrinth",
+                "woods",
+            ],
+            referenceMaps
+                .Select(map => map.GetProperty("canonicalMapId").GetString()!)
+                .OrderBy(mapId => mapId, StringComparer.Ordinal)
+                .ToArray());
+        Assert.All(referenceMaps, map =>
+        {
+            var revision = map.GetProperty("revision").GetInt64();
+            Assert.Contains(
+                $"oldid={revision}",
+                map.GetProperty("url").GetString()!,
+                StringComparison.Ordinal);
+        });
+
+        var primaryByCanonicalMap = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var record in primaryRecords)
+        {
+            var canonicalMapId = record.GetProperty("canonicalMapId").GetString()!;
+            if (!primaryByCanonicalMap.TryGetValue(canonicalMapId, out var names))
+            {
+                names = new(StringComparer.Ordinal);
+                primaryByCanonicalMap.Add(canonicalMapId, names);
+            }
+
+            foreach (var name in record.GetProperty("extractNames").EnumerateArray())
+            {
+                names.Add(CoverageIdentity(name.GetString()!));
+            }
+        }
+
+        var computedGaps = referenceMaps
+            .SelectMany(map =>
+            {
+                var canonicalMapId = map.GetProperty("canonicalMapId").GetString()!;
+                var primaryNames = primaryByCanonicalMap[canonicalMapId];
+                return map.GetProperty("extractNames")
+                    .EnumerateArray()
+                    .Select(name => name.GetString()!)
+                    .Where(name => !primaryNames.Contains(CoverageIdentity(name)))
+                    .Select(name => $"{canonicalMapId}|{name}");
+            })
+            .OrderBy(gap => gap, StringComparer.Ordinal)
+            .ToArray();
+        var expectedGaps = root.GetProperty("expectedGaps")
+            .EnumerateArray()
+            .Select(gap =>
+                $"{gap.GetProperty("canonicalMapId").GetString()}|{gap.GetProperty("name").GetString()}")
+            .OrderBy(gap => gap, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expectedGaps, computedGaps);
+        Assert.Equal(
+            root.GetProperty("expectedGaps")
+                .EnumerateArray()
+                .Select(gap =>
+                    $"{gap.GetProperty("canonicalMapId").GetString()}|{gap.GetProperty("name").GetString()}|{gap.GetProperty("side").GetString()}")
+                .OrderBy(gap => gap, StringComparer.Ordinal)
+                .ToArray(),
+            ReviewedExtractCatalog.Facts
+                .Select(fact => $"{fact.MapId}|{fact.Name}|{fact.Faction}")
+                .OrderBy(gap => gap, StringComparer.Ordinal)
+                .ToArray());
+
+        Assert.All(root.GetProperty("equivalentNameCases").EnumerateArray(), equivalent =>
+        {
+            var declaredIdentity = equivalent.GetProperty("normalizedIdentity").GetString();
+            Assert.Equal(declaredIdentity, CoverageIdentity(equivalent.GetProperty("referenceName").GetString()!));
+            Assert.Equal(declaredIdentity, CoverageIdentity(equivalent.GetProperty("primaryName").GetString()!));
+        });
+    }
+
+    [Fact]
     public void Lighthouse_landing_stage_has_the_reviewed_scav_position()
     {
         var stage = Assert.Single(ReviewedExtractCatalog.Facts, fact =>
@@ -87,6 +212,53 @@ public sealed class ReviewedExtractCatalogTests
             "lab-id",
             Array.Empty<MapExtract>()));
         Assert.Equal("Faction unverified", definition.Conditions);
+    }
+
+    [Fact]
+    public void Dark_lab_uses_the_explicit_canonical_variant_mapping()
+    {
+        var definitions = ReviewedExtractCatalog.MergeDefinitions(
+            "the-lab-dark",
+            "the-lab-dark",
+            Array.Empty<MapExtract>());
+
+        var medical = Assert.Single(definitions);
+        Assert.Equal("Medical Block Elevator", medical.Name);
+        Assert.Equal("the-lab-dark", medical.MapId);
+        Assert.Equal("Faction unverified", medical.Conditions);
+    }
+
+    [Theory]
+    [InlineData("night-factory", "factory")]
+    [InlineData("ground-zero-21", "groundzero")]
+    [InlineData("ground-zero-tutorial", "groundzero")]
+    [InlineData("the-lab-dark", "thelab")]
+    public void Runtime_variant_mapping_matches_the_retained_sweep(
+        string primaryMapId,
+        string expectedCanonicalIdentity)
+    {
+        Assert.Equal(
+            expectedCanonicalIdentity,
+            ReviewedExtractCatalog.CanonicalMapIdentity(primaryMapId));
+    }
+
+    [Fact]
+    public void A_dark_lab_primary_record_still_supersedes_the_canonical_supplement()
+    {
+        var primary = new MapExtract(
+            "primary:medical",
+            "the-lab-dark",
+            "MEDICAL BLOCK ELEVATOR",
+            new MapPoint(1, 2),
+            null,
+            new DataProvenance("fixture", DateTimeOffset.UnixEpoch));
+
+        var definitions = ReviewedExtractCatalog.MergeDefinitions(
+            "the-lab-dark",
+            "the-lab-dark",
+            [primary]);
+
+        Assert.Same(primary, Assert.Single(definitions));
     }
 
     [Theory]
@@ -159,5 +331,29 @@ public sealed class ReviewedExtractCatalogTests
             feature.Name.Contains("SIDE TUNNEL", StringComparison.Ordinal));
         Assert.Equal(primaryPosition, tunnel.Position);
         Assert.Null(tunnel.Provenance);
+    }
+
+    private static string CoverageIdentity(string value) => string.Concat(
+        value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant));
+
+    private static string CoverageFixturePath()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "fixtures",
+                "extract-catalog",
+                "coverage-2026-09-15.normalized.json");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException("The retained extract coverage fixture was not found.");
     }
 }

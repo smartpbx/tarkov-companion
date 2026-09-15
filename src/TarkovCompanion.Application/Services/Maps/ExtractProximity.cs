@@ -68,23 +68,41 @@ public static class ExtractProximity
     /// door that will not open.
     /// </param>
     /// <param name="offered">Names a scan of the extract screen matched, if any.</param>
+    /// <param name="definitions">
+    /// Position-optional extract definitions. These keep a reviewed exit listable, with its
+    /// faction intact, when no coordinate exists and therefore no <see cref="MapFeature"/> can
+    /// represent it.
+    /// </param>
     public static IReadOnlyList<NearbyExtract> Near(
         IReadOnlyList<MapFeature> features,
         WorldPosition? player,
         MapFeatureFaction side,
         IReadOnlyCollection<string>? offered = null,
-        int limit = DefaultLimit)
+        int limit = DefaultLimit,
+        IReadOnlyList<MapExtract>? definitions = null)
     {
         ArgumentNullException.ThrowIfNull(features);
-        var confirmed = offered is null
-            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(offered, StringComparer.OrdinalIgnoreCase);
+        var confirmed = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in offered ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(name) && Identity(name) is { Length: > 0 } identity)
+            {
+                confirmed.TryAdd(identity, name.Trim());
+            }
+        }
 
         var found = new List<NearbyExtract>();
+        var known = new HashSet<string>(StringComparer.Ordinal);
         foreach (var feature in features)
         {
-            if (feature.Kind is not (MapFeatureKind.Extract or MapFeatureKind.Transit) ||
-                !CanBeTaken(feature.Side, side))
+            if (feature.Kind is not (MapFeatureKind.Extract or MapFeatureKind.Transit))
+            {
+                continue;
+            }
+
+            var identity = Identity(feature.Name);
+            known.Add(identity);
+            if (!CanBeTaken(feature.Side, side))
             {
                 continue;
             }
@@ -95,16 +113,49 @@ public static class ExtractProximity
                 player is { } from ? SpawnProximity.Distance(from, feature.Position) : null,
                 player is { } at ? SpawnProximity.Compass(at, feature.Position) : string.Empty,
                 feature.Kind == MapFeatureKind.Transit,
-                confirmed.Contains(feature.Name)));
+                confirmed.ContainsKey(identity)));
+        }
+
+        // MapFeature deliberately requires a real world position, while MapExtract does not.
+        // Merge definitions after features so a positioned marker remains the richer row and a
+        // positionless reviewed exit still retains its supported side. Grouping is required for
+        // shared extracts: the primary feed can publish the same name once per faction.
+        foreach (var definition in (definitions ?? [])
+            .Where(definition => !string.IsNullOrWhiteSpace(definition.Name))
+            .GroupBy(definition => Identity(definition.Name), StringComparer.Ordinal))
+        {
+            if (definition.Key.Length == 0 || !known.Add(definition.Key))
+            {
+                continue;
+            }
+
+            var candidate = definition.First();
+            var definitionSide = CombineSides(definition.Select(value => SideFromConditions(value.Conditions)));
+            if (!CanBeTaken(definitionSide, side))
+            {
+                continue;
+            }
+
+            found.Add(new(
+                candidate.Name,
+                definitionSide,
+                null,
+                string.Empty,
+                IsTransit: false,
+                WasOffered: confirmed.ContainsKey(definition.Key))
+            {
+                HasKnownPosition = false,
+            });
         }
 
         // The game can add an extract before the structured catalog catches up. A screenshot's
         // EXFIL row is still useful evidence that the exit was offered, so retain any name the
-        // static features could not represent. Its location is explicitly unavailable; drawing
-        // it at an invented origin would be worse than omitting the marker.
-        foreach (var name in confirmed.Where(name => !string.IsNullOrWhiteSpace(name)))
+        // static features and position-optional definitions could not represent. Looking in the
+        // complete known set matters: a known exit filtered out for the other side must not come
+        // back as an unclassified catalog gap.
+        foreach (var (identity, name) in confirmed)
         {
-            if (found.Any(exit => string.Equals(exit.Name, name, StringComparison.OrdinalIgnoreCase)))
+            if (known.Contains(identity))
             {
                 continue;
             }
@@ -136,6 +187,45 @@ public static class ExtractProximity
                 .ThenBy(exit => exit.Name, StringComparer.OrdinalIgnoreCase)
                 .Take(limit),
         ];
+    }
+
+    /// <summary>Identity shared with the supplement merge: labels differ in punctuation.</summary>
+    private static string Identity(string value) => string.Concat(
+        value.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant));
+
+    /// <summary>Reads the faction prefix emitted by the map-definition cache.</summary>
+    private static MapFeatureFaction SideFromConditions(string? conditions)
+    {
+        if (string.IsNullOrWhiteSpace(conditions))
+        {
+            return MapFeatureFaction.Unknown;
+        }
+
+        if (conditions.Contains("Either side", StringComparison.OrdinalIgnoreCase))
+        {
+            return MapFeatureFaction.Shared;
+        }
+
+        if (conditions.Contains("PMC only", StringComparison.OrdinalIgnoreCase))
+        {
+            return MapFeatureFaction.Pmc;
+        }
+
+        return conditions.Contains("Scav only", StringComparison.OrdinalIgnoreCase)
+            ? MapFeatureFaction.Scav
+            : MapFeatureFaction.Unknown;
+    }
+
+    private static MapFeatureFaction CombineSides(IEnumerable<MapFeatureFaction> sides)
+    {
+        var known = sides.Where(side => side != MapFeatureFaction.Unknown).Distinct().ToArray();
+        if (known.Contains(MapFeatureFaction.Shared) ||
+            known.Contains(MapFeatureFaction.Pmc) && known.Contains(MapFeatureFaction.Scav))
+        {
+            return MapFeatureFaction.Shared;
+        }
+
+        return known.Length == 1 ? known[0] : MapFeatureFaction.Unknown;
     }
 
     /// <summary>What the compact extract row should say about location.</summary>

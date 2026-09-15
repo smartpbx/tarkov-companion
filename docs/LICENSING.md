@@ -17,7 +17,7 @@ the SPT-DynamicMaps `Plugin/Resources/Maps` configurations at commit
 [`4944764f5f6c42d152dca6bd1b5371c4f6212a9e`](https://github.com/acidphantasm/SPT-DynamicMaps/tree/4944764f5f6c42d152dca6bd1b5371c4f6212a9e/Plugin/Resources/Maps).
 The original plugin license is MIT, copyright 2025 Michael P. Starkweather. Its map/data credit
 file says that marker data was datamined by the program and credits TarkovTracker/tarkovData,
-TarkovDev, and Shebuka for additional information. Exact copies are retained at
+TarkovDev, and Shebuka for additional information. Retained notice copies are at
 `LICENSES/SPT-DynamicMaps-MIT.txt` and
 `LICENSES/SPT-DynamicMaps-map-and-data-credits.txt`.
 

@@ -32,7 +32,9 @@ coordinate facts use pinned MIT-licensed SPT-DynamicMaps configurations and reta
 credits; permanent EFT Wiki revisions provide the current-list comparison. The supplement is
 compiled into Infrastructure, performs no additional runtime request, retains per-row
 provenance, and yields whenever the primary publishes the same map-scoped normalized name. See
-`docs/research/EXTRACT_CATALOG_COVERAGE.md` for the reproducible sweep and exclusions.
+`docs/research/EXTRACT_CATALOG_COVERAGE.md` for the method and exclusions and
+`fixtures/extract-catalog/coverage-2026-09-15.normalized.json` for its retained deterministic
+input.
 
 ## Map configuration and assets
 

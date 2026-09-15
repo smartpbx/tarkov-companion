@@ -37,5 +37,7 @@ Recognized active extracts are joined to cached static extract metadata by canon
 
 A structurally labelled `EXFIL` screenshot row that cannot be matched to either the primary or
 reviewed catalog is retained as an offered extract with conservative confidence. It appears in
-the compact extract list as `Location unavailable` and is not plotted. Unlabelled OCR text and
-near-tied catalog matches remain unmatched or ambiguous rather than becoming map facts.
+the compact extract list as `Location unavailable` and is not plotted. Speculative rows are
+candidate-confidence, name-shape, 64-character, and sixteen-row bounded; trusted matches take
+priority. A `catalog-gap:` row cannot highlight a static marker by a partial name. Unlabelled OCR
+text and near-tied catalog matches remain unmatched or ambiguous rather than becoming map facts.

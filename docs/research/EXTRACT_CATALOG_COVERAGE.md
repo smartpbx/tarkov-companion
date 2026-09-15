@@ -60,8 +60,16 @@ Each current-list input is a permanent wiki revision rather than a mutable page:
 
 ## Reproduction method
 
+The bounded input to this comparison is retained at
+`fixtures/extract-catalog/coverage-2026-09-15.normalized.json`. It records the source metadata,
+all seventeen primary records after English-name expansion and duplicate-name collapse, the
+thirteen permanent current-list revisions, the four explicit variant mappings, the pinned
+canonical-catalog hash, the expected gaps, and the one punctuation-equivalence case. It is the
+small factual comparison input, not a copy of any page, artwork, or raw API payload.
+
 1. Fetch `https://json.tarkov.dev/regular/maps` and its English translation dictionary at
-   `https://json.tarkov.dev/regular/maps_en`; retain the response metadata above.
+   `https://json.tarkov.dev/regular/maps_en`; retain the response metadata and the per-record
+   English extract names in the normalized fixture above.
 2. Build the thirteen-map set from the pinned canonical catalog, apply the four variant mappings
    above, and group primary extracts by canonical map.
 3. Read the extraction tables from the thirteen pinned wiki revisions above. Normalize each name
@@ -73,9 +81,12 @@ Each current-list input is a permanent wiki revision rather than a mutable page:
    Those configuration files last changed at `2026-03-14T07:48:43Z` and supply the nine plotted
    positions. Leave an unmatched row unplotted when that pinned source has no reviewed world
    coordinate.
-5. Compare the resulting exact ordered set with `ReviewedExtractCatalogTests`, which ratchets the
-   eleven map/name/side facts, nine finite positions, two absent positions, permanent references,
-   map-scoped uniqueness, primary precedence, and recognition-only behavior.
+5. Run `ReviewedExtractCatalogTests`. Its deterministic subtraction rebuilds the primary union
+   per canonical map from the retained fixture and must produce exactly the eleven fixture gaps.
+   The same test compares that result with the compiled map/name/side facts and ratchets the four
+   variant mappings, thirteen reference revisions, pinned catalog hash, and punctuation collapse.
+   The remaining tests ratchet nine finite positions, two absent positions, primary precedence,
+   and recognition-only behavior.
 
 The normalization also explains two rejected false positives. Shoreline's `Smuggler's Path
 (Co-op)` was already represented by primary `Smugglers' Path (Co-op)` and differs only in
@@ -92,7 +103,17 @@ read boundaries. The two positionless facts reach screenshot recognition only.
 
 The screenshot path also preserves a structurally labelled `EXFIL` row it cannot match. Such a
 row is listed as offered with conservative evidence and no marker until a trusted position is
-available. Unlabelled text and ambiguous near-ties do not take that path.
+available. A speculative row must meet the candidate-confidence floor when the OCR provider
+reports confidence, contain a name-like value of at most 64 characters, and fit within the
+relay's sixteen-extract bound. Headers, status-only values, measurements, and one-character
+readings remain unmatched. Unscored providers are retained at confidence 0.50 rather than being
+misrepresented as zero. Trusted catalog matches take priority within the bound, and a
+`catalog-gap:` observation can never highlight a static marker by substring. Unlabelled text and
+ambiguous near-ties do not take that path.
+
+Positionless reviewed definitions still reach the desktop list and retain their reviewed side.
+They say “location unavailable,” are filtered for the player's side like positioned exits, and
+never acquire an invented marker.
 
 ## Source and license review
 
@@ -100,7 +121,7 @@ Only nine static name/coordinate marker facts were transcribed from the pinned S
 configuration files. The original repository's `Plugin/LICENSE` is MIT, copyright 2025 Michael
 P. Starkweather, and its `map_and_data_credits.txt` says the marker data was datamined by that
 program while crediting TarkovTracker/tarkovData, TarkovDev, and Shebuka for additional
-information. Both exact notices are retained at `LICENSES/SPT-DynamicMaps-MIT.txt` and
+information. Retained notice copies are at `LICENSES/SPT-DynamicMaps-MIT.txt` and
 `LICENSES/SPT-DynamicMaps-map-and-data-credits.txt`.
 
 The Creative Commons terms named by that credit file govern Shebuka SVG map layers. Tarkov

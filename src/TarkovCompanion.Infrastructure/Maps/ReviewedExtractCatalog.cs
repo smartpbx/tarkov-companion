@@ -251,9 +251,26 @@ public static class ReviewedExtractCatalog
 
     private static IEnumerable<ReviewedExtractFact> ForMap(string mapId)
     {
-        var wanted = Identity(mapId);
+        var wanted = CanonicalMapIdentity(mapId);
         return ReviewedFacts.Where(fact => Identity(fact.MapId) == wanted);
     }
+
+    /// <summary>
+    /// Named primary-payload variants that the pinned map catalog declares to be the same
+    /// playable location for coverage purposes.
+    /// </summary>
+    /// <remarks>
+    /// Recognition asks by the exact raid slug, including the dark Lab. The coverage sweep
+    /// deliberately compares that record with The Lab, so runtime merging has to use the same
+    /// explicit mapping or a measured gap would disappear again in that variant.
+    /// </remarks>
+    internal static string CanonicalMapIdentity(string mapId) => Identity(mapId) switch
+    {
+        "nightfactory" => "factory",
+        "groundzero21" or "groundzerotutorial" => "groundzero",
+        "thelabdark" => "thelab",
+        var identity => identity,
+    };
 
     /// <summary>
     /// Map-scoped identity deliberately ignores case, punctuation, spacing, and apostrophes.

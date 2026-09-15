@@ -1,4 +1,6 @@
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.App.ViewModels.Maps;
+using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.UnitTests;
@@ -47,6 +49,20 @@ public sealed class ExtractProximityTests
         var found = ExtractProximity.Near(features, At(0, 0), MapFeatureFaction.Pmc);
 
         Assert.Equal(["RUAF Roadblock"], found.Select(exit => exit.Name));
+    }
+
+    [Fact]
+    public void An_offered_known_exit_for_the_other_side_is_not_reintroduced_as_unknown()
+    {
+        var features = new[] { Exit("Hideout Under the Landing Stage", 10, 0, "scav") };
+
+        var found = ExtractProximity.Near(
+            features,
+            At(0, 0),
+            MapFeatureFaction.Pmc,
+            ["Hideout Under the Landing Stage"]);
+
+        Assert.Empty(found);
     }
 
     [Fact]
@@ -159,6 +175,65 @@ public sealed class ExtractProximityTests
     }
 
     [Fact]
+    public void A_positionless_reviewed_definition_keeps_its_faction_without_a_marker()
+    {
+        var definitions = new[] { Definition("zubr", "Zubr Boat", "PMC only") };
+
+        var pmc = ExtractProximity.Near(
+            [],
+            player: null,
+            MapFeatureFaction.Pmc,
+            ["Zubr Boat"],
+            definitions: definitions);
+        var scav = ExtractProximity.Near(
+            [],
+            player: null,
+            MapFeatureFaction.Scav,
+            ["Zubr Boat"],
+            definitions: definitions);
+
+        var exit = Assert.Single(pmc);
+        Assert.Equal(MapFeatureFaction.Pmc, exit.Side);
+        Assert.True(exit.WasOffered);
+        Assert.False(exit.HasKnownPosition);
+        Assert.Equal("Location unavailable", ExtractProximity.DescribeLocation(exit));
+        Assert.Empty(scav);
+    }
+
+    [Fact]
+    public void A_catalog_gap_fragment_never_claims_a_real_marker()
+    {
+        var gaps = new[]
+        {
+            new ActiveExtract(
+                "catalog-gap:lighthouse:deadbeefdeadbeef",
+                "Gate",
+                new Confidence(0.60),
+                "fixture"),
+        };
+
+        Assert.False(MapViewModel.IsOfferedMarker("Industrial Zone Gates (Scav)", gaps));
+        Assert.True(MapViewModel.IsOfferedMarker(
+            "Industrial Zone Gates (Scav)",
+            [new ActiveExtract("reviewed:industrial", "Industrial Zone Gates", new Confidence(0.90), "fixture")]));
+    }
+
+    [Fact]
+    public void A_gap_and_trusted_match_with_the_same_name_are_not_the_same_marker_offer()
+    {
+        var confidence = new Confidence(0.60);
+        var gap = new ActiveExtract(
+            "catalog-gap:lighthouse:deadbeefdeadbeef",
+            "Industrial Zone Gates",
+            confidence,
+            "fixture");
+        var trusted = gap with { ExtractId = "reviewed:lighthouse:industrial-zone-gates" };
+
+        Assert.False(MapViewModel.SameMarkerOffers([gap], [trusted]));
+        Assert.True(MapViewModel.SameMarkerOffers([trusted], [trusted]));
+    }
+
+    [Fact]
     public void Catalog_gap_rows_are_not_displaced_by_the_default_limit()
     {
         var features = Enumerable
@@ -214,4 +289,13 @@ public sealed class ExtractProximityTests
 
     private static MapFeature Exit(string name, double x, double z, string? faction = null) =>
         new(MapFeatureKind.Extract, name, At(x, z), faction);
+
+    private static MapExtract Definition(string id, string name, string? conditions) =>
+        new(
+            id,
+            "fixture-map",
+            name,
+            null,
+            conditions,
+            new DataProvenance("fixture", DateTimeOffset.UnixEpoch));
 }
