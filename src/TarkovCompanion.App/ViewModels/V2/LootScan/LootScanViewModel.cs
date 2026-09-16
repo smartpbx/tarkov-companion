@@ -3,6 +3,7 @@ using System.Windows.Input;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 
 namespace TarkovCompanion.App.ViewModels.V2.LootScan;
