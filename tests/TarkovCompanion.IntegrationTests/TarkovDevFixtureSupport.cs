@@ -40,6 +40,7 @@ internal sealed class FixtureApiHandler : HttpMessageHandler
             "regular/crafts" => "crafts.json",
             "regular/barters" => "barters.json",
             "regular/prices/item-001" => "prices-item-001.json",
+            "the-hideout/tarkov-dev/main/src/data/maps.json" => "map-catalog.json",
             _ => throw new InvalidOperationException($"No offline fixture is registered for '{path}'."),
         };
         var body = await File.ReadAllTextAsync(Path.Combine(_fixtureRoot, fileName), cancellationToken).ConfigureAwait(false);

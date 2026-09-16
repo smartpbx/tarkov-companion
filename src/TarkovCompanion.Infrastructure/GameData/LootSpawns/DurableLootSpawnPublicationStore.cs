@@ -14,10 +14,15 @@ namespace TarkovCompanion.Infrastructure.GameData.LootSpawns;
 /// fallback. A corrupt head is retained in one bounded set-aside path and recovered from that
 /// fallback; neither corruption nor a failed write can silently clear the last-known-good bundle.
 /// </remarks>
-public sealed class DurableLootSpawnPublicationStore : ILootSpawnSourcePublicationStore, IDisposable
+public sealed class DurableLootSpawnPublicationStore :
+    ILootSpawnSourcePublicationStore,
+    IReviewedLootSpawnPublicationReplacementStore,
+    IDisposable
 {
     public const int FormatVersion = 1;
     public const long MaximumPayloadBytes = 256L * 1024 * 1024;
+
+    public const long MaximumReplacementAuditBytes = 256L * 1024;
 
     private const int MaximumHeaderBytes = 256;
     private const int MaximumLeaseAttempts = 400;
@@ -30,6 +35,7 @@ public sealed class DurableLootSpawnPublicationStore : ILootSpawnSourcePublicati
     private readonly string _leasePath;
     private readonly string _corruptPath;
     private readonly string _corruptBackupPath;
+    private readonly string _replacementAuditPath;
     private readonly TimeProvider _timeProvider;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<LootSpawnQuarantineEntry> _quarantine = [];
@@ -43,6 +49,7 @@ public sealed class DurableLootSpawnPublicationStore : ILootSpawnSourcePublicati
         _leasePath = _path + ".lock";
         _corruptPath = _path + ".corrupt";
         _corruptBackupPath = _backupPath + ".corrupt";
+        _replacementAuditPath = _path + ".replacement-audit.json";
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -76,6 +83,65 @@ public sealed class DurableLootSpawnPublicationStore : ILootSpawnSourcePublicati
             }
 
             await WritePublicationAsync(bundle, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask PublishAuthorizedReplacementAsync(
+        LootSpawnSourceBundle bundle,
+        LootSpawnPublicationReplacementAuthorization authorization,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(bundle);
+        ArgumentNullException.ThrowIfNull(authorization);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var lease = await AcquireLeaseAsync(cancellationToken).ConfigureAwait(false);
+            var current = await ReadAndRecoverAsync(cancellationToken).ConfigureAwait(false)
+                ?? throw new LootSpawnSourceImportException(
+                    "publication.replacement-head-missing",
+                    "An authorized replacement requires an existing publication head.");
+            AtomicLootSpawnPublicationStore.ValidateAuthorizedReplacement(
+                bundle,
+                current,
+                authorization,
+                cancellationToken);
+
+            // Authorization is recorded before the publication changes. If the later durable
+            // write fails, the journal still truthfully says which exact candidate was approved;
+            // it does not claim that candidate became the head.
+            var audit = await ReadReplacementAuditCoreAsync(cancellationToken).ConfigureAwait(false);
+            var nextAudit = audit
+                .Append(AtomicLootSpawnPublicationStore.AuditEntry(
+                    bundle,
+                    current,
+                    authorization,
+                    UtcNow()))
+                .TakeLast(AtomicLootSpawnPublicationStore.MaximumReplacementAuditEntries)
+                .ToArray();
+            await WriteReplacementAuditAsync(nextAudit, cancellationToken).ConfigureAwait(false);
+            await WritePublicationAsync(bundle, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask<IReadOnlyList<LootSpawnPublicationReplacementAuditEntry>> ReadReplacementAuditAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var lease = await AcquireLeaseAsync(cancellationToken).ConfigureAwait(false);
+            return await ReadReplacementAuditCoreAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -356,6 +422,95 @@ public sealed class DurableLootSpawnPublicationStore : ILootSpawnSourcePublicati
             TryDelete(payloadPath);
             TryDelete(framedPath);
             TryDelete(backupWritingPath);
+        }
+    }
+
+    private async ValueTask<IReadOnlyList<LootSpawnPublicationReplacementAuditEntry>>
+        ReadReplacementAuditCoreAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var stream = new FileStream(
+                _replacementAuditPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                81920,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var initialLength = stream.Length;
+            if (initialLength <= 0 || initialLength > MaximumReplacementAuditBytes)
+            {
+                throw new InvalidDataException("The replacement authorization journal exceeds its byte budget.");
+            }
+
+            await using var bounded = new LengthLimitedReadStream(stream, initialLength);
+            var entries = await JsonSerializer
+                .DeserializeAsync<LootSpawnPublicationReplacementAuditEntry[]>(
+                    bounded,
+                    JsonOptions,
+                    cancellationToken)
+                .ConfigureAwait(false)
+                ?? throw new InvalidDataException("The replacement authorization journal is empty.");
+            if (bounded.Remaining != 0 || stream.Length != initialLength ||
+                entries.Length > AtomicLootSpawnPublicationStore.MaximumReplacementAuditEntries ||
+                entries.Any(entry => entry is null))
+            {
+                throw new InvalidDataException("The replacement authorization journal is invalid or oversized.");
+            }
+
+            return Array.AsReadOnly(entries);
+        }
+        catch (FileNotFoundException)
+        {
+            return [];
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return [];
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException or
+                                              ArgumentException or InvalidOperationException or
+                                              NotSupportedException or OverflowException or KeyNotFoundException)
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.replacement-audit-corrupt",
+                "The bounded replacement authorization journal is corrupt; it was retained and no reviewed replacement was applied.",
+                exception);
+        }
+    }
+
+    private async ValueTask WriteReplacementAuditAsync(
+        IReadOnlyList<LootSpawnPublicationReplacementAuditEntry> entries,
+        CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(_replacementAuditPath)
+            ?? throw new InvalidOperationException("The replacement authorization journal has no parent directory.");
+        Directory.CreateDirectory(directory);
+        var temporaryPath = _replacementAuditPath + ".writing";
+        try
+        {
+            TryDelete(temporaryPath);
+            await using (var file = new FileStream(
+                             temporaryPath,
+                             FileMode.CreateNew,
+                             FileAccess.Write,
+                             FileShare.None,
+                             81920,
+                             FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await using var bounded = new MaximumLengthWriteStream(file, MaximumReplacementAuditBytes);
+                await JsonSerializer
+                    .SerializeAsync(bounded, entries, JsonOptions, cancellationToken)
+                    .ConfigureAwait(false);
+                await bounded.FlushAsync(cancellationToken).ConfigureAwait(false);
+                file.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, _replacementAuditPath, overwrite: true);
+        }
+        finally
+        {
+            TryDelete(temporaryPath);
         }
     }
 

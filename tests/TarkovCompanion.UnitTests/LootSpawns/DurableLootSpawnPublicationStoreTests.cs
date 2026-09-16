@@ -132,6 +132,51 @@ public sealed class DurableLootSpawnPublicationStoreTests : IDisposable
                 .Records.Single().Candidates.Select(value => value.ItemId));
     }
 
+    [Fact]
+    public async Task Reviewed_shrink_requires_the_exact_head_and_persists_its_authorization_audit()
+    {
+        var path = PublicationPath();
+        var first = Bundle(Now, "generation-one", "item-a", "item-b");
+        var replacement = Bundle(Now.AddMinutes(10), "generation-two", "item-a");
+        using (var store = Store(path))
+        {
+            await store.PublishAsync(first, default);
+            var ordinary = await Assert.ThrowsAsync<LootSpawnSourceImportException>(async () =>
+                await store.PublishAsync(replacement, default));
+            Assert.Equal("publication.item-evidence-regression", ordinary.Code);
+
+            var wrongHead = new LootSpawnPublicationReplacementAuthorization(
+                Hash("not-the-current-head"),
+                "fixture-reviewer",
+                "Synthetic wipe review.",
+                Now.AddMinutes(11));
+            var mismatch = await Assert.ThrowsAsync<LootSpawnSourceImportException>(async () =>
+                await store.PublishAuthorizedReplacementAsync(replacement, wrongHead, default));
+            Assert.Equal("publication.replacement-head-mismatch", mismatch.Code);
+            Assert.Empty(await store.ReadReplacementAuditAsync(default));
+
+            await store.PublishAuthorizedReplacementAsync(
+                replacement,
+                new(
+                    first.Identity.ContentSha256,
+                    "fixture-reviewer",
+                    "Synthetic wipe removed one reviewed candidate.",
+                    Now.AddMinutes(12)),
+                default);
+        }
+
+        using var restarted = Store(path);
+        var head = Assert.IsType<LootSpawnSourceBundle>(
+            await restarted.ReadLastKnownGoodAsync(default));
+        Assert.Equal(replacement.Identity.ContentSha256, head.Identity.ContentSha256);
+        Assert.Equal(["item-a"], Assert.Single(head.Snapshots).Records.Single().Candidates.Select(value => value.ItemId));
+        var audit = Assert.Single(await restarted.ReadReplacementAuditAsync(default));
+        Assert.Equal(first.Identity.ContentSha256, audit.Authorization.ExpectedCurrentContentSha256);
+        Assert.Equal(replacement.Identity.ContentSha256, audit.ReplacementContentSha256);
+        Assert.Equal("fixture-reviewer", audit.Authorization.AuthorizedBy);
+        Assert.Contains("wipe", audit.Authorization.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))

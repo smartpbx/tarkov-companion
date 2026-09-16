@@ -36,9 +36,10 @@ used for that recount has SHA-256
 `9ce7b2b7d2677ebbee6a33c3208bcd712300554e2f83e0c29be031282701ecce`.
 
 `fixtures/loot-spawns/source-v1` and the normalizer's synthetic map tests remain test-only; their
-coordinates and item IDs make no claim about Escape from Tarkov. Desktop startup composition and
-restart-durable last-known-good persistence are still separate integration work, so the presence
-of this adapter alone is not evidence that an installed client has published a snapshot.
+coordinates and item IDs make no claim about Escape from Tarkov. Desktop startup now restores the
+restart-durable head, and its shared background data refresh publishes the production adapter's
+validated result without forcing a second maps/items download. The V2 Raid host that inserts the
+typed result into its canonical scene remains owned by issue #286.
 
 ## Production normalization
 
@@ -117,6 +118,12 @@ second instance with stale memory from replacing a newer publication. A corrupt 
 is never deserialized as data: the store validates the frame, payload hash, JSON, and domain
 invariants, retains corrupt primary/fallback files in two fixed diagnostic paths, and recovers the
 validated previous generation when available. The payload is capped at 256 MiB, quarantine remains
-bounded at 64 entries, and scratch names are removed after success or failure. Desktop startup path
-selection remains a separate composition slice; the durable implementation alone does not claim
-that an installed client has enabled offline publication recovery.
+bounded at 64 entries, and scratch names are removed after success or failure.
+
+A legitimate wipe or reviewed upstream removal uses the separate
+`IReviewedLootSpawnPublicationReplacementStore`; automatic refresh cannot invoke it. Authorization
+names the exact current content SHA-256 plus reviewer, reason, and UTC time. It may bypass only the
+coverage and item-removal ratchets: source authority, chronology, and same-generation conflict
+checks remain mandatory. The durable implementation writes a bounded atomic authorization journal
+before attempting the replacement, so a stale reviewer cannot overwrite a concurrently advanced
+head and a failed disk write does not erase which exact candidate was approved. See ADR 0017.

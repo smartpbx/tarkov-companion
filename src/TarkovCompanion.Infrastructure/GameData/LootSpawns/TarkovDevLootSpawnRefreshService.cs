@@ -25,7 +25,7 @@ public sealed record TarkovDevLootSpawnRefreshResult(
 /// profile switch cannot retain a different mode's head. It performs no game process, input,
 /// renderer, or network-traffic inspection.
 /// </remarks>
-public sealed class TarkovDevLootSpawnRefreshService
+public sealed class TarkovDevLootSpawnRefreshService : ILootSpawnSourceRefreshService
 {
     private readonly GameMode _gameMode;
     private readonly string _language;
@@ -68,6 +68,18 @@ public sealed class TarkovDevLootSpawnRefreshService
         {
             _refreshGate.Release();
         }
+    }
+
+    async ValueTask<LootSpawnSourceImportResult> ILootSpawnSourceRefreshService.RefreshAsync(
+        bool force,
+        CancellationToken cancellationToken)
+    {
+        var result = await RefreshAsync(force, cancellationToken).ConfigureAwait(false);
+        return new(
+            result.Disposition,
+            result.Published?.Bundle,
+            result.LastKnownGood,
+            result.Diagnostics);
     }
 
     private async ValueTask<TarkovDevLootSpawnRefreshResult> RefreshCoreAsync(

@@ -568,6 +568,116 @@ public interface ILootSpawnSourcePublicationStore
         CancellationToken cancellationToken);
 }
 
+/// <summary>Explicit human authorization for a legitimate wipe or reviewed source shrink.</summary>
+public sealed record LootSpawnPublicationReplacementAuthorization
+{
+    public LootSpawnPublicationReplacementAuthorization(
+        string expectedCurrentContentSha256,
+        string authorizedBy,
+        string reason,
+        DateTimeOffset authorizedUtc)
+    {
+        ExpectedCurrentContentSha256 = RequiredHash(
+            expectedCurrentContentSha256,
+            nameof(expectedCurrentContentSha256));
+        AuthorizedBy = LootSpawnItemCatalogEntry.Required(authorizedBy, nameof(authorizedBy), 128);
+        Reason = LootSpawnItemCatalogEntry.Required(reason, nameof(reason), 1024);
+        if (authorizedUtc == default || authorizedUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("A non-default UTC authorization time is required.", nameof(authorizedUtc));
+        }
+
+        AuthorizedUtc = authorizedUtc;
+    }
+
+    public string ExpectedCurrentContentSha256 { get; }
+
+    public string AuthorizedBy { get; }
+
+    public string Reason { get; }
+
+    public DateTimeOffset AuthorizedUtc { get; }
+
+    private static string RequiredHash(string value, string parameterName)
+    {
+        var required = LootSpawnItemCatalogEntry.Required(value, parameterName, 64);
+        return required.Length == 64 && required.All(character =>
+            character is >= '0' and <= '9' or >= 'a' and <= 'f')
+            ? required
+            : throw new ArgumentException("A lowercase SHA-256 content identity is required.", parameterName);
+    }
+}
+
+/// <summary>
+/// Durable evidence that a specific replacement candidate was reviewed against a specific head.
+/// </summary>
+/// <remarks>
+/// This records authorization before the candidate is committed. It therefore remains truthful
+/// evidence even if a later disk failure prevents that authorized candidate from becoming head.
+/// </remarks>
+public sealed record LootSpawnPublicationReplacementAuditEntry
+{
+    public LootSpawnPublicationReplacementAuditEntry(
+        LootSpawnPublicationReplacementAuthorization authorization,
+        string previousDatasetVersion,
+        string replacementDatasetVersion,
+        string replacementContentSha256,
+        DateTimeOffset recordedUtc)
+    {
+        Authorization = authorization ?? throw new ArgumentNullException(nameof(authorization));
+        PreviousDatasetVersion = LootSpawnItemCatalogEntry.Required(
+            previousDatasetVersion,
+            nameof(previousDatasetVersion),
+            128);
+        ReplacementDatasetVersion = LootSpawnItemCatalogEntry.Required(
+            replacementDatasetVersion,
+            nameof(replacementDatasetVersion),
+            128);
+        ReplacementContentSha256 = new LootSpawnSourceArtifactIdentity(
+            "replacement",
+            "reviewed-publication-replacement",
+            replacementContentSha256).ContentSha256;
+        if (recordedUtc == default || recordedUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("A non-default UTC audit time is required.", nameof(recordedUtc));
+        }
+
+        RecordedUtc = recordedUtc;
+    }
+
+    public LootSpawnPublicationReplacementAuthorization Authorization { get; }
+
+    public string PreviousDatasetVersion { get; }
+
+    public string ReplacementDatasetVersion { get; }
+
+    public string ReplacementContentSha256 { get; }
+
+    public DateTimeOffset RecordedUtc { get; }
+}
+
+/// <summary>
+/// A separate, explicit seam for reviewed removals; ordinary publication never calls this API.
+/// </summary>
+public interface IReviewedLootSpawnPublicationReplacementStore
+{
+    ValueTask PublishAuthorizedReplacementAsync(
+        LootSpawnSourceBundle bundle,
+        LootSpawnPublicationReplacementAuthorization authorization,
+        CancellationToken cancellationToken);
+
+    ValueTask<IReadOnlyList<LootSpawnPublicationReplacementAuditEntry>> ReadReplacementAuditAsync(
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>Refreshes the governed publication head without exposing provider-specific documents.</summary>
+public interface ILootSpawnSourceRefreshService
+{
+    ValueTask<LootSpawnSourceImportResult> RefreshAsync(
+        bool force = false,
+        CancellationToken cancellationToken = default);
+}
+
 /// <summary>Parses before publication so a refused source can never displace the last-known-good bundle.</summary>
 public sealed class LootSpawnSourceImportService
 {

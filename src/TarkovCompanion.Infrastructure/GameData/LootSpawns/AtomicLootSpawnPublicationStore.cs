@@ -15,14 +15,26 @@ public sealed record LootSpawnQuarantineEntry(
 /// after the entire bundle validates; malformed, stale, incompatible and superseded attempts are
 /// retained as bounded quarantine evidence and cannot clear the prior head.
 /// </remarks>
-public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicationStore, IDisposable
+public sealed class AtomicLootSpawnPublicationStore :
+    ILootSpawnSourcePublicationStore,
+    IReviewedLootSpawnPublicationReplacementStore,
+    IDisposable
 {
     public const int MaximumQuarantineEntries = 64;
 
+    public const int MaximumReplacementAuditEntries = 64;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly List<LootSpawnQuarantineEntry> _quarantine = [];
+    private readonly List<LootSpawnPublicationReplacementAuditEntry> _replacementAudit = [];
+    private readonly TimeProvider _timeProvider;
     private LootSpawnSourceBundle? _lastKnownGood;
     private bool _disposed;
+
+    public AtomicLootSpawnPublicationStore(TimeProvider? timeProvider = null)
+    {
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     public async ValueTask<LootSpawnSourceBundle?> ReadLastKnownGoodAsync(CancellationToken cancellationToken)
     {
@@ -87,6 +99,53 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
         }
     }
 
+    public async ValueTask PublishAuthorizedReplacementAsync(
+        LootSpawnSourceBundle bundle,
+        LootSpawnPublicationReplacementAuthorization authorization,
+        CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(bundle);
+        ArgumentNullException.ThrowIfNull(authorization);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = _lastKnownGood ?? throw new LootSpawnSourceImportException(
+                "publication.replacement-head-missing",
+                "An authorized replacement requires an existing publication head.");
+            ValidateAuthorizedReplacement(bundle, current, authorization, cancellationToken);
+            _replacementAudit.Add(AuditEntry(bundle, current, authorization, UtcNow()));
+            if (_replacementAudit.Count > MaximumReplacementAuditEntries)
+            {
+                _replacementAudit.RemoveRange(
+                    0,
+                    _replacementAudit.Count - MaximumReplacementAuditEntries);
+            }
+
+            _lastKnownGood = bundle;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async ValueTask<IReadOnlyList<LootSpawnPublicationReplacementAuditEntry>> ReadReplacementAuditAsync(
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return Array.AsReadOnly(_replacementAudit.ToArray());
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async ValueTask<IReadOnlyList<LootSpawnQuarantineEntry>> ReadQuarantineAsync(
         CancellationToken cancellationToken = default)
     {
@@ -119,7 +178,8 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
     internal static void ValidateReplacement(
         LootSpawnSourceBundle bundle,
         LootSpawnSourceBundle current,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowReviewedEvidenceRemoval = false)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(current);
@@ -156,14 +216,14 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
                 "A loot-spawn bundle with older source evidence cannot replace the last-known-good publication.");
         }
 
-        if (CoverageRegresses(bundle, current, cancellationToken))
+        if (!allowReviewedEvidenceRemoval && CoverageRegresses(bundle, current, cancellationToken))
         {
             throw new LootSpawnSourceImportException(
                 "publication.coverage-regression",
                 "A loot-spawn bundle cannot silently shrink the last-known-good map or record coverage.");
         }
 
-        if (ItemEvidenceRegresses(bundle, current, cancellationToken))
+        if (!allowReviewedEvidenceRemoval && ItemEvidenceRegresses(bundle, current, cancellationToken))
         {
             throw new LootSpawnSourceImportException(
                 "publication.item-evidence-regression",
@@ -186,6 +246,47 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
                 "publication.item-evidence-conflict",
                 "One import observation cannot publish conflicting item evidence for the same source bundle.");
         }
+    }
+
+    internal static void ValidateAuthorizedReplacement(
+        LootSpawnSourceBundle bundle,
+        LootSpawnSourceBundle current,
+        LootSpawnPublicationReplacementAuthorization authorization,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(authorization);
+        if (!string.Equals(
+                authorization.ExpectedCurrentContentSha256,
+                current.Identity.ContentSha256,
+                StringComparison.Ordinal))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.replacement-head-mismatch",
+                "The reviewed replacement authorization does not name the current publication head.");
+        }
+
+        ValidateReplacement(
+            bundle,
+            current,
+            cancellationToken,
+            allowReviewedEvidenceRemoval: true);
+    }
+
+    internal static LootSpawnPublicationReplacementAuditEntry AuditEntry(
+        LootSpawnSourceBundle bundle,
+        LootSpawnSourceBundle current,
+        LootSpawnPublicationReplacementAuthorization authorization,
+        DateTimeOffset recordedUtc) => new(
+        authorization,
+        current.Identity.DatasetVersion,
+        bundle.Identity.DatasetVersion,
+        bundle.Identity.ContentSha256,
+        recordedUtc);
+
+    private DateTimeOffset UtcNow()
+    {
+        var value = _timeProvider.GetUtcNow();
+        return value.Offset == TimeSpan.Zero ? value : value.ToUniversalTime();
     }
 
     private static bool CoverageRegresses(

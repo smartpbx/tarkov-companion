@@ -54,10 +54,13 @@ view, and map catalog in addition to its framed composite identity. Reviewed ali
 cover 16 source records across 13 runtime-supported canonical maps; the tutorial-only Ground Zero
 record remains explicitly unmatched. Candidate membership remains unweighted, container contents
 and probability remain unknown, and an unprojectable position is retained as map-only knowledge.
-A restart-durable, bounded publication store is available behind the same application contract;
-desktop startup path selection remains separate composition work. The bundled manifest example is
-synthetic and test-only. See [`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the contract,
-measured 2026-09-16 input counts, validation, publication behavior, and remaining gaps.
+A restart-durable, bounded publication store is composed into desktop startup behind the same
+application contract. Offline startup restores its last-known-good head without source I/O, and a
+shared online refresh updates it from the exact current maps/items response documents. Silent
+shrink remains refused; a legitimate wipe/removal requires an exact-head reviewed authorization
+and leaves a bounded durable journal. The bundled manifest example is synthetic and test-only. See
+[`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) and ADR 0017 for the contract, measured 2026-09-16
+input counts, validation, publication behavior, and remaining Raid-host gap.
 
 ## Map configuration and assets
 
