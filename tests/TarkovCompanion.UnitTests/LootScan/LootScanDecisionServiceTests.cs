@@ -1,3 +1,4 @@
+using System.Globalization;
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.App.ViewModels.V2.LootScan;
@@ -458,7 +459,7 @@ public sealed class LootScanDecisionServiceTests
             CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
             [Recommendation(anchor, "rare-loot", valueRoubles: 120_000)]);
 
-        var viewModel = new LootScanViewModel(result);
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
         var card = Assert.Single(viewModel.Decisions);
 
         Assert.Equal(1, viewModel.TakeCount);
@@ -466,6 +467,43 @@ public sealed class LootScanDecisionServiceTests
         Assert.Contains("120,000", card.ValueLabel, StringComparison.Ordinal);
         Assert.Contains("confidence", card.EvidenceLabel, StringComparison.Ordinal);
         Assert.True(card.HasPlacement);
+        Assert.False(card.CanOpenEvidence);
+        Assert.Equal("Evidence unavailable", card.EvidenceActionLabel);
+        Assert.StartsWith("TAKE:", card.AutomationSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewViewPagesLargeScansAndUsesTheRequestedNumberCulture()
+    {
+        const int itemCount = 25;
+        var cells = Enumerable.Range(0, itemCount)
+            .Select(index => new GridCellAddress(index / 5, index % 5))
+            .Select(anchor => Cell(anchor, $"loot-{anchor.Row}-{anchor.Column}", 1, 1))
+            .ToArray();
+        var recommendations = cells
+            .Select(cell => Recommendation(cell.Anchor, cell.Item.Value!.CanonicalId.Value!, valueRoubles: 120_000))
+            .ToArray();
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 5, 5, cells),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 5, 5),
+            recommendations);
+        var culture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+        culture.NumberFormat.NumberGroupSeparator = "_";
+        var viewModel = new LootScanViewModel(result, culture: culture);
+
+        Assert.Equal(itemCount, viewModel.Decisions.Count);
+        Assert.Equal(24, viewModel.VisibleDecisions.Count);
+        Assert.True(viewModel.HasMultiplePages);
+        Assert.False(viewModel.HasPreviousPage);
+        Assert.True(viewModel.HasNextPage);
+        Assert.Contains("120_000", viewModel.VisibleDecisions[0].ValueLabel, StringComparison.Ordinal);
+
+        viewModel.NextPageCommand.Execute(null);
+
+        Assert.Single(viewModel.VisibleDecisions);
+        Assert.True(viewModel.HasPreviousPage);
+        Assert.False(viewModel.HasNextPage);
+        Assert.Equal("Page 2 of 2 • 25 items", viewModel.PageSummary);
     }
 
     [Fact]

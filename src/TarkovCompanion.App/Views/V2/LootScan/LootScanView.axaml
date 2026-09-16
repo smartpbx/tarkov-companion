@@ -10,8 +10,8 @@
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="{DynamicResource V2.Shape.Card}" />
       <Setter Property="Padding" Value="{DynamicResource V2.Space.Lg.Inset}" />
-      <Setter Property="MinWidth" Value="340" />
-      <Setter Property="MaxWidth" Value="560" />
+      <Setter Property="MinWidth" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
     <Style Selector="Border.loot-card.take">
       <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
@@ -49,27 +49,33 @@
     <Style Selector="TextBlock.loot-verdict.review">
       <Setter Property="Foreground" Value="{DynamicResource V2.Brush.Warning}" />
     </Style>
+    <Style Selector="Border.loot-status.complete">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Success}" />
+    </Style>
+    <Style Selector="Border.loot-status.partial">
+      <Setter Property="BorderBrush" Value="{DynamicResource V2.Brush.Warning}" />
+    </Style>
   </UserControl.Styles>
 
   <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-    <StackPanel Margin="{DynamicResource V2.Space.Xl.Inset}" Spacing="16">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-        <StackPanel Spacing="4">
-          <TextBlock Classes="v2-heading-1" Text="{Binding Heading}"
-                     AutomationProperties.HeadingLevel="1" />
-          <TextBlock Classes="v2-body" Text="{Binding ContextLabel}" />
-          <TextBlock Classes="v2-label" Text="{Binding CaptureLabel}" />
-        </StackPanel>
-        <StackPanel Grid.Column="1" HorizontalAlignment="Right" Spacing="4">
-          <TextBlock Classes="v2-label" Text="{Binding TimingLabel}" HorizontalAlignment="Right" />
-          <TextBlock Classes="v2-label" Text="{Binding FocusLabel}" HorizontalAlignment="Right" />
-        </StackPanel>
-      </Grid>
+    <StackPanel Margin="{DynamicResource V2.Space.Lg.Inset}" Spacing="16">
+      <!-- One flow rather than two opposing header columns: the capture identifier must wrap on
+           a 320-DIP tablet instead of reserving an off-screen right column. -->
+      <StackPanel Spacing="4">
+        <TextBlock Classes="v2-heading-1" Text="{Binding Heading}"
+                   AutomationProperties.HeadingLevel="1" />
+        <TextBlock Classes="v2-body" Text="{Binding ContextLabel}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding CaptureLabel}" TextWrapping="Wrap" />
+        <TextBlock Classes="v2-label" Text="{Binding TimingLabel}" />
+        <TextBlock Classes="v2-label" Text="{Binding FocusLabel}" TextWrapping="Wrap" />
+      </StackPanel>
 
-      <Border Classes="v2-card"
-              BorderBrush="{DynamicResource V2.Brush.Warning}"
+      <Border Classes="v2-card loot-status"
+              Classes.complete="{Binding IsComplete}"
+              Classes.partial="{Binding IsPartial}"
               AutomationProperties.AutomationId="v2-loot-scan-status"
-              AutomationProperties.Name="{Binding StatusLabel}">
+              AutomationProperties.Name="{Binding StatusLabel}"
+              AutomationProperties.LiveSetting="Polite">
         <StackPanel Spacing="6">
           <TextBlock Classes="v2-heading-3" Text="{Binding StatusLabel}"
                      AutomationProperties.HeadingLevel="2" />
@@ -89,13 +95,15 @@
         <StackPanel Spacing="8">
           <TextBlock Classes="v2-heading-3" Text="Check these before acting"
                      AutomationProperties.HeadingLevel="2" />
-          <ItemsControl ItemsSource="{Binding Issues}">
+          <ItemsControl ItemsSource="{Binding VisibleIssues}">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
                 <TextBlock Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" Margin="0,2" />
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
+          <TextBlock Classes="v2-label" Text="{Binding HiddenIssuesLabel}"
+                     TextWrapping="Wrap" IsVisible="{Binding HasHiddenIssues}" />
         </StackPanel>
       </Border>
 
@@ -107,10 +115,29 @@
         </StackPanel>
       </Border>
 
-      <ItemsControl ItemsSource="{Binding Decisions}" IsVisible="{Binding HasDecisions}">
+      <!-- The result contract admits hundreds of cells. A bounded page keeps creation and screen
+           reader traversal finite; it also avoids a nested virtualized scroller fighting the page
+           scroller for wheel, touch, and keyboard input. -->
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
+            IsVisible="{Binding HasMultiplePages}"
+            AutomationProperties.Name="Loot Scan page controls">
+        <Button Classes="v2-target" Content="Previous"
+                Command="{Binding PreviousPageCommand}"
+                IsEnabled="{Binding HasPreviousPage}"
+                AutomationProperties.AutomationId="v2-loot-scan-previous-top" />
+        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding PageSummary}"
+                   TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"
+                   AutomationProperties.LiveSetting="Polite" />
+        <Button Grid.Column="2" Classes="v2-target" Content="Next"
+                Command="{Binding NextPageCommand}"
+                IsEnabled="{Binding HasNextPage}"
+                AutomationProperties.AutomationId="v2-loot-scan-next-top" />
+      </Grid>
+
+      <ItemsControl ItemsSource="{Binding VisibleDecisions}" IsVisible="{Binding HasDecisions}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
-            <WrapPanel ItemSpacing="12" LineSpacing="12" />
+            <StackPanel Spacing="12" />
           </ItemsPanelTemplate>
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
@@ -121,7 +148,7 @@
                     Classes.leave="{Binding IsLeave}"
                     Classes.review="{Binding IsReview}"
                     AutomationProperties.AutomationId="{Binding AutomationId}"
-                    AutomationProperties.Name="{Binding Name}">
+                    AutomationProperties.Name="{Binding AutomationSummary}">
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel Spacing="2">
@@ -139,20 +166,20 @@
 
                 <TextBlock Classes="v2-body" Text="{Binding WhyLabel}" TextWrapping="Wrap" />
 
-                <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                <StackPanel Spacing="8">
                   <Border Classes="loot-chip">
                     <StackPanel Spacing="2">
                       <TextBlock Classes="v2-label" Text="Best current value" />
-                      <TextBlock Classes="v2-body" Text="{Binding ValueLabel}" />
+                      <TextBlock Classes="v2-body" Text="{Binding ValueLabel}" TextWrapping="Wrap" />
                     </StackPanel>
                   </Border>
-                  <Border Grid.Column="1" Classes="loot-chip">
+                  <Border Classes="loot-chip">
                     <StackPanel Spacing="2">
                       <TextBlock Classes="v2-label" Text="Space efficiency" />
                       <TextBlock Classes="v2-body" Text="{Binding ValuePerSquareLabel}" TextWrapping="Wrap" />
                     </StackPanel>
                   </Border>
-                </Grid>
+                </StackPanel>
 
                 <TextBlock Classes="v2-label" Text="{Binding PriceBasisLabel}" />
                 <TextBlock Classes="v2-label" Text="{Binding AttributesLabel}" TextWrapping="Wrap" />
@@ -168,12 +195,29 @@
 
                 <Button Classes="v2-target" HorizontalAlignment="Stretch"
                         Content="{Binding EvidenceActionLabel}"
-                        Command="{Binding OpenEvidenceCommand}" />
+                        Command="{Binding OpenEvidenceCommand}"
+                        IsEnabled="{Binding CanOpenEvidence}"
+                        AutomationProperties.Name="{Binding EvidenceActionLabel}" />
               </StackPanel>
             </Border>
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
+
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
+            IsVisible="{Binding HasMultiplePages}"
+            AutomationProperties.Name="Loot Scan page controls">
+        <Button Classes="v2-target" Content="Previous"
+                Command="{Binding PreviousPageCommand}"
+                IsEnabled="{Binding HasPreviousPage}"
+                AutomationProperties.AutomationId="v2-loot-scan-previous-bottom" />
+        <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding PageSummary}"
+                   TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <Button Grid.Column="2" Classes="v2-target" Content="Next"
+                Command="{Binding NextPageCommand}"
+                IsEnabled="{Binding HasNextPage}"
+                AutomationProperties.AutomationId="v2-loot-scan-next-bottom" />
+      </Grid>
     </StackPanel>
   </ScrollViewer>
 </UserControl>
