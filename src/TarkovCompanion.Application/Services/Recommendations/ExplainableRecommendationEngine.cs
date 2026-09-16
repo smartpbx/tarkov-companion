@@ -46,6 +46,10 @@ public sealed class ExplainableRecommendationEngine(
                 "Profile progress is incomplete or stale; recheck progression before discarding the item.",
                 profileAssessment);
         }
+        else
+        {
+            decisionInputs.Add(profileAssessment.Provenance);
+        }
 
         var explicitEvidence = InspectOptionalProfileField(
             profile.ExplicitAction,
@@ -54,6 +58,11 @@ public sealed class ExplainableRecommendationEngine(
             "profile.override-untrusted",
             "The explicit item rule is ambiguous, stale, incomplete, or below the confidence threshold.");
         var explicitAction = explicitEvidence?.Value;
+        if (explicitEvidence is { } trustedExplicitAction)
+        {
+            decisionInputs.Add(trustedExplicitAction.Provenance);
+        }
+
         if (explicitAction is { } overridden)
         {
             reasons.Add(new(
@@ -72,6 +81,11 @@ public sealed class ExplainableRecommendationEngine(
             "profile.event-state-untrusted",
             "Event-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
         var eventState = eventEvidence?.Value;
+        if (eventEvidence is { } trustedEventState)
+        {
+            decisionInputs.Add(trustedEventState.Provenance);
+        }
+
         if (eventState == EventItemState.Allergic)
         {
             reasons.Add(new(
@@ -93,6 +107,11 @@ public sealed class ExplainableRecommendationEngine(
             "profile.protection-untrusted",
             "Item protection is ambiguous, stale, incomplete, or below the confidence threshold.");
         var isProtected = protectedEvidence?.Value == true;
+        if (protectedEvidence is { } trustedProtection)
+        {
+            decisionInputs.Add(trustedProtection.Provenance);
+        }
+
         if (isProtected)
         {
             reasons.Add(new(
@@ -108,7 +127,10 @@ public sealed class ExplainableRecommendationEngine(
         var inventory = trustedNeeds.Count > 0
             ? InspectInventory(request, evidenceIssues)
             : InventoryInspection.Unknown;
-        var applicableNeeds = AllocateNeeds(request, trustedNeeds, inventory, evidenceIssues);
+        decisionInputs.AddRange(inventory.DecisionInputs);
+        var allocation = AllocateNeeds(request, trustedNeeds, inventory, evidenceIssues);
+        var applicableNeeds = allocation.Outstanding;
+        decisionInputs.AddRange(allocation.DecisionInputs);
         foreach (var need in applicableNeeds)
         {
             var rule = RuleFor(need.Need);
@@ -146,6 +168,11 @@ public sealed class ExplainableRecommendationEngine(
             "profile.pinned-untrusted",
             "Pinned-item state is ambiguous, stale, incomplete, or below the confidence threshold.");
         var isPinned = pinnedEvidence?.Value == true;
+        if (pinnedEvidence is { } trustedPin)
+        {
+            decisionInputs.Add(trustedPin.Provenance);
+        }
+
         if (isPinned)
         {
             reasons.Add(new(
@@ -164,6 +191,11 @@ public sealed class ExplainableRecommendationEngine(
             "profile.wishlist-untrusted",
             "Wishlist state is ambiguous, stale, incomplete, or below the confidence threshold.");
         var isWishlisted = wishlistEvidence?.Value == true;
+        if (wishlistEvidence is { } trustedWishlist)
+        {
+            decisionInputs.Add(trustedWishlist.Provenance);
+        }
+
         if (isWishlisted)
         {
             reasons.Add(new(
@@ -310,9 +342,7 @@ public sealed class ExplainableRecommendationEngine(
                 _policy.PriorityOf(reason.Rule),
                 reason.Provenance))
             .ToArray();
-        var summaryReason = dominantRule is { } rule
-            ? orderedDrafts.FirstOrDefault(reason => reason.Rule == rule) ?? orderedDrafts[0]
-            : orderedDrafts[0];
+        var summaryReason = SelectSummaryReason(dominantRule, raidContext, orderedDrafts);
 
         var (opportunityCost, opportunityLineage) = CreateOpportunityCost(
             request,
@@ -414,11 +444,11 @@ public sealed class ExplainableRecommendationEngine(
                     "The scanned inventory does not cover enough space to treat an unseen item as zero held.",
                     snapshot.Provenance,
                     snapshot.Status.Freshness);
-                return new InventoryInspection(null, null);
+                return InventoryInspection.Unknown;
             }
 
             var zero = new TrustedValue<int>(0, snapshot.Provenance);
-            return new InventoryInspection(zero, zero);
+            return new InventoryInspection(zero, zero, [snapshot.Provenance]);
         }
 
         var total = InspectEvidence(
@@ -462,9 +492,19 @@ public sealed class ExplainableRecommendationEngine(
                 snapshot.Status.Freshness);
         }
 
+        var decisionInputs = new[]
+            {
+                snapshot.Provenance,
+                total.Trusted?.Provenance,
+                foundInRaid.Trusted?.Provenance,
+            }
+            .OfType<EvidenceProvenance>()
+            .Distinct()
+            .ToArray();
         return new InventoryInspection(
             total.Trusted,
-            foundInRaid.Trusted);
+            foundInRaid.Trusted,
+            decisionInputs);
     }
 
     private IReadOnlyList<TrustedNeed> InspectNeeds(
@@ -496,7 +536,7 @@ public sealed class ExplainableRecommendationEngine(
         return trusted;
     }
 
-    private IReadOnlyList<AllocatedNeed> AllocateNeeds(
+    private NeedAllocationResult AllocateNeeds(
         ExplainableRecommendationRequest request,
         IReadOnlyList<TrustedNeed> trustedNeeds,
         InventoryInspection inventory,
@@ -519,6 +559,12 @@ public sealed class ExplainableRecommendationEngine(
                 candidateFir.Assessment);
         }
 
+        var decisionInputs = new List<EvidenceProvenance>();
+        if (candidateFir.Trusted is { } trustedCandidateFir)
+        {
+            decisionInputs.Add(trustedCandidateFir.Provenance);
+        }
+
         var needs = trustedNeeds
             .OrderByDescending(need => _policy.PriorityOf(RuleFor(need.Need)))
             .ThenBy(need => need.Need.StepsAhead)
@@ -538,6 +584,7 @@ public sealed class ExplainableRecommendationEngine(
             var supporting = new List<EvidenceProvenance>();
             if (need.RequiresFoundInRaid && candidateFir.Trusted?.Value != true)
             {
+                decisionInputs.Add(trustedNeed.Provenance);
                 continue;
             }
 
@@ -623,9 +670,17 @@ public sealed class ExplainableRecommendationEngine(
                     allocated,
                     supporting.Distinct().ToArray()));
             }
+            else
+            {
+                // A satisfied need is absent from the visible reason list, but it still enabled the
+                // lower-precedence answer and therefore remains decision material.
+                decisionInputs.Add(trustedNeed.Provenance);
+            }
         }
 
-        return result;
+        return new NeedAllocationResult(
+            result,
+            decisionInputs.Distinct().ToArray());
     }
 
     private ScarcityInspection InspectScarcity(
@@ -945,10 +1000,17 @@ public sealed class ExplainableRecommendationEngine(
         var trustedFootprint = footprint.Trusted!;
         var footprintValue = trustedFootprint.Value;
         var valuePerSquare = value / footprintValue;
+        // Selecting the better sale channel compares both trustworthy prices. Keeping only the
+        // winner would overstate decision confidence and hide the fact that could flip the channel.
+        var comparedPrices = new[] { flea.Trusted, trader.Trusted }
+            .OfType<TrustedValue<long>>()
+            .Select(candidate => candidate.Provenance)
+            .Distinct()
+            .ToArray();
         var priceRole = CombineProvenance(
             $"recommendation.economic-price.{(useFlea ? "flea-net" : "trader")}",
             request.EvaluatedUtc,
-            [price.Provenance]);
+            comparedPrices);
         var footprintRole = CombineProvenance(
             "recommendation.economic-footprint",
             request.EvaluatedUtc,
@@ -1138,6 +1200,34 @@ public sealed class ExplainableRecommendationEngine(
 
     private static string ActionText(V2RecommendationAction action) => action.ToString().ToLowerInvariant();
 
+    private static ReasonDraft SelectSummaryReason(
+        ExplainableRecommendationRule? dominantRule,
+        RaidContextInspection raidContext,
+        IReadOnlyList<ReasonDraft> orderedReasons)
+    {
+        if (dominantRule is not { } rule)
+        {
+            return orderedReasons[0];
+        }
+
+        if (rule == ExplainableRecommendationRule.RaidContext)
+        {
+            // The stricter axis is the one that actually establishes the combined threshold. Phase
+            // wins an exact tie so identical policies produce one stable summary on every runtime.
+            var bindingPrefix = (int)raidContext.RiskRequiredBand > (int)raidContext.PhaseRequiredBand
+                ? "raid.risk."
+                : "raid.phase.";
+            var bindingReason = orderedReasons.FirstOrDefault(reason =>
+                reason.Rule == rule && reason.Code.StartsWith(bindingPrefix, StringComparison.Ordinal));
+            if (bindingReason is not null)
+            {
+                return bindingReason;
+            }
+        }
+
+        return orderedReasons.FirstOrDefault(reason => reason.Rule == rule) ?? orderedReasons[0];
+    }
+
     private static string Summary(V2RecommendationAction action, string topReason) =>
         $"{action}: {topReason}";
 
@@ -1177,10 +1267,13 @@ public sealed class ExplainableRecommendationEngine(
         string issueExplanation)
         where T : struct
     {
+        // Overrides, protection, pins, wishlist membership, and recorded event outcomes are durable
+        // profile choices. Their explicit freshness status still applies, but an inventory TTL must
+        // not silently expire them merely because the user made the choice more than a day ago.
         var inspection = InspectEvidence(
             field,
             request.EvaluatedUtc,
-            _policy.MaximumInventoryAge,
+            maximumAge: null,
             allowPartial: false);
         if (!inspection.IsReliable)
         {
@@ -1193,7 +1286,7 @@ public sealed class ExplainableRecommendationEngine(
     private EvidenceInspection<T> InspectEvidence<T>(
         EvidencedValue<T?> field,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge,
+        TimeSpan? maximumAge,
         bool allowPartial)
         where T : struct
     {
@@ -1234,7 +1327,7 @@ public sealed class ExplainableRecommendationEngine(
         ResultStatus status,
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
-        TimeSpan maximumAge,
+        TimeSpan? maximumAge,
         bool allowPartial)
     {
         var completeEnough = status.Completeness == ResultCompleteness.Complete ||
@@ -1259,7 +1352,7 @@ public sealed class ExplainableRecommendationEngine(
             return new(false, EvidenceFailure.Future, FreshnessState.Unknown, provenance);
         }
 
-        if (evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge)
+        if (maximumAge is { } age && evaluatedUtc - provenance.EvidenceThroughUtc > age)
         {
             return new(false, EvidenceFailure.Stale, FreshnessState.Stale, provenance);
         }
@@ -1529,12 +1622,17 @@ public sealed class ExplainableRecommendationEngine(
 
     private sealed record InventoryInspection(
         TrustedValue<int>? Total,
-        TrustedValue<int>? FoundInRaid)
+        TrustedValue<int>? FoundInRaid,
+        IReadOnlyList<EvidenceProvenance> DecisionInputs)
     {
-        public static InventoryInspection Unknown { get; } = new(null, null);
+        public static InventoryInspection Unknown { get; } = new(null, null, []);
     }
 
     private sealed record TrustedNeed(RecommendationNeed Need, EvidenceProvenance Provenance);
+
+    private sealed record NeedAllocationResult(
+        IReadOnlyList<AllocatedNeed> Outstanding,
+        IReadOnlyList<EvidenceProvenance> DecisionInputs);
 
     private sealed record AllocatedNeed(
         RecommendationNeed Need,

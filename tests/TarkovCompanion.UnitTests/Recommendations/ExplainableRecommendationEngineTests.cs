@@ -518,6 +518,169 @@ public sealed class ExplainableRecommendationEngineTests
     }
 
     [Fact]
+    public void DurableProfileChoicesDoNotExpireOnTheInventoryTtl()
+    {
+        var recordedUtc = Now.Subtract(ExplainableRecommendationPolicy.Default.MaximumInventoryAge).AddTicks(-1);
+        var explicitDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            explicitAction: V2Action.Leave,
+            explicitProvenance: Provenance("durable-explicit", recordedUtc)))).Decision.Value!;
+        var protectedDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            protectedItem: true,
+            protectedProvenance: Provenance("durable-protection", recordedUtc)))).Decision.Value!;
+        var pinnedDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            pinned: true,
+            pinnedProvenance: Provenance("durable-pin", recordedUtc)))).Decision.Value!;
+        var wishlistDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            wishlist: true,
+            wishlistProvenance: Provenance("durable-wishlist", recordedUtc)))).Decision.Value!;
+        var allergicDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            eventState: EventItemState.Allergic,
+            eventProvenance: Provenance("durable-allergy", recordedUtc)))).Decision.Value!;
+
+        Assert.Equal(V2Action.Leave, explicitDecision.Action);
+        Assert.Contains(explicitDecision.Reasons, reason => reason.Code == "override.explicit");
+        Assert.Equal(V2Action.Keep, protectedDecision.Action);
+        Assert.Contains(protectedDecision.Reasons, reason => reason.Code == "item.protected");
+        Assert.Equal(V2Action.Keep, pinnedDecision.Action);
+        Assert.Contains(pinnedDecision.Reasons, reason => reason.Code == "profile.pinned");
+        Assert.Equal(V2Action.Keep, wishlistDecision.Action);
+        Assert.Contains(wishlistDecision.Reasons, reason => reason.Code == "profile.wishlist");
+        Assert.Equal(V2Action.AvoidConsume, allergicDecision.Action);
+        Assert.Contains(allergicDecision.Reasons, reason => reason.Code == "event.allergic");
+    }
+
+    [Fact]
+    public void DurableProfileChoicesStillRequireExplicitFreshnessConfidenceAndClarity()
+    {
+        var stale = new EvidencedValue<bool?>(
+            "profile.protected",
+            true,
+            new ResultStatus(ResultCompleteness.Complete, FreshnessState.Stale),
+            Provenance("durable-stale"));
+        var lowConfidence = Complete<bool?>(
+            "profile.protected",
+            true,
+            Provenance("durable-low-confidence", confidence: 0.40));
+        var ambiguous = new EvidencedValue<bool?>(
+            "profile.protected",
+            true,
+            CompleteStatus,
+            Provenance("durable-ambiguous"),
+            candidates:
+            [
+                new EvidenceCandidate<bool?>(
+                    "not-protected",
+                    "Not protected",
+                    false,
+                    Provenance("durable-ambiguous-false")),
+            ]);
+
+        foreach (var field in new[] { stale, lowConfidence, ambiguous })
+        {
+            var result = new ExplainableRecommendationEngine().Evaluate(Request(
+                profile: Profile(protectedField: field)));
+
+            Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+            Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "profile.protection-untrusted");
+            Assert.DoesNotContain(result.Decision.Value.Reasons, reason => reason.Code == "item.protected");
+        }
+    }
+
+    [Fact]
+    public void EconomicDecisionLineageIncludesNegativeProfileFactsAndBothComparedPrices()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            profile: Profile(
+                protectedProvenance: Provenance("protection-false", confidence: 0.77),
+                pinnedProvenance: Provenance("pin-false", confidence: 0.78),
+                wishlistProvenance: Provenance("wishlist-false", confidence: 0.79),
+                eventProvenance: Provenance("event-unknown", confidence: 0.80)),
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: 80_000,
+                squares: 2,
+                fleaNetProvenance: Provenance("flea-compared", confidence: 0.97),
+                traderProvenance: Provenance("trader-compared", confidence: 0.76),
+                squaresProvenance: Provenance("footprint-compared", confidence: 0.96))));
+        var sources = Flatten(result.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(V2Action.SellOnFlea, result.Decision.Value!.Action);
+        Assert.Contains("fixture://protection-false", sources);
+        Assert.Contains("fixture://pin-false", sources);
+        Assert.Contains("fixture://wishlist-false", sources);
+        Assert.Contains("fixture://event-unknown", sources);
+        Assert.Contains("fixture://flea-compared", sources);
+        Assert.Contains("fixture://trader-compared", sources);
+        Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void FirFalseAndSatisfiedNeedFactsRemainInEconomicDecisionLineage()
+    {
+        var firFalse = new ExplainableRecommendationEngine().Evaluate(Request(
+            profile: Profile(needs:
+            [
+                Need(
+                    "fir-suppressed",
+                    RecommendationNeedPurpose.Quest,
+                    0,
+                    1,
+                    fir: true,
+                    provenance: Provenance("fir-suppressed-need", confidence: 0.90)),
+            ]),
+            inventory: Inventory(
+                0,
+                0,
+                provenance: Provenance("fir-false-snapshot", confidence: 0.95),
+                totalProvenance: Provenance("fir-false-total", confidence: 0.94),
+                firProvenance: Provenance("fir-false-count", confidence: 0.93)),
+            candidateFoundInRaid: Complete<bool?>(
+                "candidate.fir",
+                false,
+                Provenance("candidate-fir-false", confidence: 0.76))));
+        var satisfied = new ExplainableRecommendationEngine().Evaluate(Request(
+            profile: Profile(needs:
+            [
+                Need(
+                    "satisfied",
+                    RecommendationNeedPurpose.Quest,
+                    0,
+                    1,
+                    provenance: Provenance("satisfied-need", confidence: 0.90)),
+            ]),
+            inventory: Inventory(
+                1,
+                0,
+                provenance: Provenance("satisfied-snapshot", confidence: 0.75),
+                totalProvenance: Provenance("satisfied-total", confidence: 0.80),
+                firProvenance: Provenance("satisfied-fir", confidence: 0.85))));
+
+        var firFalseSources = Flatten(firFalse.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
+        var satisfiedSources = Flatten(satisfied.Decision.Provenance)
+            .Select(provenance => provenance.SourceIdentifier)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(V2Action.SellOnFlea, firFalse.Decision.Value!.Action);
+        Assert.Contains("fixture://fir-suppressed-need", firFalseSources);
+        Assert.Contains("fixture://candidate-fir-false", firFalseSources);
+        Assert.Contains("fixture://fir-false-snapshot", firFalseSources);
+        Assert.Contains("fixture://fir-false-total", firFalseSources);
+        Assert.Contains("fixture://fir-false-count", firFalseSources);
+        Assert.Equal(0.76, firFalse.Decision.Provenance.Confidence.Score!.Value, 6);
+
+        Assert.Equal(V2Action.SellOnFlea, satisfied.Decision.Value!.Action);
+        Assert.Contains("fixture://satisfied-need", satisfiedSources);
+        Assert.Contains("fixture://satisfied-snapshot", satisfiedSources);
+        Assert.Contains("fixture://satisfied-total", satisfiedSources);
+        Assert.Contains("fixture://satisfied-fir", satisfiedSources);
+        Assert.Equal(0.75, satisfied.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
     public void OneReliabilityGateRejectsStaleNeedsAndAmbiguousFirPriceAndCounts()
     {
         var staleNeed = new ExplainableRecommendationEngine().Evaluate(Request(
@@ -643,6 +806,59 @@ public sealed class ExplainableRecommendationEngineTests
     }
 
     [Fact]
+    public void RaidSummaryNamesTheActionBindingAxisAndUsesPhaseForAnExactTie()
+    {
+        var riskBound = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 25_000, trader: null, squares: 1),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Late,
+                RecommendationRaidRisk.Critical))).Decision.Value!;
+        var phaseBound = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 25_000, trader: null, squares: 1),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Extracting,
+                RecommendationRaidRisk.Elevated))).Decision.Value!;
+        var tied = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 10_000, trader: null, squares: 1),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Late,
+                RecommendationRaidRisk.Elevated))).Decision.Value!;
+
+        Assert.Equal(V2Action.Leave, riskBound.Action);
+        Assert.Contains("critical", riskBound.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("late raid phase", riskBound.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(V2Action.Leave, phaseBound.Action);
+        Assert.Contains("extracting raid phase", phaseBound.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("elevated raid-risk", phaseBound.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(V2Action.Leave, tied.Action);
+        Assert.Contains("late raid phase", tied.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MaximumFirNeedSetKeepsDecisionLineageWithinTheFrozenBounds()
+    {
+        var needs = Enumerable.Range(0, RecommendationProfileFacts.MaximumNeeds)
+            .Select(index => Need(
+                $"bounded-{index:D2}",
+                RecommendationNeedPurpose.Quest,
+                0,
+                1,
+                fir: true))
+            .ToArray();
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            profile: Profile(needs: needs),
+            inventory: Inventory(0, 0)));
+
+        Assert.Equal(V2Action.Keep, result.Decision.Value!.Action);
+        Assert.Equal(RecommendationProfileFacts.MaximumNeeds, result.Decision.Value.Reasons.Count(reason =>
+            reason.Code.StartsWith("need.quest-current-fir.", StringComparison.Ordinal)));
+        Assert.True(Flatten(result.Decision.Provenance).Skip(1).Count() <= EvidenceProvenance.MaxInputCount);
+    }
+
+    [Fact]
     public void ProvenanceCombinationDeduplicatesInputsAndRejectsUnrepresentableDepth()
     {
         var shared = Provenance("shared-context");
@@ -734,16 +950,22 @@ public sealed class ExplainableRecommendationEngineTests
         bool pinned = false,
         bool wishlist = false,
         EventItemState eventState = EventItemState.Unknown,
-        IReadOnlyList<RecommendationNeed>? needs = null) => new(
+        IReadOnlyList<RecommendationNeed>? needs = null,
+        EvidenceProvenance? explicitProvenance = null,
+        EvidenceProvenance? protectedProvenance = null,
+        EvidenceProvenance? pinnedProvenance = null,
+        EvidenceProvenance? wishlistProvenance = null,
+        EvidenceProvenance? eventProvenance = null,
+        EvidencedValue<bool?>? protectedField = null) => new(
         CompleteStatus,
         Provenance("profile"),
         explicitAction is { } action
-            ? Complete<V2Action?>("profile.override", action)
+            ? Complete<V2Action?>("profile.override", action, explicitProvenance)
             : Unknown<V2Action?>("profile.override"),
-        Complete<bool?>("profile.protected", protectedItem),
-        Complete<bool?>("profile.pinned", pinned),
-        Complete<bool?>("profile.wishlist", wishlist),
-        Complete<EventItemState?>("profile.event", eventState),
+        protectedField ?? Complete<bool?>("profile.protected", protectedItem, protectedProvenance),
+        Complete<bool?>("profile.pinned", pinned, pinnedProvenance),
+        Complete<bool?>("profile.wishlist", wishlist, wishlistProvenance),
+        Complete<EventItemState?>("profile.event", eventState, eventProvenance),
         needs ?? []);
 
     private static RecommendationNeed Need(
@@ -766,12 +988,15 @@ public sealed class ExplainableRecommendationEngineTests
     private static RecommendationEconomics Economics(
         long? fleaNet = 100_000,
         long? trader = 80_000,
-        int? squares = 2) => new(
+        int? squares = 2,
+        EvidenceProvenance? fleaNetProvenance = null,
+        EvidenceProvenance? traderProvenance = null,
+        EvidenceProvenance? squaresProvenance = null) => new(
         Optional("economics.flea-gross", fleaNet is null ? null : fleaNet + 20_000),
         Optional<long>("economics.flea-fee", fleaNet is null ? null : 20_000),
-        Optional("economics.flea-net", fleaNet),
-        Optional("economics.trader", trader),
-        Optional("economics.squares", squares),
+        Optional("economics.flea-net", fleaNet, fleaNetProvenance),
+        Optional("economics.trader", trader, traderProvenance),
+        Optional("economics.squares", squares, squaresProvenance),
         Complete<double?>("economics.condition", 1));
 
     private static ObservedInventoryEvidenceSnapshot Inventory(
@@ -781,7 +1006,9 @@ public sealed class ExplainableRecommendationEngineTests
         bool includeItem = true,
         EvidenceProvenance? provenance = null,
         IReadOnlyList<EvidenceCandidate<int?>>? totalCandidates = null,
-        IReadOnlyList<EvidenceCandidate<int?>>? firCandidates = null)
+        IReadOnlyList<EvidenceCandidate<int?>>? firCandidates = null,
+        EvidenceProvenance? totalProvenance = null,
+        EvidenceProvenance? firProvenance = null)
     {
         var source = provenance ?? Provenance("inventory");
         var items = includeItem
@@ -794,7 +1021,7 @@ public sealed class ExplainableRecommendationEngineTests
                             "inventory.item-a.total",
                             totalValue,
                             CompleteStatus,
-                            source,
+                            totalProvenance ?? source,
                             candidates: totalCandidates)
                         : Unknown<int?>("inventory.item-a.total", source),
                     fir is { } firValue
@@ -802,7 +1029,7 @@ public sealed class ExplainableRecommendationEngineTests
                             "inventory.item-a.fir",
                             firValue,
                             CompleteStatus,
-                            source,
+                            firProvenance ?? source,
                             candidates: firCandidates)
                         : Unknown<int?>("inventory.item-a.fir", source)),
             }
