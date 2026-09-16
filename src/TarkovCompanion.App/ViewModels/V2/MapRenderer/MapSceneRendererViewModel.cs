@@ -478,6 +478,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         return true;
     }
 
+    /// <summary>The scene point under a viewport position, for a host placing something there.</summary>
+    /// <remarks>
+    /// The same unprojection <see cref="TrySelectAt"/> already does to hit-test, exposed on its
+    /// own so a host — the raid cockpit placing a mark, for one — can ask "where is that" without
+    /// this view model needing to know marks exist.
+    /// </remarks>
+    public bool TryScenePointAt(double viewportX, double viewportY, out MapScenePoint point) =>
+        _projection.TryUnproject(viewportX, viewportY, _scene.View.Camera, out point, out _);
+
     public void ClearSelection()
     {
         if (_selectedObjectId is null && _selectedLootSpawnId is null)

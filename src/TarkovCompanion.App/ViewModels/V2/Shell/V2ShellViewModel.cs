@@ -7,6 +7,7 @@ using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -85,12 +86,16 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         AppDataPaths paths,
         IRuntimeStateStore runtime,
         MainWindowViewModel legacy,
+        // V2 Raid cockpit (package 2): resolved by DI like every other registered service here;
+        // optional so this constructor's shape does not change for a caller that predates it.
+        RaidCockpitViewModel? raidCockpit = null,
         TimeProvider? clock = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
             options.StartPage,
             runtime,
             legacy,
+            raidCockpit,
             new V2ShellPreviewStore(
                 (paths ?? throw new ArgumentNullException(nameof(paths))).Config,
                 options.UiShell,
@@ -114,6 +119,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             requestedAddress: null,
             runtime,
             legacy: null,
+            raidCockpit: null,
             new V2ShellPreviewStore(configDirectory, mode, clock),
             clock,
             save,
@@ -126,6 +132,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         string? requestedAddress,
         IRuntimeStateStore runtime,
         MainWindowViewModel? legacy,
+        RaidCockpitViewModel? raidCockpit,
         V2ShellPreviewStore preview,
         TimeProvider? clock,
         Func<V2ShellPreviewState, CancellationToken, Task>? save,
@@ -135,6 +142,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         _runtime = runtime;
         _clock = clock ?? TimeProvider.System;
         Legacy = legacy;
+        RaidCockpit = raidCockpit;
         Registry = V2RouteRegistry.Default;
         Variant = V2ShellVariants.For(mode);
         Router = new V2ShellRouter(Variant, Registry);
@@ -232,6 +240,8 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
 
     public MainWindowViewModel? Legacy { get; }
     public object? LegacyPage => Legacy?.CurrentPage;
+    // V2 Raid cockpit (package 2): a sibling of Legacy, not part of it — see the constructor.
+    public object? RaidCockpit { get; }
     public V2RouteRegistry Registry { get; }
     public V2ShellVariantDefinition Variant { get; }
     public V2ShellRouter Router { get; }
@@ -539,7 +549,10 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
         Router.CurrentDestination == V2Routes.Items;
     public bool ShowsSectionNavigation => SectionItems.Count > 1;
     public bool ShowsLegacyPage => Registry[Router.Current.Location.Route].Content == V2RouteContent.LegacyPage;
-    public int ShellBodyRowSpan => ShowsLegacyPage ? 1 : 2;
+    // V2 Raid cockpit (package 2): a full-page workspace like the legacy page it replaced on
+    // this route, so it takes the same row span.
+    public bool ShowsRaidCockpit => Registry[Router.Current.Location.Route].Content == V2RouteContent.RaidCockpit;
+    public int ShellBodyRowSpan => ShowsLegacyPage || ShowsRaidCockpit ? 1 : 2;
     public bool ShowsReadiness => Registry[Router.Current.Location.Route].ShowsReadiness;
     public bool ShowsContinue => Registry[Router.Current.Location.Route].ShowsContinue;
     public bool ShowsStatePresenter =>
@@ -1731,7 +1744,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             nameof(Readiness), nameof(ReadinessItems), nameof(Surface), nameof(SurfaceTitle), nameof(SurfaceRemainder),
             nameof(SurfaceGlyph), nameof(SurfaceAutomationName), nameof(RecoveryActions), nameof(CurrentHeading), nameof(Title),
             nameof(ReadinessSummary), nameof(HealthSummary), nameof(HealthLabel),
-            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShellBodyRowSpan),
+            nameof(ShowsWorkspaceSearch), nameof(ShowsLegacyPage), nameof(ShowsRaidCockpit), nameof(ShellBodyRowSpan),
             nameof(ShowsReadiness), nameof(ShowsContinue),
             nameof(ShowsStatePresenter), nameof(ShowsIntel), nameof(ShowsIntelBeside), nameof(ShowsIntelInsteadOfPage),
             nameof(ShowsPrimaryContent), nameof(IntelItem), nameof(IntelDescription), nameof(IntelColumn), nameof(IntelColumnSpan),

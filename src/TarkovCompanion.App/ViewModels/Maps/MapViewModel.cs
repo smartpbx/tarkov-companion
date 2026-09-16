@@ -1923,6 +1923,13 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// The current map's render model, for a V2 adapter building a renderer-neutral scene from
+    /// it (see <c>MapSceneAssembler</c>). Raised through <see cref="NotifyPresentationProperties"/>
+    /// alongside the presentation properties that already depend on it.
+    /// </summary>
+    public MapRenderModel? RenderModel => _renderModel;
+
     public string AttributionText => _renderModel?.AttributionText ?? "Map artwork is not loaded.";
 
     public Uri AttributionUri => _renderModel?.Variant.AuthorLink ?? new Uri("https://tarkov.dev");
@@ -5875,6 +5882,7 @@ public sealed class MapViewModel : INotifyPropertyChanged, IDisposable
 
     private void NotifyPresentationProperties()
     {
+        OnPropertyChanged(nameof(RenderModel));
         OnPropertyChanged(nameof(AttributionText));
         OnPropertyChanged(nameof(AttributionUri));
         OnPropertyChanged(nameof(LicenseUri));

@@ -5,12 +5,14 @@ using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
+using TarkovCompanion.App.ViewModels.V2.Raid;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
+using TarkovCompanion.Application.Services.Maps.Scene;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
@@ -252,6 +254,13 @@ public static class AppComposition
         services.AddSingleton<HighValueLootRuntimeSource>();
         services.AddSingleton<IHighValueLootRuntimeSource>(provider =>
             provider.GetRequiredService<HighValueLootRuntimeSource>());
+        // V2 Raid cockpit (package 2): the scene adapter, the historical-traffic runtime it
+        // registers but does not yet evaluate (see RaidCockpitViewModel's remark on why), and
+        // local pings/waypoints kept between runs.
+        services.AddSingleton<MapSceneAssembler>();
+        services.AddSingleton<HistoricalTrafficRuntimeService>();
+        services.AddSingleton<IRaidMarkStore>(_ =>
+            new JsonFileRaidMarkStore(Path.Combine(paths.Config, "raid-marks.json"), timeProvider));
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
@@ -497,6 +506,18 @@ public static class AppComposition
                     : new UnavailableScanAdapter(timeProvider)));
         services.AddSingleton<IRuntimeScanUseCase, RuntimeScanUseCase>();
         services.AddSingleton<MainWindowViewModel>();
+        // V2 Raid cockpit (package 2): built from the V1 map/raid page a MainWindowViewModel
+        // singleton already owns, not from its own copies of them.
+        services.AddSingleton(provider => new RaidCockpitViewModel(
+            provider.GetRequiredService<MainWindowViewModel>().Map,
+            provider.GetRequiredService<MainWindowViewModel>().Raid,
+            provider.GetRequiredService<IRuntimeStateStore>(),
+            provider.GetRequiredService<MapSceneAssembler>(),
+            provider.GetRequiredService<IHighValueLootRuntimeSource>(),
+            provider.GetRequiredService<HistoricalTrafficRuntimeService>(),
+            provider.GetRequiredService<IRaidMarkStore>(),
+            provider.GetRequiredService<TarkovDevMapAssetCache>(),
+            timeProvider));
         services.AddSingleton<V2ShellViewModel>();
 
         return services.BuildServiceProvider(new ServiceProviderOptions

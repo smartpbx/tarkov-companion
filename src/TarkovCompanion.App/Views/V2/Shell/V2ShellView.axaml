@@ -399,6 +399,9 @@
             </StackPanel>
           </ScrollViewer>
           <ContentControl Grid.Row="1" IsVisible="{Binding ShowsLegacyPage}" Content="{Binding LegacyPage}" />
+          <!-- V2 Raid cockpit (package 2): a full-page workspace on the same row as the legacy
+               page above, mutually exclusive with it by route content. -->
+          <ContentControl Grid.Row="1" IsVisible="{Binding ShowsRaidCockpit}" Content="{Binding RaidCockpit}" />
           </Grid>
 
           <!-- One Intel instance changes columns. At wide B it is beside the current page; at a

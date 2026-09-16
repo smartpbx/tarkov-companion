@@ -225,6 +225,23 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void TryScenePointAt_unprojects_a_viewport_position_into_scene_space()
+    {
+        var renderer = Renderer(Scene());
+
+        // The canvas center is where the camera is looking, whatever the viewport size: this is
+        // the same unprojection TrySelectAt already relies on to hit-test, exposed for a host —
+        // the raid cockpit placing a mark, for one — that needs the point without a hit.
+        Assert.True(renderer.TryScenePointAt(renderer.CanvasWidth / 2, renderer.CanvasHeight / 2, out var center));
+        Assert.Equal(50, center.X, 3);
+        Assert.Equal(50, center.Y, 3);
+
+        Assert.True(renderer.TryScenePointAt(0, 0, out var corner));
+        Assert.NotEqual(center.X, corner.X);
+        Assert.NotEqual(center.Y, corner.Y);
+    }
+
+    [Fact]
     public void Selection_clear_and_camera_updates_preserve_control_collections_and_asset_resolution()
     {
         var resolveCalls = 0;

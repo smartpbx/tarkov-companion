@@ -1,0 +1,107 @@
+<UserControl x:Class="TarkovCompanion.App.Views.V2.Raid.RaidCockpitView"
+             x:DataType="vm:RaidCockpitViewModel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:TarkovCompanion.App.ViewModels.V2.Raid"
+             xmlns:appVm="using:TarkovCompanion.App.ViewModels"
+             xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer">
+  <Grid ColumnDefinitions="*,320" Margin="{DynamicResource V2.Space.Md.Inset}">
+    <Grid Grid.Column="0" RowDefinitions="Auto,*" Margin="0,0,12,0">
+      <WrapPanel Grid.Row="0" Classes="v2-toolbar" ItemSpacing="8" LineSpacing="8"
+                 AutomationProperties.AccessibilityView="Control"
+                 AutomationProperties.Name="Raid map controls">
+        <ComboBox x:Name="MapPickerBox" MinWidth="160" ItemsSource="{Binding MapPicker}"
+                  SelectionChanged="MapPickerSelectionChanged"
+                  AutomationProperties.AutomationId="v2-raid-map-picker"
+                  AutomationProperties.Name="Switch map"
+                  ToolTip.Tip="Switch map">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:RaidMapPickerItemViewModel">
+              <TextBlock Text="{Binding Name}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <Button Classes="v2-target" Content="Ping" Command="{Binding PlacePingCommand}"
+                Classes.selected="{Binding IsPlacingPing}"
+                AutomationProperties.AutomationId="v2-raid-place-ping" />
+        <Button Classes="v2-target" Content="Waypoint" Command="{Binding PlaceWaypointCommand}"
+                Classes.selected="{Binding IsPlacingWaypoint}"
+                AutomationProperties.AutomationId="v2-raid-place-waypoint" />
+        <Button Classes="v2-target" Content="Cancel" Command="{Binding CancelPlacingCommand}"
+                IsVisible="{Binding IsPlacingMark}"
+                AutomationProperties.AutomationId="v2-raid-cancel-placing" />
+        <TextBlock Classes="v2-label" Text="Click the map to place it"
+                   IsVisible="{Binding IsPlacingMark}" VerticalAlignment="Center" />
+      </WrapPanel>
+
+      <Grid Grid.Row="1">
+        <!-- IsVisible stays on this wrapper, not on MapSceneRendererView itself: that element's
+             own DataContext is overridden to Renderer below, and a binding on the same element
+             would resolve against that override instead of this page's view model. -->
+        <ContentControl IsVisible="{Binding HasRenderer}">
+          <map:MapSceneRendererView DataContext="{Binding Renderer}" PlanClicked="RendererPlanClicked" />
+        </ContentControl>
+        <Border Classes="v2-card" IsVisible="{Binding !HasRenderer}"
+                AutomationProperties.AutomationId="v2-raid-unavailable">
+          <TextBlock Classes="v2-body" Text="{Binding UnavailableReason}" TextWrapping="Wrap" />
+        </Border>
+      </Grid>
+    </Grid>
+
+    <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Classes="v2-stack" Spacing="12">
+        <Border Classes="v2-card">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-heading-2" Text="{Binding TimeLeft}"
+                       AutomationProperties.AutomationId="v2-raid-time-left" />
+            <TextBlock Classes="v2-label" Text="{Binding TimeLeftDetail}" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card" IsVisible="{Binding HasExtracts}">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-heading-2" Text="Extracts" />
+            <ItemsControl ItemsSource="{Binding Extracts}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="appVm:ActiveExtractViewModel">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="v2-body" Text="{Binding Name}" />
+                    <TextBlock Classes="v2-label" Text="{Binding Confidence}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="v2-label" Text="{Binding ExtractsNotMatched}"
+                       IsVisible="{Binding HasExtractsNotMatched}" TextWrapping="Wrap" />
+            <TextBlock Classes="v2-label" Text="{Binding Transits}"
+                       IsVisible="{Binding HasTransits}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-label" Text="{Binding TrafficLayerNotice}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="v2-card" IsVisible="{Binding HasMarks}">
+          <StackPanel Classes="v2-stack">
+            <TextBlock Classes="v2-heading-2" Text="My marks" />
+            <ItemsControl ItemsSource="{Binding Marks}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:RaidMarkRowViewModel">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="v2-label" Text="{Binding KindLabel}" />
+                    <TextBlock Classes="v2-body" Text="{Binding Label}" />
+                    <Button Classes="v2-target" Content="Remove" Command="{Binding RemoveCommand}"
+                            AutomationProperties.AutomationId="v2-raid-mark-remove" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

@@ -7,9 +7,12 @@ internal static class V2ShellTestData
 {
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
+    // "Raid" is deliberately absent: the V2 Raid route now hosts the raid cockpit
+    // (V2RouteContent.RaidCockpit), not a passthrough to the V1 page of the same name. The V1
+    // page remains reachable from V1 navigation; it is simply no longer a V2 LegacyPage route.
     public static readonly string[] V1Destinations =
     [
-        "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
+        "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings",
     ];
 
