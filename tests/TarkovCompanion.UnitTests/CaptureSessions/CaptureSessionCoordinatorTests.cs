@@ -638,7 +638,13 @@ public sealed class CaptureSessionCoordinatorTests
         await using var harness = new Harness(handoff: handoff);
         var pixels = Pixels(117);
         await harness.EnqueueAsync(CaptureDeliveryKind.Drop, pixels);
-        await harness.WaitForAsync(state => state.PixelsInUse > 0);
+        // Pixel ownership begins before analysis publishes the review deadline. Advancing the
+        // manual clock at that earlier point races the intake worker: on a slower Windows runner
+        // the deadline was then created after the jump, so this test waited for a timeout two
+        // seconds beyond the time it had just selected. Await the state whose deadline is under
+        // test, not an implementation detail that precedes it.
+        await harness.WaitForAsync(state => state.Sessions.Any(item =>
+            item.Snapshot.Progress[^1].Stage == CaptureSessionStage.AwaitingReview));
 
         harness.Clock.Advance(TimeSpan.FromSeconds(3));
         var terminal = await harness.WaitForAsync(state => state.Sessions.Any(item => item.IsTerminal));
