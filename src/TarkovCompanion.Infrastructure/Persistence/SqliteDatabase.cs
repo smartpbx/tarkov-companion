@@ -28,6 +28,8 @@ public sealed record SqliteDatabaseOptions(string DatabasePath)
 
 public sealed class SqliteConnectionFactory(SqliteDatabaseOptions options)
 {
+    public string DatabasePath => options.DatabasePath;
+
     public async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var directory = Path.GetDirectoryName(options.DatabasePath);

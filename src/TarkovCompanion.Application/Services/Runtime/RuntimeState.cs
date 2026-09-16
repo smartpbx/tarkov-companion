@@ -272,7 +272,7 @@ public sealed class RuntimeStateStore : IRuntimeStateStore
         var now = (timeProvider ?? TimeProvider.System).GetUtcNow();
         _current = Freeze(new(
             options.DemoMode,
-            options.Offline,
+            options.IsOffline,
             false,
             new(DataAvailability.Unavailable, 0, 0, null, "No local game data"),
             null,
@@ -496,7 +496,30 @@ public sealed record RuntimeOptions(
     GameMode GameMode,
     string Language,
     TimeSpan DataFreshFor,
-    TimeSpan RefreshTimeout);
+    TimeSpan RefreshTimeout)
+{
+    /// <summary>
+    /// Reads a process-level offline switch that can change while the application is running.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Offline"/> remains the deterministic fallback used by tests and fixed command
+    /// line configuration. Production supplies this probe for the environment-controlled mode;
+    /// snapshotting that value at composition time made reconnect require a full restart.
+    /// </remarks>
+    public Func<bool>? OfflineProbe { get; init; }
+
+    /// <summary>The longest an in-process offline-to-online change waits to be observed.</summary>
+    /// <remarks>
+    /// This is deliberately separate from the HTTP retry delay. The runtime coordinator owns
+    /// normalized data, projections and the published application state; noticing only inside
+    /// the HTTP cache could download newer JSON without ever making that data visible until the
+    /// next process start. A short, injected-clock interval keeps that ownership explicit and
+    /// makes the transition deterministic in tests.
+    /// </remarks>
+    public TimeSpan OfflineTransitionPollInterval { get; init; } = TimeSpan.FromSeconds(1);
+
+    public bool IsOffline => OfflineProbe?.Invoke() ?? Offline;
+}
 
 public interface IRuntimeDataStore
 {

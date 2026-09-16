@@ -80,7 +80,7 @@ public static class KeyValue
     /// <summary>
     /// What to do with one key.
     /// </summary>
-    /// <param name="roubles">What the market is paying, or zero where nothing is cached.</param>
+    /// <param name="roubles">What the market is paying, or null where nothing is cached.</param>
     /// <param name="dearerThan">
     /// The share of priced keys this one is dearer than, or null where it could not be ranked.
     /// </param>
@@ -88,7 +88,7 @@ public static class KeyValue
     /// <param name="maximumUses">Its use limit, where the source states one.</param>
     /// <param name="needs">What the player's own tracked progress asks for.</param>
     public static KeyVerdict Judge(
-        long roubles,
+        long? roubles,
         double? dearerThan,
         int lockCount,
         int? maximumUses,
@@ -126,7 +126,7 @@ public static class KeyValue
         // Two different silences, said differently. A key nothing has priced and a key that
         // could not be ranked because too few of the others are priced are both "cannot say",
         // and telling somebody the wrong reason is how they stop believing the right ones.
-        if (roubles <= 0)
+        if (roubles is not > 0)
         {
             return new(KeepOrSell.NoCall, "no price is cached, so nothing here can rank it");
         }

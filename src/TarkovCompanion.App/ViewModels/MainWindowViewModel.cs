@@ -1853,7 +1853,7 @@ public sealed class SettingsPageViewModel : PageViewModel
         // and needs no redistributable, so telling somebody running on it to go and install
         // one sends them after a problem they do not have.
         RecognitionNeedsRuntime = ocrStatus.Availability.Provider.StartsWith("tesseract", StringComparison.OrdinalIgnoreCase);
-        IsOffline = options.Offline;
+        IsOffline = options.IsOffline;
         DatabasePath = Path.Combine(paths.Database, "tarkov-companion.db");
         DiagnosticChannel = commandLine.DeveloperMode && !string.IsNullOrWhiteSpace(commandLine.DiagnosticChannelPath)
             ? "Requested"

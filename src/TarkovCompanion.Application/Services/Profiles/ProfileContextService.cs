@@ -257,7 +257,13 @@ public sealed class ProfileContextService : IDisposable
         checked(snapshot.Revision + 1),
         snapshot.ActiveProfileId,
         snapshot.Profiles.Select(profile => profile.Context.Identity.ProfileId == profileId
-            ? new ProfileRecord(profile.Context, profile.Name, profile.Progress, lifecycle, UtcNow())
+            ? new ProfileRecord(
+                profile.Context,
+                profile.Name,
+                profile.Progress,
+                lifecycle,
+                UtcNow(),
+                profile.ExtensionJson)
             : profile).ToArray());
 
     private static ProfileRecord Find(ProfileWorkspaceSnapshot snapshot, Guid profileId) =>

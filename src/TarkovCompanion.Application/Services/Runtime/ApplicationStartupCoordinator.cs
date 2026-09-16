@@ -33,9 +33,12 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly ILogger<ApplicationStartupCoordinator> _logger;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly object _backgroundGate = new();
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly BackgroundWorkSupervisor _supervisor;
     private readonly FeatureLifecycleCoordinator _lifecycle;
     private Task<BackgroundWorkResult>? _backgroundRefresh;
+    private Task? _offlineModeMonitor;
+    private bool _backgroundRefreshNeedsOnlineFollowup;
     private Task? _disposeTask;
     private bool _disposeStarted;
 
@@ -175,11 +178,13 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             Lifecycle = _lifecycle.Snapshot,
             Outbox = _raidActivityCoordinator.OutboxSnapshot,
         });
+        EnsureOfflineModeMonitor();
     }
 
     public void BeginBackgroundRefresh()
     {
-        if (_options.DemoMode || _options.Offline || !NeedsRefresh(_stateStore.Current.Data))
+        EnsureOfflineModeMonitor();
+        if (_options.DemoMode || _options.IsOffline || !NeedsRefresh(_stateStore.Current.Data))
         {
             return;
         }
@@ -211,6 +216,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     public async Task RefreshAsync(bool force, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        EnsureOfflineModeMonitor();
         Task<BackgroundWorkResult> refresh;
         lock (_backgroundGate)
         {
@@ -239,6 +245,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     private Task<BackgroundWorkResult> StartRefreshUnsafe(bool force, WorkPriority priority)
     {
+        // Remember the mode at admission, rather than at completion. If an offline refresh is
+        // already draining cached responses when connectivity returns, the transition monitor
+        // must follow it with one admitted online refresh that normalizes the newly fetched data.
+        _backgroundRefreshNeedsOnlineFollowup = _options.IsOffline;
         var operationId = OperationId.New();
         var execution = new OperationExecutionRequest(
             new("data-refresh"),
@@ -266,18 +276,9 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
     private async Task<RuntimeFault?> RefreshWithFaultAsync(bool force, CancellationToken cancellationToken)
     {
-        if (_options.Offline)
+        if (_options.IsOffline)
         {
-            _stateStore.Update(current => current with
-            {
-                Data = current.Data with
-                {
-                    Availability = current.Data.ItemCount > 0 ? DataAvailability.Cached : DataAvailability.Unavailable,
-                    Detail = current.Data.ItemCount > 0
-                        ? "Offline mode is enabled; using the local cache."
-                        : "Offline, and no local game data",
-                },
-            });
+            PublishOfflineState();
             return null;
         }
 
@@ -291,6 +292,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         {
             _stateStore.Update(current => current with
             {
+                IsOffline = _options.IsOffline,
                 Data = current.Data with { Availability = DataAvailability.Refreshing, Detail = "Refreshing stale game data in the background." },
             });
 
@@ -323,6 +325,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             var stale = report.Endpoints.Count(endpoint => endpoint.UsedStaleCache);
             _stateStore.Update(current => current with
             {
+                IsOffline = _options.IsOffline,
                 Data = Describe(cached) with
                 {
                     Detail = cached.ItemCount == 0
@@ -408,6 +411,13 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+        _lifetime.Cancel();
+        Task? offlineModeMonitor;
+        lock (_backgroundGate)
+        {
+            offlineModeMonitor = _offlineModeMonitor;
+        }
+
         // Both owners receive the same shutdown window. Waiting for one full bound before even
         // asking the other to stop turned two truthful ten-second waits into a twenty-second
         // application shutdown.
@@ -416,6 +426,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         await Task.WhenAll(lifecycleStopping, supervisorStopping).ConfigureAwait(false);
         var lifecycle = await lifecycleStopping.ConfigureAwait(false);
         var supervisor = await supervisorStopping.ConfigureAwait(false);
+        if (offlineModeMonitor is not null)
+        {
+            await offlineModeMonitor.ConfigureAwait(false);
+        }
         _stateStore.Update(current => current with
         {
             Lifecycle = _lifecycle.Snapshot,
@@ -440,6 +454,173 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
             // entering a lock that is about to disappear under it.
             _refreshLock.Dispose();
         }
+
+        _lifetime.Dispose();
+    }
+
+    /// <summary>Starts the process-lifetime observer that turns a reconnect into a full sync.</summary>
+    /// <remarks>
+    /// The JSON client can notice the same switch and refresh its raw cache, but it cannot own
+    /// normalized tables, projection invalidation or runtime-state publication. This observer
+    /// therefore admits one forced coordinator refresh on every offline-to-online edge. It does
+    /// no I/O while the fixed offline setting remains enabled and never delays startup.
+    /// </remarks>
+    private void EnsureOfflineModeMonitor()
+    {
+        if (_options.DemoMode || _options.OfflineProbe is null)
+        {
+            return;
+        }
+
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted || _offlineModeMonitor is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _offlineModeMonitor = MonitorOfflineModeAsync(_lifetime.Token);
+        }
+    }
+
+    private async Task MonitorOfflineModeAsync(CancellationToken cancellationToken)
+    {
+        var observedOffline = _stateStore.Current.IsOffline;
+        try
+        {
+            while (true)
+            {
+                var offline = _options.IsOffline;
+                if (offline != observedOffline)
+                {
+                    observedOffline = offline;
+                    if (offline)
+                    {
+                        lock (_backgroundGate)
+                        {
+                            // A refresh admitted online can cross this edge between endpoints.
+                            // Its mixed cached result is useful, but it is not the online refresh
+                            // promised by the next reconnect.
+                            if (_backgroundRefresh is { IsCompleted: false })
+                            {
+                                _backgroundRefreshNeedsOnlineFollowup = true;
+                            }
+                        }
+
+                        PublishOfflineState();
+                    }
+                    else
+                    {
+                        _stateStore.Update(current => current with
+                        {
+                            IsOffline = false,
+                            Data = current.Data with
+                            {
+                                Detail = "Connection restored; refreshing local game data.",
+                            },
+                        });
+                        await RefreshAfterReconnectAsync(cancellationToken).ConfigureAwait(false);
+                        observedOffline = _options.IsOffline;
+                    }
+                }
+
+                var pollInterval = ValidOfflinePollInterval();
+                await Task.Delay(
+                        pollInterval,
+                        _timeProvider,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal coordinator shutdown. The shared refresh, if any, remains owned by the
+            // supervisor and is stopped through its existing bounded shutdown path.
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "The offline-mode transition monitor stopped unexpectedly.");
+        }
+    }
+
+    private async Task RefreshAfterReconnectAsync(CancellationToken cancellationToken)
+    {
+        Task<BackgroundWorkResult>? refreshStartedOffline = null;
+        Task<BackgroundWorkResult>? onlineRefresh = null;
+        lock (_backgroundGate)
+        {
+            if (_disposeStarted)
+            {
+                return;
+            }
+
+            if (_backgroundRefresh is { IsCompleted: false } active)
+            {
+                if (_backgroundRefreshNeedsOnlineFollowup)
+                {
+                    refreshStartedOffline = active;
+                }
+                else
+                {
+                    onlineRefresh = active;
+                }
+            }
+            else
+            {
+                onlineRefresh = _backgroundRefresh = StartRefreshUnsafe(
+                    force: true,
+                    WorkPriority.Background);
+            }
+        }
+
+        if (refreshStartedOffline is not null)
+        {
+            await refreshStartedOffline.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (_options.IsOffline)
+            {
+                return;
+            }
+
+            lock (_backgroundGate)
+            {
+                if (_disposeStarted)
+                {
+                    return;
+                }
+
+                onlineRefresh = _backgroundRefresh is { IsCompleted: false } active
+                    && !_backgroundRefreshNeedsOnlineFollowup
+                    ? active
+                    : _backgroundRefresh = StartRefreshUnsafe(force: true, WorkPriority.Background);
+            }
+        }
+
+        if (onlineRefresh is not null)
+        {
+            await onlineRefresh.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private TimeSpan ValidOfflinePollInterval() =>
+        _options.OfflineTransitionPollInterval > TimeSpan.Zero
+            ? _options.OfflineTransitionPollInterval
+            : TimeSpan.FromSeconds(1);
+
+    private void PublishOfflineState()
+    {
+        _stateStore.Update(current => current with
+        {
+            IsOffline = true,
+            Data = current.Data with
+            {
+                Availability = current.Data.ItemCount > 0
+                    ? DataAvailability.Cached
+                    : DataAvailability.Unavailable,
+                Detail = current.Data.ItemCount > 0
+                    ? "Offline mode is enabled; using the local game-data cache."
+                    : "Offline, and no local game data",
+            },
+        });
     }
 
     private RuntimeDataState Describe(CachedDataSnapshot cached)
@@ -466,7 +647,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                     : "The last local game-data operation failed.");
         }
 
-        if (_options.Offline)
+        if (_options.IsOffline)
         {
             return new(
                 DataAvailability.Cached,

@@ -7,9 +7,11 @@ using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
+using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
+using TarkovCompanion.Application.Services.Profiles;
 using TarkovCompanion.Application.Services.Quests;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Recognition;
@@ -68,7 +70,10 @@ public static class AppComposition
         ArgumentNullException.ThrowIfNull(commandLine);
         settings ??= new();
         var timeProvider = settings.TimeProvider ?? TimeProvider.System;
-        var offline = settings.Offline ?? IsEnabled(Environment.GetEnvironmentVariable(OfflineEnvironmentVariable));
+        Func<bool> offlineProbe = settings.Offline is { } configuredOffline
+            ? () => configuredOffline
+            : () => IsEnabled(Environment.GetEnvironmentVariable(OfflineEnvironmentVariable));
+        var offline = offlineProbe();
         var paths = AppDataPaths.Resolve(settings.DataRoot, commandLine.Demo);
         var runtimeOptions = new RuntimeOptions(
             commandLine.Demo,
@@ -81,7 +86,10 @@ public static class AppComposition
             // second translation request, can legitimately need several minutes on a cold
             // cache. At 45 seconds the first slow endpoint consumed the budget and every
             // later endpoint was cancelled, so a clean install never obtained any game data.
-            TimeSpan.FromMinutes(5));
+            TimeSpan.FromMinutes(5))
+        {
+            OfflineProbe = offlineProbe,
+        };
         var databaseOptions = new SqliteDatabaseOptions(Path.Combine(paths.Database, "tarkov-companion.db"));
         var profileOptions = new JsonProfileOptions(Path.Combine(paths.Config, "profile.json"));
         var questExchangeOptions = new ProjectQuestProgressJsonOptions(
@@ -122,6 +130,7 @@ public static class AppComposition
 
         services.AddSingleton<SqliteConnectionFactory>();
         services.AddSingleton<SqliteMigrationRunner>();
+        services.AddSingleton<SqliteDataPlatformMaintenance>();
         services.AddSingleton<SqliteItemRepository>();
         services.AddSingleton<IItemRepository>(provider => provider.GetRequiredService<SqliteItemRepository>());
         services.AddSingleton<SqlitePriceHistoryRepository>();
@@ -133,12 +142,19 @@ public static class AppComposition
         services.AddSingleton<SqliteRuntimeDataStore>();
         services.AddSingleton<IRuntimeDataStore>(provider => provider.GetRequiredService<SqliteRuntimeDataStore>());
         services.AddSingleton<SqliteRaidHistoryService>();
+        services.AddSingleton<SqliteOutboxStore>();
+        services.AddSingleton<IOutboxStore>(provider => provider.GetRequiredService<SqliteOutboxStore>());
         // Behind a queue, so a database busy with the hourly catalog refresh cannot stall the
         // watcher reading the game's log. A write that arrives late is a row with the right
         // timestamp; an observation that never happens is gone.
         services.AddSingleton<IRaidHistoryService>(provider => new RaidHistoryOutbox(
             provider.GetRequiredService<SqliteRaidHistoryService>(),
-            provider.GetService<ILogger<RaidHistoryOutbox>>()));
+            provider.GetService<ILogger<RaidHistoryOutbox>>(),
+            timeProvider,
+            provider.GetRequiredService<IOutboxStore>()));
+        services.AddSingleton<SqliteProfileWorkspaceStore>();
+        services.AddSingleton<IProfileWorkspaceStore>(provider => provider.GetRequiredService<SqliteProfileWorkspaceStore>());
+        services.AddSingleton<ProfileContextService>();
         services.AddSingleton<SqliteRecognitionCatalogRepository>();
         services.AddSingleton<IRecognitionCatalogRepository>(provider =>
             provider.GetRequiredService<SqliteRecognitionCatalogRepository>());
@@ -159,6 +175,11 @@ public static class AppComposition
         // Hidden from the unread-table sweep by its DELETE blind spot until that was fixed.
         services.AddSingleton<SqliteBarterCatalog>();
         services.AddSingleton<IBarterCatalog>(provider => provider.GetRequiredService<SqliteBarterCatalog>());
+        // Cost and yield history used to have a write API only. Keep the normalized definition
+        // and its bounded economics history behind one production read contract.
+        services.AddSingleton<SqliteCraftPlanningCatalog>();
+        services.AddSingleton<ICraftPlanningCatalog>(provider =>
+            provider.GetRequiredService<SqliteCraftPlanningCatalog>());
         services.AddSingleton<SqliteQuestProgressStore>();
         services.AddSingleton<IQuestProgressStore>(provider =>
             provider.GetRequiredService<SqliteQuestProgressStore>());
@@ -174,9 +195,7 @@ public static class AppComposition
 
         services.AddSingleton<DataTranslationService>();
         services.AddSingleton(_ => new HttpClient(
-            offline
-                ? new OfflineHttpMessageHandler()
-                : settings.HttpMessageHandler ?? CreateDataHandler(),
+            settings.HttpMessageHandler ?? CreateDataHandler(),
             disposeHandler: true)
         {
             Timeout = Timeout.InfiniteTimeSpan,
@@ -193,6 +212,10 @@ public static class AppComposition
             new TarkovDevJsonClientOptions
             {
                 MirrorAddress = ReadCatalogMirror(Path.Combine(paths.Config, "group.json")),
+                // The environment variable is an operating mode, not a constructor-time choice.
+                // Keeping the real handler underneath this probe lets the bounded stale-cache
+                // retry observe a later transition back online without restarting the process.
+                OfflineProbe = offlineProbe,
             },
             timeProvider));
         services.AddSingleton<TarkovDevDataRefreshOperation>();
@@ -219,8 +242,12 @@ public static class AppComposition
         // Keeping the game's screenshot folder from growing without limit. Composed here
         // rather than discovered because it is the other half of the application that touches
         // files it did not create, and that should be visible in one place.
-        services.AddSingleton<IScreenshotRetentionStore>(_ =>
-            new JsonFileScreenshotRetentionStore(Path.Combine(paths.Config, "screenshots.json")));
+        services.AddSingleton(provider => new SqliteScreenshotRetentionStore(
+            provider.GetRequiredService<SqliteConnectionFactory>(),
+            timeProvider,
+            Path.Combine(paths.Config, "screenshots.json")));
+        services.AddSingleton<IScreenshotRetentionStore>(provider =>
+            provider.GetRequiredService<SqliteScreenshotRetentionStore>());
         // Where the game keeps its screenshots and logs, when the guessing is wrong. The first
         // person to install this who does not use OneDrive had no screenshots detected and no
         // way to say where they were.
@@ -242,7 +269,10 @@ public static class AppComposition
         services.AddSingleton<QuestMapProjectionService>();
         services.AddSingleton<MapViewModel>();
 
-        services.AddSingleton<IPlayerProfileService, JsonFilePlayerProfileService>();
+        services.AddSingleton<IPlayerProfileService>(provider => new JsonFilePlayerProfileService(
+            provider.GetRequiredService<JsonProfileOptions>(),
+            timeProvider,
+            provider.GetRequiredService<SqliteConnectionFactory>()));
         services.AddSingleton(provider => new ProjectQuestProgressJson(
             provider.GetRequiredService<ProjectQuestProgressJsonOptions>(),
             timeProvider));

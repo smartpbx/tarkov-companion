@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS quest_catalog_orphans;
+DROP TABLE IF EXISTS quest_objective_zones;
+DROP TABLE IF EXISTS quest_objective_item_targets;
+DROP TABLE IF EXISTS quest_objective_map_links;
+DROP TABLE IF EXISTS quest_objective_target_statuses;
+DROP TABLE IF EXISTS quest_catalog_objectives;
+DROP TABLE IF EXISTS quest_task_requirement_statuses;
+DROP TABLE IF EXISTS quest_task_requirements;
+DROP TABLE IF EXISTS quest_catalog_tasks;
+DROP TABLE IF EXISTS quest_catalog_snapshots;
