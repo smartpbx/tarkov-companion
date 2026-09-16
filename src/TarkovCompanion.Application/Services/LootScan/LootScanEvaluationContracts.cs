@@ -2,10 +2,66 @@ using System.Collections.ObjectModel;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Loot;
+using TarkovCompanion.Core.Domain.Recommendations;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 
 namespace TarkovCompanion.Application.Services.LootScan;
+
+/// <summary>
+/// Large recommendation inputs shared by every item in one frozen scan. Keeping the inventory and
+/// raid context here prevents a caller from pairing each item with a different view of the raid or
+/// duplicating thousands of inventory facts hundreds of times.
+/// </summary>
+public sealed record LootScanRecommendationContext
+{
+    public const int MaximumDataSnapshotIdLength =
+        LootScanCandidateRecommendation.MaximumDataSnapshotIdLength;
+
+    public const int MaximumProfileDescriptorLength =
+        LootScanCandidateRecommendation.MaximumProfileDescriptorLength;
+
+    public LootScanRecommendationContext(
+        InventoryProfileScope profileScope,
+        string dataSnapshotId,
+        ObservedInventoryEvidenceSnapshot? inventory,
+        RecommendationRaidContext? raidContext)
+    {
+        ProfileScope = profileScope ?? throw new ArgumentNullException(nameof(profileScope));
+        if (profileScope.Generation.Length > MaximumProfileDescriptorLength ||
+            profileScope.GameMode.Length > MaximumProfileDescriptorLength)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(profileScope),
+                $"Profile generation and game mode cannot exceed {MaximumProfileDescriptorLength} characters.");
+        }
+
+        DataSnapshotId = LootScanApplicationGuard.Required(
+            dataSnapshotId,
+            nameof(dataSnapshotId),
+            MaximumDataSnapshotIdLength);
+        if (inventory is not null &&
+            (inventory.Scope != ProfileScope ||
+             !string.Equals(inventory.DataSnapshotId, DataSnapshotId, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "The shared inventory must belong to the scan profile and data snapshot.",
+                nameof(inventory));
+        }
+
+        Inventory = inventory;
+        RaidContext = raidContext;
+    }
+
+    public InventoryProfileScope ProfileScope { get; }
+
+    public string DataSnapshotId { get; }
+
+    public ObservedInventoryEvidenceSnapshot? Inventory { get; }
+
+    public RecommendationRaidContext? RaidContext { get; }
+}
 
 /// <summary>A bounded decision request tied to the capture context frozen at intake.</summary>
 public sealed record LootScanRequest
@@ -21,6 +77,7 @@ public sealed record LootScanRequest
         string reviewedContentSha256,
         string initiatingDeviceId,
         DateTimeOffset evaluatedUtc,
+        LootScanRecommendationContext recommendationContext,
         GridReconstructionResult visibleLoot,
         GridReconstructionResult carriedInventory,
         IReadOnlyList<LootScanCandidateRecommendation> recommendations,
@@ -53,6 +110,7 @@ public sealed record LootScanRequest
         EvaluatedUtc = evaluatedUtc.Offset == TimeSpan.Zero
             ? evaluatedUtc
             : throw new ArgumentException("Loot-scan evaluation time must be UTC.", nameof(evaluatedUtc));
+        RecommendationContext = recommendationContext ?? throw new ArgumentNullException(nameof(recommendationContext));
         VisibleLoot = visibleLoot ?? throw new ArgumentNullException(nameof(visibleLoot));
         CarriedInventory = carriedInventory ?? throw new ArgumentNullException(nameof(carriedInventory));
         if (visibleLoot.Surface != InventoryGridSurface.VisibleLoot)
@@ -98,6 +156,8 @@ public sealed record LootScanRequest
     public string InitiatingDeviceId { get; }
 
     public DateTimeOffset EvaluatedUtc { get; }
+
+    public LootScanRecommendationContext RecommendationContext { get; }
 
     public GridReconstructionResult VisibleLoot { get; }
 

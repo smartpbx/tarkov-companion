@@ -1,5 +1,6 @@
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
+using TarkovCompanion.Core.Domain.Inventory;
 using TarkovCompanion.Core.Domain.Recommendations;
 using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 
@@ -96,29 +97,98 @@ public sealed record LootScanEvidenceBinding
     }
 }
 
+/// <summary>
+/// Compact, evidenced inputs for one bound item. The application service produces the actual
+/// recommendation result so callers cannot pair an item with independently evaluated advice.
+/// </summary>
 public sealed record LootScanCandidateRecommendation
 {
+    public const int MaximumRecommendationIdLength = 128;
+
+    public const int MaximumDataSnapshotIdLength = 256;
+
+    public const int MaximumProfileDescriptorLength = 256;
+
+    public const int MaximumNeedIdLength = 256;
+
+    public const int MaximumNeedDisplayNameLength = 512;
+
     public LootScanCandidateRecommendation(
         LootScanEvidenceBinding binding,
-        RecommendationResult recommendation,
-        RecommendationEconomics economics)
+        string recommendationId,
+        InventoryProfileScope profileScope,
+        string dataSnapshotId,
+        RecommendationProfileFacts profile,
+        RecommendationEconomics economics,
+        RecommendationScarcityFacts scarcity,
+        RecommendationEventScope? eventScope = null)
     {
         Binding = binding ?? throw new ArgumentNullException(nameof(binding));
-        Recommendation = recommendation ?? throw new ArgumentNullException(nameof(recommendation));
-        Economics = economics ?? throw new ArgumentNullException(nameof(economics));
-        if (recommendation.CaptureSessionId != binding.CaptureSessionId)
+        RecommendationId = LootScanEvidenceBinding.Required(
+            recommendationId,
+            nameof(recommendationId),
+            MaximumRecommendationIdLength);
+        ProfileScope = profileScope ?? throw new ArgumentNullException(nameof(profileScope));
+        if (profileScope.Generation.Length > MaximumProfileDescriptorLength ||
+            profileScope.GameMode.Length > MaximumProfileDescriptorLength)
         {
-            throw new ArgumentException("Recommendation and loot evidence must name the same capture session.", nameof(recommendation));
+            throw new ArgumentOutOfRangeException(
+                nameof(profileScope),
+                $"Profile generation and game mode cannot exceed {MaximumProfileDescriptorLength} characters.");
         }
+
+        DataSnapshotId = LootScanEvidenceBinding.Required(
+            dataSnapshotId,
+            nameof(dataSnapshotId),
+            MaximumDataSnapshotIdLength);
+        Profile = profile ?? throw new ArgumentNullException(nameof(profile));
+        Economics = economics ?? throw new ArgumentNullException(nameof(economics));
+        Scarcity = scarcity ?? throw new ArgumentNullException(nameof(scarcity));
+        if (eventScope is { } scope &&
+            (scope.ProfileScope != profileScope ||
+             !string.Equals(scope.ItemId, binding.CanonicalItemId, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "The recommendation event scope must name the bound profile and item.",
+                nameof(eventScope));
+        }
+
+        if (profile.EventState.Scope != eventScope)
+        {
+            throw new ArgumentException(
+                "The profile event state must match the recommendation event scope exactly.",
+                nameof(profile));
+        }
+
+        foreach (var need in profile.Needs)
+        {
+            _ = LootScanEvidenceBinding.Required(need.NeedId, nameof(profile), MaximumNeedIdLength);
+            _ = LootScanEvidenceBinding.Required(
+                need.DisplayName,
+                nameof(profile),
+                MaximumNeedDisplayNameLength);
+        }
+
+        EventScope = eventScope;
     }
 
     public LootScanEvidenceBinding Binding { get; }
 
     public GridCellAddress Anchor => Binding.Anchor;
 
-    public RecommendationResult Recommendation { get; }
+    public string RecommendationId { get; }
+
+    public InventoryProfileScope ProfileScope { get; }
+
+    public string DataSnapshotId { get; }
+
+    public RecommendationProfileFacts Profile { get; }
 
     public RecommendationEconomics Economics { get; }
+
+    public RecommendationScarcityFacts Scarcity { get; }
+
+    public RecommendationEventScope? EventScope { get; }
 }
 
 /// <summary>Facts that decide whether one observed carried item may be displaced.</summary>
