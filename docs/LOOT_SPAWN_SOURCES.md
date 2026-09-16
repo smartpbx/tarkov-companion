@@ -126,4 +126,4 @@ names the exact current content SHA-256 plus reviewer, reason, and UTC time. It 
 coverage and item-removal ratchets: source authority, chronology, and same-generation conflict
 checks remain mandatory. The durable implementation writes a bounded atomic authorization journal
 before attempting the replacement, so a stale reviewer cannot overwrite a concurrently advanced
-head and a failed disk write does not erase which exact candidate was approved. See ADR 0017.
+head and a failed disk write does not erase which exact candidate was approved. See ADR 0018.
