@@ -17,6 +17,13 @@ public sealed class DesktopPairingCoordinatorTests
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 3, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void UnverifiedProtocolAggregatesCannotBypassTheCoordinatorRegistrationBoundary()
+    {
+        Assert.Null(typeof(DesktopCompanionAuthority).GetMethod("RegisterPairingAsync"));
+        Assert.Null(typeof(DesktopCompanionAuthority).GetMethod("RegisterResumedSessionAsync"));
+    }
+
+    [Fact]
     public async Task PairResumeAndRevokeRequireEveryCeremonyBoundary()
     {
         using var desktopSigner = new FixtureDesktopSigner();
@@ -54,12 +61,39 @@ public sealed class DesktopPairingCoordinatorTests
             Now.AddSeconds(3));
         Assert.Equal("Raid tablet", approval.RequestedDisplayName);
         Assert.Equal(ProtocolBounds.VerificationCodeDigits, approval.VerificationCode.Length);
+        Assert.Equal(
+            approval,
+            await coordinator.BindRequestAsync(
+                pairingRequest,
+                CompanionProtocolVersion.Current,
+                Now.AddSeconds(3).AddMilliseconds(1)));
+        using (var replacementKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
+        {
+            var replacement = PairingRequestFor(
+                invitation.Offer,
+                replacementKey,
+                publicDeviceKey,
+                "Replacement tablet");
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await coordinator.BindRequestAsync(
+                    replacement,
+                    CompanionProtocolVersion.Current,
+                    Now.AddSeconds(3).AddMilliseconds(2)));
+        }
 
+        var grant = Grant(Now.AddDays(30));
         var challenge = await coordinator.ApproveAsync(
             invitation.Offer.AttemptId,
             userConfirmedMatchingVerificationCode: true,
-            Grant(Now.AddDays(30)),
+            grant,
             Now.AddSeconds(4));
+        Assert.Equal(
+            challenge,
+            await coordinator.ApproveAsync(
+                invitation.Offer.AttemptId,
+                userConfirmedMatchingVerificationCode: true,
+                grant,
+                Now.AddSeconds(4).AddMilliseconds(1)));
         var wrongOrigin = Proof(deviceKey, challenge, signatureCounter: 1, "https://evil.example");
         await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
             await coordinator.CompletePairingAsync(
@@ -88,7 +122,8 @@ public sealed class DesktopPairingCoordinatorTests
             CompanionTransportKind.EndToEndRelay,
             CompanionSurfaceKind.TabletLandscape,
             Now.AddMinutes(1));
-        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        Assert.Equal(
+            resumeChallenge,
             await coordinator.BeginResumeAsync(
                 resumeRequest,
                 CompanionProtocolVersion.Current,
@@ -96,6 +131,18 @@ public sealed class DesktopPairingCoordinatorTests
                 CompanionTransportKind.EndToEndRelay,
                 CompanionSurfaceKind.TabletLandscape,
                 Now.AddMinutes(1).AddSeconds(1)));
+        using (var replacementResumeKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256))
+        {
+            var replacementResume = ResumeRequestFor(pairedDevice, replacementResumeKey);
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await coordinator.BeginResumeAsync(
+                    replacementResume,
+                    CompanionProtocolVersion.Current,
+                    pairedDevice.Capabilities,
+                    CompanionTransportKind.EndToEndRelay,
+                    CompanionSurfaceKind.TabletLandscape,
+                    Now.AddMinutes(1).AddSeconds(1).AddMilliseconds(1)));
+        }
 
         var replayedCounter = Proof(deviceKey, resumeChallenge, signatureCounter: 1, Origin);
         await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
@@ -128,6 +175,53 @@ public sealed class DesktopPairingCoordinatorTests
                 CompanionTransportKind.EndToEndRelay,
                 CompanionSurfaceKind.TabletLandscape,
                 Now.AddMinutes(2).AddSeconds(1)));
+    }
+
+    [Fact]
+    public async Task InvalidFirstBoundRequestConsumesAttemptInsteadOfAllowingReplacement()
+    {
+        using var desktopSigner = new FixtureDesktopSigner();
+        using var deviceKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var authority = await DesktopCompanionAuthority.OpenAsync(
+            new MemoryAuthorityStore(),
+            InitialState());
+        using var coordinator = new DesktopPairingCoordinator(
+            authority,
+            desktopSigner,
+            new WebAuthnDeviceKeyProofVerifier(RelyingPartyId, Origin, new MemoryCounterStore()));
+        var invitation = await coordinator.CreateInvitationAsync(Now);
+        _ = await coordinator.ResolveOfferAsync(
+            invitation.PairingCode,
+            IPAddress.Loopback,
+            Now.AddSeconds(1));
+        using var tabletKey = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        var valid = PairingRequestFor(
+            invitation.Offer,
+            tabletKey,
+            PublicDeviceKey(deviceKey),
+            "Raid tablet");
+        var tag = Base64Url.DecodeFromChars(valid.RequestedDeviceName.AuthenticationTagBase64Url);
+        tag[0] ^= 0x80;
+        var tampered = new PairingRequest(
+            valid.AttemptId,
+            valid.NegotiatedVersion,
+            valid.DeviceKey,
+            valid.EphemeralKey,
+            valid.ClientNonceBase64Url,
+            new SealedDeviceName(
+                valid.RequestedDeviceName.CiphertextBase64Url,
+                Base64Url.EncodeToString(tag)));
+
+        await Assert.ThrowsAsync<AuthenticationTagMismatchException>(async () =>
+            await coordinator.BindRequestAsync(
+                tampered,
+                CompanionProtocolVersion.Current,
+                Now.AddSeconds(2)));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(async () =>
+            await coordinator.BindRequestAsync(
+                valid,
+                CompanionProtocolVersion.Current,
+                Now.AddSeconds(3)));
     }
 
     [Fact]
@@ -229,6 +323,9 @@ public sealed class DesktopPairingCoordinatorTests
                     CancellationToken.None));
                 Assert.True(await store.TryAcceptAsync(
                     new DeviceSignatureCounter(keyId, firstChallenge, 7, Now),
+                    CancellationToken.None));
+                Assert.False(await store.TryAcceptAsync(
+                    new DeviceSignatureCounter(keyId, firstChallenge, 7, Now.AddMilliseconds(1)),
                     CancellationToken.None));
                 Assert.False(await store.TryAcceptAsync(
                     new DeviceSignatureCounter(keyId, secondChallenge, 7, Now.AddSeconds(1)),
@@ -457,7 +554,9 @@ public sealed class DesktopPairingCoordinatorTests
             {
                 if (existing.ChallengeId == candidate.ChallengeId)
                 {
-                    return ValueTask.FromResult(existing.SignatureCounter == candidate.SignatureCounter);
+                    return ValueTask.FromResult(
+                        existing.SignatureCounter == candidate.SignatureCounter &&
+                        existing.ChallengeIssuedUtc == candidate.ChallengeIssuedUtc);
                 }
 
                 if (existing.SignatureCounter > 0 && candidate.SignatureCounter <= existing.SignatureCounter)

@@ -54,7 +54,10 @@ public sealed class DesktopCompanionAuthority : IDisposable
         }
     }
 
-    public async ValueTask<AuthorityMutation> RegisterPairingAsync(
+    // Only DesktopPairingCoordinator can cross this boundary. A protocol DTO can describe a
+    // completed state-machine shape, but it does not prove that the production WebAuthn verifier,
+    // local approval, and monotonic counter checks actually ran.
+    internal async ValueTask<AuthorityMutation> RegisterPairingAsync(
         PairingAttempt completedPairing,
         string approvedDisplayName,
         DeviceAuthorizationRole role,
@@ -109,7 +112,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async ValueTask<AuthorityMutation> RegisterResumedSessionAsync(
+    internal async ValueTask<AuthorityMutation> RegisterResumedSessionAsync(
         SessionResumeAttempt completedResume,
         IReadOnlyList<DeviceCapability> sessionCapabilities,
         CompanionTransportKind transport,
@@ -406,7 +409,9 @@ public sealed class DesktopCompanionAuthority : IDisposable
             _gate.Release();
         }
 
-        _gate.Dispose();
+        // A caller can pass the pre-wait disposal guard just before disposal begins and still be
+        // queued here. Keeping this managed semaphore alive lets that waiter wake, observe the
+        // terminal flag, release the next waiter, and fail instead of racing Dispose or hanging.
     }
 
     private async ValueTask<AuthorityMutation> MutateAsync(
@@ -562,5 +567,5 @@ public sealed class DesktopCompanionAuthority : IDisposable
     }
 
     private void ThrowIfDisposed() =>
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(_disposed || Volatile.Read(ref _disposeStarted) != 0, this);
 }

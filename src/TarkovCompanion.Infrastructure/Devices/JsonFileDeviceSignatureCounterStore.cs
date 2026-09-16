@@ -39,11 +39,11 @@ public sealed class JsonFileDeviceSignatureCounterStore : IDeviceSignatureCounte
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeStarted) != 0, this);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(_disposed, this);
+            ObjectDisposedException.ThrowIf(_disposed || Volatile.Read(ref _disposeStarted) != 0, this);
             Directory.CreateDirectory(Path.GetDirectoryName(_path)
                 ?? throw new InvalidOperationException("The WebAuthn counter path has no parent directory."));
             using var lease = AcquireLease();
@@ -54,7 +54,8 @@ public sealed class JsonFileDeviceSignatureCounterStore : IDeviceSignatureCounte
                 var existing = counters[existingIndex];
                 if (existing.ChallengeId == candidate.ChallengeId)
                 {
-                    return existing.SignatureCounter == candidate.SignatureCounter;
+                    return existing.SignatureCounter == candidate.SignatureCounter &&
+                           existing.ChallengeIssuedUtc == candidate.ChallengeIssuedUtc;
                 }
 
                 if (existing.SignatureCounter > 0 && candidate.SignatureCounter <= existing.SignatureCounter)
@@ -100,7 +101,8 @@ public sealed class JsonFileDeviceSignatureCounterStore : IDeviceSignatureCounte
             _gate.Release();
         }
 
-        _gate.Dispose();
+        // A proof can pass the pre-wait disposal guard immediately before disposal begins.
+        // Leaving this managed semaphore alive lets every such waiter drain and fail closed.
     }
 
     private FileStream AcquireLease()

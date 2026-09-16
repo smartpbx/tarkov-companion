@@ -233,34 +233,60 @@ public sealed class DesktopPairingCoordinator : IDisposable
                 throw new UnauthorizedAccessException("The one-time pairing code has not been resolved.");
             }
 
+            if (pending.Attempt.Stage != PairingAttemptStage.Offered)
+            {
+                if (pending.Attempt.Request == request &&
+                    request.NegotiatedVersion == negotiatedVersion &&
+                    pending.Approval is { } existingApproval)
+                {
+                    return existingApproval;
+                }
+
+                throw new InvalidOperationException("Another pairing request is already bound to this one-time code.");
+            }
+
             var bound = PairingStateMachine.BindResolvedCode(
                 pending.Attempt,
                 request,
                 negotiatedVersion,
                 nowUtc);
-            var sharedSecret = PairingCryptography.DeriveP256SharedSecret(
-                pending.EphemeralKey,
-                request.EphemeralKey);
+            // Binding must happen before opening attacker-controlled ciphertext. If authentication
+            // of the sealed name fails, this attempt is consumed instead of allowing another key
+            // to replace the first structurally valid request for the one-time code.
+            pending.Attempt = bound;
+            byte[]? sharedSecret = null;
             try
             {
+                sharedSecret = PairingCryptography.DeriveP256SharedSecret(
+                    pending.EphemeralKey,
+                    request.EphemeralKey);
                 pending.RequestedDisplayName = PairingCryptography.OpenDeviceName(
                     sharedSecret,
                     bound.Offer,
                     request);
             }
+            catch
+            {
+                RemovePairing(pending);
+                throw;
+            }
             finally
             {
-                CryptographicOperations.ZeroMemory(sharedSecret);
+                if (sharedSecret is not null)
+                {
+                    CryptographicOperations.ZeroMemory(sharedSecret);
+                }
             }
 
-            pending.Attempt = bound;
-            return new DesktopPairingApproval(
+            var approval = new DesktopPairingApproval(
                 bound.AttemptId,
                 PairingStateMachine.RevealNonce(bound, nowUtc),
                 pending.RequestedDisplayName!,
                 request.DeviceKey.KeyId,
                 PairingStateMachine.VerificationCode(bound),
                 bound.ExpiresUtc);
+            pending.Approval = approval;
+            return approval;
         }
         finally
         {
@@ -281,6 +307,19 @@ public sealed class DesktopPairingCoordinator : IDisposable
         {
             Prune(nowUtc);
             var pending = RequirePairing(attemptId);
+            if (pending.Attempt.Stage == PairingAttemptStage.AwaitingDeviceProof)
+            {
+                var validatedRetryGrant = ValidateGrant(grant, nowUtc);
+                if (userConfirmedMatchingVerificationCode &&
+                    pending.Grant is { } existingGrant &&
+                    GrantsMatch(existingGrant, validatedRetryGrant))
+                {
+                    return pending.Attempt.Challenge!;
+                }
+
+                throw new InvalidOperationException("The pairing attempt has already been approved with another grant.");
+            }
+
             if (!userConfirmedMatchingVerificationCode)
             {
                 _ = PairingStateMachine.Deny(pending.Attempt, nowUtc);
@@ -412,8 +451,21 @@ public sealed class DesktopPairingCoordinator : IDisposable
         try
         {
             Prune(nowUtc);
-            if (_resumes.Values.Any(item => item.Attempt.Request.DeviceId == request.DeviceId))
+            var existingResume = _resumes.Values.SingleOrDefault(
+                item => item.Attempt.Request.DeviceId == request.DeviceId);
+            if (existingResume is not null)
             {
+                ValidateConnection(transport, surface);
+                var retryCapabilities = ValidateCapabilities(sessionCapabilities, nameof(sessionCapabilities));
+                if (existingResume.Attempt.Request == request &&
+                    request.NegotiatedVersion == negotiatedVersion &&
+                    existingResume.Transport == transport &&
+                    existingResume.Surface == surface &&
+                    existingResume.SessionCapabilities.SequenceEqual(retryCapabilities))
+                {
+                    return existingResume.Attempt.Challenge;
+                }
+
                 throw new InvalidOperationException("A resume challenge for this device is already pending.");
             }
 
@@ -594,14 +646,15 @@ public sealed class DesktopPairingCoordinator : IDisposable
             _gate.Release();
         }
 
-        _gate.Dispose();
+        // A request can pass the pre-wait disposal guard immediately before disposal begins.
+        // Leaving this managed semaphore alive lets every such waiter drain and fail closed.
     }
 
     private async ValueTask WaitAsync(CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeStarted) != 0, this);
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        if (_disposed)
+        if (_disposed || Volatile.Read(ref _disposeStarted) != 0)
         {
             _gate.Release();
             throw new ObjectDisposedException(nameof(DesktopPairingCoordinator));
@@ -687,6 +740,14 @@ public sealed class DesktopPairingCoordinator : IDisposable
             SessionCapabilities = sessionCapabilities,
         };
     }
+
+    private static bool GrantsMatch(PairingDeviceGrant left, PairingDeviceGrant right) =>
+        left.Role == right.Role &&
+        left.DeviceExpiresUtc == right.DeviceExpiresUtc &&
+        left.Transport == right.Transport &&
+        left.Surface == right.Surface &&
+        left.DeviceCapabilities.SequenceEqual(right.DeviceCapabilities) &&
+        left.SessionCapabilities.SequenceEqual(right.SessionCapabilities);
 
     private static IReadOnlyList<DeviceCapability> ValidateSessionCapabilities(
         PairedDevice device,
@@ -797,6 +858,8 @@ public sealed class DesktopPairingCoordinator : IDisposable
         public bool CodeResolved { get; set; }
 
         public string? RequestedDisplayName { get; set; }
+
+        public DesktopPairingApproval? Approval { get; set; }
 
         public PairingDeviceGrant? Grant { get; set; }
 
