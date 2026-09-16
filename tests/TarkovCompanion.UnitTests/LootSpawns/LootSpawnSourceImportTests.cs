@@ -84,7 +84,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Oversized_collection_is_refused()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
         {
             var pool = content["snapshots"]![0]!["records"]![0]!["pool"]!.AsObject();
             pool["kind"] = "unweightedCandidates";
@@ -102,7 +102,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Oversized_string_is_refused()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
             content["snapshots"]![0]!["records"]![0]!["label"] = new string('x', 257));
 
         var exception = await Assert.ThrowsAsync<LootSpawnSourceImportException>(() => ReadAsync(documents));
@@ -113,7 +113,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Excessive_unknown_nesting_is_still_refused_by_the_global_parser_bound()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
         {
             JsonNode nested = JsonValue.Create(true)!;
             for (var index = 0; index < JsonLootSpawnSourceBundleReader.MaximumJsonDepth + 1; index++)
@@ -158,7 +158,7 @@ public sealed class LootSpawnSourceImportTests
     [InlineData("floor", "location.floor-unknown")]
     public async Task Invalid_coordinates_and_floors_are_refused(string mutation, string expectedCode)
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
         {
             var location = content["snapshots"]![0]!["records"]![0]!["location"]!;
             if (mutation == "coordinate")
@@ -179,7 +179,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Duplicate_floor_claims_are_refused_instead_of_silently_collapsed()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
             content["snapshots"]![0]!["records"]![0]!["location"]!["floorIds"] =
                 new JsonArray(JsonValue.Create("ground"), JsonValue.Create("ground")));
 
@@ -191,7 +191,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Unknown_item_is_not_fabricated_from_a_label()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
             content["snapshots"]![0]!["records"]![0]!["pool"]!["itemIds"]![0] = "unknown-item");
 
         var exception = await Assert.ThrowsAsync<LootSpawnSourceImportException>(() => ReadAsync(documents));
@@ -284,7 +284,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Identity_strings_with_hidden_surrounding_whitespace_are_refused()
     {
-        var documents = Documents(content => content["datasetVersion"] = " fixture-2026-09-16");
+        var documents = Documents(content: content => content["datasetVersion"] = " fixture-2026-09-16");
 
         var exception = await Assert.ThrowsAsync<LootSpawnSourceImportException>(() => ReadAsync(documents));
 
@@ -317,7 +317,7 @@ public sealed class LootSpawnSourceImportTests
     [Fact]
     public async Task Incompatible_map_transform_is_refused()
     {
-        var documents = Documents(content =>
+        var documents = Documents(content: content =>
             content["snapshots"]![0]!["transformVersion"] = "unreviewed-transform");
 
         var exception = await Assert.ThrowsAsync<LootSpawnSourceImportException>(() => ReadAsync(documents));

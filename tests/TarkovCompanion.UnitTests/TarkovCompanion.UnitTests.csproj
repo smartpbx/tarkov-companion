@@ -25,5 +25,6 @@
     <None Include="../../fixtures/profiles/profile-context-v1.json" Link="fixtures/profiles/profile-context-v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/release/version-grammar.json" Link="fixtures/release/version-grammar.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../fixtures/loot-spawns/**/*" Link="fixtures/loot-spawns/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../fixtures/maps/tarkov-dev-catalog.synthetic.json" Link="fixtures/maps/tarkov-dev-catalog.synthetic.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

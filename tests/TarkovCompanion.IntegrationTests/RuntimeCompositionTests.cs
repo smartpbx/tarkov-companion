@@ -480,7 +480,9 @@ public sealed class RuntimeCompositionTests
             new(1, 2, 3, 4),
             TimeSpan.FromDays(7),
             TimeSpan.FromDays(90),
-            0.5),
+            // The provider publishes no calibrated confidence score. Accept unscored evidence
+            // here instead of manufacturing a score in the production adapter.
+            0),
         snapshot.Records.SelectMany(record => record.Location.FloorIds).Distinct().ToArray());
 
     private static string TemporaryRoot() =>
