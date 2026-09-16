@@ -369,6 +369,16 @@ function Invoke-AutomationElement {
     ([System.Windows.Automation.InvokePattern] $Pattern).Invoke()
 }
 
+function Toggle-AutomationElement {
+    param([System.Windows.Automation.AutomationElement] $Element, [string] $Description)
+
+    $Pattern = $null
+    if (-not $Element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref] $Pattern)) {
+        throw "$Description does not expose the UI Automation Toggle pattern."
+    }
+    ([System.Windows.Automation.TogglePattern] $Pattern).Toggle()
+}
+
 function Set-AutomationValue {
     param(
         [System.Windows.Automation.AutomationElement] $Element,
@@ -414,6 +424,7 @@ function Invoke-ShellInteraction {
             if ($null -eq $Target) { throw "Interaction target '$Description' was not in the packaged app's automation tree." }
             switch ($Action) {
                 "invoke" { Invoke-AutomationElement -Element $Target -Description $Description }
+                "toggle" { Toggle-AutomationElement -Element $Target -Description $Description }
                 "focus" { $Target.SetFocus() }
                 "set-value" {
                     Set-AutomationValue `
@@ -990,7 +1001,7 @@ $Shots.Add([pscustomobject]@{
                     [pscustomobject]@{ automationId = "v2-map-layer-hazards-88da2def"; pattern = '^Hide Hazards$'; includeOffscreen = $true })
             },
             [pscustomobject]@{
-                action = "invoke"; description = "filter the typed loot layer to exceptional spawns"
+                action = "toggle"; description = "filter the typed loot layer to exceptional spawns"
                 targetAutomationId = "v2-map-loot-filter-tier-exceptional-71739f81"; targetControlType = "Button"
                 includeOffscreen = $true
                 expectedNamePatterns = @(
@@ -1004,12 +1015,12 @@ $Shots.Add([pscustomobject]@{
                     [pscustomobject]@{ automationId = "v2-map-loot-selection-live"; pattern = '^Map-only medical cache\.'; includeOffscreen = $true })
             },
             [pscustomobject]@{
-                action = "invoke"; description = "filter typed loot rows to the medical category"
+                action = "toggle"; description = "filter typed loot rows to the medical category"
                 targetAutomationId = "v2-map-loot-filter-category-medical-fca38b50"; targetControlType = "Button"
                 includeOffscreen = $true
             },
             [pscustomobject]@{
-                action = "invoke"; description = "show the explicit empty profile-utility filter state"
+                action = "toggle"; description = "show the explicit empty profile-utility filter state"
                 targetAutomationId = "v2-map-loot-filter-basis-profileutility-3e6145a0"; targetControlType = "Button"
                 includeOffscreen = $true
                 expectedNamePatterns = @(
@@ -1031,7 +1042,7 @@ $Shots.Add([pscustomobject]@{
             expectedNamePatterns = @(
                 [pscustomobject]@{ automationId = "v2-map-loot-state"; pattern = '^Loot-spawn data is unavailable\.' })
         }, [pscustomobject]@{
-            action = "invoke"; description = "toggle the unavailable loot layer independently"
+            action = "toggle"; description = "toggle the unavailable loot layer independently"
             targetAutomationId = "v2-map-layer-high-value-loot-spawns-cb6f64d2"; targetControlType = "Button"
             includeOffscreen = $true
             expectedNamePatterns = @(

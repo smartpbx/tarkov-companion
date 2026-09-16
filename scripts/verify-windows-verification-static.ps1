@@ -141,6 +141,7 @@ Require-Text $Gallery 'Wait-AutomationOutsideViewportElement' 'strict outside-vi
 Require-Text $Gallery '$Element.Current.IsOffscreen -or -not $IntersectsViewport' 'UI Automation viewport-state assertion'
 Require-Text $Gallery 'outside the packaged window viewport' 'useful outside-viewport failure'
 Require-Text $Gallery 'Wait-AutomationNamePattern' 'polling UI Automation name-state assertion'
+Require-Text $Gallery 'TogglePattern' 'typed toggle-control UI Automation interaction'
 Require-Text $Gallery 'expectedFocusAutomationId' 'packaged keyboard-focus assertion'
 Require-Text $Gallery 'expectedDialogName' 'named dialog-peer assertion'
 Require-Text $Gallery 'expectedCurrentAutomationIds' 'current-destination UIA assertion'
