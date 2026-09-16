@@ -1,9 +1,11 @@
 using System.Security.Cryptography;
+using System.Runtime.Versioning;
 using TarkovCompanion.CompanionProtocol;
 using TarkovCompanion.Platform.Windows.Devices;
 
 namespace TarkovCompanion.WindowsSmokeTests;
 
+[SupportedOSPlatform("windows")]
 public sealed class WindowsDpapiDesktopIdentitySignerTests
 {
     [Fact]
