@@ -10,15 +10,19 @@ namespace TarkovCompanion.Application.Services.Devices;
 public sealed class DesktopCompanionAuthority : IDisposable
 {
     private readonly IDesktopCompanionAuthorityStore _store;
+    private readonly IDisposable _lease;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private DesktopCompanionAuthorityState _state;
     private bool _disposed;
+    private int _disposeStarted;
 
     private DesktopCompanionAuthority(
         IDesktopCompanionAuthorityStore store,
+        IDisposable lease,
         DesktopCompanionAuthorityState state)
     {
         _store = store;
+        _lease = lease;
         _state = state;
     }
 
@@ -31,14 +35,23 @@ public sealed class DesktopCompanionAuthority : IDisposable
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(initialCanonicalState);
-        var state = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
-        if (state is null)
+        var lease = await store.AcquireExclusiveLeaseAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            state = DesktopCompanionAuthorityState.Create(initialCanonicalState);
-            await store.SaveAsync(state, cancellationToken).ConfigureAwait(false);
-        }
+            var state = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (state is null)
+            {
+                state = DesktopCompanionAuthorityState.Create(initialCanonicalState);
+                await store.SaveAsync(state, cancellationToken).ConfigureAwait(false);
+            }
 
-        return new DesktopCompanionAuthority(store, state);
+            return new DesktopCompanionAuthority(store, lease, state);
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
     }
 
     public async ValueTask<AuthorityMutation> RegisterPairingAsync(
@@ -159,8 +172,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(envelope);
-        ThrowIfDisposed();
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var state = _state;
@@ -206,8 +218,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(acknowledgement);
-        ThrowIfDisposed();
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var state = _state;
@@ -239,8 +250,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
     {
         ArgumentNullException.ThrowIfNull(frame);
         ArgumentNullException.ThrowIfNull(request);
-        ThrowIfDisposed();
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var state = _state;
@@ -380,12 +390,22 @@ public sealed class DesktopCompanionAuthority : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
+        _gate.Wait();
+        try
+        {
+            _disposed = true;
+            _lease.Dispose();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
         _gate.Dispose();
     }
 
@@ -394,8 +414,7 @@ public sealed class DesktopCompanionAuthority : IDisposable
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mutation);
-        ThrowIfDisposed();
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForMutationGateAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var result = mutation(_state);
@@ -414,6 +433,21 @@ public sealed class DesktopCompanionAuthority : IDisposable
     {
         await _store.SaveAsync(next, cancellationToken).ConfigureAwait(false);
         Volatile.Write(ref _state, next);
+    }
+
+    private async ValueTask WaitForMutationGateAsync(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+        }
+        catch
+        {
+            _gate.Release();
+            throw;
+        }
     }
 
     private static (PairedDevice Device, DeviceSession Session) ResolveFrame(
