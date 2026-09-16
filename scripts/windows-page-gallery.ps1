@@ -1012,7 +1012,11 @@ $Shots.Add([pscustomobject]@{
                 targetAutomationId = "v2-map-loot-row-map-only-cache-9594a087"; targetControlType = "Button"
                 includeOffscreen = $true
                 expectedNamePatterns = @(
-                    [pscustomobject]@{ automationId = "v2-map-loot-selection-live"; pattern = '^Map-only medical cache\.'; includeOffscreen = $true })
+                    # Text peers may expose either the explicit composite AutomationProperties.Name
+                    # or their visible heading as the UIA Name. The stable id proves this is the
+                    # selected-detail peer; accept both truthful names instead of requiring the
+                    # toolkit-specific punctuation after the heading.
+                    [pscustomobject]@{ automationId = "v2-map-loot-selection-live"; pattern = '^Map-only medical cache(?:\.|$)'; includeOffscreen = $true })
             },
             [pscustomobject]@{
                 action = "toggle"; description = "filter typed loot rows to the medical category"
