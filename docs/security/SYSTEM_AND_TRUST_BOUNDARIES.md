@@ -107,7 +107,7 @@ flowchart TB
     Build -- "recorded artifact-archive digests" --> Publish
     Publish -- "signed immutable build + signed ring decision" --> PrivateFeed
     Publish -- "keyless signatures + provenance" --> Sigstore
-    Core -- "POST /report; user-submitted SupportBundle body;\ncurrent client redaction incomplete; effective 32 KiB cap;\n3/derived-room/hour counter" --> Relay
+    Core -- "POST /report; closed desktop SupportBundle or arbitrary caller body;\neffective 32 KiB cap; 3/derived-room/hour counter" --> Relay
     Relay --> RelayState
     RelayWatch -- "X-Admin-Key reads report metadata/references only;\nrepo token opens issues" --> Relay
     AdminBrowser -- "same-origin X-Admin-Key;\nmay be direct HTTP" --> Relay
@@ -193,10 +193,12 @@ allowlists derived room hashes, but registration does not prove who supplied a k
 make an active room key unguessable.
 
 The same client-to-relay boundary carries problem-report bodies. The relay accepts and persists an
-untrusted client-supplied body verbatim, then returns an opaque reference. The client-side bundle
-is not reliably redacted today: `Observation.Detail` can carry raw roots, and the app-log tail can
-retain roots, screenshot filenames, and coordinates. This contradicts `docs/SAFETY.md`'s
-restriction on exporting diagnostic path segments and is open as RISK-REPORT-REDACTION.
+untrusted client-supplied body verbatim, then returns an opaque reference. The ordinary desktop
+caller now sends a closed, bounded `SupportBundle` projection that never opens its log input or
+renders free-form runtime fields, roots, screenshot names, coordinates, identities, credentials,
+OCR/pixels, or exception bodies. The desktop still sends without an explicit confirmation preview,
+and the relay accepts arbitrary bodies from alternate callers without enforcing that schema. Those
+end-to-end gaps remain open as RISK-REPORT-REDACTION.
 
 ### TB-5: Group relay ↔ upstream/self-update
 
@@ -328,7 +330,7 @@ the durable locator if later edits move them.
 | Release producer/policy (issue #280 source) | `.github/workflows/windows-verify.yml`; `.github/workflows/publish.yml`; `scripts/release/`; `docs/RELEASES.md`; ADR 0011 |
 | Relay update status versus signed updater (issue #280 source) | `src/TarkovCompanion.GroupServer/RelayUpdate.cs`; `deploy/group-server/tarkov-group-update.sh` |
 | Data-root selection | `src/TarkovCompanion.App/Services/AppDataPaths.cs:12-27`; `src/TarkovCompanion.App/Services/AppComposition.cs:50-72` |
-| Report bundle, redaction gap, rate/storage bounds | `src/TarkovCompanion.App/Services/Diagnostics/SupportBundle.cs:48-110`; `src/TarkovCompanion.Application/Services/Raids/RaidObservationService.cs`; `src/TarkovCompanion.App/Services/FileLoggerProvider.cs`; `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193`; `.github/workflows/relay-watch.yml` |
+| Closed desktop report plus preview/relay-ingress/rate/storage gaps | `src/TarkovCompanion.App/Services/Diagnostics/SupportBundle.cs`; `tests/TarkovCompanion.UnitTests/SupportBundleTests.cs`; `src/TarkovCompanion.App/ViewModels/MainWindowViewModel.cs`; `src/TarkovCompanion.GroupServer/Program.cs:10-12,252-283`; `src/TarkovCompanion.GroupServer/ProblemReports.cs:31-60,101-193`; `.github/workflows/relay-watch.yml` |
 | Relay member expiry | `src/TarkovCompanion.GroupServer/GroupRooms.cs:29,130-205`; `src/TarkovCompanion.GroupServer/Program.cs:132-148` |
 | Cross-room mark persistence | `src/TarkovCompanion.GroupServer/GroupMarks.cs:67-77,102-140,243-315` |
 | Profile/import/export surfaces | `src/TarkovCompanion.App/Services/AppComposition.cs:84-85,244-249`; `src/TarkovCompanion.Infrastructure/Profile/JsonFilePlayerProfileService.cs:89-119`; `src/TarkovCompanion.Infrastructure/Profile/ProjectQuestProgressJson.cs:16-180`; `src/TarkovCompanion.Infrastructure/Persistence/Repositories/SqliteRaidHistoryService.cs:333-364`; `src/TarkovCompanion.Application/Services/Runtime/RaidHistoryOutbox.cs:119-123` |

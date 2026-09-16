@@ -140,10 +140,10 @@ public sealed class CrashLogTests : IDisposable
 
     /// <summary>A line is still written while something else holds the log open.</summary>
     /// <remarks>
-    /// The log matters most when something else is looking at it — a support bundle reading it
-    /// to send on, or the user with it open. File.AppendAllText shares the file read-only for
-    /// as long as it is open, and Windows reads that from both ends, so an append and any other
-    /// handle wanting write access refuse each other and the line is dropped silently.
+    /// The log matters most while the user or a local diagnostic tool has it open. The shareable
+    /// support bundle deliberately never opens it. File.AppendAllText shares the file read-only
+    /// for as long as it is open, and Windows reads that from both ends, so an append and any
+    /// other handle wanting write access refuse each other and the line is dropped silently.
     /// </remarks>
     [Fact]
     public void ALineIsStillWrittenWhileSomethingElseHoldsTheLog()

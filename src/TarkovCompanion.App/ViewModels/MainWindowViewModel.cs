@@ -1755,12 +1755,11 @@ public sealed class SettingsPageViewModel : PageViewModel
     /// across Discord. This is so the answer can be sent by the person who has the problem,
     /// in one action, without them having to find anything.
     ///
-    /// SAFETY.md governs what it may contain: no game logs, no group key, no screenshots, no
-    /// coordinates, and user folder names replaced. It meets that only in part today. The log
-    /// tail names screenshots in full, coordinates included; only its Windows user-folder
-    /// segments and group keys are replaced, and the detail lines are not redacted at all
-    /// (RISK-REPORT-REDACTION, owned by #281 and #310). What it is meant to carry is the shape of
-    /// the screenshot names, which is the thing that settles the case above.
+    /// SAFETY.md governs what it may contain. SupportBundle projects the snapshot into a closed
+    /// schema of categories, booleans, and capped counts; it never opens the log or renders a
+    /// screenshot name, coordinate, path, credential, identity, or free-form runtime detail.
+    /// The screenshot compatibility count is enough to settle the case above without exporting
+    /// the evidence that produced it. Relay-side arbitrary-body validation remains owned by #310.
     /// </remarks>
     public async Task CopyDiagnosticsAsync(Func<string, Task> toClipboard)
     {

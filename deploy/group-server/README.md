@@ -140,9 +140,9 @@ set `TARKOV_GROUP_STATE` to a writable directory instead. The server writes:
   own directories, [above](#where-the-updater-keeps-what-it-decides-from)
 
 Pings are not written: they expire in forty-five seconds and mean "now", so one restored from
-disk would be a lie. Live member positions and trails are not written either. A report body can
-still contain folder paths and screenshot coordinates, so back up and delete `reports/` as
-sensitive data.
+disk would be a lie. Live member positions and trails are not written either. The ordinary
+desktop report is closed and excludes paths and coordinates, but this endpoint still accepts
+arbitrary caller bodies, so back up and delete `reports/` as sensitive data.
 
 Until `StateDirectory=` is set on the running unit, marks and the room registry live in memory
 and a restart clears them, reports are not kept, and the panel cannot ask for an update.
