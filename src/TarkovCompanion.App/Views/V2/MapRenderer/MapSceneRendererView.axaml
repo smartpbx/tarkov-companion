@@ -105,6 +105,11 @@
                 AutomationProperties.AutomationId="v2-map-fit"
                 AutomationProperties.Name="{Binding FitPlanLabel}"
                 Content="{Binding FitPlanLabel}" />
+        <Button Classes="v2-target" Command="{Binding HighValueLootPresetCommand}"
+                IsVisible="{Binding HasHighValueLoot}"
+                AutomationProperties.AutomationId="v2-map-loot-preset"
+                AutomationProperties.Name="{Binding HighValueLootPresetLabel}"
+                Content="{Binding HighValueLootPresetLabel}" />
       </WrapPanel>
     </Grid>
 
@@ -294,12 +299,179 @@
 
       <ScrollViewer x:Name="DetailsPanel" Grid.Column="1" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="12">
+          <Border Classes="v2-card" IsVisible="{Binding HasHighValueLoot}">
+            <ScrollViewer MaxHeight="340" HorizontalScrollBarVisibility="Disabled">
+            <ContentControl Content="{Binding HighValueLoot}">
+              <ContentControl.ContentTemplate>
+                <DataTemplate x:DataType="vm:HighValueLootLayerViewModel">
+                  <StackPanel Spacing="10">
+                    <TextBlock Classes="v2-heading-3" Text="{Binding Heading}"
+                               AutomationProperties.AutomationId="v2-map-loot-heading"
+                               AutomationProperties.HeadingLevel="2" />
+                    <TextBlock Classes="v2-body" Text="{Binding Legend}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-legend"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding Legend}" />
+                    <TextBlock Classes="v2-label" Text="{Binding StateMessage}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-state"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.LiveSetting="Polite"
+                               AutomationProperties.Name="{Binding StateMessage}" />
+                    <TextBlock Classes="v2-label" Text="{Binding FreshnessMessage}" TextWrapping="Wrap"
+                               IsVisible="{Binding HasFreshnessMessage}"
+                               AutomationProperties.AutomationId="v2-map-loot-freshness"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.LiveSetting="Polite"
+                               AutomationProperties.Name="{Binding FreshnessMessage}" />
+                    <TextBlock Classes="v2-label" Text="{Binding CoverageLabel}"
+                               IsVisible="{Binding HasCoverage}" TextWrapping="Wrap" />
+
+                    <TextBlock Classes="v2-heading-3" Text="{Binding FilterHeading}"
+                               AutomationProperties.HeadingLevel="3" />
+                    <TextBlock Classes="v2-label" Text="{Binding ValueBasisLabel}" />
+                    <ItemsControl ItemsSource="{Binding ValueBasisChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="v2-label" Text="{Binding MinimumTierLabel}" />
+                    <ItemsControl ItemsSource="{Binding MinimumTierChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="v2-label" Text="{Binding ProfileRelevanceLabel}" />
+                    <ItemsControl ItemsSource="{Binding ProfileRelevanceChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <TextBlock Classes="v2-label" Text="{Binding CategoryLabel}" />
+                    <ItemsControl ItemsSource="{Binding CategoryChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="v2-label" Text="{Binding CategoryOptionsNotice}"
+                               IsVisible="{Binding HasCategoryOptionsNotice}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-category-more"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding CategoryOptionsNotice}" />
+                    <TextBlock Classes="v2-label" Text="{Binding MultipleCategoryFilterMessage}"
+                               IsVisible="{Binding HasMultipleCategoryFilter}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-category-active"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding MultipleCategoryFilterMessage}" />
+
+                    <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
+                    <ItemsControl ItemsSource="{Binding FloorChoices}">
+                      <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel ItemSpacing="6" LineSpacing="6" /></ItemsPanelTemplate>
+                      </ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootFilterChoiceViewModel">
+                          <ToggleButton Classes="v2-map-choice" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="{Binding AutomationId}"
+                                        AutomationProperties.Name="{Binding Label}"
+                                        Content="{Binding Label}" Command="{Binding SelectCommand}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="v2-label" Text="{Binding FloorOptionsNotice}"
+                               IsVisible="{Binding HasFloorOptionsNotice}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-floor-more"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding FloorOptionsNotice}" />
+
+                    <WrapPanel ItemSpacing="8" LineSpacing="8">
+                      <TextBlock Classes="v2-label" Text="{Binding PageLabel}" VerticalAlignment="Center"
+                                 AutomationProperties.AutomationId="v2-map-loot-page-status"
+                                 AutomationProperties.AccessibilityView="Control"
+                                 AutomationProperties.Name="{Binding PageLabel}" />
+                      <Button Classes="v2-target" Content="{Binding PreviousPageLabel}"
+                              IsEnabled="{Binding CanGoToPreviousPage}"
+                              AutomationProperties.AutomationId="v2-map-loot-page-previous"
+                              AutomationProperties.Name="{Binding PreviousPageLabel}"
+                              Command="{Binding PreviousPageCommand}" />
+                      <Button Classes="v2-target" Content="{Binding NextPageLabel}"
+                              IsEnabled="{Binding CanGoToNextPage}"
+                              AutomationProperties.AutomationId="v2-map-loot-page-next"
+                              AutomationProperties.Name="{Binding NextPageLabel}"
+                              Command="{Binding NextPageCommand}" />
+                    </WrapPanel>
+                    <TextBlock Classes="v2-label" IsVisible="{Binding ShowsEmpty}"
+                               Text="{Binding EmptyMessage}" TextWrapping="Wrap" />
+                    <ItemsControl ItemsSource="{Binding Rows}" IsVisible="{Binding HasEntries}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:HighValueLootEntryViewModel">
+                          <Button Classes="v2-map-choice" HorizontalAlignment="Stretch"
+                                  HorizontalContentAlignment="Left"
+                                  AutomationProperties.AutomationId="{Binding AutomationId}"
+                                  AutomationProperties.Name="{Binding AutomationName}"
+                                  Command="{Binding SelectCommand}">
+                            <StackPanel Spacing="3">
+                              <TextBlock Classes="v2-body" Text="{Binding Label}" TextWrapping="Wrap" />
+                              <WrapPanel ItemSpacing="8" LineSpacing="3">
+                                <TextBlock Classes="v2-label" Text="{Binding TierLabel}" />
+                                <TextBlock Classes="v2-label" Text="{Binding ValueLabel}" />
+                                <TextBlock Classes="v2-label" Text="{Binding ListOnlyLabel}"
+                                           IsVisible="{Binding IsListOnly}" />
+                              </WrapPanel>
+                              <TextBlock Classes="v2-label" Text="{Binding CandidateLabel}" TextWrapping="Wrap" />
+                              <TextBlock Classes="v2-label" Text="{Binding LocationLabel}" TextWrapping="Wrap" />
+                            </StackPanel>
+                          </Button>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </DataTemplate>
+              </ContentControl.ContentTemplate>
+            </ContentControl>
+            </ScrollViewer>
+          </Border>
+
           <Border Classes="v2-card" IsVisible="{Binding HasSelection}">
             <StackPanel Spacing="8">
               <!-- A hidden border still evaluates bindings. Instantiate the typed detail
                    template only when a selected object exists, so a normal empty selection
                    cannot emit one binding fault per nested property. -->
-              <ContentControl Content="{Binding SelectedObject}">
+              <ContentControl Content="{Binding SelectedObject}" IsVisible="{Binding HasGenericSelection}">
                 <ContentControl.ContentTemplate>
                   <DataTemplate x:DataType="vm:MapSceneRendererObjectViewModel">
                     <StackPanel Spacing="8">
@@ -324,6 +496,50 @@
                       <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding EstimateLabel}"
                                  IsVisible="{Binding HasEstimate}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ContentControl.ContentTemplate>
+              </ContentControl>
+              <ContentControl Content="{Binding SelectedLootEntry}" IsVisible="{Binding HasLootSelection}">
+                <ContentControl.ContentTemplate>
+                  <DataTemplate x:DataType="vm:HighValueLootEntryViewModel">
+                    <StackPanel Spacing="8">
+                      <TextBlock Classes="v2-heading-3" Text="{Binding Label}"
+                                 AutomationProperties.AutomationId="v2-map-loot-selection-live"
+                                 AutomationProperties.AccessibilityView="Control"
+                                 AutomationProperties.LiveSetting="Polite"
+                                 AutomationProperties.Name="{Binding AutomationName}"
+                                 AutomationProperties.HeadingLevel="2" />
+                      <WrapPanel ItemSpacing="8" LineSpacing="4">
+                        <TextBlock Classes="v2-label" Text="{Binding TierLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding ValueLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding LocationLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
+                        <TextBlock Classes="v2-label" Text="{Binding ListOnlyLabel}"
+                                   IsVisible="{Binding IsListOnly}" />
+                      </WrapPanel>
+                      <TextBlock Classes="v2-body" Text="{Binding PossibleItemsLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding CategoriesLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding CandidateLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProfileRelevanceLabel}"
+                                 IsVisible="{Binding HasProfileRelevance}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProfileConflictLabel}"
+                                 IsVisible="{Binding HasProfileConflicts}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProbabilityLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding RespawnLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding AccessLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding MissingFactsLabel}"
+                                 IsVisible="{Binding HasMissingFacts}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding DatasetLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-dataset" />
+                      <TextBlock Classes="v2-label" Text="{Binding SourceLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-source" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProducerLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding EvidenceTimeLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ConfidenceLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-confidence" />
+                      <TextBlock Classes="v2-label" Text="{Binding SourceCoverageLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-source-coverage" />
                     </StackPanel>
                   </DataTemplate>
                 </ContentControl.ContentTemplate>

@@ -19,6 +19,9 @@ public sealed class HighValueLootLayerServiceTests
 
         var result = Build(Snapshot([spawn]), filter);
 
+        Assert.Equal("customs", result.MapId);
+        Assert.Equal("transform-1", result.TransformVersion);
+        Assert.Same(filter, result.AppliedFilter);
         var entry = Assert.Single(result.Entries);
         Assert.Equal(80_000, entry.MinimumValue);
         Assert.Equal(900_000, entry.MaximumValue);
@@ -613,8 +616,28 @@ public sealed class HighValueLootLayerServiceTests
 
         var entry = Assert.Single(Build(Snapshot([spawn])).Entries);
 
+        Assert.Null(entry.ProjectedSpawnProbability);
+        Assert.Null(entry.ProjectedRespawnBehavior);
         Assert.Contains(entry.MissingFacts, fact => fact.StartsWith("Spawn probability", StringComparison.Ordinal));
         Assert.Contains(entry.MissingFacts, fact => fact.StartsWith("Respawn behavior", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Current_unambiguous_probability_and_respawn_survive_the_typed_projection()
+    {
+        var provenance = Provenance("trusted-spawn-facts");
+        var spawn = Spawn(
+            "customs-trusted-facts",
+            [Candidate("gpu", "Graphics card", 900_000)],
+            spawnProbability: new("probability", 0.25, CompleteStatus, provenance),
+            respawnBehavior: new("respawn", "Once per raid", CompleteStatus, provenance));
+
+        var entry = Assert.Single(Build(Snapshot([spawn])).Entries);
+
+        Assert.Equal(0.25, entry.ProjectedSpawnProbability);
+        Assert.Equal("Once per raid", entry.ProjectedRespawnBehavior);
+        Assert.DoesNotContain(entry.MissingFacts, fact => fact.StartsWith("Spawn probability", StringComparison.Ordinal));
+        Assert.DoesNotContain(entry.MissingFacts, fact => fact.StartsWith("Respawn behavior", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -723,6 +746,9 @@ public sealed class HighValueLootLayerServiceTests
 
         Assert.Throws<ArgumentException>(() => new HighValueLootLayerResult(
             valid.Layer,
+            valid.MapId,
+            valid.TransformVersion,
+            valid.AppliedFilter,
             valid.Status,
             valid.CompactLegend,
             valid.DataThroughUtc,

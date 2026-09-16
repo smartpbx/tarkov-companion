@@ -31,8 +31,10 @@ not.
 The six files under `audits/` are source-review evidence lanes, not parallel risk registers and
 not proof of mitigation. Their lane IDs are reconciled into the stable abuse-case and risk IDs in
 `ABUSE_CASES.md` and `CONTROLS_AND_RESIDUAL_RISK.md`; `PHASE_STATUS.md` contains the complete
-crosswalk and reproducible counts. Issue #317 remains open until implementation, exact-head CI,
-and any required manual `dev` verification satisfy its release criteria.
+crosswalk and reproducible counts. The later issue-#278 authorization core is recorded separately
+as tested but uncomposed evidence so it cannot be mistaken for deployed protection. Issue #317
+remains open until implementation, exact-head CI, and any required manual `dev` verification
+satisfy its release criteria.
 
 ## Product presentation contract
 
