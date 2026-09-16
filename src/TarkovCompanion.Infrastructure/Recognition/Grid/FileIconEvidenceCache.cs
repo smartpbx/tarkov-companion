@@ -42,7 +42,10 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
 {
     private const int SchemaVersion = 1;
     private const string FileSuffix = ".icon-evidence-v1.json";
+    private const string TemporaryFileSuffix = ".tmp";
     private const string LockFileName = ".icon-evidence.lock";
+    private const int CacheKeyHexLength = SHA256.HashSizeInBytes * 2;
+    private const int TemporaryNonceHexLength = 32;
     private const int LockRetryMilliseconds = 20;
     private const int MaximumConfiguredEntries = 65_536;
     private const long MaximumConfiguredCacheBytes = 4L * 1024 * 1024 * 1024;
@@ -115,7 +118,7 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         var targetPath = GetPath(request.Key);
         await EnsureCapacityAsync(targetPath, serialized.Length, cancellationToken).ConfigureAwait(false);
 
-        var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp";
+        var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + TemporaryFileSuffix;
         try
         {
             await using (var stream = new FileStream(
@@ -450,11 +453,45 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
 
     private void CleanupTemporaryFiles(CancellationToken cancellationToken)
     {
-        foreach (var path in Directory.EnumerateFiles(_cacheDirectory, "*.tmp", SearchOption.TopDirectoryOnly))
+        // The configured directory can be shared or misconfigured. Match and validate the exact
+        // name produced by StoreAsync so cache recovery never deletes another owner's temp file.
+        foreach (var path in Directory.EnumerateFiles(
+                     _cacheDirectory,
+                     "*" + FileSuffix + ".*" + TemporaryFileSuffix,
+                     SearchOption.TopDirectoryOnly))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            TryDeleteCacheArtifact(path);
+            if (IsCacheTemporaryArtifact(path))
+            {
+                TryDeleteCacheArtifact(path);
+            }
         }
+    }
+
+    private static bool IsCacheTemporaryArtifact(string path)
+    {
+        ReadOnlySpan<char> fileName = Path.GetFileName(path);
+        var nonceSeparatorIndex = CacheKeyHexLength + FileSuffix.Length;
+        var expectedLength = nonceSeparatorIndex + 1 + TemporaryNonceHexLength + TemporaryFileSuffix.Length;
+        return fileName.Length == expectedLength &&
+               IsLowercaseHex(fileName[..CacheKeyHexLength]) &&
+               fileName.Slice(CacheKeyHexLength, FileSuffix.Length).SequenceEqual(FileSuffix) &&
+               fileName[nonceSeparatorIndex] == '.' &&
+               IsLowercaseHex(fileName.Slice(nonceSeparatorIndex + 1, TemporaryNonceHexLength)) &&
+               fileName[^TemporaryFileSuffix.Length..].SequenceEqual(TemporaryFileSuffix);
+    }
+
+    private static bool IsLowercaseHex(ReadOnlySpan<char> value)
+    {
+        foreach (var character in value)
+        {
+            if (character is not (>= '0' and <= '9') and not (>= 'a' and <= 'f'))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool TryDeleteCacheArtifact(string path)

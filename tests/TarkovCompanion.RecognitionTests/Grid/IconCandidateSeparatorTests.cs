@@ -141,6 +141,21 @@ public sealed class IconCandidateSeparatorTests
     }
 
     [Fact]
+    public void FingerprintRejectsBitsOutsideItsDeclaredWidth()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new IconFingerprintEvidence("fixture", algorithmVersion: 1, bitCount: 8, value: 0x100));
+
+        Assert.Equal("value", exception.ParamName);
+        Assert.Equal(
+            0xffUL,
+            new IconFingerprintEvidence("fixture", algorithmVersion: 1, bitCount: 8, value: 0xff).Value);
+        Assert.Equal(
+            ulong.MaxValue,
+            new IconFingerprintEvidence("fixture", algorithmVersion: 1, bitCount: 64, value: ulong.MaxValue).Value);
+    }
+
+    [Fact]
     public void CandidateOutsidePolicyDistanceIsExplicitlyAbsent()
     {
         var result = new IconCandidateSeparator().Separate(

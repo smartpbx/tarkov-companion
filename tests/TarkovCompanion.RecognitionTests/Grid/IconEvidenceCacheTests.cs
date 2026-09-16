@@ -237,7 +237,9 @@ public sealed class IconEvidenceCacheTests : IDisposable
     public async Task StoreRemovesStaleTemporaryArtifactBeforeCommit()
     {
         Directory.CreateDirectory(_cacheDirectory);
-        var stale = Path.Combine(_cacheDirectory, "abandoned.icon-evidence-v1.json.deadbeef.tmp");
+        var stale = Path.Combine(
+            _cacheDirectory,
+            new string('a', 64) + ".icon-evidence-v1.json." + new string('b', 32) + ".tmp");
         await File.WriteAllBytesAsync(stale, new byte[32]);
 
         await CreateCache().StoreAsync(
@@ -246,6 +248,25 @@ public sealed class IconEvidenceCacheTests : IDisposable
 
         Assert.False(File.Exists(stale));
         Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task StorePreservesUnrelatedTemporaryFilesInSharedDirectory()
+    {
+        Directory.CreateDirectory(_cacheDirectory);
+        var unrelated = Path.Combine(_cacheDirectory, "unrelated.tmp");
+        var cacheLikeButInvalid = Path.Combine(
+            _cacheDirectory,
+            new string('g', 64) + ".icon-evidence-v1.json." + new string('b', 32) + ".tmp");
+        await File.WriteAllBytesAsync(unrelated, new byte[32]);
+        await File.WriteAllBytesAsync(cacheLikeButInvalid, new byte[32]);
+
+        await CreateCache().StoreAsync(
+            Request(Key("item-a"), CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+
+        Assert.True(File.Exists(unrelated));
+        Assert.True(File.Exists(cacheLikeButInvalid));
     }
 
     [Fact]

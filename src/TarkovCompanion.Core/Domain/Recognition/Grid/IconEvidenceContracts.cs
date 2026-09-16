@@ -72,6 +72,13 @@ public sealed record IconFingerprintEvidence
             throw new ArgumentOutOfRangeException(nameof(bitCount));
         }
 
+        if (bitCount < 64 && (value >> bitCount) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(value),
+                "A fingerprint cannot set bits outside its declared width.");
+        }
+
         Algorithm = normalizedAlgorithm;
         AlgorithmVersion = algorithmVersion;
         BitCount = bitCount;
