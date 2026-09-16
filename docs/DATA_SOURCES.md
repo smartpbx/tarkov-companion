@@ -75,3 +75,13 @@ On Windows, the disconnected integration is available by default when per-user p
 ## Clean-room references
 
 RatScanner, TarkovMonitor, Tarkov Nexus tools, and eft-ammo may inform observable behavior or UX validation only. Their source, data tables, assets, wording, and implementation are not copied.
+
+## Historical traffic and model snapshots
+
+No production historical-traffic source or model is currently bundled. The governed source
+inventory, consent and allowed-use rules, deterministic partition/build procedure, signed package
+format, and exact compatibility behavior are defined in
+[`docs/research/TRAFFIC_DATA.md`](research/TRAFFIC_DATA.md) and ADR 0017. Raw local feedback is
+private by default and cannot be a distributable source row. A future reviewed aggregate must name
+its licence, provenance, collection method, consent basis, map/game/wipe/mode/cohort scope, coverage,
+gaps, transform, calibrated confidence, and model version before it can enter a signed snapshot.
