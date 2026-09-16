@@ -75,7 +75,8 @@ public static class MapSceneHitTesting
     private static bool Contains(MapScenePoint point, IReadOnlyList<MapScenePoint> vertices)
     {
         var inside = false;
-        for (var current = 0, previous = vertices.Count - 1; current < vertices.Count; previous = current++)
+        var previous = vertices.Count - 1;
+        for (var current = 0; current < vertices.Count; previous = current++)
         {
             var currentPoint = vertices[current];
             var previousPoint = vertices[previous];
