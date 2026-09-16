@@ -5,10 +5,6 @@ readonly TASK_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly TASK_TEMP="$(mktemp -d "${TMPDIR:-/tmp}/tarkov-relay-watch.XXXXXX")"
 trap 'rm -rf -- "$TASK_TEMP"' EXIT
 
-readonly BUILD_UTC='2027-01-15T07:55:00Z'
-readonly RUN_STARTED_UTC='2027-01-15T07:50:00Z'
-readonly RUN_COMPLETED_UTC='2027-01-15T08:01:00Z'
-
 repository="${TASK_TEMP}/repository"
 git init -q --initial-branch=main "$repository"
 git -C "$repository" config user.name 'Relay fixture'
@@ -23,98 +19,39 @@ commit_at() {
 }
 
 readonly OLDER_COMMIT="$(commit_at '2027-01-15T05:13:20Z' older)"
-readonly PUBLISHED_COMMIT="$(commit_at '2027-01-15T07:30:00Z' published)"
 readonly MAIN_COMMIT="$(commit_at '2027-01-15T08:16:40Z' main)"
 git -C "$repository" switch -q -c non-main "$OLDER_COMMIT"
 readonly NON_MAIN_COMMIT="$(commit_at '2027-01-15T08:10:00Z' non-main)"
 git -C "$repository" switch -q main
 
-write_evidence() {
-    local directory="$1"
-    local expected_commit="$2"
-    local branch="$3"
-    local run_conclusion="$4"
-
-    mkdir -p "$directory"
-    jq -n \
-      --arg commit "$expected_commit" \
-      --arg built "$BUILD_UTC" \
-      --arg branch "$branch" \
-      '{
-        version: "1.0.700",
-        commit: $commit,
-        builtUtc: $built,
-        asset: "TarkovCompanion-v1.0.0-win-x64.zip",
-        sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        branch: $branch,
-        run: "12345"
-      }' > "${directory}/update.json"
-
-    local digest
-    local size
-    digest="$(sha256sum "${directory}/update.json" | awk '{print $1}')"
-    size="$(stat -c '%s' "${directory}/update.json")"
-    jq -n \
-      --arg digest "sha256:${digest}" \
-      --argjson size "$size" \
-      '{
-        tagName: "dev",
-        assetName: "update.json",
-        size: $size,
-        digest: $digest,
-        publishedUtc: "2027-01-15T08:00:00Z"
-      }' > "${directory}/release.json"
-
-    jq -n \
-      --arg commit "$expected_commit" \
-      --arg branch "$branch" \
-      --arg conclusion "$run_conclusion" \
-      --arg started "$RUN_STARTED_UTC" \
-      --arg completed "$RUN_COMPLETED_UTC" \
-      '{
-        id: 12345,
-        headSha: $commit,
-        headBranch: $branch,
-        event: "push",
-        status: "completed",
-        conclusion: $conclusion,
-        workflowPath: ".github/workflows/windows-verify.yml",
-        runStartedUtc: $started,
-        runCompletedUtc: $completed
-      }' > "${directory}/run.json"
-}
-
 assert_classifier() {
     local name="$1"
     local actual_commit="$2"
-    local expected_commit="$3"
-    local default_commit="$4"
-    local branch="$5"
-    local now_utc="$6"
-    local expected_status="$7"
-    local expected_reason="$8"
-    local expected_exit="$9"
-    local conclusion="${10:-success}"
+    local default_commit="$3"
+    local expected_status="$4"
+    local expected_reason="$5"
+    local expected_exit="$6"
     local directory="${TASK_TEMP}/classify-${name}"
     local output="${directory}/output.txt"
 
-    write_evidence "$directory" "$expected_commit" "$branch" "$conclusion"
+    mkdir -p "$directory"
     jq -n --arg commit "$actual_commit" \
-      '{status: "ok", protocol: 1, version: "1.0.700", commit: $commit}' \
+      '{
+        status: "ok",
+        protocol: 1,
+        version: "1.0.700",
+        commit: $commit,
+        startedUtc: "2027-01-15T08:00:00Z",
+        rooms: 2,
+        members: 3
+      }' \
       > "${directory}/health.json"
 
     set +e
     bash "${TASK_ROOT}/relay-watch.sh" \
         --health-file "${directory}/health.json" \
-        --update-file "${directory}/update.json" \
-        --release-evidence-file "${directory}/release.json" \
-        --run-evidence-file "${directory}/run.json" \
         --repository-root "$repository" \
-        --default-branch main \
         --default-branch-commit "$default_commit" \
-        --now-utc "$now_utc" \
-        --deployment-grace-minutes 45 \
-        --publication-grace-minutes 45 \
         > "$output" 2>&1
     local actual_exit=$?
     set -e
@@ -129,54 +66,22 @@ assert_classifier() {
     fi
 }
 
-assert_classifier ready "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800005461 ready 'relay matches the latest verified dev publication' 0
-assert_classifier short-sha "${PUBLISHED_COMMIT:0:7}" "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800005461 ready 'relay matches the latest verified dev publication' 0
-assert_classifier invalid-health 'not-a-sha' "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800001200 failed 'relay health response was invalid' 1
-assert_classifier unknown-health 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800001200 failed 'relay health named a commit unavailable in repository history' 1
-assert_classifier updater-delayed "$OLDER_COMMIT" "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800001200 updater-delayed 'relay updater is within its scheduled deployment window' 0
-assert_classifier updater-stale "$OLDER_COMMIT" "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800002701 updater-stale 'relay updater missed the verified publication window' 1
-assert_classifier publication-delayed "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" "$MAIN_COMMIT" main \
-    1800001200 publication-delayed 'default-branch verification and publication are within the expected window' 0
-assert_classifier publication-failed "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" "$MAIN_COMMIT" main \
-    1800004001 publication-failed 'latest default-branch commit did not reach the verified dev feed within the expected window' 1
-assert_classifier relay-ahead "$MAIN_COMMIT" "$PUBLISHED_COMMIT" "$MAIN_COMMIT" main \
-    1800001200 relay-ahead 'relay is ahead of the latest verified dev publication' 1
-assert_classifier relay-diverged "$NON_MAIN_COMMIT" "$PUBLISHED_COMMIT" "$MAIN_COMMIT" main \
-    1800001200 relay-diverged 'relay deployment is not on the verified default-branch lineage' 1
-assert_classifier non-main-branch "$NON_MAIN_COMMIT" "$NON_MAIN_COMMIT" "$MAIN_COMMIT" feature \
-    1800001200 non-main-publication 'verified dev publication was not produced from the default branch' 1
-assert_classifier non-main-lineage "$NON_MAIN_COMMIT" "$NON_MAIN_COMMIT" "$MAIN_COMMIT" main \
-    1800001200 non-main-publication 'verified dev publication was not on the default-branch lineage' 1
-assert_classifier failed-run "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" "$PUBLISHED_COMMIT" main \
-    1800001200 failed 'dev publication evidence was invalid' 1 failure
-
-tampered="${TASK_TEMP}/classify-tampered"
-write_evidence "$tampered" "$PUBLISHED_COMMIT" main success
-printf '\n' >> "${tampered}/update.json"
-jq -n --arg commit "$PUBLISHED_COMMIT" \
-  '{status: "ok", protocol: 1, version: "1.0.700", commit: $commit}' \
-  > "${tampered}/health.json"
-set +e
-bash "${TASK_ROOT}/relay-watch.sh" \
-  --health-file "${tampered}/health.json" \
-  --update-file "${tampered}/update.json" \
-  --release-evidence-file "${tampered}/release.json" \
-  --run-evidence-file "${tampered}/run.json" \
-  --repository-root "$repository" \
-  --default-branch main \
-  --default-branch-commit "$PUBLISHED_COMMIT" \
-  --now-utc 1800001200 > "${tampered}/output.txt" 2>&1
-tampered_exit=$?
-set -e
-[[ "$tampered_exit" == 1 ]]
-grep -Fxq 'status=failed' "${tampered}/output.txt"
-grep -Fxq 'reason=dev publication evidence was invalid' "${tampered}/output.txt"
+assert_classifier current "$MAIN_COMMIT" "$MAIN_COMMIT" ready \
+    'relay is live on a known default-branch build' 0
+assert_classifier older "$OLDER_COMMIT" "$MAIN_COMMIT" ready \
+    'relay is live on a known default-branch build' 0
+assert_classifier short-sha "${OLDER_COMMIT:0:7}" "$MAIN_COMMIT" ready \
+    'relay is live on a known default-branch build' 0
+assert_classifier invalid-health 'not-a-sha' "$MAIN_COMMIT" failed \
+    'relay health response was invalid' 1
+assert_classifier unknown-health 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$MAIN_COMMIT" failed \
+    'relay health named a commit unavailable in repository history' 1
+assert_classifier invalid-default "$MAIN_COMMIT" 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' failed \
+    'default-branch repository evidence was invalid' 1
+assert_classifier relay-ahead "$MAIN_COMMIT" "$OLDER_COMMIT" relay-ahead \
+    'relay names a known commit ahead of the checked-out default branch' 1
+assert_classifier relay-diverged "$NON_MAIN_COMMIT" "$MAIN_COMMIT" relay-diverged \
+    'relay deployment is not on the checked-out default-branch lineage' 1
 
 missing_value_output="${TASK_TEMP}/missing-value.txt"
 set +e
@@ -282,13 +187,27 @@ jq -n '[range(0; 51) | {
 assert_report_rejected too-many "$too_many"
 
 workflow="${TASK_ROOT}/../../../.github/workflows/relay-watch.yml"
-grep -Fq "group: relay-watch-\${{ github.event_name == 'pull_request'" "$workflow"
-grep -Fq "if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch" "$workflow"
+fixture_workflow="${TASK_ROOT}/../../../.github/workflows/relay-watch-fixture.yml"
+grep -Fq 'group: relay-watch-live' "$workflow"
+grep -Fq 'if: github.ref_name == github.event.repository.default_branch' "$workflow"
+grep -Fq 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0' "$workflow"
+grep -Fq 'pull_request:' "$fixture_workflow"
+grep -Fq 'group: relay-watch-fixture-pr-${{ github.event.pull_request.number }}' "$fixture_workflow"
+grep -Fq 'actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0' "$fixture_workflow"
+grep -Fq 'Signed private-ring selection remains the relay updater' "$workflow"
 grep -Fq -- '--max-filesize 65536' "$workflow"
 grep -Fq -- '--existing-state all' "${TASK_ROOT}/file-relay-reports.sh"
+if grep -Fq 'issues: write' "$fixture_workflow"; then
+    printf 'relay-watch pull-request fixture must not receive issue-writing permission\n' >&2
+    exit 1
+fi
+if grep -Eq 'releases/tags/dev|release-asset digest|update\.json' "$workflow"; then
+    printf 'relay-watch workflow must not treat the retired public dev release as authority\n' >&2
+    exit 1
+fi
 if grep -Eq 'reports.*\|\|[[:space:]]*(echo|printf).*\[\]' "$workflow"; then
     printf 'relay-watch workflow must fail visibly rather than substitute an empty report list\n' >&2
     exit 1
 fi
 
-printf 'relay-watch publication, classification, report-schema, and exact-issue fixtures passed\n'
+printf 'relay-watch liveness, lineage, report-schema, and exact-issue fixtures passed\n'

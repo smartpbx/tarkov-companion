@@ -27,4 +27,4 @@ The relay-watch classifier and workflow avoid printing the relay URL and health-
 
 Today `/reports` returns a timestamp-prefixed stored name where the issue path requires the original 12-hex reference. The closed-schema validator fails the entire list before any issue write. #310 must align the list and read contracts before automated report pickup is operational.
 
-The foundation awaits final runtime/main integration, #270 persistence, and #294 composition. It does not authorize a second store, automatic telemetry, token rotation, or a readiness endpoint.
+The foundation still awaits #270 persistence and #294 composition. It does not authorize a second store, automatic telemetry, token rotation, or a readiness endpoint, and it does not complete #281.

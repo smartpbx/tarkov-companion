@@ -26,9 +26,10 @@ next to the application instead.
 **Where it does not keep things.** It never writes inside the game's folders except to move
 old screenshots to the recycle bin, and only when that is switched on.
 
-**How it updates.** It checks the `dev` release on every launch and installs what it finds,
-provided the checksum matches what was published. Only builds that passed Windows verification
-are ever published there, so the shortcut does not skip the checks.
+**How it updates.** The anonymous public-release updater has been removed. The signed private-feed
+consumer exists but is intentionally not composed until #294 supplies activation and #270 supplies
+durable consumer state, so the application currently reports that the private feed is not
+configured. Until then, signed desktop builds use the verified offline path in `RELEASES.md`.
 
 ## The group relay
 
@@ -59,10 +60,12 @@ Authenticated update history and install/refusal state live under root-owned
 `/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
 `/var/lib/tarkov-group-update-status`. Neither belongs to the relay's writable state directory.
 
-**How it updates itself.** The timer fetches the published archive, verifies its checksum
-against what the release says, swaps `/opt/tarkov-group`, and rolls back if the new build does
-not answer `/health`. The archive is packed reproducibly, so a build whose server did not
-change produces the same checksum and no restart happens.
+**How it updates itself.** The timer follows a signed ring in a separate private feed. Before it
+touches `/opt/tarkov-group`, the root updater verifies the create-once ring decision, manifest,
+and archive against its separately provisioned Sigstore trust root, replay floor, and local
+history. A signed rollback is the only normal downgrade authority. If the replacement does not
+answer `/health` as its signed identity, the updater restores the previous tree and records the
+refusal. See `RELEASES.md` and `deploy/group-server/README.md` for the complete contract.
 
 ## Problem reports
 
@@ -138,20 +141,24 @@ Treat every report body as restricted until #281/#310's complete-bundle tests pa
 A key that is merely *different* is not an error. The key **is** the room, so a typo puts
 somebody in a room of their own where everything works and nobody is there.
 
-## When `dev` is missing or stale
+## When a signed ring is missing or stale
 
-The install link, the in-app updater and the relay updater all read the same rolling
-pre-release. If it is gone or behind:
+The old public `dev` release is a frozen migration source, not v2 release authority. If the relay
+or an offline desktop is behind:
 
-1. Check the latest run of `windows-verify.yml` on `main`, and its **`publish` job** in particular. Publishing is its own job: it needs `windows-verify` to have passed, it is the only job in the workflow holding a write token, and it does not run for a pull request at all.
-2. The publish never deletes the release, uploads packages before the feed files, and refuses
-   to publish a version below what is already live — so a half-finished run leaves the previous
-   build whole rather than leaving the feed pointing at nothing.
-3. Re-running the failed job republishes; there is nothing to clean up by hand.
+1. Check `publish.yml` for the successful `windows-verify.yml` push-to-main run. Verification
+   builds and proves artifacts but cannot publish; the protected release job publishes without
+   rebuilding them.
+2. Inspect the selected private ring's newest signed, create-once decision and the relay updater's
+   root-owned published, installed, and refused records. A paused ring, an authorized rollback,
+   a superseded verification run, disabled `V2_RELEASES_ENABLED`, or missing host provisioning are
+   different states and must not be collapsed into "stale."
+3. Use the transition and recovery procedures in `RELEASES.md`. Do not revive the public `dev`
+   writer, overwrite a ring decision, or trust an archive because a checksum beside it matches.
 
-`update.json` on the release is the authority on what is actually published: it carries the
-version, commit, build time, asset, checksum, source branch, and verification run. Relay watch
-binds those bytes to GitHub's release-asset digest and publication time before using them.
+The signed ring decision and signed release manifest, verified against the consumer's own trust
+root and history, are the authority. Relay watch intentionally reports only liveness and known
+default-branch lineage; release selection and freshness remain updater/admin-panel evidence.
 
 ## The fast loop
 

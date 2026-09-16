@@ -1,23 +1,21 @@
-# Is the relay up, and is it running the build that the verified dev feed publishes?
+# Is the relay up, and does it identify a known default-branch build?
+# Signed private-ring selection remains the relay updater's authority; this workflow has neither
+# its feed credential nor its separately provisioned Sigstore trust root.
 name: Relay watch
 
 on:
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/relay-watch.yml'
-      - 'deploy/group-server/monitoring/**'
 
 permissions:
   contents: read
 
-# A pull-request fixture cannot queue behind or interfere with the one live watch. Each PR has
-# its own replaceable lane; scheduled and manual default-branch watches serialize in one lane.
+# Scheduled and manual default-branch watches serialize. Pull requests run the same fixture in
+# relay-watch-fixture.yml, whose workflow has no issue-writing permission.
 concurrency:
-  group: relay-watch-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'live' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: relay-watch-live
+  cancel-in-progress: false
 
 jobs:
   fixture:
@@ -26,36 +24,32 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
-      - name: Prove publication, relay, report, and issue controls
+      - name: Prove relay, report, and issue controls
         run: bash deploy/group-server/monitoring/test-relay-watch.sh
 
   watch:
-    # Scheduled workflows already use the default branch. This also prevents a manual dispatch
-    # from a feature branch from filing live incidents with feature-branch code.
-    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    # Scheduled workflows already use the default branch. This prevents a manual dispatch from
+    # a feature branch from filing live incidents with feature-branch code.
+    if: github.ref_name == github.event.repository.default_branch
     needs: fixture
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify the published build and ask the relay what it is
+      - name: Validate relay liveness and build lineage
         id: health
         env:
-          GH_TOKEN: ${{ github.token }}
           RELAY: ${{ vars.RELAY_HEALTH_URL }}
-          REPOSITORY: ${{ github.repository }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -uo pipefail
 
@@ -82,94 +76,14 @@ jobs:
           task_temp="$(mktemp -d "${RUNNER_TEMP}/relay-watch.XXXXXX")"
           trap 'rm -rf -- "$task_temp"' EXIT
           health_file="${task_temp}/health.json"
-          release_raw="${task_temp}/release-raw.json"
-          release_evidence="${task_temp}/release-evidence.json"
-          update_file="${task_temp}/update.json"
-          run_raw="${task_temp}/run-raw.json"
-          run_evidence="${task_temp}/run-evidence.json"
 
           if ! curl -fsS --max-time 20 --max-filesize 16384 -- "$RELAY" > "$health_file" 2>/dev/null; then
             fail_watch "The relay did not answer its bounded health request within 20 seconds."
           fi
 
-          if ! gh api "repos/${REPOSITORY}/releases/tags/dev" > "$release_raw" 2>/dev/null; then
-            fail_watch "The dev publication metadata could not be read."
-          fi
-          if [ "$(stat -c '%s' "$release_raw")" -gt 262144 ]; then
-            fail_watch "The dev publication metadata exceeded its validation limit."
-          fi
-
-          expected_manifest_url="https://github.com/${REPOSITORY}/releases/download/dev/update.json"
-          if ! jq -e --arg url "$expected_manifest_url" '
-              type == "object" and
-              .tag_name == "dev" and
-              .draft == false and
-              .prerelease == true and
-              (.assets | type == "array" and length <= 100) and
-              ([.assets[]? | select(.name == "update.json")] | length) == 1 and
-              ([.assets[]? | select(.name == "update.json")][0] |
-                .state == "uploaded" and
-                (.size | type == "number" and . == floor and . > 0 and . <= 4096) and
-                (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$")) and
-                (.updated_at | type == "string") and
-                .browser_download_url == $url)
-            ' "$release_raw" >/dev/null 2>&1; then
-            fail_watch "The dev publication did not expose one bounded update manifest."
-          fi
-
-          jq '([.assets[] | select(.name == "update.json")][0]) as $asset |
-              {
-                tagName: "dev",
-                assetName: $asset.name,
-                size: $asset.size,
-                digest: $asset.digest,
-                publishedUtc: $asset.updated_at
-              }' "$release_raw" > "$release_evidence"
-          manifest_url="$(jq -r '[.assets[] | select(.name == "update.json")][0].browser_download_url' "$release_raw")"
-          if ! curl -fsSL --max-time 20 --max-filesize 4096 -- "$manifest_url" > "$update_file" 2>/dev/null; then
-            fail_watch "The bounded dev update manifest could not be downloaded."
-          fi
-
-          recorded_size="$(jq -r '.size' "$release_evidence")"
-          recorded_digest="$(jq -r '.digest | sub("^sha256:"; "")' "$release_evidence")"
-          if [ "$(stat -c '%s' "$update_file")" != "$recorded_size" ] ||
-             [ "$(sha256sum "$update_file" | awk '{print $1}')" != "$recorded_digest" ]; then
-            fail_watch "The dev update manifest did not match GitHub's published asset digest."
-          fi
-
-          if ! run_id="$(jq -er '
-              if type == "object" and
-                 (.run | type == "string" and test("^[1-9][0-9]{0,15}$") and
-                   ((tonumber? // 0) <= 9007199254740991))
-              then .run else error("invalid run") end
-            ' "$update_file" 2>/dev/null)"; then
-            fail_watch "The dev update manifest did not name a bounded verification run."
-          fi
-          if ! gh api "repos/${REPOSITORY}/actions/runs/${run_id}" > "$run_raw" 2>/dev/null; then
-            fail_watch "The verification run named by the dev update manifest could not be read."
-          fi
-          if [ "$(stat -c '%s' "$run_raw")" -gt 65536 ]; then
-            fail_watch "The verification run evidence exceeded its validation limit."
-          fi
-          jq '{
-                id,
-                headSha: .head_sha,
-                headBranch: .head_branch,
-                event,
-                status,
-                conclusion,
-                workflowPath: .path,
-                runStartedUtc: .run_started_at,
-                runCompletedUtc: .updated_at
-              }' "$run_raw" > "$run_evidence"
-
           if ! bash deploy/group-server/monitoring/relay-watch.sh \
               --health-file "$health_file" \
-              --update-file "$update_file" \
-              --release-evidence-file "$release_evidence" \
-              --run-evidence-file "$run_evidence" \
               --repository-root "$GITHUB_WORKSPACE" \
-              --default-branch "$DEFAULT_BRANCH" \
               --default-branch-commit "$(git rev-parse HEAD)" \
               --github-output "$GITHUB_OUTPUT"; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
@@ -189,6 +103,9 @@ jobs:
             echo "::warning title=Problem report pickup is not configured::The relay URL or admin key is absent, so this run did not list reports."
             exit 0
           fi
+
+          printf '%s\n' \
+            "Report bodies can contain sensitive paths and coordinates; this workflow never downloads them or attaches them to public issues."
 
           report_list="$(mktemp "${RUNNER_TEMP}/relay-reports.XXXXXX.json")"
           trap 'rm -f -- "$report_list"' EXIT

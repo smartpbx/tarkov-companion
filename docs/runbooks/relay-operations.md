@@ -13,12 +13,12 @@ Use UTC in incident notes. Never put group/admin/diagnostic keys, screenshots, O
 
 Back up only the durable payload that should survive a host loss: `rooms.json`, `marks.json`, and, when explicitly required, the complete `reports/` directory. A report backup contains submitted bodies, not merely references, and is restricted diagnostic material. Live positions and pings are memory-only. Group, admin, and diagnostic keys do not belong in this backup.
 
-`INSTALLED_SHA256`, `REFUSED_SHA256`, and `UPDATE_NOW` share the state directory but are current-host updater controls, not restorable product data. Exclude all three. Restoring an old refusal can suppress a good build, restoring an install stamp can falsely describe `/opt/tarkov-group`, and restoring an update request can trigger an unintended deployment.
+Exclude `UPDATE_NOW` from the relay-state backup. It is a transient request, and restoring it can trigger an unintended deployment. Authenticated update history and install/refusal records live separately under root-owned `/var/lib/tarkov-group-update`; preserve that directory only as one access-controlled host-state backup, never as selected scalar stamps. `/var/lib/tarkov-group-update-status` contains derived panel copies and is not authority. A replacement host without the authoritative history must use the provisioned floor or verified bootstrap procedure in `docs/RELEASES.md`, not an old status mirror.
 
 1. Stop `tarkov-group.service` in a maintenance window.
 2. Create an encrypted, access-controlled copy of the selected payload outside `/opt/tarkov-group`; record only backup id, UTC, checksum, and operator.
 3. Start the service and verify public liveness; authenticated readiness is not wired yet.
-4. To restore, stop the service, preserve the failed payload under the same controls, and restore only the selected durable files atomically. Keep the current host's updater controls; on a replacement host let the verified install recreate them. Ensure `UPDATE_NOW` is absent, start the service, and verify a test group.
+4. To restore, stop the service, preserve the failed payload under the same controls, and restore only the selected durable files atomically. Keep the current host's authenticated updater history; on a replacement host follow the signed-feed bootstrap procedure. Ensure `UPDATE_NOW` is absent, start the service, and verify a test group.
 
 Desktop diagnostic state is backed up/restored only through #270's recovery interface. Never invent a diagnostic SQLite table.
 
@@ -32,7 +32,7 @@ The relay admin-key reader accepts only one value, so rotate it in a short maint
 
 ## Update, maintenance, and disaster recovery
 
-For an old build, distinguish the failure before changing state. `updater-delayed`/`updater-stale` means a verified publication exists but the relay has not installed it; `publication-delayed`/`publication-failed` means default-branch code has not reached the verified feed; `relay-ahead`, `relay-diverged`, and `non-main-publication` are provenance failures. Inspect `REFUSED_SHA256`, updater journal, checksum fetch, and admin-panel update status. A failed health check must roll back; never force a partly unpacked build live. Resolve disk pressure only after a verified backup; repair clock synchronization before retrying expiry-sensitive operations.
+For an old build, distinguish the failure before changing state. Relay watch proves only that the service is live on a known default-branch commit; it does not decide what a signed ring selected or whether an older build is intentional. Inspect the admin panel, the root-owned `INSTALLED_RELEASE.json`, `PUBLISHED_RELEASE.json`, `REFUSED_RELEASE.json`, updater journal, configured ring, pause/rollback decision, and trust-root/feed errors. Follow `docs/RELEASES.md`; never substitute the retired public `dev` release or a checksum downloaded beside an archive for signed evidence. A failed health check must roll back, and a partly unpacked build must never be forced live. Resolve disk pressure only after a verified backup; repair clock synchronization before retrying expiry-sensitive operations.
 
 For host loss, provision from the released package, restore the approved restricted state backup, configure the protected admin-key drop-in, and verify liveness before switching address. An absent backup means an honest loss of waypoints/registrations; never reconstruct positions or pings.
 
