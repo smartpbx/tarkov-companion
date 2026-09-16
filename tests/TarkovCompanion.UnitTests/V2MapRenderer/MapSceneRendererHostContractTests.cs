@@ -23,8 +23,17 @@ public sealed class MapSceneRendererHostContractTests
     {
         var app = Read("src", "TarkovCompanion.App", "App.axaml.cs");
         var gallery = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererGalleryWindow.axaml");
+        var galleryCode = Read(
+            "src",
+            "TarkovCompanion.App",
+            "Views",
+            "V2",
+            "MapRenderer",
+            "MapSceneRendererGalleryWindow.axaml.cs");
 
         Assert.Contains("new MapSceneRendererGalleryWindow(options.MapRendererLargeText)", app, StringComparison.Ordinal);
+        Assert.Contains("public MapSceneRendererGalleryWindow()", galleryCode, StringComparison.Ordinal);
+        Assert.Contains(": this(largeText: false)", galleryCode, StringComparison.Ordinal);
         Assert.Contains("<map:MapSceneRendererView DataContext=\"{Binding Renderer}\" />", gallery, StringComparison.Ordinal);
         Assert.Contains("MinWidth=\"320\"", gallery, StringComparison.Ordinal);
         Assert.Contains("ScaleX=\"{Binding InterfaceScale}\"", gallery, StringComparison.Ordinal);

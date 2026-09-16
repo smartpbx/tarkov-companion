@@ -11,6 +11,14 @@ namespace TarkovCompanion.App.Views.V2.MapRenderer;
 /// <summary>A packaged, deterministic host for renderer UIA, touch-target, and responsive evidence.</summary>
 public sealed partial class MapSceneRendererGalleryWindow : Window
 {
+    // Avalonia's runtime XAML loader resolves the compiled resource through a public default
+    // constructor. Keep the option-bearing overload for the packaged large-text scenario, but
+    // do not make that verification-only option hide the window from the loader.
+    public MapSceneRendererGalleryWindow()
+        : this(largeText: false)
+    {
+    }
+
     public MapSceneRendererGalleryWindow(bool largeText)
     {
         AvaloniaXamlLoader.Load(this);
