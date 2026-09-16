@@ -2,10 +2,11 @@
 
 This is the integrated wave-2 status for issue
 [#317](https://github.com/smartpbx/tarkov-companion/issues/317). **Issue #317 remains open.**
-The six audits are source-review evidence, not a penetration test, an observed automated run, or
-proof that any recommended mitigation exists. High findings remain release blockers until their
-named owner issues implement the control and exact-head GitHub Actions (plus any stated manual
-`dev` verification) supplies the required evidence.
+The six baseline audits are source-review evidence, not a penetration test. Issue #278 subsequently
+added exact-head automated evidence for its paired-relay authorization core; that core remains
+uncomposed and is not evidence for the request boundary or deployed behavior. High findings remain
+release blockers until their named owner issues implement the complete control and exact-head
+GitHub Actions (plus any stated manual `dev` verification) supplies the required evidence.
 
 ## Wave-2 audit coverage
 
@@ -24,10 +25,17 @@ sharing the same stable risk rather than inflating counts.
 
 ## Canonical register status
 
-The integrated register contains **47 open findings and three closed findings**. Open severity is
-**zero Critical, 14 High, 26 Medium, and seven Low**. Every open row has an explicit
+The integrated register contains **48 open findings and three closed findings**. Open severity is
+**zero Critical, 15 High, 26 Medium, and seven Low**. Every open row has an explicit
 Accept/Mitigate/Defer disposition, a named GitHub-issue owner, Reviewed source evidence, and exact
 verification required before its status can change.
+
+The narrow issue-#278 evidence cited by the register is reproducible: exact head
+`07c53aeedb094a21a1bea585b8fab3122ba92dbc` passed
+[CI](https://github.com/smartpbx/tarkov-companion/actions/runs/35068464421),
+[Windows verification](https://github.com/smartpbx/tarkov-companion/actions/runs/35068464515), and
+[License lock](https://github.com/smartpbx/tarkov-companion/actions/runs/35068464435). Those runs
+cover the core source, not its future #294 request routing or deployment.
 
 These counts are reproducible from the Markdown tables, not manually asserted:
 
@@ -72,6 +80,8 @@ be misread as closing a broader risk.
 | Plaintext/shared key transport and endpoint visibility | ABUSE-RELAY-PLAINTEXT-KEY, ABUSE-RELAY-CLEARTEXT-CREDENTIAL | RISK-RELAY-KEY-DISCLOSURE |
 | Reusable credential/member replay | ABUSE-RELAY-NAME-COLLISION | RISK-RELAY-IDENTITY |
 | Desktop/browser group-key storage | ABUSE-GROUP-KEY-LOCAL-RECOVERY | RISK-GROUP-KEY-LOCAL-EXPOSURE |
+| Paired live-session bearer theft | ABUSE-PAIRED-LIVE-BEARER-THEFT | RISK-GROUP-KEY-LOCAL-EXPOSURE |
+| Paired handshake/source/recovery trust handoff | ABUSE-PAIRED-HANDSHAKE-AUTHORITY-INJECTION, ABUSE-PAIRED-RATE-PARTITION-SPOOF, ABUSE-PAIRED-OWNER-RECOVERY-EXPOSURE | RISK-PAIRED-AUTH-COMPOSITION |
 | DPAPI same-user boundary | ABUSE-DPAPI-SAME-USER-MALWARE | RISK-DPAPI-SAMEUSER |
 | Diagnostic token command-file lifetime | ABUSE-DIAGNOSTIC-CHANNEL-RETENTION | RISK-DIAGNOSTIC-CHANNEL-RETENTION |
 | Release authenticity, downgrade, build tools/actions and feed publication | ABUSE-UPDATE-CHANNEL-DOWNGRADE | RISK-UPDATE-CHANNEL-TRUST |
@@ -123,6 +133,7 @@ schema/replay/export and CSV concerns such as PERS-08.
 | RELAY-STATE-02 | ABUSE-RELAY-SILENT-CAPACITY | RISK-RELAY-CAPACITY |
 | RELAY-STATE-03, RELAY-STATE-04 | ABUSE-RELAY-WAYPOINT-FLOOD, ABUSE-RELAY-CROSS-ROOM-MARK-GROWTH | RISK-RELAY-MARK-CAP |
 | RELAY-BROWSER-01 | ABUSE-RELAY-BROWSER-CONTEXT | RISK-RELAY-BROWSER-HARDENING |
+| Issue #278 paired authorization core / composition follow-up | ABUSE-PAIRED-HANDSHAKE-AUTHORITY-INJECTION, ABUSE-PAIRED-RATE-PARTITION-SPOOF, ABUSE-PAIRED-OWNER-RECOVERY-EXPOSURE, ABUSE-PAIRED-LIVE-BEARER-THEFT | RISK-PAIRED-AUTH-COMPOSITION, RISK-GROUP-KEY-LOCAL-EXPOSURE |
 | RELAY-OPS-01 | ABUSE-RELAY-PUBLIC-ENDPOINT-DOS, ABUSE-ADMIN-REPORT-FLOOD | RISK-RELAY-NO-RATE-LIMIT, RISK-REPORT-RATE-LIMIT |
 | RELAY-TRUST-01 | ABUSE-RELAY-STALE-FRESHNESS | RISK-RELAY-CLIENT-TRUST |
 
@@ -152,10 +163,12 @@ that implementation breach is Critical; the current source review found no such 
 1. Implement and verify every Mitigate/Defer control in its named issue; documentation does not
    make the current behavior safe.
 2. Resolve every open High before v2 release, including external-body bounds, relay/admin
-   authorization, registry fail-open, report privacy, watched-path containment, context isolation,
-   native OCR loading, and release/update trust.
-3. Add executable hostile-input/state/race/platform tests named by the register. Existing test
-   names were read but not run and are not **Tested (automated)** evidence.
+   authorization and paired-auth composition, registry fail-open, report privacy, watched-path
+   containment, context isolation, native OCR loading, and release/update trust.
+3. Add executable hostile-input/state/race/platform tests named by the register. Existing baseline
+   audit test names were read but not run. The issue-#278 entries explicitly marked
+   **Tested (automated)** are the narrow exception, backed by exact-head CI run `35068464421`; they
+   do not prove future composition or staging behavior.
 4. Attach exact-head passing GitHub Actions for `scripts/build.sh`/`scripts/test.sh` or their
    workflow equivalents, `scripts/audit-safety.sh`, secret/license checks, and each new security
    assertion. Add stated Windows/staging/manual `dev` evidence where the risk requires it.

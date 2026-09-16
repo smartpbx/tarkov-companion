@@ -23,6 +23,8 @@ first crosses a trust line, its classification, and the source this pass verifie
 | A-14 | Profile, quest-progress, and raid-history import/export payloads | Personal, user-controlled file boundary | Profile JSON can be exported/imported through `IPlayerProfileService`; quest progress uses a checksummed JSON envelope with preview/confirm; raid history can be written as JSON or CSV. These source surfaces exist even where current UI exposure is limited | `JsonFilePlayerProfileService.cs`; `ProjectQuestProgressJson.cs`; `QuestProgressExchangeService.cs`; `SqliteRaidHistoryService.cs`; `RaidHistoryOutbox.cs` |
 | A-15 | Private-feed read/write credentials | Secret, capability-scoped | Publishing tokens belong to ring-specific protected GitHub environments. A relay reads through a root-owned mode-0600 token file and passes the value only to `gh`. The desktop contract names a read-only token in the protected integration-secret store, but composition is still owned by #294. | `docs/RELEASES.md`; `publish.yml`; `tarkov-group-update.sh`; `ReleaseFeedContracts.cs`; `AuthenticatedGitHubReleaseFeed.cs` |
 | A-16 | Sigstore trust roots and executable/tool digest pins | Public but integrity-critical authority configuration | Consumer trust roots are provisioned separately from the feed. Cosign, Syft and vpk binaries are accepted by committed sha256 pins; workflow actions are pinned to full commits and the workflow-policy gate rejects mutable references. | `docs/RELEASES.md`; `scripts/release/*.sha256`; `check_workflow_policy.py`; `CosignReleaseSignatureVerifier.cs`; `tarkov-group-update.sh` |
+| A-17 | Paired-device relay registry | Authorization-critical; device public keys, roles/capabilities, lifecycle, session routing metadata, credential/CSRF digests, replay counters, and bounded audit identifiers | Issue #278 implements a bounded, checksummed atomic primary plus verified backup. It deliberately excludes display names, raw credentials, network addresses, plaintext paired content, and exceptions. Missing/corrupt/divergent state cannot authenticate, but the store is not constructed by `Program.cs` yet. | `RelayRegistryModels.cs`; `VerifiedRelayRegistryStore.cs`; `RelayDeviceRegistry.cs`; `RelayDeviceRegistryTests.cs` |
+| A-18 | Paired live-session and browser authority | Secret, scoped bearer plus cryptographic device proof | A 256-bit plaintext session secret is returned only at issuance/rotation and the relay registry retains its digest. The future browser surface uses a host-only Secure/HttpOnly/SameSite=Strict cookie plus a separately rotating, session-bound CSRF token. A stolen still-live bearer remains usable within that session until expiry, rotation, or device/session revocation. The helpers are implemented and tested but uncomposed. | `RelayDeviceRegistry.cs`; `RelaySessionCookie`; `RelayCsrfProtector`; `RelayHttpSecurityTests.cs` |
 
 ## Actors
 
@@ -40,6 +42,7 @@ first crosses a trust line, its classification, and the source this pass verifie
 | ACT-10 | Same-Windows-user local malware | Untrusted, high local privilege | Can read plaintext `Config/group.json` and can call `CryptUnprotectData` to recover A-4 exactly as the desktop app does | DPAPI protects A-4 from other users/offline copies, but A-5 is deliberately plaintext today |
 | ACT-11 | Malicious, compelled, or compromised relay operator/process | Untrusted with respect to members' reusable credentials and content, despite having legitimate host administration | Controls the origin/request-processing environment, can inspect plaintext `X-Group-Key` after transport termination, inspect live room state and retained reports, modify responses, or retain material the stock process does not persist | Distinct from ACT-6 performing expected administration; source behavior cannot make the relay blind to A-5 |
 | ACT-12 | Current or future product implementation/change, including dependency or generated code | Not trusted to meet policy without source review and deterministic enforcement | Can transmit a prohibited field or add semantically prohibited UI behavior without using a token named by the lexical audit | Models implementation-caused boundary failures, accidental or malicious; see RISK-ANTICHEAT-REVIEW-DISCIPLINE and RISK-RELAY-OBSERVED-DATA-POLICY |
+| ACT-13 | Cryptographically paired device, or an actor holding one of its live session bearers | Semi-trusted only for the role/capabilities bound by the verified handshake; untrusted after loss or compromise | Can exercise only its current session's scoped relay permissions; cannot self-assign a role, capability, device identity, channel, or newer key epoch. A copied live bearer can act inside that existing scope until rotation/revocation/expiry. | This actor becomes reachable only after #277/#294 compose and verify the paired handshake; a raw HTTP claim of completed pairing must never create it |
 
 ## Actor ↔ boundary matrix
 
@@ -51,10 +54,10 @@ drifting onto an actor that boundary cannot actually see.
 | TB-1 EFT ↔ Desktop | ACT-1 (accidental), ACT-12 |
 | TB-2 Filesystem ↔ Desktop | ACT-1 (retention/import mistake), ACT-10 |
 | TB-3 Desktop ↔ public data | ACT-7 |
-| TB-4 Desktop/network client ↔ Relay | ACT-4, ACT-5, ACT-11 |
+| TB-4 Desktop/network client ↔ Relay | ACT-4, ACT-5, ACT-11; ACT-13 after paired-route composition |
 | TB-5 Relay ↔ upstream/self-update | ACT-7, ACT-8, ACT-11 |
 | TB-6 Player ↔ Squadmate | ACT-2, ACT-4 |
-| TB-7 Player ↔ Tablet | ACT-9 |
+| TB-7 Player ↔ Tablet | ACT-9; ACT-13 after paired-route composition |
 | TB-8 Operator ↔ Relay | ACT-6, ACT-5 (attempting admin routes), ACT-11 |
 | TB-9 Relay ↔ Actions | ACT-6, ACT-5 (report flooding), ACT-11 |
 | TB-10 Build ↔ artifact | ACT-8, ACT-12 |
