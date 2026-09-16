@@ -131,6 +131,7 @@ Require-Text $Gallery 'expectedOffscreenAutomationIds' 'responsive offscreen map
 Require-Text $Gallery 'Wait-AutomationOffscreenElement' 'strict offscreen-element wait'
 Require-Text $Gallery '$Element.Current.IsOffscreen' 'UI Automation offscreen-state assertion'
 Require-Text $Gallery 'to report UI Automation IsOffscreen=true' 'useful offscreen-state failure'
+Require-Text $Gallery 'Wait-AutomationNamePattern' 'polling UI Automation name-state assertion'
 Require-Text $Gallery 'expectedFocusAutomationId' 'packaged keyboard-focus assertion'
 Require-Text $Gallery 'expectedDialogName' 'named dialog-peer assertion'
 Require-Text $Gallery 'expectedCurrentAutomationIds' 'current-destination UIA assertion'

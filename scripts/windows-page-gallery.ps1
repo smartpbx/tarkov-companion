@@ -323,6 +323,29 @@ function Wait-AutomationItemStatus {
     return $null
 }
 
+function Wait-AutomationNamePattern {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId,
+        [string] $Pattern,
+        [int] $TimeoutSeconds = 15
+    )
+
+    # The peer already exists before a page or filter command runs. Waiting only for its ID
+    # returned the old Name immediately and raced the command's binding update.
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Element = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $AutomationId
+            if ($null -ne $Element -and $Element.Current.Name -match $Pattern) { return $Element }
+        }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $Deadline)
+    return $null
+}
+
 function Invoke-AutomationElement {
     param([System.Windows.Automation.AutomationElement] $Element, [string] $Description)
 
@@ -460,15 +483,11 @@ function Invoke-ShellInteraction {
         }
 
         foreach ($NameAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedNamePatterns" -Default @())) {
-            $Named = Wait-AutomationElement -WindowHandle $WindowHandle -AutomationId $NameAssertion.automationId
-            try {
-                $NameMatches = $null -ne $Named -and $Named.Current.Name -match $NameAssertion.pattern
-            }
-            catch [System.Windows.Automation.ElementNotAvailableException] {
-                $NameMatches = $false
-            }
-            if (-not $NameMatches) {
-                throw "'$Description' did not expose '$($NameAssertion.automationId)' with the expected name pattern."
+            if ($null -eq (Wait-AutomationNamePattern `
+                -WindowHandle $WindowHandle `
+                -AutomationId $NameAssertion.automationId `
+                -Pattern $NameAssertion.pattern)) {
+                throw "'$Description' did not expose '$($NameAssertion.automationId)' with name matching '$($NameAssertion.pattern)' within 15 seconds."
             }
         }
 
