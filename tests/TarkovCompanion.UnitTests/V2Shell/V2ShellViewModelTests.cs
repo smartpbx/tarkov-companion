@@ -242,15 +242,21 @@ public sealed class V2ShellViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task Failed_background_save_stays_visible_until_a_successful_retry()
+    public async Task Failed_background_save_stays_visible_while_retry_is_in_flight_and_clears_on_success()
     {
         var attempts = 0;
-        Task Save(V2ShellPreviewState _, CancellationToken __)
+        var retryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRetry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task Save(V2ShellPreviewState _, CancellationToken cancellationToken)
         {
-            attempts++;
-            return attempts == 1
-                ? Task.FromException(new UnauthorizedAccessException("fixture folder is read-only"))
-                : Task.CompletedTask;
+            var attempt = Interlocked.Increment(ref attempts);
+            if (attempt == 1)
+            {
+                throw new UnauthorizedAccessException("fixture folder is read-only");
+            }
+
+            retryStarted.TrySetResult();
+            await releaseRetry.Task.WaitAsync(cancellationToken);
         }
 
         await using var shell = CreateShell(save: Save);
@@ -261,9 +267,65 @@ public sealed class V2ShellViewModelTests : IDisposable
         Assert.Contains("not saved", shell.PersistenceFailure, StringComparison.OrdinalIgnoreCase);
 
         shell.RetryPersistenceCommand.Execute(null);
-        await WaitUntilAsync(() => attempts >= 2 && !shell.HasPersistenceFailure);
+        await retryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            Assert.True(shell.HasPersistenceFailure);
+            Assert.True(shell.PersistenceRetryPending);
+            Assert.False(shell.CanRetryPersistence);
+            Assert.Equal("Trying again…", shell.PersistenceRetryLabel);
+            Assert.Contains("Trying preview storage again", shell.PoliteAnnouncement, StringComparison.Ordinal);
+        }
+        finally
+        {
+            // Never strand the persistence worker if an assertion above fails; shell disposal
+            // intentionally waits for admitted durable work.
+            releaseRetry.TrySetResult();
+        }
+
+        await WaitUntilAsync(() =>
+            Volatile.Read(ref attempts) >= 2 &&
+            !shell.HasPersistenceFailure &&
+            shell.PoliteAnnouncement.Contains("saving again", StringComparison.OrdinalIgnoreCase));
 
         Assert.Contains("saving again", shell.PoliteAnnouncement, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Failed_background_save_retry_remains_retryable_until_a_later_success()
+    {
+        var attempts = 0;
+        Task Save(V2ShellPreviewState _, CancellationToken __)
+        {
+            var attempt = Interlocked.Increment(ref attempts);
+            return attempt <= 2
+                ? Task.FromException(new UnauthorizedAccessException($"fixture failure {attempt}"))
+                : Task.CompletedTask;
+        }
+
+        await using var shell = CreateShell(save: Save);
+        shell.TogglePin();
+        await WaitUntilAsync(() => shell.HasPersistenceFailure && shell.CanRetryPersistence);
+
+        shell.RetryPersistenceCommand.Execute(null);
+        await WaitUntilAsync(() =>
+            Volatile.Read(ref attempts) >= 2 &&
+            shell.HasPersistenceFailure &&
+            !shell.PersistenceRetryPending &&
+            shell.CanRetryPersistence);
+
+        Assert.Contains("failure 2", shell.PersistenceFailure, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Retry save", shell.PersistenceRetryLabel);
+
+        shell.RetryPersistenceCommand.Execute(null);
+        await WaitUntilAsync(() =>
+            Volatile.Read(ref attempts) >= 3 &&
+            !shell.HasPersistenceFailure &&
+            shell.PoliteAnnouncement.Contains("saving again", StringComparison.OrdinalIgnoreCase));
+
+        Assert.False(shell.PersistenceRetryPending);
+        Assert.False(shell.CanRetryPersistence);
     }
 
     [Fact]
