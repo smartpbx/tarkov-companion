@@ -187,8 +187,10 @@ public sealed class DesktopCompanionAuthorityTests
         {
             var path = Path.Combine(directory.FullName, "authority.json");
             var seeded = SeededState();
+            var seededStore = new JsonFileDesktopCompanionAuthorityStore(path);
+            await seededStore.SaveAsync(seeded, CancellationToken.None);
             using (var first = await DesktopCompanionAuthority.OpenAsync(
-                       new JsonFileDesktopCompanionAuthorityStore(path),
+                       seededStore,
                        seeded.CanonicalState))
             {
                 var command = new SetInteractionModeCommand(
