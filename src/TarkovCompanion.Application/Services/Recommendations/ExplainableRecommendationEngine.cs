@@ -926,16 +926,14 @@ public sealed class ExplainableRecommendationEngine(
             request.EvaluatedUtc,
             _policy.MaximumPriceAge,
             allowPartial: false);
-        var flea = InspectEvidence(
+        var flea = InspectEconomicPrice(
             economics.FleaNetRoubles,
             request.EvaluatedUtc,
-            _policy.MaximumPriceAge,
-            allowPartial: false);
-        var trader = InspectEvidence(
+            _policy.MaximumPriceAge);
+        var trader = InspectEconomicPrice(
             economics.TraderRoubles,
             request.EvaluatedUtc,
-            _policy.MaximumPriceAge,
-            allowPartial: false);
+            _policy.MaximumPriceAge);
         var gross = InspectEvidence(
             economics.FleaGrossRoubles,
             request.EvaluatedUtc,
@@ -952,11 +950,11 @@ public sealed class ExplainableRecommendationEngine(
             _policy.MaximumPriceAge,
             allowPartial: false);
         var fleaRole = CombineProvenance(
-            $"recommendation.economic-price.flea-net.{(flea.IsReliable ? "available" : "unavailable")}",
+            $"recommendation.economic-price.flea-net.{flea.RoleState}",
             request.EvaluatedUtc,
             [flea.Assessment.Provenance]);
         var traderRole = CombineProvenance(
-            $"recommendation.economic-price.trader.{(trader.IsReliable ? "available" : "unavailable")}",
+            $"recommendation.economic-price.trader.{trader.RoleState}",
             request.EvaluatedUtc,
             [trader.Assessment.Provenance]);
 
@@ -969,25 +967,25 @@ public sealed class ExplainableRecommendationEngine(
                 footprint.Assessment);
         }
 
-        if (!flea.IsReliable && HasClaim(economics.FleaNetRoubles))
+        if (!flea.IsResolved)
         {
             AddIssue(
                 issues,
                 "economics.flea-net-untrusted",
-                "The flea-net value is stale, ambiguous, incomplete, or below the confidence threshold.",
+                "The flea-net value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
                 flea.Assessment);
         }
 
-        if (!trader.IsReliable && HasClaim(economics.TraderRoubles))
+        if (!trader.IsResolved)
         {
             AddIssue(
                 issues,
                 "economics.trader-untrusted",
-                "The trader value is stale, ambiguous, incomplete, or below the confidence threshold.",
+                "The trader value or its reported absence is stale, ambiguous, incomplete, unauthoritative, or below the confidence threshold.",
                 trader.Assessment);
         }
 
-        if (!flea.IsReliable && !trader.IsReliable)
+        if (!flea.HasValue && !trader.HasValue)
         {
             AddIssue(
                 issues,
@@ -1006,8 +1004,8 @@ public sealed class ExplainableRecommendationEngine(
             return null;
         }
 
-        var useFlea = flea.IsReliable &&
-                      (!trader.IsReliable || flea.Trusted!.Value >= trader.Trusted!.Value);
+        var useFlea = flea.HasValue &&
+                      (!trader.HasValue || flea.Trusted!.Value >= trader.Trusted!.Value);
         var price = useFlea ? flea.Trusted! : trader.Trusted!;
         var value = price.Value;
         var trustedFootprint = footprint.Trusted!;
@@ -1066,6 +1064,37 @@ public sealed class ExplainableRecommendationEngine(
             footprintRole,
             calculation,
             explanationProvenance);
+    }
+
+    private EconomicPriceInspection InspectEconomicPrice(
+        EvidencedValue<long?> field,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge)
+    {
+        // Unavailable is the explicit negative fact: the provider established that this sale
+        // channel has no current value. Unknown is unresolved and must not silently become the
+        // negative comparison that allows the other channel to produce decisive advice.
+        if (!HasClaim(field) && field.Status.Completeness == ResultCompleteness.Unavailable)
+        {
+            var assessment = AssessEvidence(
+                field.Status,
+                field.Provenance,
+                evaluatedUtc,
+                maximumAge,
+                allowPartial: false,
+                allowUnavailable: true);
+            return new EconomicPriceInspection(null, assessment, DeclaresUnavailable: true);
+        }
+
+        var inspected = InspectEvidence(
+            field,
+            evaluatedUtc,
+            maximumAge,
+            allowPartial: false);
+        return new EconomicPriceInspection(
+            inspected.Trusted,
+            inspected.Assessment,
+            DeclaresUnavailable: false);
     }
 
     private static void AddExplanationInput<T>(
@@ -1380,18 +1409,31 @@ public sealed class ExplainableRecommendationEngine(
         if (field.Candidates.Count > 0 && field.Corrections.Count == 0)
         {
             var candidateAssessments = field.Candidates
-                .Select(candidate => AssessEvidence(
-                    field.Status,
-                    candidate.Provenance,
+                .Select((candidate, index) => (
+                    Candidate: candidate,
+                    Index: index,
+                    Assessment: AssessEvidence(
+                        field.Status,
+                        candidate.Provenance,
+                        evaluatedUtc,
+                        maximumAge,
+                        allowPartial)))
+                .ToArray();
+            var primaryRole = CombineProvenance(
+                $"recommendation.evidence-ambiguity.{field.FieldId}.primary",
+                evaluatedUtc,
+                [provenance]);
+            var candidateRoles = candidateAssessments
+                .Select(candidate => CombineProvenance(
+                    $"recommendation.evidence-ambiguity.{field.FieldId}.candidate.{candidate.Index.ToString("D2", CultureInfo.InvariantCulture)}.{candidate.Candidate.CandidateId}",
                     evaluatedUtc,
-                    maximumAge,
-                    allowPartial))
+                    [candidate.Assessment.Provenance]))
                 .ToArray();
             var ambiguityProvenance = CombineProvenance(
                 $"recommendation.evidence-ambiguity.{field.FieldId}",
                 evaluatedUtc,
-                new[] { provenance }
-                    .Concat(candidateAssessments.Select(candidate => candidate.Provenance))
+                new[] { primaryRole }
+                    .Concat(candidateRoles)
                     .ToArray());
             return new EvidenceInspection<T>(
                 null,
@@ -1399,7 +1441,7 @@ public sealed class ExplainableRecommendationEngine(
                     false,
                     EvidenceFailure.Ambiguous,
                     WorstFreshness(candidateAssessments
-                        .Select(candidate => candidate.Freshness)
+                        .Select(candidate => candidate.Assessment.Freshness)
                         .Prepend(assessment.Freshness)),
                     ambiguityProvenance));
         }
@@ -1434,10 +1476,12 @@ public sealed class ExplainableRecommendationEngine(
         EvidenceProvenance provenance,
         DateTimeOffset evaluatedUtc,
         TimeSpan? maximumAge,
-        bool allowPartial)
+        bool allowPartial,
+        bool allowUnavailable = false)
     {
         var completeEnough = status.Completeness == ResultCompleteness.Complete ||
-                             (allowPartial && status.Completeness == ResultCompleteness.Partial);
+                             (allowPartial && status.Completeness == ResultCompleteness.Partial) ||
+                             (allowUnavailable && status.Completeness == ResultCompleteness.Unavailable);
         if (!completeEnough)
         {
             return new(false, EvidenceFailure.Incomplete, status.Freshness, provenance);
@@ -1739,6 +1783,26 @@ public sealed class ExplainableRecommendationEngine(
         public static EvidenceInspection<T> NotRequired(EvidenceProvenance provenance) => new(
             null,
             new ReliabilityAssessment(true, EvidenceFailure.None, FreshnessState.Current, provenance));
+    }
+
+    private sealed record EconomicPriceInspection(
+        TrustedValue<long>? Trusted,
+        ReliabilityAssessment Assessment,
+        bool DeclaresUnavailable)
+    {
+        public bool HasValue => Trusted is not null;
+
+        public bool IsConfirmedUnavailable => DeclaresUnavailable && Assessment.IsReliable;
+
+        public bool IsResolved => HasValue || IsConfirmedUnavailable;
+
+        public string RoleState => HasValue
+            ? "available"
+            : IsConfirmedUnavailable
+                ? "unavailable"
+                : DeclaresUnavailable
+                    ? "unavailable-untrusted"
+                    : "unresolved";
     }
 
     private sealed record InventoryInspection(

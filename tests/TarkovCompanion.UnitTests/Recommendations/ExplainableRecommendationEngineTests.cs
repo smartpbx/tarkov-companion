@@ -758,6 +758,56 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Contains("recommendation.economic-price.flea-net.available", sources);
         Assert.Contains("recommendation.economic-price.trader.unavailable", sources);
         Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+        Assert.Equal(ResultCompleteness.Complete, result.Decision.Status.Completeness);
+        Assert.Equal(FreshnessState.Current, result.Decision.Status.Freshness);
+    }
+
+    [Fact]
+    public void UntrustedUnavailableComparedChannelForcesReview()
+    {
+        var lowConfidence = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: null,
+                traderField: Unavailable<long?>(
+                    "economics.trader",
+                    Provenance("trader-absence-low-confidence", confidence: 0.40)))));
+        var stale = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: null,
+                traderField: Unavailable<long?>(
+                    "economics.trader",
+                    Provenance("trader-absence-stale"),
+                    FreshnessState.Stale))));
+        var unknownSource = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(
+                fleaNet: 100_000,
+                trader: null,
+                traderField: Unavailable<long?>(
+                    "economics.trader",
+                    Provenance(
+                        "trader-absence-unknown-source",
+                        confidence: 1,
+                        sourceClass: EvidenceSourceClass.Unknown)))));
+
+        Assert.Equal(V2Action.Review, lowConfidence.Decision.Value!.Action);
+        Assert.Equal(ResultCompleteness.Partial, lowConfidence.Decision.Status.Completeness);
+        Assert.Contains(lowConfidence.Decision.Value.Reasons, reason =>
+            reason.Code == "economics.trader-untrusted");
+        Assert.Equal(0.40, lowConfidence.Decision.Provenance.Confidence.Score!.Value, 6);
+
+        Assert.Equal(V2Action.Review, stale.Decision.Value!.Action);
+        Assert.Equal(ResultCompleteness.Partial, stale.Decision.Status.Completeness);
+        Assert.Equal(FreshnessState.Stale, stale.Decision.Status.Freshness);
+        Assert.Contains(stale.Decision.Value.Reasons, reason =>
+            reason.Code == "economics.trader-untrusted");
+
+        Assert.Equal(V2Action.Review, unknownSource.Decision.Value!.Action);
+        Assert.Equal(ResultCompleteness.Partial, unknownSource.Decision.Status.Completeness);
+        Assert.Contains(unknownSource.Decision.Value.Reasons, reason =>
+            reason.Code == "economics.trader-untrusted");
+        Assert.Equal(EvidenceConfidenceKind.Unscored, unknownSource.Decision.Provenance.Confidence.Kind);
     }
 
     [Fact]
@@ -840,6 +890,43 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Contains("fixture://flea-candidate", sources);
         Assert.Contains("recommendation.evidence-ambiguity.economics.flea-net", sources);
         Assert.Equal(0.76, result.Decision.Provenance.Confidence.Score!.Value, 6);
+    }
+
+    [Fact]
+    public void AmbiguityLineageKeepsDistinctCandidateRolesWhenRawProvenanceIsShared()
+    {
+        var shared = Provenance("shared-ambiguity-source", confidence: 0.81);
+        var ambiguousFlea = new EvidencedValue<long?>(
+            "economics.flea-net",
+            100_000,
+            CompleteStatus,
+            shared,
+            candidates:
+            [
+                new EvidenceCandidate<long?>("lower-price", "Lower price", 10_000, shared),
+                new EvidenceCandidate<long?>("higher-price", "Higher price", 120_000, shared),
+            ]);
+        var economics = new RecommendationEconomics(
+            Complete<long?>("economics.flea-gross", 120_000),
+            Complete<long?>("economics.flea-fee", 20_000),
+            ambiguousFlea,
+            Unavailable<long?>("economics.trader"),
+            Complete<int?>("economics.squares", 1),
+            Complete<double?>("economics.condition", 1));
+
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(economics: economics));
+        var ambiguity = Flatten(result.Decision.Provenance).First(provenance =>
+            provenance.SourceIdentifier == "recommendation.evidence-ambiguity.economics.flea-net");
+
+        Assert.Equal(
+            [
+                "recommendation.evidence-ambiguity.economics.flea-net.primary",
+                "recommendation.evidence-ambiguity.economics.flea-net.candidate.00.lower-price",
+                "recommendation.evidence-ambiguity.economics.flea-net.candidate.01.higher-price",
+            ],
+            ambiguity.Inputs.Select(input => input.SourceIdentifier));
+        Assert.All(ambiguity.Inputs, role =>
+            Assert.Equal(shared, Assert.Single(role.Inputs)));
     }
 
     [Fact]
@@ -1250,13 +1337,23 @@ public sealed class ExplainableRecommendationEngineTests
         EvidenceProvenance? squaresProvenance = null,
         EvidenceProvenance? grossProvenance = null,
         EvidenceProvenance? feeProvenance = null,
-        EvidenceProvenance? conditionProvenance = null) => new(
+        EvidenceProvenance? conditionProvenance = null,
+        EvidencedValue<long?>? fleaNetField = null,
+        EvidencedValue<long?>? traderField = null) => new(
         Optional("economics.flea-gross", fleaNet is null ? null : fleaNet + 20_000, grossProvenance),
         Optional<long>("economics.flea-fee", fleaNet is null ? null : 20_000, feeProvenance),
-        Optional("economics.flea-net", fleaNet, fleaNetProvenance),
-        Optional("economics.trader", trader, traderProvenance),
+        fleaNetField ?? EconomicPrice("economics.flea-net", fleaNet, fleaNetProvenance),
+        traderField ?? EconomicPrice("economics.trader", trader, traderProvenance),
         Optional("economics.squares", squares, squaresProvenance),
         Complete<double?>("economics.condition", 1, conditionProvenance));
+
+    private static EvidencedValue<long?> EconomicPrice(
+        string fieldId,
+        long? value,
+        EvidenceProvenance? provenance = null) =>
+        value is { } present
+            ? Complete<long?>(fieldId, present, provenance)
+            : Unavailable<long?>(fieldId, provenance);
 
     private static ObservedInventoryEvidenceSnapshot Inventory(
         int? total,
@@ -1330,6 +1427,15 @@ public sealed class ExplainableRecommendationEngineTests
         fieldId,
         default,
         new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
+        provenance ?? Provenance(fieldId));
+
+    private static EvidencedValue<T> Unavailable<T>(
+        string fieldId,
+        EvidenceProvenance? provenance = null,
+        FreshnessState freshness = FreshnessState.Current) => new(
+        fieldId,
+        default,
+        new ResultStatus(ResultCompleteness.Unavailable, freshness),
         provenance ?? Provenance(fieldId));
 
     private static EvidenceProvenance Provenance(
