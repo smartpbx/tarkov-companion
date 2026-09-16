@@ -84,6 +84,43 @@
 </header>
 
 <main>
+  <section id="pairing" style="grid-column:1 / -1">
+    <h2>Companion (paired with your desktop)</h2>
+    <div id="pairingIdle">
+      <p class="quiet">Enter the pairing code shown on the desktop app's pairing panel.</p>
+      <div class="form">
+        <input id="pairingCode" placeholder="Pairing code" autocomplete="off" enterkeyhint="go">
+        <input id="pairingName" placeholder="This tablet's name" autocomplete="off">
+        <button type="button" id="pairingGo" class="primary">Pair</button>
+      </div>
+    </div>
+    <div id="pairingWaiting" style="display:none">
+      <p class="quiet">Waiting for the desktop…</p>
+    </div>
+    <div id="pairingVerify" style="display:none">
+      <p>Confirm this matches the desktop before it is approved:</p>
+      <p style="font-size:28px;font-family:monospace;letter-spacing:.08em" id="pairingCodeDisplay"></p>
+    </div>
+    <div id="pairingDone" style="display:none">
+      <p class="good">Paired as "<span id="pairedName"></span>".</p>
+      <div class="modes" id="pairingModes">
+        <button type="button" aria-pressed="true">Follow desktop</button>
+        <button type="button" aria-pressed="false">Control desktop</button>
+        <button type="button" aria-pressed="false">Independent</button>
+      </div>
+      <div class="modes" id="pairingArm">
+        <button type="button">Arm: Loot</button>
+        <button type="button">Arm: Stash</button>
+        <button type="button">Arm: Keys</button>
+        <button type="button">Arm: Ammo</button>
+        <button type="button">Arm: Map</button>
+      </div>
+      <p class="note" id="pairingArmNote">This device is authenticated and paired. Live sync — marks, capture
+        arming, and desktop navigation — is not implemented in this rough pass.</p>
+    </div>
+    <div id="pairingError" class="bad" style="display:none"></div>
+  </section>
+
   <section>
     <h2>Where everybody is</h2>
     <div class="modes" id="maps"></div>
@@ -719,6 +756,495 @@
   if (key.length >= 8) start();
   else setStatus("enter the group key", "");
 })();
+</script>
+<script>
+// v2r-pairing-tablet: paired-companion pairing (docs/PAIRED_DEVICE_PROTOCOL.md "Pairing").
+//
+// A software-emulated device credential, not real WebAuthn: an ECDSA P-256 key pair generated
+// with raw WebCrypto (non-extractable, kept in IndexedDB) fills the exact wire shape
+// WebAuthnDeviceKeyProofVerifier checks — a CTAP2 canonical COSE key, an authenticatorData blob,
+// clientDataJSON, and an ES256 signature — without a platform authenticator or browser prompt.
+// Rough-pass choice (see the package PR); the reused verifier and protocol types are unchanged.
+//
+// Everything below runs entirely in the browser. The relay only ever sees the plaintext
+// handshake messages the protocol already treats as public (docs/PAIRED_DEVICE_PROTOCOL.md,
+// "Wire roots"): it cannot read a device name, a nonce, a traffic key, or canonical state.
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+
+  // ---------------------------------------------------------------------------------------
+  // Byte encodings (HandshakeTranscript.Encode and friends).
+  // ---------------------------------------------------------------------------------------
+  const textEncoder = new TextEncoder();
+
+  const concatBytes = (...parts) => {
+    const total = parts.reduce((sum, part) => sum + part.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    return out;
+  };
+
+  const encodeU16 = (value) => {
+    const out = new Uint8Array(2);
+    new DataView(out.buffer).setUint16(0, value, false);
+    return out;
+  };
+  const encodeU32 = (value) => {
+    const out = new Uint8Array(4);
+    new DataView(out.buffer).setUint32(0, value, false);
+    return out;
+  };
+  const encodeU64 = (value) => {
+    const out = new Uint8Array(8);
+    new DataView(out.buffer).setBigUint64(0, BigInt(value), false);
+    return out;
+  };
+  const encodeI64 = (value) => {
+    const out = new Uint8Array(8);
+    new DataView(out.buffer).setBigInt64(0, BigInt(value), false);
+    return out;
+  };
+  const encodeBytes = (bytes) => concatBytes(encodeU32(bytes.length), bytes);
+  const encodeText = (text) => encodeBytes(textEncoder.encode(text));
+  const encodeVersion = (major, minor) => concatBytes(encodeU16(major), encodeU16(minor));
+  const encodeUuid = (guid) => {
+    const hex = guid.replace(/-/g, "");
+    const out = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  };
+  const encodeInstant = (isoText) => encodeI64(Date.parse(isoText));
+
+  const base64UrlEncode = (bytes) => {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  };
+  const base64UrlDecode = (text) => {
+    let normalized = text.replace(/-/g, "+").replace(/_/g, "/");
+    while (normalized.length % 4 !== 0) normalized += "=";
+    const binary = atob(normalized);
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+    return out;
+  };
+
+  const sha256 = async (bytes) => new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+
+  const COSE_ES256_PREFIX = new Uint8Array([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20]);
+  const COSE_ES256_Y_LABEL = new Uint8Array([0x22, 0x58, 0x20]);
+  /** The 77-byte CTAP2 canonical COSE_Key {1: 2, 3: -7, -1: 1, -2: x, -3: y}. */
+  const encodeCoseEs256 = (x, y) => concatBytes(COSE_ES256_PREFIX, x, COSE_ES256_Y_LABEL, y);
+  const keyIdOf = async (bytes) => base64UrlEncode(await sha256(bytes));
+
+  const importEcdhPublicSpki = (spki) =>
+    crypto.subtle.importKey("spki", spki, { name: "ECDH", namedCurve: "P-256" }, true, []);
+  const importEcdsaPublicSpki = (spki) =>
+    crypto.subtle.importKey("spki", spki, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+
+  const deriveP256SharedSecret = async (privateKey, peerPublicKey) =>
+    new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: peerPublicKey }, privateKey, 256));
+
+  const hkdfSha256 = async (ikm, salt, infoText, length) => {
+    const key = await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+    const bits = await crypto.subtle.deriveBits(
+      { name: "HKDF", hash: "SHA-256", salt, info: textEncoder.encode(infoText) },
+      key,
+      length * 8,
+    );
+    return new Uint8Array(bits);
+  };
+
+  // ---------------------------------------------------------------------------------------
+  // Device identity: one ECDSA P-256 key pair per browser profile, generated once, stored
+  // non-extractable in IndexedDB. Not a reusable bearer credential — every session proof is a
+  // fresh signature over that session's own handshake transcript.
+  // ---------------------------------------------------------------------------------------
+  const DB_NAME = "tarkov-companion-device";
+  const STORE = "identity";
+
+  const openDb = () =>
+    new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+  const idbGet = async (key) => {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  };
+
+  const idbSet = async (key, value) => {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  };
+
+  async function ensureDeviceIdentity() {
+    const existing = await idbGet("device");
+    if (existing) return existing;
+    const keyPair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+    const raw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
+    const x = raw.slice(1, 33);
+    const y = raw.slice(33, 65);
+    const cose = encodeCoseEs256(x, y);
+    const record = {
+      privateKey: keyPair.privateKey,
+      cosePublicKeyBase64Url: base64UrlEncode(cose),
+      keyId: await keyIdOf(cose),
+      credentialId: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
+      counter: 0,
+    };
+    await idbSet("device", record);
+    return record;
+  }
+
+  async function nextSignatureCounter(record) {
+    record.counter += 1;
+    await idbSet("device", record);
+    return record.counter;
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // Relay calls. Bodies are the protocol's own JSON wire roots; the pairing code travels only
+  // in the Tarkov-Pairing-Code header, never in JSON or a URL.
+  // ---------------------------------------------------------------------------------------
+  async function postJson(path, body, code) {
+    const headers = { "Content-Type": "application/json" };
+    if (code) headers["Tarkov-Pairing-Code"] = code;
+    const response = await fetch(path, { method: "POST", headers, body: body ? JSON.stringify(body) : undefined });
+    return response;
+  }
+
+  async function getJson(path) {
+    const response = await fetch(path);
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("The relay answered " + response.status);
+    return response.json();
+  }
+
+  function normalizeCode(input) {
+    const trimmed = input.trim();
+    const qr = /^TARKOV-COMPANION-PAIR\/2\.0\/([0-9A-Za-z]+)\//.exec(trimmed);
+    return (qr ? qr[1] : trimmed).replace(/[\s-]/g, "").toUpperCase();
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // The ceremony. Steps and field orders follow docs/PAIRED_DEVICE_PROTOCOL.md exactly; the
+  // byte layouts are checked against tests/TarkovCompanion.CompanionProtocol.Tests/Golden/crypto
+  // /paired-handshake-vectors.json in the package PR's scratch verification, not at runtime.
+  // ---------------------------------------------------------------------------------------
+  function setStage(stage, message) {
+    for (const id of ["pairingIdle", "pairingWaiting", "pairingVerify", "pairingDone"]) {
+      $(id).style.display = id === stage ? "" : "none";
+    }
+    $("pairingError").style.display = "none";
+    if (message) {
+      $("pairingError").style.display = "";
+      $("pairingError").textContent = message;
+    }
+  }
+
+  async function beginPairing(rawCode, deviceName) {
+    setStage("pairingWaiting");
+    const code = normalizeCode(rawCode);
+    const resolveResponse = await postJson("/v2/companion/pairing/offers/resolve", null, code);
+    if (resolveResponse.status === 429) throw new Error("Too many attempts. Wait a few minutes and try again.");
+    if (!resolveResponse.ok) throw new Error("That code was not accepted.");
+    const offer = await resolveResponse.json();
+
+    const device = await ensureDeviceIdentity();
+    const tabletEphemeral = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, [
+      "deriveBits",
+    ]);
+    const tabletEphemeralSpki = new Uint8Array(await crypto.subtle.exportKey("spki", tabletEphemeral.publicKey));
+    const clientNonce = crypto.getRandomValues(new Uint8Array(32));
+
+    const desktopEphemeralSpki = base64UrlDecode(offer.desktopEphemeralKey.subjectPublicKeyInfoBase64Url);
+    const desktopEphemeralKey = await importEcdhPublicSpki(desktopEphemeralSpki);
+    const sharedSecret = await deriveP256SharedSecret(tabletEphemeral.privateKey, desktopEphemeralKey);
+
+    const context = concatBytes(
+      encodeText("TarkovCompanion.PairedDevice/v2/pairing-request-context"),
+      encodeVersion(2, 0),
+      encodeUuid(offer.attemptId.value),
+      encodeBytes(base64UrlDecode(offer.desktopIdentityKey.keyId.value)),
+      encodeBytes(desktopEphemeralSpki),
+      encodeBytes(base64UrlDecode(offer.desktopNonceCommitmentBase64Url)),
+      encodeBytes(base64UrlDecode(device.keyId)),
+      encodeBytes(base64UrlDecode(device.credentialId)),
+      encodeBytes(tabletEphemeralSpki),
+      encodeBytes(clientNonce),
+      encodeInstant(offer.expiresUtc),
+    );
+    const contextHash = await sha256(context);
+
+    const nameKey = await hkdfSha256(sharedSecret, contextHash, "TarkovCompanion.PairedDevice/v2/device-name-key", 32);
+    const nameCipherKey = await crypto.subtle.importKey("raw", nameKey, { name: "AES-GCM" }, false, ["encrypt"]);
+    const sealed = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: new Uint8Array(12), additionalData: contextHash, tagLength: 128 },
+        nameCipherKey,
+        textEncoder.encode(deviceName),
+      ),
+    );
+    const nameCiphertext = sealed.slice(0, -16);
+    const nameTag = sealed.slice(-16);
+    pendingApproval = { nameCiphertext, nameTag };
+
+    const request = {
+      attemptId: { value: offer.attemptId.value },
+      negotiatedVersion: { major: 2, minor: 0 },
+      deviceKey: {
+        keyId: { value: device.keyId },
+        algorithm: "WebAuthnEs256",
+        credentialIdBase64Url: device.credentialId,
+        cosePublicKeyBase64Url: device.cosePublicKeyBase64Url,
+      },
+      ephemeralKey: { algorithm: "EcdhP256", subjectPublicKeyInfoBase64Url: base64UrlEncode(tabletEphemeralSpki) },
+      clientNonceBase64Url: base64UrlEncode(clientNonce),
+      requestedDeviceName: {
+        ciphertextBase64Url: base64UrlEncode(nameCiphertext),
+        authenticationTagBase64Url: base64UrlEncode(nameTag),
+      },
+    };
+
+    const submitted = await postJson(`/v2/companion/pairing/requests/${offer.attemptId.value}`, request);
+    if (!submitted.ok) throw new Error("The desktop did not accept the pairing request.");
+
+    await pollForApproval(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret);
+  }
+
+  async function pollForApproval(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret) {
+    const attemptId = offer.attemptId.value;
+    const deadline = Date.parse(offer.expiresUtc);
+    while (Date.now() < deadline) {
+      const reveal = await getJson(`/v2/companion/pairing/reveals/${attemptId}`);
+      if (reveal) {
+        await showVerificationCode(offer, device, reveal, contextHash);
+        return pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal);
+      }
+
+      const denied = await getJson(`/v2/companion/pairing/denied/${attemptId}`);
+      if (denied && denied.denied) {
+        throw new Error("The desktop declined this pairing request.");
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    throw new Error("The pairing code expired. Start again.");
+  }
+
+  let pendingApproval = null;
+
+  async function showVerificationCode(offer, device, reveal, contextHash) {
+    const desktopNonce = base64UrlDecode(reveal.desktopNonceBase64Url);
+    const commitmentCheck = await sha256(
+      concatBytes(encodeText("TarkovCompanion.PairedDevice/v2/desktop-nonce-commitment"), encodeBytes(desktopNonce)),
+    );
+    const expectedCommitment = base64UrlDecode(offer.desktopNonceCommitmentBase64Url);
+    if (!bytesEqual(commitmentCheck, expectedCommitment)) {
+      throw new Error("The desktop's nonce did not match its commitment. Do not approve this pairing.");
+    }
+
+    const commitment = await sha256(
+      concatBytes(
+        encodeText("TarkovCompanion.PairedDevice/v2/pairing-commitment"),
+        encodeBytes(contextHash),
+        encodeBytes(pendingApproval.nameCiphertext),
+        encodeBytes(pendingApproval.nameTag),
+        encodeBytes(desktopNonce),
+      ),
+    );
+    const code = (new DataView(commitment.buffer, commitment.byteOffset, 4).getUint32(0, false) % 1000000)
+      .toString()
+      .padStart(6, "0");
+    $("pairingCodeDisplay").textContent = code;
+    setStage("pairingVerify");
+  }
+
+  function bytesEqual(a, b) {
+    if (a.length !== b.length) return false;
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+    return diff === 0;
+  }
+
+  async function pollForChallenge(offer, device, tabletEphemeral, tabletEphemeralSpki, clientNonce, contextHash, sharedSecret, reveal) {
+    const attemptId = offer.attemptId.value;
+    const deadline = Date.parse(offer.expiresUtc);
+    while (Date.now() < deadline) {
+      const challenge = await getJson(`/v2/companion/pairing/challenges/${attemptId}`);
+      if (challenge) {
+        return completeWithChallenge(offer, device, tabletEphemeralSpki, clientNonce, reveal, sharedSecret, challenge);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    throw new Error("Approval was not received in time. Start again.");
+  }
+
+  async function completeWithChallenge(offer, device, tabletEphemeralSpki, clientNonce, reveal, sharedSecret, challenge) {
+    const desktopNonce = base64UrlDecode(reveal.desktopNonceBase64Url);
+    const assignment = challenge.assignment;
+    const transcript = concatBytes(
+      encodeText("TarkovCompanion.PairedDevice/v2/handshake-transcript"),
+      encodeU16(1), // Pairing
+      encodeVersion(assignment.protocolVersion.major, assignment.protocolVersion.minor),
+      encodeUuid(challenge.challengeId.value),
+      encodeUuid(challenge.attemptId.value),
+      encodeBytes(base64UrlDecode(challenge.pairingCommitmentBase64Url)),
+      encodeUuid(assignment.deviceId.value),
+      encodeBytes(base64UrlDecode(device.keyId)),
+      encodeBytes(base64UrlDecode(device.credentialId)),
+      encodeBytes(base64UrlDecode(challenge.desktopIdentityKey.keyId.value)),
+      encodeU16(1), // EcdhP256
+      encodeBytes(tabletEphemeralSpki),
+      encodeU16(1), // EcdhP256
+      encodeBytes(base64UrlDecode(challenge.desktopEphemeralKey.subjectPublicKeyInfoBase64Url)),
+      encodeBytes(clientNonce),
+      encodeBytes(desktopNonce),
+      encodeUuid(assignment.sessionId.value),
+      encodeUuid(assignment.relayChannelId.value),
+      encodeU16(1), // P256HkdfSha256Aes256Gcm
+      encodeU32(assignment.keyEpoch),
+      encodeInstant(assignment.sessionExpiresUtc),
+      encodeInstant(challenge.issuedUtc),
+      encodeInstant(challenge.expiresUtc),
+    );
+    const transcriptHash = await sha256(transcript);
+    if (!bytesEqual(transcriptHash, base64UrlDecode(challenge.transcriptHashBase64Url))) {
+      throw new Error("The handshake transcript did not match. This pairing was not completed.");
+    }
+
+    const desktopIdentitySpki = base64UrlDecode(challenge.desktopIdentityKey.subjectPublicKeyInfoBase64Url);
+    const desktopIdentityKey = await importEcdsaPublicSpki(desktopIdentitySpki);
+    const signatureInput = concatBytes(
+      encodeText("TarkovCompanion.PairedDevice/v2/desktop-handshake-signature"),
+      encodeBytes(transcriptHash),
+    );
+    const verified = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      desktopIdentityKey,
+      base64UrlDecode(challenge.desktopSignatureBase64Url),
+      signatureInput,
+    );
+    if (!verified) {
+      throw new Error("The desktop's signature did not verify. This pairing was not completed.");
+    }
+
+    const tabletToDesktopKey = await hkdfSha256(sharedSecret, transcriptHash, "TarkovCompanion.PairedDevice/v2/tablet-to-desktop", 32);
+    const desktopToTabletKey = await hkdfSha256(sharedSecret, transcriptHash, "TarkovCompanion.PairedDevice/v2/desktop-to-tablet", 32);
+
+    const rpIdHash = await sha256(textEncoder.encode(location.hostname.toLowerCase()));
+    const counter = await nextSignatureCounter(device);
+    const authenticatorData = concatBytes(rpIdHash, new Uint8Array([0x05]), encodeU32(counter));
+    const clientData = JSON.stringify({
+      type: "webauthn.get",
+      challenge: challenge.transcriptHashBase64Url,
+      origin: location.origin,
+      crossOrigin: false,
+    });
+    const clientDataBytes = textEncoder.encode(clientData);
+    const signedData = concatBytes(authenticatorData, await sha256(clientDataBytes));
+    const deviceRecord = await idbGet("device");
+    const signature = new Uint8Array(
+      await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, deviceRecord.privateKey, signedData),
+    );
+
+    const proof = {
+      challengeId: { value: challenge.challengeId.value },
+      assertion: {
+        credentialIdBase64Url: device.credentialId,
+        authenticatorDataBase64Url: base64UrlEncode(authenticatorData),
+        clientDataJsonBase64Url: base64UrlEncode(clientDataBytes),
+        signatureBase64Url: base64UrlEncode(signature),
+      },
+    };
+
+    const submitted = await postJson(`/v2/companion/pairing/proofs/${offer.attemptId.value}`, proof);
+    if (!submitted.ok) throw new Error("Could not submit the device proof.");
+
+    return pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey);
+  }
+
+  async function pollForEstablished(offer, challenge, transcriptHash, tabletToDesktopKey, desktopToTabletKey) {
+    const attemptId = offer.attemptId.value;
+    const deadline = Date.parse(offer.expiresUtc);
+    while (Date.now() < deadline) {
+      const established = await getJson(`/v2/companion/pairing/established/${attemptId}`);
+      if (established) {
+        if (!bytesEqual(base64UrlDecode(established.transcriptHashBase64Url), transcriptHash)) {
+          throw new Error("The desktop's session confirmation did not match. This pairing was not completed.");
+        }
+
+        // Pairing is complete: the device is registered with the desktop's authority and can be
+        // seen and revoked from its pairing panel. tabletToDesktopKey/desktopToTabletKey and
+        // established.assignment (deviceId, sessionId, relayChannelId) are what a live frame
+        // relay would use next; this rough pass stops here (see the package PR).
+        void tabletToDesktopKey;
+        void desktopToTabletKey;
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+
+    throw new Error("The desktop did not confirm the session in time. Start again.");
+  }
+
+  // ---------------------------------------------------------------------------------------
+  // UI wiring.
+  // ---------------------------------------------------------------------------------------
+  $("pairingGo").addEventListener("click", async () => {
+    const code = $("pairingCode").value;
+    const deviceName = $("pairingName").value.trim() || "Tablet";
+    if (!code.trim()) return;
+    try {
+      pendingApproval = null;
+      await beginPairing(code, deviceName);
+      $("pairedName").textContent = deviceName;
+      setStage("pairingDone");
+    } catch (error) {
+      setStage("pairingIdle", error.message || String(error));
+    }
+  });
+
+  for (const button of document.querySelectorAll("#pairingModes button")) {
+    button.addEventListener("click", () => {
+      for (const other of document.querySelectorAll("#pairingModes button")) {
+        other.setAttribute("aria-pressed", String(other === button));
+      }
+    });
+  }
+
+  for (const button of document.querySelectorAll("#pairingArm button")) {
+    button.addEventListener("click", () => {
+      $("pairingArmNote").textContent =
+        "Not connected to the desktop yet. Live sync is not implemented in this rough pass.";
+    });
+  }
+
+  setStage("pairingIdle");
+})();
+
 </script>
 </body>
 </html>

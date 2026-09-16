@@ -3,10 +3,13 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Windows.Input;
+using Avalonia.Controls.ApplicationLifetimes;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
 using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Tablet;
+using TarkovCompanion.App.Views.V2.Tablet;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Application.Services.Shell;
 using TarkovCompanion.Core.Abstractions.V2;
@@ -79,12 +82,17 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
     private V2ShellSuggestionKind _suggestionFilter = V2ShellSuggestionKind.All;
     private IReadOnlyList<V2PlannedItemSuggestion> _plannedSuggestions = [];
     private ITimer? _headerTimer;
+    // v2r-pairing-tablet: null under the internal test constructor, which builds a V2 graph
+    // without the desktop's paired-device authority. The one caller of it, "manage-pairing",
+    // no-ops when it is null.
+    private readonly CompanionPairingViewModel? _companionPairing;
 
     public V2ShellViewModel(
         AppCommandLine options,
         AppDataPaths paths,
         IRuntimeStateStore runtime,
         MainWindowViewModel legacy,
+        CompanionPairingViewModel companionPairing,
         TimeProvider? clock = null)
         : this(
             RequirePreview(options?.UiShell ?? throw new ArgumentNullException(nameof(options))),
@@ -99,6 +107,7 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             save: null,
             reset: null)
     {
+        _companionPairing = companionPairing ?? throw new ArgumentNullException(nameof(companionPairing));
     }
 
     /// <summary>Builds the actual shell behavior in tests without composing a second V1 graph.</summary>
@@ -1288,6 +1297,9 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             case "open-capture":
                 ToggleDialog(V2ShellDialogKind.Capture, $"v2-shell-recovery-{action.Id}", V2ShellFocusTargets.CaptureDialog);
                 break;
+            case "manage-pairing":
+                OpenCompanionPairingWindow();
+                break;
             case "sync":
                 if (Legacy is not null)
                 {
@@ -1302,6 +1314,37 @@ public sealed class V2ShellViewModel : BindableViewModel, IAsyncDisposable
             default:
                 Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Opens the paired-device pairing panel as its own window.
+    /// </summary>
+    /// <remarks>
+    /// A separate window rather than a fourth <see cref="V2ShellDialogKind"/>: pairing is a
+    /// focused, occasional management task, not part of the shell's own navigation surface, and
+    /// this keeps the shell's dialog/focus-target plumbing untouched by a package that only owns
+    /// the Tablet route.
+    /// </remarks>
+    private void OpenCompanionPairingWindow()
+    {
+        if (_companionPairing is null)
+        {
+            Announce(V2ShellText.Get("V2.Shell.Announce.ActionUnavailable"), V2Announcement.Assertive);
+            return;
+        }
+
+        if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            var window = new CompanionPairingWindow(_companionPairing);
+            if (desktop.MainWindow is { } owner)
+            {
+                window.Show(owner);
+            }
+            else
+            {
+                window.Show();
+            }
         }
     }
 
