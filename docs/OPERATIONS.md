@@ -52,9 +52,10 @@ configured. Until then, signed desktop builds use the verified offline path in `
 
 Live member state (position, recent trail, kit) stays in memory until about three minutes after
 a member stops publishing and is not written to any of those files. Pings expire in forty-five
-seconds and are not persisted, because one restored from disk would be claiming "now". A report
-body can still carry folder paths and screenshot coordinates (`RISK-REPORT-REDACTION`), so
-treat `reports/` as sensitive in backups and migrations.
+seconds and are not persisted, because one restored from disk would be claiming "now". The
+ordinary desktop report is a closed allowlisted projection, but the relay endpoint still accepts
+arbitrary caller-supplied bodies and performs no content allowlisting. Treat `reports/` as
+sensitive in backups and migrations (`RISK-REPORT-REDACTION`).
 
 Authenticated update history and install/refusal state live under root-owned
 `/var/lib/tarkov-group-update`; the panel reads non-authoritative status copies from
@@ -69,10 +70,11 @@ refusal. See `RELEASES.md` and `deploy/group-server/README.md` for the complete 
 
 ## Problem reports
 
-A player presses **Report a problem** on Settings. The report goes to the relay, which keeps it
-in `/var/lib/tarkov-group/reports` and hands back a 12-hex reference. The hourly
-`relay-watch.yml` is designed to validate the complete bounded listing and open one issue per
-reference without copying the report body.
+A player presses **Report a problem** on Settings. The desktop builds the same closed, bounded
+text exposed by **Copy diagnostics**, but currently sends it without a separate confirmation
+preview. The relay keeps it in `/var/lib/tarkov-group/reports` and hands back a 12-hex reference.
+The hourly `relay-watch.yml` is designed to validate the complete bounded listing and open one
+issue per reference without copying the report body.
 
 **The relay holds no GitHub credential.** The workflow files the issues with the token GitHub
 Actions already gives it for its own repository, so the internet-facing box never holds a
@@ -123,11 +125,12 @@ for it and runs the same update the timer runs — the relay runs unprivileged a
 unit itself. If that path unit is not installed the button still works, in the sense that the
 next timer tick picks the file up; it is just no longer immediate.
 
-A report is untrusted diagnostic content. The current desktop deliberately omits game logs,
-group keys, screenshots, and selected coordinates, masks digits in sampled screenshot names,
-and applies a narrow path/key redactor to its app-log tail. That does not yet prove the complete
-assembled or persisted body lacks raw roots, exact screenshot filenames, or coordinates.
-Treat every report body as restricted until #281/#310's complete-bundle tests pass.
+A report is untrusted diagnostic content. The ordinary desktop now constructs one closed,
+bounded projection and never opens the application log or renders runtime details, screenshot
+names, coordinates, paths, credentials, identities, OCR/pixels, or exception bodies. Its hostile
+complete-payload fixture proves that client boundary. The relay still accepts arbitrary bodies,
+sends no separate confirmation preview, and retains exact submitted bytes, so treat every stored
+report as restricted until #281/#310 close and test the complete transport and lifecycle.
 
 **When the group panel says something is wrong:**
 
