@@ -485,7 +485,8 @@ public sealed class JsonLootSpawnSourceBundleReader : ILootSpawnSourceBundleRead
             sourceReference,
             license,
             confidence,
-            producer);
+            producer,
+            [new LootSpawnSourceArtifactIdentity("loot-spawn-content", sourceIdentifier, contentSha256)]);
         return new(identity, Array.AsReadOnly(coverage.OrderBy(value => value.MapId, StringComparer.Ordinal).ToArray()));
     }
 

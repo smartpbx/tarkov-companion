@@ -10,10 +10,10 @@ public sealed record LootSpawnQuarantineEntry(
 
 /// <summary>An atomic process-lifetime publication head for the runtime-neutral import slice.</summary>
 /// <remarks>
-/// Persistent composition can replace this narrow store without changing parsing or publication
-/// policy. The assignment happens only after the entire bundle validates; malformed, stale,
-/// incompatible and superseded attempts are retained as bounded quarantine evidence and cannot
-/// clear the prior head.
+/// Durable composition can replace this narrow store without changing parsing or publication
+/// policy. Both implementations use the replacement policy below. The assignment happens only
+/// after the entire bundle validates; malformed, stale, incompatible and superseded attempts are
+/// retained as bounded quarantine evidence and cannot clear the prior head.
 /// </remarks>
 public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicationStore, IDisposable
 {
@@ -48,68 +48,7 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
             cancellationToken.ThrowIfCancellationRequested();
             if (_lastKnownGood is { } current)
             {
-                if (bundle.Identity.SourceClass != current.Identity.SourceClass ||
-                    !string.Equals(
-                        bundle.Identity.SourceIdentifier,
-                        current.Identity.SourceIdentifier,
-                        StringComparison.Ordinal))
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.source-conflict",
-                        "A publication store cannot change reviewed loot-spawn source authority.");
-                }
-
-                if (bundle.Identity.ImportedUtc < current.Identity.ImportedUtc)
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.import-regression",
-                        "An older import observation cannot replace the last-known-good publication.");
-                }
-
-                if (bundle.Identity.GeneratedUtc < current.Identity.GeneratedUtc)
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.superseded",
-                        "An older loot-spawn bundle cannot replace the last-known-good publication.");
-                }
-
-                if (bundle.Identity.DataThroughUtc < current.Identity.DataThroughUtc)
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.evidence-regression",
-                        "A loot-spawn bundle with older source evidence cannot replace the last-known-good publication.");
-                }
-
-                if (CoverageRegresses(bundle, current, cancellationToken))
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.coverage-regression",
-                        "A loot-spawn bundle cannot silently shrink the last-known-good map or record coverage.");
-                }
-
-                if (ItemEvidenceRegresses(bundle, current, cancellationToken))
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.item-evidence-regression",
-                        "Older item evidence cannot replace newer evidence in the last-known-good publication.");
-                }
-
-                if (bundle.Identity.GeneratedUtc == current.Identity.GeneratedUtc &&
-                    !SameSourceGeneration(bundle.Identity, current.Identity))
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.identity-conflict",
-                        "Two loot-spawn bundles claim the same generation time with different content or source metadata.");
-                }
-
-                if (bundle.Identity.GeneratedUtc == current.Identity.GeneratedUtc &&
-                    bundle.Identity.ImportedUtc == current.Identity.ImportedUtc &&
-                    !ItemEvidenceEquivalent(bundle, current, cancellationToken))
-                {
-                    throw new LootSpawnSourceImportException(
-                        "publication.item-evidence-conflict",
-                        "One import observation cannot publish conflicting item evidence for the same source bundle.");
-                }
+                ValidateReplacement(bundle, current, cancellationToken);
             }
 
             _lastKnownGood = bundle;
@@ -174,6 +113,81 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
         _gate.Dispose();
     }
 
+    /// <summary>
+    /// Applies the same monotonic-head policy to process and restart-durable publication stores.
+    /// </summary>
+    internal static void ValidateReplacement(
+        LootSpawnSourceBundle bundle,
+        LootSpawnSourceBundle current,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(bundle);
+        ArgumentNullException.ThrowIfNull(current);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (bundle.Identity.SourceClass != current.Identity.SourceClass ||
+            !string.Equals(
+                bundle.Identity.SourceIdentifier,
+                current.Identity.SourceIdentifier,
+                StringComparison.Ordinal))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.source-conflict",
+                "A publication store cannot change reviewed loot-spawn source authority.");
+        }
+
+        if (bundle.Identity.ImportedUtc < current.Identity.ImportedUtc)
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.import-regression",
+                "An older import observation cannot replace the last-known-good publication.");
+        }
+
+        if (bundle.Identity.GeneratedUtc < current.Identity.GeneratedUtc)
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.superseded",
+                "An older loot-spawn bundle cannot replace the last-known-good publication.");
+        }
+
+        if (bundle.Identity.DataThroughUtc < current.Identity.DataThroughUtc)
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.evidence-regression",
+                "A loot-spawn bundle with older source evidence cannot replace the last-known-good publication.");
+        }
+
+        if (CoverageRegresses(bundle, current, cancellationToken))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.coverage-regression",
+                "A loot-spawn bundle cannot silently shrink the last-known-good map or record coverage.");
+        }
+
+        if (ItemEvidenceRegresses(bundle, current, cancellationToken))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.item-evidence-regression",
+                "Older or missing item evidence cannot replace the last-known-good publication.");
+        }
+
+        if (bundle.Identity.GeneratedUtc == current.Identity.GeneratedUtc &&
+            !SameSourceGeneration(bundle.Identity, current.Identity))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.identity-conflict",
+                "Two loot-spawn bundles claim the same generation time with different content or source metadata.");
+        }
+
+        if (bundle.Identity.GeneratedUtc == current.Identity.GeneratedUtc &&
+            bundle.Identity.ImportedUtc == current.Identity.ImportedUtc &&
+            !ItemEvidenceEquivalent(bundle, current, cancellationToken))
+        {
+            throw new LootSpawnSourceImportException(
+                "publication.item-evidence-conflict",
+                "One import observation cannot publish conflicting item evidence for the same source bundle.");
+        }
+    }
+
     private static bool CoverageRegresses(
         LootSpawnSourceBundle candidate,
         LootSpawnSourceBundle current,
@@ -205,11 +219,11 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
         foreach (var (key, previous) in CandidateIndex(current, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (nextItems.TryGetValue(key, out var next) &&
-                (FieldEvidenceThrough(next.FleaGrossRoubles) < FieldEvidenceThrough(previous.FleaGrossRoubles) ||
-                 FieldEvidenceThrough(next.FleaNetRoubles) < FieldEvidenceThrough(previous.FleaNetRoubles) ||
-                 FieldEvidenceThrough(next.BestTraderRoubles) < FieldEvidenceThrough(previous.BestTraderRoubles) ||
-                 FieldEvidenceThrough(next.OccupiedSquares) < FieldEvidenceThrough(previous.OccupiedSquares)))
+            if (!nextItems.TryGetValue(key, out var next) ||
+                FieldEvidenceThrough(next.FleaGrossRoubles) < FieldEvidenceThrough(previous.FleaGrossRoubles) ||
+                FieldEvidenceThrough(next.FleaNetRoubles) < FieldEvidenceThrough(previous.FleaNetRoubles) ||
+                FieldEvidenceThrough(next.BestTraderRoubles) < FieldEvidenceThrough(previous.BestTraderRoubles) ||
+                FieldEvidenceThrough(next.OccupiedSquares) < FieldEvidenceThrough(previous.OccupiedSquares))
             {
                 return true;
             }
@@ -311,5 +325,6 @@ public sealed class AtomicLootSpawnPublicationStore : ILootSpawnSourcePublicatio
         string.Equals(candidate.SourceReference, current.SourceReference, StringComparison.Ordinal) &&
         string.Equals(candidate.License, current.License, StringComparison.Ordinal) &&
         candidate.Confidence == current.Confidence &&
-        candidate.Producer == current.Producer;
+        candidate.Producer == current.Producer &&
+        candidate.Artifacts.SequenceEqual(current.Artifacts);
 }

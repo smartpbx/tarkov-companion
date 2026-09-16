@@ -48,13 +48,16 @@ Runtime inputs use a versioned normalized-bundle contract with explicit provenan
 timestamps, confidence, content hash, map/transform identity, precision, pool semantics, and
 measured per-map coverage. The importer never derives or guesses a location from item metadata.
 The production adapter composes exact mode-bound maps and items response documents with the
-reviewed, hashed tarkov.dev map catalog. Reviewed aliases currently cover 16 source records across
-13 runtime-supported canonical maps; the tutorial-only Ground Zero record remains explicitly
-unmatched. Candidate membership remains unweighted, container contents and probability remain
-unknown, and an unprojectable position is retained as map-only knowledge. Desktop startup wiring
-and restart-durable publication persistence remain separate integration work. The bundled manifest
-example is synthetic and test-only. See [`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the
-contract, measured 2026-09-16 input counts, validation, publication behavior, and remaining gaps.
+reviewed, hashed tarkov.dev map catalog. A publication retains the separate exact SHA-256 identities
+for the raw maps response, language-applied maps view, raw items response, language-applied items
+view, and map catalog in addition to its framed composite identity. Reviewed aliases currently
+cover 16 source records across 13 runtime-supported canonical maps; the tutorial-only Ground Zero
+record remains explicitly unmatched. Candidate membership remains unweighted, container contents
+and probability remain unknown, and an unprojectable position is retained as map-only knowledge.
+A restart-durable, bounded publication store is available behind the same application contract;
+desktop startup path selection remains separate composition work. The bundled manifest example is
+synthetic and test-only. See [`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the contract,
+measured 2026-09-16 input counts, validation, publication behavior, and remaining gaps.
 
 ## Map configuration and assets
 

@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using TarkovCompanion.Application.Services.Maps;
@@ -20,7 +22,8 @@ public sealed class TarkovDevLootSpawnNormalizerTests
     [Fact]
     public async Task Production_responses_fold_aliases_project_exact_points_and_measure_unpublished_containers()
     {
-        var normalized = await NormalizeAsync(Request());
+        var request = Request();
+        var normalized = await NormalizeAsync(request);
 
         var snapshot = Assert.Single(normalized.Bundle.Snapshots);
         Assert.Equal("synthetic-port", snapshot.MapId);
@@ -32,6 +35,15 @@ public sealed class TarkovDevLootSpawnNormalizerTests
         Assert.Equal("json.tarkov.dev/regular/maps", snapshot.Provenance.SourceIdentifier);
         Assert.Equal(Now, snapshot.GeneratedUtc);
         Assert.Equal(Now.AddHours(-2), snapshot.Provenance.DataThroughUtc);
+        Assert.Equal(
+            Hash(request.Maps.RawSourceJson!),
+            normalized.Bundle.Identity.Artifacts.Single(value => value.Role == "maps-source").ContentSha256);
+        Assert.Equal(
+            Hash(request.Items.RawSourceJson!),
+            normalized.Bundle.Identity.Artifacts.Single(value => value.Role == "items-source").ContentSha256);
+        Assert.Equal(
+            request.MapCatalog.Provenance.ContentSha256,
+            normalized.Bundle.Identity.Artifacts.Single(value => value.Role == "map-catalog").ContentSha256);
 
         var exact = Assert.Single(snapshot.Records, record => record.Candidates.Count == 2);
         Assert.Equal(LootSpawnPrecision.ExactPoint, exact.Location.Precision);
@@ -429,4 +441,7 @@ public sealed class TarkovDevLootSpawnNormalizerTests
             RefusalReason: null,
             SourceKey: sourceKey);
     }
+
+    private static string Hash(string value) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
 }

@@ -320,8 +320,32 @@ public sealed record LootSpawnMapSourceCoverage
     public int UnresolvedRecordCount { get; }
 }
 
+/// <summary>One exact input document whose bytes contributed to a published bundle.</summary>
+public sealed record LootSpawnSourceArtifactIdentity
+{
+    public LootSpawnSourceArtifactIdentity(string role, string sourceIdentifier, string contentSha256)
+    {
+        Role = LootSpawnItemCatalogEntry.Required(role, nameof(role), 64);
+        SourceIdentifier = LootSpawnItemCatalogEntry.Required(sourceIdentifier, nameof(sourceIdentifier), 1024);
+        ContentSha256 = LootSpawnItemCatalogEntry.Required(contentSha256, nameof(contentSha256), 64);
+        if (ContentSha256.Length != 64 || ContentSha256.Any(value =>
+                !((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))))
+        {
+            throw new ArgumentException("A lowercase SHA-256 artifact identity is required.", nameof(contentSha256));
+        }
+    }
+
+    public string Role { get; }
+
+    public string SourceIdentifier { get; }
+
+    public string ContentSha256 { get; }
+}
+
 public sealed record LootSpawnSourceIdentity
 {
+    public const int MaximumArtifacts = 8;
+
     public LootSpawnSourceIdentity(
         int schemaVersion,
         string datasetVersion,
@@ -334,7 +358,8 @@ public sealed record LootSpawnSourceIdentity
         string sourceReference,
         string license,
         EvidenceConfidence confidence,
-        ProducerIdentity producer)
+        ProducerIdentity producer,
+        IReadOnlyList<LootSpawnSourceArtifactIdentity>? artifacts = null)
     {
         if (schemaVersion < 1)
         {
@@ -371,6 +396,19 @@ public sealed record LootSpawnSourceIdentity
         License = LootSpawnItemCatalogEntry.Required(license, nameof(license), 256);
         Confidence = confidence ?? throw new ArgumentNullException(nameof(confidence));
         Producer = producer ?? throw new ArgumentNullException(nameof(producer));
+        var copiedArtifacts = (artifacts ?? [])
+            .Take(MaximumArtifacts + 1)
+            .ToArray();
+        if (copiedArtifacts.Length > MaximumArtifacts || copiedArtifacts.Any(value => value is null) ||
+            copiedArtifacts.Select(value => value.Role).Distinct(StringComparer.Ordinal).Count() != copiedArtifacts.Length)
+        {
+            throw new ArgumentException(
+                "Source artifacts must be bounded and have unique ordinal roles.",
+                nameof(artifacts));
+        }
+
+        Array.Sort(copiedArtifacts, static (left, right) => StringComparer.Ordinal.Compare(left.Role, right.Role));
+        Artifacts = Array.AsReadOnly(copiedArtifacts);
     }
 
     public int SchemaVersion { get; }
@@ -396,6 +434,9 @@ public sealed record LootSpawnSourceIdentity
     public EvidenceConfidence Confidence { get; }
 
     public ProducerIdentity Producer { get; }
+
+    /// <summary>Exact hashes of the source documents framed by <see cref="ContentSha256"/>.</summary>
+    public IReadOnlyList<LootSpawnSourceArtifactIdentity> Artifacts { get; }
 }
 
 public sealed record LootSpawnSourceDiagnostic

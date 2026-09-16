@@ -163,6 +163,8 @@ public sealed class TarkovDevLootSpawnRefreshService
         "publication.item-evidence-conflict" =>
             "The candidate publication would regress or conflict with the last-known-good head " +
             "and was retained only as quarantine evidence.",
+        "publication.store-busy" =>
+            "Another process retained the durable loot publication lease; the existing last-known-good head was not changed.",
         _ => "The production source candidate failed bounded validation; the last-known-good loot snapshot was retained.",
     };
 }

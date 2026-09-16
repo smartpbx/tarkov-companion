@@ -19,8 +19,10 @@ Reviewed curated inputs use a versioned manifest plus one content document. The 
 It does not trust a caller-supplied object graph in place of those response bytes. The composite
 content identity frames each exact base response and language-normalized document, game mode,
 language, and the catalog URI and SHA-256.
+The published identity also retains each maps, items, language-view, and catalog SHA-256
+separately, so a restart does not reduce exact source provenance to an opaque composite hash.
 `TarkovDevLootSpawnRefreshService` obtains those three inputs serially, publishes only a complete
-validated candidate, and quarantines a bounded reason while retaining the process last-known-good
+validated candidate, and quarantines a bounded reason while retaining the configured last-known-good
 head on a refused or unavailable refresh.
 
 The production mapping was measured against the regular-mode feed on 2026-09-16: 17 source map
@@ -105,7 +107,16 @@ For candidate metadata that is joined from the separately evidenced item catalog
 cannot replace a matching spawn/item field with older evidence, and one import observation cannot
 claim two different current values for the same source generation.
 
-The current publication store is process-lifetime only and deliberately sits behind
-`ILootSpawnSourcePublicationStore`. Durable offline storage and desktop application composition
-remain a separate integration slice; until then, neither importer path claims restart-persistent
-offline availability.
+Both process-lifetime and restart-durable implementations sit behind
+`ILootSpawnSourcePublicationStore`. `DurableLootSpawnPublicationStore` writes a single bounded,
+versioned frame containing the exact serialized bundle length and SHA-256, uses a same-directory
+write-through temporary file, and atomically retains the prior generation as `.previous`. Every
+publisher takes an inter-process lease and re-reads that on-disk head before applying the same
+source, chronology, coverage, item-evidence, and identity monotonicity policy. This prevents a
+second instance with stale memory from replacing a newer publication. A corrupt or oversized head
+is never deserialized as data: the store validates the frame, payload hash, JSON, and domain
+invariants, retains corrupt primary/fallback files in two fixed diagnostic paths, and recovers the
+validated previous generation when available. The payload is capped at 256 MiB, quarantine remains
+bounded at 64 entries, and scratch names are removed after success or failure. Desktop startup path
+selection remains a separate composition slice; the durable implementation alone does not claim
+that an installed client has enabled offline publication recovery.

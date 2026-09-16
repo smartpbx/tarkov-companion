@@ -305,7 +305,19 @@ public sealed class TarkovDevLootSpawnNormalizer
             sourceReference,
             SourceTerms,
             confidence,
-            Producer);
+            Producer,
+            [
+                new("maps-source", sourceIdentifier, HashText(request.Maps.RawSourceJson!, cancellationToken)),
+                new("maps-language-view", $"{sourceIdentifier}#{request.Language.Trim().ToLowerInvariant()}",
+                    HashText(request.Maps.Json, cancellationToken)),
+                new("items-source", itemIdentifier, HashText(request.Items.RawSourceJson!, cancellationToken)),
+                new("items-language-view", $"{itemIdentifier}#{request.Language.Trim().ToLowerInvariant()}",
+                    HashText(request.Items.Json, cancellationToken)),
+                new(
+                    "map-catalog",
+                    request.MapCatalog.Provenance.SourceUri.AbsoluteUri,
+                    request.MapCatalog.Provenance.ContentSha256),
+            ]);
         return new(
             new LootSpawnSourceBundle(
                 identity,
@@ -844,7 +856,8 @@ public sealed class TarkovDevLootSpawnNormalizer
     private static void AppendUtf8(
         IncrementalHash hash,
         string value,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool appendTerminator = true)
     {
         var encoder = Encoding.UTF8.GetEncoder();
         var rented = ArrayPool<byte>.Shared.Rent(8192);
@@ -865,7 +878,10 @@ public sealed class TarkovDevLootSpawnNormalizer
                 remaining = remaining[charsUsed..];
             }
 
-            hash.AppendData([0]);
+            if (appendTerminator)
+            {
+                hash.AppendData([0]);
+            }
         }
         finally
         {
@@ -873,8 +889,12 @@ public sealed class TarkovDevLootSpawnNormalizer
         }
     }
 
-    private static string HashText(string value) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    private static string HashText(string value, CancellationToken cancellationToken = default)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendUtf8(hash, value, cancellationToken, appendTerminator: false);
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
 
     private static DateTimeOffset DataThrough<T>(TarkovDevResponse<T> response)
     {
