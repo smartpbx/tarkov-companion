@@ -59,7 +59,7 @@ application contract. Offline startup restores its last-known-good head without 
 shared online refresh updates it from the exact current maps/items response documents. Silent
 shrink remains refused; a legitimate wipe/removal requires an exact-head reviewed authorization
 and leaves a bounded durable journal. The bundled manifest example is synthetic and test-only. See
-[`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) and ADR 0018 for the contract, measured 2026-09-16
+[`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) and ADR 0019 for the contract, measured 2026-09-16
 input counts, validation, publication behavior, and remaining Raid-host gap.
 
 ## Map configuration and assets

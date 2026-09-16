@@ -1,4 +1,4 @@
-# ADR 0018: One durable runtime head for potential loot spawns
+# ADR 0019: One durable runtime head for potential loot spawns
 
 ## Status
 
