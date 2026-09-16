@@ -1,0 +1,142 @@
+using System.Globalization;
+
+namespace TarkovCompanion.App.ViewModels.V2.MapRenderer;
+
+/// <summary>The selected language, number culture, and time zone used by one map renderer.</summary>
+/// <remarks>
+/// A renderer used to read ambient process culture and the development machine's local time
+/// zone. Paired devices could consequently describe the same evidence differently. The host now
+/// supplies all three presentation choices together; tests and the packaged gallery do the same.
+/// </remarks>
+public sealed class MapSceneRendererPresentation
+{
+    public MapSceneRendererPresentation(
+        CultureInfo culture,
+        TimeZoneInfo timeZone,
+        IReadOnlyDictionary<string, string> strings)
+    {
+        Culture = culture ?? throw new ArgumentNullException(nameof(culture));
+        TimeZone = timeZone ?? throw new ArgumentNullException(nameof(timeZone));
+        ArgumentNullException.ThrowIfNull(strings);
+        Strings = new Dictionary<string, string>(strings, StringComparer.Ordinal);
+    }
+
+    public CultureInfo Culture { get; }
+
+    public TimeZoneInfo TimeZone { get; }
+
+    public IReadOnlyDictionary<string, string> Strings { get; }
+
+    public string Get(string key) => Strings.TryGetValue(key, out var value)
+        ? value
+        : throw new KeyNotFoundException($"The map renderer has no localized text for '{key}'.");
+
+    public string Format(string key, params object?[] arguments) =>
+        string.Format(Culture, Get(key), arguments);
+
+    public string Number(int value) => value.ToString("N0", Culture);
+
+    public string Percent(double value) => value.ToString("P0", Culture);
+
+    public string Instant(DateTimeOffset value)
+    {
+        var local = TimeZoneInfo.ConvertTime(value, TimeZone);
+        var offset = local.ToString("'UTC'zzz", CultureInfo.InvariantCulture);
+        return Format("Map.DateTimeWithZone", local.ToString("f", Culture), offset);
+    }
+
+    public static MapSceneRendererPresentation English(
+        CultureInfo culture,
+        TimeZoneInfo timeZone) => new(culture, timeZone, EnglishStrings);
+
+    /// <summary>English is the default V2 map resource; another selected language replaces it.</summary>
+    public static IReadOnlyDictionary<string, string> EnglishStrings { get; } =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["Map.DateTimeWithZone"] = "{0} ({1})",
+            ["Map.Empty.Map"] = "No visible map objects for this view.",
+            ["Map.Empty.List"] = "No matching details for this view.",
+            ["Map.Action.ZoomOut"] = "Zoom map out",
+            ["Map.Action.ZoomIn"] = "Zoom map in",
+            ["Map.Action.Fit"] = "Fit plan",
+            ["Map.Action.ClearSelection"] = "Clear selection",
+            ["Map.Action.Previous"] = "Previous page",
+            ["Map.Action.Next"] = "Next page",
+            ["Map.Action.ClearCluster"] = "Show all details",
+            ["Map.Label.Presentation"] = "Map presentation",
+            ["Map.Label.Floor"] = "Floor filter",
+            ["Map.Label.Plan"] = "Map plan",
+            ["Map.Label.Layers"] = "Layers",
+            ["Map.Label.Details"] = "Visible details",
+            ["Map.Label.Search"] = "Search map details",
+            ["Map.Label.SearchPlaceholder"] = "Name, kind, faction, or evidence",
+            ["Map.Mode.Flat"] = "2D plan",
+            ["Map.Mode.FloorStack"] = "Floor stack",
+            ["Map.Mode.Interior"] = "3D interior",
+            ["Map.Mode.Fallback"] = "{0} is active in the shared scene; this renderer is showing the floor-filtered 2D plan.",
+            ["Map.Mode.FloorStackUnsupported"] = "Floor-stack rendering is not available here because scene assets do not identify artwork by floor. Use the floor filter in the 2D plan.",
+            ["Map.Mode.InteriorUnsupported"] = "Reviewed 3D rendering is not available in this renderer. Use the 2D plan.",
+            ["Map.Mode.Unavailable"] = "{0} is unavailable. {1}",
+            ["Map.Floor.Unavailable"] = "That floor is not available in this map.",
+            ["Map.Layer.Unavailable"] = "That layer is no longer available.",
+            ["Map.Change.Pending"] = "Waiting for the shared map to confirm the previous change.",
+            ["Map.Background.Bounds"] = "The reviewed scene bounds are too large to project safely. Spatial references are withheld.",
+            ["Map.Background.None"] = "No reviewed 2D artwork is available. Spatial references are shown without a background.",
+            ["Map.Background.NotCached"] = "Reviewed artwork is not cached on this device. Spatial references remain available.",
+            ["Map.Asset.Label"] = "{0} · map {1} · game {2}",
+            ["Map.Dense.Points"] = "{0} points are grouped into {1} markers",
+            ["Map.Dense.Geometry"] = "showing {0} of {1} shapes on the plan",
+            ["Map.Dense.List"] = "{0} details are available across {1} pages",
+            ["Map.Dense.Outside"] = "{0} features outside reviewed bounds are list-only",
+            ["Map.Dense.Suffix"] = "Use cluster drill-down, search, pages, or layer filters to reach every detail.",
+            ["Map.Cluster.Label"] = "{0} nearby items",
+            ["Map.Cluster.Detail"] = "Approximate grouping of sourced points. Open this cluster to inspect every record.",
+            ["Map.Cluster.Kind"] = "Point cluster",
+            ["Map.Cluster.Truth"] = "Multiple source records",
+            ["Map.Cluster.Faction"] = "Mixed or unknown factions",
+            ["Map.Cluster.Evidence"] = "Open the cluster details for each source and timestamp.",
+            ["Map.Cluster.Filter"] = "Cluster: {0} records",
+            ["Map.List.Page"] = "Page {0} of {1} · {2} matching details",
+            ["Map.Layer.Show"] = "Show {0}",
+            ["Map.Layer.Hide"] = "Hide {0}",
+            ["Map.Layer.Visible"] = "Visible",
+            ["Map.Layer.Hidden"] = "Hidden",
+            ["Map.Kind.Extract"] = "Extract",
+            ["Map.Kind.Transit"] = "Transit",
+            ["Map.Kind.SpawnArea"] = "Spawn area",
+            ["Map.Kind.LootSpawn"] = "Loot spawn",
+            ["Map.Kind.LootContainer"] = "Loot container",
+            ["Map.Kind.Hazard"] = "Hazard",
+            ["Map.Kind.Lock"] = "Locked entry",
+            ["Map.Kind.QuestObjective"] = "Quest objective",
+            ["Map.Kind.Route"] = "Route",
+            ["Map.Kind.Risk"] = "Risk area",
+            ["Map.Kind.Traffic"] = "Traffic estimate",
+            ["Map.Kind.LastKnownPosition"] = "Local last known position",
+            ["Map.Kind.TeammateLastKnown"] = "Team-shared last known position",
+            ["Map.Kind.Ping"] = "Ping",
+            ["Map.Kind.Waypoint"] = "Waypoint",
+            ["Map.Kind.Label"] = "Map label",
+            ["Map.Kind.Custom"] = "Map object",
+            ["Map.Truth.StaticReference"] = "Reference",
+            ["Map.Truth.PotentialSpawn"] = "Potential spawn",
+            ["Map.Truth.LocalLastKnown"] = "Local last known",
+            ["Map.Truth.TeamSharedLastKnown"] = "Team-shared last known",
+            ["Map.Truth.HistoricalEstimate"] = "Historical estimate",
+            ["Map.Truth.PersonalPlan"] = "Personal plan",
+            ["Map.Truth.UserAuthored"] = "Map note",
+            ["Map.Truth.Unknown"] = "Unclassified",
+            ["Map.Faction.Pmc"] = "PMC",
+            ["Map.Faction.Scav"] = "Scav",
+            ["Map.Faction.Shared"] = "PMC and Scav",
+            ["Map.Faction.Unknown"] = "Faction unknown",
+            ["Map.Offer.Offered"] = "Offered this raid",
+            ["Map.Offer.NotOffered"] = "Not offered this raid",
+            ["Map.Offer.Unknown"] = "Offer status unknown",
+            ["Map.Evidence.Confidence"] = " · {0} confidence",
+            ["Map.Evidence"] = "{0} · observed {1}{2}",
+            ["Map.Estimate"] = "Historical model {0} · observed from {1} · data through {2} · generated {3} · {4} · {5} · transform {6}",
+            ["Map.Marker.Automation"] = "{0}. {1}. {2}. {3}{4}",
+            ["Map.Marker.OfferSuffix"] = ". {0}",
+        };
+}

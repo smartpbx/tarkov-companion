@@ -50,6 +50,20 @@ public sealed class MapSceneHitTestingTests
         Assert.Empty(MapSceneHitTesting.HitTest(scene, new(10, 10), 5));
     }
 
+    [Fact]
+    public void Explicit_candidates_exclude_visible_objects_the_renderer_did_not_draw()
+    {
+        var layer = new MapSceneLayer(new("loot"), "Loot", 10, true);
+        var drawn = Point(layer, "Drawn", 10, 10);
+        var clustered = Point(layer, "Clustered", 11, 10);
+        var scene = Scene([layer], [drawn, clustered], [new(layer.Id, true)]);
+
+        var hits = MapSceneHitTesting.HitTest(scene, [drawn], new(11, 10), 2);
+
+        var hit = Assert.Single(hits);
+        Assert.Equal("Drawn", hit.Object.Label);
+    }
+
     private static MapSceneSnapshot Scene(
         IReadOnlyList<MapSceneLayer> layers,
         IReadOnlyList<MapSceneObject> objects,

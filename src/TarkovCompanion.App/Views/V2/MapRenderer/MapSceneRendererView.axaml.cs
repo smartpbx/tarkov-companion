@@ -11,6 +11,7 @@ namespace TarkovCompanion.App.Views.V2.MapRenderer;
 public sealed partial class MapSceneRendererView : UserControl
 {
     private const double CompactWidth = 860;
+    private const double NarrowHeaderWidth = 600;
     private const double DragThreshold = 4;
 
     private bool _pointerDown;
@@ -30,13 +31,20 @@ public sealed partial class MapSceneRendererView : UserControl
     private void RendererSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
         var compact = Bounds.Width < CompactWidth;
+        var narrowHeader = Bounds.Width < NarrowHeaderWidth;
+        RendererHeader.ColumnDefinitions = new(narrowHeader ? "*" : "*,Auto");
+        RendererHeader.RowDefinitions = new(narrowHeader ? "Auto,Auto" : "Auto");
+        Grid.SetColumn(RendererTitle, 0);
+        Grid.SetRow(RendererTitle, 0);
+        Grid.SetColumn(RendererCommands, narrowHeader ? 0 : 1);
+        Grid.SetRow(RendererCommands, narrowHeader ? 1 : 0);
         RendererBody.ColumnDefinitions = new(compact ? "*" : "2*,*");
-        RendererBody.RowDefinitions = new(compact ? "*,Auto" : "*");
+        RendererBody.RowDefinitions = new(compact ? "Auto,Auto" : "Auto");
         Grid.SetColumn(PlanViewport, 0);
         Grid.SetRow(PlanViewport, 0);
         Grid.SetColumn(DetailsPanel, compact ? 0 : 1);
         Grid.SetRow(DetailsPanel, compact ? 1 : 0);
-        DetailsPanel.MaxHeight = compact ? 360 : double.PositiveInfinity;
+        DetailsPanel.MaxHeight = compact ? 420 : 700;
         UpdateViewport();
     }
 

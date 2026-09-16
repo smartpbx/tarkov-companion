@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Windows.Input;
 using Avalonia.Media;
 using TarkovCompanion.App.ViewModels;
@@ -11,21 +10,23 @@ namespace TarkovCompanion.App.ViewModels.V2.MapRenderer;
 /// <summary>Presents a canonical map scene without privately applying its state transitions.</summary>
 /// <remarks>
 /// Desktop and paired clients emit the same revision-checked changes. Rendering may project,
-/// bound, or cluster a scene for the current viewport, but it never rewrites scene truth.
+/// bound, page, or cluster a scene for the current viewport, but it never rewrites scene truth.
+/// This renderer currently draws one reviewed 2D plan. Unsupported floor-stack and 3D modes are
+/// disabled instead of being represented by the same flat image under a different label.
 /// </remarks>
 public sealed class MapSceneRendererViewModel : BindableViewModel
 {
     public const int MaximumPointMarkers = 280;
     public const int MaximumGeometryObjects = 300;
-    public const int MaximumListItems = 300;
+    public const int ListPageSize = 50;
+    public const int MaximumListItems = ListPageSize;
     public const double MarkerExtent = 48;
 
     private const int ClusterColumns = 20;
     private const int ClusterRows = 14;
-    private const double MinimumViewportWidth = 320;
-    private const double MinimumViewportHeight = 280;
     private const double MapInset = MarkerExtent / 2;
 
+    private readonly MapSceneRendererPresentation _presentation;
     private readonly Func<Guid> _nextChangeId;
     private readonly Func<MapSceneAsset, IImage?>? _reviewedAssetResolver;
     private MapSceneSnapshot _scene;
@@ -36,13 +37,21 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private double _canvasWidth = 1000;
     private double _canvasHeight = 700;
     private MapSceneProjection _projection;
+    private string _searchText = string.Empty;
+    private int _listPageIndex;
+    private HashSet<MapSceneObjectId>? _clusterFilter;
+    private string _clusterFilterLabel = string.Empty;
+    private IReadOnlyList<MapSceneObject> _filteredListObjects = [];
+    private string? _resolvedAssetKey;
 
     public MapSceneRendererViewModel(
         MapSceneSnapshot scene,
+        MapSceneRendererPresentation presentation,
         Func<Guid>? nextChangeId = null,
         Func<MapSceneAsset, IImage?>? reviewedAssetResolver = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
+        _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
         _reviewedAssetResolver = reviewedAssetResolver;
         _projection = CreateProjection();
@@ -53,7 +62,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         FitPlanCommand = new DelegateCommand(FitPlan);
         ZoomInCommand = new DelegateCommand(() => RequestZoom(1));
         ZoomOutCommand = new DelegateCommand(() => RequestZoom(-1));
-        RebuildPresentation();
+        PreviousPageCommand = new DelegateCommand(() => ChangePage(-1));
+        NextPageCommand = new DelegateCommand(() => ChangePage(1));
+        ClearClusterCommand = new DelegateCommand(ClearClusterFilter);
+        RebuildAll();
     }
 
     /// <summary>Raised for the owner to apply through the canonical reducer and publish back.</summary>
@@ -68,10 +80,28 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public IReadOnlyList<MapSceneRendererListItemViewModel> ListItems { get; private set; } = [];
     public MapSceneRendererObjectViewModel? SelectedObject { get; private set; }
     public IImage? BackgroundImage { get; private set; }
+
     public MapSceneViewChange? LastRequestedChange
     {
         get => _lastRequestedChange;
         private set => SetProperty(ref _lastRequestedChange, value);
+    }
+
+    public string SearchText
+    {
+        get => _searchText;
+        set
+        {
+            value ??= string.Empty;
+            if (!SetProperty(ref _searchText, value))
+            {
+                return;
+            }
+
+            _listPageIndex = 0;
+            RebuildListItems();
+            RaiseListChanged();
+        }
     }
 
     public ICommand ClearSelectionCommand { get; }
@@ -80,6 +110,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public ICommand FitPlanCommand { get; }
     public ICommand ZoomInCommand { get; }
     public ICommand ZoomOutCommand { get; }
+    public ICommand PreviousPageCommand { get; }
+    public ICommand NextPageCommand { get; }
+    public ICommand ClearClusterCommand { get; }
 
     public double CanvasWidth => _canvasWidth;
     public double CanvasHeight => _canvasHeight;
@@ -87,9 +120,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double MapTop => _projection.MapTop;
     public double MapWidth => _projection.MapWidth;
     public double MapHeight => _projection.MapHeight;
-    public double StatusLeft => Math.Max(12, (CanvasWidth - 460) / 2);
-    public double StatusTop => Math.Max(96, MapTop + 16);
-    public double EmptyLeft => Math.Max(12, (CanvasWidth - 380) / 2);
+    public double MessageWidth => Math.Max(1, Math.Min(460, CanvasWidth - 24));
+    public double EmptyMessageWidth => Math.Max(1, Math.Min(380, CanvasWidth - 24));
+    public double StatusLeft => Math.Max(12, (CanvasWidth - MessageWidth) / 2);
+    public double StatusTop => Math.Max(72, MapTop + 16);
+    public double EmptyLeft => Math.Max(12, (CanvasWidth - EmptyMessageWidth) / 2);
     public double EmptyTop => Math.Max(72, (CanvasHeight - 100) / 2);
     public double CameraPreTranslateX => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).X;
     public double CameraPreTranslateY => -_projection.Project(_scene.View.Camera.CenterX, _scene.View.Camera.CenterY).Y;
@@ -97,80 +132,173 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public double CameraPostTranslateY => CanvasHeight / 2;
     public double CameraZoom => _scene.View.Camera.Zoom;
     public double CameraRotationDegrees => -_scene.View.Camera.BearingDegrees;
-    public double MarkerInverseZoom => 1 / CameraZoom;
-    public double MarkerUprightDegrees => _scene.View.Camera.BearingDegrees;
     public string LocationLabel => _scene.LocationId;
     public string VariantLabel => _scene.VariantKey;
-    public string ModeLabel => DescribeMode(_scene.View.Mode);
+    public string ModeLabel => DescribeMode(MapSceneMode.Flat2D);
+    public string ZoomOutLabel => Text("Map.Action.ZoomOut");
+    public string ZoomInLabel => Text("Map.Action.ZoomIn");
+    public string FitPlanLabel => Text("Map.Action.Fit");
+    public string ClearSelectionLabel => Text("Map.Action.ClearSelection");
+    public string PreviousPageLabel => Text("Map.Action.Previous");
+    public string NextPageLabel => Text("Map.Action.Next");
+    public string ClearClusterLabel => Text("Map.Action.ClearCluster");
+    public string PresentationLabel => Text("Map.Label.Presentation");
+    public string FloorLabel => Text("Map.Label.Floor");
+    public string MapPlanLabel => Text("Map.Label.Plan");
+    public string LayersLabel => Text("Map.Label.Layers");
+    public string DetailsLabel => Text("Map.Label.Details");
+    public string SearchLabel => Text("Map.Label.Search");
+    public string SearchPlaceholder => Text("Map.Label.SearchPlaceholder");
     public string RendererNotice => _rendererNotice;
     public bool HasRendererNotice => !string.IsNullOrWhiteSpace(RendererNotice);
-    public bool HasFloorStack => _scene.Capabilities.FloorStack2D.IsAvailable && Floors.Count > 0;
-    public bool HasFloors => Floors.Count > 0;
+    public bool HasFloorStack => false;
+    public bool HasFloorFilters => Floors.Count > 0;
+    public bool HasFloors => HasFloorFilters;
     public bool HasSpatialObjects => SpatialObjects.Count > 0 || GeometryObjects.Count > 0;
     public bool HasListItems => ListItems.Count > 0;
     public bool ShowsEmptyMap => !HasSpatialObjects;
     public bool ShowsEmptyList => !HasListItems;
     public bool HasSelection => SelectedObject is not null;
     public bool HasBackgroundImage => BackgroundImage is not null;
-    public string EmptyMapMessage => "No visible map objects for this view.";
-    public string EmptyListMessage => "No matching details for this view.";
+    public string EmptyMapMessage => Text("Map.Empty.Map");
+    public string EmptyListMessage => Text("Map.Empty.List");
     public string ReviewedAssetLabel { get; private set; } = string.Empty;
     public string BackgroundStatus { get; private set; } = string.Empty;
     public bool HasBackgroundStatus => !string.IsNullOrWhiteSpace(BackgroundStatus);
     public string DenseSceneNotice { get; private set; } = string.Empty;
     public bool HasDenseSceneNotice => !string.IsNullOrWhiteSpace(DenseSceneNotice);
-    public string ThreeDimensionalFallback => _scene.View.Mode == MapSceneMode.Interior3D
-        ? "3D is selected; this renderer is showing the reviewed 2D plan."
-        : _scene.Capabilities.Interior3D.IsAvailable
-            ? string.Empty
-            : $"3D view unavailable. {_scene.Capabilities.Interior3D.UnavailableReason}";
-    public bool ShowsThreeDimensionalFallback => !string.IsNullOrWhiteSpace(ThreeDimensionalFallback);
+    public string ModeFallbackNotice => _scene.View.Mode == MapSceneMode.Flat2D
+        ? string.Empty
+        : Format("Map.Mode.Fallback", DescribeMode(_scene.View.Mode));
+    public string ThreeDimensionalFallback => ModeFallbackNotice;
+    public bool ShowsModeFallback => !string.IsNullOrWhiteSpace(ModeFallbackNotice);
+    public bool ShowsThreeDimensionalFallback => ShowsModeFallback;
+    public int FilteredListCount => _filteredListObjects.Count;
+    public int ListPageCount => FilteredListCount == 0 ? 0 : (FilteredListCount + ListPageSize - 1) / ListPageSize;
+    public int ListPageNumber => ListPageCount == 0 ? 0 : _listPageIndex + 1;
+    public string ListPageLabel => Format("Map.List.Page", ListPageNumber, ListPageCount, FilteredListCount);
+    public bool CanGoToPreviousPage => _listPageIndex > 0;
+    public bool CanGoToNextPage => _listPageIndex + 1 < ListPageCount;
+    public bool HasClusterFilter => _clusterFilter is { Count: > 0 };
+    public string ClusterFilterLabel => _clusterFilterLabel;
 
     /// <summary>Replaces the display only after the canonical owner accepted or refreshed it.</summary>
     public void Present(MapSceneSnapshot scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
-        var changedSceneIdentity = !string.Equals(_scene.LocationId, scene.LocationId, StringComparison.Ordinal) ||
-            !string.Equals(_scene.VariantKey, scene.VariantKey, StringComparison.Ordinal);
+        var previous = _scene;
+        var changedSceneIdentity = !string.Equals(previous.LocationId, scene.LocationId, StringComparison.Ordinal) ||
+            !string.Equals(previous.VariantKey, scene.VariantKey, StringComparison.Ordinal);
+        var boundsChanged = previous.Bounds != scene.Bounds;
+        var objectDefinitionsChanged = !Equivalent(previous.Objects, scene.Objects);
+        var layerDefinitionsChanged = !Equivalent(previous.Layers, scene.Layers);
+        var layerVisibilityChanged = !Equivalent(previous.View.Layers, scene.View.Layers);
+        var floorIdsChanged = !Equivalent(previous.FloorIds, scene.FloorIds, StringComparer.OrdinalIgnoreCase);
+        var floorSelectionChanged = !string.Equals(
+            previous.View.SelectedFloorId,
+            scene.View.SelectedFloorId,
+            StringComparison.OrdinalIgnoreCase);
+        var modeChanged = previous.View.Mode != scene.View.Mode || previous.Capabilities != scene.Capabilities;
+        var cameraChanged = previous.View.Camera != scene.View.Camera;
+        var assetsChanged = !Equivalent(previous.Assets, scene.Assets);
+
         _scene = scene;
         _pendingRevision = null;
         if (changedSceneIdentity ||
-            _selectedObjectId is { } selected && !_scene.Objects.Any(item => item.Id == selected))
+            _selectedObjectId is { } selected && !_scene.VisibleObjects.Any(item => item.Id == selected))
         {
             _selectedObjectId = null;
         }
 
+        if (changedSceneIdentity)
+        {
+            _clusterFilter = null;
+            _clusterFilterLabel = string.Empty;
+            _searchText = string.Empty;
+            _listPageIndex = 0;
+        }
+
         _rendererNotice = string.Empty;
-        RebuildPresentation();
+        if (boundsChanged)
+        {
+            _projection = CreateProjection();
+        }
+
+        if (modeChanged)
+        {
+            BuildModes();
+        }
+
+        if (floorIdsChanged || floorSelectionChanged)
+        {
+            BuildFloors();
+        }
+
+        if (layerDefinitionsChanged || layerVisibilityChanged)
+        {
+            BuildLayers();
+        }
+
+        var visibleContentChanged = changedSceneIdentity || boundsChanged || objectDefinitionsChanged ||
+            layerDefinitionsChanged || layerVisibilityChanged || floorIdsChanged || floorSelectionChanged;
+        if (visibleContentChanged)
+        {
+            var visibleObjects = RebuildProjectedObjects();
+            RebuildListItems();
+            BuildDenseSceneNotice(visibleObjects);
+        }
+        else if (cameraChanged)
+        {
+            foreach (var marker in SpatialObjects)
+            {
+                marker.UpdateCamera(_scene.View.Camera);
+            }
+        }
+
+        if (changedSceneIdentity || assetsChanged || boundsChanged)
+        {
+            ResolveBackground(changedSceneIdentity || assetsChanged);
+        }
+        else
+        {
+            UpdateBackgroundStatus(SelectedBackgroundAsset());
+        }
+
+        RaisePresentChanged(
+            modeChanged,
+            floorIdsChanged || floorSelectionChanged,
+            layerDefinitionsChanged || layerVisibilityChanged,
+            visibleContentChanged,
+            cameraChanged,
+            changedSceneIdentity || assetsChanged || boundsChanged);
     }
 
     /// <summary>Updates only the projection; it does not create a new canonical camera state.</summary>
     public void SetViewportSize(double width, double height)
     {
-        if (!double.IsFinite(width) || !double.IsFinite(height))
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0)
         {
             return;
         }
 
-        width = Math.Max(MinimumViewportWidth, width);
-        height = Math.Max(MinimumViewportHeight, height);
         if (Math.Abs(width - _canvasWidth) < 0.5 && Math.Abs(height - _canvasHeight) < 0.5)
         {
             return;
         }
 
-        _canvasWidth = width;
-        _canvasHeight = height;
+        _canvasWidth = Math.Max(1, width);
+        _canvasHeight = Math.Max(1, height);
         _projection = CreateProjection();
         RebuildProjectedObjects();
+        UpdateBackgroundStatus(SelectedBackgroundAsset());
         RaiseProjectionChanged();
     }
 
     public void RequestMode(MapSceneMode mode)
     {
-        if (!_scene.Capabilities.Supports(mode))
+        if (!CanRenderMode(mode))
         {
-            SetRendererNotice($"{DescribeMode(mode)} is unavailable. {UnavailableReason(mode)}");
+            SetRendererNotice(Format("Map.Mode.Unavailable", DescribeMode(mode), RendererUnavailableReason(mode)));
             return;
         }
 
@@ -181,7 +309,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     {
         if (floorId is not null && !Floors.Any(floor => string.Equals(floor.Id, floorId, StringComparison.OrdinalIgnoreCase)))
         {
-            SetRendererNotice("That floor is not available in this map.");
+            SetRendererNotice(Text("Map.Floor.Unavailable"));
             return;
         }
 
@@ -192,7 +320,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     {
         if (!_scene.Layers.Any(layer => layer.Id == layerId))
         {
-            SetRendererNotice("That layer is no longer available.");
+            SetRendererNotice(Text("Map.Layer.Unavailable"));
             return;
         }
 
@@ -201,13 +329,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     public void SelectObject(MapSceneObjectId objectId)
     {
-        if (!_scene.VisibleObjects.Any(item => item.Id == objectId))
+        if (!_scene.VisibleObjects.Any(item => item.Id == objectId) || _selectedObjectId == objectId)
         {
             return;
         }
 
-        _selectedObjectId = objectId;
-        RebuildPresentation();
+        ApplySelection(objectId);
     }
 
     public bool TrySelectAt(double viewportX, double viewportY)
@@ -222,7 +349,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return false;
         }
 
-        var hit = MapSceneHitTesting.HitTest(_scene, point, worldUnitsPerPixel * 24).FirstOrDefault();
+        var rendered = SpatialObjects
+            .Where(item => !item.IsCluster && item.SceneObject is not null)
+            .Select(item => item.SceneObject!)
+            .Concat(GeometryObjects.Select(item => item.SceneObject))
+            .ToArray();
+        var hit = MapSceneHitTesting.HitTest(_scene, rendered, point, worldUnitsPerPixel * 24).FirstOrDefault();
         if (hit is null)
         {
             return false;
@@ -239,8 +371,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
-        _selectedObjectId = null;
-        RebuildPresentation();
+        ApplySelection(null);
     }
 
     public void RequestZoom(double direction)
@@ -300,33 +431,63 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private void MoveSelection(int direction)
     {
-        if (ListItems.Count == 0)
+        if (_filteredListObjects.Count == 0)
         {
             return;
         }
 
-        var current = -1;
-        if (_selectedObjectId is { } selected)
+        var current = _selectedObjectId is { } selected
+            ? FindIndex(_filteredListObjects, item => item.Id == selected)
+            : -1;
+        var next = ((current + direction) % _filteredListObjects.Count + _filteredListObjects.Count) %
+            _filteredListObjects.Count;
+        _listPageIndex = next / ListPageSize;
+        RebuildListItems();
+        ApplySelection(_filteredListObjects[next].Id);
+        RaiseListChanged();
+    }
+
+    private void ChangePage(int direction)
+    {
+        var next = Math.Clamp(_listPageIndex + direction, 0, Math.Max(0, ListPageCount - 1));
+        if (next == _listPageIndex)
         {
-            for (var index = 0; index < ListItems.Count; index++)
-            {
-                if (ListItems[index].Id == selected)
-                {
-                    current = index;
-                    break;
-                }
-            }
+            return;
         }
 
-        var next = ((current + direction) % ListItems.Count + ListItems.Count) % ListItems.Count;
-        SelectObject(ListItems[next].Id);
+        _listPageIndex = next;
+        RebuildListItems();
+        RaiseListChanged();
+    }
+
+    private void OpenCluster(IReadOnlyList<MapSceneObject> objects)
+    {
+        _clusterFilter = objects.Select(item => item.Id).ToHashSet();
+        _clusterFilterLabel = Format("Map.Cluster.Filter", objects.Count);
+        _listPageIndex = 0;
+        RebuildListItems();
+        RaiseListChanged();
+    }
+
+    private void ClearClusterFilter()
+    {
+        if (_clusterFilter is null)
+        {
+            return;
+        }
+
+        _clusterFilter = null;
+        _clusterFilterLabel = string.Empty;
+        _listPageIndex = 0;
+        RebuildListItems();
+        RaiseListChanged();
     }
 
     private void Request(MapSceneRendererChange change)
     {
         if (_pendingRevision == _scene.Revision)
         {
-            SetRendererNotice("Waiting for the shared map to confirm the previous change.");
+            SetRendererNotice(Text("Map.Change.Pending"));
             return;
         }
 
@@ -350,51 +511,56 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         ViewChangeRequested?.Invoke(requested);
     }
 
-    private void RebuildPresentation()
+    private void RebuildAll()
     {
         _projection = CreateProjection();
-        Modes = Enum.GetValues<MapSceneMode>()
-            .Select(mode => new MapSceneRendererModeViewModel(
-                mode,
-                DescribeMode(mode),
-                _scene.View.Mode == mode,
-                _scene.Capabilities.Supports(mode),
-                UnavailableReason(mode),
-                () => RequestMode(mode)))
-            .ToArray();
-        Floors = _scene.FloorIds
-            .Select(floor => new MapSceneRendererFloorViewModel(
-                floor,
-                string.Equals(floor, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase),
-                () => SelectFloor(floor)))
-            .ToArray();
-        Layers = _scene.Layers
-            .OrderBy(layer => layer.ZIndex)
-            .ThenBy(layer => layer.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(layer => new MapSceneRendererLayerViewModel(
-                layer,
-                IsLayerVisible(layer.Id),
-                visible => SetLayerVisibility(layer.Id, visible)))
-            .ToArray();
-
+        BuildModes();
+        BuildFloors();
+        BuildLayers();
         var visibleObjects = RebuildProjectedObjects();
-        ListItems = BuildListItems(_scene.ListEntries);
-        ResolveBackground();
+        RebuildListItems();
+        ResolveBackground(force: true);
         BuildDenseSceneNotice(visibleObjects);
-        RaisePresentationChanged();
     }
+
+    private void BuildModes() => Modes = Enum.GetValues<MapSceneMode>()
+        .Select(mode => new MapSceneRendererModeViewModel(
+            mode,
+            DescribeMode(mode),
+            mode == MapSceneMode.Flat2D,
+            CanRenderMode(mode),
+            RendererUnavailableReason(mode),
+            () => RequestMode(mode)))
+        .ToArray();
+
+    private void BuildFloors() => Floors = _scene.FloorIds
+        .Select(floor => new MapSceneRendererFloorViewModel(
+            floor,
+            string.Equals(floor, _scene.View.SelectedFloorId, StringComparison.OrdinalIgnoreCase),
+            () => SelectFloor(floor)))
+        .ToArray();
+
+    private void BuildLayers() => Layers = _scene.Layers
+        .OrderBy(layer => layer.ZIndex)
+        .ThenBy(layer => layer.Name, StringComparer.OrdinalIgnoreCase)
+        .Select(layer => new MapSceneRendererLayerViewModel(
+            layer,
+            IsLayerVisible(layer.Id),
+            _presentation,
+            visible => SetLayerVisibility(layer.Id, visible)))
+        .ToArray();
 
     private IReadOnlyList<MapSceneObject> RebuildProjectedObjects()
     {
         var visibleObjects = _scene.VisibleObjects;
         GeometryObjects = _projection.IsUsable
             ? visibleObjects
-            .Where(item => item.Geometry.Kind != MapSceneGeometryKind.Point &&
-                item.Geometry.Points.All(_scene.Bounds.Contains))
-            .Take(MaximumGeometryObjects)
-            .Select(item => new MapSceneRendererGeometryViewModel(item, _projection))
-            .ToArray()
-            : Array.Empty<MapSceneRendererGeometryViewModel>();
+                .Where(item => item.Geometry.Kind != MapSceneGeometryKind.Point &&
+                    item.Geometry.Points.All(_scene.Bounds.Contains))
+                .Take(MaximumGeometryObjects)
+                .Select(item => new MapSceneRendererGeometryViewModel(item, _projection))
+                .ToArray()
+            : [];
         SpatialObjects = BuildPointMarkers(visibleObjects);
         SelectedObject = _selectedObjectId is { } selected
             ? CreateSelectedObject(selected)
@@ -419,6 +585,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                     item,
                     _projection,
                     _scene.View.Camera,
+                    _presentation,
                     item.Id == _selectedObjectId,
                     () => SelectObject(item.Id)))
                 .ToArray();
@@ -428,43 +595,85 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             .GroupBy(item => ClusterCell(item.Geometry.Points[0]))
             .OrderBy(group => group.Key.Row)
             .ThenBy(group => group.Key.Column)
-            .Select(group => group.Count() == 1
-                ? MapSceneRendererObjectViewModel.ForObject(
-                    group.First(),
-                    _projection,
-                    _scene.View.Camera,
-                    group.First().Id == _selectedObjectId,
-                    () => SelectObject(group.First().Id))
-                : MapSceneRendererObjectViewModel.ForCluster(
-                    group.Key.Column,
-                    group.Key.Row,
-                    group.ToArray(),
-                    _projection,
-                    _scene.View.Camera,
-                    () => SetRendererNotice($"{group.Count()} nearby items are grouped here. Use layers or the details list to narrow them.")))
+            .Select(group => BuildClusterMarker(group.Key.Column, group.Key.Row, group.ToArray()))
             .Take(MaximumPointMarkers)
             .ToArray();
     }
 
-    private IReadOnlyList<MapSceneRendererListItemViewModel> BuildListItems(IReadOnlyList<MapSceneListEntry> entries)
+    private MapSceneRendererObjectViewModel BuildClusterMarker(
+        int column,
+        int row,
+        IReadOnlyList<MapSceneObject> objects)
     {
-        var selected = _selectedObjectId;
-        var bounded = entries.Take(MaximumListItems).ToList();
-        if (selected is { } selectedId && bounded.All(item => item.Id != selectedId))
+        if (objects.Count == 1)
         {
-            var selectedEntry = entries.FirstOrDefault(item => item.Id == selectedId);
-            if (selectedEntry is not null && bounded.Count > 0)
-            {
-                bounded[^1] = selectedEntry;
-            }
+            var item = objects[0];
+            return MapSceneRendererObjectViewModel.ForObject(
+                item,
+                _projection,
+                _scene.View.Camera,
+                _presentation,
+                item.Id == _selectedObjectId,
+                () => SelectObject(item.Id));
         }
 
-        return bounded
+        return MapSceneRendererObjectViewModel.ForCluster(
+            column,
+            row,
+            objects,
+            _projection,
+            _scene.View.Camera,
+            _presentation,
+            () => OpenCluster(objects));
+    }
+
+    private void RebuildListItems()
+    {
+        var search = SearchText.Trim();
+        _filteredListObjects = _scene.VisibleObjects
+            .Where(item => _clusterFilter is null || _clusterFilter.Contains(item.Id))
+            .Where(item => search.Length == 0 || MatchesSearch(item, search))
+            .ToArray();
+        var pages = ListPageCount;
+        _listPageIndex = pages == 0 ? 0 : Math.Clamp(_listPageIndex, 0, pages - 1);
+        ListItems = _filteredListObjects
+            .Skip(_listPageIndex * ListPageSize)
+            .Take(ListPageSize)
             .Select(item => new MapSceneRendererListItemViewModel(
                 item,
-                item.Id == selected,
+                _presentation,
+                item.Id == _selectedObjectId,
                 () => SelectObject(item.Id)))
             .ToArray();
+    }
+
+    private bool MatchesSearch(MapSceneObject item, string search) =>
+        Contains(item.Label, search) ||
+        Contains(item.Detail, search) ||
+        Contains(DescribeKind(item.Kind), search) ||
+        Contains(DescribeTruth(item.Truth), search) ||
+        Contains(DescribeFaction(item.Faction), search);
+
+    private bool Contains(string? value, string search) => value is not null &&
+        _presentation.Culture.CompareInfo.IndexOf(value, search, System.Globalization.CompareOptions.IgnoreCase) >= 0;
+
+    private void ApplySelection(MapSceneObjectId? next)
+    {
+        var previous = _selectedObjectId;
+        _selectedObjectId = next;
+        foreach (var marker in SpatialObjects.Where(item => item.ObjectId == previous || item.ObjectId == next))
+        {
+            marker.SetSelected(marker.ObjectId == next);
+        }
+
+        foreach (var item in ListItems.Where(item => item.Id == previous || item.Id == next))
+        {
+            item.SetSelected(item.Id == next);
+        }
+
+        SelectedObject = next is { } selected ? CreateSelectedObject(selected) : null;
+        OnPropertyChanged(nameof(SelectedObject));
+        OnPropertyChanged(nameof(HasSelection));
     }
 
     private MapSceneRendererObjectViewModel? CreateSelectedObject(MapSceneObjectId selected)
@@ -472,7 +681,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var item = _scene.VisibleObjects.FirstOrDefault(candidate => candidate.Id == selected);
         return item is null
             ? null
-            : MapSceneRendererObjectViewModel.ForObject(item, _projection, _scene.View.Camera, true, () => SelectObject(item.Id));
+            : MapSceneRendererObjectViewModel.ForObject(
+                item,
+                _projection,
+                _scene.View.Camera,
+                _presentation,
+                true,
+                () => SelectObject(item.Id));
     }
 
     private (int Column, int Row) ClusterCell(MapScenePoint point)
@@ -484,73 +699,219 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             Math.Clamp((int)(normalizedY * ClusterRows), 0, ClusterRows - 1));
     }
 
-    private void ResolveBackground()
+    private MapSceneAsset? SelectedBackgroundAsset() => _scene.Assets
+        .FirstOrDefault(item => item.Kind == MapSceneAssetKind.Background2D);
+
+    private void ResolveBackground(bool force)
     {
-        var asset = _scene.Assets
-            .Where(item => item.Kind == MapSceneAssetKind.Background2D)
-            .Concat(_scene.Assets.Where(item => item.Kind == MapSceneAssetKind.Floor2D))
-            .FirstOrDefault();
-        BackgroundImage = asset is null || _reviewedAssetResolver is null
-            ? null
-            : _reviewedAssetResolver(asset);
+        var asset = SelectedBackgroundAsset();
+        var key = asset is null ? null : $"{asset.Id.Value}:{asset.ContentSha256}";
+        if (force || !string.Equals(key, _resolvedAssetKey, StringComparison.Ordinal))
+        {
+            _resolvedAssetKey = key;
+            BackgroundImage = asset is null || _reviewedAssetResolver is null
+                ? null
+                : _reviewedAssetResolver(asset);
+        }
+
         ReviewedAssetLabel = asset is null
             ? string.Empty
-            : $"{asset.Attribution} · map {asset.MapVersion} · game {asset.GameVersion}";
-        BackgroundStatus = !_projection.IsUsable
-            ? "The reviewed scene bounds are too large to project safely. Spatial overlays are withheld."
-            : asset is null
-                ? "No reviewed 2D artwork is available. Spatial references are shown without a background."
-                : BackgroundImage is null
-                    ? "Reviewed artwork is not cached on this device. Spatial references remain available."
-                    : string.Empty;
+            : Format("Map.Asset.Label", asset.Attribution, asset.MapVersion, asset.GameVersion);
+        UpdateBackgroundStatus(asset);
     }
+
+    private void UpdateBackgroundStatus(MapSceneAsset? asset) => BackgroundStatus = !_projection.IsUsable
+        ? Text("Map.Background.Bounds")
+        : asset is null
+            ? Text("Map.Background.None")
+            : BackgroundImage is null
+                ? Text("Map.Background.NotCached")
+                : string.Empty;
 
     private void BuildDenseSceneNotice(IReadOnlyList<MapSceneObject> visibleObjects)
     {
         var pointCount = visibleObjects.Count(item => item.Geometry.Kind == MapSceneGeometryKind.Point);
         var geometryCount = visibleObjects.Count - pointCount;
         var outsideBounds = visibleObjects.Count(item => item.Geometry.Points.Any(point => !_scene.Bounds.Contains(point)));
-        var listCount = _scene.ListEntries.Count;
-        var messages = new List<string>(3);
+        var messages = new List<string>(4);
         if (pointCount > MaximumPointMarkers)
         {
-            messages.Add($"{pointCount.ToString("N0", CultureInfo.CurrentCulture)} points are grouped into {SpatialObjects.Count.ToString("N0", CultureInfo.CurrentCulture)} markers");
+            messages.Add(Format("Map.Dense.Points", _presentation.Number(pointCount), _presentation.Number(SpatialObjects.Count)));
         }
         if (geometryCount > MaximumGeometryObjects)
         {
-            messages.Add($"showing {MaximumGeometryObjects.ToString("N0", CultureInfo.CurrentCulture)} of {geometryCount.ToString("N0", CultureInfo.CurrentCulture)} shapes");
+            messages.Add(Format("Map.Dense.Geometry", _presentation.Number(MaximumGeometryObjects), _presentation.Number(geometryCount)));
         }
-        if (listCount > MaximumListItems)
+        if (visibleObjects.Count > ListPageSize)
         {
-            messages.Add($"showing {MaximumListItems.ToString("N0", CultureInfo.CurrentCulture)} of {listCount.ToString("N0", CultureInfo.CurrentCulture)} details");
+            var pages = (visibleObjects.Count + ListPageSize - 1) / ListPageSize;
+            messages.Add(Format("Map.Dense.List", _presentation.Number(visibleObjects.Count), _presentation.Number(pages)));
         }
         if (outsideBounds > 0)
         {
-            messages.Add($"{outsideBounds.ToString("N0", CultureInfo.CurrentCulture)} features outside reviewed bounds are list-only");
+            messages.Add(Format("Map.Dense.Outside", _presentation.Number(outsideBounds)));
         }
 
         DenseSceneNotice = messages.Count == 0
             ? string.Empty
-            : string.Join("; ", messages) + ". Use layer filters to narrow the view.";
+            : string.Join("; ", messages) + ". " + Text("Map.Dense.Suffix");
     }
 
-    private void RaisePresentationChanged()
+    private bool CanRenderMode(MapSceneMode mode) =>
+        mode == MapSceneMode.Flat2D && _scene.Capabilities.Flat2D.IsAvailable;
+
+    private string RendererUnavailableReason(MapSceneMode mode) => mode switch
+    {
+        MapSceneMode.Flat2D => _scene.Capabilities.Flat2D.UnavailableReason ?? string.Empty,
+        MapSceneMode.FloorStack2D => Text("Map.Mode.FloorStackUnsupported"),
+        MapSceneMode.Interior3D => Text("Map.Mode.InteriorUnsupported"),
+        _ => string.Empty,
+    };
+
+    private bool IsLayerVisible(MapSceneLayerId layerId) => _scene.View.Layers
+        .FirstOrDefault(state => state.LayerId == layerId)?.IsVisible ??
+        _scene.Layers.Single(layer => layer.Id == layerId).IsVisibleByDefault;
+
+    private void SetRendererNotice(string value)
+    {
+        _rendererNotice = value;
+        OnPropertyChanged(nameof(RendererNotice));
+        OnPropertyChanged(nameof(HasRendererNotice));
+    }
+
+    internal string DescribeMode(MapSceneMode mode) => Text(mode switch
+    {
+        MapSceneMode.Flat2D => "Map.Mode.Flat",
+        MapSceneMode.FloorStack2D => "Map.Mode.FloorStack",
+        MapSceneMode.Interior3D => "Map.Mode.Interior",
+        _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+    });
+
+    internal string DescribeKind(MapSceneObjectKind kind) => Text($"Map.Kind.{kind}");
+
+    internal string DescribeTruth(MapSceneTruthKind truth) => Text(Enum.IsDefined(truth)
+        ? $"Map.Truth.{truth}"
+        : "Map.Truth.Unknown");
+
+    internal string DescribeFaction(MapFeatureFaction faction) => Text(faction switch
+    {
+        MapFeatureFaction.Pmc => "Map.Faction.Pmc",
+        MapFeatureFaction.Scav => "Map.Faction.Scav",
+        MapFeatureFaction.Shared => "Map.Faction.Shared",
+        _ => "Map.Faction.Unknown",
+    });
+
+    internal string DescribeOffer(MapSceneOfferState offerState) => Text(offerState switch
+    {
+        MapSceneOfferState.Offered => "Map.Offer.Offered",
+        MapSceneOfferState.NotOffered => "Map.Offer.NotOffered",
+        _ => "Map.Offer.Unknown",
+    });
+
+    internal static bool HasOfferStatus(MapSceneObjectKind kind) =>
+        kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit;
+
+    internal string DescribeEvidence(DataProvenance provenance)
+    {
+        var confidence = provenance.Confidence is { } value
+            ? Format("Map.Evidence.Confidence", _presentation.Percent(value.Value))
+            : string.Empty;
+        return Format("Map.Evidence", provenance.Source, _presentation.Instant(provenance.ObservedUtc), confidence);
+    }
+
+    internal string DescribeEstimate(MapSceneEstimateMetadata? estimate) => estimate is null
+        ? string.Empty
+        : Format(
+            "Map.Estimate",
+            estimate.ModelVersion,
+            _presentation.Instant(estimate.ObservedFromUtc),
+            _presentation.Instant(estimate.DataThroughUtc),
+            _presentation.Instant(estimate.GeneratedUtc),
+            estimate.Coverage,
+            estimate.Calibration,
+            estimate.TransformVersion);
+
+    internal string DescribeAutomation(MapSceneObject item)
+    {
+        var offer = HasOfferStatus(item.Kind)
+            ? Format("Map.Marker.OfferSuffix", DescribeOffer(item.OfferState))
+            : string.Empty;
+        return Format(
+            "Map.Marker.Automation",
+            item.Label,
+            DescribeKind(item.Kind),
+            DescribeTruth(item.Truth),
+            DescribeFaction(item.Faction),
+            offer);
+    }
+
+    private string Text(string key) => _presentation.Get(key);
+
+    private string Format(string key, params object?[] arguments) => _presentation.Format(key, arguments);
+
+    private void RaisePresentChanged(
+        bool modes,
+        bool floors,
+        bool layers,
+        bool visibleContent,
+        bool camera,
+        bool background)
+    {
+        OnPropertyChanged(nameof(Scene));
+        OnPropertyChanged(nameof(RendererNotice));
+        OnPropertyChanged(nameof(HasRendererNotice));
+        OnPropertyChanged(nameof(LocationLabel));
+        OnPropertyChanged(nameof(VariantLabel));
+        OnPropertyChanged(nameof(ModeLabel));
+        OnPropertyChanged(nameof(ModeFallbackNotice));
+        OnPropertyChanged(nameof(ThreeDimensionalFallback));
+        OnPropertyChanged(nameof(ShowsModeFallback));
+        OnPropertyChanged(nameof(ShowsThreeDimensionalFallback));
+        if (modes) OnPropertyChanged(nameof(Modes));
+        if (floors)
+        {
+            OnPropertyChanged(nameof(Floors));
+            OnPropertyChanged(nameof(HasFloorFilters));
+            OnPropertyChanged(nameof(HasFloors));
+        }
+        if (layers) OnPropertyChanged(nameof(Layers));
+        if (visibleContent)
+        {
+            OnPropertyChanged(nameof(SpatialObjects));
+            OnPropertyChanged(nameof(GeometryObjects));
+            OnPropertyChanged(nameof(SelectedObject));
+            OnPropertyChanged(nameof(HasSelection));
+            OnPropertyChanged(nameof(HasSpatialObjects));
+            OnPropertyChanged(nameof(ShowsEmptyMap));
+            OnPropertyChanged(nameof(DenseSceneNotice));
+            OnPropertyChanged(nameof(HasDenseSceneNotice));
+            RaiseListChanged();
+        }
+        if (camera)
+        {
+            OnPropertyChanged(nameof(CameraPreTranslateX));
+            OnPropertyChanged(nameof(CameraPreTranslateY));
+            OnPropertyChanged(nameof(CameraZoom));
+            OnPropertyChanged(nameof(CameraRotationDegrees));
+        }
+        if (background)
+        {
+            OnPropertyChanged(nameof(BackgroundImage));
+            OnPropertyChanged(nameof(HasBackgroundImage));
+            OnPropertyChanged(nameof(ReviewedAssetLabel));
+            OnPropertyChanged(nameof(BackgroundStatus));
+            OnPropertyChanged(nameof(HasBackgroundStatus));
+        }
+    }
+
+    private void RaiseListChanged()
     {
         foreach (var propertyName in new[]
                  {
-                     nameof(Scene), nameof(Modes), nameof(Floors), nameof(Layers), nameof(SpatialObjects),
-                     nameof(GeometryObjects), nameof(ListItems), nameof(SelectedObject), nameof(BackgroundImage),
-                     nameof(HasBackgroundImage), nameof(ReviewedAssetLabel), nameof(BackgroundStatus),
-                     nameof(HasBackgroundStatus), nameof(DenseSceneNotice), nameof(HasDenseSceneNotice),
-                     nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop), nameof(MapWidth),
-                     nameof(MapHeight), nameof(StatusLeft), nameof(StatusTop), nameof(EmptyLeft), nameof(EmptyTop),
-                     nameof(CameraPreTranslateX), nameof(CameraPreTranslateY),
-                     nameof(CameraPostTranslateX), nameof(CameraPostTranslateY), nameof(CameraZoom),
-                     nameof(CameraRotationDegrees), nameof(MarkerInverseZoom), nameof(MarkerUprightDegrees),
-                     nameof(LocationLabel), nameof(VariantLabel), nameof(ModeLabel), nameof(RendererNotice),
-                     nameof(HasRendererNotice), nameof(HasFloorStack), nameof(HasFloors), nameof(HasSpatialObjects),
-                     nameof(HasListItems), nameof(ShowsEmptyMap), nameof(ShowsEmptyList), nameof(HasSelection),
-                     nameof(ThreeDimensionalFallback), nameof(ShowsThreeDimensionalFallback),
+                     nameof(ListItems), nameof(HasListItems), nameof(ShowsEmptyList), nameof(FilteredListCount),
+                     nameof(ListPageCount), nameof(ListPageNumber), nameof(ListPageLabel),
+                     nameof(CanGoToPreviousPage), nameof(CanGoToNextPage), nameof(HasClusterFilter),
+                     nameof(ClusterFilterLabel),
                  })
         {
             OnPropertyChanged(propertyName);
@@ -563,9 +924,10 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                  {
                      nameof(SpatialObjects), nameof(GeometryObjects), nameof(SelectedObject), nameof(HasSpatialObjects),
                      nameof(ShowsEmptyMap), nameof(CanvasWidth), nameof(CanvasHeight), nameof(MapLeft), nameof(MapTop),
-                     nameof(MapWidth), nameof(MapHeight), nameof(StatusLeft), nameof(StatusTop), nameof(EmptyLeft),
-                     nameof(EmptyTop), nameof(CameraPreTranslateX), nameof(CameraPreTranslateY),
-                     nameof(CameraPostTranslateX), nameof(CameraPostTranslateY),
+                     nameof(MapWidth), nameof(MapHeight), nameof(MessageWidth), nameof(EmptyMessageWidth), nameof(StatusLeft),
+                     nameof(StatusTop), nameof(EmptyLeft), nameof(EmptyTop), nameof(CameraPreTranslateX),
+                     nameof(CameraPreTranslateY), nameof(CameraPostTranslateX), nameof(CameraPostTranslateY),
+                     nameof(BackgroundStatus), nameof(HasBackgroundStatus),
                  })
         {
             OnPropertyChanged(propertyName);
@@ -574,90 +936,22 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
     private MapSceneProjection CreateProjection() => new(_scene.Bounds, CanvasWidth, CanvasHeight, MapInset);
 
-    private bool IsLayerVisible(MapSceneLayerId layerId) => _scene.View.Layers
-        .FirstOrDefault(state => state.LayerId == layerId)?.IsVisible ??
-        _scene.Layers.Single(layer => layer.Id == layerId).IsVisibleByDefault;
+    private static bool Equivalent<T>(IReadOnlyList<T> left, IReadOnlyList<T> right) =>
+        left.Count == right.Count && left.SequenceEqual(right);
 
-    private string UnavailableReason(MapSceneMode mode) => mode switch
+    private static bool Equivalent(
+        IReadOnlyList<string> left,
+        IReadOnlyList<string> right,
+        StringComparer comparer) => left.Count == right.Count && left.SequenceEqual(right, comparer);
+
+    private static int FindIndex<T>(IReadOnlyList<T> values, Func<T, bool> predicate)
     {
-        MapSceneMode.Flat2D => _scene.Capabilities.Flat2D.UnavailableReason ?? string.Empty,
-        MapSceneMode.FloorStack2D => _scene.Capabilities.FloorStack2D.UnavailableReason ?? string.Empty,
-        MapSceneMode.Interior3D => _scene.Capabilities.Interior3D.UnavailableReason ?? string.Empty,
-        _ => string.Empty,
-    };
+        for (var index = 0; index < values.Count; index++)
+        {
+            if (predicate(values[index])) return index;
+        }
 
-    private void SetRendererNotice(string value)
-    {
-        _rendererNotice = value;
-        OnPropertyChanged(nameof(RendererNotice));
-        OnPropertyChanged(nameof(HasRendererNotice));
-    }
-
-    internal static string DescribeMode(MapSceneMode mode) => mode switch
-    {
-        MapSceneMode.Flat2D => "2D plan",
-        MapSceneMode.FloorStack2D => "Floor stack",
-        MapSceneMode.Interior3D => "3D interior",
-        _ => mode.ToString(),
-    };
-
-    internal static string DescribeKind(MapSceneObjectKind kind) => kind switch
-    {
-        MapSceneObjectKind.Extract => "Extract",
-        MapSceneObjectKind.Transit => "Transit",
-        MapSceneObjectKind.SpawnArea => "Spawn area",
-        MapSceneObjectKind.LootSpawn => "Loot spawn",
-        MapSceneObjectKind.LootContainer => "Loot container",
-        MapSceneObjectKind.Hazard => "Hazard",
-        MapSceneObjectKind.Lock => "Locked entry",
-        MapSceneObjectKind.QuestObjective => "Quest objective",
-        MapSceneObjectKind.Route => "Route",
-        MapSceneObjectKind.Risk => "Risk area",
-        MapSceneObjectKind.Traffic => "Traffic estimate",
-        MapSceneObjectKind.LastKnownPosition => "Last known position",
-        MapSceneObjectKind.TeammateLastKnown => "Teammate last known",
-        MapSceneObjectKind.Ping => "Ping",
-        MapSceneObjectKind.Waypoint => "Waypoint",
-        MapSceneObjectKind.Label => "Map label",
-        _ => "Map object",
-    };
-
-    internal static string DescribeTruth(MapSceneTruthKind truth) => truth switch
-    {
-        MapSceneTruthKind.StaticReference => "Reference",
-        MapSceneTruthKind.PotentialSpawn => "Potential spawn",
-        MapSceneTruthKind.LocalLastKnown => "Local last known",
-        MapSceneTruthKind.TeamSharedLastKnown => "Team-shared last known",
-        MapSceneTruthKind.HistoricalEstimate => "Historical estimate",
-        MapSceneTruthKind.PersonalPlan => "Personal plan",
-        MapSceneTruthKind.UserAuthored => "Map note",
-        _ => "Unclassified",
-    };
-
-    internal static string DescribeFaction(MapFeatureFaction faction) => faction switch
-    {
-        MapFeatureFaction.Pmc => "PMC",
-        MapFeatureFaction.Scav => "Scav",
-        MapFeatureFaction.Shared => "PMC and Scav",
-        _ => "Faction unknown",
-    };
-
-    internal static string DescribeOffer(MapSceneOfferState offerState) => offerState switch
-    {
-        MapSceneOfferState.Offered => "Offered this raid",
-        MapSceneOfferState.NotOffered => "Not offered this raid",
-        _ => "Offer status unknown",
-    };
-
-    internal static bool HasOfferStatus(MapSceneObjectKind kind) =>
-        kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit;
-
-    internal static string DescribeEvidence(DataProvenance provenance)
-    {
-        var confidence = provenance.Confidence is { } value
-            ? $" · {value.Value.ToString("P0", CultureInfo.CurrentCulture)} confidence"
-            : string.Empty;
-        return $"{provenance.Source} · observed {provenance.ObservedUtc.ToLocalTime():g}{confidence}";
+        return -1;
     }
 
     private sealed record MapSceneRendererChange(
@@ -713,28 +1007,39 @@ public sealed class MapSceneRendererFloorViewModel
 
 public sealed class MapSceneRendererLayerViewModel
 {
-    public MapSceneRendererLayerViewModel(MapSceneLayer layer, bool isVisible, Action<bool> setVisible)
+    public MapSceneRendererLayerViewModel(
+        MapSceneLayer layer,
+        bool isVisible,
+        MapSceneRendererPresentation presentation,
+        Action<bool> setVisible)
     {
         Layer = layer ?? throw new ArgumentNullException(nameof(layer));
         IsVisible = isVisible;
+        ToggleLabel = presentation.Format(isVisible ? "Map.Layer.Hide" : "Map.Layer.Show", layer.Name);
+        StateLabel = presentation.Get(isVisible ? "Map.Layer.Visible" : "Map.Layer.Hidden");
         ToggleCommand = new DelegateCommand(() => setVisible(!IsVisible));
     }
 
     public MapSceneLayer Layer { get; }
     public string Name => Layer.Name;
     public bool IsVisible { get; }
-    public string ToggleLabel => IsVisible ? $"Hide {Name}" : $"Show {Name}";
-    public string StateLabel => IsVisible ? "Visible" : "Hidden";
+    public string ToggleLabel { get; }
+    public string StateLabel { get; }
     public string AutomationId => $"v2-map-layer-{MapRendererToken.From(Layer.Id.Value)}";
     public ICommand ToggleCommand { get; }
 }
 
-public sealed class MapSceneRendererObjectViewModel
+public sealed class MapSceneRendererObjectViewModel : BindableViewModel
 {
+    private bool _isSelected;
+    private double _markerInverseZoom;
+    private double _markerUprightDegrees;
+
     private MapSceneRendererObjectViewModel(
         MapSceneObject? sceneObject,
         string key,
         string label,
+        string automationName,
         string? detail,
         string kindLabel,
         string truthLabel,
@@ -749,12 +1054,16 @@ public sealed class MapSceneRendererObjectViewModel
         double markerInverseZoom,
         double markerUprightDegrees,
         string markerGlyph,
+        string truthGlyph,
+        string factionGlyph,
+        string offerGlyph,
         bool isCluster,
         Action select)
     {
         SceneObject = sceneObject;
         Key = key;
         Label = label;
+        AutomationName = automationName;
         Detail = detail;
         KindLabel = kindLabel;
         TruthLabel = truthLabel;
@@ -763,12 +1072,15 @@ public sealed class MapSceneRendererObjectViewModel
         HasOfferStatus = hasOfferStatus;
         EvidenceLabel = evidenceLabel;
         EstimateLabel = estimateLabel;
-        IsSelected = isSelected;
+        _isSelected = isSelected;
         AnchorLeft = anchorLeft;
         AnchorTop = anchorTop;
-        MarkerInverseZoom = markerInverseZoom;
-        MarkerUprightDegrees = markerUprightDegrees;
+        _markerInverseZoom = markerInverseZoom;
+        _markerUprightDegrees = markerUprightDegrees;
         MarkerGlyph = markerGlyph;
+        TruthGlyph = truthGlyph;
+        FactionGlyph = factionGlyph;
+        OfferGlyph = offerGlyph;
         IsCluster = isCluster;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
@@ -777,6 +1089,7 @@ public sealed class MapSceneRendererObjectViewModel
     public MapSceneObjectId? ObjectId => SceneObject?.Id;
     public string Key { get; }
     public string Label { get; }
+    public string AutomationName { get; }
     public string? Detail { get; }
     public string KindLabel { get; }
     public string TruthLabel { get; }
@@ -787,45 +1100,72 @@ public sealed class MapSceneRendererObjectViewModel
     public string EstimateLabel { get; }
     public bool HasEstimate => !string.IsNullOrWhiteSpace(EstimateLabel);
     public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
-    public bool IsSelected { get; }
+    public bool IsSelected => _isSelected;
     public bool IsCluster { get; }
     public bool IsOffered => SceneObject?.OfferState == MapSceneOfferState.Offered;
     public bool IsKnownNotOffered => SceneObject?.OfferState == MapSceneOfferState.NotOffered;
     public bool IsOfferUnknown => HasOfferStatus && SceneObject?.OfferState == MapSceneOfferState.Unknown;
+    public bool IsHistorical => SceneObject?.Truth == MapSceneTruthKind.HistoricalEstimate;
+    public bool IsLocalObserved => SceneObject?.Truth == MapSceneTruthKind.LocalLastKnown;
+    public bool IsTeamObserved => SceneObject?.Truth == MapSceneTruthKind.TeamSharedLastKnown;
+    public bool IsPotential => SceneObject?.Truth == MapSceneTruthKind.PotentialSpawn;
+    public bool IsPmc => SceneObject?.Faction == MapFeatureFaction.Pmc;
+    public bool IsScav => SceneObject?.Faction == MapFeatureFaction.Scav;
+    public bool IsSharedFaction => SceneObject?.Faction == MapFeatureFaction.Shared;
     public double AnchorLeft { get; }
     public double AnchorTop { get; }
-    public double MarkerInverseZoom { get; }
-    public double MarkerUprightDegrees { get; }
+    public double MarkerInverseZoom => _markerInverseZoom;
+    public double MarkerUprightDegrees => _markerUprightDegrees;
     public string MarkerGlyph { get; }
+    public string TruthGlyph { get; }
+    public bool HasTruthGlyph => !string.IsNullOrWhiteSpace(TruthGlyph);
+    public string FactionGlyph { get; }
+    public bool HasFactionGlyph => !string.IsNullOrWhiteSpace(FactionGlyph);
+    public string OfferGlyph { get; }
+    public bool HasOfferGlyph => !string.IsNullOrWhiteSpace(OfferGlyph);
     public string AutomationId => $"v2-map-object-{MapRendererToken.From(Key)}";
     public ICommand SelectCommand { get; }
+
+    public void SetSelected(bool selected) => SetProperty(ref _isSelected, selected, nameof(IsSelected));
+
+    public void UpdateCamera(MapSceneCamera camera)
+    {
+        SetProperty(ref _markerInverseZoom, 1 / camera.Zoom, nameof(MarkerInverseZoom));
+        SetProperty(ref _markerUprightDegrees, camera.BearingDegrees, nameof(MarkerUprightDegrees));
+    }
 
     public static MapSceneRendererObjectViewModel ForObject(
         MapSceneObject sceneObject,
         MapSceneProjection projection,
         MapSceneCamera camera,
+        MapSceneRendererPresentation presentation,
         bool isSelected,
         Action select)
     {
+        var formatter = new MapSceneRendererSemanticText(presentation);
         var anchor = projection.Project(sceneObject.Geometry.Points[0]);
         return new(
             sceneObject,
             sceneObject.Id.Value,
             sceneObject.Label,
+            formatter.Automation(sceneObject),
             sceneObject.Detail,
-            MapSceneRendererViewModel.DescribeKind(sceneObject.Kind),
-            MapSceneRendererViewModel.DescribeTruth(sceneObject.Truth),
-            MapSceneRendererViewModel.DescribeFaction(sceneObject.Faction),
-            MapSceneRendererViewModel.DescribeOffer(sceneObject.OfferState),
+            formatter.Kind(sceneObject.Kind),
+            formatter.Truth(sceneObject.Truth),
+            formatter.Faction(sceneObject.Faction),
+            formatter.Offer(sceneObject.OfferState),
             MapSceneRendererViewModel.HasOfferStatus(sceneObject.Kind),
-            MapSceneRendererViewModel.DescribeEvidence(sceneObject.Provenance),
-            DescribeEstimate(sceneObject.Estimate),
+            formatter.Evidence(sceneObject.Provenance),
+            formatter.Estimate(sceneObject.Estimate),
             isSelected,
             anchor.X - (MapSceneRendererViewModel.MarkerExtent / 2),
             anchor.Y - (MapSceneRendererViewModel.MarkerExtent / 2),
             1 / camera.Zoom,
             camera.BearingDegrees,
-            MarkerFor(sceneObject.Kind),
+            MarkerFor(sceneObject),
+            TruthGlyphFor(sceneObject.Truth),
+            FactionGlyphFor(sceneObject),
+            OfferGlyphFor(sceneObject),
             false,
             select);
     }
@@ -836,6 +1176,7 @@ public sealed class MapSceneRendererObjectViewModel
         IReadOnlyList<MapSceneObject> objects,
         MapSceneProjection projection,
         MapSceneCamera camera,
+        MapSceneRendererPresentation presentation,
         Action select)
     {
         var point = new MapScenePoint(
@@ -843,46 +1184,85 @@ public sealed class MapSceneRendererObjectViewModel
             objects.Average(item => item.Geometry.Points[0].Y));
         var anchor = projection.Project(point);
         var count = objects.Count;
+        var label = presentation.Format("Map.Cluster.Label", presentation.Number(count));
         return new(
             null,
             $"cluster-{column}-{row}",
-            $"{count.ToString("N0", CultureInfo.CurrentCulture)} nearby items",
-            "An approximate cluster of sourced points. Narrow the visible layers for individual locations.",
-            "Point cluster",
-            "Multiple source records",
-            "Mixed or unknown factions",
+            label,
+            label,
+            presentation.Get("Map.Cluster.Detail"),
+            presentation.Get("Map.Cluster.Kind"),
+            presentation.Get("Map.Cluster.Truth"),
+            presentation.Get("Map.Cluster.Faction"),
             string.Empty,
             false,
-            "Open the details list for individual evidence.",
+            presentation.Get("Map.Cluster.Evidence"),
             string.Empty,
             false,
             anchor.X - (MapSceneRendererViewModel.MarkerExtent / 2),
             anchor.Y - (MapSceneRendererViewModel.MarkerExtent / 2),
             1 / camera.Zoom,
             camera.BearingDegrees,
-            count > 99 ? "99+" : count.ToString(CultureInfo.CurrentCulture),
+            count > 99 ? "99+" : presentation.Number(count),
+            string.Empty,
+            string.Empty,
+            string.Empty,
             true,
             select);
     }
 
-    private static string MarkerFor(MapSceneObjectKind kind) => kind switch
+    private static string MarkerFor(MapSceneObject item) => item.Truth switch
     {
-        MapSceneObjectKind.Extract => "⇱",
-        MapSceneObjectKind.Transit => "↔",
-        MapSceneObjectKind.QuestObjective => "◇",
-        MapSceneObjectKind.Waypoint => "◆",
-        MapSceneObjectKind.Ping => "•",
-        MapSceneObjectKind.Hazard => "!",
-        MapSceneObjectKind.Lock => "⌑",
-        MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
-        _ => "●",
+        MapSceneTruthKind.HistoricalEstimate => "≈",
+        MapSceneTruthKind.LocalLastKnown => "◎",
+        MapSceneTruthKind.TeamSharedLastKnown => "◉",
+        _ => item.Kind switch
+        {
+            MapSceneObjectKind.Extract => "⇱",
+            MapSceneObjectKind.Transit => "↔",
+            MapSceneObjectKind.QuestObjective => "◇",
+            MapSceneObjectKind.Waypoint => "◆",
+            MapSceneObjectKind.Ping => "•",
+            MapSceneObjectKind.Hazard => "!",
+            MapSceneObjectKind.Lock => "⌑",
+            MapSceneObjectKind.LootSpawn or MapSceneObjectKind.LootContainer => "$",
+            MapSceneObjectKind.Route => "↝",
+            MapSceneObjectKind.Risk => "△",
+            _ => "●",
+        },
     };
 
-    private static string DescribeEstimate(MapSceneEstimateMetadata? estimate) => estimate is null
-        ? string.Empty
-        : $"Historical model {estimate.ModelVersion} · observed from {estimate.ObservedFromUtc.ToLocalTime():g} · " +
-          $"data through {estimate.DataThroughUtc.ToLocalTime():g} · generated {estimate.GeneratedUtc.ToLocalTime():g} · " +
-          $"{estimate.Coverage} · {estimate.Calibration} · transform {estimate.TransformVersion}";
+    private static string TruthGlyphFor(MapSceneTruthKind truth) => truth switch
+    {
+        MapSceneTruthKind.HistoricalEstimate => "H",
+        MapSceneTruthKind.LocalLastKnown => "L",
+        MapSceneTruthKind.TeamSharedLastKnown => "T",
+        MapSceneTruthKind.PotentialSpawn => "?",
+        MapSceneTruthKind.PersonalPlan => "P",
+        MapSceneTruthKind.UserAuthored => "✎",
+        _ => string.Empty,
+    };
+
+    private static string FactionGlyphFor(MapSceneObject item) =>
+        item.Kind is MapSceneObjectKind.Extract or MapSceneObjectKind.Transit
+            ? item.Faction switch
+            {
+                MapFeatureFaction.Pmc => "P",
+                MapFeatureFaction.Scav => "S",
+                MapFeatureFaction.Shared => "P/S",
+                _ => "?",
+            }
+            : string.Empty;
+
+    private static string OfferGlyphFor(MapSceneObject item) =>
+        MapSceneRendererViewModel.HasOfferStatus(item.Kind)
+            ? item.OfferState switch
+            {
+                MapSceneOfferState.Offered => "✓",
+                MapSceneOfferState.NotOffered => "×",
+                _ => "?",
+            }
+            : string.Empty;
 }
 
 public sealed class MapSceneRendererGeometryViewModel
@@ -899,28 +1279,37 @@ public sealed class MapSceneRendererGeometryViewModel
     public MapSceneTruthKind Truth => SceneObject.Truth;
 }
 
-public sealed class MapSceneRendererListItemViewModel
+public sealed class MapSceneRendererListItemViewModel : BindableViewModel
 {
-    public MapSceneRendererListItemViewModel(MapSceneListEntry entry, bool isSelected, Action select)
+    private bool _isSelected;
+
+    public MapSceneRendererListItemViewModel(
+        MapSceneObject item,
+        MapSceneRendererPresentation presentation,
+        bool isSelected,
+        Action select)
     {
-        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-        Id = entry.Id;
-        Label = entry.Label;
-        Detail = entry.Detail;
-        KindLabel = MapSceneRendererViewModel.DescribeKind(entry.Kind);
-        TruthLabel = MapSceneRendererViewModel.DescribeTruth(entry.Truth);
-        FactionLabel = MapSceneRendererViewModel.DescribeFaction(entry.Faction);
-        OfferState = entry.OfferState;
-        OfferedLabel = MapSceneRendererViewModel.DescribeOffer(entry.OfferState);
-        HasOfferStatus = MapSceneRendererViewModel.HasOfferStatus(entry.Kind);
-        EvidenceLabel = MapSceneRendererViewModel.DescribeEvidence(entry.Provenance);
-        IsSelected = isSelected;
+        var formatter = new MapSceneRendererSemanticText(presentation);
+        SceneObject = item ?? throw new ArgumentNullException(nameof(item));
+        Id = item.Id;
+        Label = item.Label;
+        AutomationName = formatter.Automation(item);
+        Detail = item.Detail;
+        KindLabel = formatter.Kind(item.Kind);
+        TruthLabel = formatter.Truth(item.Truth);
+        FactionLabel = formatter.Faction(item.Faction);
+        OfferState = item.OfferState;
+        OfferedLabel = formatter.Offer(item.OfferState);
+        HasOfferStatus = MapSceneRendererViewModel.HasOfferStatus(item.Kind);
+        EvidenceLabel = formatter.Evidence(item.Provenance);
+        _isSelected = isSelected;
         SelectCommand = new DelegateCommand(select ?? throw new ArgumentNullException(nameof(select)));
     }
 
-    public MapSceneListEntry Entry { get; }
+    public MapSceneObject SceneObject { get; }
     public MapSceneObjectId Id { get; }
     public string Label { get; }
+    public string AutomationName { get; }
     public string? Detail { get; }
     public string KindLabel { get; }
     public string TruthLabel { get; }
@@ -933,9 +1322,69 @@ public sealed class MapSceneRendererListItemViewModel
     public bool IsKnownNotOffered => OfferState == MapSceneOfferState.NotOffered;
     public bool IsOfferUnknown => HasOfferStatus && OfferState == MapSceneOfferState.Unknown;
     public bool HasDetail => !string.IsNullOrWhiteSpace(Detail);
-    public bool IsSelected { get; }
+    public bool IsSelected => _isSelected;
     public string AutomationId => $"v2-map-list-{MapRendererToken.From(Id.Value)}";
     public ICommand SelectCommand { get; }
+
+    public void SetSelected(bool selected) => SetProperty(ref _isSelected, selected, nameof(IsSelected));
+}
+
+internal sealed class MapSceneRendererSemanticText(MapSceneRendererPresentation presentation)
+{
+    public string Kind(MapSceneObjectKind kind) => presentation.Get($"Map.Kind.{kind}");
+
+    public string Truth(MapSceneTruthKind truth) => presentation.Get(Enum.IsDefined(truth)
+        ? $"Map.Truth.{truth}"
+        : "Map.Truth.Unknown");
+
+    public string Faction(MapFeatureFaction faction) => presentation.Get(faction switch
+    {
+        MapFeatureFaction.Pmc => "Map.Faction.Pmc",
+        MapFeatureFaction.Scav => "Map.Faction.Scav",
+        MapFeatureFaction.Shared => "Map.Faction.Shared",
+        _ => "Map.Faction.Unknown",
+    });
+
+    public string Offer(MapSceneOfferState state) => presentation.Get(state switch
+    {
+        MapSceneOfferState.Offered => "Map.Offer.Offered",
+        MapSceneOfferState.NotOffered => "Map.Offer.NotOffered",
+        _ => "Map.Offer.Unknown",
+    });
+
+    public string Evidence(DataProvenance provenance)
+    {
+        var confidence = provenance.Confidence is { } value
+            ? presentation.Format("Map.Evidence.Confidence", presentation.Percent(value.Value))
+            : string.Empty;
+        return presentation.Format("Map.Evidence", provenance.Source, presentation.Instant(provenance.ObservedUtc), confidence);
+    }
+
+    public string Estimate(MapSceneEstimateMetadata? estimate) => estimate is null
+        ? string.Empty
+        : presentation.Format(
+            "Map.Estimate",
+            estimate.ModelVersion,
+            presentation.Instant(estimate.ObservedFromUtc),
+            presentation.Instant(estimate.DataThroughUtc),
+            presentation.Instant(estimate.GeneratedUtc),
+            estimate.Coverage,
+            estimate.Calibration,
+            estimate.TransformVersion);
+
+    public string Automation(MapSceneObject item)
+    {
+        var offer = MapSceneRendererViewModel.HasOfferStatus(item.Kind)
+            ? presentation.Format("Map.Marker.OfferSuffix", Offer(item.OfferState))
+            : string.Empty;
+        return presentation.Format(
+            "Map.Marker.Automation",
+            item.Label,
+            Kind(item.Kind),
+            Truth(item.Truth),
+            Faction(item.Faction),
+            offer);
+    }
 }
 
 public readonly record struct MapSceneProjectedPoint(double X, double Y);
@@ -1028,7 +1477,8 @@ internal static class MapRendererToken
         var normalized = new string(value.ToLowerInvariant()
             .Select(character => char.IsAsciiLetterOrDigit(character) ? character : '-')
             .ToArray());
-        var suffix = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..8]
+        var suffix = Convert.ToHexString(
+                System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..8]
             .ToLowerInvariant();
         return $"{normalized}-{suffix}";
     }

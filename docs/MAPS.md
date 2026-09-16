@@ -32,16 +32,34 @@ desktop canvas. The snapshot carries the selected map and floor, camera, layer s
 object IDs, point/line/area/region geometry, transform version, typed fact semantics, and reviewed
 asset manifests. Its list alternative and hit testing use the same visibility state as the visual
 map. Flat 2D is the baseline; floor-stack and interior presentations are capabilities over the
-same scene, not separate sources of map truth.
+same scene, not separate sources of map truth. The current Avalonia renderer deliberately
+disables both richer presentation buttons: the scene asset contract does not yet associate a
+`Floor2D` asset with a floor ID, and no reviewed interior renderer exists. It keeps the real
+floor filter available and reports a flat-plan fallback if another client publishes a richer
+canonical mode; it never draws the same flat artwork and calls it a floor stack or interior.
 
 The Avalonia consumer resolves reviewed artwork through an injected verified-cache resolver; it
 does not fetch a manifest URL from the view. Point features use fixed-size accessible controls,
 while line, area, and region geometry remains geometry. Coordinates outside reviewed bounds are
-not clamped into a false edge marker. Dense point layers are deterministically grouped and both
-the spatial and list presentations are bounded with a visible narrowing message. Pan, zoom, fit,
-floor, mode, and layer actions emit revision-checked scene changes and wait for the canonical
-snapshot to return before another change is sent. Narrow windows stack details below the map and
-preserve the same scene, projection, selection, and commands used by the desktop layout.
+not clamped into a false edge marker. Dense point layers are deterministically grouped; opening a
+cluster exposes every source record through the searchable, paged list. That list includes every
+visible object even when a layer opts out of the older scene list summary. Bare-map hit testing
+considers only the individual markers and geometry actually drawn, so selecting a cluster cannot
+silently choose a hidden member. Pan, zoom, fit, floor, mode, and layer actions emit
+revision-checked scene changes and wait for the canonical snapshot to return before another
+change is sent. Selection, clear, and camera acknowledgements retain existing control
+collections and do not resolve unchanged artwork again.
+
+The host supplies the renderer's selected string resources, number/date culture, and time zone;
+evidence timestamps never use process culture or the development machine's local zone. Semantic
+glyphs, text, and automation names keep historical estimates, local/team last-known records,
+PMC/Scav/shared extracts, and offered/not-offered/unknown states distinct. Refusals use an
+assertive text live region, while dense-scene and selection changes use polite text peers. Narrow
+windows reflow details below the plan and remain scrollable at a 320-DIP viewport and enlarged
+interface text. The packaged `--map-renderer-gallery` and
+`--map-renderer-gallery --map-renderer-large-text` launches provide deterministic Windows
+screenshots, UI Automation interactions, cluster/search/page coverage, and measured touch-target
+evidence for those layouts.
 
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential

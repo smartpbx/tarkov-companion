@@ -369,6 +369,27 @@ function Invoke-ShellInteraction {
                 throw "'$Description' did not expose expected element '$ExpectedId'."
             }
         }
+        foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOffscreenAutomationIds" -Default @())) {
+            if ($null -eq (Wait-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId $ExpectedId `
+                -IncludeOffscreen $true)) {
+                throw "'$Description' did not expose expected element '$ExpectedId', including outside the viewport."
+            }
+        }
+        foreach ($BoundsAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedBounds" -Default @())) {
+            $BoundsElement = Wait-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId ([string]$BoundsAssertion.automationId)
+            if ($null -eq $BoundsElement) {
+                throw "'$Description' did not expose bounded element '$($BoundsAssertion.automationId)'."
+            }
+            $Bounds = $BoundsElement.Current.BoundingRectangle
+            if ($Bounds.Width -lt [double]$BoundsAssertion.minimumWidth -or
+                $Bounds.Height -lt [double]$BoundsAssertion.minimumHeight) {
+                throw "'$Description' measured '$($BoundsAssertion.automationId)' at $($Bounds.Width)x$($Bounds.Height), below $($BoundsAssertion.minimumWidth)x$($BoundsAssertion.minimumHeight)."
+            }
+        }
         foreach ($ExpectedName in @(Get-InteractionProperty -Object $Step -Name "expectedNames" -Default @())) {
             if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -Name $ExpectedName)) {
                 throw "'$Description' did not expose expected element '$ExpectedName'."
@@ -863,6 +884,58 @@ $Shots.Add([pscustomobject]@{
                 targetAutomationId = "v2-shell-command-reset-preview"; targetControlType = "Button"
             }
         )
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
+    width = 1100; height = 850
+    interaction = [pscustomobject]@{
+        steps = @(
+            [pscustomobject]@{
+                action = "assert"; description = "wide map renderer semantics and touch targets"
+                expectedAutomationIds = @(
+                    "v2-map-renderer", "v2-map-plan", "v2-map-search", "v2-map-page-next",
+                    "v2-map-page-status", "v2-map-mode-floorstack2d", "v2-map-background-status",
+                    "v2-map-zoom-in", "v2-map-object-cluster-3-2-1176be92")
+                expectedBounds = @(
+                    [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 },
+                    [pscustomobject]@{ automationId = "v2-map-object-cluster-3-2-1176be92"; minimumWidth = 44; minimumHeight = 44 })
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "open every record in the dense map cluster"
+                targetAutomationId = "v2-map-object-cluster-3-2-1176be92"; targetControlType = "Button"
+                expectedAutomationIds = @("v2-map-clear-cluster", "v2-map-page-next")
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 7 .* 305 matching details$' })
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "page through the dense map cluster"
+                targetAutomationId = "v2-map-page-next"; targetControlType = "Button"
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 2 of 7 .* 305 matching details$' })
+            },
+            [pscustomobject]@{
+                action = "set-value"; description = "search a record beyond the first map page"
+                targetAutomationId = "v2-map-search"; targetControlType = "Edit"; value = "Potential loot 305"
+                expectedOffscreenAutomationIds = @("v2-map-list-dense-304-fdfa94e9")
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 1 .* 1 matching details$' })
+            }
+        )
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "map-renderer-320dip-large-text"
+    args = @("--map-renderer-gallery", "--map-renderer-large-text")
+    shellMode = "v2-map"; width = 640; height = 1000
+    interaction = [pscustomobject]@{
+        steps = @([pscustomobject]@{
+            action = "assert"; description = "320 DIP map renderer at twice interface scale"
+            expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in")
+            expectedOffscreenAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
+            expectedBounds = @(
+                [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 })
+        })
     }
 })
 
