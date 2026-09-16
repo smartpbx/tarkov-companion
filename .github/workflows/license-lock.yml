@@ -225,7 +225,7 @@ jobs:
       # Published rather than committed. A workflow that can push to the branch is a bigger
       # thing to own than a file somebody downloads and commits after reading the diff, and
       # reading the diff is the point of the audit being fail-closed in the first place.
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: third-party-inventory
           path: docs/THIRD_PARTY_INVENTORY.json
