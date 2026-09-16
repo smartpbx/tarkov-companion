@@ -3,7 +3,9 @@ using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using TarkovCompanion.App.Services;
 using TarkovCompanion.App.Services.Diagnostics;
+using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
+using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Quests;
@@ -53,6 +55,36 @@ public sealed class RuntimeCompositionTests
             Assert.NotNull(services.GetRequiredService<IQuestProgressExchangeService>());
             Assert.NotNull(services.GetRequiredService<IReviewedLootSpawnPublicationReplacementStore>());
             Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
+        }
+        finally
+        {
+            Cleanup(root);
+        }
+    }
+
+    [Fact]
+    public async Task V2DefaultLaunchWithALegacyPageNameStillMigratesAndInitializesTheDatabase()
+    {
+        // Reproduces the exact windows-smoke launch (--demo --page Scanner --developer-mode)
+        // now that V2 is the default shell: constructing the V2 shell used to throw before this
+        // fix, because "Scanner" is not a v2 address, and that thrown ArgumentException aborted
+        // startup before MainWindowViewModel.InitializeAsync ever ran the database migration.
+        var root = TemporaryRoot();
+        try
+        {
+            await using var services = AppComposition.Build(
+                CommandLine(demo: true) with { UiShell = V2ShellMode.VariantB, StartPage = "Scanner" },
+                new(DataRoot: root, Offline: true));
+            var viewModel = services.GetRequiredService<MainWindowViewModel>();
+            // Mirrors App.axaml.cs's V2-preview branch: the shell is built before startup runs.
+            var shell = services.GetRequiredService<V2ShellViewModel>();
+
+            await viewModel.InitializeAsync();
+
+            var snapshot = services.GetRequiredService<IRuntimeStateStore>().Current;
+            Assert.True(snapshot.DatabaseReady);
+            Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
+            Assert.Equal(V2Routes.Loot, shell.Router.Current.Location.Route);
         }
         finally
         {
