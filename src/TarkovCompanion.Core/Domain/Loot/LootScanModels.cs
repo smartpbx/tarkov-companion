@@ -1,6 +1,7 @@
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Recommendations;
+using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 
 namespace TarkovCompanion.Core.Domain.Loot;
 

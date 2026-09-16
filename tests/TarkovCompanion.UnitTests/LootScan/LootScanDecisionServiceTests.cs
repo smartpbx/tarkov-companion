@@ -1,10 +1,12 @@
 using TarkovCompanion.Application.Services.LootScan;
 using TarkovCompanion.Application.Services.CaptureSessions;
+using TarkovCompanion.App.ViewModels.V2.LootScan;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
+using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 
 namespace TarkovCompanion.UnitTests.LootScan;
 
@@ -301,6 +303,25 @@ public sealed class LootScanDecisionServiceTests
             initiatingDeviceId: initiatingDevice);
 
         Assert.Equal(initiatingDevice, result.FocusDeviceId);
+    }
+
+    [Fact]
+    public void ReviewViewModelKeepsActionEconomicsAndEvidenceScannable()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "rare-loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(anchor, "rare-loot", valueRoubles: 120_000)]);
+
+        var viewModel = new LootScanViewModel(result);
+        var card = Assert.Single(viewModel.Decisions);
+
+        Assert.Equal(1, viewModel.TakeCount);
+        Assert.Equal("TAKE", card.VerdictLabel);
+        Assert.Contains("120,000", card.ValueLabel, StringComparison.Ordinal);
+        Assert.Contains("confidence", card.EvidenceLabel, StringComparison.Ordinal);
+        Assert.True(card.HasPlacement);
     }
 
     private static LootScanResult Evaluate(
