@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "datasetVersion": "fixture-2026-09-16",
+  "contentSha256": "2a0ecf750c3b47e50585c96d7e65efc9459e0b283b377ba240cbe176d5f729aa",
+  "generatedUtc": "2026-09-16T12:00:00.0000000+00:00",
+  "dataThroughUtc": "2026-09-15T12:00:00.0000000+00:00",
+  "source": {
+    "class": "curatedData",
+    "identifier": "fixture:loot-spawns/source-v1",
+    "reference": "fixtures/loot-spawns/README.md",
+    "license": "CC0-1.0 synthetic test fixture",
+    "confidence": {
+      "kind": "providerScore",
+      "score": 0.75
+    },
+    "futureSourceField": "accepted"
+  },
+  "producer": {
+    "name": "TarkovCompanion fixture generator",
+    "version": "1"
+  },
+  "coverage": [
+    {
+      "mapId": "customs",
+      "knownRecords": 3,
+      "publishedRecords": 2,
+      "positionedRecords": 1,
+      "floorResolvedRecords": 1,
+      "unresolvedRecords": 1
+    }
+  ],
+  "futureManifestField": ["accepted"]
+}

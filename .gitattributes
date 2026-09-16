@@ -5,3 +5,4 @@ licenses/*.json text eol=lf
 LICENSES/** -text
 # Byte-exact golden documents: a checksum covers these bytes, so checkout must never rewrite them.
 fixtures/profiles/*.json -text
+fixtures/loot-spawns/**/content.json -text

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "datasetVersion": "fixture-2026-09-16",
+  "snapshots": [
+    {
+      "snapshotId": "fixture-customs-v1",
+      "mapId": "customs",
+      "transformVersion": "fixture-transform-v1",
+      "records": [
+        {
+          "spawnId": "customs-curated-point",
+          "label": "Synthetic exact spawn",
+          "location": {
+            "precision": "exactPoint",
+            "floorIds": ["ground"],
+            "points": [{"x": 25.0, "y": 40.0}],
+            "futureLocationField": true
+          },
+          "pool": {
+            "kind": "singleKnownItem",
+            "itemIds": ["fixture-gpu"]
+          },
+          "accessNote": "Synthetic fixture only",
+          "futureRecordField": {"accepted": true}
+        },
+        {
+          "spawnId": "customs-curated-map-only",
+          "label": "Synthetic unresolved spawn",
+          "location": {
+            "precision": "mapOnly",
+            "floorIds": []
+          },
+          "pool": {
+            "kind": "unweightedCandidates",
+            "itemIds": ["fixture-gpu", "fixture-ledx"]
+          }
+        }
+      ]
+    }
+  ],
+  "futureContentField": "accepted"
+}

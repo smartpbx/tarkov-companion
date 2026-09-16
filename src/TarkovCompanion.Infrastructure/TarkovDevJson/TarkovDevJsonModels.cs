@@ -272,6 +272,19 @@ public sealed class TarkovDevMapLoot
 {
     public TarkovDevMapPosition? Position { get; init; }
 
+    /// <summary>The container type at this position, when this is a container record.</summary>
+    public string? LootContainer { get; init; }
+
+    /// <summary>
+    /// The explicitly unweighted item pool at this position, when this is a loose-loot record.
+    /// </summary>
+    /// <remarks>
+    /// These IDs used to survive only in extension data. Keeping them typed is what lets the
+    /// high-value layer join a location to the separately evidenced item catalog without treating
+    /// a container type as if it were an item that can spawn there.
+    /// </remarks>
+    public IReadOnlyList<string> Items { get; init; } = [];
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement> AdditionalData { get; init; } = [];
 }
@@ -592,4 +605,5 @@ public sealed record TarkovDevResponse<T>(
     string? ETag,
     DateTimeOffset? LastModified,
     string? RawSourceJson = null,
-    string? RefusalReason = null);
+    string? RefusalReason = null,
+    string? SourceKey = null);

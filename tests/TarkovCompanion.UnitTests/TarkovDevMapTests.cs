@@ -324,6 +324,8 @@ public sealed class TarkovDevMapTests
         Assert.Equal(MapCatalogAvailability.Current, online.Availability);
         Assert.Equal(MapCatalogAvailability.OfflineCached, offline.Availability);
         Assert.NotNull(offline.Catalog);
+        Assert.NotNull(online.SourceJson);
+        Assert.Equal(online.SourceJson, offline.SourceJson);
         Assert.Equal(online.Catalog?.Provenance.ContentSha256, offline.Catalog.Provenance.ContentSha256);
         Assert.Equal(2, handler.RequestCount);
     }

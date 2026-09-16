@@ -80,7 +80,7 @@ jobs:
             -p:PublishSingleFile=false \
             -p:InformationalVersion="1.0.${{ github.run_number }}+${{ github.sha }}" \
             --output artifacts/group-server
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TarkovCompanion-GroupServer-linux-x64
           path: artifacts/group-server/**
@@ -120,7 +120,7 @@ jobs:
             -cf - . | gzip -n > dist/TarkovCompanion-GroupServer-linux-x64.tar.gz
           ( cd dist && sha256sum TarkovCompanion-GroupServer-linux-x64.tar.gz > GROUPSERVER-SHA256SUMS.txt )
           cat dist/GROUPSERVER-SHA256SUMS.txt
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: group-server-release
           path: |
@@ -128,7 +128,7 @@ jobs:
             dist/GROUPSERVER-SHA256SUMS.txt
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: linux-test-results
@@ -510,7 +510,7 @@ jobs:
 
       - name: Publish sanitized verification evidence
         if: always()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-verification
           path: |
@@ -584,7 +584,7 @@ jobs:
           Write-Host "Every Windows verification step passed."
       - name: Publish the verified package
         if: success()
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: TarkovCompanion-win-x64
           path: |
@@ -600,7 +600,7 @@ jobs:
       # a release.
       - name: Hand the release payload to the publish job
         if: success() && github.event_name != 'pull_request'
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-release-payload
           path: |

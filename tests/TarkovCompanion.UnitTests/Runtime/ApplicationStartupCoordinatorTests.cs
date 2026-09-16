@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Runtime;
@@ -139,6 +140,30 @@ public sealed class ApplicationStartupCoordinatorTests
         Assert.Equal(1, fixture.Projection.Invalidations);
         Assert.Equal(DataAvailability.Current, fixture.State.Current.Data.Availability);
         Assert.Equal(3, fixture.State.Current.Data.ItemCount);
+    }
+
+    [Fact]
+    public async Task Missing_loot_head_loads_at_startup_and_admits_one_cache_reusing_refresh()
+    {
+        var loot = new RecordingHighValueLootRuntimeSource { NeedsRefreshResult = true };
+        await using var fixture = new RefreshFixture(
+            RefreshDependency.None,
+            TimeSpan.FromSeconds(5),
+            highValueLoot: loot);
+
+        await fixture.Coordinator.InitializeAsync(default);
+        fixture.Coordinator.BeginBackgroundRefresh();
+        await fixture.Coordinator.BackgroundRefresh!;
+
+        Assert.Equal(1, loot.InitializeCalls);
+        Assert.Equal(1, loot.RefreshCalls);
+        Assert.False(loot.LastForce);
+        Assert.Equal(1, fixture.Sync.Calls);
+        Assert.Equal(
+            FeatureLifecycleState.Running,
+            Assert.Single(
+                fixture.State.Current.Lifecycle.Features,
+                feature => feature.FeatureId == new RuntimeFeatureId("high-value-loot-source")).State);
     }
 
     [Fact]
@@ -321,7 +346,8 @@ public sealed class ApplicationStartupCoordinatorTests
             IRaidHistoryService? raidHistory = null,
             TaskCompletionSource? databaseRelease = null,
             bool offline = false,
-            Func<bool>? offlineProbe = null)
+            Func<bool>? offlineProbe = null,
+            IHighValueLootRuntimeSource? highValueLoot = null)
         {
             Time = new(Epoch);
             Control = new(dependency);
@@ -375,7 +401,8 @@ public sealed class ApplicationStartupCoordinatorTests
                 [Projection],
                 options,
                 NullLogger<ApplicationStartupCoordinator>.Instance,
-                timeProvider: Time);
+                timeProvider: Time,
+                highValueLoot: highValueLoot);
         }
 
         public ManualTimeProvider Time { get; }
@@ -552,6 +579,40 @@ public sealed class ApplicationStartupCoordinatorTests
         public int Invalidations { get; private set; }
 
         public void Invalidate() => Invalidations++;
+    }
+
+    private sealed class RecordingHighValueLootRuntimeSource : IHighValueLootRuntimeSource
+    {
+        public LootSpawnSourceBundle? LastKnownGood => null;
+
+        public bool NeedsRefreshResult { get; init; }
+
+        public int InitializeCalls { get; private set; }
+
+        public int RefreshCalls { get; private set; }
+
+        public bool LastForce { get; private set; }
+
+        public bool NeedsRefresh(DateTimeOffset evaluatedUtc, TimeSpan freshFor) => NeedsRefreshResult;
+
+        public ValueTask InitializeAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            InitializeCalls++;
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask RefreshAsync(bool force, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RefreshCalls++;
+            LastForce = force;
+            return ValueTask.CompletedTask;
+        }
+
+        public HighValueLootLayerResult Build(
+            HighValueLootRuntimeLayerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class StubProfileService : IPlayerProfileService

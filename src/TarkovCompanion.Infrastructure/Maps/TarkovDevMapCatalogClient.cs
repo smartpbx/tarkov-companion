@@ -127,7 +127,7 @@ public sealed class TarkovDevMapCatalogClient(
             catalog.Provenance.ContentSha256,
             json);
         await WriteCacheAsync(cacheDocument, cancellationToken).ConfigureAwait(false);
-        return new(catalog, MapCatalogAvailability.Current, "Catalog refreshed from tarkov.dev.");
+        return new(catalog, MapCatalogAvailability.Current, "Catalog refreshed from tarkov.dev.", json);
     }
 
     private MapCatalogLoadResult ParseCached(
@@ -141,7 +141,7 @@ public sealed class TarkovDevMapCatalogClient(
             throw new InvalidDataException("The cached map catalog failed its content hash check.");
         }
 
-        return new(catalog, availability, message);
+        return new(catalog, availability, message, cached.Json);
     }
 
     private async Task<CatalogCacheDocument?> ReadCacheAsync(CancellationToken cancellationToken)
