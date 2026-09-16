@@ -88,6 +88,20 @@ Raid summaries and events continue to use the existing `raids` and `raid_events`
 
 `SqliteProfileWorkspaceStore` implements the V2 profile workspace compare-and-swap contract across a workspace head, immutable identity/generation context, and normalized progress collections. Reads hold one SQLite snapshot across the head and every normalized child table, so a concurrent replacement cannot produce a mixed-revision workspace. `observed_inventory_snapshots` and `observed_inventory_nodes` store bounded, acyclic nested stash/container/item evidence, nullable unknown measurements, source/version/coverage/confidence, and exact forward-compatible JSON. Saving a current snapshot atomically retires the prior current snapshot in the same profile/generation/mode scope.
 
+Full-stash assembly may persist a `DerivedCalculation` recognition root only when every internal
+lineage node is derived and every leaf is a user-triggered screenshot or external visible-pixel
+capture. Direct visible-capture roots remain valid; mixed unknown, user, log, public, historical,
+or modelled lineage is rejected. Snapshot lifecycle uses the same tables: deletion promotes the
+newest surviving snapshot in the exact scope, while explicit retention dry-run/execution targets
+only non-current rows older than the supplied UTC cutoff.
+
+For guided stash scans, `observed_inventory_snapshots.data_snapshot_id` is the catalog/economics
+publication requested by the scan; it is not the recognition payload's `StashRecognition.SnapshotId`.
+The column already existed, so this correction needs no schema migration. The durable inventory
+adapter retains source compatibility for older callers that omit the new optional contract field:
+only those callers fall back to the recognition snapshot id when writing. Every read returns the
+stored column explicitly, and guided stash records require it.
+
 `craft_history` records nullable historical cost/yield/output evidence. Its schema rejects non-canonical history identifiers, negative or non-finite facts, empty source/time text, and SQLite dynamic-type substitutions before readers need to quarantine them. `loadout_plans` uses exact-next revision compare-and-swap and retains extension JSON. Model snapshot writes accept only the frozen typed `HistoricalIntelligence<T>` and `ModelledIntelligence<T>` evidence contracts, then verify every persisted source/time/coverage/confidence/model-version field against the canonical lineage carried by that envelope. Modelled evidence is the prediction contract; there is no live presentation path. Named calibration references stay in canonical JSON, while the legacy numeric `calibration` column remains `NULL` rather than inventing a lossy number. Queries require the exact nullable profile, generation, and game-mode context. `retention_policies` keeps Debug Capture explicit and disabled by default; captures themselves are never persisted unless that separately reviewed feature is enabled. Local user history has no implicit retention period: a missing policy or a `NULL` `data_retention_days` value preserves it.
 
 `SqliteQuestProgressImportStore` applies one confirmed project JSON or TarkovTracker preview in a single transaction. It compares the exact base revision, records non-secret source provenance plus normalized payload and preview hashes, applies selected values, stores conflict decisions and unknown or invalid source IDs, and appends inverse journal rows before commit. Repeated payload hashes are idempotent within one exact profile scope. Undo adds a new journal batch and a separate undo boundary; it never rewrites prior history and refuses to overwrite later revisions. Stage 5 required no schema migration because the existing source-neutral import, conflict, unresolved-record, journal, and undo tables already hold this metadata.
