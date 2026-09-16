@@ -38,10 +38,11 @@ Core owns a renderer-neutral scene snapshot under `Domain/Maps/Scene`.
 
 Application owns adapters into that scene. The first adapter accepts existing overlay elements
 only when the caller also supplies that individual element's provenance, and only for semantics it
-can preserve exactly: labels, extracts/transits (including faction and offered state), spawn areas,
-locks, and quest objectives. Conflicting stable identities withhold the scene instead of choosing
-one by input order. Legacy generic marks, routes, and traffic entries are not guessed. Their V2
-feature adapters must supply typed scene objects directly.
+can preserve exactly: labels, extracts/transits (including faction and the separately joined
+offered-state observation), spawn areas, locks, and quest objectives. A missing offered-state join
+remains unknown rather than becoming “not offered.” Duplicate stable identities withhold the scene
+instead of choosing one by input order. Legacy generic marks, routes, and traffic entries are not
+guessed. Their V2 feature adapters must supply typed scene objects directly.
 
 Avalonia, WebGL/canvas, and future low-cost renderers consume the scene; they do not define it.
 The paired-device state stream carries its revisioned view state and user commands rather than a

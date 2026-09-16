@@ -69,6 +69,13 @@ public enum MapSceneAssetKind
     InteriorModel,
 }
 
+public enum MapSceneOfferState
+{
+    Unknown,
+    NotOffered,
+    Offered,
+}
+
 public readonly record struct MapSceneLayerId
 {
     public MapSceneLayerId(string value)
@@ -334,7 +341,7 @@ public sealed record MapSceneObject
         DataProvenance provenance,
         MapSceneEstimateMetadata? estimate = null,
         MapFeatureFaction faction = MapFeatureFaction.Unknown,
-        bool isOfferedThisRaid = false)
+        MapSceneOfferState offerState = MapSceneOfferState.Unknown)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -365,9 +372,14 @@ public sealed record MapSceneObject
             throw new ArgumentOutOfRangeException(nameof(faction));
         }
 
-        if (isOfferedThisRaid && kind is not (MapSceneObjectKind.Extract or MapSceneObjectKind.Transit))
+        if (!Enum.IsDefined(offerState))
         {
-            throw new ArgumentException("Only an extract or transit can be offered for this raid.", nameof(isOfferedThisRaid));
+            throw new ArgumentOutOfRangeException(nameof(offerState));
+        }
+
+        if (offerState != MapSceneOfferState.Unknown && kind is not (MapSceneObjectKind.Extract or MapSceneObjectKind.Transit))
+        {
+            throw new ArgumentException("Only an extract or transit can carry an offered state.", nameof(offerState));
         }
 
         Id = id;
@@ -384,7 +396,7 @@ public sealed record MapSceneObject
         Provenance = provenance;
         Estimate = estimate;
         Faction = faction;
-        IsOfferedThisRaid = isOfferedThisRaid;
+        OfferState = offerState;
     }
 
     public MapSceneObjectId Id { get; }
@@ -409,7 +421,9 @@ public sealed record MapSceneObject
 
     public MapFeatureFaction Faction { get; }
 
-    public bool IsOfferedThisRaid { get; }
+    public MapSceneOfferState OfferState { get; }
+
+    public bool IsOfferedThisRaid => OfferState == MapSceneOfferState.Offered;
 }
 
 public sealed record MapSceneAsset
@@ -563,7 +577,7 @@ public sealed record MapSceneListEntry(
     string? Detail,
     MapSceneTruthKind Truth,
     MapFeatureFaction Faction,
-    bool IsOfferedThisRaid,
+    MapSceneOfferState OfferState,
     DataProvenance Provenance);
 
 /// <summary>The single renderer-neutral scene consumed by desktop and paired clients.</summary>
@@ -697,7 +711,7 @@ public sealed record MapSceneSnapshot
             item.Detail,
             item.Truth,
             item.Faction,
-            item.IsOfferedThisRaid,
+            item.OfferState,
             item.Provenance))
         .ToArray();
 

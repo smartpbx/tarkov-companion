@@ -18,11 +18,18 @@ public sealed record MapSceneBuildRequest(
     IReadOnlyList<MapSceneAsset> Assets);
 
 /// <summary>An old overlay paired with the source evidence that the old model did not carry.</summary>
-public sealed record MapSceneLegacyElement(MapOverlayElement Element, DataProvenance Provenance)
+public sealed record MapSceneLegacyElement(
+    MapOverlayElement Element,
+    DataProvenance Provenance,
+    MapSceneOfferState OfferState = MapSceneOfferState.Unknown)
 {
     public MapOverlayElement Element { get; } = Element ?? throw new ArgumentNullException(nameof(Element));
 
     public DataProvenance Provenance { get; } = Provenance ?? throw new ArgumentNullException(nameof(Provenance));
+
+    public MapSceneOfferState OfferState { get; } = Enum.IsDefined(OfferState)
+        ? OfferState
+        : throw new ArgumentOutOfRangeException(nameof(OfferState));
 }
 
 public sealed record MapSceneBuildResult(MapSceneSnapshot? Scene, string? UnavailableReason)
@@ -65,7 +72,7 @@ public sealed class MapSceneAssembler
         var layers = CreateLayers(request.RenderModel).Concat(request.AdditionalLayers).ToArray();
         var legacyObjects = request.LegacyElements
             .Where(item => CanAdaptWithoutLosingMeaning(item.Element))
-            .Select(item => Adapt(item.Element, request.RenderModel.Floors, item.Provenance));
+            .Select(item => Adapt(item, request.RenderModel.Floors));
         var objects = legacyObjects.Concat(request.AdditionalObjects).ToArray();
         if (objects.GroupBy(item => item.Id).Any(group => group.Count() > 1))
         {
@@ -143,10 +150,10 @@ public sealed class MapSceneAssembler
         MapOverlayKind.QuestObjectives;
 
     private static MapSceneObject Adapt(
-        MapOverlayElement element,
-        IReadOnlyList<MapFloorDefinition> floors,
-        DataProvenance provenance)
+        MapSceneLegacyElement source,
+        IReadOnlyList<MapFloorDefinition> floors)
     {
+        var element = source.Element;
         var kind = element.Layer switch
         {
             MapOverlayKind.Labels => MapSceneObjectKind.Label,
@@ -174,9 +181,9 @@ public sealed class MapSceneAssembler
             element.Detail,
             MapSceneGeometry.At(point),
             FloorsFor(element, floors),
-            provenance,
+            source.Provenance,
             faction: element.Faction,
-            isOfferedThisRaid: element.IsActive);
+            offerState: source.OfferState);
     }
 
     private static IReadOnlyList<string> FloorsFor(

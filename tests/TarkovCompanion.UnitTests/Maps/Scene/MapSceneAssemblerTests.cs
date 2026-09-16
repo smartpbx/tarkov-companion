@@ -37,12 +37,14 @@ public sealed class MapSceneAssemblerTests
         var extract = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Scav checkpoint")
         {
             Faction = MapFeatureFaction.Scav,
-            IsActive = true,
         };
         var provenance = Provenance("reviewed-extract-supplement", 0.6);
         var request = Request(Model([extract])) with
         {
-            LegacyElements = [new(extract, provenance)],
+            // Active extracts live beside the old render model. The adapter input carries the
+            // joined state explicitly instead of treating MapOverlayElement's default false as
+            // proof an extract was not offered.
+            LegacyElements = [new(extract, provenance, MapSceneOfferState.Offered)],
         };
 
         var scene = Assert.IsType<MapSceneSnapshot>(new MapSceneAssembler().Build(request).Scene);
@@ -50,10 +52,22 @@ public sealed class MapSceneAssemblerTests
         var item = Assert.Single(scene.Objects);
         Assert.Equal(MapFeatureFaction.Scav, item.Faction);
         Assert.True(item.IsOfferedThisRaid);
+        Assert.Equal(MapSceneOfferState.Offered, item.OfferState);
         Assert.Equal(provenance, item.Provenance);
         var listItem = Assert.Single(scene.ListEntries);
         Assert.Equal(MapFeatureFaction.Scav, listItem.Faction);
-        Assert.True(listItem.IsOfferedThisRaid);
+        Assert.Equal(MapSceneOfferState.Offered, listItem.OfferState);
+    }
+
+    [Fact]
+    public void Missing_active_extract_join_stays_unknown_instead_of_claiming_not_offered()
+    {
+        var extract = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Crossroads");
+
+        var scene = Assert.IsType<MapSceneSnapshot>(
+            new MapSceneAssembler().Build(Request(Model([extract]))).Scene);
+
+        Assert.Equal(MapSceneOfferState.Unknown, Assert.Single(scene.Objects).OfferState);
     }
 
     [Fact]
