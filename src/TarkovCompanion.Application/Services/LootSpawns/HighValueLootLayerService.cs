@@ -93,6 +93,8 @@ public sealed record HighValueLootLayerRequest
 /// <summary>A list/table row backed by the same projection as the scene object.</summary>
 public sealed record HighValueLootEntry
 {
+    public const int MaximumProjectedProfileNeeds = 512;
+
     public HighValueLootEntry(
         LootSpawnRecord spawn,
         LootSpawnValueTier tier,
@@ -126,7 +128,7 @@ public sealed record HighValueLootEntry
         HighValueCandidateCount = highValueCandidateCount;
         ValueBasis = HighValueLootGuard.Required(valueBasis, nameof(valueBasis), 64);
         Summary = HighValueLootGuard.Required(summary, nameof(summary), 1024);
-        ProfileNeeds = Copy(profileNeeds, 512, nameof(profileNeeds));
+        ProfileNeeds = Copy(profileNeeds, MaximumProjectedProfileNeeds, nameof(profileNeeds));
         MissingFacts = CopyStrings(missingFacts, nameof(missingFacts));
         SceneObjectId = sceneObjectId;
     }
@@ -218,6 +220,41 @@ public sealed record HighValueLootLayerResult
         if (objects.Select(item => item.Id).Distinct().Count() != objects.Count)
         {
             throw new ArgumentException("Layer scene-object IDs must be unique.", nameof(objects));
+        }
+
+        if (entries.Select(item => item.Spawn.SpawnId).Distinct(StringComparer.Ordinal).Count() != entries.Count)
+        {
+            throw new ArgumentException("Layer entry spawn IDs must be unique.", nameof(entries));
+        }
+
+        var objectIds = objects.Select(item => item.Id).ToHashSet();
+        var entryObjectIds = entries
+            .Where(item => item.SceneObjectId is not null)
+            .Select(item => item.SceneObjectId!.Value)
+            .ToArray();
+        if (entryObjectIds.Distinct().Count() != entryObjectIds.Length ||
+            !objectIds.SetEquals(entryObjectIds))
+        {
+            throw new ArgumentException(
+                "Every rendered object must match exactly one list entry, and map-only entries must carry no object ID.",
+                nameof(entries));
+        }
+
+        if (entries.Any(item =>
+                (item.Spawn.Location.Geometry is null) != (item.SceneObjectId is null)))
+        {
+            throw new ArgumentException(
+                "Only positioned entries may reference a rendered scene object.",
+                nameof(entries));
+        }
+
+        if (objects.Any(item => item.LayerId != layer.Id ||
+                                item.Kind != MapSceneObjectKind.LootSpawn ||
+                                item.Truth != MapSceneTruthKind.PotentialSpawn))
+        {
+            throw new ArgumentException(
+                "High-value layer objects must be potential loot spawns on the declared layer.",
+                nameof(objects));
         }
     }
 
@@ -412,6 +449,7 @@ public sealed class HighValueLootLayerService
             : snapshot.Status.Freshness;
         var incomplete = diagnostics.Any(diagnostic => diagnostic.AffectsCompleteness) ||
                          snapshot.Status.Completeness == ResultCompleteness.Partial ||
+                         entries.Any(entry => entry.Spawn.Status.Completeness != ResultCompleteness.Complete) ||
                          request.Filter.ValueBasis != LootSpawnValueBasis.ProfileUtility &&
                          entries.Any(entry => entry.ValuedCandidateCount == 0);
         var status = new ResultStatus(
@@ -435,17 +473,31 @@ public sealed class HighValueLootLayerService
         var missing = new HashSet<string>(StringComparer.Ordinal);
         var suppliedNeeds = candidates
             .SelectMany(candidate => candidate.ProfileNeeds)
-            .DistinctBy(need => need.Code, StringComparer.Ordinal)
             .ToArray();
-        var needs = suppliedNeeds
+        var suppliedNeedCodes = suppliedNeeds
+            .Select(need => need.Code)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var allReliableNeeds = suppliedNeeds
             .Where(need => NeedIsReliable(need, request))
             .OrderBy(need => NeedPriority(need.Kind))
             .ThenBy(need => need.Code, StringComparer.Ordinal)
+            .ThenByDescending(need => need.Provenance.EvidenceThroughUtc)
+            .DistinctBy(need => need.Code, StringComparer.Ordinal)
             .ToArray();
-        if (needs.Length != suppliedNeeds.Length)
+        if (allReliableNeeds.Length != suppliedNeedCodes.Length)
         {
             missing.Add("Some profile relevance is stale, incomplete, or below the confidence filter.");
         }
+
+        if (allReliableNeeds.Length > HighValueLootEntry.MaximumProjectedProfileNeeds)
+        {
+            missing.Add("Additional profile relevance was omitted from this bounded projection.");
+        }
+
+        var needs = allReliableNeeds
+            .Take(HighValueLootEntry.MaximumProjectedProfileNeeds)
+            .ToArray();
 
         foreach (var candidate in candidates)
         {
@@ -571,6 +623,7 @@ public sealed class HighValueLootLayerService
         TimeSpan maximumAge)
         where T : struct =>
         field.Value is { } value &&
+        field.Candidates.Count == 0 &&
         field.Status.Completeness == ResultCompleteness.Complete &&
         field.Status.Freshness == FreshnessState.Current &&
         field.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
@@ -719,7 +772,10 @@ public sealed class HighValueLootLayerService
 
     private static MapSceneObjectId StableObjectId(LootSpawnSnapshot snapshot, LootSpawnRecord spawn)
     {
-        var canonical = $"{snapshot.DatasetVersion}|{snapshot.MapId}|{snapshot.TransformVersion}|{spawn.SpawnId}";
+        // A catalog refresh must move or re-price an existing marker without replacing its
+        // identity. Dataset and transform versions describe the current evidence, not which
+        // semantic spawn the user selected on another device.
+        var canonical = $"{snapshot.MapId}|{spawn.SpawnId}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
         return new($"loot-spawn:{hash}");
     }
@@ -775,6 +831,16 @@ public static class HighValueLootLayerPreset
         IReadOnlyList<MapSceneLayerId>? preserveVisibleLayerIds = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
+        if (layers.Any(layer => layer is null))
+        {
+            throw new ArgumentException("Layer catalogs cannot contain null entries.", nameof(layers));
+        }
+
+        if (layers.Select(layer => layer.Id).Distinct().Count() != layers.Count)
+        {
+            throw new ArgumentException("Layer IDs must be unique before applying a visibility preset.", nameof(layers));
+        }
+
         var preserved = new HashSet<MapSceneLayerId>(preserveVisibleLayerIds ?? []);
         return layers.Select(layer => new MapSceneLayerState(
                 layer.Id,

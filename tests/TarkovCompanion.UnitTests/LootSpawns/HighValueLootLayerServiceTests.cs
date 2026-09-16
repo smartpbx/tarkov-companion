@@ -130,6 +130,94 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Ambiguous_price_cannot_qualify_a_spawn_as_high_value()
+    {
+        var provenance = Provenance("ambiguous-price");
+        var candidate = new LootSpawnCandidate(
+            "gpu",
+            "Graphics card",
+            "electronics",
+            Complete<long?>("gross", 925_000),
+            new EvidencedValue<long?>(
+                "net",
+                900_000,
+                CompleteStatus,
+                provenance,
+                candidates: [new EvidenceCandidate<long?>("low", "Possible low price", 10_000, provenance)]),
+            Unknown<long?>("trader"),
+            Complete<int?>("squares", 2));
+
+        var result = Build(Snapshot([Spawn("customs-ambiguous", [candidate])]));
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Objects);
+        Assert.Contains(result.Diagnostics, item => item.Code == "spawn.value-unavailable");
+    }
+
+    [Fact]
+    public void Reliable_duplicate_need_is_not_hidden_by_an_older_duplicate()
+    {
+        var stale = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Old quest context.",
+            CompleteStatus,
+            Provenance("stale-need", Now.AddDays(-120)));
+        var current = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Current quest context.",
+            CompleteStatus,
+            Provenance("current-need"));
+        var spawn = Spawn(
+            "customs-duplicate-need",
+            [Candidate("old", "Old candidate", 10_000, [stale]), Candidate("current", "Current candidate", 10_000, [current])]);
+
+        var result = Build(Snapshot([spawn]));
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal("Current quest context.", Assert.Single(entry.ProfileNeeds).Explanation);
+        Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+    }
+
+    [Fact]
+    public void Large_valid_need_pool_is_bounded_instead_of_crashing_projection()
+    {
+        var candidates = Enumerable.Range(0, 17)
+            .Select(candidateIndex => Candidate(
+                $"item-{candidateIndex}",
+                $"Item {candidateIndex}",
+                10_000,
+                Enumerable.Range(0, LootSpawnCandidate.MaximumProfileNeeds)
+                    .Select(needIndex => new LootSpawnProfileNeed(
+                        LootSpawnProfileNeedKind.FutureQuest,
+                        $"need-{candidateIndex}-{needIndex}",
+                        "Future quest requirement.",
+                        CompleteStatus,
+                        Provenance($"need-{candidateIndex}-{needIndex}")))
+                    .ToArray()))
+            .ToArray();
+
+        var result = Build(Snapshot([Spawn("customs-many-needs", candidates)]));
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal(HighValueLootEntry.MaximumProjectedProfileNeeds, entry.ProfileNeeds.Count);
+        Assert.Contains(entry.MissingFacts, fact => fact.Contains("omitted", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Partial_record_makes_the_layer_partial_even_when_its_visible_fields_are_usable()
+    {
+        var partial = new ResultStatus(ResultCompleteness.Partial, FreshnessState.Current);
+        var spawn = Spawn("customs-partial", [Candidate("gpu", "Graphics card", 900_000)], status: partial);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Single(result.Entries);
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
     public void Stale_last_known_snapshot_remains_renderable_and_says_that_it_is_stale()
     {
         var snapshot = Snapshot(
@@ -160,6 +248,42 @@ public sealed class HighValueLootLayerServiceTests
         Assert.True(states.Single(state => state.LayerId == new MapSceneLayerId("extracts")).IsVisible);
         Assert.True(states.Single(state => state.LayerId == new MapSceneLayerId("hazards")).IsVisible);
         Assert.True(states.Single(state => state.LayerId == HighValueLootLayerService.LayerId).IsVisible);
+    }
+
+    [Fact]
+    public void High_value_only_preset_rejects_duplicate_layer_ids()
+    {
+        Assert.Throws<ArgumentException>(() => HighValueLootLayerPreset.Create(
+            [HighValueLootLayerService.Layer, HighValueLootLayerService.Layer]));
+    }
+
+    [Fact]
+    public void Marker_identity_survives_a_dataset_version_refresh()
+    {
+        var first = Build(Snapshot(
+            [Spawn("customs-stable", [Candidate("gpu", "Graphics card", 900_000)], datasetVersion: "dataset-1")],
+            datasetVersion: "dataset-1"));
+        var refreshed = Build(Snapshot(
+            [Spawn("customs-stable", [Candidate("gpu", "Graphics card", 950_000)], datasetVersion: "dataset-2")],
+            datasetVersion: "dataset-2"));
+
+        Assert.Equal(Assert.Single(first.Objects).Id, Assert.Single(refreshed.Objects).Id);
+    }
+
+    [Fact]
+    public void Layer_result_rejects_an_object_without_its_accessible_entry()
+    {
+        var valid = Build(Snapshot([Spawn("customs-linked", [Candidate("gpu", "Graphics card", 900_000)])]));
+
+        Assert.Throws<ArgumentException>(() => new HighValueLootLayerResult(
+            valid.Layer,
+            valid.Status,
+            valid.CompactLegend,
+            valid.DataThroughUtc,
+            valid.Coverage,
+            valid.Objects,
+            [],
+            valid.Diagnostics));
     }
 
     [Fact]
@@ -231,13 +355,14 @@ public sealed class HighValueLootLayerServiceTests
 
     private static LootSpawnSnapshot Snapshot(
         IReadOnlyList<LootSpawnRecord> records,
-        FreshnessState freshness = FreshnessState.Current)
+        FreshnessState freshness = FreshnessState.Current,
+        string datasetVersion = "dataset-1")
     {
         var positioned = records.Count(record => record.Location.Geometry is not null);
         var floors = records.Count(record => record.Location.Geometry is not null && record.Location.FloorIds.Count > 0);
         return new(
             "snapshot-1",
-            "dataset-1",
+            datasetVersion,
             "customs",
             "transform-1",
             Now.AddMinutes(-10),
@@ -250,7 +375,9 @@ public sealed class HighValueLootLayerServiceTests
     private static LootSpawnRecord Spawn(
         string id,
         IReadOnlyList<LootSpawnCandidate> candidates,
-        LootSpawnLocation? location = null) => new(
+        LootSpawnLocation? location = null,
+        string datasetVersion = "dataset-1",
+        ResultStatus? status = null) => new(
         id,
         "customs",
         $"Spawn {id}",
@@ -259,9 +386,9 @@ public sealed class HighValueLootLayerServiceTests
         candidates,
         Unknown<double?>("probability"),
         Unknown<string?>("respawn"),
-        "dataset-1",
+        datasetVersion,
         "transform-1",
-        CompleteStatus,
+        status ?? CompleteStatus,
         Provenance($"spawn-{id}"));
 
     private static LootSpawnLocation Point() => new(
