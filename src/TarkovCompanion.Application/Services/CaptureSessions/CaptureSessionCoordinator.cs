@@ -113,6 +113,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     private readonly List<CaptureSessionNotice> _notices = [];
     private readonly Task _pump;
     private CaptureSessionId? _armedSessionId;
+    // A claimed intent keeps the one global slot until content is proven usable or the intent is
+    // restored. Without this fence a faster second arm could strand the first session forever.
+    private CaptureSessionId? _claimedIntentSessionId;
     private long _nextIntakeSequence;
     private long _nextNoticeSequence;
     private long _accepted;
@@ -203,7 +206,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     : new(true, arm.Request.SessionId, "already_known");
             }
 
-            if (_armedSessionId is not null)
+            if (_armedSessionId is not null || _claimedIntentSessionId is not null)
             {
                 return new(false, arm.Request.SessionId, "intent_already_armed");
             }
@@ -253,7 +256,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         ArgumentNullException.ThrowIfNull(submission);
         CaptureQueueReceipt receipt;
         var disposeSource = false;
+        QueuedCapture? rejectedQueued = null;
         CaptureSessionId? rearmedSessionId = null;
+        var retainedPixelBytes = submission.Source is MemoryCaptureSource retainedSource
+            ? retainedSource.RetainedPixelBytes
+            : 0;
         EventHandler? changed;
         lock (_gate)
         {
@@ -309,6 +316,24 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     now,
                     "capture_queue_full");
             }
+            else if (retainedPixelBytes > _options.MaximumRetainedPixelBytes - _pixelsInUse)
+            {
+                _rejected++;
+                disposeSource = true;
+                AddNoticeUnsafe(
+                    CaptureSessionNoticeKind.QueueRejected,
+                    now,
+                    submission.CorrelationId,
+                    submission.SessionId,
+                    null,
+                    "decoded_pixel_budget_exceeded");
+                receipt = new(
+                    -1,
+                    CaptureQueueDisposition.Rejected,
+                    submission.CorrelationId,
+                    now,
+                    "decoded_pixel_budget_exceeded");
+            }
             else
             {
                 var binding = ResolveSessionAtIntakeUnsafe(submission, now);
@@ -329,6 +354,25 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                         submission.CorrelationId,
                         now,
                         "unknown_or_terminal_session");
+                }
+                else if (!binding.Session.CanAcceptContext(submission.Context))
+                {
+                    RollBackBindingUnsafe(binding);
+                    _rejected++;
+                    disposeSource = true;
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.QueueRejected,
+                        now,
+                        submission.CorrelationId,
+                        binding.Session.Request.SessionId,
+                        null,
+                        "capture_context_changed_since_arm");
+                    receipt = new(
+                        -1,
+                        CaptureQueueDisposition.Rejected,
+                        submission.CorrelationId,
+                        now,
+                        "capture_context_changed_since_arm");
                 }
                 else if (binding.Session.AdmissionCount >= _options.MaximumCapturesPerSession)
                 {
@@ -354,17 +398,20 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     var intakeSequence = _nextIntakeSequence;
                     binding.Session.ActiveCaptureCount++;
                     binding.Session.AdmissionCount++;
+                    _pixelsInUse += retainedPixelBytes;
                     var queued = new QueuedCapture(
                         intakeSequence,
                         submission,
                         now,
                         binding.Session.Request.SessionId,
                         binding.ClaimedArmedIntent,
-                        binding.CreatedSession);
+                        binding.CreatedSession,
+                        retainedPixelBytes);
                     if (!_queue.Writer.TryWrite(queued))
                     {
                         _rejected++;
                         disposeSource = true;
+                        rejectedQueued = queued;
                         if (RollBackIntakeUnsafe(queued, now))
                         {
                             rearmedSessionId = queued.BoundSessionId;
@@ -378,6 +425,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     }
                     else
                     {
+                        binding.Session.BindContext(submission.Context);
                         _nextIntakeSequence = checked(_nextIntakeSequence + 1);
                         _queueDepth++;
                         _accepted++;
@@ -396,7 +444,14 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         if (disposeSource)
         {
-            submission.Source.Dispose();
+            DisposeSourceSafely(
+                submission.Source,
+                submission.CorrelationId,
+                rejectedQueued?.BoundSessionId ?? submission.SessionId);
+            if (rejectedQueued is not null)
+            {
+                ReleaseQueuedPixelReservation(rejectedQueued, "capture_admission_rolled_back");
+            }
         }
 
         if (rearmedSessionId is { } sessionId)
@@ -455,7 +510,6 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
 
         EventHandler? changed;
-        CancellationTokenSource cancellation;
         lock (_gate)
         {
             if (!_sessions.TryGetValue(sessionId, out var session) || session.IsTerminal)
@@ -468,8 +522,14 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 _armedSessionId = null;
             }
 
+            if (_claimedIntentSessionId == sessionId)
+            {
+                _claimedIntentSessionId = null;
+            }
+
             var now = _timeProvider.GetUtcNow();
             session.CancellationRequested = true;
+            StartCancellationUnsafe(session);
             foreach (var pending in _pendingReviews.Values.Where(item => item.SessionId == sessionId))
             {
                 pending.Decision.TrySetResult(new(
@@ -485,18 +545,15 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 PruneSessionsUnsafe();
             }
 
-            cancellation = session.Cancellation;
             changed = _changed;
         }
 
-        cancellation.Cancel();
         Notify(changed);
         return true;
     }
 
     public async ValueTask DisposeAsync()
     {
-        CancellationTokenSource[] sessionCancellations;
         lock (_gate)
         {
             if (_disposed)
@@ -511,8 +568,19 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             foreach (var session in _sessions.Values.Where(item => !item.IsTerminal))
             {
                 session.CancellationRequested = true;
-                session.RequestTerminal(CaptureSessionStage.Cancelled);
+                StartCancellationUnsafe(session);
+                if (session.ActiveCaptureCount == 0)
+                {
+                    session.AppendSession(CaptureSessionStage.Cancelled, now, "shutdown");
+                }
+                else
+                {
+                    session.RequestTerminal(CaptureSessionStage.Cancelled);
+                }
             }
+
+            _armedSessionId = null;
+            _claimedIntentSessionId = null;
 
             foreach (var pending in _pendingReviews.Values)
             {
@@ -522,16 +590,16 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                     "shutdown",
                     now));
             }
-
-            sessionCancellations = [.. _sessions.Values.Select(item => item.Cancellation)];
         }
 
-        foreach (var cancellation in sessionCancellations)
+        try
         {
-            cancellation.Cancel();
+            await _lifetime.CancelAsync().ConfigureAwait(false);
         }
-
-        await _lifetime.CancelAsync().ConfigureAwait(false);
+        catch
+        {
+            // Linked hostile callbacks cannot prevent the remaining owned cleanup.
+        }
         try
         {
             await _pump.ConfigureAwait(false);
@@ -542,7 +610,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         while (_queue.Reader.TryRead(out var queued))
         {
-            queued.Submission.Source.Dispose();
+            DisposeSourceSafely(
+                queued.Submission.Source,
+                queued.Submission.CorrelationId,
+                queued.BoundSessionId);
+            ReleaseQueuedPixelReservation(queued, "shutdown");
             lock (_gate)
             {
                 _queueDepth--;
@@ -568,6 +640,14 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             // Review loops contain their own cleanup; a fault is observed here so disposal can
             // still perform the final lease audit below.
         }
+
+        Task[] cancellationDeliveries;
+        lock (_gate)
+        {
+            cancellationDeliveries = [.. _sessions.Values.Select(item => item.CancellationDelivery)];
+        }
+
+        await Task.WhenAll(cancellationDeliveries).ConfigureAwait(false);
 
         lock (_gate)
         {
@@ -611,7 +691,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             }
             finally
             {
-                queued.Submission.Source.Dispose();
+                DisposeSourceSafely(
+                    queued.Submission.Source,
+                    queued.Submission.CorrelationId,
+                    queued.BoundSessionId);
+                ReleaseQueuedPixelReservation(queued, "capture_source_released");
                 if (!reviewOwnsCompletion)
                 {
                     CompleteActiveCapture(queued);
@@ -721,7 +805,21 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            if (!TryReservePixels(pixels))
+            var admissionReservation = queued.TakeReservedPixelBytes();
+            if (admissionReservation != 0 && admissionReservation != pixels.ByteLength)
+            {
+                pixels.Dispose();
+                pixels = null;
+                ReleasePixelBytes(
+                    admissionReservation,
+                    session.Request.SessionId,
+                    null,
+                    "decoded_pixel_reservation_mismatch");
+                FinalizeUnstartedCapture(queued, session, "decoded_pixel_reservation_mismatch", attempts);
+                return PreparedCapture.Rejected;
+            }
+
+            if (admissionReservation == 0 && !TryReservePixels(pixels))
             {
                 pixels.Dispose();
                 pixels = null;
@@ -740,6 +838,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 {
                     duplicate = true;
                     _duplicate++;
+                    ReleaseAdmissionUnsafe(session);
                     rearmedIntent = RestoreIntentAfterUnusableCaptureUnsafe(queued, session, now);
                     AddNoticeUnsafe(
                         CaptureSessionNoticeKind.Duplicate,
@@ -770,6 +869,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 }
                 else
                 {
+                    ConsumeClaimedIntentUnsafe(queued, session);
                     var capturedUtc = pixels.Image.CapturedUtc == default
                         ? queued.Submission.SubmittedUtc
                         : pixels.Image.CapturedUtc.ToUniversalTime();
@@ -1005,7 +1105,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
                 if (decision.Action == CaptureReviewAction.Redecode)
                 {
-                    EventHandler? changed;
+                    EventHandler? redecodeChanged;
                     var mayRedecode = false;
                     lock (_gate)
                     {
@@ -1036,10 +1136,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                             session.Request.SessionId,
                             artifact.ArtifactId,
                             mayRedecode ? "redecode_requested" : "redecode_limit_reached");
-                        changed = _changed;
+                        redecodeChanged = _changed;
                     }
 
-                    Notify(changed);
+                    Notify(redecodeChanged);
                     if (mayRedecode
                         && await RedecodeAsync(queued, session, artifact, pixels, operation.Token).ConfigureAwait(false))
                     {
@@ -1059,7 +1159,6 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
                 CaptureHandoffRequest? handoffRequest = null;
                 var rearm = false;
-                var cancelSession = false;
                 EventHandler? changed;
                 lock (_gate)
                 {
@@ -1140,6 +1239,19 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                                 artifact.DiagnosticCode = "retry_requested";
                                 RemoveDeduplicationUnsafe(artifact);
                                 rearm = RearmIntentUnsafe(session, correctedUtc, "retry_requested");
+                                if (!rearm)
+                                {
+                                    artifact.DiagnosticCode = "retry_rearm_conflict";
+                                    session.RequestTerminal(CaptureSessionStage.Failed);
+                                    AddNoticeUnsafe(
+                                        CaptureSessionNoticeKind.NoChange,
+                                        correctedUtc,
+                                        artifact.CorrelationId,
+                                        session.Request.SessionId,
+                                        artifact.ArtifactId,
+                                        "retry_rearm_conflict");
+                                }
+
                                 break;
 
                             default:
@@ -1150,7 +1262,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                                 RemoveDeduplicationUnsafe(artifact);
                                 session.CancellationRequested = true;
                                 session.RequestTerminal(CaptureSessionStage.Cancelled);
-                                cancelSession = true;
+                                StartCancellationUnsafe(session);
                                 AddNoticeUnsafe(
                                     CaptureSessionNoticeKind.NoChange,
                                     correctedUtc,
@@ -1181,11 +1293,6 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
                 }
 
                 Notify(changed);
-
-                if (cancelSession)
-                {
-                    session.Cancellation.Cancel();
-                }
 
                 if (rearm)
                 {
@@ -1288,14 +1395,18 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         CaptureHandoffRequest request,
         CancellationToken cancellationToken)
     {
+        var timeout = new CancellationTokenSource(_options.HandoffTimeout, _timeProvider);
+        var operation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            timeout.Token);
         Task<CaptureHandoffResult>? acknowledgement = null;
         try
         {
-            using var timeout = new CancellationTokenSource(_options.HandoffTimeout, _timeProvider);
-            using var operation = CancellationTokenSource.CreateLinkedTokenSource(
-                cancellationToken,
-                timeout.Token);
-            acknowledgement = _handoff.AcceptAsync(request, operation.Token).AsTask();
+            // Invoke the dependency on a worker so a hostile synchronous prefix cannot run
+            // before the acknowledgement deadline is armed.
+            acknowledgement = Task.Run(
+                async () => await _handoff.AcceptAsync(request, operation.Token).ConfigureAwait(false),
+                CancellationToken.None);
             var result = await acknowledgement.WaitAsync(operation.Token).ConfigureAwait(false);
             return result ?? new(
                 CaptureHandoffDisposition.AcknowledgementUnknown,
@@ -1319,12 +1430,34 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         {
             if (acknowledgement is { IsCompleted: false })
             {
-                _ = acknowledgement.ContinueWith(
-                    completed => _ = completed.Exception,
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
-                    TaskScheduler.Default);
+                _ = ObserveLateHandoffAsync(acknowledgement, operation, timeout);
             }
+            else
+            {
+                operation.Dispose();
+                timeout.Dispose();
+            }
+        }
+    }
+
+    private static async Task ObserveLateHandoffAsync(
+        Task<CaptureHandoffResult> acknowledgement,
+        CancellationTokenSource operation,
+        CancellationTokenSource timeout)
+    {
+        try
+        {
+            _ = await acknowledgement.ConfigureAwait(false);
+        }
+        catch
+        {
+            // The visible result is already acknowledgement-unknown. This observer retains
+            // token ownership until the dependency actually returns and consumes a late fault.
+        }
+        finally
+        {
+            operation.Dispose();
+            timeout.Dispose();
         }
     }
 
@@ -1480,6 +1613,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             if (_armedSessionId == requested)
             {
                 _armedSessionId = null;
+                _claimedIntentSessionId = requested;
                 existing.IntentClaimed = true;
                 claimed = true;
             }
@@ -1490,6 +1624,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         if (_armedSessionId is { } armed && _sessions.TryGetValue(armed, out var armedSession))
         {
             _armedSessionId = null;
+            _claimedIntentSessionId = armed;
             armedSession.IntentClaimed = true;
             return new(armedSession, true, false);
         }
@@ -1586,6 +1721,10 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
 
         _armedSessionId = null;
+        if (_claimedIntentSessionId == sessionId)
+        {
+            _claimedIntentSessionId = null;
+        }
         session.AppendSession(CaptureSessionStage.Cancelled, now, "intent_expired");
         AddNoticeUnsafe(CaptureSessionNoticeKind.IntentExpired, now, null, sessionId, null, "intent_expired");
         PruneSessionsUnsafe();
@@ -1616,6 +1755,17 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             if (queued.ClaimedArmedIntent && !session.CancellationRequested)
             {
                 rearmed = RearmIntentUnsafe(session, now, code);
+                if (!rearmed)
+                {
+                    session.RequestTerminal(CaptureSessionStage.Failed);
+                    AddNoticeUnsafe(
+                        CaptureSessionNoticeKind.NoChange,
+                        now,
+                        queued.Submission.CorrelationId,
+                        session.Request.SessionId,
+                        null,
+                        "intent_restore_failed");
+                }
             }
             else if (session.CancellationRequested)
             {
@@ -1742,6 +1892,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         {
             session.CancellationRequested = true;
             session.RequestTerminal(CaptureSessionStage.Cancelled);
+            StartCancellationUnsafe(session);
         }
         else if (terminalStage == CaptureSessionStage.Failed && queued.Submission.EndSessionAfterReview)
         {
@@ -1850,6 +2001,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
 
         binding.Session.IntentClaimed = false;
+        if (_claimedIntentSessionId == binding.Session.Request.SessionId)
+        {
+            _claimedIntentSessionId = null;
+        }
+
         _armedSessionId = binding.Session.Request.SessionId;
     }
 
@@ -1860,7 +2016,20 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     {
         if (queued.ClaimedArmedIntent)
         {
-            return RearmIntentUnsafe(session, now, "capture_not_consumed");
+            var rearmed = RearmIntentUnsafe(session, now, "capture_not_consumed");
+            if (!rearmed && !session.CancellationRequested)
+            {
+                session.RequestTerminal(CaptureSessionStage.Failed);
+                AddNoticeUnsafe(
+                    CaptureSessionNoticeKind.NoChange,
+                    now,
+                    queued.Submission.CorrelationId,
+                    session.Request.SessionId,
+                    null,
+                    "intent_restore_failed");
+            }
+
+            return rearmed;
         }
 
         if (queued.CreatedSession && !session.IsTerminal)
@@ -1875,7 +2044,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     {
         if (session.IsTerminal
             || session.CancellationRequested
-            || (_armedSessionId is { } armed && armed != session.Request.SessionId))
+            || _stopping
+            || (_armedSessionId is { } armed && armed != session.Request.SessionId)
+            || (_claimedIntentSessionId is { } claimed && claimed != session.Request.SessionId))
         {
             return false;
         }
@@ -1883,6 +2054,11 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         session.ReplaceExpiry(now.Add(_options.IntentLifetime));
         session.PendingTerminalStage = null;
         session.IntentClaimed = false;
+        if (_claimedIntentSessionId == session.Request.SessionId)
+        {
+            _claimedIntentSessionId = null;
+        }
+
         _armedSessionId = session.Request.SessionId;
         session.AppendSession(CaptureSessionStage.AwaitingCapture, now, detail);
         AddNoticeUnsafe(
@@ -1895,10 +2071,28 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         return true;
     }
 
+    private void ConsumeClaimedIntentUnsafe(QueuedCapture queued, MutableSession session)
+    {
+        if (queued.ClaimedArmedIntent && _claimedIntentSessionId == session.Request.SessionId)
+        {
+            _claimedIntentSessionId = null;
+        }
+    }
+
+    private static void ReleaseAdmissionUnsafe(MutableSession session)
+    {
+        if (session.AdmissionCount > 0)
+        {
+            session.AdmissionCount--;
+        }
+    }
+
     private bool EnsureSessionCapacityUnsafe()
     {
         foreach (var terminal in _sessions.Values
-                     .Where(item => item.IsTerminal && item.ActiveCaptureCount == 0)
+                     .Where(item => item.IsTerminal
+                         && item.ActiveCaptureCount == 0
+                         && item.CancellationDelivery.IsCompleted)
                      .OrderBy(item => item.LastChangedUtc)
                      .ThenBy(item => item.Request.SessionId.Value)
                      .ToArray())
@@ -1923,7 +2117,9 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         }
 
         foreach (var terminal in _sessions.Values
-                     .Where(item => item.IsTerminal && item.ActiveCaptureCount == 0)
+                     .Where(item => item.IsTerminal
+                         && item.ActiveCaptureCount == 0
+                         && item.CancellationDelivery.IsCompleted)
                      .OrderBy(item => item.LastChangedUtc)
                      .ThenBy(item => item.Request.SessionId.Value)
                      .Take(_sessions.Count - _options.SessionLimit)
@@ -1993,6 +2189,37 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
         Notify(changed);
     }
 
+    private void ReleaseQueuedPixelReservation(QueuedCapture queued, string code)
+    {
+        var reservedPixelBytes = queued.TakeReservedPixelBytes();
+        if (reservedPixelBytes == 0)
+        {
+            return;
+        }
+
+        ReleasePixelBytes(
+            reservedPixelBytes,
+            queued.BoundSessionId,
+            artifactId: null,
+            code: code);
+    }
+
+    private void ReleasePixelBytes(
+        long byteLength,
+        CaptureSessionId? sessionId,
+        string? artifactId,
+        string code)
+    {
+        EventHandler? changed;
+        lock (_gate)
+        {
+            ReleasePixelBytesUnsafe(byteLength, sessionId, artifactId, code);
+            changed = _changed;
+        }
+
+        Notify(changed);
+    }
+
     private bool TryReservePixels(CapturePixelLease pixels)
     {
         lock (_gate)
@@ -2018,8 +2245,18 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             return;
         }
 
-        _pixelsInUse -= pixels.ByteLength;
+        var byteLength = pixels.ByteLength;
         pixels.Dispose();
+        ReleasePixelBytesUnsafe(byteLength, sessionId, artifactId, code);
+    }
+
+    private void ReleasePixelBytesUnsafe(
+        long byteLength,
+        CaptureSessionId? sessionId,
+        string? artifactId,
+        string code)
+    {
+        _pixelsInUse -= byteLength;
         AddNoticeUnsafe(
             CaptureSessionNoticeKind.PixelsReleased,
             _timeProvider.GetUtcNow(),
@@ -2027,6 +2264,65 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
             sessionId,
             artifactId,
             code);
+    }
+
+    private void DisposeSourceSafely(
+        ICaptureContentSource source,
+        CaptureCorrelationId correlationId,
+        CaptureSessionId? sessionId)
+    {
+        try
+        {
+            source.Dispose();
+        }
+        catch
+        {
+            EventHandler? changed;
+            lock (_gate)
+            {
+                AddNoticeUnsafe(
+                    CaptureSessionNoticeKind.Progress,
+                    _timeProvider.GetUtcNow(),
+                    correlationId,
+                    sessionId,
+                    null,
+                    "capture_source_dispose_failed");
+                changed = _changed;
+            }
+
+            Notify(changed);
+        }
+    }
+
+    private static void StartCancellationUnsafe(MutableSession session)
+    {
+        if (session.Cancellation.IsCancellationRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            session.CancellationDelivery = ObserveCancellationDeliveryAsync(
+                session.Cancellation.CancelAsync());
+        }
+        catch (Exception)
+        {
+            session.CancellationDelivery = Task.CompletedTask;
+        }
+    }
+
+    private static async Task ObserveCancellationDeliveryAsync(Task delivery)
+    {
+        try
+        {
+            await delivery.ConfigureAwait(false);
+        }
+        catch
+        {
+            // Cancellation callback failures are observed but cannot escape a synchronous
+            // command boundary or prevent later pixel/session cleanup.
+        }
     }
 
     private void RejectUnsafe(QueuedCapture queued, string code)
@@ -2216,13 +2512,33 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
     private static long ElapsedMilliseconds(DateTimeOffset start, DateTimeOffset end) =>
         Math.Max(0, (long)(end - start).TotalMilliseconds);
 
-    private sealed record QueuedCapture(
-        long IntakeSequence,
-        CaptureSubmission Submission,
-        DateTimeOffset EnqueuedUtc,
-        CaptureSessionId BoundSessionId,
-        bool ClaimedArmedIntent,
-        bool CreatedSession);
+    private sealed class QueuedCapture(
+        long intakeSequence,
+        CaptureSubmission submission,
+        DateTimeOffset enqueuedUtc,
+        CaptureSessionId boundSessionId,
+        bool claimedArmedIntent,
+        bool createdSession,
+        long reservedPixelBytes)
+    {
+        // The reservation moves atomically from the queued source to its returned lease. Leaving
+        // it on the queue until source disposal keeps accounting truthful through zeroization.
+        private long _reservedPixelBytes = reservedPixelBytes;
+
+        public long IntakeSequence { get; } = intakeSequence;
+
+        public CaptureSubmission Submission { get; } = submission;
+
+        public DateTimeOffset EnqueuedUtc { get; } = enqueuedUtc;
+
+        public CaptureSessionId BoundSessionId { get; } = boundSessionId;
+
+        public bool ClaimedArmedIntent { get; } = claimedArmedIntent;
+
+        public bool CreatedSession { get; } = createdSession;
+
+        public long TakeReservedPixelBytes() => Interlocked.Exchange(ref _reservedPixelBytes, 0);
+    }
 
     private sealed record IntakeBinding(
         MutableSession Session,
@@ -2279,7 +2595,7 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         public CaptureSessionRequest Request { get; private set; } = request;
 
-        public CaptureContextMetadata Context { get; } = context;
+        public CaptureContextMetadata Context { get; private set; } = context;
 
         public CaptureGuidance Guidance { get; } = guidance;
 
@@ -2293,13 +2609,34 @@ public sealed class CaptureSessionCoordinator : ICaptureSessionService
 
         public int AdmissionCount { get; set; }
 
+        public bool HasBoundContext { get; private set; }
+
         public CaptureSessionStage? PendingTerminalStage { get; set; }
 
         public CancellationTokenSource Cancellation { get; } = new();
 
+        public Task CancellationDelivery { get; set; } = Task.CompletedTask;
+
         public DateTimeOffset LastChangedUtc { get; private set; } = request.RequestedUtc;
 
         public bool IsTerminal { get; private set; }
+
+        public bool CanAcceptContext(CaptureContextMetadata candidate) => Equals(Context, candidate);
+
+        public void BindContext(CaptureContextMetadata candidate)
+        {
+            if (!CanAcceptContext(candidate))
+            {
+                throw new InvalidOperationException("Capture intake context changed after validation.");
+            }
+
+            if (!HasBoundContext)
+            {
+                // Keep the exact intake object, not the earlier guidance-time equivalent.
+                Context = candidate;
+                HasBoundContext = true;
+            }
+        }
 
         public MutableArtifact AddArtifact(
             string artifactId,

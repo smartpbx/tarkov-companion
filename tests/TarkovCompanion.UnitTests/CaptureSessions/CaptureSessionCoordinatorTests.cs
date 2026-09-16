@@ -78,6 +78,70 @@ public sealed class CaptureSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task DuplicateBytesDoNotConsumeThePerSessionAdmissionLimit()
+    {
+        await using var harness = new Harness(options: new(maximumCapturesPerSession: 1));
+        harness.Coordinator.ReviewRequested += (_, request) => harness.Coordinator.TryReview(
+            request.Review.SessionId,
+            request.Review.ArtifactId,
+            request.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-user");
+
+        await harness.EnqueueAsync(CaptureDeliveryKind.Paste, Pixels(9));
+        await harness.WaitForTerminalAsync();
+
+        var armed = harness.Arm(ScanIntent.Stash);
+        var duplicate = await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(9));
+        Assert.Equal(CaptureQueueDisposition.Accepted, duplicate.Disposition);
+        await harness.WaitForAsync(snapshot => snapshot.Duplicate == 1
+            && !snapshot.Sessions.Single(item => item.Request.SessionId == armed).IntentClaimed);
+
+        var replacement = await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(10));
+        Assert.Equal(CaptureQueueDisposition.Accepted, replacement.Disposition);
+        await harness.WaitForAsync(snapshot =>
+            snapshot.Sessions.Single(item => item.Request.SessionId == armed).IsTerminal);
+    }
+
+    [Fact]
+    public async Task ClaimedArmedIntentCannotBeReplacedBeforeCaptureSettlement()
+    {
+        await using var harness = new Harness();
+        harness.Coordinator.ReviewRequested += (_, request) => harness.Coordinator.TryReview(
+            request.Review.SessionId,
+            request.Review.ArtifactId,
+            request.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-user");
+        var firstSession = harness.Arm(ScanIntent.Stash);
+        var source = new BlockingSource(Pixels(11), harness.Clock);
+        var admission = await harness.Coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.Drop,
+                source,
+                Context,
+                harness.Clock.GetUtcNow(),
+                CaptureCorrelationId.New(),
+                firstSession),
+            CancellationToken.None);
+        Assert.Equal(CaptureQueueDisposition.Accepted, admission.Disposition);
+        await source.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var now = harness.Clock.GetUtcNow();
+        var competingSession = new CaptureSessionId(Guid.NewGuid());
+        var competing = harness.Coordinator.Arm(new(
+            new(competingSession, ScanIntent.Ammo, Origin, now, ExpiresUtc: now.AddSeconds(1)),
+            Context,
+            new("hold_screen", "Hold the requested screen steady.")));
+
+        Assert.False(competing.Accepted);
+        Assert.Equal("intent_already_armed", competing.Code);
+        source.Release();
+        await harness.WaitForAsync(snapshot =>
+            snapshot.Sessions.Single(item => item.Request.SessionId == firstSession).IsTerminal);
+    }
+
+    [Fact]
     public async Task IntentDisagreementWaitsForReviewAndRecordsTheCorrection()
     {
         await using var harness = new Harness(new StubPipeline(RecognizedContext.Flea));
@@ -243,6 +307,73 @@ public sealed class CaptureSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task ArmedContextMismatchIsRejectedAndMatchingIntakeContextIsFrozen()
+    {
+        await using var harness = new Harness();
+        harness.Coordinator.ReviewRequested += (_, request) => harness.Coordinator.TryReview(
+            request.Review.SessionId,
+            request.Review.ArtifactId,
+            request.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-user");
+        var sessionId = harness.Arm(ScanIntent.Stash);
+        var mismatchedPixels = Pixels(89);
+        var mismatch = new CaptureContextMetadata(
+            "workspace-b",
+            Context.ActiveProfile,
+            Context.ActiveMap,
+            Context.ActivePlan,
+            Context.SelectedEntity,
+            Context.PriorScan,
+            Context.InitiatingDevice,
+            Profile);
+
+        var rejected = await harness.Coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.Drop,
+                new MemoryCaptureSource(
+                    new(mismatchedPixels, 2, 2, 8, PixelFormat.Bgra8888, harness.Clock.GetUtcNow(), "fixture"),
+                    CaptureSourceKind.UserSelectedImage),
+                mismatch,
+                harness.Clock.GetUtcNow(),
+                CaptureCorrelationId.New(),
+                sessionId),
+            CancellationToken.None);
+
+        Assert.Equal(CaptureQueueDisposition.Rejected, rejected.Disposition);
+        Assert.Equal("capture_context_changed_since_arm", rejected.Code);
+        Assert.All(mismatchedPixels, value => Assert.Equal(0, value));
+        Assert.False(harness.Coordinator.Snapshot.Sessions.Single().IntentClaimed);
+
+        var intakeContext = new CaptureContextMetadata(
+            Context.ActiveWorkspace,
+            Context.ActiveProfile,
+            Context.ActiveMap,
+            Context.ActivePlan,
+            Context.SelectedEntity,
+            Context.PriorScan,
+            Context.InitiatingDevice,
+            Profile);
+        var acceptedPixels = Pixels(90);
+        var accepted = await harness.Coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.Drop,
+                new MemoryCaptureSource(
+                    new(acceptedPixels, 2, 2, 8, PixelFormat.Bgra8888, harness.Clock.GetUtcNow(), "fixture"),
+                    CaptureSourceKind.UserSelectedImage),
+                intakeContext,
+                harness.Clock.GetUtcNow(),
+                CaptureCorrelationId.New(),
+                sessionId),
+            CancellationToken.None);
+
+        Assert.Equal(CaptureQueueDisposition.Accepted, accepted.Disposition);
+        var terminal = await harness.WaitForAsync(snapshot => snapshot.Sessions.Single().IsTerminal);
+        Assert.Same(intakeContext, terminal.Sessions.Single().Context);
+        Assert.Same(intakeContext, Assert.Single(terminal.Sessions.Single().Artifacts).Context);
+    }
+
+    [Fact]
     public async Task ArmedIntentExpiresVisiblyWithoutConsumingAnArtifact()
     {
         var handoff = new RecordingHandoff();
@@ -332,6 +463,31 @@ public sealed class CaptureSessionCoordinatorTests
             CaptureSessionStage.Cancelled,
             snapshot.Sessions.Single(item => item.Request.SessionId == request.SessionId).Snapshot.Progress[^1].Stage);
         _ = harness.Coordinator.Snapshot;
+    }
+
+    [Fact]
+    public async Task CancelReturnsBeforeHostileCancellationCallbackCompletes()
+    {
+        var pipeline = new HostileCancellationPipeline();
+        await using var harness = new Harness(pipeline);
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(114));
+        var request = await pipeline.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var cancel = Task.Run(() => harness.Coordinator.Cancel(request.SessionId, "test-cancel"));
+
+        try
+        {
+            Assert.True(await cancel.WaitAsync(TimeSpan.FromSeconds(2)));
+            await pipeline.CallbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            pipeline.Release();
+        }
+
+        var terminal = await harness.WaitForAsync(snapshot =>
+            snapshot.Sessions.Single(item => item.Request.SessionId == request.SessionId).IsTerminal);
+        Assert.Equal(CaptureSessionStage.Cancelled, terminal.Sessions.Single().Snapshot.Progress[^1].Stage);
+        Assert.Equal(0, terminal.PixelsInUse);
     }
 
     [Fact]
@@ -448,6 +604,34 @@ public sealed class CaptureSessionCoordinatorTests
     }
 
     [Fact]
+    public async Task RetryConflictTerminatesTheOldSessionWithoutReplacingANewerIntent()
+    {
+        await using var harness = new Harness();
+        CaptureReviewRequest? firstReview = null;
+        harness.Coordinator.ReviewRequested += (_, args) => firstReview ??= args.Review;
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(117));
+        await harness.WaitForAsync(_ => firstReview is not null);
+        var newerSession = harness.Arm(ScanIntent.Stash);
+
+        var reviewed = firstReview!;
+        Assert.True(harness.Coordinator.TryReview(
+            reviewed.SessionId,
+            reviewed.ArtifactId,
+            reviewed.DecodeRevision,
+            CaptureReviewAction.RetryCapture,
+            "test-retry"));
+
+        var settled = await harness.WaitForAsync(snapshot => snapshot.Sessions.Any(session =>
+            session.Request.SessionId == reviewed.SessionId && session.IsTerminal));
+        var oldSession = settled.Sessions.Single(session => session.Request.SessionId == reviewed.SessionId);
+        Assert.Equal(CaptureSessionStage.Failed, oldSession.Snapshot.Progress[^1].Stage);
+        Assert.Equal("retry_rearm_conflict", Assert.Single(oldSession.Artifacts).DiagnosticCode);
+        var stillArmed = settled.Sessions.Single(session => session.Request.SessionId == newerSession);
+        Assert.False(stillArmed.IsTerminal);
+        Assert.False(stillArmed.IntentClaimed);
+    }
+
+    [Fact]
     public async Task ReviewTimeoutUsesInjectedTimeAndClearsTheLease()
     {
         var handoff = new RecordingHandoff();
@@ -525,6 +709,7 @@ public sealed class CaptureSessionCoordinatorTests
         await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(118));
         await pipeline.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(119));
+        Assert.Equal(32, harness.Coordinator.Snapshot.PixelsInUse);
 
         var cancelledPixels = Pixels(120);
         var rejected = await harness.Coordinator.EnqueueAsync(
@@ -564,12 +749,49 @@ public sealed class CaptureSessionCoordinatorTests
         var rejected = Pixels(122);
         await harness.EnqueueAsync(CaptureDeliveryKind.Drop, retained);
         await harness.WaitForAsync(state => state.PixelsInUse == 16);
-        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, rejected);
+        var rejection = await harness.EnqueueAsync(CaptureDeliveryKind.Drop, rejected);
 
-        await harness.WaitForAsync(state => state.Rejected > 0);
+        Assert.Equal(CaptureQueueDisposition.Rejected, rejection.Disposition);
+        Assert.Equal("decoded_pixel_budget_exceeded", rejection.Code);
+        Assert.Single(harness.Coordinator.Snapshot.Sessions);
         Assert.All(rejected, value => Assert.Equal(0, value));
-        var waiting = harness.Coordinator.Snapshot.Sessions.Single(item => item.Artifacts.Any(a => a.PixelsRetained));
+        var review = await harness.WaitForAsync(state => state.Sessions.Any(item =>
+            item.Artifacts.Any(artifact => artifact.PixelsRetained)));
+        var waiting = review.Sessions.Single(item => item.Artifacts.Any(a => a.PixelsRetained));
         Assert.True(harness.Coordinator.Cancel(waiting.Request.SessionId, "test-cleanup"));
+    }
+
+    [Fact]
+    public async Task ThrowingSourceDisposeCannotStopTheCapturePump()
+    {
+        await using var harness = new Harness();
+        harness.Coordinator.ReviewRequested += (_, request) => harness.Coordinator.TryReview(
+            request.Review.SessionId,
+            request.Review.ArtifactId,
+            request.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-user");
+        var hostilePixels = Pixels(123);
+        var healthyPixels = Pixels(124);
+
+        var first = await harness.Coordinator.EnqueueAsync(
+            new(
+                CaptureDeliveryKind.Drop,
+                new ThrowingDisposeSource(hostilePixels, harness.Clock),
+                Context,
+                harness.Clock.GetUtcNow(),
+                CaptureCorrelationId.New()),
+            CancellationToken.None);
+        var second = await harness.EnqueueAsync(CaptureDeliveryKind.Drop, healthyPixels);
+
+        Assert.Equal(CaptureQueueDisposition.Accepted, first.Disposition);
+        Assert.Equal(CaptureQueueDisposition.Accepted, second.Disposition);
+        var completed = await harness.WaitForAsync(snapshot =>
+            snapshot.Sessions.Count(session => session.IsTerminal) == 2);
+        Assert.Equal(0, completed.PixelsInUse);
+        Assert.All(hostilePixels, value => Assert.Equal(0, value));
+        Assert.All(healthyPixels, value => Assert.Equal(0, value));
+        Assert.Contains(completed.Notices, notice => notice.Code == "capture_source_dispose_failed");
     }
 
     [Fact]
@@ -686,6 +908,39 @@ public sealed class CaptureSessionCoordinatorTests
         await harness.WaitForAsync(snapshot => snapshot.Duplicate == 1);
         Assert.Equal(0, harness.Coordinator.Snapshot.PixelsInUse);
         Assert.All(duplicatePixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task HandoffTimeoutBoundsASynchronousDependencyPrefix()
+    {
+        var handoff = new BlockingPrefixHandoff();
+        await using var harness = new Harness(
+            handoff: handoff,
+            options: new(handoffTimeout: TimeSpan.FromMilliseconds(10)));
+        harness.Coordinator.ReviewRequested += (_, args) => harness.Coordinator.TryReview(
+            args.Review.SessionId,
+            args.Review.ArtifactId,
+            args.Review.DecodeRevision,
+            CaptureReviewAction.UseDetected,
+            "test-review");
+
+        await harness.EnqueueAsync(CaptureDeliveryKind.Drop, Pixels(127));
+        CaptureSessionState? terminal = null;
+        try
+        {
+            await handoff.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            harness.Clock.Advance(TimeSpan.FromMilliseconds(20));
+            terminal = await harness.WaitForTerminalAsync();
+        }
+        finally
+        {
+            handoff.Release();
+        }
+
+        await handoff.Finished.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var artifact = Assert.Single(terminal!.Artifacts);
+        Assert.Equal(CaptureHandoffDisposition.AcknowledgementUnknown, artifact.HandoffDisposition);
+        Assert.Equal("capture_handoff_acknowledgement_unknown", artifact.DiagnosticCode);
     }
 
     [Fact]
@@ -816,6 +1071,21 @@ public sealed class CaptureSessionCoordinatorTests
             sessionId: sessionId);
         Assert.Equal(CaptureQueueDisposition.Rejected, receipt.Disposition);
         Assert.All(pixels, value => Assert.Equal(0, value));
+    }
+
+    [Fact]
+    public async Task DisposeTerminalizesAnIdleArmedSession()
+    {
+        var harness = new Harness();
+        var sessionId = harness.Arm(ScanIntent.Stash);
+
+        await harness.DisposeAsync();
+
+        var session = harness.Coordinator.Snapshot.Sessions.Single(item => item.Request.SessionId == sessionId);
+        Assert.True(session.IsTerminal);
+        Assert.True(session.CancellationRequested);
+        Assert.Equal(CaptureSessionStage.Cancelled, session.Snapshot.Progress[^1].Stage);
+        Assert.Equal("shutdown", session.Snapshot.Progress[^1].Detail);
     }
 
     [Fact]
@@ -1024,6 +1294,30 @@ public sealed class CaptureSessionCoordinatorTests
             new(_never.Task);
     }
 
+    private sealed class BlockingPrefixHandoff : ICaptureResultHandoff
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Finished { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ValueTask<CaptureHandoffResult> AcceptAsync(
+            CaptureHandoffRequest request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            _release.Task.GetAwaiter().GetResult();
+            Finished.TrySetResult();
+            return ValueTask.FromResult(CaptureHandoffResult.Accepted);
+        }
+
+        public void Release() => _release.TrySetResult();
+    }
+
     private sealed class FixedPipeline(
         RecognizedContext? context,
         bool ambiguous,
@@ -1062,6 +1356,41 @@ public sealed class CaptureSessionCoordinatorTests
         }
 
         public void Release(RecognizedContext context) => _release.TrySetResult(context);
+    }
+
+    private sealed class HostileCancellationPipeline : ICaptureSessionPipeline
+    {
+        private readonly TaskCompletionSource _releaseCallback =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseOperation =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<CaptureAnalysisRequest> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource CallbackStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<CaptureAnalysis> AnalyzeAsync(
+            CaptureAnalysisRequest request,
+            CancellationToken cancellationToken)
+        {
+            using var registration = cancellationToken.Register(() =>
+            {
+                CallbackStarted.TrySetResult();
+                _releaseCallback.Task.GetAwaiter().GetResult();
+                throw new InvalidOperationException("Hostile cancellation callback failure.");
+            });
+            Started.TrySetResult(request);
+            await _releaseOperation.Task.ConfigureAwait(false);
+            return Analysis(RecognizedContext.Item, request);
+        }
+
+        public void Release()
+        {
+            _releaseCallback.TrySetResult();
+            _releaseOperation.TrySetResult();
+        }
     }
 
     private sealed class BlockingRedecodePipeline : ICaptureSessionPipeline
@@ -1160,5 +1489,32 @@ public sealed class CaptureSessionCoordinatorTests
         public void Release() => _release.TrySetResult();
 
         public void Dispose() => Interlocked.Exchange(ref _pixels, null)?.Dispose();
+    }
+
+    private sealed class ThrowingDisposeSource(byte[] pixels, TimeProvider timeProvider) : ICaptureContentSource
+    {
+        private CapturePixelLease? _pixels = new(new(
+            pixels,
+            2,
+            2,
+            8,
+            PixelFormat.Bgra8888,
+            timeProvider.GetUtcNow(),
+            "throwing-dispose-fixture"));
+
+        public CaptureSourceKind SourceKind => CaptureSourceKind.UserSelectedImage;
+
+        public ValueTask<CaptureSourceReadResult> ReadAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(CaptureSourceReadResult.Success(
+                Interlocked.Exchange(ref _pixels, null)!));
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _pixels, null)?.Dispose();
+            throw new InvalidOperationException("Hostile fixture disposal failure.");
+        }
     }
 }

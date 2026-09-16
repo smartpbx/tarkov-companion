@@ -81,6 +81,10 @@ public sealed class MemoryCaptureSource : ICaptureContentSource
 
     public CaptureSourceKind SourceKind { get; }
 
+    // Unlike file and visible-screen sources, this buffer exists before the queue reads it.
+    // Admission uses the exact lease size so queued decoded pixels cannot bypass the budget.
+    internal long RetainedPixelBytes => Volatile.Read(ref _pixels)?.ByteLength ?? 0;
+
     public ValueTask<CaptureSourceReadResult> ReadAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
