@@ -21,30 +21,73 @@ public sealed class JsonFileDesktopCompanionAuthorityStore : IDesktopCompanionAu
     public const int MaximumDocumentBytes = 4 * 1024 * 1024;
     private static readonly JsonSerializerOptions Options = CreateOptions();
     private readonly string _path;
+    private readonly string _leasePath;
 
     public JsonFileDesktopCompanionAuthorityStore(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = Path.GetFullPath(path);
+        _leasePath = _path + ".lock";
+    }
+
+    public ValueTask<IDisposable> AcquireExclusiveLeaseAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_leasePath)
+                ?? throw new InvalidOperationException("The paired-device authority path has no parent directory."));
+            return ValueTask.FromResult<IDisposable>(new FileStream(
+                _leasePath,
+                FileMode.OpenOrCreate,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                1,
+                FileOptions.Asynchronous));
+        }
+        catch (IOException exception)
+        {
+            throw new IOException("The paired-device authority is already owned by another desktop instance.", exception);
+        }
     }
 
     public async ValueTask<DesktopCompanionAuthorityState?> LoadAsync(CancellationToken cancellationToken)
     {
-        if (!File.Exists(_path))
-        {
-            return null;
-        }
-
-        var info = new FileInfo(_path);
-        if (info.Length is <= 0 or > MaximumDocumentBytes)
-        {
-            throw new InvalidDataException("The paired-device authority document is empty or exceeds 4 MiB.");
-        }
-
-        var bytes = await File.ReadAllBytesAsync(_path, cancellationToken).ConfigureAwait(false);
+        byte[]? bytes = null;
         try
         {
-            var document = JsonSerializer.Deserialize<PersistedAuthorityDocument>(bytes, Options)
+            await using var stream = new FileStream(
+                _path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                4096,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var initialLength = stream.Length;
+            if (initialLength is <= 0 or > MaximumDocumentBytes)
+            {
+                throw new InvalidDataException("The paired-device authority document is empty or exceeds 4 MiB.");
+            }
+
+            bytes = new byte[MaximumDocumentBytes + 1];
+            var bytesRead = 0;
+            while (bytesRead < bytes.Length)
+            {
+                var read = await stream.ReadAsync(bytes.AsMemory(bytesRead), cancellationToken).ConfigureAwait(false);
+                if (read == 0)
+                {
+                    break;
+                }
+
+                bytesRead += read;
+            }
+
+            if (bytesRead is <= 0 or > MaximumDocumentBytes || stream.Length != initialLength || bytesRead != initialLength)
+            {
+                throw new InvalidDataException("The paired-device authority document changed or exceeds 4 MiB while it was read.");
+            }
+
+            var document = JsonSerializer.Deserialize<PersistedAuthorityDocument>(bytes.AsSpan(0, bytesRead), Options)
                 ?? throw new InvalidDataException("The paired-device authority document is empty.");
             if (document.FormatVersion != FormatVersion)
             {
@@ -58,6 +101,10 @@ public sealed class JsonFileDesktopCompanionAuthorityStore : IDesktopCompanionAu
                 document.Sessions,
                 document.DeliveryLedger);
         }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
         catch (Exception exception) when (exception is JsonException or ArgumentException or
                                               InvalidOperationException or NotSupportedException or
                                               OverflowException or KeyNotFoundException)
@@ -66,7 +113,10 @@ public sealed class JsonFileDesktopCompanionAuthorityStore : IDesktopCompanionAu
         }
         finally
         {
-            Array.Clear(bytes);
+            if (bytes is not null)
+            {
+                Array.Clear(bytes);
+            }
         }
     }
 
