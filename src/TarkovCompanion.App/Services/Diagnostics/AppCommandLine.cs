@@ -87,6 +87,12 @@ public sealed record AppCommandLine(
     /// </remarks>
     public V2ShellMode UiShell { get; init; } = V2ShellMode.Legacy;
 
+    /// <summary>Launches the packaged V2 map renderer verification host.</summary>
+    public bool MapRendererGallery { get; init; }
+
+    /// <summary>Runs the map renderer gallery at twice the normal interface scale.</summary>
+    public bool MapRendererLargeText { get; init; }
+
     /// <summary>
     /// Options that were passed and are not recognised.
     /// </summary>
@@ -122,6 +128,8 @@ public sealed record AppCommandLine(
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
             OcrProbeCells = HasFlag(args, "--ocr-probe-cells"),
+            MapRendererGallery = HasFlag(args, "--map-renderer-gallery"),
+            MapRendererLargeText = HasFlag(args, "--map-renderer-large-text"),
             UnknownOptions = FindUnknown(args),
             OcrProbeLines = GetValue(args, "--ocr-probe-lines") is { } lines &&
                 int.TryParse(lines, NumberStyles.Integer, CultureInfo.InvariantCulture, out var count) &&
@@ -149,6 +157,8 @@ public sealed record AppCommandLine(
         "--ocr-probe-region",
         "--ocr-probe-lines",
         "--ocr-probe-cells",
+        "--map-renderer-gallery",
+        "--map-renderer-large-text",
         V2ShellModes.Option,
     ];
 

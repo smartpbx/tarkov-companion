@@ -1,0 +1,18 @@
+<Window x:Class="TarkovCompanion.App.Views.V2.MapRenderer.MapSceneRendererGalleryWindow"
+        x:DataType="map:MapSceneRendererGalleryViewModel"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:map="using:TarkovCompanion.App.Views.V2.MapRenderer"
+        Title="V2 map renderer gallery"
+        Width="1100" Height="850" MinWidth="320" MinHeight="480"
+        AutomationProperties.AutomationId="v2-map-gallery-window"
+        AutomationProperties.Name="V2 map renderer gallery">
+  <!-- The large-text packaged scenario uses the same layout transform as application interface
+       scaling. A 640 px verification window at 2x measures the renderer at 320 DIP. -->
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding InterfaceScale}" ScaleY="{Binding InterfaceScale}" />
+    </LayoutTransformControl.LayoutTransform>
+    <map:MapSceneRendererView DataContext="{Binding Renderer}" />
+  </LayoutTransformControl>
+</Window>

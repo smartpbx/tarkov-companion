@@ -228,6 +228,40 @@ function Wait-AutomationElement {
     return $null
 }
 
+function Wait-AutomationOutsideViewportElement {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId,
+        [int] $TimeoutSeconds = 15
+    )
+
+    # Avalonia retains peers for content laid out below a scroll viewport, but its Windows UIA
+    # provider does not always set IsOffscreen for those clipped peers. Require either the native
+    # offscreen flag or a bounding rectangle with no intersection with the packaged window.
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+            $Element = Find-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId $AutomationId `
+                -IncludeOffscreen $true
+            if ($null -ne $Root -and $null -ne $Element) {
+                $Viewport = $Root.Current.BoundingRectangle
+                $Bounds = $Element.Current.BoundingRectangle
+                $HorizontalOverlap = $Bounds.Right -gt $Viewport.Left -and $Bounds.Left -lt $Viewport.Right
+                $VerticalOverlap = $Bounds.Bottom -gt $Viewport.Top -and $Bounds.Top -lt $Viewport.Bottom
+                $IntersectsViewport = $Bounds.Width -gt 0 -and $Bounds.Height -gt 0 -and $HorizontalOverlap -and $VerticalOverlap
+                if ($Element.Current.IsOffscreen -or -not $IntersectsViewport) { return $Element }
+            }
+        }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $Deadline)
+    return $null
+}
+
 function Get-InteractionProperty {
     param([AllowNull()] [object] $Object, [string] $Name, [AllowNull()] [object] $Default = $null)
 
@@ -290,6 +324,29 @@ function Wait-AutomationItemStatus {
         try {
             $Element = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $AutomationId
             if ($null -ne $Element -and $Element.Current.ItemStatus -ceq $Status) { return $Element }
+        }
+        catch [System.Windows.Automation.ElementNotAvailableException] {
+        }
+        Start-Sleep -Milliseconds 100
+    } while ([DateTime]::UtcNow -lt $Deadline)
+    return $null
+}
+
+function Wait-AutomationNamePattern {
+    param(
+        [IntPtr] $WindowHandle,
+        [string] $AutomationId,
+        [string] $Pattern,
+        [int] $TimeoutSeconds = 15
+    )
+
+    # The peer already exists before a page or filter command runs. Waiting only for its ID
+    # returned the old Name immediately and raced the command's binding update.
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Element = Find-AutomationElement -WindowHandle $WindowHandle -AutomationId $AutomationId
+            if ($null -ne $Element -and $Element.Current.Name -match $Pattern) { return $Element }
         }
         catch [System.Windows.Automation.ElementNotAvailableException] {
         }
@@ -369,6 +426,26 @@ function Invoke-ShellInteraction {
                 throw "'$Description' did not expose expected element '$ExpectedId'."
             }
         }
+        foreach ($ExpectedId in @(Get-InteractionProperty -Object $Step -Name "expectedOutsideViewportAutomationIds" -Default @())) {
+            if ($null -eq (Wait-AutomationOutsideViewportElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId $ExpectedId)) {
+                throw "'$Description' expected '$ExpectedId' outside the packaged window viewport within 15 seconds."
+            }
+        }
+        foreach ($BoundsAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedBounds" -Default @())) {
+            $BoundsElement = Wait-AutomationElement `
+                -WindowHandle $WindowHandle `
+                -AutomationId ([string]$BoundsAssertion.automationId)
+            if ($null -eq $BoundsElement) {
+                throw "'$Description' did not expose bounded element '$($BoundsAssertion.automationId)'."
+            }
+            $Bounds = $BoundsElement.Current.BoundingRectangle
+            if ($Bounds.Width -lt [double]$BoundsAssertion.minimumWidth -or
+                $Bounds.Height -lt [double]$BoundsAssertion.minimumHeight) {
+                throw "'$Description' measured '$($BoundsAssertion.automationId)' at $($Bounds.Width)x$($Bounds.Height), below $($BoundsAssertion.minimumWidth)x$($BoundsAssertion.minimumHeight)."
+            }
+        }
         foreach ($ExpectedName in @(Get-InteractionProperty -Object $Step -Name "expectedNames" -Default @())) {
             if ($null -eq (Wait-AutomationElement -WindowHandle $WindowHandle -Name $ExpectedName)) {
                 throw "'$Description' did not expose expected element '$ExpectedName'."
@@ -415,15 +492,11 @@ function Invoke-ShellInteraction {
         }
 
         foreach ($NameAssertion in @(Get-InteractionProperty -Object $Step -Name "expectedNamePatterns" -Default @())) {
-            $Named = Wait-AutomationElement -WindowHandle $WindowHandle -AutomationId $NameAssertion.automationId
-            try {
-                $NameMatches = $null -ne $Named -and $Named.Current.Name -match $NameAssertion.pattern
-            }
-            catch [System.Windows.Automation.ElementNotAvailableException] {
-                $NameMatches = $false
-            }
-            if (-not $NameMatches) {
-                throw "'$Description' did not expose '$($NameAssertion.automationId)' with the expected name pattern."
+            if ($null -eq (Wait-AutomationNamePattern `
+                -WindowHandle $WindowHandle `
+                -AutomationId $NameAssertion.automationId `
+                -Pattern $NameAssertion.pattern)) {
+                throw "'$Description' did not expose '$($NameAssertion.automationId)' with name matching '$($NameAssertion.pattern)' within 15 seconds."
             }
         }
 
@@ -863,6 +936,58 @@ $Shots.Add([pscustomobject]@{
                 targetAutomationId = "v2-shell-command-reset-preview"; targetControlType = "Button"
             }
         )
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "map-renderer-wide"; args = @("--map-renderer-gallery"); shellMode = "v2-map"
+    width = 1100; height = 850
+    interaction = [pscustomobject]@{
+        steps = @(
+            [pscustomobject]@{
+                action = "assert"; description = "wide map renderer semantics and touch targets"
+                expectedAutomationIds = @(
+                    "v2-map-renderer", "v2-map-plan", "v2-map-search", "v2-map-page-next",
+                    "v2-map-page-status", "v2-map-mode-floorstack2d", "v2-map-background-status",
+                    "v2-map-zoom-in", "v2-map-object-cluster-3-2-1176be92")
+                expectedBounds = @(
+                    [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 },
+                    [pscustomobject]@{ automationId = "v2-map-object-cluster-3-2-1176be92"; minimumWidth = 44; minimumHeight = 44 })
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "open every record in the dense map cluster"
+                targetAutomationId = "v2-map-object-cluster-3-2-1176be92"; targetControlType = "Button"
+                expectedAutomationIds = @("v2-map-clear-cluster", "v2-map-page-next")
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 7 .* 305 matching details$' })
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "page through the dense map cluster"
+                targetAutomationId = "v2-map-page-next"; targetControlType = "Button"
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 2 of 7 .* 305 matching details$' })
+            },
+            [pscustomobject]@{
+                action = "set-value"; description = "search a record beyond the first map page"
+                targetAutomationId = "v2-map-search"; targetControlType = "Edit"; value = "Potential loot 305"
+                expectedAutomationIds = @("v2-map-list-dense-304-fdfa94e9")
+                expectedNamePatterns = @(
+                    [pscustomobject]@{ automationId = "v2-map-page-status"; pattern = '^Page 1 of 1 .* 1 matching details$' })
+            }
+        )
+    }
+})
+$Shots.Add([pscustomobject]@{
+    name = "map-renderer-320dip-large-text"
+    args = @("--map-renderer-gallery", "--map-renderer-large-text")
+    shellMode = "v2-map"; width = 640; height = 1000
+    interaction = [pscustomobject]@{
+        steps = @([pscustomobject]@{
+            action = "assert"; description = "320 DIP map renderer at twice interface scale"
+            expectedAutomationIds = @("v2-map-renderer", "v2-map-plan", "v2-map-zoom-in")
+            expectedOutsideViewportAutomationIds = @("v2-map-search", "v2-map-page-next", "v2-map-page-status")
+            expectedBounds = @(
+                [pscustomobject]@{ automationId = "v2-map-zoom-in"; minimumWidth = 44; minimumHeight = 44 })
+        })
     }
 })
 
