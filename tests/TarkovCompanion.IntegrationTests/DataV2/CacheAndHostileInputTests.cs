@@ -478,14 +478,16 @@ public sealed class CacheAndHostileInputTests
     public async Task CleanupEvictsLargeSharedBodyMetadataSetWithoutQuadraticRescans()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        // Pin the clock: with the system clock this fixed date aged past MaximumAge a day after
+        // the test was written, GetAsync returned null, and the test failed on every later run.
+        var now = new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
         var cache = new SqliteTarkovDevResponseCache(database.Factory, new()
         {
             MaximumEntries = 128,
             MaximumCompressedBytes = 1024,
             MaximumUncompressedBodyBytes = 4096,
             MaximumAge = TimeSpan.FromDays(1),
-        });
-        var now = new DateTimeOffset(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
+        }, new ManualTimeProvider(now));
         await cache.PutAsync(new("regular/items", "{\"data\":{}}", now, null, null),
             TestContext.Current.CancellationToken);
         var hash = (await cache.GetAsync("regular/items", TestContext.Current.CancellationToken))!.ContentSha256!;
