@@ -273,7 +273,8 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             baseResponse.Entry.ETag,
             baseResponse.Entry.LastModified,
             baseResponse.Entry.BodyJson,
-            translationResponse?.RefusalReason ?? baseResponse.RefusalReason);
+            translationResponse?.RefusalReason ?? baseResponse.RefusalReason,
+            path);
     }
 
     private async Task<TarkovDevResponse<T>> GetUntranslatedAsync<T>(
@@ -299,7 +300,8 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             response.Entry.ETag,
             response.Entry.LastModified,
             response.Entry.BodyJson,
-            response.RefusalReason);
+            response.RefusalReason,
+            $"{ModeSlug(gameMode)}/{endpoint}");
     }
 
     private async Task<CachedResponse> GetJsonAsync(
@@ -1084,6 +1086,21 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
                 $"map locks for map '{heldPair.Key}'",
                 heldPair.Value.Locks.Count,
                 incomingMap.Locks.Count);
+            RefuseNestedShrink(
+                cacheKey,
+                $"loot-container positions for map '{heldPair.Key}'",
+                heldPair.Value.LootContainers.Count,
+                incomingMap.LootContainers.Count);
+            RefuseNestedShrink(
+                cacheKey,
+                $"loose-loot positions for map '{heldPair.Key}'",
+                heldPair.Value.LootLoose.Count,
+                incomingMap.LootLoose.Count);
+            RefuseNestedShrink(
+                cacheKey,
+                $"loose-loot candidates for map '{heldPair.Key}'",
+                heldPair.Value.LootLoose.Sum(position => (long)position.Items.Count),
+                incomingMap.LootLoose.Sum(position => (long)position.Items.Count));
         }
     }
 
@@ -1115,6 +1132,10 @@ public sealed class TarkovDevJsonClient : IAsyncDisposable
             new("maps", maps.Maps.Count),
             new("map extracts", maps.Maps.Values.Sum(map => (long)map.Extracts.Count)),
             new("map locks", maps.Maps.Values.Sum(map => (long)map.Locks.Count)),
+            new("map loot containers", maps.Maps.Values.Sum(map => (long)map.LootContainers.Count)),
+            new("map loose-loot positions", maps.Maps.Values.Sum(map => (long)map.LootLoose.Count)),
+            new("map loose-loot candidates", maps.Maps.Values.Sum(map =>
+                map.LootLoose.Sum(position => (long)position.Items.Count))),
         ],
         TarkovDevTasksData tasks =>
         [

@@ -26,6 +26,10 @@ public sealed class TarkovDevJsonClientTests
         Assert.Equal(string.Empty, items.Data.Items["item-002"].Description);
         Assert.True(items.Data.Items["item-001"].AdditionalData.ContainsKey("futureSchemaField"));
         Assert.Equal("Customs", maps.Data.Maps["map-001"].Name);
+        Assert.Equal("regular/items", items.SourceKey);
+        Assert.Equal("regular/maps", maps.SourceKey);
+        Assert.Equal("item-002", Assert.Single(maps.Data.Maps["map-001"].LootContainers).LootContainer);
+        Assert.Equal(["item-001"], Assert.Single(maps.Data.Maps["map-001"].LootLoose).Items);
         Assert.Equal("Shortage", tasks.Data.Tasks["task-001"].Name);
         Assert.Equal("Hand over two first aid kits", tasks.Data.Tasks["task-001"].Objectives[0].Description);
         Assert.Equal("Medstation", hideout.Data["station-001"].Name);

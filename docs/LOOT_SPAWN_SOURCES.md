@@ -13,13 +13,57 @@ candidate contents of each container type. Those facts remain unknown unless a s
 and licensed curated input supplies them. A curated bundle supplements a measured gap; it does not
 replace a primary-source fact merely because its location is more convenient.
 
-Every normalized input is shipped as a versioned manifest plus one content document. No production
-normalized bundle or maps-to-bundle runtime adapter is currently checked in.
-`fixtures/loot-spawns/source-v1` is synthetic and test-only; its coordinates and item IDs make no
-claim about Escape from Tarkov. Coverage through this new publication path is therefore zero
-supported maps until the primary maps payload is reproducibly normalized (and any curated gap is
-reviewed). The existing raw maps feed is not itself evidence that this importer has published a
-last-known-good snapshot.
+Reviewed curated inputs use a versioned manifest plus one content document. The production
+`TarkovDevLootSpawnNormalizer` instead composes the exact bounded `/{mode}/maps` and
+`/{mode}/items` response documents with the separately hashed and reviewed tarkov.dev map catalog.
+It does not trust a caller-supplied object graph in place of those response bytes. The composite
+content identity frames each exact base response and language-normalized document, game mode,
+language, and the catalog URI and SHA-256.
+`TarkovDevLootSpawnRefreshService` obtains those three inputs serially, publishes only a complete
+validated candidate, and quarantines a bounded reason while retaining the process last-known-good
+head on a refused or unavailable refresh.
+
+The production mapping was measured against the regular-mode feed on 2026-09-16: 17 source map
+records contained 5,196 loose-loot positions, 37,774 candidate memberships, and 7,098 container
+positions. Reviewed aliases map 16 of those records onto 13 runtime-supported canonical maps;
+`ground-zero-tutorial` remains explicitly unmatched rather than being guessed into Ground Zero.
+The largest source-map pool aggregate was 7,474 candidate memberships, which is why a snapshot has
+a 16,384-candidate ceiling while the complete bundle remains capped at 65,536. These measurements
+describe accepted input capacity, not spawn probability or expected value. The exact maps response
+used for that recount has SHA-256
+`9ce7b2b7d2677ebbee6a33c3208bcd712300554e2f83e0c29be031282701ecce`.
+
+`fixtures/loot-spawns/source-v1` and the normalizer's synthetic map tests remain test-only; their
+coordinates and item IDs make no claim about Escape from Tarkov. Desktop startup composition and
+restart-durable last-known-good persistence are still separate integration work, so the presence
+of this adapter alone is not evidence that an installed client has published a snapshot.
+
+## Production normalization
+
+The production adapter preserves these source boundaries:
+
+- Each response carries its exact `regular`, `pve`, or `pvp-season` source key. Cross-mode or
+  unlabelled joins are refused.
+- A loose-loot `items` array is candidate membership only. One member becomes a single-known-item
+  pool; more than one remains explicitly unweighted. No probability or expected value is derived
+  from membership or source ordering.
+- Flea gross value, trader value, footprint, name, and category retain field-level item-endpoint
+  evidence. Flea net remains unknown because the feed does not publish the applicable fee result.
+- Container positions contribute to known-record coverage, but no marker is published for one
+  until a reviewed source supplies that container type's candidate contents.
+- A complete finite world point is plotted only when it is inside the selected catalog variant's
+  world bounds, the reviewed transform projects it, and the result is inside the derived scene
+  bounds. Otherwise the pool remains map-only; no coordinate is invented.
+- Floors are attached only through explicit catalog extents; the base floor also requires an
+  explicit height bound rather than the parser's unbounded fallback. An unresolved floor remains
+  empty. It can render on a one-floor map, but a multi-floor view suppresses it until the layer is
+  known.
+- Every supported map receives measured known, published, positioned, floor-resolved, and
+  unresolved counts. Unsupported source maps and skipped catalog locations produce diagnostics;
+  a zero or grossly mismatched first publication is refused instead of becoming a hollow head.
+- Duplicate JSON members (including case variants), invalid identities, oversized pools,
+  aggregate-budget violations, ambiguous aliases, unknown item IDs, and chronology or provenance
+  violations cannot become the publication head.
 
 ## Version 1 bundle
 
@@ -62,6 +106,6 @@ cannot replace a matching spawn/item field with older evidence, and one import o
 claim two different current values for the same source generation.
 
 The current publication store is process-lifetime only and deliberately sits behind
-`ILootSpawnSourcePublicationStore`. Durable offline storage and application composition remain a
-separate integration slice; until then, the importer does not claim restart-persistent offline
-availability.
+`ILootSpawnSourcePublicationStore`. Durable offline storage and desktop application composition
+remain a separate integration slice; until then, neither importer path claims restart-persistent
+offline availability.

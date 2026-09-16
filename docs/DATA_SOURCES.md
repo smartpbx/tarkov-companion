@@ -1,6 +1,6 @@
 # Data sources
 
-Verified 2026-09-10.
+Verified 2026-09-16.
 
 ## Primary structured data
 
@@ -47,11 +47,14 @@ there and remain unknown unless a separately reviewed, licensed curated source s
 Runtime inputs use a versioned normalized-bundle contract with explicit provenance, licence,
 timestamps, confidence, content hash, map/transform identity, precision, pool semantics, and
 measured per-map coverage. The importer never derives or guesses a location from item metadata.
-No production normalized bundle or maps-to-bundle adapter is currently checked in, so publication
-coverage through this new path is zero supported maps even though the raw primary feed contains
-usable loose-loot facts. The only bundled example is a synthetic test fixture. See
-[`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the contract, validation, publication behavior,
-and remaining composition and persistence gaps.
+The production adapter composes exact mode-bound maps and items response documents with the
+reviewed, hashed tarkov.dev map catalog. Reviewed aliases currently cover 16 source records across
+13 runtime-supported canonical maps; the tutorial-only Ground Zero record remains explicitly
+unmatched. Candidate membership remains unweighted, container contents and probability remain
+unknown, and an unprojectable position is retained as map-only knowledge. Desktop startup wiring
+and restart-durable publication persistence remain separate integration work. The bundled manifest
+example is synthetic and test-only. See [`LOOT_SPAWN_SOURCES.md`](LOOT_SPAWN_SOURCES.md) for the
+contract, measured 2026-09-16 input counts, validation, publication behavior, and remaining gaps.
 
 ## Map configuration and assets
 

@@ -212,7 +212,8 @@ public sealed record TarkovDevMapCatalog(
 public sealed record MapCatalogLoadResult(
     TarkovDevMapCatalog? Catalog,
     MapCatalogAvailability Availability,
-    string? Message)
+    string? Message,
+    string? SourceJson = null)
 {
     public bool IsAvailable => Catalog is not null;
 }

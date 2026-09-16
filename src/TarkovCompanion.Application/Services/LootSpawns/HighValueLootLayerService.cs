@@ -502,7 +502,7 @@ public sealed class HighValueLootLayerService
             }
 
             var hasUnresolvedFloor = spawn.Location.Geometry is not null &&
-                                     request.FloorIds.Count > 0 &&
+                                     request.FloorIds.Count > 1 &&
                                      spawn.Location.FloorIds.Count == 0;
             if (hasUnresolvedFloor)
             {
@@ -582,7 +582,7 @@ public sealed class HighValueLootLayerService
         var highValueCandidateCount = 0;
         var missing = new HashSet<string>(StringComparer.Ordinal);
         if (spawn.Location.Geometry is not null &&
-            request.FloorIds.Count > 0 &&
+            request.FloorIds.Count > 1 &&
             spawn.Location.FloorIds.Count == 0)
         {
             missing.Add("Floor is unresolved; the position is listed but is not drawn on floor views.");

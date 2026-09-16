@@ -138,6 +138,20 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Positioned_spawn_with_unknown_floor_can_render_when_the_map_has_only_one_floor()
+    {
+        var spawn = Spawn(
+            "woods-single-floor",
+            [Candidate("gpu", "Graphics card", 900_000)]);
+
+        var result = Build(Snapshot([spawn]), floorIds: ["base"]);
+
+        Assert.Single(result.Entries);
+        Assert.Single(result.Objects);
+        Assert.DoesNotContain(result.Diagnostics, item => item.Kind == HighValueLootDiagnosticKind.FloorUnknown);
+    }
+
+    [Fact]
     public void Profile_need_can_elevate_a_spawn_but_stale_price_stays_unknown()
     {
         var need = new LootSpawnProfileNeed(

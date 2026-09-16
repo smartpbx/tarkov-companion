@@ -1507,6 +1507,38 @@ public sealed class CacheAndHostileInputTests
     }
 
     [Fact]
+    public async Task OneMapsLooseLootCannotDisappearBehindAStableAggregateCount()
+    {
+        const string lastKnownGood = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[{"id":"stage"}],"lootLoose":[{"items":["a"]},{"items":["b"]},{"items":["c"]}]} ,"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-three"}],"lootLoose":[{"items":["d"]}]}},"lootContainers":{}}}
+            """;
+        const string candidate = """
+            {"data":{"maps":{"lighthouse":{"id":"lighthouse","name":"Lighthouse","extracts":[{"id":"stage"}],"lootLoose":[]} ,"factory":{"id":"factory","name":"Factory","extracts":[{"id":"gate-three"}],"lootLoose":[{"items":["a"]},{"items":["b"]},{"items":["c"]},{"items":["d"]}]}},"lootContainers":{}}}
+            """;
+        var cache = new InMemoryTarkovDevResponseCache();
+        await cache.PutAsync(
+            new("regular/maps", lastKnownGood, DateTimeOffset.UtcNow.AddDays(-1), null, null),
+            TestContext.Current.CancellationToken);
+        await using var client = Client(
+            new StaticHandler(new(HttpStatusCode.OK) { Content = new StringContent(candidate) }),
+            cache,
+            maximumBytes: 16 * 1024);
+
+        var response = await client.GetMapsAsync(
+            GameMode.Regular,
+            "en",
+            force: true,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(response.IsStale);
+        Assert.Contains("lighthouse", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("loose-loot positions", response.RefusalReason!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(lastKnownGood, (await cache.GetAsync(
+            "regular/maps",
+            TestContext.Current.CancellationToken))!.BodyJson);
+    }
+
+    [Fact]
     public async Task QuarantineFenceCannotDeleteAConcurrentGoodReplacement()
     {
         await using var database = await V2TestDatabase.CreateAsync(TestContext.Current.CancellationToken);

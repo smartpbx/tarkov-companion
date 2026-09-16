@@ -285,6 +285,33 @@ internal static class TarkovDevDatasetValidator
                 throw Invalid(sourceKey, $"map '{map.Id}' loot position is null");
             }
 
+            foreach (var container in mapLootContainers)
+            {
+                OptionalIdentifier(
+                    container.LootContainer,
+                    sourceKey,
+                    $"map '{map.Id}' loot-container type id");
+                if (Present(container.Items, sourceKey, $"map '{map.Id}' container item pool").Count > 0)
+                {
+                    throw Invalid(sourceKey, $"map '{map.Id}' container position also claims a loose-loot item pool");
+                }
+            }
+
+            foreach (var loose in looseLoot)
+            {
+                if (!string.IsNullOrWhiteSpace(loose.LootContainer))
+                {
+                    throw Invalid(sourceKey, $"map '{map.Id}' loose-loot position also claims a container type");
+                }
+
+                var itemIds = Present(loose.Items, sourceKey, $"map '{map.Id}' loose-loot item pool");
+                RequiredStrings(itemIds, sourceKey, $"map '{map.Id}' loose-loot item id");
+                if (itemIds.Count > 256 || itemIds.Distinct(StringComparer.Ordinal).Count() != itemIds.Count)
+                {
+                    throw Invalid(sourceKey, $"map '{map.Id}' loose-loot item pool is oversized or contains duplicate ids");
+                }
+            }
+
             foreach (var position in extracts.Select(value => value.Position)
                          .Concat(spawns.Select(value => value.Position))
                          .Concat(mapLootContainers.Select(value => value.Position))
