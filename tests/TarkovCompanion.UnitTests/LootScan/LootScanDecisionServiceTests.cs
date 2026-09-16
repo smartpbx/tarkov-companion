@@ -7,6 +7,7 @@ using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recommendations;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
+using RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
 
 namespace TarkovCompanion.UnitTests.LootScan;
 
