@@ -160,6 +160,8 @@ public sealed class V2DesignSystemContractTests
         var referenced = DynamicResourceKeys(ReadText(GalleryPath))
             .Where(key => key.StartsWith("V2.String.", StringComparison.Ordinal))
             .ToHashSet(StringComparer.Ordinal);
+        referenced.UnionWith(DynamicResourceKeys(ReadText(LootScanViewPath))
+            .Where(key => key.StartsWith("V2.String.", StringComparison.Ordinal)));
         referenced.UnionWith(WordingKeys(manifest.RootElement));
 
         Assert.Empty(referenced.Except(english.Keys, StringComparer.Ordinal));
@@ -174,6 +176,7 @@ public sealed class V2DesignSystemContractTests
         defined.UnionWith(ReadStrings(EnglishStringsPath).Keys);
 
         var undefined = DynamicResourceKeys(ReadText(GalleryPath))
+            .Concat(DynamicResourceKeys(ReadText(LootScanViewPath)))
             .Concat(DynamicResourceKeys(ReadText(StylesPath)))
             .Where(key => !defined.Contains(key))
             .Distinct(StringComparer.Ordinal)
@@ -266,6 +269,48 @@ public sealed class V2DesignSystemContractTests
 
         Assert.Empty(hidden);
         Assert.All(V2PrimitiveContracts.GalleryExamples.Values, automationId => Assert.Contains(automationId, ids));
+    }
+
+    [Fact]
+    public void LootScanNamedPanelsAndDisclosuresAreVisibleToAutomationClients()
+    {
+        var elements = ReadXaml(LootScanViewPath).Descendants().ToArray();
+        var namedPanels = elements.Where(element =>
+            Panels.Contains(element.Name.LocalName) &&
+            (Attr(element, "AutomationProperties.Name") is not null ||
+             Attr(element, "AutomationProperties.AutomationId") is not null));
+
+        Assert.All(
+            namedPanels,
+            element => Assert.Equal("Control", Attr(element, "AutomationProperties.AccessibilityView")));
+        Assert.All(
+            elements.Where(element => element.Name.LocalName == "Expander"),
+            element => Assert.NotNull(Attr(element, "AutomationProperties.Name")));
+        Assert.All(
+            elements.Where(element => Attr(element, "AutomationProperties.LiveSetting") is not null),
+            element =>
+            {
+                Assert.Equal("TextBlock", element.Name.LocalName);
+                Assert.NotNull(Attr(element, "AutomationProperties.AutomationId"));
+            });
+    }
+
+    [Fact]
+    public void LootScanStaticCopyComesFromV2Resources()
+    {
+        string[] copyAttributes =
+        ["Text", "Content", "Header", "AutomationProperties.Name", "AutomationProperties.HelpText"];
+        var copy = ReadXaml(LootScanViewPath)
+            .Descendants()
+            .SelectMany(element => element.Attributes())
+            .Where(attribute => copyAttributes.Contains(attribute.Name.LocalName))
+            .ToArray();
+
+        Assert.NotEmpty(copy);
+        Assert.All(copy, attribute => Assert.True(
+            attribute.Value.StartsWith("{Binding", StringComparison.Ordinal) ||
+            attribute.Value.StartsWith("{DynamicResource V2.", StringComparison.Ordinal),
+            $"{attribute.Parent!.Name.LocalName}.{attribute.Name.LocalName} contains literal copy."));
     }
 
     [Fact]
