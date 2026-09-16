@@ -7,6 +7,7 @@ using TarkovCompanion.App.Services.V2.Shell;
 using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.V2.Shell;
 using TarkovCompanion.App.Views;
+using TarkovCompanion.App.Views.V2.MapRenderer;
 
 namespace TarkovCompanion.App;
 
@@ -31,29 +32,36 @@ public sealed class App(IServiceProvider services) : Avalonia.Application
             // without anyone ever seeing them rendered, and a broken binding on one of them
             // only shows when somebody navigates there.
             var options = services.GetService<AppCommandLine>();
-            if (options is { UiShell: var mode } && mode.IsPreview())
+            if (options?.MapRendererGallery == true)
             {
-                viewModel.PreviewShell = services.GetRequiredService<V2ShellViewModel>();
+                desktop.MainWindow = new MapSceneRendererGalleryWindow(options.MapRendererLargeText);
             }
-            else if (options?.StartPage is { } startPage && !viewModel.Navigate(startPage))
+            else
             {
-                throw new ArgumentException($"No destination is named '{startPage}'.");
-            }
+                if (options is { UiShell: var mode } && mode.IsPreview())
+                {
+                    viewModel.PreviewShell = services.GetRequiredService<V2ShellViewModel>();
+                }
+                else if (options?.StartPage is { } startPage && !viewModel.Navigate(startPage))
+                {
+                    throw new ArgumentException($"No destination is named '{startPage}'.");
+                }
 
-            // And onto a named map, floor and view, for the same reason. The map is the most
-            // complex thing here and the hardest to see from anywhere but Windows, and the
-            // gallery photographed it in exactly one state: cold launch, default map, base
-            // floor, flat. Every map defect reported so far was found by looking at a picture.
-            if (options is { } launch)
-            {
-                viewModel.Map.OpenOn(launch.MapId, launch.MapFloor, launch.StacksFloors);
-            }
+                // And onto a named map, floor and view, for the same reason. The map is the most
+                // complex thing here and the hardest to see from anywhere but Windows, and the
+                // gallery photographed it in exactly one state: cold launch, default map, base
+                // floor, flat. Every map defect reported so far was found by looking at a picture.
+                if (options is { } launch)
+                {
+                    viewModel.Map.OpenOn(launch.MapId, launch.MapFloor, launch.StacksFloors);
+                }
 
-            desktop.MainWindow = new MainWindow
-            {
-                DataContext = viewModel,
-            };
-            _initialization = viewModel.InitializeAsync(_stopping.Token);
+                desktop.MainWindow = new MainWindow
+                {
+                    DataContext = viewModel,
+                };
+                _initialization = viewModel.InitializeAsync(_stopping.Token);
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
