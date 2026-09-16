@@ -73,6 +73,7 @@ public sealed class HighValueLootLayerServiceTests
             LootSpawnProfileNeedKind.CurrentQuest,
             "quest.current",
             "Needed for the active quest.",
+            CompleteStatus,
             Provenance("need"));
         var stalePrice = Provenance("stale-price", Now.AddHours(-2));
         var candidate = Candidate("gpu", "Graphics card", 900_000, [need], stalePrice);

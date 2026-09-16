@@ -60,11 +60,13 @@ public sealed record LootSpawnProfileNeed
         LootSpawnProfileNeedKind kind,
         string code,
         string explanation,
+        ResultStatus status,
         EvidenceProvenance provenance)
     {
         Kind = Defined(kind, nameof(kind));
         Code = Required(code, nameof(code), 128);
         Explanation = Required(explanation, nameof(explanation), 512);
+        Status = status ?? throw new ArgumentNullException(nameof(status));
         Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
     }
 
@@ -73,6 +75,8 @@ public sealed record LootSpawnProfileNeed
     public string Code { get; }
 
     public string Explanation { get; }
+
+    public ResultStatus Status { get; }
 
     public EvidenceProvenance Provenance { get; }
 
@@ -394,6 +398,17 @@ public sealed record LootSpawnSnapshot
         if (coverage.Published != copied.Length)
         {
             throw new ArgumentException("Published coverage must equal the bounded snapshot record count.", nameof(coverage));
+        }
+
+        var positioned = copied.Count(record => record.Location.Geometry is not null);
+        var floorResolved = copied.Count(record =>
+            record.Location.Geometry is not null && record.Location.FloorIds.Count > 0);
+        if (coverage.Positioned != positioned || coverage.FloorResolved != floorResolved ||
+            coverage.Unresolved != copied.Length - positioned)
+        {
+            throw new ArgumentException(
+                "Coverage counts must be measured from the published snapshot records.",
+                nameof(coverage));
         }
 
         Records = Array.AsReadOnly(copied);

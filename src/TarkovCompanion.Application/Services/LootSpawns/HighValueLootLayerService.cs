@@ -272,13 +272,18 @@ public sealed class HighValueLootLayerService
         var snapshot = request.Snapshot;
         if (snapshot is null)
         {
-            return Unavailable("Potential spawns · Data unavailable", "snapshot.missing", "No last-known-good loot-spawn snapshot is available.");
+            return Unavailable(
+                HighValueLootDiagnosticKind.SnapshotUnavailable,
+                "Potential spawns · Data unavailable",
+                "snapshot.missing",
+                "No last-known-good loot-spawn snapshot is available.");
         }
 
         if (!string.Equals(snapshot.MapId, request.MapId, StringComparison.Ordinal) ||
             !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal))
         {
             return Unavailable(
+                HighValueLootDiagnosticKind.SnapshotMismatch,
                 "Potential spawns · Transform mismatch",
                 "snapshot.map-transform-mismatch",
                 "The loot-spawn snapshot belongs to a different map or transform and was not drawn.",
@@ -289,6 +294,7 @@ public sealed class HighValueLootLayerService
         if (snapshot.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable)
         {
             return Unavailable(
+                HighValueLootDiagnosticKind.SnapshotUnavailable,
                 "Potential spawns · Data unavailable",
                 "snapshot.unavailable",
                 "The last-known loot-spawn snapshot is unavailable.",
@@ -400,7 +406,10 @@ public sealed class HighValueLootLayerService
                 objectId));
         }
 
-        var freshness = snapshot.Status.Freshness;
+        var freshness = snapshot.Status.Freshness == FreshnessState.Stale ||
+                        entries.Any(entry => entry.Spawn.Status.Freshness == FreshnessState.Stale)
+            ? FreshnessState.Stale
+            : snapshot.Status.Freshness;
         var incomplete = diagnostics.Any(diagnostic => diagnostic.AffectsCompleteness) ||
                          snapshot.Status.Completeness == ResultCompleteness.Partial ||
                          request.Filter.ValueBasis != LootSpawnValueBasis.ProfileUtility &&
@@ -424,12 +433,19 @@ public sealed class HighValueLootLayerService
         var valuesPerSquare = new List<long>(candidates.Count);
         var highValueCandidateCount = 0;
         var missing = new HashSet<string>(StringComparer.Ordinal);
-        var needs = candidates
+        var suppliedNeeds = candidates
             .SelectMany(candidate => candidate.ProfileNeeds)
             .DistinctBy(need => need.Code, StringComparer.Ordinal)
+            .ToArray();
+        var needs = suppliedNeeds
+            .Where(need => NeedIsReliable(need, request))
             .OrderBy(need => NeedPriority(need.Kind))
             .ThenBy(need => need.Code, StringComparer.Ordinal)
             .ToArray();
+        if (needs.Length != suppliedNeeds.Length)
+        {
+            missing.Add("Some profile relevance is stale, incomplete, or below the confidence filter.");
+        }
 
         foreach (var candidate in candidates)
         {
@@ -636,6 +652,15 @@ public sealed class HighValueLootLayerService
     private static bool ConfidencePasses(EvidenceProvenance provenance, double minimum) =>
         provenance.Confidence.Score is { } score ? score >= minimum : minimum == 0;
 
+    private static bool NeedIsReliable(
+        LootSpawnProfileNeed need,
+        HighValueLootLayerRequest request) =>
+        need.Status.Completeness == ResultCompleteness.Complete &&
+        need.Status.Freshness == FreshnessState.Current &&
+        need.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
+        request.EvaluatedUtc - need.Provenance.EvidenceThroughUtc <= request.Filter.MaximumSourceAge &&
+        ConfidencePasses(need.Provenance, request.Filter.MinimumConfidence);
+
     private static string Summary(
         LootSpawnRecord spawn,
         IReadOnlyList<LootSpawnCandidate> candidates,
@@ -707,6 +732,7 @@ public sealed class HighValueLootLayerService
         provenance.Confidence.Score is { } score ? new Confidence(score) : Confidence.Unknown);
 
     private static HighValueLootLayerResult Unavailable(
+        HighValueLootDiagnosticKind kind,
         string legend,
         string code,
         string explanation,
@@ -719,7 +745,7 @@ public sealed class HighValueLootLayerService
         coverage,
         [],
         [],
-        [new HighValueLootDiagnostic(HighValueLootDiagnosticKind.SnapshotUnavailable, code, explanation)]);
+        [new HighValueLootDiagnostic(kind, code, explanation)]);
 
     private sealed record Projection(
         bool Include,
