@@ -110,6 +110,7 @@ public sealed record HighValueLootLayerRequest
 public sealed record HighValueLootEntry
 {
     public const int MaximumProjectedProfileNeeds = 512;
+    public const int MaximumProjectedRespawnLength = 512;
 
     public HighValueLootEntry(
         LootSpawnRecord spawn,
@@ -127,6 +128,8 @@ public sealed record HighValueLootEntry
         IReadOnlyList<LootSpawnProfileNeed> profileNeeds,
         IReadOnlyList<string> profileNeedConflictCodes,
         IReadOnlyList<string> missingFacts,
+        double? projectedSpawnProbability,
+        string? projectedRespawnBehavior,
         MapSceneObjectId? sceneObjectId)
     {
         Spawn = spawn ?? throw new ArgumentNullException(nameof(spawn));
@@ -153,6 +156,19 @@ public sealed record HighValueLootEntry
         ProfileNeeds = Copy(profileNeeds, MaximumProjectedProfileNeeds, nameof(profileNeeds));
         ProfileNeedConflictCodes = CopyStrings(profileNeedConflictCodes, nameof(profileNeedConflictCodes));
         MissingFacts = CopyStrings(missingFacts, nameof(missingFacts));
+        if (projectedSpawnProbability is { } probability &&
+            (!double.IsFinite(probability) || probability is < 0 or > 1))
+        {
+            throw new ArgumentOutOfRangeException(nameof(projectedSpawnProbability));
+        }
+
+        ProjectedSpawnProbability = projectedSpawnProbability;
+        ProjectedRespawnBehavior = string.IsNullOrWhiteSpace(projectedRespawnBehavior)
+            ? null
+            : HighValueLootGuard.Required(
+                projectedRespawnBehavior,
+                nameof(projectedRespawnBehavior),
+                MaximumProjectedRespawnLength);
         SceneObjectId = sceneObjectId;
     }
 
@@ -193,6 +209,12 @@ public sealed record HighValueLootEntry
     public IReadOnlyList<string> ProfileNeedConflictCodes { get; }
 
     public IReadOnlyList<string> MissingFacts { get; }
+
+    /// <summary>The probability only after the active age, confidence, status, and ambiguity checks.</summary>
+    public double? ProjectedSpawnProbability { get; }
+
+    /// <summary>The respawn fact only after the active age, confidence, status, and ambiguity checks.</summary>
+    public string? ProjectedRespawnBehavior { get; }
 
     /// <summary>Null for map-only knowledge and positions withheld because their floor is unresolved.</summary>
     public MapSceneObjectId? SceneObjectId { get; }
@@ -245,12 +267,16 @@ public sealed record HighValueLootEntry
 /// <remarks>
 /// The shared scene has no typed extension bag for loot-specific detail; #318 owns that integration.
 /// Paired consumers must carry <see cref="Entries"/> beside <see cref="Objects"/> and join by
-/// <see cref="HighValueLootEntry.SceneObjectId"/>; parsing <c>Detail</c> is unsupported.
+/// <see cref="HighValueLootEntry.SceneObjectId"/>. Map, transform, and <see cref="AppliedFilter"/>
+/// bind even an empty or unavailable result to its publication; parsing <c>Detail</c> is unsupported.
 /// </remarks>
 public sealed record HighValueLootLayerResult
 {
     public HighValueLootLayerResult(
         MapSceneLayer layer,
+        string mapId,
+        string transformVersion,
+        HighValueLootFilter appliedFilter,
         ResultStatus status,
         string compactLegend,
         DateTimeOffset? dataThroughUtc,
@@ -260,6 +286,9 @@ public sealed record HighValueLootLayerResult
         IReadOnlyList<HighValueLootDiagnostic> diagnostics)
     {
         Layer = layer ?? throw new ArgumentNullException(nameof(layer));
+        MapId = HighValueLootGuard.Required(mapId, nameof(mapId), 128);
+        TransformVersion = HighValueLootGuard.Required(transformVersion, nameof(transformVersion), 128);
+        AppliedFilter = appliedFilter ?? throw new ArgumentNullException(nameof(appliedFilter));
         Status = status ?? throw new ArgumentNullException(nameof(status));
         CompactLegend = HighValueLootGuard.Required(compactLegend, nameof(compactLegend), 256);
         if (dataThroughUtc?.Offset != TimeSpan.Zero)
@@ -280,6 +309,15 @@ public sealed record HighValueLootLayerResult
         if (Entries.Select(item => item.Spawn.SpawnId).Distinct(StringComparer.Ordinal).Count() != Entries.Count)
         {
             throw new ArgumentException("Layer entry spawn IDs must be unique.", nameof(entries));
+        }
+
+        if (Entries.Any(item =>
+                !string.Equals(item.Spawn.MapId, MapId, StringComparison.Ordinal) ||
+                !string.Equals(item.Spawn.TransformVersion, TransformVersion, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "Every layer entry must match the result map and transform.",
+                nameof(entries));
         }
 
         var objectIds = Objects.Select(item => item.Id).ToHashSet();
@@ -314,6 +352,12 @@ public sealed record HighValueLootLayerResult
     }
 
     public MapSceneLayer Layer { get; }
+
+    public string MapId { get; }
+
+    public string TransformVersion { get; }
+
+    public HighValueLootFilter AppliedFilter { get; }
 
     public ResultStatus Status { get; }
 
@@ -372,6 +416,7 @@ public sealed class HighValueLootLayerService
         if (snapshot is null)
         {
             return Unavailable(
+                request,
                 HighValueLootDiagnosticKind.SnapshotUnavailable,
                 "Potential spawns · Data unavailable",
                 "snapshot.missing",
@@ -382,6 +427,7 @@ public sealed class HighValueLootLayerService
             !string.Equals(snapshot.TransformVersion, request.TransformVersion, StringComparison.Ordinal))
         {
             return Unavailable(
+                request,
                 HighValueLootDiagnosticKind.SnapshotMismatch,
                 "Potential spawns · Transform mismatch",
                 "snapshot.map-transform-mismatch",
@@ -393,6 +439,7 @@ public sealed class HighValueLootLayerService
         if (snapshot.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable)
         {
             return Unavailable(
+                request,
                 HighValueLootDiagnosticKind.SnapshotUnavailable,
                 "Potential spawns · Data unavailable",
                 "snapshot.unavailable",
@@ -404,6 +451,7 @@ public sealed class HighValueLootLayerService
         if (!SnapshotPasses(snapshot, request, out var snapshotDiagnostic))
         {
             return Unavailable(
+                request,
                 snapshotDiagnostic!.Kind,
                 "Potential spawns · Data unavailable",
                 snapshotDiagnostic.Code,
@@ -545,6 +593,8 @@ public sealed class HighValueLootLayerService
                 projection.ProfileNeeds,
                 projection.ProfileNeedConflictCodes,
                 projection.MissingFacts,
+                projection.SpawnProbability,
+                projection.RespawnBehavior,
                 objectId));
         }
 
@@ -568,7 +618,18 @@ public sealed class HighValueLootLayerService
                          FreshnessState.Unknown => " · Freshness unknown",
                          _ => string.Empty,
                      });
-        return new(Layer, status, legend, through, snapshot.Coverage, objects, entries, diagnostics);
+        return new(
+            Layer,
+            request.MapId,
+            request.TransformVersion,
+            request.Filter,
+            status,
+            legend,
+            through,
+            snapshot.Coverage,
+            objects,
+            entries,
+            diagnostics);
     }
 
     private static Projection Project(
@@ -701,14 +762,22 @@ public sealed class HighValueLootLayerService
                 : maximum is null
                     ? LootSpawnValueTier.Unknown
                     : LootSpawnValueTier.BelowThreshold;
-        if (Reliable(spawn.SpawnProbability, request, request.Filter.MaximumSourceAge) is null)
+        var spawnProbability = Reliable(
+            spawn.SpawnProbability,
+            request,
+            request.Filter.MaximumSourceAge);
+        if (spawnProbability is null)
         {
             missing.Add(
                 "Spawn probability is unknown, stale, incomplete, ambiguous, or below the confidence filter; " +
                 "expected value is not calculated.");
         }
 
-        if (ReliableString(spawn.RespawnBehavior, request, request.Filter.MaximumSourceAge) is null)
+        var respawnBehavior = ReliableString(
+            spawn.RespawnBehavior,
+            request,
+            request.Filter.MaximumSourceAge);
+        if (respawnBehavior is null)
         {
             missing.Add("Respawn behavior is unknown, stale, incomplete, ambiguous, or below the confidence filter.");
         }
@@ -731,6 +800,8 @@ public sealed class HighValueLootLayerService
             needs,
             conflictCodes,
             missing.Order(StringComparer.Ordinal).ToArray(),
+            spawnProbability,
+            respawnBehavior,
             summary);
     }
 
@@ -817,6 +888,7 @@ public sealed class HighValueLootLayerService
         HighValueLootLayerRequest request,
         TimeSpan maximumAge) =>
         !string.IsNullOrWhiteSpace(field.Value) &&
+        field.Value.Length <= HighValueLootEntry.MaximumProjectedRespawnLength &&
         field.Candidates.Count == 0 &&
         field.Status.Completeness == ResultCompleteness.Complete &&
         field.Status.Freshness == FreshnessState.Current &&
@@ -1137,6 +1209,7 @@ public sealed class HighValueLootLayerService
         provenance.Confidence.Score is { } score ? new Confidence(score) : Confidence.Unknown);
 
     private static HighValueLootLayerResult Unavailable(
+        HighValueLootLayerRequest request,
         HighValueLootDiagnosticKind kind,
         string legend,
         string code,
@@ -1144,6 +1217,9 @@ public sealed class HighValueLootLayerService
         LootSpawnCoverage? coverage = null,
         DateTimeOffset? dataThroughUtc = null) => new(
         Layer,
+        request.MapId,
+        request.TransformVersion,
+        request.Filter,
         new ResultStatus(ResultCompleteness.Unavailable, FreshnessState.Unknown, code),
         legend,
         dataThroughUtc,
@@ -1162,6 +1238,8 @@ public sealed class HighValueLootLayerService
         IReadOnlyList<LootSpawnProfileNeed> ProfileNeeds,
         IReadOnlyList<string> ProfileNeedConflictCodes,
         IReadOnlyList<string> MissingFacts,
+        double? SpawnProbability,
+        string? RespawnBehavior,
         string Summary);
 
     private sealed record SourcedProfileNeed(string CandidateId, LootSpawnProfileNeed Need);

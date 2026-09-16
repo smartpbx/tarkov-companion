@@ -50,7 +50,7 @@ public sealed record MapSceneRendererGalleryViewModel(
         var lootService = new HighValueLootLayerService();
         var initialFilter = HighValueLootLayerFilterState.Default;
         var initialLoot = lootOffline
-            ? OfflineLoot()
+            ? OfflineLoot(initialFilter.Filter)
             : BuildLoot(lootService, lootSnapshot, initialFilter.Filter);
         var renderer = new MapSceneRendererViewModel(
             Scene(initialLoot),
@@ -66,13 +66,22 @@ public sealed record MapSceneRendererGalleryViewModel(
                 renderer.Present(result.Scene);
             }
         };
-        renderer.HighValueLootFilterRequested += filterState =>
+        renderer.HighValueLootFilterRequested += request =>
         {
+            if (request.ExpectedRevision != renderer.Scene.Revision ||
+                !string.Equals(request.LocationId, renderer.Scene.LocationId, StringComparison.Ordinal) ||
+                !string.Equals(request.TransformVersion, renderer.Scene.TransformVersion, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var filterState = request.State;
             if (lootOffline)
             {
+                var unavailable = OfflineLoot(filterState.Filter);
                 renderer.Present(
-                    ReplaceLoot(renderer.Scene, initialLoot),
-                    initialLoot,
+                    ReplaceLoot(renderer.Scene, unavailable),
+                    unavailable,
                     filterState,
                     ["electronics", "medical"]);
                 return;
@@ -178,8 +187,11 @@ public sealed record MapSceneRendererGalleryViewModel(
         snapshot,
         ["ground", "upper"]));
 
-    private static HighValueLootLayerResult OfflineLoot() => new(
+    private static HighValueLootLayerResult OfflineLoot(HighValueLootFilter filter) => new(
         HighValueLootLayerService.Layer,
+        "renderer-gallery",
+        "gallery-transform-1",
+        filter,
         new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "snapshot.offline-unavailable"),
         "Potential spawns · Offline data unavailable",
         null,

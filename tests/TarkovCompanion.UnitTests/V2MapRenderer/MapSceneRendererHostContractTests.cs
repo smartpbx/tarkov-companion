@@ -115,7 +115,10 @@ public sealed class MapSceneRendererHostContractTests
                      "v2-map-loot-preset", "v2-map-loot-heading", "v2-map-loot-legend",
                      "v2-map-loot-state", "v2-map-loot-page-status", "v2-map-loot-page-next",
                      "v2-map-loot-selection-live", "v2-map-loot-category-more",
-                     "v2-map-loot-floor-more",
+                     "v2-map-loot-floor-more", "v2-map-loot-freshness",
+                     "v2-map-loot-category-active",
+                     "v2-map-loot-dataset", "v2-map-loot-source",
+                     "v2-map-loot-confidence", "v2-map-loot-source-coverage",
                  })
         {
             Assert.Contains($"AutomationProperties.AutomationId=\"{id}\"", view, StringComparison.Ordinal);
@@ -127,12 +130,20 @@ public sealed class MapSceneRendererHostContractTests
         Assert.Contains("HazardsLayerId", renderer, StringComparison.Ordinal);
         Assert.Contains("MaximumLootPresetPreservedLayers", renderer, StringComparison.Ordinal);
         Assert.Contains("HighValueLootFilterRequested", renderer, StringComparison.Ordinal);
+        Assert.Contains("HighValueLootFilterRequest", renderer, StringComparison.Ordinal);
+        Assert.Contains("result.MapId", renderer, StringComparison.Ordinal);
+        Assert.Contains("result.TransformVersion", renderer, StringComparison.Ordinal);
+        Assert.Contains("result.AppliedFilter", renderer, StringComparison.Ordinal);
         Assert.Contains("VisibleObjectIds", renderer, StringComparison.Ordinal);
         Assert.Contains("MaximumRenderedFilterOptions", loot, StringComparison.Ordinal);
         Assert.Contains("MaximumFilterOptionsRead", loot, StringComparison.Ordinal);
         Assert.Contains("Map.Loot.ValueUnknown", loot, StringComparison.Ordinal);
         Assert.Contains("Map.Loot.FloorUnknown", loot, StringComparison.Ordinal);
         Assert.Contains("Map.Loot.ListOnly", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.ValueProfileUtility", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.ValuePerSquareSingle", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.ConfidenceKind", loot, StringComparison.Ordinal);
+        Assert.Contains("Map.Loot.SourceCoverage", loot, StringComparison.Ordinal);
         Assert.DoesNotContain("v2-map-loot-waypoint", view, StringComparison.Ordinal);
     }
 

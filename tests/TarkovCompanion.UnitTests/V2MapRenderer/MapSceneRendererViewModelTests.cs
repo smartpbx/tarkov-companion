@@ -375,6 +375,70 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void High_value_filter_requests_are_bound_to_the_scene_revision_map_and_transform()
+    {
+        var scene = Scene(revision: 73, includeHighValueLoot: true);
+        var result = UnavailableLootResult();
+        var changeId = Guid.Parse("20000000-0000-0000-0000-000000000318");
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            () => changeId,
+            highValueLoot: result);
+        HighValueLootFilterRequest? published = null;
+        renderer.HighValueLootFilterRequested += request => published = request;
+
+        renderer.HighValueLoot!.ValueBasisChoices
+            .Single(choice => choice.Label == "Flea gross")
+            .SelectCommand.Execute(null);
+
+        var request = Assert.IsType<HighValueLootFilterRequest>(published);
+        Assert.Equal(changeId, request.ChangeId);
+        Assert.Equal(scene.Revision, request.ExpectedRevision);
+        Assert.Equal(scene.LocationId, request.LocationId);
+        Assert.Equal(scene.TransformVersion, request.TransformVersion);
+        Assert.Equal(LootSpawnValueBasis.FleaGross, request.State.Filter.ValueBasis);
+    }
+
+    [Fact]
+    public void Typed_map_only_loot_cannot_cross_scene_map_or_transform_boundaries()
+    {
+        var scene = Scene(includeHighValueLoot: true);
+
+        var wrongMap = Assert.Throws<ArgumentException>(() => new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            highValueLoot: MapOnlyLootResult("shoreline", scene.TransformVersion)));
+        var wrongTransform = Assert.Throws<ArgumentException>(() => new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            highValueLoot: MapOnlyLootResult(scene.LocationId, "different-transform")));
+
+        Assert.Contains("map and transform", wrongMap.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("map and transform", wrongTransform.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Typed_loot_result_cannot_be_presented_under_a_different_filter_state()
+    {
+        var result = UnavailableLootResult();
+        var otherFilter = new HighValueLootFilter(
+            LootSpawnValueBasis.FleaGross,
+            LootSpawnValueThresholds.Default,
+            TimeSpan.FromMinutes(30),
+            TimeSpan.FromDays(90),
+            0.5);
+
+        var mismatch = Assert.Throws<ArgumentException>(() => new MapSceneRendererViewModel(
+            Scene(includeHighValueLoot: true),
+            Presentation,
+            highValueLoot: result,
+            highValueLootFilterState: new(otherFilter, LootSpawnValueTier.Qualifying)));
+
+        Assert.Contains("filter state", mismatch.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void High_value_value_profile_and_floor_controls_use_the_existing_filter_contract()
     {
         var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
@@ -385,6 +449,9 @@ public sealed class MapSceneRendererViewModelTests
         loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
         var profileOnly = Assert.Single(loot.AllEntries);
         Assert.Equal("profile-only-unknown-value", profileOnly.Spawn.SpawnId);
+        var profileRow = Assert.Single(loot.Rows);
+        Assert.Contains("market value not used", profileRow.ValueLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("possible candidates", profileRow.CandidateLabel, StringComparison.OrdinalIgnoreCase);
 
         loot.ProfileRelevanceChoices.Single(choice => choice.Label == "Market value only")
             .SelectCommand.Execute(null);
@@ -397,6 +464,13 @@ public sealed class MapSceneRendererViewModelTests
         var upper = Assert.Single(loot.AllEntries);
         Assert.Equal("profile-only-unknown-value", upper.Spawn.SpawnId);
         Assert.All(upper.Spawn.Location.FloorIds, floor => Assert.Equal("upper", floor));
+
+        renderer = MapSceneRendererGalleryViewModel.Create(largeText: false).Renderer;
+        loot = Assert.IsType<HighValueLootLayerViewModel>(renderer.HighValueLoot);
+        loot.ValueBasisChoices.Single(choice => choice.Label == "Value per square").SelectCommand.Execute(null);
+
+        var perSquare = loot.Rows.First(row => row.Entry.Spawn.SpawnId.StartsWith("dense-", StringComparison.Ordinal));
+        Assert.Contains("₽/square", perSquare.ValueLabel, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -442,6 +516,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
             new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
             "Potential spawns · Data unavailable",
             null,
@@ -488,6 +565,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
             new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
             "Potential spawns · Data unavailable",
             null,
@@ -520,6 +600,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
             new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
             "Potential spawns · Data unavailable",
             null,
@@ -559,6 +642,9 @@ public sealed class MapSceneRendererViewModelTests
     {
         var result = new HighValueLootLayerResult(
             HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
             new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
             "Potential spawns · Data unavailable",
             null,
@@ -588,6 +674,104 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void High_value_filter_cap_keeps_the_active_choice_visible_and_discloses_multi_category_state()
+    {
+        var result = UnavailableLootResult();
+        var active = Filter(categories: ["selected-beyond-cap"]);
+        var loot = new HighValueLootLayerViewModel(
+            result,
+            new(active, LootSpawnValueTier.Qualifying),
+            Enumerable.Range(0, 20).Select(index => $"category-{index:D2}").ToArray(),
+            ["first"],
+            true,
+            Presentation,
+            _ => { },
+            _ => { });
+
+        Assert.Contains(loot.CategoryChoices, choice =>
+            choice.Label == "selected-beyond-cap" && choice.IsSelected);
+        Assert.True(loot.HasCategoryOptionsNotice);
+
+        loot.Present(
+            result,
+            new(Filter(categories: ["medical", "electronics"]), LootSpawnValueTier.Qualifying),
+            null,
+            null);
+
+        Assert.True(loot.HasMultipleCategoryFilter);
+        Assert.Contains("2", loot.MultipleCategoryFilterMessage, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(FreshnessState.Stale, "last-known")]
+    [InlineData(FreshnessState.Unknown, "could not be verified")]
+    public void High_value_panel_exposes_non_current_freshness_with_recovery_guidance(
+        FreshnessState freshness,
+        string expected)
+    {
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            "customs",
+            "transform-1",
+            HighValueLootFilter.Default,
+            new(ResultCompleteness.Complete, freshness),
+            "Potential spawns",
+            null,
+            null,
+            [],
+            [],
+            []);
+        var loot = new HighValueLootLayerViewModel(
+            result,
+            HighValueLootLayerFilterState.Default,
+            [],
+            [],
+            true,
+            Presentation,
+            _ => { },
+            _ => { });
+
+        Assert.True(loot.HasFreshnessMessage);
+        Assert.Contains(expected, loot.FreshnessMessage, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void High_value_selection_discloses_versioned_source_timing_confidence_and_coverage()
+    {
+        var provenance = new EvidenceProvenance(
+            EvidenceSourceClass.PublicStructuredData,
+            "fixture://versioned-source",
+            new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero),
+            new(EvidenceConfidenceKind.CalibratedEstimate, 0.80, "fixture-calibration-v2"),
+            new("loot-importer", "2.1", "ranking-v3"),
+            dataThroughUtc: new DateTimeOffset(2026, 9, 14, 0, 0, 0, TimeSpan.Zero),
+            generatedUtc: new DateTimeOffset(2026, 9, 15, 0, 0, 0, TimeSpan.Zero),
+            coverage: new(100, 0.75, "13 of 17 supported maps"));
+        var loot = new HighValueLootLayerViewModel(
+            MapOnlyLootResult("customs", "transform-1", provenance),
+            HighValueLootLayerFilterState.Default,
+            [],
+            [],
+            true,
+            Presentation,
+            _ => { },
+            _ => { });
+
+        var row = Assert.Single(loot.Rows);
+        Assert.Contains("fixture-dataset", row.DatasetLabel, StringComparison.Ordinal);
+        Assert.Contains("transform-1", row.DatasetLabel, StringComparison.Ordinal);
+        Assert.Contains("Public structured data", row.SourceLabel, StringComparison.Ordinal);
+        Assert.Contains("fixture://versioned-source", row.SourceLabel, StringComparison.Ordinal);
+        Assert.Contains("ranking-v3", row.ProducerLabel, StringComparison.Ordinal);
+        Assert.Contains("generated", row.EvidenceTimeLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Calibrated estimate", row.ConfidenceLabel, StringComparison.Ordinal);
+        Assert.Contains("fixture-calibration-v2", row.ConfidenceLabel, StringComparison.Ordinal);
+        Assert.Contains("75", row.SourceCoverageLabel, StringComparison.Ordinal);
+        Assert.Contains("sample 100", row.SourceCoverageLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("13 of 17", row.SourceCoverageLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void High_value_offline_gallery_has_an_explicit_unavailable_empty_state()
     {
         var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false, lootOffline: true).Renderer;
@@ -599,6 +783,103 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Contains("unavailable", loot.StateMessage, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(renderer.Layers, layer => layer.Layer.Id == HighValueLootLayerService.LayerId);
     }
+
+    private static HighValueLootLayerResult UnavailableLootResult() => new(
+        HighValueLootLayerService.Layer,
+        "customs",
+        "transform-1",
+        HighValueLootFilter.Default,
+        new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
+        "Potential spawns · Data unavailable",
+        null,
+        null,
+        [],
+        [],
+        []);
+
+    private static HighValueLootLayerResult MapOnlyLootResult(
+        string mapId,
+        string transformVersion,
+        EvidenceProvenance? sourceProvenance = null)
+    {
+        var provenance = sourceProvenance ?? LootProvenance();
+        var status = new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current);
+        var candidate = new LootSpawnCandidate(
+            "fixture-item",
+            "Fixture item",
+            "fixture-category",
+            new("gross", 100_000L, status, provenance),
+            new("net", 90_000L, status, provenance),
+            new("trader", 50_000L, status, provenance),
+            new("squares", 1, status, provenance));
+        var spawn = new LootSpawnRecord(
+            "map-only",
+            mapId,
+            "Map-only fixture",
+            new(LootSpawnPrecision.MapOnly, null),
+            LootSpawnPoolKind.SingleKnownItem,
+            [candidate],
+            new EvidencedValue<double?>(
+                "probability",
+                null,
+                new(ResultCompleteness.Unknown, FreshnessState.Current),
+                provenance),
+            new EvidencedValue<string?>(
+                "respawn",
+                null,
+                new(ResultCompleteness.Unknown, FreshnessState.Current),
+                provenance),
+            "fixture-dataset",
+            transformVersion,
+            status,
+            provenance);
+        var entry = new HighValueLootEntry(
+            spawn,
+            LootSpawnValueTier.Moderate,
+            90_000,
+            90_000,
+            90_000,
+            90_000,
+            1,
+            1,
+            1,
+            true,
+            "best net",
+            "Potential fixture item",
+            [],
+            [],
+            [],
+            null,
+            null,
+            null);
+        return new(
+            HighValueLootLayerService.Layer,
+            mapId,
+            transformVersion,
+            HighValueLootFilter.Default,
+            status,
+            "Potential spawns",
+            provenance.EvidenceThroughUtc,
+            new(1, 0, 0, 1),
+            [],
+            [entry],
+            []);
+    }
+
+    private static HighValueLootFilter Filter(IReadOnlyList<string>? categories = null) => new(
+        LootSpawnValueBasis.BestNet,
+        LootSpawnValueThresholds.Default,
+        TimeSpan.FromMinutes(30),
+        TimeSpan.FromDays(90),
+        0.5,
+        categories: categories);
+
+    private static EvidenceProvenance LootProvenance() => new(
+        EvidenceSourceClass.PublicStructuredData,
+        "fixture://map-renderer",
+        new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero),
+        new(EvidenceConfidenceKind.ProviderScore, 0.95),
+        new("map-renderer-tests", "1"));
 
     private static bool IsVisible(MapSceneRendererViewModel renderer, MapSceneLayerId layerId) =>
         renderer.Scene.View.Layers.Single(state => state.LayerId == layerId).IsVisible;

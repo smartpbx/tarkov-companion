@@ -9,6 +9,42 @@ using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.App.ViewModels.V2.MapRenderer;
 
+/// <summary>A host rebuild request bound to the canonical scene the user was filtering.</summary>
+public sealed record HighValueLootFilterRequest
+{
+    public HighValueLootFilterRequest(
+        Guid changeId,
+        long expectedRevision,
+        string locationId,
+        string transformVersion,
+        HighValueLootLayerFilterState state)
+    {
+        if (changeId == Guid.Empty)
+        {
+            throw new ArgumentException("A loot-filter change requires a non-empty ID.", nameof(changeId));
+        }
+
+        if (expectedRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(expectedRevision));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(locationId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(transformVersion);
+        ChangeId = changeId;
+        ExpectedRevision = expectedRevision;
+        LocationId = locationId;
+        TransformVersion = transformVersion;
+        State = state ?? throw new ArgumentNullException(nameof(state));
+    }
+
+    public Guid ChangeId { get; }
+    public long ExpectedRevision { get; }
+    public string LocationId { get; }
+    public string TransformVersion { get; }
+    public HighValueLootLayerFilterState State { get; }
+}
+
 /// <summary>Presents a canonical map scene without privately applying its state transitions.</summary>
 /// <remarks>
 /// Desktop and paired clients emit the same revision-checked changes. Rendering may project,
@@ -82,10 +118,11 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         _lootCategories = highValueLootCategories;
         if (highValueLoot is not null)
         {
-            EnsureHighValueLootMatchesScene(highValueLoot);
+            var initialFilterState = highValueLootFilterState ?? HighValueLootLayerFilterState.Default;
+            EnsureHighValueLootMatchesScene(highValueLoot, initialFilterState.Filter);
             HighValueLoot = new(
                 highValueLoot,
-                highValueLootFilterState ?? HighValueLootLayerFilterState.Default,
+                initialFilterState,
                 highValueLootCategories,
                 scene.FloorIds,
                 IsLayerVisible(highValueLoot.Layer.Id),
@@ -101,7 +138,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public event Action<MapSceneViewChange>? ViewChangeRequested;
 
     /// <summary>The owner rebuilds the typed layer and canonical scene for this request.</summary>
-    public event Action<HighValueLootLayerFilterState>? HighValueLootFilterRequested;
+    public event Action<HighValueLootFilterRequest>? HighValueLootFilterRequested;
 
     public MapSceneSnapshot Scene => _scene;
     public IReadOnlyList<MapSceneRendererModeViewModel> Modes { get; private set; } = [];
@@ -229,12 +266,15 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         HighValueLootLayerFilterState filterState,
         IReadOnlyList<string>? availableCategories = null)
     {
+        ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(highValueLoot);
+        ArgumentNullException.ThrowIfNull(filterState);
         if (HighValueLoot is null)
         {
             throw new InvalidOperationException("This renderer was not created with a high-value loot layer.");
         }
 
-        EnsureHighValueLootMatchesScene(scene, highValueLoot);
+        EnsureHighValueLootMatchesScene(scene, highValueLoot, filterState.Filter);
         Present(scene);
         _lootCategories = availableCategories ?? _lootCategories;
         HighValueLoot.Present(highValueLoot, filterState, _lootCategories, scene.FloorIds);
@@ -596,6 +636,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
 
         var preserve = _lootPresetPreservedLayers
             .Where(id => _scene.Layers.Any(layer => layer.Id == id) && IsLayerVisible(id))
+            .Concat(_scene.Layers
+                .Where(layer => layer.Id == HazardsLayerId && IsLayerVisible(layer.Id))
+                .Select(layer => layer.Id))
             .Concat(_selectedObjectId is { } selected
                 ? _scene.Objects.Where(item => item.Id == selected).Select(item => item.LayerId)
                 : [])
@@ -643,7 +686,18 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
-        HighValueLootFilterRequested.Invoke(state);
+        var changeId = _nextChangeId();
+        if (changeId == Guid.Empty)
+        {
+            throw new InvalidOperationException("A loot-filter change requires a non-empty change ID.");
+        }
+
+        HighValueLootFilterRequested.Invoke(new(
+            changeId,
+            _scene.Revision,
+            _scene.LocationId,
+            _scene.TransformVersion,
+            state));
     }
 
     private static IReadOnlySet<MapSceneLayerId> CreateLootPresetPreserveSet(
@@ -1055,17 +1109,39 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasLootSelection));
     }
 
-    private void EnsureHighValueLootMatchesScene(HighValueLootLayerResult result) =>
-        EnsureHighValueLootMatchesScene(_scene, result);
+    private void EnsureHighValueLootMatchesScene(
+        HighValueLootLayerResult result,
+        HighValueLootFilter filter) =>
+        EnsureHighValueLootMatchesScene(_scene, result, filter);
 
     private static void EnsureHighValueLootMatchesScene(
         MapSceneSnapshot scene,
-        HighValueLootLayerResult result)
+        HighValueLootLayerResult result,
+        HighValueLootFilter filter)
     {
-        if (!scene.Layers.Any(layer => layer == result.Layer))
+        if (result.Layer.Id != HighValueLootLayerService.LayerId ||
+            !scene.Layers.Any(layer => layer == result.Layer))
         {
             throw new ArgumentException(
                 "The canonical scene must declare the exact high-value loot layer supplied beside it.",
+                nameof(result));
+        }
+
+        if (!Equivalent(result.AppliedFilter, filter))
+        {
+            throw new ArgumentException(
+                "The typed loot result must match the filter state presented beside it.",
+                nameof(result));
+        }
+
+        if (!string.Equals(result.MapId, scene.LocationId, StringComparison.Ordinal) ||
+            !string.Equals(result.TransformVersion, scene.TransformVersion, StringComparison.Ordinal))
+        {
+            // Positioned objects do not repeat map identity, and an unavailable or map-only result
+            // can have no object to compare at all. Bind the whole typed projection explicitly or
+            // a valid empty-object join could display another map's knowledge beside this plan.
+            throw new ArgumentException(
+                "The typed loot result must match the canonical scene map and transform.",
                 nameof(result));
         }
 
@@ -1083,6 +1159,17 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
                 nameof(result));
         }
     }
+
+    private static bool Equivalent(HighValueLootFilter left, HighValueLootFilter right) =>
+        left.ValueBasis == right.ValueBasis &&
+        left.Thresholds == right.Thresholds &&
+        left.MaximumPriceAge == right.MaximumPriceAge &&
+        left.MaximumSourceAge == right.MaximumSourceAge &&
+        left.MinimumConfidence.Equals(right.MinimumConfidence) &&
+        left.IncludeProfileRelevant == right.IncludeProfileRelevant &&
+        string.Equals(left.FloorId, right.FloorId, StringComparison.OrdinalIgnoreCase) &&
+        left.ItemIds.SequenceEqual(right.ItemIds, StringComparer.OrdinalIgnoreCase) &&
+        left.Categories.SequenceEqual(right.Categories, StringComparer.OrdinalIgnoreCase);
 
     private void SetRendererNotice(string value)
     {

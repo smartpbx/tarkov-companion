@@ -317,6 +317,12 @@
                                AutomationProperties.AccessibilityView="Control"
                                AutomationProperties.LiveSetting="Polite"
                                AutomationProperties.Name="{Binding StateMessage}" />
+                    <TextBlock Classes="v2-label" Text="{Binding FreshnessMessage}" TextWrapping="Wrap"
+                               IsVisible="{Binding HasFreshnessMessage}"
+                               AutomationProperties.AutomationId="v2-map-loot-freshness"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.LiveSetting="Polite"
+                               AutomationProperties.Name="{Binding FreshnessMessage}" />
                     <TextBlock Classes="v2-label" Text="{Binding CoverageLabel}"
                                IsVisible="{Binding HasCoverage}" TextWrapping="Wrap" />
 
@@ -386,6 +392,11 @@
                                AutomationProperties.AutomationId="v2-map-loot-category-more"
                                AutomationProperties.AccessibilityView="Control"
                                AutomationProperties.Name="{Binding CategoryOptionsNotice}" />
+                    <TextBlock Classes="v2-label" Text="{Binding MultipleCategoryFilterMessage}"
+                               IsVisible="{Binding HasMultipleCategoryFilter}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-category-active"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding MultipleCategoryFilterMessage}" />
 
                     <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
                     <ItemsControl ItemsSource="{Binding FloorChoices}">
@@ -512,12 +523,23 @@
                       <TextBlock Classes="v2-label" Text="{Binding CandidateLabel}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding ProfileRelevanceLabel}"
                                  IsVisible="{Binding HasProfileRelevance}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProfileConflictLabel}"
+                                 IsVisible="{Binding HasProfileConflicts}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding ProbabilityLabel}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding RespawnLabel}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding AccessLabel}" TextWrapping="Wrap" />
                       <TextBlock Classes="v2-label" Text="{Binding MissingFactsLabel}"
                                  IsVisible="{Binding HasMissingFacts}" TextWrapping="Wrap" />
-                      <TextBlock Classes="v2-label" Text="{Binding SourceLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding DatasetLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-dataset" />
+                      <TextBlock Classes="v2-label" Text="{Binding SourceLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-source" />
+                      <TextBlock Classes="v2-label" Text="{Binding ProducerLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding EvidenceTimeLabel}" TextWrapping="Wrap" />
+                      <TextBlock Classes="v2-label" Text="{Binding ConfidenceLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-confidence" />
+                      <TextBlock Classes="v2-label" Text="{Binding SourceCoverageLabel}" TextWrapping="Wrap"
+                                 AutomationProperties.AutomationId="v2-map-loot-source-coverage" />
                     </StackPanel>
                   </DataTemplate>
                 </ContentControl.ContentTemplate>

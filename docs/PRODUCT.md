@@ -76,14 +76,18 @@ leaves earlier confirmed changes in place, stops the remainder, and displays a r
 notice.
 
 The desktop filters value basis, minimum displayed tier, profile relevance, category, and floor.
-Value-basis, profile, category, and floor changes ask the owning application service to rebuild
-the typed result before the host republishes its canonical scene. Minimum tier is a deterministic
+Value-basis, profile, category, and floor changes send a unique request bound to the expected map,
+transform, and scene revision, then ask the owning application service to rebuild the typed result
+before the host republishes its canonical scene. Minimum tier is a deterministic
 presentation filter over the service-assigned tier. The accessible paged list includes map-only
 and unresolved-floor records that cannot truthfully become markers. Selection progressively
-discloses possible items and categories, value range and basis, profile reasons, coverage,
-precision, access notes, source age and confidence, plus unknown probability, respawn, value,
-floor, or location states. Host-provided category and floor option streams are read to a fixed
-ceiling and render at most 12 named choices plus the all-choice; the UI announces when more are
+discloses possible items and categories, value range and basis, profile reasons, precision, access
+notes, dataset and transform versions, source class and producer, observed/data-through/generated
+times, confidence and calibration meaning, source coverage, plus unknown probability, respawn,
+value, floor, or location states. Per-square amounts retain their unit, while profile-utility mode
+says that market value was not used instead of calling it unknown. Host-provided category and floor
+option streams are read to a fixed ceiling and render at most 12 named choices plus the all-choice;
+the UI announces when more are
 available instead of creating an unbounded control list.
 
 The current shared map command contract can change presentation, floor, layer visibility, and
