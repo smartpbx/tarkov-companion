@@ -40,6 +40,27 @@ public sealed class MapSceneRendererHostContractTests
     }
 
     [Fact]
+    public void Renderer_defers_named_control_event_wiring_until_the_visual_tree_exists()
+    {
+        var view = Read(
+            "src",
+            "TarkovCompanion.App",
+            "Views",
+            "V2",
+            "MapRenderer",
+            "MapSceneRendererView.axaml.cs");
+
+        var constructorStart = view.IndexOf("public MapSceneRendererView()", StringComparison.Ordinal);
+        var attachStart = view.IndexOf("protected override void OnAttachedToVisualTree", StringComparison.Ordinal);
+        Assert.True(constructorStart >= 0 && attachStart > constructorStart);
+        var constructor = view[constructorStart..attachStart];
+        Assert.DoesNotContain("PlanViewport.", constructor, StringComparison.Ordinal);
+        Assert.Contains("PlanViewport.SizeChanged += PlanViewportSizeChanged", view, StringComparison.Ordinal);
+        Assert.Contains("PlanViewport.SizeChanged -= PlanViewportSizeChanged", view, StringComparison.Ordinal);
+        Assert.Contains("if (PlanViewport is not null", view, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Renderer_has_search_paging_touch_targets_and_live_text_peers()
     {
         var view = Read("src", "TarkovCompanion.App", "Views", "V2", "MapRenderer", "MapSceneRendererView.axaml");

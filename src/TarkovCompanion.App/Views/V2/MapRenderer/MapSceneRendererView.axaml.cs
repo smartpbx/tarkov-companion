@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
 using TarkovCompanion.App.ViewModels.V2.MapRenderer;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -16,20 +17,67 @@ public sealed partial class MapSceneRendererView : UserControl
 
     private bool _pointerDown;
     private bool _dragging;
+    private bool _viewportEventsAttached;
     private Point _pointerStart;
 
     public MapSceneRendererView()
     {
         AvaloniaXamlLoader.Load(this);
         DataContextChanged += RendererDataContextChanged;
-        SizeChanged += RendererSizeChanged;
-        PlanViewport.SizeChanged += PlanViewportSizeChanged;
+    }
+
+    /// <summary>Wires named XAML controls only after they exist in the visual tree.</summary>
+    /// <remarks>
+    /// Avalonia can finish the code-behind constructor before generated <c>x:Name</c> fields are
+    /// assigned. Subscribing to PlanViewport in the constructor made the packaged gallery exit
+    /// before it showed a window even though compiled-XAML and unit builds succeeded.
+    /// </remarks>
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        base.OnAttachedToVisualTree(eventArgs);
+        if (!_viewportEventsAttached && PlanViewport is not null)
+        {
+            _viewportEventsAttached = true;
+            SizeChanged += RendererSizeChanged;
+            PlanViewport.SizeChanged += PlanViewportSizeChanged;
+        }
+
+        UpdateResponsiveLayout();
+        UpdateViewport();
+    }
+
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs eventArgs)
+    {
+        if (_viewportEventsAttached)
+        {
+            SizeChanged -= RendererSizeChanged;
+            if (PlanViewport is not null)
+            {
+                PlanViewport.SizeChanged -= PlanViewportSizeChanged;
+            }
+
+            _viewportEventsAttached = false;
+        }
+
+        base.OnDetachedFromVisualTree(eventArgs);
     }
 
     private void RendererDataContextChanged(object? sender, EventArgs eventArgs) => UpdateViewport();
 
     private void RendererSizeChanged(object? sender, SizeChangedEventArgs eventArgs)
     {
+        UpdateResponsiveLayout();
+        UpdateViewport();
+    }
+
+    private void UpdateResponsiveLayout()
+    {
+        if (RendererHeader is null || RendererTitle is null || RendererCommands is null ||
+            RendererBody is null || PlanViewport is null || DetailsPanel is null)
+        {
+            return;
+        }
+
         var compact = Bounds.Width < CompactWidth;
         var narrowHeader = Bounds.Width < NarrowHeaderWidth;
         RendererHeader.ColumnDefinitions = new(narrowHeader ? "*" : "*,Auto");
@@ -45,14 +93,13 @@ public sealed partial class MapSceneRendererView : UserControl
         Grid.SetColumn(DetailsPanel, compact ? 0 : 1);
         Grid.SetRow(DetailsPanel, compact ? 1 : 0);
         DetailsPanel.MaxHeight = compact ? 420 : 700;
-        UpdateViewport();
     }
 
     private void PlanViewportSizeChanged(object? sender, SizeChangedEventArgs eventArgs) => UpdateViewport();
 
     private void UpdateViewport()
     {
-        if (DataContext is MapSceneRendererViewModel renderer)
+        if (PlanViewport is not null && DataContext is MapSceneRendererViewModel renderer)
         {
             renderer.SetViewportSize(PlanViewport.Bounds.Width, PlanViewport.Bounds.Height);
         }
