@@ -32,6 +32,31 @@ public sealed class MapSceneAssemblerTests
     }
 
     [Fact]
+    public void Preserves_extract_side_offered_state_and_object_provenance()
+    {
+        var extract = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Scav checkpoint")
+        {
+            Faction = MapFeatureFaction.Scav,
+            IsActive = true,
+        };
+        var provenance = Provenance("reviewed-extract-supplement", 0.6);
+        var request = Request(Model([extract])) with
+        {
+            LegacyElements = [new(extract, provenance)],
+        };
+
+        var scene = Assert.IsType<MapSceneSnapshot>(new MapSceneAssembler().Build(request).Scene);
+
+        var item = Assert.Single(scene.Objects);
+        Assert.Equal(MapFeatureFaction.Scav, item.Faction);
+        Assert.True(item.IsOfferedThisRaid);
+        Assert.Equal(provenance, item.Provenance);
+        var listItem = Assert.Single(scene.ListEntries);
+        Assert.Equal(MapFeatureFaction.Scav, listItem.Faction);
+        Assert.True(listItem.IsOfferedThisRaid);
+    }
+
+    [Fact]
     public void Stable_object_ids_do_not_depend_on_catalog_order()
     {
         var first = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Crossroads");
@@ -104,14 +129,47 @@ public sealed class MapSceneAssemblerTests
         Assert.Empty(scene.Objects);
     }
 
+    [Fact]
+    public void Uses_lower_inclusive_upper_exclusive_floor_ranges()
+    {
+        var range = new MapOverlayElement(
+            MapOverlayKind.QuestObjectives,
+            new(10, 10),
+            "Lower-floor region",
+            MinimumHeight: 0,
+            MaximumHeight: 10);
+        var boundaryPoint = new MapOverlayElement(
+            MapOverlayKind.Extracts,
+            new(20, 20),
+            "Upper-floor point",
+            MinimumHeight: 10,
+            MaximumHeight: 10);
+
+        var scene = Assert.IsType<MapSceneSnapshot>(
+            new MapSceneAssembler().Build(Request(Model([range, boundaryPoint]))).Scene);
+
+        Assert.Equal(["lower"], scene.Objects.Single(item => item.Label == range.Label).FloorIds);
+        Assert.Equal(["upper"], scene.Objects.Single(item => item.Label == boundaryPoint.Label).FloorIds);
+    }
+
+    [Fact]
+    public void Identity_collision_with_conflicting_content_withholds_the_scene()
+    {
+        var first = new MapOverlayElement(MapOverlayKind.Extracts, new(20, 30), "Crossroads")
+        {
+            Detail = "Always open.",
+        };
+        var second = first with { Detail = "Payment required." };
+
+        var result = new MapSceneAssembler().Build(Request(Model([first, second])));
+
+        Assert.False(result.IsAvailable);
+        Assert.Contains("stable identity", result.UnavailableReason, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static MapSceneBuildRequest Request(MapRenderModel model) => new(
         8,
         model,
-        new(
-            new("https://example.test/maps.json"),
-            RetrievedUtc,
-            new string('b', 64),
-            MapCatalogAvailability.Current),
         new(0, 0, 100, 100),
         "maps-json:b",
         new(
@@ -119,6 +177,7 @@ public sealed class MapSceneAssemblerTests
             "lower",
             new(50, 50, 1, 0, 0),
             []),
+        model.OverlayElements.Select(element => new MapSceneLegacyElement(element, Provenance())).ToArray(),
         [],
         [],
         [Asset()]);
@@ -136,6 +195,12 @@ public sealed class MapSceneAssemblerTests
             "game-1",
             MapSceneAssetReviewStatus.Reviewed,
             RetrievedUtc);
+
+    private static DataProvenance Provenance(string source = "map-catalog", double confidence = 1) => new(
+        source,
+        RetrievedUtc,
+        Reference: new string('b', 64),
+        Confidence: new Confidence(confidence));
 
     private static MapRenderModel Model(IReadOnlyList<MapOverlayElement> elements)
     {

@@ -85,6 +85,52 @@ public sealed class MapSceneContractsTests
         Assert.Throws<ArgumentException>(action);
     }
 
+    [Theory]
+    [InlineData("http://example.test/map.svg")]
+    [InlineData("file:///tmp/map.svg")]
+    public void Reviewed_assets_require_https_sources(string source)
+    {
+        var action = () => new MapSceneAsset(
+            new("asset:unsafe"),
+            MapSceneAssetKind.Background2D,
+            new(source),
+            new("https://example.test/licence"),
+            new string('a', 64),
+            "Example map author",
+            "map-1",
+            "game-1",
+            MapSceneAssetReviewStatus.Reviewed,
+            new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero));
+
+        var exception = Assert.Throws<ArgumentException>(action);
+        Assert.Contains("HTTPS", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Snapshot_copies_view_layers_before_publishing_its_revision()
+    {
+        var layer = new MapSceneLayer(new("extracts"), "Extracts", 1, true);
+        var callerOwned = new List<MapSceneLayerState> { new(layer.Id, true) };
+        var scene = new MapSceneSnapshot(
+            1,
+            "customs",
+            "customs-plan",
+            "transform-1",
+            new(0, 0, 100, 100),
+            [],
+            Capabilities(),
+            new(MapSceneMode.Flat2D, null, new(50, 50, 1, 0, 0), callerOwned),
+            [layer],
+            [Object(layer.Id)],
+            [Asset()]);
+
+        callerOwned[0] = new(layer.Id, false);
+
+        Assert.Single(scene.VisibleObjects);
+        Assert.True(Assert.Single(scene.View.Layers).IsVisible);
+        Assert.Equal(1, scene.Revision);
+    }
+
     private static MapSceneSnapshot Scene(IReadOnlyList<MapSceneAsset>? assets = null)
     {
         var layer = new MapSceneLayer(new("extracts"), "Extracts", 1, true);

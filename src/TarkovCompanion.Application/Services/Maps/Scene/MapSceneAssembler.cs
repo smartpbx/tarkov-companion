@@ -9,13 +9,21 @@ namespace TarkovCompanion.Application.Services.Maps.Scene;
 public sealed record MapSceneBuildRequest(
     long Revision,
     MapRenderModel RenderModel,
-    MapCatalogProvenance CatalogProvenance,
     MapSceneBounds Bounds,
     string TransformVersion,
     MapSceneViewState RequestedView,
+    IReadOnlyList<MapSceneLegacyElement> LegacyElements,
     IReadOnlyList<MapSceneLayer> AdditionalLayers,
     IReadOnlyList<MapSceneObject> AdditionalObjects,
     IReadOnlyList<MapSceneAsset> Assets);
+
+/// <summary>An old overlay paired with the source evidence that the old model did not carry.</summary>
+public sealed record MapSceneLegacyElement(MapOverlayElement Element, DataProvenance Provenance)
+{
+    public MapOverlayElement Element { get; } = Element ?? throw new ArgumentNullException(nameof(Element));
+
+    public DataProvenance Provenance { get; } = Provenance ?? throw new ArgumentNullException(nameof(Provenance));
+}
 
 public sealed record MapSceneBuildResult(MapSceneSnapshot? Scene, string? UnavailableReason)
 {
@@ -40,9 +48,9 @@ public sealed class MapSceneAssembler
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.RenderModel);
-        ArgumentNullException.ThrowIfNull(request.CatalogProvenance);
         ArgumentNullException.ThrowIfNull(request.RequestedView);
         ArgumentNullException.ThrowIfNull(request.RequestedView.Layers);
+        ArgumentNullException.ThrowIfNull(request.LegacyElements);
         ArgumentNullException.ThrowIfNull(request.AdditionalLayers);
         ArgumentNullException.ThrowIfNull(request.AdditionalObjects);
         ArgumentNullException.ThrowIfNull(request.Assets);
@@ -55,17 +63,14 @@ public sealed class MapSceneAssembler
         }
 
         var layers = CreateLayers(request.RenderModel).Concat(request.AdditionalLayers).ToArray();
-        var provenance = new DataProvenance(
-            request.CatalogProvenance.SourceUri.AbsoluteUri,
-            request.CatalogProvenance.RetrievedUtc,
-            Reference: request.CatalogProvenance.ContentSha256,
-            Confidence: Confidence.Certain);
-        var legacyObjects = request.RenderModel.OverlayElements
-            .Where(CanAdaptWithoutLosingMeaning)
-            .Select(element => Adapt(element, request.RenderModel.Floors, provenance))
-            .GroupBy(item => item.Id)
-            .Select(group => group.First());
+        var legacyObjects = request.LegacyElements
+            .Where(item => CanAdaptWithoutLosingMeaning(item.Element))
+            .Select(item => Adapt(item.Element, request.RenderModel.Floors, item.Provenance));
         var objects = legacyObjects.Concat(request.AdditionalObjects).ToArray();
+        if (objects.GroupBy(item => item.Id).Any(group => group.Count() > 1))
+        {
+            return new(null, "Two map objects resolved to the same stable identity; the scene was withheld for review.");
+        }
 
         var floorIds = request.RenderModel.Floors.Select(floor => floor.Id).ToArray();
         var capabilities = new MapSceneCapabilities(
@@ -169,7 +174,9 @@ public sealed class MapSceneAssembler
             element.Detail,
             MapSceneGeometry.At(point),
             FloorsFor(element, floors),
-            provenance);
+            provenance,
+            faction: element.Faction,
+            isOfferedThisRaid: element.IsActive);
     }
 
     private static IReadOnlyList<string> FloorsFor(
@@ -181,10 +188,15 @@ public sealed class MapSceneAssembler
             return [];
         }
 
+        var pointHeight = element.MinimumHeight is { } minimum && element.MaximumHeight == minimum
+            ? minimum
+            : (double?)null;
         return floors
-            .Where(floor => floor.Extents.Count == 0 || floor.Extents.Any(extent =>
-                (extent.MinimumHeight is null || element.MaximumHeight is null || element.MaximumHeight >= extent.MinimumHeight) &&
-                (extent.MaximumHeight is null || element.MinimumHeight is null || element.MinimumHeight < extent.MaximumHeight)))
+            .Where(floor => floor.Extents.Count == 0 || floor.Extents.Any(extent => pointHeight is { } height
+                ? (extent.MinimumHeight is null || height >= extent.MinimumHeight) &&
+                  (extent.MaximumHeight is null || height < extent.MaximumHeight)
+                : (extent.MinimumHeight is null || element.MaximumHeight is null || element.MaximumHeight > extent.MinimumHeight) &&
+                  (extent.MaximumHeight is null || element.MinimumHeight is null || element.MinimumHeight < extent.MaximumHeight)))
             .Select(floor => floor.Id)
             .ToArray();
     }
@@ -194,6 +206,7 @@ public sealed class MapSceneAssembler
         var canonical = string.Join('|',
             element.Layer.ToString(),
             element.Label,
+            element.Faction.ToString(),
             element.Position.X.ToString("R", CultureInfo.InvariantCulture),
             element.Position.Y.ToString("R", CultureInfo.InvariantCulture),
             element.MinimumHeight?.ToString("R", CultureInfo.InvariantCulture) ?? string.Empty,

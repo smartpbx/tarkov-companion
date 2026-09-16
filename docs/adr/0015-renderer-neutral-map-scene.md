@@ -36,9 +36,11 @@ Core owns a renderer-neutral scene snapshot under `Domain/Maps/Scene`.
 - The visible non-spatial list and renderer-independent hit testing read the same floor and layer
   state as the map.
 
-Application owns adapters into that scene. The first adapter accepts the existing map render
-model only for semantics it can preserve exactly: labels, extracts/transits, spawn areas, locks,
-and quest objectives. Legacy generic marks, routes, and traffic entries are not guessed. Their V2
+Application owns adapters into that scene. The first adapter accepts existing overlay elements
+only when the caller also supplies that individual element's provenance, and only for semantics it
+can preserve exactly: labels, extracts/transits (including faction and offered state), spawn areas,
+locks, and quest objectives. Conflicting stable identities withhold the scene instead of choosing
+one by input order. Legacy generic marks, routes, and traffic entries are not guessed. Their V2
 feature adapters must supply typed scene objects directly.
 
 Avalonia, WebGL/canvas, and future low-cost renderers consume the scene; they do not define it.

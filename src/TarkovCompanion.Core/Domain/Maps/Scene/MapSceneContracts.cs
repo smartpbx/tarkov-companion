@@ -1,4 +1,5 @@
 using TarkovCompanion.Core.Common;
+using TarkovCompanion.Core.Domain.Maps;
 
 namespace TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -331,7 +332,9 @@ public sealed record MapSceneObject
         MapSceneGeometry geometry,
         IReadOnlyList<string> floorIds,
         DataProvenance provenance,
-        MapSceneEstimateMetadata? estimate = null)
+        MapSceneEstimateMetadata? estimate = null,
+        MapFeatureFaction faction = MapFeatureFaction.Unknown,
+        bool isOfferedThisRaid = false)
     {
         ArgumentNullException.ThrowIfNull(geometry);
         ArgumentNullException.ThrowIfNull(floorIds);
@@ -357,6 +360,16 @@ public sealed record MapSceneObject
             throw new ArgumentException("Historical estimates require source confidence.", nameof(provenance));
         }
 
+        if (!Enum.IsDefined(faction))
+        {
+            throw new ArgumentOutOfRangeException(nameof(faction));
+        }
+
+        if (isOfferedThisRaid && kind is not (MapSceneObjectKind.Extract or MapSceneObjectKind.Transit))
+        {
+            throw new ArgumentException("Only an extract or transit can be offered for this raid.", nameof(isOfferedThisRaid));
+        }
+
         Id = id;
         LayerId = layerId;
         Kind = kind;
@@ -370,6 +383,8 @@ public sealed record MapSceneObject
             .ToArray();
         Provenance = provenance;
         Estimate = estimate;
+        Faction = faction;
+        IsOfferedThisRaid = isOfferedThisRaid;
     }
 
     public MapSceneObjectId Id { get; }
@@ -391,6 +406,10 @@ public sealed record MapSceneObject
     public DataProvenance Provenance { get; }
 
     public MapSceneEstimateMetadata? Estimate { get; }
+
+    public MapFeatureFaction Faction { get; }
+
+    public bool IsOfferedThisRaid { get; }
 }
 
 public sealed record MapSceneAsset
@@ -414,9 +433,11 @@ public sealed record MapSceneAsset
         {
             throw new ArgumentOutOfRangeException(nameof(kind), "Scene asset kind and review status must be known.");
         }
-        if (!sourceUri.IsAbsoluteUri || !licenseUri.IsAbsoluteUri)
+        if (!sourceUri.IsAbsoluteUri || !licenseUri.IsAbsoluteUri ||
+            !string.Equals(sourceUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(licenseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException("Scene asset source and licence URIs must be absolute.");
+            throw new ArgumentException("Scene asset source and licence URIs must use absolute HTTPS URLs.");
         }
 
         if (contentSha256.Length != 64 || contentSha256.Any(character => !Uri.IsHexDigit(character)))
@@ -541,6 +562,8 @@ public sealed record MapSceneListEntry(
     string Label,
     string? Detail,
     MapSceneTruthKind Truth,
+    MapFeatureFaction Faction,
+    bool IsOfferedThisRaid,
     DataProvenance Provenance);
 
 /// <summary>The single renderer-neutral scene consumed by desktop and paired clients.</summary>
@@ -630,7 +653,7 @@ public sealed record MapSceneSnapshot
         Bounds = bounds;
         FloorIds = normalizedFloors;
         Capabilities = capabilities;
-        View = view;
+        View = view with { Layers = view.Layers.ToArray() };
         Layers = layerCopy;
         Objects = objectCopy;
         Assets = assetCopy;
@@ -667,7 +690,15 @@ public sealed record MapSceneSnapshot
 
     public IReadOnlyList<MapSceneListEntry> ListEntries => VisibleObjects
         .Where(item => Layers.Single(layer => layer.Id == item.LayerId).IsAvailableInList)
-        .Select(item => new MapSceneListEntry(item.Id, item.Kind, item.Label, item.Detail, item.Truth, item.Provenance))
+        .Select(item => new MapSceneListEntry(
+            item.Id,
+            item.Kind,
+            item.Label,
+            item.Detail,
+            item.Truth,
+            item.Faction,
+            item.IsOfferedThisRaid,
+            item.Provenance))
         .ToArray();
 
     private bool IsLayerVisible(MapSceneLayerId layerId) =>
