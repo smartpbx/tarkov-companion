@@ -313,12 +313,15 @@ public sealed class V2ShellViewModelTests : IDisposable
             Volatile.Read(ref attempts) >= 2 &&
             shell.HasPersistenceFailure &&
             !shell.PersistenceRetryPending &&
-            shell.CanRetryPersistence);
+            shell.CanRetryPersistence &&
+            shell.PersistenceFailure.Contains("failure 2", StringComparison.OrdinalIgnoreCase));
 
         Assert.Contains("failure 2", shell.PersistenceFailure, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("Retry save", shell.PersistenceRetryLabel);
 
         shell.RetryPersistenceCommand.Execute(null);
+        // The save delegate increments before its result crosses the UI apply boundary. Waiting
+        // for attempt two alone can still observe failure one's fully retryable state.
         await WaitUntilAsync(() =>
             Volatile.Read(ref attempts) >= 3 &&
             !shell.HasPersistenceFailure &&
