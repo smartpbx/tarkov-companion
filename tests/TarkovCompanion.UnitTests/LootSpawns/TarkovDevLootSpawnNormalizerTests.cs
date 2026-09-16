@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Evidence;

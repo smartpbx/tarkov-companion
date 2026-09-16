@@ -109,7 +109,7 @@ public sealed class DurableLootSpawnPublicationStoreTests : IDisposable
         Assert.All(outcomes.Where(value => value is not null), value =>
             Assert.Contains(
                 Assert.IsType<LootSpawnSourceImportException>(value).Code,
-                ["publication.import-regression", "publication.superseded"]));
+                new[] { "publication.import-regression", "publication.superseded" }));
         using var reader = Store(path);
         Assert.Equal(
             newer.Identity.ContentSha256,

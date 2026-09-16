@@ -658,18 +658,18 @@ public sealed class LootSpawnSourceImportTests
                 "fixture-gpu",
                 "Synthetic graphics card",
                 "Electronics",
-                ItemValue("flea-gross", gpuFleaGrossRoubles, itemProvenance, itemFreshness),
-                ItemValue("flea-net", 820_000L, itemProvenance, itemFreshness),
-                ItemValue("best-trader", 125_000L, itemProvenance, itemFreshness),
-                ItemValue("occupied-squares", 2, itemProvenance, itemFreshness)),
+                ItemValue<long>("flea-gross", gpuFleaGrossRoubles, itemProvenance, itemFreshness),
+                ItemValue<long>("flea-net", 820_000L, itemProvenance, itemFreshness),
+                ItemValue<long>("best-trader", 125_000L, itemProvenance, itemFreshness),
+                ItemValue<int>("occupied-squares", 2, itemProvenance, itemFreshness)),
             ["fixture-ledx"] = new(
                 "fixture-ledx",
                 "Synthetic medical item",
                 "Medical",
-                ItemValue("flea-gross", 1_100_000L, itemProvenance, itemFreshness),
-                ItemValue("flea-net", 990_000L, itemProvenance, itemFreshness),
-                ItemValue("best-trader", 300_000L, itemProvenance, itemFreshness),
-                ItemValue("occupied-squares", 1, itemProvenance, itemFreshness)),
+                ItemValue<long>("flea-gross", 1_100_000L, itemProvenance, itemFreshness),
+                ItemValue<long>("flea-net", 990_000L, itemProvenance, itemFreshness),
+                ItemValue<long>("best-trader", 300_000L, itemProvenance, itemFreshness),
+                ItemValue<int>("occupied-squares", 1, itemProvenance, itemFreshness)),
         };
         var floors = new HashSet<string>(["ground", "first"], StringComparer.Ordinal);
         var maps = new Dictionary<string, LootSpawnMapSourceDefinition>(StringComparer.Ordinal)
