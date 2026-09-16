@@ -74,7 +74,7 @@ public sealed class MapSceneRendererPresentation
             ["Map.Mode.FloorStack"] = "Floor stack",
             ["Map.Mode.Interior"] = "3D interior",
             ["Map.Mode.Fallback"] = "{0} is active in the shared scene; this renderer is showing the floor-filtered 2D plan.",
-            ["Map.Mode.FloorStackUnsupported"] = "Floor-stack rendering is not available here because scene assets do not identify artwork by floor. Use the floor filter in the 2D plan.",
+            ["Map.Mode.FloorStackUnsupported"] = "Floor-stack view needs floor-specific artwork. Use the floor filter in the 2D plan.",
             ["Map.Mode.InteriorUnsupported"] = "Reviewed 3D rendering is not available in this renderer. Use the 2D plan.",
             ["Map.Mode.Unavailable"] = "{0} is unavailable. {1}",
             ["Map.Floor.Unavailable"] = "That floor is not available in this map.",
