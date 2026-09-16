@@ -127,6 +127,54 @@ public sealed class ExplainableRecommendationEngineTests
         }
     }
 
+    [Theory]
+    [InlineData(EvidenceSourceClass.PublicStructuredData)]
+    [InlineData(EvidenceSourceClass.GameWrittenScreenshot)]
+    [InlineData(EvidenceSourceClass.GameWrittenLog)]
+    public void ObservedOrPublishedEvidenceCannotEstablishAConsumptionOutcome(EvidenceSourceClass sourceClass)
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
+            eventState: EventItemState.Allergic,
+            eventProvenance: Provenance("unconfirmed-event-outcome", sourceClass: sourceClass))));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "profile.event-state-untrusted");
+        Assert.DoesNotContain(result.Decision.Value.Reasons, reason => reason.Code == "event.allergic");
+    }
+
+    [Theory]
+    [InlineData(CorrectionOriginClass.User, true)]
+    [InlineData(CorrectionOriginClass.PairedDevice, true)]
+    [InlineData(CorrectionOriginClass.DesktopApplication, false)]
+    [InlineData(CorrectionOriginClass.ReviewedImport, false)]
+    public void OnlyUserConfirmedCorrectionsCanEstablishAConsumptionOutcome(
+        CorrectionOriginClass originClass,
+        bool expectedTrusted)
+    {
+        var correction = new EvidenceCorrection<EventItemState?>(
+            1,
+            EventItemState.Unknown,
+            EventItemState.Allergic,
+            Now.AddMinutes(-1),
+            originClass,
+            "event-outcome-origin");
+        var field = new EvidencedValue<EventItemState?>(
+            "profile.event",
+            EventItemState.Allergic,
+            CompleteStatus,
+            Provenance("unconfirmed-event-state"),
+            corrections: [correction]);
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(eventField: field)));
+
+        Assert.Equal(expectedTrusted ? V2Action.AvoidConsume : V2Action.Review, result.Decision.Value!.Action);
+        Assert.Equal(
+            expectedTrusted,
+            result.Decision.Value.Reasons.Any(reason => reason.Code == "event.allergic"));
+        Assert.Equal(
+            !expectedTrusted,
+            result.Decision.Value.Reasons.Any(reason => reason.Code == "profile.event-state-untrusted"));
+    }
+
     [Fact]
     public void MissingPriceOrFootprintProducesReviewNotAZeroValuation()
     {
@@ -535,7 +583,10 @@ public sealed class ExplainableRecommendationEngineTests
             wishlistProvenance: Provenance("durable-wishlist", recordedUtc)))).Decision.Value!;
         var allergicDecision = new ExplainableRecommendationEngine().Evaluate(Request(profile: Profile(
             eventState: EventItemState.Allergic,
-            eventProvenance: Provenance("durable-allergy", recordedUtc)))).Decision.Value!;
+            eventProvenance: Provenance(
+                "durable-allergy",
+                recordedUtc,
+                sourceClass: EvidenceSourceClass.UserEntered)))).Decision.Value!;
 
         Assert.Equal(V2Action.Leave, explicitDecision.Action);
         Assert.Contains(explicitDecision.Reasons, reason => reason.Code == "override.explicit");
@@ -956,7 +1007,8 @@ public sealed class ExplainableRecommendationEngineTests
         EvidenceProvenance? pinnedProvenance = null,
         EvidenceProvenance? wishlistProvenance = null,
         EvidenceProvenance? eventProvenance = null,
-        EvidencedValue<bool?>? protectedField = null) => new(
+        EvidencedValue<bool?>? protectedField = null,
+        EvidencedValue<EventItemState?>? eventField = null) => new(
         CompleteStatus,
         Provenance("profile"),
         explicitAction is { } action
@@ -965,7 +1017,10 @@ public sealed class ExplainableRecommendationEngineTests
         protectedField ?? Complete<bool?>("profile.protected", protectedItem, protectedProvenance),
         Complete<bool?>("profile.pinned", pinned, pinnedProvenance),
         Complete<bool?>("profile.wishlist", wishlist, wishlistProvenance),
-        Complete<EventItemState?>("profile.event", eventState, eventProvenance),
+        eventField ?? Complete<EventItemState?>(
+            "profile.event",
+            eventState,
+            eventProvenance ?? Provenance("profile.event", sourceClass: EvidenceSourceClass.UserEntered)),
         needs ?? []);
 
     private static RecommendationNeed Need(
@@ -1076,8 +1131,9 @@ public sealed class ExplainableRecommendationEngineTests
     private static EvidenceProvenance Provenance(
         string id,
         DateTimeOffset? observedUtc = null,
-        double confidence = 0.98) => new(
-        EvidenceSourceClass.PublicStructuredData,
+        double confidence = 0.98,
+        EvidenceSourceClass sourceClass = EvidenceSourceClass.PublicStructuredData) => new(
+        sourceClass,
         $"fixture://{id}",
         observedUtc ?? Now.AddMinutes(-5),
         new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, confidence),

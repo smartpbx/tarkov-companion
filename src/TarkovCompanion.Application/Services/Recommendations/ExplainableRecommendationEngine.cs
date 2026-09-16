@@ -74,7 +74,7 @@ public sealed class ExplainableRecommendationEngine(
             sensitivities.Add(new("override-removed", "Removing the explicit item rule may change this recommendation.", null));
         }
 
-        var eventEvidence = InspectRequiredProfileField(
+        var eventEvidence = InspectEventState(
             profile.EventState,
             request,
             evidenceIssues,
@@ -1283,6 +1283,51 @@ public sealed class ExplainableRecommendationEngine(
         return inspection.Trusted;
     }
 
+    private TrustedValue<EventItemState>? InspectEventState(
+        EvidencedValue<EventItemState?> field,
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues,
+        string issueCode,
+        string issueExplanation)
+    {
+        var inspection = InspectEvidence(
+            field,
+            request.EvaluatedUtc,
+            maximumAge: null,
+            allowPartial: false);
+        if (!inspection.IsReliable)
+        {
+            AddIssue(issues, issueCode, issueExplanation, inspection.Assessment);
+            return null;
+        }
+
+        var trusted = inspection.Trusted!;
+        if (trusted.Value is not (EventItemState.Safe or EventItemState.Allergic))
+        {
+            return trusted;
+        }
+
+        // Recognition and catalog data can establish that an event item is applicable or
+        // untested, but they cannot establish what happened after this player consumed it.
+        // A correction's declared origin is checked directly so the generic correction
+        // provenance mapping cannot turn a desktop or imported correction into a user outcome.
+        var userConfirmed = field.Corrections.Count > 0
+            ? field.Corrections[^1].OriginClass is CorrectionOriginClass.User or CorrectionOriginClass.PairedDevice
+            : field.Provenance.SourceClass is EvidenceSourceClass.UserEntered or EvidenceSourceClass.PairedDeviceAction;
+        if (userConfirmed)
+        {
+            return trusted;
+        }
+
+        var authorityFailure = inspection.Assessment with
+        {
+            IsReliable = false,
+            Failure = EvidenceFailure.Unauthoritative,
+        };
+        AddIssue(issues, issueCode, issueExplanation, authorityFailure);
+        return null;
+    }
+
     private EvidenceInspection<T> InspectEvidence<T>(
         EvidencedValue<T?> field,
         DateTimeOffset evaluatedUtc,
@@ -1597,6 +1642,7 @@ public sealed class ExplainableRecommendationEngine(
         UnknownFreshness,
         LowConfidence,
         Future,
+        Unauthoritative,
     }
 
     private sealed record ReliabilityAssessment(
