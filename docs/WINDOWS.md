@@ -18,7 +18,7 @@ Monitor discovery uses ordinary display-monitor enumeration under per-monitor-v2
 
 Path discovery checks ordinary uninstall registry values and conventional user folders, then returns only directories that exist. Partial discoveries carry reduced confidence rather than fabricated paths. Users can still configure paths manually at the application layer.
 
-The log watcher tails newly appended lines in ordinary `*.log` files with read-sharing enabled and feeds the tolerant application parser. Existing bytes are not replayed on watcher startup. Unknown lines are ignored. The screenshot watcher emits only newly created or renamed PNG/JPEG paths; simulator-named paths are ignored unless DeveloperMode was explicit. Both watchers propagate cancellation.
+The log watcher tails newly appended lines in ordinary `*.log` files with read-sharing enabled and feeds the tolerant application parser. Existing bytes are not replayed on watcher startup. Unknown lines are ignored. The screenshot watcher polls PNG/JPEG metadata, waits for two unchanged probes and a complete image envelope, and emits a path when new bytes have settled. A content change at the same path may therefore be delivered again, while attribute-only changes are ignored. Files older than the two-minute startup grace are not replayed, tracking is bounded to 16,384 paths, and encoded files over 64 MiB or cloud placeholders are held rather than opened. If the configured root disappears or becomes unreadable, the watcher raises a path-free availability signal; the application clears screenshot readiness and rediscovers that source without stopping healthy log observation. Simulator-named paths are ignored unless DeveloperMode was explicit. Both watchers propagate cancellation.
 
 ## Secrets
 
@@ -33,7 +33,8 @@ Linux proves contract behavior and Windows gating but cannot exercise User32, GD
 - hotkey registration, receipt, collision reporting, unregister, and clean shutdown;
 - multiple-monitor bounds, primary identity, and scale;
 - registry/folder path discovery against an installed or synthetic layout;
-- concurrent log writes and screenshot create/rename notifications;
+- concurrent log writes and settled screenshot creation/replacement, attribute-only changes,
+  root deletion/recreation, encoded-size limits, and cloud-placeholder transitions;
 - DPAPI set/get/delete and inability to decrypt from another Windows user.
 
 Direct validation against a real EFT installation remains a separate checklist in `LIVE_EFT_VALIDATION.md` and must not be claimed from simulator or VM-only evidence.

@@ -5,10 +5,16 @@ lists the cases the native primitive gallery must be rendered, inspected, and ap
 
 - 100, 125, 150, and 200% text;
 - expanded, standard, compact, and narrow effective widths, including a narrow tablet case;
+- resolved full and reduced motion, with state and wording preserved when transitions disappear;
 - all nine concrete theme variants: Dark, Light, HighContrast, and the Dark and Light red-green-safe,
   blue-yellow-safe, and monochrome variants;
 - the elements each case must visibly contain, each mapped to gallery automation ids;
 - the tree each case must expose.
+
+The desktop 125% and tablet narrow cases include the structured credibility, paired-device,
+sharing, recovery, capture-progress, correction, and initiating-context examples. The matrix names
+desktop/tablet as surfaces for evidence organization only; responsive selection still uses effective
+content width, never a device-label breakpoint.
 
 The first matrix named six variants for nine theme dictionaries, and asked for stacked cards, a table
 overflow affordance, single-column reflow, and an ordered data alternative that the gallery does not

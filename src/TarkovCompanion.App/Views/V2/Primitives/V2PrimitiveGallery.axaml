@@ -94,6 +94,41 @@
               AutomationProperties.AccessibilityView="Control"
               AutomationProperties.Name="{DynamicResource V2.String.Evidence.Summary}">
         <StackPanel Classes="v2-stack">
+          <!-- Credibility stays compact until it changes a decision. Word and glyph remain when
+               colour and the optional outline pattern are unavailable. -->
+          <WrapPanel Classes="v2-badge-row">
+            <Panel Classes="v2-badge v2-credibility-historical"
+                   AutomationProperties.AutomationId="v2-credibility-historical"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.Name="{DynamicResource V2.String.Map.Historical}">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.EmptyDiamond}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Map.Historical}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-credibility-coverage">
+              <Rectangle Classes="v2-badge-outline" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.HalfSquare}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Completeness.Partial}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-credibility-freshness">
+              <Rectangle Classes="v2-badge-outline" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.EmptyDiamond}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Freshness.Stale}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-credibility-confidence">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dotted" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.Question}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Evidence.Confidence.Moderate}" />
+              </StackPanel>
+            </Panel>
+          </WrapPanel>
           <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Evidence.Summary}" />
           <!-- An Expander's automation name is not taken from its header, so it is set explicitly. -->
           <Expander Classes="v2-why"
@@ -239,12 +274,59 @@
       <Border Classes="v2-card"
               AutomationProperties.AutomationId="v2-paired-device"
               AutomationProperties.AccessibilityView="Control"
-              AutomationProperties.Name="{DynamicResource V2.String.Device.Title}">
+              AutomationProperties.Name="{DynamicResource V2.String.Device.Detail}">
         <StackPanel Classes="v2-stack">
           <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                      Text="{DynamicResource V2.String.Device.Title}" />
-          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Device.Mode}" />
-          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Device.Detail}" />
+          <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Mode}" />
+          <!-- Mode, lease authority, transport, acknowledgement, and sharing are independent
+               facts. Feature views select one value per axis; they do not invent combined states. -->
+          <WrapPanel Classes="v2-badge-row">
+            <Panel Classes="v2-badge v2-device-mode-control-pending">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dash-dot" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.QuarterCircle}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Mode.ControlPending}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-device-control-pending">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dash-dot" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.QuarterCircle}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Control.Pending}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-device-connectivity-reconnecting">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dotted" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.QuarterCircle}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Connectivity.Reconnecting}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-device-acknowledgement-lagging">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.InsetDiamond}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Acknowledgement.Lagging}" />
+              </StackPanel>
+            </Panel>
+            <Panel Classes="v2-badge v2-device-sharing-paired"
+                   AutomationProperties.AutomationId="v2-sharing-state"
+                   AutomationProperties.AccessibilityView="Control"
+                   AutomationProperties.Name="{DynamicResource V2.String.Device.Sharing.PairedDevices}">
+              <Rectangle Classes="v2-badge-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+              <StackPanel Classes="v2-badge-content">
+                <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.HalfSquare}" />
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Device.Sharing.PairedDevices}" />
+              </StackPanel>
+            </Panel>
+          </WrapPanel>
+          <WrapPanel Classes="v2-toolbar">
+            <Button Classes="v2-target v2-touch-target"
+                    AutomationProperties.AutomationId="v2-device-reconnect"
+                    Content="{DynamicResource V2.String.Device.Action.Reconnect}" />
+            <Button Classes="v2-target v2-touch-target" Content="{DynamicResource V2.String.Action.Retry}" />
+          </WrapPanel>
         </StackPanel>
       </Border>
 
@@ -252,11 +334,49 @@
         <Border Classes="v2-card"
                 AutomationProperties.AutomationId="v2-capture-queue"
                 AutomationProperties.AccessibilityView="Control"
-                AutomationProperties.Name="{DynamicResource V2.String.Capture.Title}">
+                AutomationProperties.Name="{DynamicResource V2.String.Capture.Detail}">
           <StackPanel Classes="v2-stack">
             <TextBlock Classes="v2-heading-3" AutomationProperties.HeadingLevel="3"
                        Text="{DynamicResource V2.String.Capture.Title}" />
-            <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Capture.Detail}" />
+            <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.Capture.Purpose}" />
+            <StackPanel Classes="v2-stack"
+                        AutomationProperties.AutomationId="v2-capture-progress"
+                        AutomationProperties.AccessibilityView="Control"
+                        AutomationProperties.Name="{DynamicResource V2.String.Capture.Detail}">
+              <StackPanel Classes="v2-capture-row"
+                          AutomationProperties.AccessibilityView="Control"
+                          AutomationProperties.Name="{DynamicResource V2.String.Capture.Row1.Name}">
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Capture.Row1.Ordinal}" />
+                <Panel Classes="v2-badge v2-capture-stage-review">
+                  <Rectangle Classes="v2-badge-outline v2-pattern-dashed" AutomationProperties.AccessibilityView="Raw" />
+                  <StackPanel Classes="v2-badge-content">
+                    <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.Question}" />
+                    <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Capture.Stage.Review}" />
+                  </StackPanel>
+                </Panel>
+              </StackPanel>
+              <StackPanel Classes="v2-capture-row"
+                          AutomationProperties.AccessibilityView="Control"
+                          AutomationProperties.Name="{DynamicResource V2.String.Capture.Row2.Name}">
+                <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Capture.Row2.Ordinal}" />
+                <Panel Classes="v2-badge v2-capture-stage-processing">
+                  <Rectangle Classes="v2-badge-outline v2-pattern-dash-dot" AutomationProperties.AccessibilityView="Raw" />
+                  <StackPanel Classes="v2-badge-content">
+                    <TextBlock Classes="v2-glyph" AutomationProperties.AccessibilityView="Raw" Text="{DynamicResource V2.Glyph.InsetDiamond}" />
+                    <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.Capture.Stage.Processing}" />
+                  </StackPanel>
+                </Panel>
+              </StackPanel>
+            </StackPanel>
+            <WrapPanel Classes="v2-toolbar">
+              <Button Classes="v2-target v2-touch-target"
+                      AutomationProperties.AutomationId="v2-capture-correct"
+                      Content="{DynamicResource V2.String.Capture.Action.Correct}" />
+              <Button Classes="v2-target v2-touch-target" Content="{DynamicResource V2.String.Action.Retry}" />
+              <Button Classes="v2-target v2-touch-target"
+                      AutomationProperties.AutomationId="v2-capture-context"
+                      Content="{DynamicResource V2.String.Capture.Action.OpenContext}" />
+            </WrapPanel>
           </StackPanel>
         </Border>
       </StackPanel>

@@ -13,9 +13,10 @@ public static class V2PrimitiveContracts
 {
     public static readonly IReadOnlyList<string> Required =
     [
-        "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary",
-        "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable",
-        "chartLegend", "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "captureQueue",
+        "pageHeading", "stateBanner", "fieldError", "statusBadge", "evidenceSummary", "credibilityChip",
+        "emptyState", "card", "toolbar", "dialogHost", "liveRegion", "semanticTable", "chartLegend",
+        "mapLegend", "touchTarget", "whyDisclosure", "pairedDevice", "sharingState", "recoveryAction",
+        "captureQueue", "captureProgress", "correctionAction", "initiatingContextLink",
     ];
 
     /// <summary>
@@ -34,6 +35,7 @@ public static class V2PrimitiveContracts
         ["fieldError"] = "v2-field-error-input",
         ["statusBadge"] = "v2-status-badge",
         ["evidenceSummary"] = "v2-evidence-summary",
+        ["credibilityChip"] = "v2-credibility-historical",
         ["emptyState"] = "v2-empty-state",
         ["card"] = "v2-empty-state",
         ["toolbar"] = "v2-toolbar",
@@ -44,7 +46,12 @@ public static class V2PrimitiveContracts
         ["touchTarget"] = "v2-touch-target",
         ["whyDisclosure"] = "v2-why-disclosure",
         ["pairedDevice"] = "v2-paired-device",
+        ["sharingState"] = "v2-sharing-state",
+        ["recoveryAction"] = "v2-device-reconnect",
         ["captureQueue"] = "v2-capture-queue",
+        ["captureProgress"] = "v2-capture-progress",
+        ["correctionAction"] = "v2-capture-correct",
+        ["initiatingContextLink"] = "v2-capture-context",
     };
 
     /// <summary>
@@ -56,9 +63,57 @@ public static class V2PrimitiveContracts
         ["dialogHost"] = "#267",
     };
 
+    /// <summary>
+    /// Compatibility indexes from manifest 1.0. CaptureStages includes the historical
+    /// <c>corrected</c> id; new adapters use CaptureProgressStages and CaptureOutcomes so they do
+    /// not treat a correction as a pipeline phase.
+    /// </summary>
     public static readonly IReadOnlyList<string> CaptureStages =
     ["armed", "queued", "processing", "review", "corrected", "failed"];
 
+    /// <summary>
+    /// Compatibility index from manifest 1.0. New adapters compose the mode, control,
+    /// connectivity, acknowledgement, and sharing lists below.
+    /// </summary>
     public static readonly IReadOnlyList<string> DeviceStates =
     ["follow", "control", "independent", "leasePending", "offline", "reconnecting", "acknowledgementLag", "conflict"];
+
+    /// <summary>
+    /// The adapter-facing identities below split independent facts instead of treating every
+    /// combination as a new state. In particular, corrected is a capture outcome and not a phase,
+    /// while connectivity and acknowledgement do not change a paired device's interaction mode.
+    /// </summary>
+    public static readonly IReadOnlyList<string> EvidenceClasses =
+    ["observed", "inferred", "manual", "estimated", "historical", "modelled", "potential"];
+
+    public static readonly IReadOnlyList<string> CaptureProgressStages =
+    ["armed", "queued", "processing", "review", "complete", "cancelled", "failed"];
+
+    public static readonly IReadOnlyList<string> CaptureOutcomes = ["corrected"];
+
+    public static readonly IReadOnlyList<string> CaptureIntents =
+    ["auto", "loot", "stash", "ammo", "keys", "questItems", "extractsAndMap", "healthAndCharacter", "flea"];
+
+    public static readonly IReadOnlyList<string> CaptureActions =
+    ["correct", "retry", "openInitiatingContext"];
+
+    public static readonly IReadOnlyList<string> PairedUnavailableCaptureIntents = ["flea"];
+
+    public static readonly IReadOnlyList<string> DeviceModes =
+    ["follow", "controlPending", "control", "independent"];
+
+    public static readonly IReadOnlyList<string> DeviceControlStates =
+    ["desktop", "pendingApproval", "pairedDeviceLease"];
+
+    public static readonly IReadOnlyList<string> DeviceConnectivityStates =
+    ["connected", "offline", "reconnecting"];
+
+    public static readonly IReadOnlyList<string> DeviceAcknowledgementStates =
+    ["current", "lagging", "conflict"];
+
+    public static readonly IReadOnlyList<string> SharingScopes =
+    ["private", "pairedDevices", "team"];
+
+    public static readonly IReadOnlyList<string> RecoveryActions =
+    ["reconnect", "retry", "sync", "resolveConflict"];
 }
