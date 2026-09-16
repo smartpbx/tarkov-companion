@@ -539,11 +539,11 @@ public sealed class ProfileAwareKeyIntelligenceService
             if (!hasModel)
             {
                 var flattened = inputs.SelectMany(Flatten).ToArray();
-                var scores = flattened.Select(provenance => provenance.Confidence.Score).ToArray();
+                var directScores = flattened.Select(provenance => provenance.Confidence.Score).ToArray();
                 var containsUnknown = flattened.Any(provenance => provenance.SourceClass == EvidenceSourceClass.Unknown);
-                var confidence = containsUnknown || scores.Any(score => score is null)
+                var confidence = containsUnknown || directScores.Any(score => score is null)
                     ? EvidenceConfidence.Unscored
-                    : new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, scores.Min()!.Value);
+                    : new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, directScores.Min()!.Value);
                 return new EvidenceProvenance(
                     EvidenceSourceClass.DerivedCalculation,
                     "tarkov-companion:key-score",
