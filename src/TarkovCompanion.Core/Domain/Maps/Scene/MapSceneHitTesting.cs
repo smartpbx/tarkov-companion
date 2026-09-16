@@ -8,16 +8,35 @@ public static class MapSceneHitTesting
     public static IReadOnlyList<MapSceneHit> HitTest(
         MapSceneSnapshot scene,
         MapScenePoint point,
+        double tolerance) => HitTest(scene, scene.VisibleObjects, point, tolerance);
+
+    /// <summary>Hit-tests only objects the caller actually rendered and made eligible.</summary>
+    /// <remarks>
+    /// Dense renderers replace many source points with one cluster control and may withhold
+    /// geometry outside reviewed bounds. Testing the full scene in that state selected an
+    /// invisible object underneath the pointer. The explicit candidate list is copied and
+    /// validated against this scene before distances are considered.
+    /// </remarks>
+    public static IReadOnlyList<MapSceneHit> HitTest(
+        MapSceneSnapshot scene,
+        IEnumerable<MapSceneObject> candidates,
+        MapScenePoint point,
         double tolerance)
     {
         ArgumentNullException.ThrowIfNull(scene);
+        ArgumentNullException.ThrowIfNull(candidates);
         if (!double.IsFinite(tolerance) || tolerance < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(tolerance));
         }
 
         var zIndexes = scene.Layers.ToDictionary(layer => layer.Id, layer => layer.ZIndex);
+        var candidateIds = candidates
+            .Where(item => item is not null)
+            .Select(item => item.Id)
+            .ToHashSet();
         return scene.VisibleObjects
+            .Where(item => candidateIds.Contains(item.Id))
             .Select(item => new MapSceneHit(item, Distance(item.Geometry, point)))
             .Where(hit => hit.Distance <= tolerance)
             .OrderByDescending(hit => zIndexes[hit.Object.LayerId])

@@ -44,6 +44,12 @@ public static class InterfaceWarningLog
             // straight afterwards, and a buffered listener would hand it an empty one.
             Trace.Listeners.Add(new TextWriterTraceListener(path));
             Trace.AutoFlush = true;
+            // A clean page may legitimately produce no toolkit warnings. Emit an explicit
+            // non-fault marker so the gallery can distinguish that success from a listener
+            // that was requested but never attached. Relying on an incidental framework log
+            // left verification-only windows waiting until their readiness deadline.
+            Trace.WriteLine("[Diagnostic] Interface warning capture armed.");
+            Trace.Flush();
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
