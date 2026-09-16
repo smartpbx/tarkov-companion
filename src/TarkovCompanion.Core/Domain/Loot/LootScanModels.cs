@@ -1,7 +1,6 @@
-using System.Collections.ObjectModel;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
-using TarkovCompanion.Core.Domain.Recognition.Grid;
+using TarkovCompanion.Core.Domain.Recommendations;
 
 namespace TarkovCompanion.Core.Domain.Loot;
 
@@ -26,50 +25,126 @@ public enum LootScanIssueKind
     SwapEvidenceIncomplete,
 }
 
-public sealed record LootScanCandidateRecommendation
+/// <summary>Binds derived advice to the exact pixels, decode, cell, and item it describes.</summary>
+public sealed record LootScanEvidenceBinding
 {
-    public LootScanCandidateRecommendation(GridCellAddress anchor, RecommendationResult recommendation)
+    public LootScanEvidenceBinding(
+        CaptureSessionId captureSessionId,
+        string artifactId,
+        int decodeRevision,
+        string contentSha256,
+        GridCellAddress anchor,
+        string canonicalItemId)
     {
+        CaptureSessionId = captureSessionId.Value != Guid.Empty
+            ? captureSessionId
+            : throw new ArgumentException("A capture session is required.", nameof(captureSessionId));
+        ArtifactId = Required(artifactId, nameof(artifactId), 128);
+        if (decodeRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(decodeRevision));
+        }
+
+        DecodeRevision = decodeRevision;
+        ContentSha256 = Sha256(contentSha256, nameof(contentSha256));
         Anchor = anchor;
-        Recommendation = recommendation ?? throw new ArgumentNullException(nameof(recommendation));
+        CanonicalItemId = Required(canonicalItemId, nameof(canonicalItemId), 256);
     }
+
+    public CaptureSessionId CaptureSessionId { get; }
+
+    public string ArtifactId { get; }
+
+    public int DecodeRevision { get; }
+
+    public string ContentSha256 { get; }
 
     public GridCellAddress Anchor { get; }
 
+    public string CanonicalItemId { get; }
+
+    public bool Matches(
+        CaptureSessionId captureSessionId,
+        string artifactId,
+        int decodeRevision,
+        string contentSha256,
+        GridCellAddress anchor,
+        string canonicalItemId) =>
+        CaptureSessionId == captureSessionId &&
+        string.Equals(ArtifactId, artifactId, StringComparison.Ordinal) &&
+        DecodeRevision == decodeRevision &&
+        string.Equals(ContentSha256, contentSha256, StringComparison.Ordinal) &&
+        Anchor == anchor &&
+        string.Equals(CanonicalItemId, canonicalItemId, StringComparison.Ordinal);
+
+    internal static string Required(string value, string parameterName, int maximumLength)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        var normalized = value.Trim();
+        return normalized.Length <= maximumLength
+            ? normalized
+            : throw new ArgumentOutOfRangeException(parameterName);
+    }
+
+    internal static string Sha256(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        return value.Length == 64 && value.All(Uri.IsHexDigit)
+            ? value.ToLowerInvariant()
+            : throw new ArgumentException("A content identity must be a SHA-256 hex digest.", parameterName);
+    }
+}
+
+public sealed record LootScanCandidateRecommendation
+{
+    public LootScanCandidateRecommendation(
+        LootScanEvidenceBinding binding,
+        RecommendationResult recommendation,
+        RecommendationEconomics economics)
+    {
+        Binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        Recommendation = recommendation ?? throw new ArgumentNullException(nameof(recommendation));
+        Economics = economics ?? throw new ArgumentNullException(nameof(economics));
+        if (recommendation.CaptureSessionId != binding.CaptureSessionId)
+        {
+            throw new ArgumentException("Recommendation and loot evidence must name the same capture session.", nameof(recommendation));
+        }
+    }
+
+    public LootScanEvidenceBinding Binding { get; }
+
+    public GridCellAddress Anchor => Binding.Anchor;
+
     public RecommendationResult Recommendation { get; }
+
+    public RecommendationEconomics Economics { get; }
 }
 
 /// <summary>Facts that decide whether one observed carried item may be displaced.</summary>
 public sealed record LootScanCarriedPolicy
 {
     public LootScanCarriedPolicy(
-        GridCellAddress anchor,
+        LootScanEvidenceBinding binding,
         EvidencedValue<bool?> protectedItem,
         EvidencedValue<bool?> pinned,
         EvidencedValue<long?> replacementValueRoubles)
     {
-        Anchor = anchor;
+        Binding = binding ?? throw new ArgumentNullException(nameof(binding));
         ProtectedItem = protectedItem ?? throw new ArgumentNullException(nameof(protectedItem));
         Pinned = pinned ?? throw new ArgumentNullException(nameof(pinned));
         ReplacementValueRoubles = replacementValueRoubles ?? throw new ArgumentNullException(nameof(replacementValueRoubles));
         ValidateMoney(replacementValueRoubles, nameof(replacementValueRoubles));
     }
 
-    public GridCellAddress Anchor { get; }
+    public LootScanEvidenceBinding Binding { get; }
+
+    public GridCellAddress Anchor => Binding.Anchor;
 
     public EvidencedValue<bool?> ProtectedItem { get; }
 
     public EvidencedValue<bool?> Pinned { get; }
 
     public EvidencedValue<long?> ReplacementValueRoubles { get; }
-
-    public bool IsKnownDroppable =>
-        IsCurrentComplete(ProtectedItem) && ProtectedItem.Value == false &&
-        IsCurrentComplete(Pinned) && Pinned.Value == false;
-
-    private static bool IsCurrentComplete<T>(EvidencedValue<T> value) =>
-        value.Status.Completeness == ResultCompleteness.Complete &&
-        value.Status.Freshness == FreshnessState.Current;
 
     private static void ValidateMoney(EvidencedValue<long?> field, string parameterName)
     {
@@ -84,149 +159,138 @@ public sealed record LootScanCarriedPolicy
     }
 }
 
-public sealed record LootScanRequest
+public sealed record LootScanPlacement
 {
-    public const int MaximumRecommendations = GridGeometry.MaxCells;
-
-    public const int MaximumCarriedPolicies = GridGeometry.MaxCells;
-
-    public LootScanRequest(
-        string scanId,
-        CaptureSessionId captureSessionId,
-        string artifactId,
-        int decodeRevision,
-        string sourceContentSha256,
-        string reviewedContentSha256,
-        string initiatingDeviceId,
-        DateTimeOffset evaluatedUtc,
-        GridReconstructionResult visibleLoot,
-        GridReconstructionResult carriedInventory,
-        IReadOnlyList<LootScanCandidateRecommendation> recommendations,
-        IReadOnlyList<LootScanCarriedPolicy> carriedPolicies)
+    public LootScanPlacement(GridCellAddress anchor, int widthCells, int heightCells, bool rotateFromObserved)
     {
-        ScanId = Required(scanId, nameof(scanId), 128);
-        CaptureSessionId = captureSessionId.Value != Guid.Empty
-            ? captureSessionId
-            : throw new ArgumentException("A capture session is required.", nameof(captureSessionId));
-        ArtifactId = Required(artifactId, nameof(artifactId), 128);
-        if (decodeRevision < 0)
+        if (widthCells is < 1 or > GridGeometry.MaxColumns)
         {
-            throw new ArgumentOutOfRangeException(nameof(decodeRevision));
+            throw new ArgumentOutOfRangeException(nameof(widthCells));
         }
 
-        DecodeRevision = decodeRevision;
-        SourceContentSha256 = Sha256(sourceContentSha256, nameof(sourceContentSha256));
-        ReviewedContentSha256 = Sha256(reviewedContentSha256, nameof(reviewedContentSha256));
-        InitiatingDeviceId = Required(initiatingDeviceId, nameof(initiatingDeviceId), 128);
-        EvaluatedUtc = evaluatedUtc.Offset == TimeSpan.Zero
-            ? evaluatedUtc
-            : throw new ArgumentException("Loot-scan evaluation time must be UTC.", nameof(evaluatedUtc));
-        VisibleLoot = visibleLoot ?? throw new ArgumentNullException(nameof(visibleLoot));
-        CarriedInventory = carriedInventory ?? throw new ArgumentNullException(nameof(carriedInventory));
-        if (visibleLoot.Surface != InventoryGridSurface.VisibleLoot)
+        if (heightCells is < 1 or > GridGeometry.MaxRows)
         {
-            throw new ArgumentException("The loot result must describe the visible-loot grid.", nameof(visibleLoot));
+            throw new ArgumentOutOfRangeException(nameof(heightCells));
         }
 
-        if (carriedInventory.Surface != InventoryGridSurface.CarriedInventory)
+        if (anchor.Column > GridGeometry.MaxColumns - widthCells ||
+            anchor.Row > GridGeometry.MaxRows - heightCells)
         {
-            throw new ArgumentException("The carried result must describe carried inventory.", nameof(carriedInventory));
+            throw new ArgumentException("A loot placement must remain inside the bounded grid.", nameof(anchor));
         }
 
-        Recommendations = CopyDistinct(
-            recommendations,
-            MaximumRecommendations,
-            item => item.Anchor,
-            nameof(recommendations));
-        CarriedPolicies = CopyDistinct(
-            carriedPolicies,
-            MaximumCarriedPolicies,
-            item => item.Anchor,
-            nameof(carriedPolicies));
+        Anchor = anchor;
+        WidthCells = widthCells;
+        HeightCells = heightCells;
+        RotateFromObserved = rotateFromObserved;
     }
 
-    public string ScanId { get; }
+    public GridCellAddress Anchor { get; }
 
-    public CaptureSessionId CaptureSessionId { get; }
+    public int WidthCells { get; }
 
-    public string ArtifactId { get; }
+    public int HeightCells { get; }
 
-    public int DecodeRevision { get; }
-
-    public string SourceContentSha256 { get; }
-
-    public string ReviewedContentSha256 { get; }
-
-    public string InitiatingDeviceId { get; }
-
-    public DateTimeOffset EvaluatedUtc { get; }
-
-    public GridReconstructionResult VisibleLoot { get; }
-
-    public GridReconstructionResult CarriedInventory { get; }
-
-    public IReadOnlyList<LootScanCandidateRecommendation> Recommendations { get; }
-
-    public IReadOnlyList<LootScanCarriedPolicy> CarriedPolicies { get; }
-
-    public bool IsReviewedFrameCurrent =>
-        string.Equals(SourceContentSha256, ReviewedContentSha256, StringComparison.Ordinal);
-
-    private static ReadOnlyCollection<T> CopyDistinct<T>(
-        IReadOnlyList<T> values,
-        int maximum,
-        Func<T, GridCellAddress> key,
-        string parameterName)
-        where T : class
-    {
-        ArgumentNullException.ThrowIfNull(values, parameterName);
-        if (values.Count > maximum)
-        {
-            throw new ArgumentException($"A loot scan cannot contain more than {maximum} {parameterName}.", parameterName);
-        }
-
-        var copy = values
-            .Select(value => value ?? throw new ArgumentException("Lists cannot contain null entries.", parameterName))
-            .ToArray();
-        if (copy.Select(key).Distinct().Count() != copy.Length)
-        {
-            throw new ArgumentException("Grid anchors must be unique within the list.", parameterName);
-        }
-
-        return Array.AsReadOnly(copy);
-    }
-
-    private static string Required(string value, string parameterName, int maximumLength)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        var normalized = value.Trim();
-        return normalized.Length <= maximumLength
-            ? normalized
-            : throw new ArgumentOutOfRangeException(parameterName);
-    }
-
-    private static string Sha256(string value, string parameterName)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        return value.Length == 64 && value.All(Uri.IsHexDigit)
-            ? value.ToLowerInvariant()
-            : throw new ArgumentException("A content identity must be a SHA-256 hex digest.", parameterName);
-    }
+    public bool RotateFromObserved { get; }
 }
 
-public sealed record LootScanPlacement(
-    GridCellAddress Anchor,
-    int WidthCells,
-    int HeightCells,
-    bool RotateFromObserved);
+public sealed record LootScanDropItem
+{
+    public LootScanDropItem(
+        GridCellAddress anchor,
+        EvidencedValue<RecognizedItem> item,
+        long replacementValueRoubles,
+        EvidenceProvenance valueProvenance)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(replacementValueRoubles);
+        Anchor = anchor;
+        Item = item ?? throw new ArgumentNullException(nameof(item));
+        ReplacementValueRoubles = replacementValueRoubles;
+        ValueProvenance = valueProvenance ?? throw new ArgumentNullException(nameof(valueProvenance));
+    }
 
-public sealed record LootScanDropItem(
-    GridCellAddress Anchor,
-    EvidencedValue<RecognizedItem> Item,
-    long ReplacementValueRoubles,
-    EvidenceProvenance ValueProvenance);
+    public GridCellAddress Anchor { get; }
 
-public sealed record LootScanReason(string Code, string Explanation);
+    public EvidencedValue<RecognizedItem> Item { get; }
+
+    public long ReplacementValueRoubles { get; }
+
+    public EvidenceProvenance ValueProvenance { get; }
+}
+
+public sealed record LootScanReason
+{
+    public LootScanReason(string code, string explanation)
+    {
+        Code = LootScanEvidenceBinding.Required(code, nameof(code), 128);
+        Explanation = LootScanEvidenceBinding.Required(explanation, nameof(explanation), 1024);
+    }
+
+    public string Code { get; }
+
+    public string Explanation { get; }
+}
+
+/// <summary>Explicit raw inputs plus the evidence-gated value projection shown to the user.</summary>
+public sealed record LootScanEconomicProjection
+{
+    public LootScanEconomicProjection(
+        RecommendationEconomics inputs,
+        ResultStatus status,
+        long? bestNetValueRoubles,
+        long? valuePerSquareRoubles,
+        EconomicValueBand? valueBand,
+        string? selectedPriceBasis,
+        EvidenceProvenance? calculationProvenance)
+    {
+        Inputs = inputs ?? throw new ArgumentNullException(nameof(inputs));
+        Status = status ?? throw new ArgumentNullException(nameof(status));
+        if (bestNetValueRoubles < 0 || valuePerSquareRoubles < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bestNetValueRoubles));
+        }
+
+        if (valueBand is { } band && !Enum.IsDefined(band))
+        {
+            throw new ArgumentOutOfRangeException(nameof(valueBand));
+        }
+
+        var complete = status.Completeness == ResultCompleteness.Complete;
+        if (complete != (bestNetValueRoubles is not null && valuePerSquareRoubles is not null &&
+                         valueBand is not null && selectedPriceBasis is not null && calculationProvenance is not null))
+        {
+            throw new ArgumentException("A complete economic projection must carry its value, band, basis, and provenance.");
+        }
+
+        if (complete && status.Freshness != FreshnessState.Current)
+        {
+            throw new ArgumentException("A decisive economic projection must be current.", nameof(status));
+        }
+
+        Inputs = inputs;
+        BestNetValueRoubles = bestNetValueRoubles;
+        ValuePerSquareRoubles = valuePerSquareRoubles;
+        ValueBand = valueBand;
+        SelectedPriceBasis = selectedPriceBasis is null
+            ? null
+            : LootScanEvidenceBinding.Required(selectedPriceBasis, nameof(selectedPriceBasis), 64);
+        CalculationProvenance = calculationProvenance;
+    }
+
+    public RecommendationEconomics Inputs { get; }
+
+    public ResultStatus Status { get; }
+
+    public long? BestNetValueRoubles { get; }
+
+    public long? ValuePerSquareRoubles { get; }
+
+    public EconomicValueBand? ValueBand { get; }
+
+    public string? SelectedPriceBasis { get; }
+
+    public EvidenceProvenance? CalculationProvenance { get; }
+}
 
 public sealed record LootScanDecision
 {
@@ -236,6 +300,7 @@ public sealed record LootScanDecision
         LootScanVerdict verdict,
         IReadOnlyList<LootScanReason> reasons,
         RecommendationResult? recommendation = null,
+        LootScanEconomicProjection? economics = null,
         LootScanPlacement? placement = null,
         IReadOnlyList<LootScanDropItem>? drops = null,
         long? replacementCostRoubles = null)
@@ -260,7 +325,7 @@ public sealed record LootScanDecision
             throw new ArgumentException("A loot decision exceeds the bounded swap size.", nameof(drops));
         }
 
-        if (verdict == LootScanVerdict.Swap != (placement is not null && dropCopy.Length > 0))
+        if ((verdict == LootScanVerdict.Swap) != (placement is not null && dropCopy.Length > 0))
         {
             throw new ArgumentException("Only a swap carries both a placement and displaced items.");
         }
@@ -275,8 +340,25 @@ public sealed record LootScanDecision
             throw new ArgumentOutOfRangeException(nameof(replacementCostRoubles));
         }
 
+        if (verdict == LootScanVerdict.Swap &&
+            (replacementCostRoubles is null || replacementCostRoubles != dropCopy.Sum(drop => drop.ReplacementValueRoubles)))
+        {
+            throw new ArgumentException("A swap replacement cost must equal the displaced item values.", nameof(replacementCostRoubles));
+        }
+
+        if (verdict != LootScanVerdict.Swap && (dropCopy.Length > 0 || replacementCostRoubles is not null))
+        {
+            throw new ArgumentException("Only a swap can carry displaced items or replacement cost.", nameof(drops));
+        }
+
+        if (verdict is LootScanVerdict.Leave or LootScanVerdict.Review && placement is not null)
+        {
+            throw new ArgumentException("Leave and review decisions cannot claim a placement.", nameof(placement));
+        }
+
         Reasons = Array.AsReadOnly(reasonCopy);
         Recommendation = recommendation;
+        Economics = economics;
         Placement = placement;
         Drops = Array.AsReadOnly(dropCopy);
         ReplacementCostRoubles = replacementCostRoubles;
@@ -292,6 +374,8 @@ public sealed record LootScanDecision
 
     public RecommendationResult? Recommendation { get; }
 
+    public LootScanEconomicProjection? Economics { get; }
+
     public LootScanPlacement? Placement { get; }
 
     public IReadOnlyList<LootScanDropItem> Drops { get; }
@@ -299,26 +383,44 @@ public sealed record LootScanDecision
     public long? ReplacementCostRoubles { get; }
 }
 
-public sealed record LootScanIssue(
-    LootScanIssueKind Kind,
-    string Code,
-    string Explanation,
-    GridCellAddress? SourceAnchor = null);
+public sealed record LootScanIssue
+{
+    public LootScanIssue(LootScanIssueKind kind, string code, string explanation, GridCellAddress? sourceAnchor = null)
+    {
+        Kind = Enum.IsDefined(kind) ? kind : throw new ArgumentOutOfRangeException(nameof(kind));
+        Code = LootScanEvidenceBinding.Required(code, nameof(code), 128);
+        Explanation = LootScanEvidenceBinding.Required(explanation, nameof(explanation), 1024);
+        SourceAnchor = sourceAnchor;
+    }
 
-public sealed record LootScanStageTiming(string Stage, long ElapsedMilliseconds);
+    public LootScanIssueKind Kind { get; }
 
-public sealed record LootScanResult(
-    string ScanId,
-    CaptureSessionId CaptureSessionId,
-    string ArtifactId,
-    int DecodeRevision,
-    string FocusDeviceId,
-    ResultStatus Status,
-    IReadOnlyList<LootScanDecision> Decisions,
-    IReadOnlyList<LootScanIssue> Issues,
-    IReadOnlyList<LootScanStageTiming> Timings);
+    public string Code { get; }
+
+    public string Explanation { get; }
+
+    public GridCellAddress? SourceAnchor { get; }
+}
+
+public sealed record LootScanStageTiming
+{
+    public LootScanStageTiming(string stage, long elapsedMilliseconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(elapsedMilliseconds);
+        Stage = LootScanEvidenceBinding.Required(stage, nameof(stage), 128);
+        ElapsedMilliseconds = elapsedMilliseconds;
+    }
+
+    public string Stage { get; }
+
+    public long ElapsedMilliseconds { get; }
+}
 
 public static class LootScanPlannerLimits
 {
     public const int MaximumSwapItems = 3;
+
+    public const int MaximumVisibleItems = 512;
+
+    public const int MaximumCarriedItems = 2048;
 }
