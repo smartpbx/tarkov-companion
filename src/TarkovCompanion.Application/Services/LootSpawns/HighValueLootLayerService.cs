@@ -55,6 +55,7 @@ public sealed record HighValueLootDiagnostic
         HighValueLootDiagnosticKind.InvalidGeometry or
         HighValueLootDiagnosticKind.InvalidFloor or
         HighValueLootDiagnosticKind.ConflictingEvidence or
+        HighValueLootDiagnosticKind.FloorUnknown or
         HighValueLootDiagnosticKind.ValueUnavailable;
 }
 
@@ -193,6 +194,7 @@ public sealed record HighValueLootEntry
 
     public IReadOnlyList<string> MissingFacts { get; }
 
+    /// <summary>Null for map-only knowledge and positions withheld because their floor is unresolved.</summary>
     public MapSceneObjectId? SceneObjectId { get; }
 
     private static ReadOnlyCollection<T> Copy<T>(IReadOnlyList<T> values, int maximum, string parameterName)
@@ -289,15 +291,15 @@ public sealed record HighValueLootLayerResult
             !objectIds.SetEquals(entryObjectIds))
         {
             throw new ArgumentException(
-                "Every rendered object must match exactly one list entry, and map-only entries must carry no object ID.",
+                "Every rendered object must match exactly one list entry, and list-only entries must carry no object ID.",
                 nameof(entries));
         }
 
         if (Entries.Any(item =>
-                (item.Spawn.Location.Geometry is null) != (item.SceneObjectId is null)))
+                item.SceneObjectId is not null && item.Spawn.Location.Geometry is null))
         {
             throw new ArgumentException(
-                "Only positioned entries may reference a rendered scene object.",
+                "Only positioned entries may reference a rendered scene object; unresolved floors may remain list-only.",
                 nameof(entries));
         }
 
@@ -399,6 +401,17 @@ public sealed class HighValueLootLayerService
                 snapshot.Provenance.EvidenceThroughUtc);
         }
 
+        if (!SnapshotPasses(snapshot, request, out var snapshotDiagnostic))
+        {
+            return Unavailable(
+                snapshotDiagnostic!.Kind,
+                "Potential spawns · Data unavailable",
+                snapshotDiagnostic.Code,
+                snapshotDiagnostic.Explanation,
+                snapshot.Coverage,
+                snapshot.Provenance.EvidenceThroughUtc);
+        }
+
         var entries = new List<HighValueLootEntry>(snapshot.Records.Count);
         var objects = new List<MapSceneObject>(snapshot.Records.Count);
         var diagnostics = new List<HighValueLootDiagnostic>();
@@ -488,8 +501,20 @@ public sealed class HighValueLootLayerService
                 continue;
             }
 
+            var hasUnresolvedFloor = spawn.Location.Geometry is not null &&
+                                     request.FloorIds.Count > 0 &&
+                                     spawn.Location.FloorIds.Count == 0;
+            if (hasUnresolvedFloor)
+            {
+                diagnostics.Add(new(
+                    HighValueLootDiagnosticKind.FloorUnknown,
+                    "spawn.floor-unknown",
+                    "The source did not resolve a floor, so its position remains list-only instead of appearing on every floor.",
+                    spawn.SpawnId));
+            }
+
             MapSceneObjectId? objectId = null;
-            if (spawn.Location.Geometry is { } geometry)
+            if (!hasUnresolvedFloor && spawn.Location.Geometry is { } geometry)
             {
                 objectId = StableObjectId(snapshot, spawn);
                 objects.Add(new(
@@ -556,6 +581,13 @@ public sealed class HighValueLootLayerService
         var valuesPerSquare = new List<long>(candidates.Count);
         var highValueCandidateCount = 0;
         var missing = new HashSet<string>(StringComparer.Ordinal);
+        if (spawn.Location.Geometry is not null &&
+            request.FloorIds.Count > 0 &&
+            spawn.Location.FloorIds.Count == 0)
+        {
+            missing.Add("Floor is unresolved; the position is listed but is not drawn on floor views.");
+        }
+
         var suppliedNeeds = new List<SourcedProfileNeed>();
         foreach (var candidate in candidates)
         {
@@ -576,7 +608,7 @@ public sealed class HighValueLootLayerService
         {
             cancellationToken.ThrowIfCancellationRequested();
             var distinctClaims = group
-                .Select(item => item.Need)
+                .Select(item => (item.Need.Kind, item.Need.Explanation))
                 .Distinct()
                 .ToArray();
             if (distinctClaims.Length > 1)
@@ -723,13 +755,16 @@ public sealed class HighValueLootLayerService
     {
         var flea = Reliable(candidate.FleaNetRoubles, request, request.Filter.MaximumPriceAge);
         var trader = Reliable(candidate.BestTraderRoubles, request, request.Filter.MaximumPriceAge);
-        if (flea is null && trader is null)
+        // A lone value is only a lower bound on best net. Treating it as exact can hide a spawn
+        // when the missing market is actually worth more than the source that remains.
+        if (flea is null || trader is null)
         {
-            missing.Add("Current flea-net and trader values are unavailable.");
+            missing.Add(
+                "A current trustworthy flea-net value and trader value are both required to rank exact best net.");
             return null;
         }
 
-        return flea is null ? trader : trader is null ? flea : Math.Max(flea.Value, trader.Value);
+        return Math.Max(flea.Value, trader.Value);
     }
 
     private static long? PerSquare(
@@ -771,9 +806,9 @@ public sealed class HighValueLootLayerService
         field.Candidates.Count == 0 &&
         field.Status.Completeness == ResultCompleteness.Complete &&
         field.Status.Freshness == FreshnessState.Current &&
-        field.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
-        request.EvaluatedUtc - field.Provenance.EvidenceThroughUtc <= maximumAge &&
-        ConfidencePasses(field.Provenance, request.Filter.MinimumConfidence)
+        ProvenanceTimePasses(field.Provenance, request.EvaluatedUtc, maximumAge) &&
+        CorrectionsAreNotFuture(field.Corrections, request.EvaluatedUtc) &&
+        ProvenanceConfidencePasses(field.Provenance, request.Filter.MinimumConfidence)
             ? value
             : null;
 
@@ -785,9 +820,9 @@ public sealed class HighValueLootLayerService
         field.Candidates.Count == 0 &&
         field.Status.Completeness == ResultCompleteness.Complete &&
         field.Status.Freshness == FreshnessState.Current &&
-        field.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
-        request.EvaluatedUtc - field.Provenance.EvidenceThroughUtc <= maximumAge &&
-        ConfidencePasses(field.Provenance, request.Filter.MinimumConfidence)
+        ProvenanceTimePasses(field.Provenance, request.EvaluatedUtc, maximumAge) &&
+        CorrectionsAreNotFuture(field.Corrections, request.EvaluatedUtc) &&
+        ProvenanceConfidencePasses(field.Provenance, request.Filter.MinimumConfidence)
             ? field.Value
             : null;
 
@@ -856,8 +891,10 @@ public sealed class HighValueLootLayerService
         HighValueLootLayerRequest request,
         out HighValueLootDiagnostic? diagnostic)
     {
-        if (provenance.EvidenceThroughUtc > request.EvaluatedUtc ||
-            request.EvaluatedUtc - provenance.EvidenceThroughUtc > request.Filter.MaximumSourceAge)
+        if (!ProvenanceTimePasses(
+                provenance,
+                request.EvaluatedUtc,
+                request.Filter.MaximumSourceAge))
         {
             diagnostic = new(
                 HighValueLootDiagnosticKind.SourceTooOld,
@@ -866,12 +903,51 @@ public sealed class HighValueLootLayerService
             return false;
         }
 
-        if (!ConfidencePasses(provenance, request.Filter.MinimumConfidence))
+        if (!ProvenanceConfidencePasses(provenance, request.Filter.MinimumConfidence))
         {
             diagnostic = new(
                 HighValueLootDiagnosticKind.ConfidenceBelowFilter,
                 "spawn.confidence-filtered",
                 "The spawn source is below the active confidence filter.");
+            return false;
+        }
+
+        diagnostic = null;
+        return true;
+    }
+
+    private static bool SnapshotPasses(
+        LootSpawnSnapshot snapshot,
+        HighValueLootLayerRequest request,
+        out HighValueLootDiagnostic? diagnostic)
+    {
+        if (snapshot.GeneratedUtc > request.EvaluatedUtc)
+        {
+            diagnostic = new(
+                HighValueLootDiagnosticKind.SnapshotUnavailable,
+                "snapshot.generated-in-future",
+                "The loot-spawn snapshot has a future generation time and was not drawn.");
+            return false;
+        }
+
+        if (!ProvenanceTimePasses(
+                snapshot.Provenance,
+                request.EvaluatedUtc,
+                request.Filter.MaximumSourceAge))
+        {
+            diagnostic = new(
+                HighValueLootDiagnosticKind.SourceTooOld,
+                "snapshot.source-age-filtered",
+                "The snapshot source is outside the active source-age filter.");
+            return false;
+        }
+
+        if (!ProvenanceConfidencePasses(snapshot.Provenance, request.Filter.MinimumConfidence))
+        {
+            diagnostic = new(
+                HighValueLootDiagnosticKind.ConfidenceBelowFilter,
+                "snapshot.confidence-filtered",
+                "The snapshot source is below the active confidence filter.");
             return false;
         }
 
@@ -912,17 +988,49 @@ public sealed class HighValueLootLayerService
         return true;
     }
 
-    private static bool ConfidencePasses(EvidenceProvenance provenance, double minimum) =>
-        provenance.Confidence.Score is { } score ? score >= minimum : minimum == 0;
+    private static bool ProvenanceConfidencePasses(EvidenceProvenance provenance, double minimum) =>
+        (provenance.Confidence.Score is { } score ? score >= minimum : minimum == 0) &&
+        provenance.Inputs.All(input => ProvenanceConfidencePasses(input, minimum));
+
+    private static bool ProvenanceTimePasses(
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan? maximumAge) =>
+        provenance.EvidenceThroughUtc <= evaluatedUtc &&
+        (maximumAge is null || evaluatedUtc - provenance.EvidenceThroughUtc <= maximumAge) &&
+        provenance.Inputs.All(input => ProvenanceTimePasses(input, evaluatedUtc, maximumAge));
+
+    private static bool CorrectionsAreNotFuture<T>(
+        IReadOnlyList<EvidenceCorrection<T>> corrections,
+        DateTimeOffset evaluatedUtc) =>
+        corrections.All(correction => correction.CorrectedUtc <= evaluatedUtc);
 
     private static bool NeedIsReliable(
         LootSpawnProfileNeed need,
-        HighValueLootLayerRequest request) =>
-        need.Status.Completeness == ResultCompleteness.Complete &&
-        need.Status.Freshness == FreshnessState.Current &&
-        need.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
-        request.EvaluatedUtc - need.Provenance.EvidenceThroughUtc <= request.Filter.MaximumSourceAge &&
-        ConfidencePasses(need.Provenance, request.Filter.MinimumConfidence);
+        HighValueLootLayerRequest request)
+    {
+        var durableExplicitState = IsDurableProfileNeed(need.Kind) &&
+                                   IsExplicitProfileAuthority(need.Provenance);
+        return need.Status.Completeness == ResultCompleteness.Complete &&
+               need.Status.Freshness == FreshnessState.Current &&
+               ProvenanceTimePasses(
+                   need.Provenance,
+                   request.EvaluatedUtc,
+                   durableExplicitState ? null : request.Filter.MaximumSourceAge) &&
+               (durableExplicitState ||
+                ProvenanceConfidencePasses(need.Provenance, request.Filter.MinimumConfidence));
+    }
+
+    // Explicit profile intent remains true until the profile changes; source-age expiry is for
+    // volatile observations, not a substitute for clearing a pin, wishlist, or protection.
+    private static bool IsDurableProfileNeed(LootSpawnProfileNeedKind kind) => kind is
+        LootSpawnProfileNeedKind.Event or
+        LootSpawnProfileNeedKind.Wishlist or
+        LootSpawnProfileNeedKind.ProtectedItem or
+        LootSpawnProfileNeedKind.UserPin;
+
+    private static bool IsExplicitProfileAuthority(EvidenceProvenance provenance) =>
+        provenance.SourceClass is EvidenceSourceClass.UserEntered or EvidenceSourceClass.PairedDeviceAction;
 
     private static string Summary(
         LootSpawnRecord spawn,
@@ -934,16 +1042,17 @@ public sealed class HighValueLootLayerService
         bool isValueRangeComplete)
     {
         var basisText = BasisLabel(basis);
+        var candidateCount = CandidateCountSummary(spawn, candidates);
         if (basis == LootSpawnValueBasis.ProfileUtility)
         {
-            return $"Profile-relevant potential · {candidates.Count.ToString(CultureInfo.InvariantCulture)} candidate(s)";
+            return $"Profile-relevant potential · {candidateCount}";
         }
 
         if (values.Count == 0)
         {
             return needs.Count > 0
-                ? "Profile-relevant potential · Current value unavailable"
-                : "Potential spawn · Current value unavailable";
+                ? $"Profile-relevant potential · Current value unavailable · {candidateCount}"
+                : $"Potential spawn · Current value unavailable · {candidateCount}";
         }
 
         var maximum = values.Max();
@@ -951,13 +1060,22 @@ public sealed class HighValueLootLayerService
             ? $"Potential {candidates[0].DisplayName} · {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText}"
             : isValueRangeComplete
                 ? $"Potential up to {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText} · " +
-                  $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates · " +
+                  $"{candidateCount} · " +
                   $"{highValueCandidateCount.ToString(CultureInfo.InvariantCulture)} above threshold"
                 : $"Potential · known current values up to {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText} · " +
                   $"{values.Count.ToString(CultureInfo.InvariantCulture)} of " +
-                  $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates valued · " +
+                  $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} matched candidates valued · " +
+                  $"{candidateCount} · " +
                   $"{highValueCandidateCount.ToString(CultureInfo.InvariantCulture)} above threshold";
     }
+
+    private static string CandidateCountSummary(
+        LootSpawnRecord spawn,
+        IReadOnlyCollection<LootSpawnCandidate> matchedCandidates) =>
+        matchedCandidates.Count == spawn.Candidates.Count
+            ? $"{matchedCandidates.Count.ToString(CultureInfo.InvariantCulture)} candidates"
+            : $"{matchedCandidates.Count.ToString(CultureInfo.InvariantCulture)} of " +
+              $"{spawn.Candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates match filter";
 
     private static FreshnessState MergeFreshness(
         FreshnessState snapshotFreshness,

@@ -34,6 +34,25 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Candidate_filter_keeps_the_full_unweighted_pool_denominator_visible()
+    {
+        var spawn = Spawn(
+            "customs-filtered-pool",
+            [
+                Candidate("gpu", "Graphics card", 900_000),
+                Candidate("cable", "Military cable", 80_000),
+                Candidate("wire", "Wire", 10_000),
+            ]);
+        var filter = Filter(itemIds: ["gpu"]);
+
+        var entry = Assert.Single(Build(Snapshot([spawn]), filter).Entries);
+
+        Assert.Equal(1, entry.MatchedCandidateCount);
+        Assert.Equal(3, entry.Spawn.Candidates.Count);
+        Assert.Contains("1 of 3 candidates match filter", entry.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Map_only_knowledge_stays_in_the_list_without_a_fabricated_marker()
     {
         var spawn = Spawn(
@@ -100,6 +119,25 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Positioned_spawn_with_unknown_floor_stays_list_only_on_a_floor_aware_map()
+    {
+        var spawn = Spawn(
+            "customs-unresolved-floor",
+            [Candidate("gpu", "Graphics card", 900_000)]);
+
+        var result = Build(Snapshot([spawn]), floorIds: ["ground", "upper"]);
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Null(entry.SceneObjectId);
+        Assert.Empty(result.Objects);
+        Assert.Contains(entry.MissingFacts, fact => fact.StartsWith("Floor is unresolved", StringComparison.Ordinal));
+        Assert.Contains(result.Diagnostics, item =>
+            item.Kind == HighValueLootDiagnosticKind.FloorUnknown &&
+            item.SpawnId == spawn.SpawnId);
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
     public void Profile_need_can_elevate_a_spawn_but_stale_price_stays_unknown()
     {
         var need = new LootSpawnProfileNeed(
@@ -121,6 +159,34 @@ public sealed class HighValueLootLayerServiceTests
         Assert.Contains(entry.MissingFacts, fact => fact.Contains("unavailable", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("quest.current", Assert.Single(entry.ProfileNeeds).Code);
         Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
+    public void Asymmetric_best_net_evidence_remains_indeterminate_instead_of_becoming_an_exact_low_value()
+    {
+        var need = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.current",
+            "Needed for the active quest.",
+            CompleteStatus,
+            Provenance("need"));
+        var candidate = new LootSpawnCandidate(
+            "unknown-flea",
+            "Unknown flea item",
+            "electronics",
+            Unknown<long?>("gross"),
+            Unknown<long?>("net"),
+            Complete<long?>("trader", 10_000),
+            Complete<int?>("squares", 1),
+            [need]);
+
+        var entry = Assert.Single(Build(Snapshot([Spawn("asymmetric-best-net", [candidate])])).Entries);
+
+        Assert.Null(entry.MinimumValue);
+        Assert.Null(entry.MaximumValue);
+        Assert.False(entry.IsValueRangeComplete);
+        Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+        Assert.Contains(entry.MissingFacts, fact => fact.Contains("both required", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -163,6 +229,44 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Durable_user_pin_does_not_expire_under_the_source_age_filter()
+    {
+        var pin = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.UserPin,
+            "pin.user",
+            "Pinned by the user.",
+            CompleteStatus,
+            UserProvenance("old-pin", Now.AddDays(-120)));
+        var spawn = Spawn(
+            "customs-pinned",
+            [Candidate("wire", "Wire", 10_000, [pin])]);
+
+        var entry = Assert.Single(Build(Snapshot([spawn])).Entries);
+
+        Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+        Assert.Equal("pin.user", Assert.Single(entry.ProfileNeeds).Code);
+    }
+
+    [Fact]
+    public void Non_authoritative_pin_claim_cannot_bypass_the_source_age_filter()
+    {
+        var pin = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.UserPin,
+            "pin.external",
+            "External pin claim.",
+            CompleteStatus,
+            Provenance("old-external-pin", Now.AddDays(-120)));
+        var spawn = Spawn(
+            "customs-external-pin",
+            [Candidate("wire", "Wire", 10_000, [pin])]);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Empty(result.Entries);
+        Assert.Contains(result.Diagnostics, item => item.Code == "spawn.below-threshold");
+    }
+
+    [Fact]
     public void Ambiguous_price_cannot_qualify_a_spawn_as_high_value()
     {
         var provenance = Provenance("ambiguous-price");
@@ -185,6 +289,99 @@ public sealed class HighValueLootLayerServiceTests
         Assert.Empty(result.Entries);
         Assert.Empty(result.Objects);
         Assert.Contains(result.Diagnostics, item => item.Code == "spawn.value-unavailable");
+    }
+
+    [Fact]
+    public void Stale_nested_price_input_cannot_be_laundered_by_a_current_derived_claim()
+    {
+        var staleInput = Provenance("stale-input", Now.AddHours(-2));
+        var derived = DerivedProvenance("derived-price", staleInput);
+        var need = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.keep",
+            "Keep for a quest.",
+            CompleteStatus,
+            Provenance("need"));
+        var candidate = Candidate("gpu", "Graphics card", 900_000, [need], derived);
+
+        var entry = Assert.Single(Build(
+            Snapshot([Spawn("derived-stale-price", [candidate])]),
+            Filter(maximumPriceAge: TimeSpan.FromHours(1))).Entries);
+
+        Assert.Null(entry.MaximumValue);
+        Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+    }
+
+    [Fact]
+    public void Low_confidence_nested_price_input_cannot_be_laundered_by_a_confident_derived_claim()
+    {
+        var weakInput = Provenance("weak-input", confidence: 0.10);
+        var derived = DerivedProvenance("derived-price", weakInput);
+        var need = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.keep",
+            "Keep for a quest.",
+            CompleteStatus,
+            Provenance("need"));
+        var candidate = Candidate("gpu", "Graphics card", 900_000, [need], derived);
+
+        var entry = Assert.Single(Build(Snapshot([Spawn("derived-weak-price", [candidate])])).Entries);
+
+        Assert.Null(entry.MaximumValue);
+        Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+    }
+
+    [Fact]
+    public void Stale_nested_spawn_source_cannot_be_laundered_by_a_current_derived_claim()
+    {
+        var staleInput = Provenance("stale-spawn-input", Now.AddDays(-120));
+        var derived = DerivedProvenance("derived-spawn", staleInput);
+        var spawn = Spawn(
+            "derived-stale-spawn",
+            [Candidate("gpu", "Graphics card", 900_000)],
+            provenance: derived);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Objects);
+        Assert.Equal("spawn.source-age-filtered", Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Future_correction_cannot_change_the_current_value_tier()
+    {
+        var provenance = Provenance("future-correction");
+        var futureNet = new EvidencedValue<long?>(
+            "net",
+            900_000,
+            CompleteStatus,
+            provenance,
+            corrections:
+            [
+                new EvidenceCorrection<long?>(
+                    1,
+                    10_000,
+                    900_000,
+                    Now.AddMinutes(5),
+                    CorrectionOriginClass.User,
+                    "fixture-user"),
+            ]);
+        var candidate = new LootSpawnCandidate(
+            "future-price",
+            "Future price",
+            "electronics",
+            Complete<long?>("gross", 925_000),
+            futureNet,
+            Complete<long?>("trader", 10_000),
+            Complete<int?>("squares", 1));
+        var filter = Filter(valueBasis: LootSpawnValueBasis.FleaNet);
+
+        var result = Build(Snapshot([Spawn("future-correction", [candidate])]), filter);
+
+        Assert.Empty(result.Entries);
+        Assert.Contains(result.Diagnostics, item => item.Code == "spawn.value-unavailable");
+        Assert.DoesNotContain(result.Diagnostics, item => item.Code == "spawn.below-threshold");
     }
 
     [Fact]
@@ -297,6 +494,32 @@ public sealed class HighValueLootLayerServiceTests
             first.Diagnostics.Select(item => (item.Kind, item.Code, item.SpawnId)),
             permuted.Diagnostics.Select(item => (item.Kind, item.Code, item.SpawnId)));
         Assert.Equal(ResultCompleteness.Partial, first.Status.Completeness);
+    }
+
+    [Fact]
+    public void Corroborating_profile_claims_from_different_sources_are_not_reported_as_conflicts()
+    {
+        var firstNeed = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Needed for the active quest.",
+            CompleteStatus,
+            Provenance("need-one", Now.AddMinutes(-20)));
+        var secondNeed = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Needed for the active quest.",
+            CompleteStatus,
+            Provenance("need-two", Now.AddMinutes(-5)));
+        var spawn = Spawn(
+            "customs-corroborated",
+            [Candidate("a", "A", 10_000, [firstNeed]), Candidate("b", "B", 10_000, [secondNeed])]);
+
+        var result = Build(Snapshot([spawn]));
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Empty(entry.ProfileNeedConflictCodes);
+        Assert.DoesNotContain(result.Diagnostics, item => item.Kind == HighValueLootDiagnosticKind.ConflictingEvidence);
     }
 
     [Fact]
@@ -552,6 +775,65 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Snapshot_rejects_a_default_or_pre_provenance_generation_time()
+    {
+        var record = Spawn("customs-time", [Candidate("gpu", "Graphics card", 900_000)]);
+        var coverage = new LootSpawnCoverage(1, 1, 0, 0);
+        var provenance = Provenance("snapshot-time");
+
+        Assert.Throws<ArgumentException>(() => new LootSpawnSnapshot(
+            "snapshot-default-time",
+            "dataset-1",
+            "customs",
+            "transform-1",
+            default,
+            CompleteStatus,
+            coverage,
+            provenance,
+            [record]));
+        Assert.Throws<ArgumentException>(() => new LootSpawnSnapshot(
+            "snapshot-before-source",
+            "dataset-1",
+            "customs",
+            "transform-1",
+            Now.AddMinutes(-20),
+            CompleteStatus,
+            coverage,
+            provenance,
+            [record]));
+    }
+
+    [Fact]
+    public void Future_generated_snapshot_is_unavailable_at_an_earlier_evaluation_time()
+    {
+        var snapshot = Snapshot(
+            [Spawn("customs-future-snapshot", [Candidate("gpu", "Graphics card", 900_000)])],
+            generatedUtc: Now.AddMinutes(5));
+
+        var result = Build(snapshot);
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Objects);
+        Assert.Equal(ResultCompleteness.Unavailable, result.Status.Completeness);
+        Assert.Equal("snapshot.generated-in-future", Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void Snapshot_source_age_is_checked_before_any_spawn_is_drawn()
+    {
+        var snapshot = Snapshot(
+            [Spawn("customs-old-snapshot", [Candidate("gpu", "Graphics card", 900_000)])],
+            provenance: Provenance("old-snapshot", Now.AddDays(-120)));
+
+        var result = Build(snapshot);
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Objects);
+        Assert.Equal(ResultCompleteness.Unavailable, result.Status.Completeness);
+        Assert.Equal("snapshot.source-age-filtered", Assert.Single(result.Diagnostics).Code);
+    }
+
+    [Fact]
     public void Geometry_complexity_is_rejected_at_the_loot_contract_boundary()
     {
         var pointCount = LootSpawnLocation.MaximumGeometryPoints + 1;
@@ -696,7 +978,9 @@ public sealed class HighValueLootLayerServiceTests
     private static LootSpawnSnapshot Snapshot(
         IReadOnlyList<LootSpawnRecord> records,
         FreshnessState freshness = FreshnessState.Current,
-        string datasetVersion = "dataset-1")
+        string datasetVersion = "dataset-1",
+        DateTimeOffset? generatedUtc = null,
+        EvidenceProvenance? provenance = null)
     {
         var positioned = records.Count(record => record.Location.Geometry is not null);
         var floors = records.Count(record => record.Location.Geometry is not null && record.Location.FloorIds.Count > 0);
@@ -705,10 +989,10 @@ public sealed class HighValueLootLayerServiceTests
             datasetVersion,
             "customs",
             "transform-1",
-            Now.AddMinutes(-10),
+            generatedUtc ?? Now.AddMinutes(-10),
             new ResultStatus(ResultCompleteness.Complete, freshness),
             new LootSpawnCoverage(records.Count, positioned, floors, records.Count - positioned),
-            Provenance("snapshot"),
+            provenance ?? Provenance("snapshot"),
             records);
     }
 
@@ -719,7 +1003,8 @@ public sealed class HighValueLootLayerServiceTests
         string datasetVersion = "dataset-1",
         ResultStatus? status = null,
         EvidencedValue<double?>? spawnProbability = null,
-        EvidencedValue<string?>? respawnBehavior = null) => new(
+        EvidencedValue<string?>? respawnBehavior = null,
+        EvidenceProvenance? provenance = null) => new(
         id,
         "customs",
         $"Spawn {id}",
@@ -731,7 +1016,7 @@ public sealed class HighValueLootLayerServiceTests
         datasetVersion,
         "transform-1",
         status ?? CompleteStatus,
-        Provenance($"spawn-{id}"));
+        provenance ?? Provenance($"spawn-{id}"));
 
     private static LootSpawnLocation Point() => new(
         LootSpawnPrecision.ExactPoint,
@@ -754,12 +1039,15 @@ public sealed class HighValueLootLayerServiceTests
 
     private static HighValueLootFilter Filter(
         LootSpawnValueThresholds? thresholds = null,
-        TimeSpan? maximumPriceAge = null) => new(
-        LootSpawnValueBasis.BestNet,
+        TimeSpan? maximumPriceAge = null,
+        LootSpawnValueBasis valueBasis = LootSpawnValueBasis.BestNet,
+        IReadOnlyList<string>? itemIds = null) => new(
+        valueBasis,
         thresholds ?? LootSpawnValueThresholds.Default,
         maximumPriceAge ?? TimeSpan.FromHours(1),
         TimeSpan.FromDays(90),
-        0.5);
+        0.5,
+        itemIds: itemIds);
 
     private static EvidencedValue<T> Complete<T>(
         string id,
@@ -776,11 +1064,34 @@ public sealed class HighValueLootLayerServiceTests
         new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
         Provenance(id));
 
-    private static EvidenceProvenance Provenance(string id, DateTimeOffset? observedUtc = null) => new(
+    private static EvidenceProvenance Provenance(
+        string id,
+        DateTimeOffset? observedUtc = null,
+        double confidence = 0.95) => new(
         EvidenceSourceClass.PublicStructuredData,
         $"fixture://{id}",
         observedUtc ?? Now.AddMinutes(-10),
+        new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, confidence),
+        new ProducerIdentity("loot-spawn-fixture", "1"));
+
+    private static EvidenceProvenance DerivedProvenance(
+        string id,
+        EvidenceProvenance input) => new(
+        EvidenceSourceClass.DerivedCalculation,
+        $"fixture://{id}",
+        Now.AddMinutes(-10),
         new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.95),
+        new ProducerIdentity("loot-spawn-fixture", "1"),
+        generatedUtc: Now.AddMinutes(-10),
+        inputs: [input]);
+
+    private static EvidenceProvenance UserProvenance(
+        string id,
+        DateTimeOffset observedUtc) => new(
+        EvidenceSourceClass.UserEntered,
+        $"fixture://{id}",
+        observedUtc,
+        EvidenceConfidence.Unscored,
         new ProducerIdentity("loot-spawn-fixture", "1"));
 
     private static ResultStatus CompleteStatus { get; } = new(

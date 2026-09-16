@@ -442,15 +442,21 @@ public sealed record LootSpawnSnapshot
         DatasetVersion = LootSpawnProfileNeed.Required(datasetVersion, nameof(datasetVersion), 128);
         MapId = LootSpawnProfileNeed.Required(mapId, nameof(mapId), 128);
         TransformVersion = LootSpawnProfileNeed.Required(transformVersion, nameof(transformVersion), 128);
-        if (generatedUtc.Offset != TimeSpan.Zero)
+        if (generatedUtc == default || generatedUtc.Offset != TimeSpan.Zero)
         {
-            throw new ArgumentException("Snapshot generation time must be UTC.", nameof(generatedUtc));
+            throw new ArgumentException("A non-default UTC snapshot generation time is required.", nameof(generatedUtc));
         }
 
         GeneratedUtc = generatedUtc;
         Status = status ?? throw new ArgumentNullException(nameof(status));
         Coverage = coverage ?? throw new ArgumentNullException(nameof(coverage));
         Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
+        if (provenance.ObservedUtc > generatedUtc)
+        {
+            throw new ArgumentException(
+                "Snapshot provenance cannot be observed after the snapshot was generated.",
+                nameof(provenance));
+        }
 
         var copied = LootSpawnCandidate.BoundedCopy(
                 records ?? throw new ArgumentNullException(nameof(records)),
@@ -472,17 +478,26 @@ public sealed record LootSpawnSnapshot
             throw new ArgumentException("Every record must match its snapshot map, dataset, and transform.", nameof(records));
         }
 
-        var totalCandidates = copied.Sum(record => (long)record.Candidates.Count);
-        var totalProfileNeeds = copied.Sum(record =>
-            record.Candidates.Sum(candidate => (long)candidate.ProfileNeeds.Count));
-        var totalGeometryPoints = copied.Sum(record => (long)(record.Location.Geometry?.Points.Count ?? 0));
-        if (totalCandidates > MaximumTotalCandidates ||
-            totalProfileNeeds > MaximumTotalProfileNeeds ||
-            totalGeometryPoints > MaximumTotalGeometryPoints)
+        long totalCandidates = 0;
+        long totalProfileNeeds = 0;
+        long totalGeometryPoints = 0;
+        foreach (var record in copied)
         {
-            throw new ArgumentException(
-                "The loot-spawn snapshot exceeds its aggregate candidate, profile-need, or geometry budget.",
-                nameof(records));
+            totalCandidates += record.Candidates.Count;
+            totalGeometryPoints += record.Location.Geometry?.Points.Count ?? 0;
+            if (totalCandidates > MaximumTotalCandidates || totalGeometryPoints > MaximumTotalGeometryPoints)
+            {
+                throw AggregateBudgetExceeded(nameof(records));
+            }
+
+            foreach (var candidate in record.Candidates)
+            {
+                totalProfileNeeds += candidate.ProfileNeeds.Count;
+                if (totalProfileNeeds > MaximumTotalProfileNeeds)
+                {
+                    throw AggregateBudgetExceeded(nameof(records));
+                }
+            }
         }
 
         if (coverage.Published != copied.Length)
@@ -503,6 +518,10 @@ public sealed record LootSpawnSnapshot
 
         Records = Array.AsReadOnly(copied);
     }
+
+    private static ArgumentException AggregateBudgetExceeded(string parameterName) => new(
+        "The loot-spawn snapshot exceeds its aggregate candidate, profile-need, or geometry budget.",
+        parameterName);
 
     public string SnapshotId { get; }
 
