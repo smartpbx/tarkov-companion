@@ -72,7 +72,7 @@ public sealed class IconEvidenceCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task UnknownJsonFieldsAreToleratedButFingerprintTamperingIsRejected()
+    public async Task UnknownJsonFieldsAreToleratedButFingerprintTamperingBecomesARecoverableMiss()
     {
         var cache = CreateCache();
         var key = Key("item-a");
@@ -89,11 +89,15 @@ public sealed class IconEvidenceCacheTests : IDisposable
         document["fingerprintHex"] = (stored.Evidence.Fingerprint.Value ^ 1UL).ToString("x16");
         await File.WriteAllTextAsync(path, document.ToJsonString());
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => cache.GetAsync(key, CancellationToken.None));
+        Assert.Null(await cache.GetAsync(key, CancellationToken.None));
+        Assert.False(File.Exists(path));
+
+        var repaired = await cache.StoreAsync(Request(key, CreateGradientPng(reverse: true)), CancellationToken.None);
+        Assert.Equal(repaired.Evidence, (await cache.GetAsync(key, CancellationToken.None))?.Evidence);
     }
 
     [Fact]
-    public async Task MetadataThatClaimsHostileDimensionsIsRejectedBeforeUse()
+    public async Task MetadataThatClaimsHostileDimensionsIsRemovedBeforeUse()
     {
         var cache = CreateCache();
         var key = Key("item-a");
@@ -103,7 +107,8 @@ public sealed class IconEvidenceCacheTests : IDisposable
         document["pixelWidth"] = IconPixelDimensions.MaximumDimension + 1;
         await File.WriteAllTextAsync(path, document.ToJsonString());
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => cache.GetAsync(key, CancellationToken.None));
+        Assert.Null(await cache.GetAsync(key, CancellationToken.None));
+        Assert.False(File.Exists(path));
     }
 
     [Fact]
@@ -157,7 +162,7 @@ public sealed class IconEvidenceCacheTests : IDisposable
     }
 
     [Fact]
-    public async Task ListRefusesMoreDocumentsThanItsConfiguredBound()
+    public async Task ListRepairsMoreDocumentsThanItsConfiguredBound()
     {
         var cache = CreateCache(new FileIconEvidenceCacheOptions(_cacheDirectory)
         {
@@ -167,18 +172,163 @@ public sealed class IconEvidenceCacheTests : IDisposable
         var original = Assert.Single(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
         File.Copy(original, Path.Combine(_cacheDirectory, "hostile.icon-evidence-v1.json"));
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => cache.ListEvidenceAsync(CancellationToken.None));
+        var listed = await cache.ListEvidenceAsync(CancellationToken.None);
+
+        Assert.Single(listed);
+        Assert.Single(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
     }
 
     [Fact]
-    public async Task ListRefusesDocumentsThatExceedItsConfiguredByteBudget()
+    public async Task ListRemovesDocumentsThatExceedItsConfiguredByteBudget()
     {
         await CreateCache().StoreAsync(
             Request(Key("item-a"), CreateGradientPng(reverse: false)),
             CancellationToken.None);
         var cache = CreateCache(new FileIconEvidenceCacheOptions(_cacheDirectory) { MaximumCacheBytes = 1 });
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => cache.ListEvidenceAsync(CancellationToken.None));
+        Assert.Empty(await cache.ListEvidenceAsync(CancellationToken.None));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+    }
+
+    [Fact]
+    public async Task ListSkipsMalformedDocumentAndKeepsValidEvidence()
+    {
+        var cache = CreateCache();
+        var valid = await cache.StoreAsync(
+            Request(Key("item-a"), CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+        var malformedPath = Path.Combine(_cacheDirectory, "malformed.icon-evidence-v1.json");
+        await File.WriteAllTextAsync(malformedPath, "{");
+
+        var listed = await cache.ListEvidenceAsync(CancellationToken.None);
+
+        Assert.Collection(listed, evidence => Assert.Equal(valid.Evidence, evidence));
+        Assert.False(File.Exists(malformedPath));
+    }
+
+    [Fact]
+    public async Task StoreRecoversCapacityFromMalformedAndOversizedUnrelatedDocuments()
+    {
+        var options = new FileIconEvidenceCacheOptions(_cacheDirectory)
+        {
+            MaximumContentBytes = 4096,
+            MaximumDocumentBytes = 8192,
+            MaximumEntries = 1,
+        };
+        Directory.CreateDirectory(_cacheDirectory);
+        var malformedPath = Path.Combine(_cacheDirectory, "0000.icon-evidence-v1.json");
+        var oversizedPath = Path.Combine(_cacheDirectory, "ffff.icon-evidence-v1.json");
+        await File.WriteAllTextAsync(malformedPath, "{");
+        await File.WriteAllBytesAsync(oversizedPath, new byte[options.MaximumDocumentBytes + 1]);
+
+        var stored = await CreateCache(options).StoreAsync(
+            Request(Key("item-a"), CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+
+        Assert.Equal(stored.Evidence, (await CreateCache(options)
+            .GetAsync(Key("item-a"), CancellationToken.None))?.Evidence);
+        Assert.False(File.Exists(malformedPath));
+        Assert.False(File.Exists(oversizedPath));
+        Assert.Single(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+    }
+
+    [Fact]
+    public async Task StoreRemovesStaleTemporaryArtifactBeforeCommit()
+    {
+        Directory.CreateDirectory(_cacheDirectory);
+        var stale = Path.Combine(_cacheDirectory, "abandoned.icon-evidence-v1.json.deadbeef.tmp");
+        await File.WriteAllBytesAsync(stale, new byte[32]);
+
+        await CreateCache().StoreAsync(
+            Request(Key("item-a"), CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+
+        Assert.False(File.Exists(stale));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task SeparateInstancesCoordinateTheEntryLimit()
+    {
+        var options = new FileIconEvidenceCacheOptions(_cacheDirectory) { MaximumEntries = 1 };
+        var first = CreateCache(options).StoreAsync(
+            Request(Key("item-a"), CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+        var second = CreateCache(options).StoreAsync(
+            Request(Key("item-b"), CreateGradientPng(reverse: true)),
+            CancellationToken.None);
+
+        var failures = await Task.WhenAll(
+            Record.ExceptionAsync(() => first),
+            Record.ExceptionAsync(() => second));
+
+        Assert.Equal(1, failures.Count(exception => exception is null));
+        Assert.Equal(1, failures.Count(exception => exception is InvalidDataException));
+        Assert.Single(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+    }
+
+    [Fact]
+    public async Task CancellationWhileWaitingForDirectoryLeaseOccursBeforeDecode()
+    {
+        Directory.CreateDirectory(_cacheDirectory);
+        await using var heldLease = new FileStream(
+            Path.Combine(_cacheDirectory, ".icon-evidence.lock"),
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None,
+            bufferSize: 1,
+            FileOptions.Asynchronous);
+        using var cancellation = new CancellationTokenSource();
+
+        var pending = CreateCache().StoreAsync(
+            Request(Key("item-a"), [1, 2, 3, 4]),
+            cancellation.Token);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task SeparateInstancesSerializeSameKeyReplacements()
+    {
+        var key = Key("item-a");
+        var first = CreateCache().StoreAsync(
+            Request(key, CreateGradientPng(reverse: false)),
+            CancellationToken.None);
+        var second = CreateCache().StoreAsync(
+            Request(key, CreateGradientPng(reverse: true)),
+            CancellationToken.None);
+
+        var stored = await Task.WhenAll(first, second);
+        var loaded = Assert.IsType<IconContentEvidenceAsset>(
+            await CreateCache().GetAsync(key, CancellationToken.None));
+
+        Assert.Contains(stored, asset => asset.Evidence == loaded.Evidence);
+        Assert.Single(Directory.GetFiles(_cacheDirectory, "*.icon-evidence-v1.json"));
+        Assert.Empty(Directory.GetFiles(_cacheDirectory, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task VersionOneGoldenVectorsLockAlphaCompositeScalingAndBitOrder()
+    {
+        var cache = CreateCache();
+        var transparent = await cache.StoreAsync(
+            Request(Key("transparent"), CreateGoldenPng(scale: 1, compositedOverGrid: false)),
+            CancellationToken.None);
+        var composite = await cache.StoreAsync(
+            Request(Key("composite"), CreateGoldenPng(scale: 1, compositedOverGrid: true)),
+            CancellationToken.None);
+        var scaledComposite = await cache.StoreAsync(
+            Request(Key("composite-scaled"), CreateGoldenPng(scale: 2, compositedOverGrid: true)),
+            CancellationToken.None);
+
+        Assert.Equal(IconFingerprintAlgorithms.DifferenceHashLuminance9X8Version,
+            transparent.Evidence.Fingerprint.AlgorithmVersion);
+        Assert.Equal(0xaaaaaaaaaaaaaaaaUL, transparent.Evidence.Fingerprint.Value);
+        Assert.Equal(0x5555555555555555UL, composite.Evidence.Fingerprint.Value);
+        Assert.Equal(composite.Evidence.Fingerprint.Value, scaledComposite.Evidence.Fingerprint.Value);
     }
 
     [Fact]
@@ -248,6 +398,40 @@ public sealed class IconEvidenceCacheTests : IDisposable
                 }
 
                 bitmap.SetPixel(x, y, new SKColor(value, value, value, 255));
+            }
+        }
+
+        using var image = SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SKEncodedImageFormat.Png, 100);
+        return data.ToArray();
+    }
+
+    private static byte[] CreateGoldenPng(int scale, bool compositedOverGrid)
+    {
+        var width = 9 * scale;
+        var height = 8 * scale;
+        using var bitmap = new SKBitmap(new SKImageInfo(width, height, SKColorType.Bgra8888, SKAlphaType.Premul));
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var logicalColumn = x / scale;
+                SKColor color;
+                if (compositedOverGrid)
+                {
+                    // Transparent source columns expose a bright grid cell; half-alpha icon
+                    // columns composite to a darker 110 value over the neighbouring dark cell.
+                    var value = (byte)(logicalColumn % 2 == 0 ? 180 : 110);
+                    color = new SKColor(value, value, value, 255);
+                }
+                else
+                {
+                    color = logicalColumn % 2 == 0
+                        ? new SKColor(255, 255, 255, 0)
+                        : new SKColor(200, 200, 200, 128);
+                }
+
+                bitmap.SetPixel(x, y, color);
             }
         }
 

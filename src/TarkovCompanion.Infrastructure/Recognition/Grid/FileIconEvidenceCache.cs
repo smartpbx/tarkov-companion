@@ -29,12 +29,21 @@ public sealed record FileIconEvidenceCacheOptions(string CacheDirectory)
 /// written beside the target and renamed only after the bounded write has completed. Every read
 /// re-hashes and re-decodes the untrusted document; changing the bytes, dimensions, algorithm, or
 /// fingerprint therefore makes the entry invalid instead of silently changing recognition input.
-/// The cache has no network client and no relay/export surface by design.
+/// Invalid documents are rebuildable cache data, so they are removed or ignored rather than
+/// poisoning every other icon. An exclusive lock file coordinates the complete validation and
+/// commit sequence across cache instances and processes that use this implementation.
+///
+/// Skia's whole-image codec call cannot observe managed cancellation while native code is running.
+/// The encoded-byte, dimension, and decoded-pixel ceilings bound that window; cancellation is
+/// checked immediately before and after it, and the directory lease permits only one such decode
+/// for this cache at a time. The cache has no network client and no relay/export surface by design.
 /// </remarks>
 public sealed class FileIconEvidenceCache : IIconEvidenceCache
 {
     private const int SchemaVersion = 1;
     private const string FileSuffix = ".icon-evidence-v1.json";
+    private const string LockFileName = ".icon-evidence.lock";
+    private const int LockRetryMilliseconds = 20;
     private const int MaximumConfiguredEntries = 65_536;
     private const long MaximumConfiguredCacheBytes = 4L * 1024 * 1024 * 1024;
     private const int MaximumConfiguredDocumentBytes = 16 * 1024 * 1024;
@@ -50,7 +59,6 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
 
     private readonly FileIconEvidenceCacheOptions _options;
     private readonly string _cacheDirectory;
-    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public FileIconEvidenceCache(FileIconEvidenceCacheOptions options)
     {
@@ -67,7 +75,7 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         }
 
         _options = options;
-        _cacheDirectory = Path.GetFullPath(options.CacheDirectory);
+        _cacheDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.CacheDirectory));
     }
 
     public async Task<IconContentEvidenceAsset> StoreAsync(
@@ -81,6 +89,11 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
             throw new InvalidDataException("The icon content exceeds the configured cache entry limit.");
         }
 
+        await using var lease = await AcquireDirectoryLeaseAsync(cancellationToken).ConfigureAwait(false);
+        CleanupTemporaryFiles(cancellationToken);
+
+        // Keep every large copy and native decode behind the directory lease. Per-entry ceilings
+        // alone did not prevent many queued StoreAsync calls retaining several copies apiece.
         var content = request.Content.ToArray();
         var decoded = Decode(content, _options.MaximumDecodedPixels, cancellationToken);
         var contentSha256 = Convert.ToHexStringLower(SHA256.HashData(content));
@@ -98,40 +111,31 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
             throw new InvalidDataException("The icon cache document exceeds its size limit.");
         }
 
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        var targetPath = GetPath(request.Key);
+        await EnsureCapacityAsync(targetPath, serialized.Length, cancellationToken).ConfigureAwait(false);
+
+        var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp";
         try
         {
+            await using (var stream = new FileStream(
+                temporaryPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                81920,
+                FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await stream.WriteAsync(serialized, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
-            Directory.CreateDirectory(_cacheDirectory);
-            var targetPath = GetPath(request.Key);
-            EnsureCapacity(targetPath, serialized.Length, cancellationToken);
-
-            var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".tmp";
-            try
-            {
-                await using (var stream = new FileStream(
-                    temporaryPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    81920,
-                    FileOptions.Asynchronous | FileOptions.WriteThrough))
-                {
-                    await stream.WriteAsync(serialized, cancellationToken).ConfigureAwait(false);
-                    await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                cancellationToken.ThrowIfCancellationRequested();
-                File.Move(temporaryPath, targetPath, overwrite: true);
-            }
-            finally
-            {
-                TryDeleteTemporaryFile(temporaryPath);
-            }
+            File.Move(temporaryPath, targetPath, overwrite: true);
         }
         finally
         {
-            _gate.Release();
+            TryDeleteCacheArtifact(temporaryPath);
         }
 
         return new IconContentEvidenceAsset(evidence, content);
@@ -144,48 +148,87 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         ArgumentNullException.ThrowIfNull(key);
         cancellationToken.ThrowIfCancellationRequested();
 
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (!Directory.Exists(_cacheDirectory))
         {
-            var path = GetPath(key);
-            return !File.Exists(path)
-                ? null
-                : await ReadAsync(path, key, cancellationToken).ConfigureAwait(false);
+            return null;
         }
-        finally
-        {
-            _gate.Release();
-        }
+
+        await using var lease = await AcquireDirectoryLeaseAsync(cancellationToken).ConfigureAwait(false);
+        CleanupTemporaryFiles(cancellationToken);
+        var path = GetPath(key);
+        return !File.Exists(path)
+            ? null
+            : await TryReadAsync(path, key, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<IconContentEvidence>> ListEvidenceAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (!Directory.Exists(_cacheDirectory))
         {
-            if (!Directory.Exists(_cacheDirectory))
-            {
-                return [];
-            }
+            return [];
+        }
 
-            var paths = EnumerateBoundedPaths(cancellationToken);
-            var evidence = new List<IconContentEvidence>(paths.Count);
-            foreach (var path in paths)
+        await using var lease = await AcquireDirectoryLeaseAsync(cancellationToken).ConfigureAwait(false);
+        CleanupTemporaryFiles(cancellationToken);
+        var entries = EnumerateBoundedEntries(excludedPath: null, cancellationToken);
+        var evidence = new List<IconContentEvidence>(entries.Count);
+        foreach (var entry in entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var asset = await TryReadAsync(entry.Path, expectedKey: null, cancellationToken).ConfigureAwait(false);
+            if (asset is not null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var asset = await ReadAsync(path, expectedKey: null, cancellationToken).ConfigureAwait(false);
                 evidence.Add(asset.Evidence);
             }
-
-            return evidence
-                .OrderBy(item => item.CanonicalItemId, StringComparer.Ordinal)
-                .ThenBy(item => item.SourceUri.AbsoluteUri, StringComparer.Ordinal)
-                .ToArray();
         }
-        finally
+
+        return evidence
+            .OrderBy(item => item.CanonicalItemId, StringComparer.Ordinal)
+            .ThenBy(item => item.SourceUri.AbsoluteUri, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private async Task<CacheDirectoryLease> AcquireDirectoryLeaseAsync(CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(_cacheDirectory);
+        var lockPath = Path.Combine(_cacheDirectory, LockFileName);
+        while (true)
         {
-            _gate.Release();
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var stream = new FileStream(
+                    lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None,
+                    bufferSize: 1,
+                    FileOptions.Asynchronous);
+                return new CacheDirectoryLease(stream);
+            }
+            catch (IOException)
+            {
+                // FileShare.None is the cross-process lease. A crashed owner releases its handle;
+                // keeping the zero-byte file avoids a create/delete race between later owners.
+                await Task.Delay(LockRetryMilliseconds, cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task<IconContentEvidenceAsset?> TryReadAsync(
+        string path,
+        IconEvidenceKey? expectedKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ReadAsync(path, expectedKey, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (IsDamagedCacheEntry(exception, cancellationToken))
+        {
+            TryDeleteCacheArtifact(path);
+            return null;
         }
     }
 
@@ -219,7 +262,8 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         {
             document = JsonSerializer.Deserialize<CacheDocument>(serialized, JsonOptions);
         }
-        catch (JsonException exception)
+        catch (Exception exception) when (
+            exception is JsonException or NotSupportedException or ArgumentException or FormatException or OverflowException)
         {
             throw new InvalidDataException("The icon cache document is not valid JSON.", exception);
         }
@@ -286,35 +330,39 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         return new IconContentEvidenceAsset(evidence, document.Content);
     }
 
-    private void EnsureCapacity(string targetPath, int replacementBytes, CancellationToken cancellationToken)
+    private async Task EnsureCapacityAsync(
+        string targetPath,
+        int replacementBytes,
+        CancellationToken cancellationToken)
     {
-        var entryCount = 0;
-        long totalBytes = 0;
-        foreach (var path in Directory.EnumerateFiles(_cacheDirectory, "*" + FileSuffix, SearchOption.TopDirectoryOnly))
+        var entries = EnumerateBoundedEntries(targetPath, cancellationToken);
+        var totalBytes = entries.Sum(entry => entry.Length);
+        if (entries.Count >= _options.MaximumEntries || replacementBytes > _options.MaximumCacheBytes - totalBytes)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (string.Equals(path, targetPath, StringComparison.Ordinal))
+            // Validate only when a write would otherwise be rejected. This recovers capacity from
+            // a damaged but superficially well-sized document without decoding the whole cache on
+            // every ordinary write.
+            foreach (var entry in entries.ToArray())
             {
-                continue;
-            }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (await TryReadAsync(entry.Path, expectedKey: null, cancellationToken).ConfigureAwait(false) is not null)
+                {
+                    continue;
+                }
 
-            entryCount++;
-            if (entryCount >= _options.MaximumEntries)
-            {
-                throw new InvalidDataException("The local icon evidence cache has reached its entry limit.");
+                entries.Remove(entry);
+                totalBytes -= entry.Length;
+                if (entries.Count < _options.MaximumEntries &&
+                    replacementBytes <= _options.MaximumCacheBytes - totalBytes)
+                {
+                    break;
+                }
             }
+        }
 
-            var length = new FileInfo(path).Length;
-            if (length is < 1 || length > _options.MaximumDocumentBytes)
-            {
-                throw new InvalidDataException("An existing icon cache document has an invalid size.");
-            }
-
-            totalBytes = checked(totalBytes + length);
-            if (totalBytes > _options.MaximumCacheBytes)
-            {
-                throw new InvalidDataException("The local icon evidence cache exceeds its byte limit.");
-            }
+        if (entries.Count >= _options.MaximumEntries)
+        {
+            throw new InvalidDataException("The local icon evidence cache has reached its entry limit.");
         }
 
         if (replacementBytes > _options.MaximumCacheBytes - totalBytes)
@@ -323,35 +371,63 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         }
     }
 
-    private List<string> EnumerateBoundedPaths(CancellationToken cancellationToken)
+    private List<CacheFile> EnumerateBoundedEntries(
+        string? excludedPath,
+        CancellationToken cancellationToken)
     {
-        var paths = new List<string>();
-        long totalBytes = 0;
+        var selected = new SortedDictionary<string, CacheFile>(StringComparer.Ordinal);
         foreach (var path in Directory.EnumerateFiles(_cacheDirectory, "*" + FileSuffix, SearchOption.TopDirectoryOnly))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (paths.Count == _options.MaximumEntries)
+            if (excludedPath is not null && string.Equals(path, excludedPath, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("The local icon evidence cache exceeds its entry limit.");
+                continue;
             }
 
-            var length = new FileInfo(path).Length;
+            long length;
+            try
+            {
+                length = new FileInfo(path).Length;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                TryDeleteCacheArtifact(path);
+                continue;
+            }
+
             if (length is < 1 || length > _options.MaximumDocumentBytes)
             {
-                throw new InvalidDataException("An existing icon cache document has an invalid size.");
+                TryDeleteCacheArtifact(path);
+                continue;
             }
 
-            totalBytes = checked(totalBytes + length);
-            if (totalBytes > _options.MaximumCacheBytes)
+            selected[path] = new CacheFile(path, length);
+            if (selected.Count > _options.MaximumEntries)
             {
-                throw new InvalidDataException("The local icon evidence cache exceeds its byte limit.");
+                // A prior crash, old implementation, or external damage may have left the cache
+                // over its limits. Retain the ordinally first bounded set regardless of filesystem
+                // enumeration order, and never retain an unbounded in-memory path list.
+                var overflow = selected.Last();
+                selected.Remove(overflow.Key);
+                TryDeleteCacheArtifact(overflow.Value.Path);
             }
-
-            paths.Add(path);
         }
 
-        paths.Sort(StringComparer.Ordinal);
-        return paths;
+        var entries = new List<CacheFile>(selected.Count);
+        long totalBytes = 0;
+        foreach (var entry in selected.Values)
+        {
+            if (entry.Length > _options.MaximumCacheBytes - totalBytes)
+            {
+                TryDeleteCacheArtifact(entry.Path);
+                continue;
+            }
+
+            totalBytes = checked(totalBytes + entry.Length);
+            entries.Add(entry);
+        }
+
+        return entries;
     }
 
     private string GetPath(IconEvidenceKey key)
@@ -372,23 +448,36 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
                ulong.TryParse(value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out fingerprint);
     }
 
-    private static void TryDeleteTemporaryFile(string path)
+    private void CleanupTemporaryFiles(CancellationToken cancellationToken)
+    {
+        foreach (var path in Directory.EnumerateFiles(_cacheDirectory, "*.tmp", SearchOption.TopDirectoryOnly))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TryDeleteCacheArtifact(path);
+        }
+    }
+
+    private static bool TryDeleteCacheArtifact(string path)
     {
         try
         {
             File.Delete(path);
+            return !File.Exists(path);
         }
         catch (IOException)
         {
-            // The committed target is already complete. A locked temp remains inert and is never
-            // enumerated as cache evidence; a later external cache cleanup may remove it.
+            return false;
         }
         catch (UnauthorizedAccessException)
         {
-            // As above: cleanup failure must not turn an already committed atomic write into a
-            // reported cache failure.
+            return false;
         }
     }
+
+    private static bool IsDamagedCacheEntry(Exception exception, CancellationToken cancellationToken) =>
+        exception is not OperationCanceledException &&
+        !cancellationToken.IsCancellationRequested &&
+        exception is InvalidDataException or IOException or UnauthorizedAccessException;
 
     private static DecodedIcon Decode(
         byte[] content,
@@ -419,6 +508,9 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
         var handle = GCHandle.Alloc(pixels, GCHandleType.Pinned);
         try
         {
+            // SKCodec exposes no cancellation token for this whole-image path. The call is bracketed
+            // by cancellation checks and constrained to one leased decode of at most the validated
+            // encoded-byte and decoded-pixel ceilings.
             if (codec.GetPixels(target, handle.AddrOfPinnedObject()) != SKCodecResult.Success)
             {
                 throw new InvalidDataException("The icon image is incomplete or could not be decoded.");
@@ -498,4 +590,11 @@ public sealed class FileIconEvidenceCache : IIconEvidenceCache
     private sealed record DecodedIcon(
         IconPixelDimensions Dimensions,
         IconFingerprintEvidence Fingerprint);
+
+    private sealed record CacheFile(string Path, long Length);
+
+    private sealed class CacheDirectoryLease(FileStream stream) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync() => stream.DisposeAsync();
+    }
 }

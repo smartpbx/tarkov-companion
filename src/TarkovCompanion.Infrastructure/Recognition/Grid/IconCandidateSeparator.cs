@@ -144,10 +144,27 @@ public sealed class IconCandidateSeparator
             visible);
     }
 
-    private static bool IsBetter(IconFingerprintCandidate candidate, IconFingerprintCandidate current) =>
-        candidate.HammingDistanceBits < current.HammingDistanceBits ||
-        (candidate.HammingDistanceBits == current.HammingDistanceBits &&
-         string.CompareOrdinal(candidate.Evidence.ContentSha256, current.Evidence.ContentSha256) < 0);
+    private static bool IsBetter(IconFingerprintCandidate candidate, IconFingerprintCandidate current)
+    {
+        var byDistance = candidate.HammingDistanceBits.CompareTo(current.HammingDistanceBits);
+        if (byDistance != 0)
+        {
+            return byDistance < 0;
+        }
+
+        var byHash = string.CompareOrdinal(candidate.Evidence.ContentSha256, current.Evidence.ContentSha256);
+        if (byHash != 0)
+        {
+            return byHash < 0;
+        }
+
+        var bySource = string.CompareOrdinal(
+            candidate.Evidence.SourceUri.AbsoluteUri,
+            current.Evidence.SourceUri.AbsoluteUri);
+        return bySource != 0
+            ? bySource < 0
+            : candidate.Evidence.RetrievedUtc > current.Evidence.RetrievedUtc;
+    }
 
     private static IconCandidateSeparationResult Result(
         IconFingerprintEvidence query,

@@ -477,12 +477,66 @@ public sealed record IconCandidateSeparationResult
             throw new ArgumentException("Only a no-candidate result may have no candidate evidence.", nameof(candidates));
         }
 
-        if (outcome == IconCandidateSeparationOutcome.Separated &&
-            (copy[0].HammingDistanceBits != 0 ||
-             runnerUpGapBits < policy.MinimumRunnerUpGapBits ||
-             compatibleCanonicalItemCount < 2))
+        if (copy.Length > compatibleCanonicalItemCount)
         {
-            throw new ArgumentException("Separated icon evidence must be exact and have a sufficient runner-up gap.");
+            throw new ArgumentException(
+                "Returned icon candidates cannot outnumber compatible canonical items.",
+                nameof(candidates));
+        }
+
+        if (copy.Length > 1 &&
+            runnerUpGapBits != copy[1].HammingDistanceBits - copy[0].HammingDistanceBits)
+        {
+            throw new ArgumentException(
+                "The runner-up gap must match the first two returned candidates.",
+                nameof(runnerUpGapBits));
+        }
+
+        var shapeIsValid = (outcome, reason) switch
+        {
+            (IconCandidateSeparationOutcome.NoCandidate,
+                IconCandidateSeparationReason.NoCompatibleReferences) =>
+                compatibleReferenceCount == 0 &&
+                compatibleCanonicalItemCount == 0 &&
+                runnerUpGapBits is null,
+            (IconCandidateSeparationOutcome.NoCandidate,
+                IconCandidateSeparationReason.OutsideCandidateDistance) =>
+                compatibleReferenceCount > 0 &&
+                compatibleCanonicalItemCount > 0 &&
+                (compatibleCanonicalItemCount == 1
+                    ? runnerUpGapBits is null
+                    : runnerUpGapBits is not null),
+            (IconCandidateSeparationOutcome.Ambiguous,
+                IconCandidateSeparationReason.InsufficientReferenceSet) =>
+                compatibleReferenceCount > 0 &&
+                compatibleCanonicalItemCount == 1 &&
+                copy.Length == 1 &&
+                runnerUpGapBits is null,
+            (IconCandidateSeparationOutcome.Ambiguous,
+                IconCandidateSeparationReason.BestFingerprintNotExact) =>
+                compatibleReferenceCount >= compatibleCanonicalItemCount &&
+                compatibleCanonicalItemCount >= 2 &&
+                copy[0].HammingDistanceBits != 0 &&
+                runnerUpGapBits is not null,
+            (IconCandidateSeparationOutcome.Ambiguous,
+                IconCandidateSeparationReason.RunnerUpGapTooSmall) =>
+                compatibleReferenceCount >= compatibleCanonicalItemCount &&
+                compatibleCanonicalItemCount >= 2 &&
+                copy[0].HammingDistanceBits == 0 &&
+                runnerUpGapBits is not null &&
+                runnerUpGapBits < policy.MinimumRunnerUpGapBits,
+            (IconCandidateSeparationOutcome.Separated,
+                IconCandidateSeparationReason.DistinctExactFingerprint) =>
+                compatibleReferenceCount >= compatibleCanonicalItemCount &&
+                compatibleCanonicalItemCount >= 2 &&
+                copy[0].HammingDistanceBits == 0 &&
+                runnerUpGapBits >= policy.MinimumRunnerUpGapBits,
+            _ => false,
+        };
+        if (!shapeIsValid)
+        {
+            throw new ArgumentException(
+                "The icon separation outcome, reason, counts, distances, and runner-up gap are inconsistent.");
         }
 
         Query = query;
