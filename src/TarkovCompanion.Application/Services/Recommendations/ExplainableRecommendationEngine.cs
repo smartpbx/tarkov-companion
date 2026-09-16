@@ -162,17 +162,6 @@ public sealed class ExplainableRecommendationEngine(
                 $"scarcity.obtainability.{scarcityBand.ToString().ToLowerInvariant()}",
                 $"Current evidence classifies this item as {scarcityBand.ToString().ToLowerInvariant()} to obtain.",
                 scarcityProvenance));
-            sensitivities.Add(new(
-                "obtainability-improved",
-                "If this item becomes easier to obtain, economics may become the deciding reason.",
-                null));
-        }
-        else if (scarcity.Band is not null)
-        {
-            sensitivities.Add(new(
-                "obtainability-worsened",
-                "If this item becomes scarce to obtain, the recommendation changes to keep or take it.",
-                KeepOrTake(request.UseCase)));
         }
 
         var raidContext = InspectRaidContext(request, evidenceIssues);
@@ -195,8 +184,6 @@ public sealed class ExplainableRecommendationEngine(
                 "A newer net price or corrected footprint can move the item into another value-per-square band.",
                 null));
         }
-
-        AddRaidContextSensitivities(request, raidContext, economics, sensitivities);
 
         foreach (var issue in evidenceIssues.Values)
         {
@@ -230,6 +217,29 @@ public sealed class ExplainableRecommendationEngine(
             raidContext,
             economics,
             evidenceIssues.Count > 0);
+        V2RecommendationAction SelectAlternative(
+            bool alternativeScarcityKeep,
+            RaidContextInspection alternativeRaidContext) =>
+            SelectAction(
+                request.UseCase,
+                eventState,
+                explicitAction,
+                isProtected,
+                applicableNeeds.Count > 0,
+                isPinned || isWishlisted,
+                alternativeScarcityKeep,
+                alternativeRaidContext,
+                economics,
+                evidenceIssues.Count > 0);
+        AddScarcitySensitivities(scarcity, raidContext, action, SelectAlternative, sensitivities);
+        AddRaidContextSensitivities(
+            request,
+            scarcity,
+            raidContext,
+            economics,
+            action,
+            SelectAlternative,
+            sensitivities);
         var dominantRule = DominantRule(
             eventState,
             explicitAction,
@@ -543,10 +553,38 @@ public sealed class ExplainableRecommendationEngine(
         }
     }
 
+    private static void AddScarcitySensitivities(
+        ScarcityInspection scarcity,
+        RaidContextInspection raidContext,
+        V2RecommendationAction currentAction,
+        Func<bool, RaidContextInspection, V2RecommendationAction> selectAlternative,
+        ICollection<RecommendationSensitivity> sensitivities)
+    {
+        if (scarcity.ShouldKeep)
+        {
+            var improvedAction = selectAlternative(false, raidContext);
+            sensitivities.Add(new(
+                "obtainability-improved",
+                "If this item becomes easier to obtain, economics may become the deciding reason.",
+                improvedAction != currentAction ? improvedAction : null));
+        }
+        else if (scarcity.Band is not null)
+        {
+            var worsenedAction = selectAlternative(true, raidContext);
+            sensitivities.Add(new(
+                "obtainability-worsened",
+                "If this item becomes scarce to obtain, the recommendation may change to keep or take it.",
+                worsenedAction != currentAction ? worsenedAction : null));
+        }
+    }
+
     private void AddRaidContextSensitivities(
         ExplainableRecommendationRequest request,
+        ScarcityInspection scarcity,
         RaidContextInspection context,
         EconomicInspection? economics,
+        V2RecommendationAction currentAction,
+        Func<bool, RaidContextInspection, V2RecommendationAction> selectAlternative,
         ICollection<RecommendationSensitivity> sensitivities)
     {
         if (request.UseCase != RecommendationUseCase.Loot || !context.IsAvailable)
@@ -554,18 +592,21 @@ public sealed class ExplainableRecommendationEngine(
             return;
         }
 
-        if (economics is not { } economic ||
+        if (economics is null ||
             context.Phase is not { } phase ||
             context.Risk is not { } risk)
         {
             return;
         }
 
-        var currentAction = EconomicLootAction(economic.Band, phase, risk);
-
         if (context.Risk != RecommendationRaidRisk.Low)
         {
-            var lowerRiskAction = EconomicLootAction(economic.Band, phase, RecommendationRaidRisk.Low);
+            var lowerRisk = context with
+            {
+                Risk = RecommendationRaidRisk.Low,
+                RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Low),
+            };
+            var lowerRiskAction = selectAlternative(scarcity.ShouldKeep, lowerRisk);
             sensitivities.Add(new(
                 "raid-risk-reduced",
                 "Lowering the current raid risk may lower the economic band required to take this item.",
@@ -573,7 +614,12 @@ public sealed class ExplainableRecommendationEngine(
         }
         else
         {
-            var higherRiskAction = EconomicLootAction(economic.Band, phase, RecommendationRaidRisk.Critical);
+            var higherRisk = context with
+            {
+                Risk = RecommendationRaidRisk.Critical,
+                RequiredBand = _policy.LootThresholds.RequiredBand(phase, RecommendationRaidRisk.Critical),
+            };
+            var higherRiskAction = selectAlternative(scarcity.ShouldKeep, higherRisk);
             sensitivities.Add(new(
                 "raid-risk-increased",
                 "Higher raid risk may make ordinary economic loot a leave.",
@@ -582,7 +628,12 @@ public sealed class ExplainableRecommendationEngine(
 
         if (context.Phase is RecommendationRaidPhase.Late or RecommendationRaidPhase.Extracting)
         {
-            var earlierPhaseAction = EconomicLootAction(economic.Band, RecommendationRaidPhase.Middle, risk);
+            var earlierPhase = context with
+            {
+                Phase = RecommendationRaidPhase.Middle,
+                RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Middle, risk),
+            };
+            var earlierPhaseAction = selectAlternative(scarcity.ShouldKeep, earlierPhase);
             sensitivities.Add(new(
                 "raid-phase-earlier",
                 "An earlier raid phase may lower the economic band required to take this item.",
@@ -590,21 +641,18 @@ public sealed class ExplainableRecommendationEngine(
         }
         else
         {
-            var laterPhaseAction = EconomicLootAction(economic.Band, RecommendationRaidPhase.Extracting, risk);
+            var laterPhase = context with
+            {
+                Phase = RecommendationRaidPhase.Extracting,
+                RequiredBand = _policy.LootThresholds.RequiredBand(RecommendationRaidPhase.Extracting, risk),
+            };
+            var laterPhaseAction = selectAlternative(scarcity.ShouldKeep, laterPhase);
             sensitivities.Add(new(
                 "raid-phase-later",
                 "A later raid phase may make ordinary economic loot a leave.",
                 laterPhaseAction != currentAction ? laterPhaseAction : null));
         }
     }
-
-    private V2RecommendationAction EconomicLootAction(
-        EconomicValueBand band,
-        RecommendationRaidPhase phase,
-        RecommendationRaidRisk risk) =>
-        (int)band >= (int)_policy.LootThresholds.RequiredBand(phase, risk)
-            ? V2RecommendationAction.Take
-            : V2RecommendationAction.Leave;
 
     private EconomicInspection? InspectEconomics(
         ExplainableRecommendationRequest request,

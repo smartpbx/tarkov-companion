@@ -251,6 +251,60 @@ public sealed class ExplainableRecommendationEngineTests
     }
 
     [Fact]
+    public void ExplicitProtectionAndNeedPrecedenceSuppressScarcityAlternativeActions()
+    {
+        var decisions = new[]
+        {
+            new ExplainableRecommendationEngine().Evaluate(Request(
+                profile: Profile(explicitAction: V2Action.Leave))).Decision.Value!,
+            new ExplainableRecommendationEngine().Evaluate(Request(
+                profile: Profile(protectedItem: true))).Decision.Value!,
+            new ExplainableRecommendationEngine().Evaluate(Request(
+                profile: Profile(needs: [Need("current", RecommendationNeedPurpose.Quest, 0, 1)]),
+                inventory: Inventory(total: 0, fir: 0))).Decision.Value!,
+        };
+
+        Assert.Equal([V2Action.Leave, V2Action.Keep, V2Action.Keep], decisions.Select(value => value.Action));
+        Assert.All(decisions, decision => Assert.Null(Assert.Single(
+            decision.ChangesTheAnswer,
+            change => change.FactCode == "obtainability-worsened").AlternativeAction));
+    }
+
+    [Fact]
+    public void ScarcityPrecedenceSuppressesRaidAlternativeActions()
+    {
+        var decision = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 60_000, trader: 40_000, squares: 2),
+            scarcity: Scarcity(RecommendationObtainabilityBand.Scarce),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Middle,
+                RecommendationRaidRisk.High))).Decision.Value!;
+
+        Assert.Equal(V2Action.Take, decision.Action);
+        Assert.Null(Assert.Single(decision.ChangesTheAnswer, change =>
+            change.FactCode == "raid-risk-reduced").AlternativeAction);
+        Assert.Null(Assert.Single(decision.ChangesTheAnswer, change =>
+            change.FactCode == "raid-phase-later").AlternativeAction);
+    }
+
+    [Fact]
+    public void EvidenceIssueSuppressesRaidAlternativeActions()
+    {
+        var decision = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 60_000, trader: 40_000, squares: 2),
+            scarcity: Scarcity(null),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Middle,
+                RecommendationRaidRisk.High))).Decision.Value!;
+
+        Assert.Equal(V2Action.Review, decision.Action);
+        Assert.Null(Assert.Single(decision.ChangesTheAnswer, change =>
+            change.FactCode == "raid-risk-reduced").AlternativeAction);
+    }
+
+    [Fact]
     public void MissingRaidContextNeverBecomesLowRisk()
     {
         var decision = new ExplainableRecommendationEngine().Evaluate(Request(
@@ -440,6 +494,7 @@ public sealed class ExplainableRecommendationEngineTests
             riskProvenance ?? Provenance("raid-risk")));
 
     private static RecommendationProfileFacts Profile(
+        V2Action? explicitAction = null,
         bool protectedItem = false,
         bool pinned = false,
         bool wishlist = false,
@@ -447,7 +502,9 @@ public sealed class ExplainableRecommendationEngineTests
         IReadOnlyList<RecommendationNeed>? needs = null) => new(
         CompleteStatus,
         Provenance("profile"),
-        Unknown<V2Action?>("profile.override"),
+        explicitAction is { } action
+            ? Complete<V2Action?>("profile.override", action)
+            : Unknown<V2Action?>("profile.override"),
         Complete<bool?>("profile.protected", protectedItem),
         Complete<bool?>("profile.pinned", pinned),
         Complete<bool?>("profile.wishlist", wishlist),
