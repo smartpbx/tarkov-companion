@@ -710,18 +710,28 @@ public sealed class DurableLootSpawnPublicationStore :
 
     private sealed record PublicationHeader(long PayloadLength, string PayloadSha256);
 
-    private sealed class LengthLimitedReadStream(Stream inner, long length) : Stream
+    private sealed class LengthLimitedReadStream : Stream
     {
-        public long Remaining { get; private set; } = length;
+        private readonly Stream _inner;
+        private readonly long _length;
+
+        public LengthLimitedReadStream(Stream inner, long length)
+        {
+            _inner = inner;
+            _length = length;
+            Remaining = length;
+        }
+
+        public long Remaining { get; private set; }
 
         public override bool CanRead => true;
         public override bool CanSeek => false;
         public override bool CanWrite => false;
-        public override long Length => length;
+        public override long Length => _length;
 
         public override long Position
         {
-            get => length - Remaining;
+            get => _length - Remaining;
             set => throw new NotSupportedException();
         }
 
@@ -730,7 +740,7 @@ public sealed class DurableLootSpawnPublicationStore :
 
         public override int Read(Span<byte> buffer)
         {
-            var read = inner.Read(buffer[..(int)Math.Min(buffer.Length, Remaining)]);
+            var read = _inner.Read(buffer[..(int)Math.Min(buffer.Length, Remaining)]);
             Remaining -= read;
             return read;
         }
@@ -739,7 +749,7 @@ public sealed class DurableLootSpawnPublicationStore :
             Memory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
-            var read = await inner
+            var read = await _inner
                 .ReadAsync(buffer[..(int)Math.Min(buffer.Length, Remaining)], cancellationToken)
                 .ConfigureAwait(false);
             Remaining -= read;

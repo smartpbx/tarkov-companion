@@ -546,17 +546,16 @@ public sealed class TarkovDevLootSpawnNormalizer
         var fleaGross = item.Types.Contains("noFlea", StringComparer.OrdinalIgnoreCase)
             ? null
             : item.LastLowPrice;
-        var bestTrader = item.SellToTrader
+        var trader = item.SellToTrader
             .Select(offer => offer.PriceRub is > 0
-                ? offer.PriceRub
+                ? (long?)offer.PriceRub.GetValueOrDefault()
                 : string.Equals(offer.Currency, "RUB", StringComparison.OrdinalIgnoreCase) && offer.Price is > 0
-                    ? offer.Price
+                    ? (long?)offer.Price.GetValueOrDefault()
                     : null)
             .OfType<long>()
             .DefaultIfEmpty()
-            .Max() is var trader && trader > 0
-                ? trader
-                : null;
+            .Max();
+        long? bestTrader = trader > 0 ? trader : null;
         var squares = checked(item.Width * item.Height);
         return new(
             item.Id,
@@ -565,7 +564,7 @@ public sealed class TarkovDevLootSpawnNormalizer
             ItemValue("flea-gross", fleaGross, provenance, freshness),
             ItemValue<long>("flea-net", null, provenance, freshness),
             ItemValue("best-trader", bestTrader, provenance, freshness),
-            ItemValue("occupied-squares", squares, provenance, freshness));
+            ItemValue<int>("occupied-squares", squares, provenance, freshness));
     }
 
     private static EvidencedValue<T?> ItemValue<T>(
