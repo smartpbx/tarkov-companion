@@ -519,6 +519,8 @@ public sealed class ExplainableRecommendationEngineTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => Scarcity((RecommendationObtainabilityBand)99));
         Assert.Throws<ArgumentOutOfRangeException>(() => RaidContext(risk: (RecommendationRaidRisk)99));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new RecommendationExplicitActionState((V2Action)99));
         Assert.Throws<ArgumentException>(() => new RaidAdjustedLootThresholds(
             EconomicValueBand.High,
             EconomicValueBand.Moderate,
@@ -686,6 +688,22 @@ public sealed class ExplainableRecommendationEngineTests
             Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "profile.protection-untrusted");
             Assert.DoesNotContain(result.Decision.Value.Reasons, reason => reason.Code == "item.protected");
         }
+    }
+
+    [Fact]
+    public void UnknownExplicitActionStateCannotProduceDecisiveEconomicAdvice()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            profile: Profile(explicitField: Unknown<RecommendationExplicitActionState?>(
+                "profile.override",
+                Provenance("override-unknown"))),
+            economics: Economics(fleaNet: 100_000, trader: 80_000, squares: 2)));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Equal(ResultCompleteness.Partial, result.Decision.Status.Completeness);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "profile.override-untrusted");
+        Assert.Contains(result.Decision.Value.Reasons, reason =>
+            reason.Category == RecommendationReasonCategory.Economics);
     }
 
     [Fact]
@@ -1185,12 +1203,16 @@ public sealed class ExplainableRecommendationEngineTests
         EvidenceProvenance? eventProvenance = null,
         EvidencedValue<bool?>? protectedField = null,
         EvidencedValue<EventItemState?>? eventField = null,
-        RecommendationEventStateFacts? eventFacts = null) => new(
+        RecommendationEventStateFacts? eventFacts = null,
+        EvidencedValue<RecommendationExplicitActionState?>? explicitField = null) => new(
         CompleteStatus,
         Provenance("profile"),
-        explicitAction is { } action
-            ? Complete<V2Action?>("profile.override", action, explicitProvenance)
-            : Unknown<V2Action?>("profile.override", explicitProvenance),
+        explicitField ?? Complete<RecommendationExplicitActionState?>(
+            "profile.override",
+            explicitAction is { } action
+                ? new RecommendationExplicitActionState(action)
+                : RecommendationExplicitActionState.None,
+            explicitProvenance),
         protectedField ?? Complete<bool?>("profile.protected", protectedItem, protectedProvenance),
         Complete<bool?>("profile.pinned", pinned, pinnedProvenance),
         Complete<bool?>("profile.wishlist", wishlist, wishlistProvenance),

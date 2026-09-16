@@ -144,6 +144,22 @@ public sealed record RecommendationEventStateFacts
     public EvidencedValue<EventItemState?> State { get; }
 }
 
+/// <summary>
+/// The configured explicit action, including a first-class <see cref="None"/> state. The outer
+/// evidence status distinguishes a confirmed absence from an action field that was not resolved.
+/// </summary>
+public readonly record struct RecommendationExplicitActionState
+{
+    public RecommendationExplicitActionState(V2RecommendationAction? action)
+    {
+        Action = V2ContractGuard.DefinedOptional(action, nameof(action));
+    }
+
+    public V2RecommendationAction? Action { get; }
+
+    public static RecommendationExplicitActionState None { get; } = new(null);
+}
+
 /// <summary>A requirement before compatible observed holdings are allocated to it.</summary>
 public sealed record RecommendationNeed
 {
@@ -208,7 +224,7 @@ public sealed record RecommendationProfileFacts
     public RecommendationProfileFacts(
         ResultStatus status,
         EvidenceProvenance provenance,
-        EvidencedValue<V2RecommendationAction?> explicitAction,
+        EvidencedValue<RecommendationExplicitActionState?> explicitAction,
         EvidencedValue<bool?> protectedItem,
         EvidencedValue<bool?> pinned,
         EvidencedValue<bool?> wishlist,
@@ -217,7 +233,7 @@ public sealed record RecommendationProfileFacts
     {
         Status = status ?? throw new ArgumentNullException(nameof(status));
         Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
-        ExplicitAction = V2ContractGuard.Defined(explicitAction, nameof(explicitAction));
+        ExplicitAction = explicitAction ?? throw new ArgumentNullException(nameof(explicitAction));
         ProtectedItem = protectedItem ?? throw new ArgumentNullException(nameof(protectedItem));
         Pinned = pinned ?? throw new ArgumentNullException(nameof(pinned));
         Wishlist = wishlist ?? throw new ArgumentNullException(nameof(wishlist));
@@ -244,7 +260,7 @@ public sealed record RecommendationProfileFacts
 
     public EvidenceProvenance Provenance { get; }
 
-    public EvidencedValue<V2RecommendationAction?> ExplicitAction { get; }
+    public EvidencedValue<RecommendationExplicitActionState?> ExplicitAction { get; }
 
     public EvidencedValue<bool?> ProtectedItem { get; }
 

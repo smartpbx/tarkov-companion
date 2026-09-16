@@ -51,26 +51,18 @@ public sealed class ExplainableRecommendationEngine(
             decisionInputs.Add(profileAssessment.Provenance);
         }
 
-        var explicitEvidence = InspectOptionalProfileField(
+        // A complete state can say that no override exists. A missing state cannot: treating both
+        // as nullable actions would let an unknown higher-precedence rule fall through to economics.
+        var explicitEvidence = InspectRequiredProfileField(
             profile.ExplicitAction,
             request,
             evidenceIssues,
             "profile.override-untrusted",
             "The explicit item rule is ambiguous, stale, incomplete, or below the confidence threshold.");
-        var explicitAction = explicitEvidence?.Value;
+        var explicitAction = explicitEvidence?.Value.Action;
         if (explicitEvidence is { } trustedExplicitAction)
         {
             decisionInputs.Add(trustedExplicitAction.Provenance);
-        }
-        else if (!HasClaim(profile.ExplicitAction))
-        {
-            // Optional means no rule was configured, not that an absent rule is irrelevant. The
-            // lower-precedence answer depends on that negative fact just as it depends on false
-            // protection and pin values.
-            decisionInputs.Add(CombineProvenance(
-                "recommendation.profile.override.absent",
-                request.EvaluatedUtc,
-                [profile.ExplicitAction.Provenance]));
         }
 
         if (explicitAction is { } overridden)
@@ -1296,22 +1288,6 @@ public sealed class ExplainableRecommendationEngine(
         if (economics.ConditionFraction is { } condition) details.Add($"condition {condition.ToString("P0", CultureInfo.InvariantCulture)}");
         var suffix = details.Count == 0 ? string.Empty : $" ({string.Join(", ", details)})";
         return $"{economics.TotalValue.ToString("N0", CultureInfo.InvariantCulture)} roubles across {economics.Footprint} square(s) is {economics.ValuePerSquare.ToString("N0", CultureInfo.InvariantCulture)} per square, in the {economics.Band.ToString().ToLowerInvariant()} band{suffix}.";
-    }
-
-    private TrustedValue<T>? InspectOptionalProfileField<T>(
-        EvidencedValue<T?> field,
-        ExplainableRecommendationRequest request,
-        IDictionary<string, EvidenceIssue> issues,
-        string issueCode,
-        string issueExplanation)
-        where T : struct
-    {
-        if (!HasClaim(field))
-        {
-            return null;
-        }
-
-        return InspectRequiredProfileField(field, request, issues, issueCode, issueExplanation);
     }
 
     private TrustedValue<T>? InspectRequiredProfileField<T>(
