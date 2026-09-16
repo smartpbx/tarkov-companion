@@ -1,0 +1,29 @@
+[
+  {
+    "normalizedName": "customs",
+    "id": "map-001",
+    "name": "Customs composition fixture",
+    "description": "Synthetic reviewed transform for runtime composition tests.",
+    "primaryPath": "/map/customs",
+    "maps": [
+      {
+        "key": "customs-interactive",
+        "projection": "interactive",
+        "minZoom": 1,
+        "maxZoom": 5,
+        "transform": [1, 0, 1, 0],
+        "coordinateRotation": 0,
+        "bounds": [[-100, -100], [100, 100]],
+        "svgBounds": [[-100, -100], [100, 100]],
+        "author": "Tarkov Companion fixture",
+        "authorLink": "https://tarkov.dev",
+        "svgPath": "https://assets.tarkov.dev/maps/svg/composition-fixture.svg",
+        "svgLayer": "Base",
+        "heightRange": [-100, 100],
+        "layers": null,
+        "labels": null,
+        "altMaps": null
+      }
+    ]
+  }
+]

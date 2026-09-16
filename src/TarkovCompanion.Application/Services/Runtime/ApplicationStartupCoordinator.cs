@@ -5,6 +5,7 @@ using TarkovCompanion.Application.Services.Group;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Raids;
 using TarkovCompanion.Application.Services.Execution;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Maps;
@@ -24,6 +25,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     private readonly IMapAliasCatalog _mapAliasCatalog;
     private readonly IMapDefinitionCache? _mapDefinitions;
     private readonly IMapFeatureCatalog? _mapFeatures;
+    private readonly IHighValueLootRuntimeSource? _highValueLoot;
     private readonly IRequirementCatalog _requirementCatalog;
     private readonly IItemFactCatalog _itemFactCatalog;
     private readonly IReadOnlyList<IInvalidatableProjection> _projections;
@@ -68,7 +70,10 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         // Optional for the same reason, and because a composition that reads maps out of a
         // fixture rather than the database is still a valid composition.
         IMapDefinitionCache? mapDefinitions = null,
-        IMapFeatureCatalog? mapFeatures = null)
+        IMapFeatureCatalog? mapFeatures = null,
+        // Optional because fixture and headless compositions may intentionally omit the map
+        // layer while the desktop composition always supplies the durable production source.
+        IHighValueLootRuntimeSource? highValueLoot = null)
     {
         _dataStore = dataStore;
         _dataSyncService = dataSyncService;
@@ -81,6 +86,7 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         _mapAliasCatalog = mapAliasCatalog;
         _mapDefinitions = mapDefinitions;
         _mapFeatures = mapFeatures;
+        _highValueLoot = highValueLoot;
         _requirementCatalog = requirementCatalog;
         _projections = projections.ToArray();
         _itemFactCatalog = itemFactCatalog;
@@ -184,7 +190,11 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
     public void BeginBackgroundRefresh()
     {
         EnsureOfflineModeMonitor();
-        if (_options.DemoMode || _options.IsOffline || !NeedsRefresh(_stateStore.Current.Data))
+        var needsLootRefresh = _highValueLoot?.NeedsRefresh(
+            _timeProvider.GetUtcNow().ToUniversalTime(),
+            _options.DataFreshFor) == true;
+        if (_options.DemoMode || _options.IsOffline ||
+            (!NeedsRefresh(_stateStore.Current.Data) && !needsLootRefresh))
         {
             return;
         }
@@ -317,6 +327,17 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
 
             await WarmCatalogsAsync(operationCancellation.Token).ConfigureAwait(false);
             operationCancellation.Token.ThrowIfCancellationRequested();
+
+            if (_highValueLoot is not null)
+            {
+                // The shared sync has just refreshed maps and items. Reading its exact response
+                // cache avoids a second forced download while still normalizing and publishing
+                // the independently governed loot bundle.
+                await _highValueLoot
+                    .RefreshAsync(force: false, operationCancellation.Token)
+                    .ConfigureAwait(false);
+                operationCancellation.Token.ThrowIfCancellationRequested();
+            }
 
             var errors = report.Endpoints.Where(endpoint => endpoint.Error is not null).ToArray();
             // The sync has always known when an endpoint answered from a stale cache instead
@@ -750,8 +771,8 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
         var cachedData = new RuntimeFeatureId("cached-data");
         var profile = new RuntimeFeatureId("profile");
         var raidHistoryRepair = new RuntimeFeatureId("raid-history-repair");
-        return
-        [
+        var features = new List<RuntimeFeatureDefinition>
+        {
             new(
                 database,
                 FeatureStartupPriority.WorkspaceCritical,
@@ -806,7 +827,17 @@ public sealed class ApplicationStartupCoordinator : IAsyncDisposable
                 FeatureStartupPriority.Normal,
                 [],
                 StartGroupSessionAsync),
-        ];
+        };
+        if (_highValueLoot is not null)
+        {
+            features.Add(new(
+                new("high-value-loot-source"),
+                FeatureStartupPriority.Normal,
+                [],
+                cancellationToken => _highValueLoot.InitializeAsync(cancellationToken).AsTask()));
+        }
+
+        return features;
     }
 
     private async Task InitializeDataStoreAsync(CancellationToken cancellationToken)

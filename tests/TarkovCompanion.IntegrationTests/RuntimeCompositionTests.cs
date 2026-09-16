@@ -7,11 +7,14 @@ using TarkovCompanion.App.ViewModels;
 using TarkovCompanion.App.ViewModels.Maps;
 using TarkovCompanion.App.ViewModels.Quests;
 using TarkovCompanion.Application.Services.Quests;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Runtime;
 using TarkovCompanion.Core.Abstractions;
 using TarkovCompanion.Core.Common;
 using TarkovCompanion.Core.Domain.Quests;
 using TarkovCompanion.Core.Domain.Raids;
+using TarkovCompanion.Core.Domain.LootSpawns;
+using TarkovCompanion.Core.Domain.Maps.Scene;
 
 namespace TarkovCompanion.IntegrationTests;
 
@@ -48,6 +51,7 @@ public sealed class RuntimeCompositionTests
             Assert.NotNull(services.GetRequiredService<IProjectQuestProgressJson>());
             Assert.NotNull(services.GetRequiredService<IQuestProgressImportStore>());
             Assert.NotNull(services.GetRequiredService<IQuestProgressExchangeService>());
+            Assert.NotNull(services.GetRequiredService<IReviewedLootSpawnPublicationReplacementStore>());
             Assert.True(File.Exists(services.GetRequiredService<IRuntimeDataStore>().DatabasePath));
         }
         finally
@@ -251,6 +255,10 @@ public sealed class RuntimeCompositionTests
                 await startup.InitializeAsync(CancellationToken.None);
                 await startup.RefreshAsync(force: true, CancellationToken.None);
                 Assert.Equal(2, online.GetRequiredService<IRuntimeStateStore>().Current.Data.ItemCount);
+                var loot = online.GetRequiredService<IHighValueLootRuntimeSource>();
+                var snapshot = Assert.Single(Assert.IsType<LootSpawnSourceBundle>(loot.LastKnownGood).Snapshots);
+                Assert.Single(loot.Build(LootRequest(snapshot, clock.GetUtcNow())).Entries);
+                Assert.True(File.Exists(Path.Combine(root, "Cache", "LootSpawns", "publication.cache")));
             }
 
             var forbiddenNetwork = new FailIfUsedHandler();
@@ -268,6 +276,9 @@ public sealed class RuntimeCompositionTests
                 Assert.Equal(2, snapshot.Data.ItemCount);
                 Assert.Equal("item-001", Assert.Single(hits).Item.Id);
                 Assert.Equal(0, forbiddenNetwork.RequestCount);
+                var loot = offline.GetRequiredService<IHighValueLootRuntimeSource>();
+                var lootSnapshot = Assert.Single(Assert.IsType<LootSpawnSourceBundle>(loot.LastKnownGood).Snapshots);
+                Assert.Single(loot.Build(LootRequest(lootSnapshot, clock.GetUtcNow())).Entries);
             }
         }
         finally
@@ -456,6 +467,23 @@ public sealed class RuntimeCompositionTests
 
     private static AppCommandLine CommandLine(bool demo) =>
         new(false, demo, false, false, null, null, null);
+
+    private static HighValueLootRuntimeLayerRequest LootRequest(
+        LootSpawnSnapshot snapshot,
+        DateTimeOffset evaluatedUtc) => new(
+        snapshot.MapId,
+        snapshot.TransformVersion,
+        new MapSceneBounds(-1_000, -1_000, 1_000, 1_000),
+        evaluatedUtc,
+        new HighValueLootFilter(
+            LootSpawnValueBasis.FleaGross,
+            new(1, 2, 3, 4),
+            TimeSpan.FromDays(7),
+            TimeSpan.FromDays(90),
+            // The provider publishes no calibrated confidence score. Accept unscored evidence
+            // here instead of manufacturing a score in the production adapter.
+            0),
+        snapshot.Records.SelectMany(record => record.Location.FloorIds).Distinct().ToArray());
 
     private static string TemporaryRoot() =>
         Path.Combine(Path.GetTempPath(), $"tarkov-runtime-{Guid.NewGuid():N}");

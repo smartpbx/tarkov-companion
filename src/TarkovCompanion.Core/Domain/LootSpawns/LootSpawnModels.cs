@@ -421,7 +421,10 @@ public sealed record LootSpawnSnapshot
 {
     public const int MaximumRecords = 4096;
 
-    public const int MaximumTotalCandidates = 4096;
+    // The measured primary feed currently reaches 7,474 candidates on one map. Keeping the old
+    // 4,096 ceiling made the production source impossible to publish even though every individual
+    // pool was within its 256-entry bound. The bundle-level importer still caps the complete input.
+    public const int MaximumTotalCandidates = 16_384;
 
     public const int MaximumTotalProfileNeeds = 16384;
 

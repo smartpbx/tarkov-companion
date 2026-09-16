@@ -9,6 +9,7 @@ using TarkovCompanion.Application.Services;
 using TarkovCompanion.Application.Services.Catalogs;
 using TarkovCompanion.Application.Services.Execution;
 using TarkovCompanion.Application.Services.Intelligence;
+using TarkovCompanion.Application.Services.LootSpawns;
 using TarkovCompanion.Application.Services.Maps;
 using TarkovCompanion.Application.Services.Profile;
 using TarkovCompanion.Application.Services.Profiles;
@@ -31,6 +32,7 @@ using TarkovCompanion.Core.Domain.Maps;
 using TarkovCompanion.Infrastructure.Persistence;
 using TarkovCompanion.Infrastructure.Persistence.Repositories;
 using TarkovCompanion.Infrastructure.Events;
+using TarkovCompanion.Infrastructure.GameData.LootSpawns;
 using TarkovCompanion.Infrastructure.Maps;
 using TarkovCompanion.Infrastructure.Profile;
 using TarkovCompanion.Infrastructure.Recognition;
@@ -228,6 +230,28 @@ public static class AppComposition
         services.AddSingleton(MapAssetCacheOptions.CreateDefault(Path.Combine(paths.Cache, "Maps", "Assets")));
         services.AddSingleton<TarkovDevMapCatalogClient>();
         services.AddSingleton<TarkovDevMapAssetCache>();
+        services.AddSingleton<TarkovDevLootSpawnNormalizer>();
+        services.AddSingleton(provider => new DurableLootSpawnPublicationStore(
+            Path.Combine(paths.Cache, "LootSpawns", "publication.cache"),
+            timeProvider));
+        services.AddSingleton<ILootSpawnSourcePublicationStore>(provider =>
+            provider.GetRequiredService<DurableLootSpawnPublicationStore>());
+        services.AddSingleton<IReviewedLootSpawnPublicationReplacementStore>(provider =>
+            provider.GetRequiredService<DurableLootSpawnPublicationStore>());
+        services.AddSingleton(provider => new TarkovDevLootSpawnRefreshService(
+            runtimeOptions.GameMode,
+            runtimeOptions.Language,
+            provider.GetRequiredService<TarkovDevJsonClient>(),
+            provider.GetRequiredService<TarkovDevMapCatalogClient>(),
+            provider.GetRequiredService<TarkovDevLootSpawnNormalizer>(),
+            provider.GetRequiredService<ILootSpawnSourcePublicationStore>(),
+            timeProvider));
+        services.AddSingleton<ILootSpawnSourceRefreshService>(provider =>
+            provider.GetRequiredService<TarkovDevLootSpawnRefreshService>());
+        services.AddSingleton<HighValueLootLayerService>();
+        services.AddSingleton<HighValueLootRuntimeSource>();
+        services.AddSingleton<IHighValueLootRuntimeSource>(provider =>
+            provider.GetRequiredService<HighValueLootRuntimeSource>());
         services.AddSingleton<IMapVariantPreferenceStore>(_ =>
             new JsonFileMapVariantPreferenceStore(Path.Combine(paths.Config, "map-defaults.json")));
         // Sharing with a group is the only part of this application that sends anything
