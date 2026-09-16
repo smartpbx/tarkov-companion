@@ -212,6 +212,10 @@
   <Style Selector="StackPanel.v2-table">
     <Setter Property="Spacing" Value="{DynamicResource V2.Space.Xs.Gap}" />
   </Style>
+  <Style Selector="StackPanel.v2-capture-row">
+    <Setter Property="Orientation" Value="Horizontal" />
+    <Setter Property="Spacing" Value="{DynamicResource V2.Space.Sm.Gap}" />
+  </Style>
   <Style Selector="Grid.v2-table-header">
     <Setter Property="Background" Value="{DynamicResource V2.Brush.SurfaceRaised}" />
   </Style>

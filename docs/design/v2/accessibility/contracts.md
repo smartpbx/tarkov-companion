@@ -68,6 +68,29 @@ banner, with the Information, Warning, or Critical tone from the manifest, when 
 
 Why/details holds the complete evidence, so routine surfaces need no standing policy panels.
 
+## Operational facts
+
+The semantic manifest is the shared desktop/tablet source for operational presentation. Evidence,
+capture, and paired-device entries each carry a localized word, a direction-neutral glyph, and an
+outline pattern. These redundant cues are data for an adapter, not Avalonia class names. Actual
+feature state and actions remain in their owning workflow.
+
+Capture progress is an ordered, named group. Each capture row exposes its ordinal, total, stage, and
+detail as one localized automation sentence. The compact stage is a presentation grouping over the
+Core phases; every `CaptureSessionStage` appears once. Corrected is a review outcome, never a phase.
+The group also names its intent/purpose and links back to its initiating companion context. Progress
+uses the polite live region; a failed user action uses the assertive one.
+
+A paired device never collapses transport and authority into one label. Its group exposes mode,
+control fact, connectivity, acknowledgement, and sharing scope independently. Offline does not imply
+Independent, reconnecting does not imply Control Pending, and acknowledgement lag does not become a
+conflict. Conflict recovery is an explicit action and assertive announcement. A control lease never
+changes the desktop's canonical authority.
+
+Static gallery examples show one valid combination on desktop-sized and touch-sized render-matrix
+cases. They do not implement a transition, open a connection, arm a capture, or send a command.
+See [operational-semantics.md](operational-semantics.md) for the exact mappings.
+
 ## Pending native gates
 
 The automated assertions prove the gallery's declared structure, the compiled resources and their

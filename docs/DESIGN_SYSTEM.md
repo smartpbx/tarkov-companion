@@ -51,6 +51,12 @@ identities, capture stages, paired-device states, and adaptation intent. It deli
 Avalonia classes, CSS, breakpoints, focus-ring pixels, screenshots, and game interaction. The
 Avalonia adapter lives under `Themes/V2`; #290 maps the same manifest to tablet HTML/CSS.
 
+Manifest 1.1 adds structured operational presentation without changing the original flat state-id
+lists. Those lists remain compatibility indexes; the structured contract distinguishes a capture
+pipeline phase from a correction outcome, and distinguishes a paired device's mode, control fact,
+connectivity, acknowledgement, and sharing scope. An adapter composes those axes instead of minting
+feature-local combined states.
+
 A host merges one dictionary, `Themes/V2/V2Resources.axaml`, which combines:
 
 | File | Holds |
@@ -124,6 +130,38 @@ potential material is identified compactly and never presented as live detection
 freshness or confidence is inline, and full source, UTC timing, coverage, confidence, and model
 version live in the adjacent **Why** disclosure.
 
+The manifest gives all seven evidence identities a localized word, glyph, and optional outline
+pattern. Its progressive-disclosure ladder is machine readable:
+
+- routine provenance, freshness, confidence, and coverage stay compact;
+- decision-changing uncertainty, a degraded result, a recoverable block, or current sharing becomes
+  an explicit inline message;
+- active consent, a destructive action, security failure, or unrecoverable failure uses a banner.
+
+This is a minimum prominence rule, not a severity inference. Feature code supplies the actual fact
+and action; the design system never predicts risk or turns historical/modelled data into a live
+detection.
+
+### Operational semantics
+
+Capture presentation maps every Core `CaptureSessionStage` exactly once into seven compact display
+stages: armed, queued, processing, review, complete, cancelled, and failed. `Corrected` is a review
+outcome rather than a pipeline stage. A capture group exposes intent/purpose, queue ordinal and
+total, the initiating context, correction/retry actions, and progress/failure announcements. It
+only describes user-created captures and never initiates a capture or generates game input.
+
+Paired-device presentation composes five independent axes: Follow/Control Pending/Control/
+Independent mode; desktop authority, pending approval, or a paired-device control lease;
+connected/offline/reconnecting transport; current/lagging/conflicting acknowledgement; and private,
+paired-device, or team sharing scope. Recovery actions are Reconnect, Retry, Sync, and Resolve
+conflict. The desktop remains canonical authority even while a paired device holds a bounded Control
+lease. Full history and protocol detail stay in Why/details or Setup/Admin.
+
+`V2.String.Template.PairedDeviceName` and `V2.String.Template.CaptureProgressName` let desktop and
+tablet adapters form localized automation names without concatenating translated fragments. The
+complete cross-platform mapping is documented in
+[`operational-semantics.md`](design/v2/accessibility/operational-semantics.md).
+
 ### Banner tones
 
 A banner escalates material risk or uncertainty. The manifest gives each tone a word, a glyph, and
@@ -141,13 +179,17 @@ instantiates, lays out, or captures it. It shows one synthetic state of each pri
 - a page heading inside a named Main landmark;
 - a warning state banner and availability badges (including loading), each showing a word, a
   glyph, a role colour, and an outline pattern;
-- an evidence summary with a **Why** Expander;
+- compact historical, coverage, freshness, and confidence cues above an evidence summary with a
+  **Why** Expander;
 - a labelled field with its error;
 - a toolbar;
 - an empty-state card and a touch target;
 - a table;
 - map and chart legends;
-- paired-device and capture-queue cards;
+- a paired-device card with independent mode, approval, reconnecting, acknowledgement, sharing, and
+  recovery facts;
+- an ordered capture queue with intent/purpose, review and processing rows, correction/retry actions,
+  and a link to the initiating context;
 - polite and assertive live-region text.
 
 `V2PrimitiveContracts` records each primitive's gallery automation id. Every automation id in the
@@ -204,9 +246,9 @@ Adapt by effective content width after text scale, not device labels: narrow bel
 tables may scroll horizontally.
 [`render-matrix.v1.json`](../src/TarkovCompanion.App/Assets/V2/render-matrix.v1.json) lists the
 cases the gallery must be rendered and approved at: 100/125/150/200% text, narrow desktop and tablet
-widths, and all nine concrete theme variants. Each element a case must show maps to gallery automation
-ids. It is marked `unrendered`. It is the checklist #279's captures must cover, not a baseline, and
-nothing has been rendered against it.
+widths, resolved full/reduced motion, and all nine concrete theme variants. Each element a case must
+show maps to gallery automation ids. It is marked `unrendered`. It is the checklist #279's captures
+must cover, not a baseline, and nothing has been rendered against it.
 
 The gallery is one fixed column. It has no width-driven layout, horizontally scrolling table, or
 ordered map and chart data list, so the matrix lists those under `notInGallery` as open #266 work
@@ -268,6 +310,11 @@ Automated in CI today, by `V2DesignSystemContractTests` and `V2ThemeResourceTest
 - that every gallery automation id is declared in the control view with an accessible name;
 - that each banner tone and availability value has a word, a glyph, and a pattern, and that the
   gallery banner shows all three;
+- that evidence, capture, and paired-device semantic axes have resource-backed words, glyphs, and
+  patterns, preserve every legacy state id, and cover every Core capture stage and intent exactly;
+- that the gallery's operational examples expose localized independent facts, ordered capture rows,
+  recovery/correction actions, sharing state, and initiating-context navigation in the UIA control
+  view;
 - that focus and error border setters target the Fluent template parts, with focus declared last;
 - that styles take colours, type, gaps, radii, targets, and shadows from V2 resources;
 - that message templates are resources whose placeholders match the manifest;
@@ -298,6 +345,7 @@ Also still open, as #266 work this change does not deliver:
 - a width classifier and text-scale application for the adaptation rules above, and adaptive
   gallery layout (stacked cards, single-column reflow, a table overflow affordance);
 - an ordered data alternative for the map and chart legends;
-- resolvers for the motion and density preferences, which have manifest values but no code;
-- wording and glyphs for paired-device states and capture stages, and sharing-scope and recovery
-  primitives; the paired-device and capture examples are plain text cards.
+- resolvers for the motion and density preferences, which have manifest values but no code.
+
+Binding the operational primitives to capture and paired-device transitions stays with those feature
+owners, outside #266; this disconnected gallery deliberately contains no commands or protocol state.
