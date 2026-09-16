@@ -136,7 +136,8 @@ internal static class Program
         && !options.Demo
         && !options.DeveloperMode
         && options.StartPage is null
-        && options.OcrProbePath is null;
+        && options.OcrProbePath is null
+        && !options.MapRendererGallery;
 
     /// <summary>
     /// Builds the application, recording the toolkit's warnings when a tool asks for them.
