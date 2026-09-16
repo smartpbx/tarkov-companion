@@ -23,12 +23,12 @@ sources=("$root/src")
 # the fix for exactly what this sweep reports, so counting it would keep reporting the thing
 # that was already dealt with.
 mapfile -t dropped < <(
-    grep -ho 'DROP TABLE \(IF EXISTS \)\?[A-Za-z_][A-Za-z0-9_]*' "$migrations"/*.sql |
+    grep -h --exclude='*.rollback.sql' -o 'DROP TABLE \(IF EXISTS \)\?[A-Za-z_][A-Za-z0-9_]*' "$migrations"/*.sql |
         sed 's/DROP TABLE \(IF EXISTS \)\?//' |
         sort -u
 )
 mapfile -t tables < <(
-    grep -ho 'CREATE TABLE \(IF NOT EXISTS \)\?[A-Za-z_][A-Za-z0-9_]*' "$migrations"/*.sql |
+    grep -h --exclude='*.rollback.sql' -o 'CREATE TABLE \(IF NOT EXISTS \)\?[A-Za-z_][A-Za-z0-9_]*' "$migrations"/*.sql |
         sed 's/CREATE TABLE \(IF NOT EXISTS \)\?//' |
         sort -u |
         grep -vxF -f <(printf '%s\n' ${dropped[@]+"${dropped[@]}"}) || true

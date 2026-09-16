@@ -12,7 +12,8 @@ public sealed class SqliteRuntimeDataStore(
     TimeProvider? timeProvider = null,
     // Optional, so the several compositions that build this by hand keep working. Where there
     // is one it reaches the startup log, which is where somebody looks after an update.
-    ILogger<SqliteRuntimeDataStore>? logger = null) : IRuntimeDataStore
+    ILogger<SqliteRuntimeDataStore>? logger = null,
+    SqliteDataPlatformMaintenance? maintenance = null) : IRuntimeDataStore
 {
     private readonly TimeProvider _timeProvider = timeProvider ?? TimeProvider.System;
 
@@ -47,6 +48,14 @@ public sealed class SqliteRuntimeDataStore(
             logger?.LogWarning(
                 "This database records migrations {Versions}, which this build does not have.",
                 string.Join(", ", LastMigration.FromNewerBuild));
+        }
+
+        if (maintenance is not null)
+        {
+            // Startup is the durable scheduler boundary: a machine that was off at the nominal
+            // time still runs its claimed maintenance window on the next launch. Failures are
+            // recorded and retried without making an otherwise usable local database unavailable.
+            _ = await maintenance.RunDueAsync(cancellationToken).ConfigureAwait(false);
         }
     }
 

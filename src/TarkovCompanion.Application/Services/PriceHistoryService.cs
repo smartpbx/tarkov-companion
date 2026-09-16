@@ -2,11 +2,26 @@ using TarkovCompanion.Core.Abstractions;
 
 namespace TarkovCompanion.Application.Services;
 
+public sealed record UnresolvedPriceHistoryPoint(
+    int SourceOrdinal,
+    long? FleaPriceRoubles,
+    long? TraderValueRoubles,
+    string Source,
+    string RawJson);
+
 public interface IPriceHistoryStore
 {
     Task<IReadOnlyList<PriceHistoryPoint>> GetAsync(
         string itemId,
         DateTimeOffset sinceUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns source points whose timestamp was absent, preserving their ordinal and raw shape
+    /// instead of inventing a time or silently dropping them.
+    /// </summary>
+    Task<IReadOnlyList<UnresolvedPriceHistoryPoint>> GetUnresolvedAsync(
+        string itemId,
         CancellationToken cancellationToken);
 }
 

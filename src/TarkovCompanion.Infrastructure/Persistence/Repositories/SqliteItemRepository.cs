@@ -9,6 +9,13 @@ namespace TarkovCompanion.Infrastructure.Persistence.Repositories;
 
 public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFactory) : IItemRepository
 {
+    internal const string ExactItemSql = """
+        SELECT id, name, short_name, description, category_type, width, height, flea_eligible,
+               icon_url, image_url, wiki_url, properties_type, properties_json, source_updated_utc
+        FROM items
+        WHERE id = $itemId;
+        """;
+
     public async Task<ItemDefinition?> GetAsync(string itemId, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
@@ -91,12 +98,7 @@ public sealed class SqliteItemRepository(SqliteConnectionFactory connectionFacto
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id, name, short_name, description, category_type, width, height, flea_eligible,
-                   icon_url, image_url, wiki_url, properties_type, properties_json, source_updated_utc
-            FROM items
-            WHERE id = $itemId;
-            """;
+        command.CommandText = ExactItemSql;
         command.Parameters.AddWithValue("$itemId", itemId);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

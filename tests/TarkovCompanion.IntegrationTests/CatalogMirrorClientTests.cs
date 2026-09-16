@@ -156,7 +156,9 @@ public sealed class CatalogMirrorClientTests
         Assert.Contains("absolute", error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private const string Payload = """{"data":{"maps":{}},"translations":[]}""";
+    private const string Payload = """
+        {"data":{"maps":{"fixture":{"id":"fixture","name":"Fixture","normalizedName":"fixture","extracts":[{"id":"extract","name":"Extract"}]}}},"translations":[]}
+        """;
 
     private static TarkovDevJsonClient Client(
         HttpMessageHandler handler,

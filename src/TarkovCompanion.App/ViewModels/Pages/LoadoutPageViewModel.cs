@@ -569,11 +569,14 @@ public sealed class LoadoutPageViewModel : PageViewModel
 
     private string DescribeCost(LoadoutEvaluation evaluation, IReadOnlyCollection<string> selectedIds)
     {
-        var unpriced = selectedIds.Count(id => _facts.GetValueOrDefault(id) is null or { ApproximateCostRoubles: <= 0 });
-        var total = Roubles(evaluation.ApproximateCostRoubles);
-        return unpriced == 0
-            ? $"{total}"
-            : $"{total} · {unpriced} of {selectedIds.Count} unpriced, counted as zero";
+        if (evaluation.ApproximateCostRoubles is not { } cost)
+        {
+            var unpriced = selectedIds.Count(id =>
+                _facts.GetValueOrDefault(id) is null or { ApproximateCostRoubles: null });
+            return $"No total · {unpriced} of {selectedIds.Count} assigned items have no price";
+        }
+
+        return Roubles(cost);
     }
 
     private string DescribeWeight(LoadoutEvaluation evaluation, IReadOnlyCollection<string> selectedIds)
@@ -585,10 +588,7 @@ public sealed class LoadoutPageViewModel : PageViewModel
             return "No total · an assigned item is not in the fact table";
         }
 
-        var unweighed = selectedIds.Count(id => _facts.GetValueOrDefault(id) is null or { WeightKg: <= 0 });
-        return unweighed == 0
-            ? $"{Kilograms(weight)}"
-            : $"{Kilograms(weight)} · {unweighed} of {selectedIds.Count} state no weight, so the kit is heavier";
+        return Kilograms(weight);
     }
 
     private static string DescribeAmmoTier(LoadoutEvaluation evaluation) =>
@@ -597,10 +597,10 @@ public sealed class LoadoutPageViewModel : PageViewModel
             : $"Tier {evaluation.AmmoTier} in its caliber";
 
     private static string DescribeCost(LoadoutItemFacts? facts) =>
-        facts is null ? "no facts" : facts.ApproximateCostRoubles > 0 ? Roubles(facts.ApproximateCostRoubles) : "no price";
+        facts?.ApproximateCostRoubles is { } cost ? Roubles(cost) : "no price";
 
     private static string DescribeWeight(LoadoutItemFacts? facts) =>
-        facts is null ? "no facts" : facts.WeightKg > 0 ? Kilograms(facts.WeightKg) : "no weight";
+        facts?.WeightKg is { } weight ? Kilograms(weight) : "no weight";
 
     private void ResetEvaluation(string status)
     {
