@@ -377,11 +377,11 @@ public sealed class ExplainableRecommendationEngine(
                 }
 
                 var remaining = need.RequiredQuantity - allocated;
-                if (remaining > 0 && fir is { } firAvailable)
+                if (remaining > 0 && fir is { } remainingFir)
                 {
-                    var fromFir = Math.Min(remaining, firAvailable);
+                    var fromFir = Math.Min(remaining, remainingFir);
                     allocated += fromFir;
-                    fir = firAvailable - fromFir;
+                    fir = remainingFir - fromFir;
                     if (total is { } totalAvailable)
                     {
                         total = Math.Max(0, totalAvailable - fromFir);
