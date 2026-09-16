@@ -143,8 +143,10 @@ room closes it to every other one.
 
 The relay also takes problem reports: **Report a problem** on Settings sends what the companion
 knows about itself, the relay keeps it, and an hourly workflow opens an issue naming it. The
-current bundle excludes game logs, group keys, and raw screenshots, but complete filtering of
-paths, screenshot names, and coordinates is still release-blocking work in
+desktop now builds a closed, bounded report that excludes free-form details, logs, paths,
+screenshot names and pixels, coordinates, identities, credentials, OCR text, and exception
+bodies. **Copy diagnostics** exposes the exact text. Explicit send confirmation and relay-side
+schema enforcement, retention, and lifecycle remain release-blocking work in
 [#281](https://github.com/smartpbx/tarkov-companion/issues/281) and
 [#310](https://github.com/smartpbx/tarkov-companion/issues/310). The relay holds no GitHub
 credential — the workflow files the issue with the token Actions already gives it.

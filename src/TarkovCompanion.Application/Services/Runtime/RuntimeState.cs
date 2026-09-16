@@ -214,8 +214,9 @@ public sealed record ApplicationRuntimeSnapshot(
     /// screenshot, the folder is right, the file is there, and the player simply never appears
     /// on anybody's map. Two players hit exactly that in one evening.
     ///
-    /// Names only, never paths, and the digits are masked before any of this is shown or
-    /// shared — the shape is the diagnosis and the coordinates are nobody's business.
+    /// Names only, never paths. Support diagnostics inspect at most three bounded names and emit
+    /// only a fixed compatibility category and counts; no name, digit, or coordinate is rendered
+    /// or shared.
     /// </remarks>
     public IReadOnlyList<string> RecentScreenshotNames { get; init; } = [];
 

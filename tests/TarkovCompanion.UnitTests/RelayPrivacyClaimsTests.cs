@@ -9,10 +9,10 @@ namespace TarkovCompanion.UnitTests;
 /// <remarks>
 /// The operations runbook said the relay stored "the squad's waypoints, and nothing else" while
 /// the same state directory held the room registry, every problem report as sent, and the
-/// updater's stamps. The Settings caption and the hourly issue text both promised a report had
-/// no coordinates while its log tail named screenshots in full. Nobody reads a runbook against
-/// the server's source, so this does; the open gaps are RISK-REPORT-REDACTION and the #317
-/// relay audit.
+/// updater's stamps. The desktop report is now a closed projection and Settings points to its
+/// exact copyable text, while the hourly workflow still warns that the relay accepts arbitrary
+/// bodies. Nobody reads a runbook against the server's source, so this keeps both claims aligned;
+/// explicit send confirmation and relay schema enforcement remain RISK-REPORT-REDACTION.
 ///
 /// The observed party data had the same problem after its first correction. The server README
 /// and the contract remarks said an observation was handed only to the person it named, while
@@ -86,14 +86,29 @@ public sealed partial class RelayPrivacyClaimsTests
         Assert.All(kept, name => Assert.Contains(name, text, StringComparison.Ordinal));
     }
 
-    [Theory]
-    [InlineData("src/TarkovCompanion.App/Views/Pages/SettingsView.axaml")]
-    [InlineData(".github/workflows/relay-watch.yml")]
-    public void NothingShownAboutAReportPromisesItHasNoCoordinates(string path)
+    [Fact]
+    public void SettingsNamesExactPreviewAndRelayRetentionWithoutAnObsoleteLeakWarning()
     {
-        // Only the words somebody is shown, a XAML attribute or a quoted line of issue text,
-        // and not the comments beside them explaining why the words changed.
-        var shown = ShownText().Matches(File.ReadAllText(RepositoryFile(path)))
+        var shown = ShownText().Matches(File.ReadAllText(RepositoryFile(
+                "src/TarkovCompanion.App/Views/Pages/SettingsView.axaml")))
+            .Select(match => match.Groups["text"].Value)
+            .ToArray();
+
+        Assert.Contains(
+            shown,
+            text => text.Contains("Copy diagnostics shows the exact text first", StringComparison.Ordinal));
+        Assert.Contains(shown, text => text.Contains("may keep it", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            shown,
+            text => text.Contains("folder paths", StringComparison.OrdinalIgnoreCase) ||
+                    text.Contains("screenshot coordinates", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void RelayWorkflowDoesNotPromiseAnArbitraryReportBodyHasNoCoordinates()
+    {
+        // Only the words somebody is shown, a quoted workflow line rather than its comments.
+        var shown = ShownText().Matches(File.ReadAllText(RepositoryFile(".github/workflows/relay-watch.yml")))
             .Select(match => match.Groups["text"].Value)
             .Where(text => text.Contains("coordinates", StringComparison.OrdinalIgnoreCase))
             .ToArray();
