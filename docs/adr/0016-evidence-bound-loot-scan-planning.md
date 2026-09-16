@@ -41,9 +41,15 @@ deterministic planning service.
   unsupported ruleset, or mismatched binding produces review rather than a guessed action.
 - Scan and carried-item counts are bounded, swap search streams its best candidate, and caller
   cancellation interrupts placement work.
+- Recommendation reasons, alternatives, and provenance traversal share a bounded, cancellable
+  preflight. Caller priority is accepted only when it matches the active ruleset's mapped rule.
+- A decisive result requires current, scored provenance throughout each reason and opportunity-cost
+  lineage. A value-per-square lineage that cannot be wrapped inside the evidence contract becomes
+  review-only instead of throwing.
 
 The native review surface progressively discloses evidence and alternate identities. It keeps the
-verdict, reason, value, value per square, footprint, and swap cost in the primary scan path.
+verdict, reason, value, value per square, footprint, swap cost, and named drop plan in the primary
+scan path.
 
 ## Consequences
 

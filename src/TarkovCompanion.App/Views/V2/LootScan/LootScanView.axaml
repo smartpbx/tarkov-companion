@@ -75,15 +75,19 @@
               Classes.partial="{Binding IsPartial}"
               AutomationProperties.AutomationId="v2-loot-scan-status"
               AutomationProperties.Name="{Binding StatusLabel}"
-              AutomationProperties.LiveSetting="Polite">
+              AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="6">
           <TextBlock Classes="v2-heading-3" Text="{Binding StatusLabel}"
-                     AutomationProperties.HeadingLevel="2" />
+                     AutomationProperties.HeadingLevel="2"
+                     AutomationProperties.AutomationId="v2-loot-scan-status-announcement"
+                     AutomationProperties.LiveSetting="Polite" />
           <TextBlock Classes="v2-body" Text="{Binding StatusDetail}" TextWrapping="Wrap" />
         </StackPanel>
       </Border>
 
-      <WrapPanel ItemSpacing="8" LineSpacing="8" AutomationProperties.Name="Loot Scan totals">
+      <WrapPanel ItemSpacing="8" LineSpacing="8"
+                 AutomationProperties.Name="{DynamicResource V2.String.LootScan.Totals}"
+                 AutomationProperties.AccessibilityView="Control">
         <Border Classes="loot-chip"><TextBlock Classes="v2-label" Text="{Binding TakeSummary}" /></Border>
         <Border Classes="loot-chip"><TextBlock Classes="v2-label" Text="{Binding SwapSummary}" /></Border>
         <Border Classes="loot-chip"><TextBlock Classes="v2-label" Text="{Binding LeaveSummary}" /></Border>
@@ -91,9 +95,10 @@
       </WrapPanel>
 
       <Border Classes="v2-card" IsVisible="{Binding HasIssues}"
-              AutomationProperties.Name="Scan limitations">
+              AutomationProperties.Name="{DynamicResource V2.String.LootScan.Limitations}"
+              AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8">
-          <TextBlock Classes="v2-heading-3" Text="Check these before acting"
+          <TextBlock Classes="v2-heading-3" Text="{DynamicResource V2.String.LootScan.Limitations.Title}"
                      AutomationProperties.HeadingLevel="2" />
           <ItemsControl ItemsSource="{Binding VisibleIssues}">
             <ItemsControl.ItemTemplate>
@@ -108,18 +113,21 @@
       </Border>
 
       <Border Classes="v2-card" IsVisible="{Binding HasNoVisibleLoot}"
-              AutomationProperties.Name="No visible loot detected">
+              AutomationProperties.Name="{DynamicResource V2.String.LootScan.Empty.Title}"
+              AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8" HorizontalAlignment="Center">
-          <TextBlock Classes="v2-heading-3" Text="No visible loot detected" HorizontalAlignment="Center" />
-          <TextBlock Classes="v2-body" Text="The reviewed grid is readable and contains no loot items."
+          <TextBlock Classes="v2-heading-3" Text="{DynamicResource V2.String.LootScan.Empty.Title}" HorizontalAlignment="Center" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.LootScan.Empty.Body}"
                      TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520" />
         </StackPanel>
       </Border>
 
-      <Border Classes="v2-card" IsVisible="{Binding HasUnavailableResult}">
+      <Border Classes="v2-card" IsVisible="{Binding HasUnavailableResult}"
+              AutomationProperties.Name="{DynamicResource V2.String.LootScan.Unavailable.Title}"
+              AutomationProperties.AccessibilityView="Control">
         <StackPanel Spacing="8" HorizontalAlignment="Center">
-          <TextBlock Classes="v2-heading-3" Text="Nothing readable yet" HorizontalAlignment="Center" />
-          <TextBlock Classes="v2-body" Text="Capture the loot and carried grids together, then review the highlighted regions."
+          <TextBlock Classes="v2-heading-3" Text="{DynamicResource V2.String.LootScan.Unavailable.Title}" HorizontalAlignment="Center" />
+          <TextBlock Classes="v2-body" Text="{DynamicResource V2.String.LootScan.Unavailable.Body}"
                      TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520" />
         </StackPanel>
       </Border>
@@ -129,8 +137,9 @@
            scroller for wheel, touch, and keyboard input. -->
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
             IsVisible="{Binding HasMultiplePages}"
-            AutomationProperties.Name="Loot Scan page controls">
-        <Button Classes="v2-target" Content="Previous"
+            AutomationProperties.Name="{DynamicResource V2.String.LootScan.PageControls}"
+            AutomationProperties.AccessibilityView="Control">
+        <Button Classes="v2-target" Content="{DynamicResource V2.String.LootScan.Previous}"
                 Command="{Binding PreviousPageCommand}"
                 IsEnabled="{Binding HasPreviousPage}"
                 AutomationProperties.AutomationId="v2-loot-scan-previous-top" />
@@ -139,7 +148,7 @@
                    Focusable="True"
                    AutomationProperties.AutomationId="v2-loot-scan-page-announcement"
                    AutomationProperties.LiveSetting="Polite" />
-        <Button Grid.Column="2" Classes="v2-target" Content="Next"
+        <Button Grid.Column="2" Classes="v2-target" Content="{DynamicResource V2.String.LootScan.Next}"
                 Command="{Binding NextPageCommand}"
                 IsEnabled="{Binding HasNextPage}"
                 AutomationProperties.AutomationId="v2-loot-scan-next-top" />
@@ -159,7 +168,8 @@
                     Classes.leave="{Binding IsLeave}"
                     Classes.review="{Binding IsReview}"
                     AutomationProperties.AutomationId="{Binding AutomationId}"
-                    AutomationProperties.Name="{Binding AutomationSummary}">
+                    AutomationProperties.Name="{Binding AutomationSummary}"
+                    AutomationProperties.AccessibilityView="Control">
               <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel Spacing="2">
@@ -180,13 +190,13 @@
                 <StackPanel Spacing="8">
                   <Border Classes="loot-chip">
                     <StackPanel Spacing="2">
-                      <TextBlock Classes="v2-label" Text="Best current value" />
+                      <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.BestValue}" />
                       <TextBlock Classes="v2-body" Text="{Binding ValueLabel}" TextWrapping="Wrap" />
                     </StackPanel>
                   </Border>
                   <Border Classes="loot-chip">
                     <StackPanel Spacing="2">
-                      <TextBlock Classes="v2-label" Text="Space efficiency" />
+                      <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.SpaceEfficiency}" />
                       <TextBlock Classes="v2-body" Text="{Binding ValuePerSquareLabel}" TextWrapping="Wrap" />
                     </StackPanel>
                   </Border>
@@ -196,11 +206,33 @@
                 <TextBlock Classes="v2-label" Text="{Binding AttributesLabel}" TextWrapping="Wrap" />
                 <TextBlock Classes="v2-body" Text="{Binding PlacementLabel}" IsVisible="{Binding HasPlacement}" />
                 <TextBlock Classes="v2-body" Text="{Binding SwapLabel}" IsVisible="{Binding HasSwap}" />
+                <ItemsControl ItemsSource="{Binding DropLabels}" IsVisible="{Binding HasSwap}"
+                              AutomationProperties.Name="{DynamicResource V2.String.LootScan.DropPlan}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Classes="v2-body" Text="{Binding}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-                <Expander Header="Evidence and alternatives">
+                <Expander Classes="v2-why"
+                          Header="{DynamicResource V2.String.LootScan.EvidenceAndAlternatives}"
+                          AutomationProperties.Name="{Binding EvidenceDisclosureName}">
                   <StackPanel Spacing="6" Margin="0,8,0,0">
                     <TextBlock Classes="v2-label" Text="{Binding EvidenceLabel}" TextWrapping="Wrap" />
                     <TextBlock Classes="v2-label" Text="{Binding CandidateLabel}" />
+                    <TextBlock Classes="v2-label" Text="{DynamicResource V2.String.LootScan.RecommendationReasons}"
+                               IsVisible="{Binding HasRecommendationReasons}" />
+                    <ItemsControl ItemsSource="{Binding RecommendationReasonLabels}"
+                                  IsVisible="{Binding HasRecommendationReasons}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Classes="v2-label" Text="{Binding}" TextWrapping="Wrap" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Classes="v2-label" Text="{Binding OpportunityCostLabel}" TextWrapping="Wrap" />
+                    <TextBlock Classes="v2-label" Text="{Binding EconomicEvidenceLabel}" TextWrapping="Wrap" />
                   </StackPanel>
                 </Expander>
 
@@ -217,15 +249,17 @@
 
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8"
             IsVisible="{Binding HasMultiplePages}"
-            AutomationProperties.Name="Loot Scan page controls">
-        <Button Classes="v2-target" Content="Previous"
+            AutomationProperties.Name="{DynamicResource V2.String.LootScan.PageControls}"
+            AutomationProperties.AccessibilityView="Control">
+        <Button Classes="v2-target" Content="{DynamicResource V2.String.LootScan.Previous}"
                 Command="{Binding PreviousPageCommand}"
                 IsEnabled="{Binding HasPreviousPage}"
                 AutomationProperties.AutomationId="v2-loot-scan-previous-bottom" />
         <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding PageSummary}"
                    TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"
+                   AutomationProperties.AutomationId="v2-loot-scan-page-announcement-bottom"
                    AutomationProperties.LiveSetting="Polite" />
-        <Button Grid.Column="2" Classes="v2-target" Content="Next"
+        <Button Grid.Column="2" Classes="v2-target" Content="{DynamicResource V2.String.LootScan.Next}"
                 Command="{Binding NextPageCommand}"
                 IsEnabled="{Binding HasNextPage}"
                 AutomationProperties.AutomationId="v2-loot-scan-next-bottom" />

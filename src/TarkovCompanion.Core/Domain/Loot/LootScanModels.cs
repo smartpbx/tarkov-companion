@@ -456,13 +456,22 @@ public static class LootScanPlannerLimits
 
     public const int MaximumReasonsPerDecision = 16;
 
+    public const int MaximumVisibleItems = 512;
+
+    public const int MaximumCarriedItems = 2048;
+
+    public const int MaximumRecommendationReasons = 64;
+
+    public const int MaximumRecommendationSensitivities = 64;
+
+    public const int MaximumRecommendationEvidenceVisitsPerCandidate = 4096;
+
+    public const int MaximumRecommendationWorkVisits =
+        MaximumVisibleItems * MaximumRecommendationEvidenceVisitsPerCandidate;
+
     /// <summary>
     /// Shared deterministic ceiling for carried-grid cell inspections in one scan. The planner
     /// returns review-only advice when legal but adversarial dimensions would exceed this work.
     /// </summary>
     public const int MaximumPlacementCellVisits = 2_000_000;
-
-    public const int MaximumVisibleItems = 512;
-
-    public const int MaximumCarriedItems = 2048;
 }

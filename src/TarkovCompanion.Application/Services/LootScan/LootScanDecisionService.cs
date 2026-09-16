@@ -1,3 +1,4 @@
+using System.Globalization;
 using TarkovCompanion.Core.Abstractions.V2;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
@@ -5,6 +6,7 @@ using TarkovCompanion.Core.Domain.Recommendations;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 using RecommendationResult = TarkovCompanion.Core.Abstractions.V2.RecommendationResult;
 using RecommendationAction = TarkovCompanion.Core.Abstractions.V2.RecommendationAction;
+using V2RecommendationReason = TarkovCompanion.Core.Abstractions.V2.RecommendationReason;
 
 namespace TarkovCompanion.Application.Services.LootScan;
 
@@ -19,20 +21,28 @@ public sealed class LootScanDecisionService
     private readonly TimeProvider _timeProvider;
     private readonly ExplainableRecommendationPolicy _policy;
     private readonly int _maximumPlacementCellVisits;
+    private readonly int _maximumRecommendationWorkVisits;
 
     public LootScanDecisionService(
         TimeProvider? timeProvider = null,
         ExplainableRecommendationPolicy? policy = null,
-        int maximumPlacementCellVisits = LootScanPlannerLimits.MaximumPlacementCellVisits)
+        int maximumPlacementCellVisits = LootScanPlannerLimits.MaximumPlacementCellVisits,
+        int maximumRecommendationWorkVisits = LootScanPlannerLimits.MaximumRecommendationWorkVisits)
     {
         if (maximumPlacementCellVisits is < 1 or > LootScanPlannerLimits.MaximumPlacementCellVisits)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumPlacementCellVisits));
         }
 
+        if (maximumRecommendationWorkVisits is < 1 or > LootScanPlannerLimits.MaximumRecommendationWorkVisits)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumRecommendationWorkVisits));
+        }
+
         _timeProvider = timeProvider ?? TimeProvider.System;
         _policy = policy ?? ExplainableRecommendationPolicy.Default;
         _maximumPlacementCellVisits = maximumPlacementCellVisits;
+        _maximumRecommendationWorkVisits = maximumRecommendationWorkVisits;
     }
 
     public LootScanResult Evaluate(LootScanRequest request, CancellationToken cancellationToken = default)
@@ -43,6 +53,7 @@ public sealed class LootScanDecisionService
         var issues = new List<LootScanIssue>();
         var decisions = new List<LootScanDecision>();
         var placementBudget = new PlacementWorkBudget(_maximumPlacementCellVisits, cancellationToken);
+        var recommendationBudget = new RecommendationWorkBudget(_maximumRecommendationWorkVisits, cancellationToken);
 
         if (!request.IsReviewedFrameCurrent)
         {
@@ -69,6 +80,7 @@ public sealed class LootScanDecisionService
         }
 
         var recommendations = request.Recommendations.ToDictionary(item => item.Anchor);
+        var recommendationGates = ValidateRecommendations(request, recommendationBudget);
         var policies = request.CarriedPolicies.ToDictionary(item => item.Anchor);
         var capacity = TryBuildCapacity(request, policies, out var built)
             ? built
@@ -90,8 +102,8 @@ public sealed class LootScanDecisionService
             // reserve every accepted placement so two TAKE answers cannot claim the same cells.
             foreach (var cell in visible.Cells
                          .Where(item => !unresolvedByAnchor.ContainsKey(item.Anchor))
-                         .OrderByDescending(item => PlanningPriority(item, recommendations))
-                         .ThenByDescending(item => PlanningValue(item, recommendations, request))
+                         .OrderByDescending(item => PlanningPriority(item, recommendationGates))
+                         .ThenByDescending(item => PlanningValue(item, recommendations, recommendationGates, request))
                          .ThenBy(item => item.Anchor.Row)
                          .ThenBy(item => item.Anchor.Column))
             {
@@ -100,6 +112,7 @@ public sealed class LootScanDecisionService
                     request,
                     cell,
                     recommendations,
+                    recommendationGates,
                     capacity,
                     placementBudget,
                     cancellationToken));
@@ -126,7 +139,7 @@ public sealed class LootScanDecisionService
                 : ResultCompleteness.Complete;
         var status = new ResultStatus(
             completeness,
-            InputFreshness(request),
+            InputFreshness(request, recommendationGates),
             completeness switch
             {
                 ResultCompleteness.Complete => "loot-scan.complete",
@@ -154,6 +167,7 @@ public sealed class LootScanDecisionService
         LootScanRequest request,
         GridCellRecognition cell,
         IReadOnlyDictionary<GridCellAddress, LootScanCandidateRecommendation> recommendations,
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates,
         CapacityMap? capacity,
         PlacementWorkBudget placementBudget,
         CancellationToken cancellationToken)
@@ -214,6 +228,17 @@ public sealed class LootScanDecisionService
                 cell.Item,
                 "recommendation.ruleset-mismatch",
                 "The advice was produced by a different ruleset version.",
+                recommendation,
+                economics);
+        }
+
+        if (!recommendationGates.TryGetValue(cell.Anchor, out var gate) || !gate.IsValid)
+        {
+            return Review(
+                cell.Anchor,
+                cell.Item,
+                gate?.Code ?? "recommendation.validation-unavailable",
+                gate?.Explanation ?? "The recommendation could not be validated under the current ruleset.",
                 recommendation,
                 economics);
         }
@@ -368,7 +393,7 @@ public sealed class LootScanDecisionService
                 LootScanVerdict.Leave,
                 [new(
                     "swap.cost-exceeds-value",
-                    $"The supported swap gives up {swap.ReplacementCostRoubles:N0} roubles for no economic gain.")],
+                    $"The supported swap gives up {swap.ReplacementCostRoubles.ToString("N0", CultureInfo.InvariantCulture)} roubles for no economic gain.")],
                 recommendation: recommendation,
                 economics: economics);
         }
@@ -380,7 +405,7 @@ public sealed class LootScanDecisionService
             LootScanVerdict.Swap,
             [new(
                 "capacity.bounded-swap",
-                $"The item fits after replacing {swap.Drops.Count} verified droppable item(s).")],
+                $"The item fits after replacing {swap.Drops.Count.ToString(CultureInfo.InvariantCulture)} verified droppable item(s).")],
             recommendation: recommendation,
             economics: economics,
             placement: swap.Placement,
@@ -388,27 +413,316 @@ public sealed class LootScanDecisionService
             replacementCostRoubles: swap.ReplacementCostRoubles);
     }
 
+    private IReadOnlyDictionary<GridCellAddress, RecommendationGate> ValidateRecommendations(
+        LootScanRequest request,
+        RecommendationWorkBudget budget)
+    {
+        var gates = new Dictionary<GridCellAddress, RecommendationGate>(request.Recommendations.Count);
+        foreach (var candidate in request.Recommendations)
+        {
+            try
+            {
+                gates.Add(candidate.Anchor, ValidateRecommendation(candidate.Recommendation, request.EvaluatedUtc, budget));
+            }
+            catch (RecommendationWorkBudgetExceededException)
+            {
+                gates.Add(candidate.Anchor, RecommendationGate.Invalid(
+                    "recommendation.validation-budget-exhausted",
+                    "Recommendation evidence exceeded the bounded validation budget."));
+            }
+        }
+
+        return gates;
+    }
+
+    private RecommendationGate ValidateRecommendation(
+        RecommendationResult recommendation,
+        DateTimeOffset evaluatedUtc,
+        RecommendationWorkBudget budget)
+    {
+        if (!string.Equals(recommendation.RulesetVersion, _policy.RulesetVersion, StringComparison.Ordinal))
+        {
+            return RecommendationGate.Invalid(
+                "recommendation.ruleset-mismatch",
+                "The advice was produced by a different ruleset version.");
+        }
+
+        var decision = recommendation.Decision;
+        var freshness = decision.Status.Freshness;
+        if (decision.Value is not { } advice ||
+            decision.Status.Completeness != ResultCompleteness.Complete ||
+            freshness != FreshnessState.Current ||
+            decision.Candidates.Count > 0)
+        {
+            return RecommendationGate.Invalid(
+                "recommendation.incomplete",
+                "The recommendation has incomplete, ambiguous, or stale evidence.",
+                freshness);
+        }
+
+        if (advice.Reasons.Count > LootScanPlannerLimits.MaximumRecommendationReasons ||
+            advice.ChangesTheAnswer.Count > LootScanPlannerLimits.MaximumRecommendationSensitivities)
+        {
+            return RecommendationGate.Invalid(
+                "recommendation.metadata-too-large",
+                "The recommendation contains more reasons or alternatives than the planner can review safely.");
+        }
+
+        var candidateVisits = 0;
+        budget.Visit(ref candidateVisits);
+        var mappedReasons = new List<MappedRecommendationReason>(advice.Reasons.Count);
+        foreach (var reason in advice.Reasons)
+        {
+            budget.Visit(ref candidateVisits);
+            if (!TryMapRule(reason, out var rule))
+            {
+                return RecommendationGate.Invalid(
+                    "recommendation.precedence-mismatch",
+                    "A recommendation reason is not defined by the active ruleset.");
+            }
+
+            var expectedPriority = _policy.PriorityOf(rule);
+            if (reason.Priority != expectedPriority)
+            {
+                return RecommendationGate.Invalid(
+                    "recommendation.precedence-mismatch",
+                    "A recommendation reason carries precedence that does not match the active ruleset.");
+            }
+
+            mappedReasons.Add(new(reason, rule, expectedPriority));
+        }
+
+        foreach (var _ in advice.ChangesTheAnswer)
+        {
+            budget.Visit(ref candidateVisits);
+        }
+
+        var canonicalOrder = mappedReasons
+            .OrderByDescending(item => item.ExpectedPriority)
+            .ThenBy(item => item.Reason.Code, StringComparer.Ordinal)
+            .ToArray();
+        if (!mappedReasons.Select(item => item.Reason).SequenceEqual(canonicalOrder.Select(item => item.Reason)))
+        {
+            return RecommendationGate.Invalid(
+                "recommendation.precedence-mismatch",
+                "Recommendation reasons are not in the deterministic order defined by the active ruleset.");
+        }
+
+        if (!TryValidateProvenance(
+                decision.Provenance,
+                evaluatedUtc,
+                MaximumRecommendationAge(advice),
+                includeInputs: false,
+                budget,
+                ref candidateVisits,
+                out var failure))
+        {
+            return RecommendationGate.FromEvidenceFailure(failure);
+        }
+
+        foreach (var mapped in mappedReasons)
+        {
+            if (!TryValidateProvenance(
+                    mapped.Reason.Provenance,
+                    evaluatedUtc,
+                    MaximumAge(mapped.Rule, mapped.Reason.Code),
+                    includeInputs: true,
+                    budget,
+                    ref candidateVisits,
+                    out failure))
+            {
+                return RecommendationGate.FromEvidenceFailure(failure);
+            }
+        }
+
+        var opportunityCost = advice.OpportunityCostRoubles;
+        var hasOpportunityCost = opportunityCost.Value is not null ||
+            opportunityCost.Candidates.Count > 0 ||
+            opportunityCost.Corrections.Count > 0;
+        if (hasOpportunityCost)
+        {
+            if (opportunityCost.Status.Completeness != ResultCompleteness.Complete ||
+                opportunityCost.Status.Freshness != FreshnessState.Current ||
+                opportunityCost.Candidates.Count > 0 ||
+                advice.OpportunityCostLineage is not { } lineage)
+            {
+                return RecommendationGate.Invalid(
+                    "recommendation.opportunity-cost-incomplete",
+                    "Opportunity-cost evidence is incomplete, ambiguous, or stale.",
+                    opportunityCost.Status.Freshness);
+            }
+
+            if (!TryValidateProvenance(
+                    opportunityCost.Provenance,
+                    evaluatedUtc,
+                    _policy.MaximumPriceAge,
+                    includeInputs: false,
+                    budget,
+                    ref candidateVisits,
+                    out failure) ||
+                !TryValidateProvenance(
+                    lineage.Price,
+                    evaluatedUtc,
+                    _policy.MaximumPriceAge,
+                    includeInputs: true,
+                    budget,
+                    ref candidateVisits,
+                    out failure) ||
+                !TryValidateProvenance(
+                    lineage.Footprint,
+                    evaluatedUtc,
+                    _policy.MaximumInventoryAge,
+                    includeInputs: true,
+                    budget,
+                    ref candidateVisits,
+                    out failure))
+            {
+                return RecommendationGate.FromEvidenceFailure(failure);
+            }
+
+            foreach (var correction in opportunityCost.Corrections)
+            {
+                budget.Visit(ref candidateVisits);
+                if (correction.CorrectedUtc > evaluatedUtc ||
+                    evaluatedUtc - correction.CorrectedUtc > _policy.MaximumPriceAge)
+                {
+                    return RecommendationGate.FromEvidenceFailure(ProvenanceFailure.Expired);
+                }
+            }
+        }
+
+        return RecommendationGate.Valid(canonicalOrder[0].ExpectedPriority);
+    }
+
+    private bool TryValidateProvenance(
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge,
+        bool includeInputs,
+        RecommendationWorkBudget budget,
+        ref int candidateVisits,
+        out ProvenanceFailure failure)
+    {
+        var pending = new Stack<EvidenceProvenance>();
+        pending.Push(provenance);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            budget.Visit(ref candidateVisits);
+            if (IsOutsideTimeWindow(current, evaluatedUtc, maximumAge))
+            {
+                failure = ProvenanceFailure.Expired;
+                return false;
+            }
+
+            if (current.Confidence.Score is not { } score || score < _policy.MinimumEvidenceConfidence)
+            {
+                failure = ProvenanceFailure.Unreliable;
+                return false;
+            }
+
+            if (includeInputs)
+            {
+                for (var index = current.Inputs.Count - 1; index >= 0; index--)
+                {
+                    pending.Push(current.Inputs[index]);
+                }
+            }
+        }
+
+        failure = ProvenanceFailure.None;
+        return true;
+    }
+
+    private static bool TryMapRule(V2RecommendationReason reason, out ExplainableRecommendationRule rule)
+    {
+        rule = reason.Category switch
+        {
+            RecommendationReasonCategory.ExplicitOverride when reason.Code == "override.explicit" =>
+                ExplainableRecommendationRule.ExplicitOverride,
+            RecommendationReasonCategory.Safety when reason.Code == "event.allergic" => ExplainableRecommendationRule.EventAllergy,
+            RecommendationReasonCategory.Safety when reason.Code == "item.protected" => ExplainableRecommendationRule.ProtectedItem,
+            RecommendationReasonCategory.Safety when reason.Code == "event.untested" => ExplainableRecommendationRule.EventUntested,
+            RecommendationReasonCategory.Safety when reason.Code == "event.safe" => ExplainableRecommendationRule.EventSafe,
+            RecommendationReasonCategory.Safety when reason.Code.StartsWith("raid.", StringComparison.Ordinal) => ExplainableRecommendationRule.Economics,
+            RecommendationReasonCategory.CurrentFoundInRaidQuest
+                when reason.Code.StartsWith("need.quest-current-fir.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.CurrentFoundInRaidQuest,
+            RecommendationReasonCategory.CurrentQuest
+                when reason.Code.StartsWith("need.quest-current.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.CurrentQuest,
+            RecommendationReasonCategory.FutureQuest
+                when reason.Code.StartsWith("need.quest-future.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.FutureQuest,
+            RecommendationReasonCategory.Hideout
+                when reason.Code.StartsWith("need.hideout.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.Hideout,
+            RecommendationReasonCategory.CraftOrBarter
+                when reason.Code.StartsWith("need.craft-barter.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.CraftOrBarter,
+            RecommendationReasonCategory.SpecialistUtility
+                when reason.Code.StartsWith("need.specialist.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.SpecialistUtility,
+            RecommendationReasonCategory.PinOrWishlist when reason.Code == "profile.pinned" => ExplainableRecommendationRule.Pin,
+            RecommendationReasonCategory.PinOrWishlist when reason.Code == "profile.wishlist" => ExplainableRecommendationRule.Wishlist,
+            RecommendationReasonCategory.ScarcityOrObtainability
+                when reason.Code.StartsWith("scarcity.", StringComparison.Ordinal) ||
+                     reason.Code.StartsWith("obtainability.", StringComparison.Ordinal) =>
+                ExplainableRecommendationRule.Scarcity,
+            RecommendationReasonCategory.Economics
+                when IsEconomicValueReasonCode(reason.Code) =>
+                ExplainableRecommendationRule.Economics,
+            RecommendationReasonCategory.EvidenceQuality => ExplainableRecommendationRule.EvidenceQuality,
+            _ => default,
+        };
+        return rule != default;
+    }
+
+    private static bool IsEconomicValueReasonCode(string code)
+    {
+        const string fleaPrefix = "economics.flea-net.";
+        const string traderPrefix = "economics.trader.";
+        var band = code.StartsWith(fleaPrefix, StringComparison.Ordinal)
+            ? code[fleaPrefix.Length..]
+            : code.StartsWith(traderPrefix, StringComparison.Ordinal)
+                ? code[traderPrefix.Length..]
+                : string.Empty;
+        return band is "low" or "moderate" or "high" or "exceptional";
+    }
+
+    private TimeSpan MaximumAge(ExplainableRecommendationRule rule, string code)
+    {
+        if (code.StartsWith("raid.", StringComparison.Ordinal))
+        {
+            return MaximumVolatileRaidRecommendationAge;
+        }
+
+        return rule == ExplainableRecommendationRule.Economics
+            ? _policy.MaximumPriceAge
+            : _policy.MaximumInventoryAge;
+    }
+
     private static int PlanningPriority(
         GridCellRecognition cell,
-        IReadOnlyDictionary<GridCellAddress, LootScanCandidateRecommendation> recommendations)
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates)
     {
-        if (!recommendations.TryGetValue(cell.Anchor, out var evaluated) ||
-            evaluated.Recommendation.Decision.Value is not { Reasons.Count: > 0 } decision ||
-            evaluated.Recommendation.Decision.Status.Completeness != ResultCompleteness.Complete ||
-            evaluated.Recommendation.Decision.Status.Freshness != FreshnessState.Current)
+        if (!recommendationGates.TryGetValue(cell.Anchor, out var gate) || !gate.IsValid)
         {
             return int.MinValue;
         }
 
-        return decision.Reasons[0].Priority;
+        return gate.PlanningPriority;
     }
 
     private long PlanningValue(
         GridCellRecognition cell,
         IReadOnlyDictionary<GridCellAddress, LootScanCandidateRecommendation> recommendations,
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates,
         LootScanRequest request)
     {
-        if (!recommendations.TryGetValue(cell.Anchor, out var evaluated) ||
+        if (!recommendationGates.TryGetValue(cell.Anchor, out var gate) ||
+            !gate.IsValid ||
+            !recommendations.TryGetValue(cell.Anchor, out var evaluated) ||
             evaluated.Recommendation.Decision.Value is null)
         {
             return long.MinValue;
@@ -544,7 +858,8 @@ public sealed class LootScanDecisionService
         var useFlea = flea.HasValue && (!trader.HasValue || flea.Value >= trader.Value);
         var total = useFlea ? flea!.Value : trader!.Value;
         var price = useFlea ? economics.FleaNetRoubles : economics.TraderRoubles;
-        if (ContainsModelledEstimate(price.Provenance))
+        var provenanceInputs = new[] { price.Provenance, economics.OccupiedSquares.Provenance };
+        if (provenanceInputs.Any(ContainsModelledEstimate))
         {
             return new(
                 economics,
@@ -556,15 +871,30 @@ public sealed class LootScanDecisionService
                 null);
         }
 
+        if (!CanComposeProvenance(provenanceInputs))
+        {
+            return new(
+                economics,
+                new ResultStatus(ResultCompleteness.Partial, freshness, "economics.lineage-too-complex"),
+                null,
+                null,
+                null,
+                null,
+                null);
+        }
+
         var perSquare = total / squares.Value;
+        var confidence = new EvidenceConfidence(
+            EvidenceConfidenceKind.ProviderScore,
+            provenanceInputs.Min(input => input.Confidence.Score!.Value));
         var provenance = new EvidenceProvenance(
             EvidenceSourceClass.DerivedCalculation,
             "loot-scan://value-per-square",
             evaluatedUtc,
-            EvidenceConfidence.Unscored,
+            confidence,
             new ProducerIdentity("loot-scan-planner", "2"),
             generatedUtc: evaluatedUtc,
-            inputs: [price.Provenance, economics.OccupiedSquares.Provenance]);
+            inputs: provenanceInputs);
         return new(
             economics,
             new ResultStatus(ResultCompleteness.Complete, FreshnessState.Current, "economics.complete"),
@@ -595,10 +925,33 @@ public sealed class LootScanDecisionService
         (field.Status.Completeness is ResultCompleteness.Complete or ResultCompleteness.Partial) &&
         field.Candidates.Count == 0 &&
         field.Status.Freshness == FreshnessState.Current &&
-        field.Provenance.EvidenceThroughUtc <= evaluatedUtc &&
-        evaluatedUtc - field.Provenance.EvidenceThroughUtc <= maximumAge &&
-        field.Provenance.Confidence.Score is { } score &&
-        score >= _policy.MinimumEvidenceConfidence;
+        IsReliableProvenance(field.Provenance, evaluatedUtc, maximumAge);
+
+    private bool IsReliableProvenance(
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge)
+    {
+        var pending = new Stack<EvidenceProvenance>();
+        pending.Push(provenance);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (IsOutsideTimeWindow(current, evaluatedUtc, maximumAge) ||
+                current.Confidence.Score is not { } score ||
+                score < _policy.MinimumEvidenceConfidence)
+            {
+                return false;
+            }
+
+            foreach (var input in current.Inputs)
+            {
+                pending.Push(input);
+            }
+        }
+
+        return true;
+    }
 
     private FreshnessState EconomicsFreshness(
         RecommendationEconomics economics,
@@ -635,19 +988,50 @@ public sealed class LootScanDecisionService
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
 
-    private FreshnessState InputFreshness(LootScanRequest request)
+    private static bool CanComposeProvenance(IReadOnlyList<EvidenceProvenance> inputs)
     {
-        if (HasStaleInput(request))
+        var inputCount = 0;
+        var pending = new Stack<(EvidenceProvenance Provenance, int Depth)>();
+        for (var index = inputs.Count - 1; index >= 0; index--)
+        {
+            pending.Push((inputs[index], 2));
+        }
+
+        while (pending.Count > 0)
+        {
+            var (current, depth) = pending.Pop();
+            inputCount++;
+            if (depth > EvidenceProvenance.MaxInputDepth || inputCount > EvidenceProvenance.MaxInputCount)
+            {
+                return false;
+            }
+
+            for (var index = current.Inputs.Count - 1; index >= 0; index--)
+            {
+                pending.Push((current.Inputs[index], depth + 1));
+            }
+        }
+
+        return true;
+    }
+
+    private FreshnessState InputFreshness(
+        LootScanRequest request,
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates)
+    {
+        if (HasStaleInput(request, recommendationGates))
         {
             return FreshnessState.Stale;
         }
 
-        return HasUnknownFreshness(request)
+        return HasUnknownFreshness(request, recommendationGates)
             ? FreshnessState.Unknown
             : FreshnessState.Current;
     }
 
-    private bool HasStaleInput(LootScanRequest request)
+    private bool HasStaleInput(
+        LootScanRequest request,
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates)
     {
         bool EconomicsIsStale(RecommendationEconomics economics) =>
             EconomicsFreshness(economics, request.EvaluatedUtc) == FreshnessState.Stale ||
@@ -684,7 +1068,8 @@ public sealed class LootScanDecisionService
              recognition.Cells.Any(cell => ItemIsStale(cell.Item))) ||
             grid.UnresolvedCells.Any(cell => ItemIsStale(cell.Item));
 
-        return GridIsStale(request.VisibleLoot) ||
+        return recommendationGates.Values.Any(gate => gate.Freshness == FreshnessState.Stale) ||
+            GridIsStale(request.VisibleLoot) ||
             GridIsStale(request.CarriedInventory) ||
             request.Recommendations.Any(item =>
                 item.Recommendation.Decision.Status.Freshness == FreshnessState.Stale ||
@@ -697,7 +1082,9 @@ public sealed class LootScanDecisionService
                 IsStaleOrExpired(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge));
     }
 
-    private static bool HasUnknownFreshness(LootScanRequest request)
+    private static bool HasUnknownFreshness(
+        LootScanRequest request,
+        IReadOnlyDictionary<GridCellAddress, RecommendationGate> recommendationGates)
     {
         static bool Unknown<T>(EvidencedValue<T> field) =>
             field.Status.Freshness == FreshnessState.Unknown;
@@ -729,7 +1116,8 @@ public sealed class LootScanDecisionService
              recognition.Cells.Any(cell => ItemUnknown(cell.Item))) ||
             grid.UnresolvedCells.Any(cell => ItemUnknown(cell.Item));
 
-        return GridUnknown(request.VisibleLoot) ||
+        return recommendationGates.Values.Any(gate => gate.Freshness == FreshnessState.Unknown) ||
+            GridUnknown(request.VisibleLoot) ||
             GridUnknown(request.CarriedInventory) ||
             request.Recommendations.Any(item =>
                 item.Recommendation.Decision.Status.Freshness == FreshnessState.Unknown ||
@@ -766,6 +1154,55 @@ public sealed class LootScanDecisionService
         var dominant = advice.Reasons[0];
         return dominant.Category == RecommendationReasonCategory.Economics ||
             dominant.Code.StartsWith("raid.", StringComparison.Ordinal);
+    }
+
+    private enum ProvenanceFailure
+    {
+        None = 0,
+        Expired,
+        Unreliable,
+    }
+
+    private sealed record MappedRecommendationReason(
+        V2RecommendationReason Reason,
+        ExplainableRecommendationRule Rule,
+        int ExpectedPriority);
+
+    private sealed record RecommendationGate(
+        bool IsValid,
+        string Code,
+        string Explanation,
+        int PlanningPriority,
+        FreshnessState Freshness)
+    {
+        public static RecommendationGate Valid(int planningPriority) => new(
+            true,
+            "recommendation.valid",
+            "Recommendation evidence is valid for planning.",
+            planningPriority,
+            FreshnessState.Current);
+
+        public static RecommendationGate Invalid(
+            string code,
+            string explanation,
+            FreshnessState freshness = FreshnessState.Current) => new(
+                false,
+                code,
+                explanation,
+                int.MinValue,
+                freshness);
+
+        public static RecommendationGate FromEvidenceFailure(ProvenanceFailure failure) => failure switch
+        {
+            ProvenanceFailure.Expired => Invalid(
+                "recommendation.expired",
+                "Recommendation evidence was produced in the future or is too old for its evidence class.",
+                FreshnessState.Stale),
+            ProvenanceFailure.Unreliable => Invalid(
+                "recommendation.evidence-unreliable",
+                "Recommendation evidence is unscored or below the confidence required for decisive advice."),
+            _ => throw new ArgumentOutOfRangeException(nameof(failure)),
+        };
     }
 
     private enum CapacityItemDisposition
@@ -811,6 +1248,28 @@ public sealed class LootScanDecisionService
     }
 
     private sealed class PlacementBudgetExceededException : Exception
+    {
+    }
+
+    private sealed class RecommendationWorkBudget(int maximumVisits, CancellationToken cancellationToken)
+    {
+        private int _remainingVisits = maximumVisits;
+
+        public void Visit(ref int candidateVisits)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_remainingVisits == 0 ||
+                candidateVisits == LootScanPlannerLimits.MaximumRecommendationEvidenceVisitsPerCandidate)
+            {
+                throw new RecommendationWorkBudgetExceededException();
+            }
+
+            _remainingVisits--;
+            candidateVisits++;
+        }
+    }
+
+    private sealed class RecommendationWorkBudgetExceededException : Exception
     {
     }
 
