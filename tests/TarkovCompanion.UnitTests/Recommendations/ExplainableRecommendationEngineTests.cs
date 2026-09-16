@@ -176,20 +176,203 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Contains(decision.Reasons, reason => reason.Code == "inventory.stale");
     }
 
+    [Fact]
+    public void ScarcityOutranksRaidContextAndEconomicsForLoot()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 10_000, trader: 8_000, squares: 2),
+            scarcity: Scarcity(RecommendationObtainabilityBand.Scarce),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Extracting,
+                RecommendationRaidRisk.Critical)));
+        var decision = result.Decision.Value!;
+
+        Assert.Equal(V2Action.Take, decision.Action);
+        Assert.Equal(
+            [
+                "scarcity.obtainability.scarce",
+                "raid.phase.extracting",
+                "raid.risk.critical",
+                "economics.flea-net.low",
+            ],
+            decision.Reasons.Select(reason => reason.Code));
+        Assert.Equal(10_000, decision.OpportunityCostRoubles.Value);
+        Assert.Contains(decision.ChangesTheAnswer, change => change.FactCode == "obtainability-improved");
+    }
+
+    [Fact]
+    public void RaidRiskAndPhaseRaiseTheEconomicLootThreshold()
+    {
+        var economics = Economics(fleaNet: 40_000, trader: 30_000, squares: 2);
+        var ordinary = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: economics,
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext())).Decision.Value!;
+        var exposed = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: economics,
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Late,
+                RecommendationRaidRisk.High))).Decision.Value!;
+
+        Assert.Equal(V2Action.Take, ordinary.Action);
+        Assert.Equal(V2Action.Leave, exposed.Action);
+        Assert.Equal("raid.phase.late", exposed.Reasons[0].Code);
+        Assert.Equal("raid.risk.high", exposed.Reasons[1].Code);
+        Assert.Equal("economics.flea-net.moderate", exposed.Reasons[2].Code);
+        Assert.Contains(exposed.ChangesTheAnswer, change =>
+            change.FactCode == "raid-risk-reduced" && change.AlternativeAction == V2Action.Take);
+        Assert.Contains(exposed.ChangesTheAnswer, change =>
+            change.FactCode == "raid-phase-earlier" && change.AlternativeAction == V2Action.Take);
+        Assert.Equal(40_000, exposed.OpportunityCostRoubles.Value);
+    }
+
+    [Fact]
+    public void MissingRaidContextNeverBecomesLowRisk()
+    {
+        var decision = new ExplainableRecommendationEngine().Evaluate(Request(
+            useCase: RecommendationUseCase.Loot,
+            raidContext: null)).Decision.Value!;
+
+        Assert.Equal(V2Action.Review, decision.Action);
+        Assert.Contains(decision.Reasons, reason => reason.Code == "raid-context.missing");
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("stale")]
+    [InlineData("low-confidence")]
+    [InlineData("ambiguous")]
+    public void UntrustedScarcityProducesReviewInsteadOfAssumingAvailability(string condition)
+    {
+        var scarcity = condition switch
+        {
+            "unknown" => Scarcity(null),
+            "stale" => Scarcity(
+                RecommendationObtainabilityBand.Available,
+                status: new ResultStatus(ResultCompleteness.Complete, FreshnessState.Stale)),
+            "low-confidence" => Scarcity(
+                RecommendationObtainabilityBand.Available,
+                provenance: Provenance("scarcity-low", confidence: 0.4)),
+            "ambiguous" => Scarcity(
+                RecommendationObtainabilityBand.Available,
+                candidates:
+                [
+                    new EvidenceCandidate<RecommendationObtainabilityBand?>(
+                        "scarce",
+                        "Scarce",
+                        RecommendationObtainabilityBand.Scarce,
+                        Provenance("scarcity-candidate")),
+                ]),
+            _ => throw new ArgumentOutOfRangeException(nameof(condition)),
+        };
+
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(scarcity: scarcity));
+        var decision = result.Decision.Value!;
+
+        Assert.Equal(V2Action.Review, decision.Action);
+        Assert.Contains(decision.Reasons, reason => reason.Code.StartsWith("scarcity.", StringComparison.Ordinal));
+        Assert.Equal(ResultCompleteness.Partial, result.Decision.Status.Completeness);
+        Assert.Equal(
+            condition == "stale" ? FreshnessState.Stale : FreshnessState.Current,
+            result.Decision.Status.Freshness);
+    }
+
+    [Fact]
+    public void StaleRaidRiskProducesReviewAndStaleStatus()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                riskStatus: new ResultStatus(ResultCompleteness.Complete, FreshnessState.Stale))));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Equal(FreshnessState.Stale, result.Decision.Status.Freshness);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "raid-context.risk-untrusted");
+    }
+
+    [Fact]
+    public void FutureContextEvidenceIsRejected()
+    {
+        var future = Provenance("future-raid", Now.AddMinutes(1));
+        var request = Request(
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(riskProvenance: future));
+
+        Assert.Throws<ArgumentException>(() => new ExplainableRecommendationEngine().Evaluate(request));
+    }
+
+    [Fact]
+    public void ContextContractsRejectUndefinedEnumsAndNonMonotonicThresholds()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => Scarcity((RecommendationObtainabilityBand)99));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RaidContext(risk: (RecommendationRaidRisk)99));
+        Assert.Throws<ArgumentException>(() => new RaidAdjustedLootThresholds(
+            EconomicValueBand.High,
+            EconomicValueBand.Moderate,
+            EconomicValueBand.Exceptional,
+            EconomicValueBand.Exceptional,
+            EconomicValueBand.High,
+            EconomicValueBand.Exceptional));
+        Assert.Equal("recommendation-274.2", ExplainableRecommendationPolicy.CurrentRulesetVersion);
+    }
+
     private static ExplainableRecommendationRequest Request(
         RecommendationProfileFacts? profile = null,
         RecommendationEconomics? economics = null,
-        ObservedInventoryEvidenceSnapshot? inventory = null) => new(
+        ObservedInventoryEvidenceSnapshot? inventory = null,
+        RecommendationScarcityFacts? scarcity = null,
+        RecommendationUseCase useCase = RecommendationUseCase.Stash,
+        RecommendationRaidContext? raidContext = null) => new(
         "recommendation-test",
         "item-a",
-        RecommendationUseCase.Stash,
+        useCase,
         Now,
         Scope,
         "data-snapshot-1",
         Complete<bool?>("candidate.fir", true),
         profile ?? Profile(),
         economics ?? Economics(),
-        inventory);
+        scarcity ?? Scarcity(RecommendationObtainabilityBand.Available),
+        inventory,
+        raidContext: raidContext);
+
+    private static RecommendationScarcityFacts Scarcity(
+        RecommendationObtainabilityBand? band,
+        EvidenceProvenance? provenance = null,
+        ResultStatus? status = null,
+        IReadOnlyList<EvidenceCandidate<RecommendationObtainabilityBand?>>? candidates = null) => new(
+        new EvidencedValue<RecommendationObtainabilityBand?>(
+            "scarcity.obtainability",
+            band,
+            status ?? (band is null
+                ? new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current)
+                : CompleteStatus),
+            provenance ?? Provenance("scarcity"),
+            candidates: candidates));
+
+    private static RecommendationRaidContext RaidContext(
+        RecommendationRaidPhase? phase = RecommendationRaidPhase.Middle,
+        RecommendationRaidRisk? risk = RecommendationRaidRisk.Low,
+        EvidenceProvenance? phaseProvenance = null,
+        EvidenceProvenance? riskProvenance = null,
+        ResultStatus? phaseStatus = null,
+        ResultStatus? riskStatus = null) => new(
+        new EvidencedValue<RecommendationRaidPhase?>(
+            "raid.phase",
+            phase,
+            phaseStatus ?? (phase is null
+                ? new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current)
+                : CompleteStatus),
+            phaseProvenance ?? Provenance("raid-phase")),
+        new EvidencedValue<RecommendationRaidRisk?>(
+            "raid.risk",
+            risk,
+            riskStatus ?? (risk is null
+                ? new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current)
+                : CompleteStatus),
+            riskProvenance ?? Provenance("raid-risk")));
 
     private static RecommendationProfileFacts Profile(
         bool protectedItem = false,
@@ -288,11 +471,14 @@ public sealed class ExplainableRecommendationEngineTests
         new ResultStatus(ResultCompleteness.Unknown, FreshnessState.Current),
         provenance ?? Provenance(fieldId));
 
-    private static EvidenceProvenance Provenance(string id, DateTimeOffset? observedUtc = null) => new(
+    private static EvidenceProvenance Provenance(
+        string id,
+        DateTimeOffset? observedUtc = null,
+        double confidence = 0.98) => new(
         EvidenceSourceClass.PublicStructuredData,
         $"fixture://{id}",
         observedUtc ?? Now.AddMinutes(-5),
-        new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.98),
+        new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, confidence),
         new ProducerIdentity("recommendation-fixture", "2"));
 
     private static ResultStatus CompleteStatus { get; } = new(

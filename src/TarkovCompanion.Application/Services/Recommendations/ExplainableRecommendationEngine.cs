@@ -153,6 +153,34 @@ public sealed class ExplainableRecommendationEngine(
                 profile.EventState.Provenance));
         }
 
+        var scarcity = InspectScarcity(request, evidenceIssues);
+        if (scarcity.ShouldKeep && scarcity.Band is { } scarcityBand && scarcity.Provenance is { } scarcityProvenance)
+        {
+            reasons.Add(new(
+                ExplainableRecommendationRule.Scarcity,
+                RecommendationReasonCategory.ScarcityOrObtainability,
+                $"scarcity.obtainability.{scarcityBand.ToString().ToLowerInvariant()}",
+                $"Current evidence classifies this item as {scarcityBand.ToString().ToLowerInvariant()} to obtain.",
+                scarcityProvenance));
+            sensitivities.Add(new(
+                "obtainability-improved",
+                "If this item becomes easier to obtain, economics may become the deciding reason.",
+                null));
+        }
+        else if (scarcity.Band is not null)
+        {
+            sensitivities.Add(new(
+                "obtainability-worsened",
+                "If this item becomes scarce to obtain, the recommendation changes to keep or take it.",
+                KeepOrTake(request.UseCase)));
+        }
+
+        var raidContext = InspectRaidContext(request, evidenceIssues);
+        if (raidContext.IsAvailable)
+        {
+            AddRaidContextReasons(raidContext, reasons);
+        }
+
         var economics = InspectEconomics(request, evidenceIssues);
         if (economics is { } economic)
         {
@@ -167,6 +195,8 @@ public sealed class ExplainableRecommendationEngine(
                 "A newer net price or corrected footprint can move the item into another value-per-square band.",
                 null));
         }
+
+        AddRaidContextSensitivities(request, raidContext, economics, sensitivities);
 
         foreach (var issue in evidenceIssues.Values)
         {
@@ -196,6 +226,8 @@ public sealed class ExplainableRecommendationEngine(
             isProtected,
             applicableNeeds.Count > 0,
             isPinned || isWishlisted,
+            scarcity.ShouldKeep,
+            raidContext,
             economics,
             evidenceIssues.Count > 0);
         var dominantRule = DominantRule(
@@ -205,6 +237,8 @@ public sealed class ExplainableRecommendationEngine(
             applicableNeeds,
             isPinned,
             isWishlisted,
+            scarcity,
+            raidContext,
             economics);
         var orderedReasons = reasons
             .OrderByDescending(reason => _policy.PriorityOf(reason.Rule))
@@ -238,7 +272,7 @@ public sealed class ExplainableRecommendationEngine(
         var completeness = evidenceIssues.Count == 0
             ? ResultCompleteness.Complete
             : ResultCompleteness.Partial;
-        var freshness = profile.Status.Freshness == FreshnessState.Stale
+        var freshness = HasStaleContext(request)
             ? FreshnessState.Stale
             : FreshnessState.Current;
         var decisionEvidence = new EvidencedValue<RecommendationDecision>(
@@ -405,6 +439,163 @@ public sealed class ExplainableRecommendationEngine(
         return result;
     }
 
+    private ScarcityInspection InspectScarcity(
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues)
+    {
+        var field = request.Scarcity.Obtainability;
+        var band = ReliableContextValue(field, request.EvaluatedUtc, _policy.MaximumScarcityAge);
+        if (band is null)
+        {
+            var code = field.Value is null
+                ? "scarcity.unknown"
+                : "scarcity.untrusted";
+            var explanation = field.Value is null
+                ? "Obtainability is unknown; the item was not assumed to be common."
+                : "Obtainability is partial, stale, ambiguous, or below the confidence threshold and was not used.";
+            AddIssue(issues, code, explanation, field.Provenance);
+            return ScarcityInspection.Unknown;
+        }
+
+        return new(
+            band,
+            (int)band >= (int)_policy.MinimumScarcityToKeep,
+            field.Provenance);
+    }
+
+    private RaidContextInspection InspectRaidContext(
+        ExplainableRecommendationRequest request,
+        IDictionary<string, EvidenceIssue> issues)
+    {
+        if (request.UseCase != RecommendationUseCase.Loot)
+        {
+            return RaidContextInspection.NotApplicable(_policy.LootThresholds.Normal);
+        }
+
+        if (request.RaidContext is not { } context)
+        {
+            AddIssue(
+                issues,
+                "raid-context.missing",
+                "Raid phase and risk were not supplied; economic loot advice remains review-only.",
+                request.Profile.Provenance);
+            return RaidContextInspection.Unavailable(_policy.LootThresholds.Normal);
+        }
+
+        var phase = ReliableContextValue(context.Phase, request.EvaluatedUtc, _policy.MaximumRaidContextAge);
+        var risk = ReliableContextValue(context.Risk, request.EvaluatedUtc, _policy.MaximumRaidContextAge);
+        if (phase is null)
+        {
+            AddIssue(
+                issues,
+                context.Phase.Value is null ? "raid-context.phase-unknown" : "raid-context.phase-untrusted",
+                "Raid phase is unknown, stale, ambiguous, or below the confidence threshold.",
+                context.Phase.Provenance);
+        }
+
+        if (risk is null)
+        {
+            AddIssue(
+                issues,
+                context.Risk.Value is null ? "raid-context.risk-unknown" : "raid-context.risk-untrusted",
+                "Raid risk is unknown, stale, ambiguous, or below the confidence threshold.",
+                context.Risk.Provenance);
+        }
+
+        if (phase is null || risk is null)
+        {
+            return RaidContextInspection.Unavailable(_policy.LootThresholds.Normal);
+        }
+
+        return new(
+            true,
+            phase,
+            risk,
+            _policy.LootThresholds.RequiredBand(phase.Value, risk.Value),
+            context.Phase.Provenance,
+            context.Risk.Provenance);
+    }
+
+    private void AddRaidContextReasons(
+        RaidContextInspection context,
+        ICollection<ReasonDraft> reasons)
+    {
+        if ((context.Phase is RecommendationRaidPhase.Late or RecommendationRaidPhase.Extracting) &&
+            context.PhaseProvenance is { } phaseProvenance)
+        {
+            reasons.Add(new(
+                ExplainableRecommendationRule.RaidContext,
+                RecommendationReasonCategory.Safety,
+                $"raid.phase.{context.Phase.Value.ToString().ToLowerInvariant()}",
+                $"The raid is {context.Phase.Value.ToString().ToLowerInvariant()}, so ordinary economic loot needs a higher value band.",
+                phaseProvenance));
+        }
+
+        if ((context.Risk is RecommendationRaidRisk.Elevated or RecommendationRaidRisk.High or RecommendationRaidRisk.Critical) &&
+            context.RiskProvenance is { } riskProvenance)
+        {
+            reasons.Add(new(
+                ExplainableRecommendationRule.RaidContext,
+                RecommendationReasonCategory.Safety,
+                $"raid.risk.{context.Risk.Value.ToString().ToLowerInvariant()}",
+                $"Raid risk is {context.Risk.Value.ToString().ToLowerInvariant()}, raising the minimum economic loot band to {context.RequiredBand.ToString().ToLowerInvariant()}.",
+                riskProvenance));
+        }
+    }
+
+    private void AddRaidContextSensitivities(
+        ExplainableRecommendationRequest request,
+        RaidContextInspection context,
+        EconomicInspection? economics,
+        ICollection<RecommendationSensitivity> sensitivities)
+    {
+        if (request.UseCase != RecommendationUseCase.Loot || !context.IsAvailable)
+        {
+            return;
+        }
+
+        var normal = _policy.LootThresholds.Normal;
+        var contextBlocksTake = economics is { } economic &&
+            (int)economic.Band >= (int)normal &&
+            (int)economic.Band < (int)context.RequiredBand;
+        var strictestContext = (int)_policy.LootThresholds.CriticalRisk >= (int)_policy.LootThresholds.Extracting
+            ? _policy.LootThresholds.CriticalRisk
+            : _policy.LootThresholds.Extracting;
+        var higherContextWouldBlock = economics is { } ordinary &&
+            (int)ordinary.Band >= (int)context.RequiredBand &&
+            (int)ordinary.Band < (int)strictestContext;
+
+        if (context.Risk != RecommendationRaidRisk.Low)
+        {
+            sensitivities.Add(new(
+                "raid-risk-reduced",
+                "Lowering the current raid risk may lower the economic band required to take this item.",
+                contextBlocksTake ? V2RecommendationAction.Take : null));
+        }
+        else
+        {
+            sensitivities.Add(new(
+                "raid-risk-increased",
+                "Higher raid risk may make ordinary economic loot a leave.",
+                higherContextWouldBlock ? V2RecommendationAction.Leave : null));
+        }
+
+        if (context.Phase is RecommendationRaidPhase.Late or RecommendationRaidPhase.Extracting)
+        {
+            sensitivities.Add(new(
+                "raid-phase-earlier",
+                "An earlier raid phase may lower the economic band required to take this item.",
+                contextBlocksTake ? V2RecommendationAction.Take : null));
+        }
+        else
+        {
+            sensitivities.Add(new(
+                "raid-phase-later",
+                "A later raid phase may make ordinary economic loot a leave.",
+                higherContextWouldBlock ? V2RecommendationAction.Leave : null));
+        }
+    }
+
     private EconomicInspection? InspectEconomics(
         ExplainableRecommendationRequest request,
         IDictionary<string, EvidenceIssue> issues)
@@ -498,6 +689,8 @@ public sealed class ExplainableRecommendationEngine(
         bool isProtected,
         bool hasNeed,
         bool pinnedOrWishlisted,
+        bool scarcityKeep,
+        RaidContextInspection raidContext,
         EconomicInspection? economics,
         bool hasEvidenceIssues)
     {
@@ -526,6 +719,11 @@ public sealed class ExplainableRecommendationEngine(
             return V2RecommendationAction.UseSoon;
         }
 
+        if (scarcityKeep)
+        {
+            return KeepOrTake(useCase);
+        }
+
         if (economics is null || hasEvidenceIssues)
         {
             return V2RecommendationAction.Review;
@@ -533,9 +731,9 @@ public sealed class ExplainableRecommendationEngine(
 
         if (useCase == RecommendationUseCase.Loot)
         {
-            return economics.Band == EconomicValueBand.Low
-                ? V2RecommendationAction.Leave
-                : V2RecommendationAction.Take;
+            return (int)economics.Band >= (int)raidContext.RequiredBand
+                ? V2RecommendationAction.Take
+                : V2RecommendationAction.Leave;
         }
 
         return economics.SaleAction;
@@ -548,6 +746,8 @@ public sealed class ExplainableRecommendationEngine(
         IReadOnlyList<AllocatedNeed> needs,
         bool isPinned,
         bool isWishlisted,
+        ScarcityInspection scarcity,
+        RaidContextInspection raidContext,
         EconomicInspection? economics)
     {
         if (eventState == EventItemState.Allergic) return ExplainableRecommendationRule.EventAllergy;
@@ -558,6 +758,12 @@ public sealed class ExplainableRecommendationEngine(
         if (isWishlisted) return ExplainableRecommendationRule.Wishlist;
         if (eventState == EventItemState.Untested) return ExplainableRecommendationRule.EventUntested;
         if (eventState == EventItemState.Safe) return ExplainableRecommendationRule.EventSafe;
+        if (scarcity.ShouldKeep) return ExplainableRecommendationRule.Scarcity;
+        if (economics is { } economic && raidContext.ChangesEconomicAction(economic.Band, _policy.LootThresholds.Normal))
+        {
+            return ExplainableRecommendationRule.RaidContext;
+        }
+
         return economics is null ? null : ExplainableRecommendationRule.Economics;
     }
 
@@ -636,6 +842,19 @@ public sealed class ExplainableRecommendationEngine(
     private T? ReliableValue<T>(EvidencedValue<T?> field, DateTimeOffset evaluatedUtc, TimeSpan maximumAge)
         where T : struct =>
         field.Value is { } value &&
+        IsFresh(field.Status, field.Provenance, evaluatedUtc, maximumAge) &&
+        MeetsConfidence(field.Provenance)
+            ? value
+            : null;
+
+    private T? ReliableContextValue<T>(
+        EvidencedValue<T?> field,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge)
+        where T : struct =>
+        field.Value is { } value &&
+        field.Status.Completeness == ResultCompleteness.Complete &&
+        field.Candidates.Count == 0 &&
         IsFresh(field.Status, field.Provenance, evaluatedUtc, maximumAge) &&
         MeetsConfidence(field.Provenance)
             ? value
@@ -723,6 +942,14 @@ public sealed class ExplainableRecommendationEngine(
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
 
+    private static bool HasStaleContext(ExplainableRecommendationRequest request) =>
+        request.Profile.Status.Freshness == FreshnessState.Stale ||
+        request.Scarcity.Obtainability.Status.Freshness == FreshnessState.Stale ||
+        (request.UseCase == RecommendationUseCase.Loot &&
+         request.RaidContext is { } raid &&
+         (raid.Phase.Status.Freshness == FreshnessState.Stale ||
+          raid.Risk.Status.Freshness == FreshnessState.Stale));
+
     private static void ValidateEvidenceTimes(ExplainableRecommendationRequest request)
     {
         var provenances = new List<EvidenceProvenance>
@@ -740,6 +967,7 @@ public sealed class ExplainableRecommendationEngine(
             request.Economics.TraderRoubles.Provenance,
             request.Economics.OccupiedSquares.Provenance,
             request.Economics.ConditionFraction.Provenance,
+            request.Scarcity.Obtainability.Provenance,
         };
         provenances.AddRange(request.Profile.Needs.Select(need => need.Provenance));
         if (request.Inventory is { } inventory)
@@ -747,6 +975,12 @@ public sealed class ExplainableRecommendationEngine(
             provenances.Add(inventory.Provenance);
             provenances.AddRange(inventory.Items.SelectMany(item =>
                 new[] { item.TotalQuantity.Provenance, item.FoundInRaidQuantity.Provenance }));
+        }
+
+        if (request.RaidContext is { } raidContext)
+        {
+            provenances.Add(raidContext.Phase.Provenance);
+            provenances.Add(raidContext.Risk.Provenance);
         }
 
         if (provenances.Any(provenance => provenance.EvidenceThroughUtc > request.EvaluatedUtc))
@@ -776,6 +1010,34 @@ public sealed class ExplainableRecommendationEngine(
     }
 
     private sealed record AllocatedNeed(RecommendationNeed Need, int Outstanding, int Allocated);
+
+    private sealed record ScarcityInspection(
+        RecommendationObtainabilityBand? Band,
+        bool ShouldKeep,
+        EvidenceProvenance? Provenance)
+    {
+        public static ScarcityInspection Unknown { get; } = new(null, false, null);
+    }
+
+    private sealed record RaidContextInspection(
+        bool IsAvailable,
+        RecommendationRaidPhase? Phase,
+        RecommendationRaidRisk? Risk,
+        EconomicValueBand RequiredBand,
+        EvidenceProvenance? PhaseProvenance,
+        EvidenceProvenance? RiskProvenance)
+    {
+        public static RaidContextInspection NotApplicable(EconomicValueBand requiredBand) =>
+            new(false, null, null, requiredBand, null, null);
+
+        public static RaidContextInspection Unavailable(EconomicValueBand requiredBand) =>
+            new(false, null, null, requiredBand, null, null);
+
+        public bool ChangesEconomicAction(EconomicValueBand actual, EconomicValueBand normal) =>
+            (int)RequiredBand > (int)normal &&
+            (int)actual >= (int)normal &&
+            (int)actual < (int)RequiredBand;
+    }
 
     private sealed record EconomicInspection(
         long TotalValue,

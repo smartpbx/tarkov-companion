@@ -21,6 +21,66 @@ public enum RecommendationNeedPurpose
     SpecialistUtility,
 }
 
+/// <summary>
+/// A coarse, evidence-backed description of how readily another copy can be obtained. Higher
+/// values mean harder to replace; a band is used instead of a fabricated spawn probability.
+/// </summary>
+public enum RecommendationObtainabilityBand
+{
+    Abundant = 1,
+    Available,
+    Limited,
+    Scarce,
+}
+
+/// <summary>Scarcity facts stay separate from economics so price cannot masquerade as rarity.</summary>
+public sealed record RecommendationScarcityFacts
+{
+    public RecommendationScarcityFacts(EvidencedValue<RecommendationObtainabilityBand?> obtainability)
+    {
+        Obtainability = V2ContractGuard.Defined(obtainability, nameof(obtainability));
+    }
+
+    public EvidencedValue<RecommendationObtainabilityBand?> Obtainability { get; }
+}
+
+/// <summary>A user-visible raid phase, never a claim about unseen activity.</summary>
+public enum RecommendationRaidPhase
+{
+    Early = 1,
+    Middle,
+    Late,
+    Extracting,
+}
+
+/// <summary>
+/// The user's current tolerance/risk context. It is an input to advice, not enemy, traffic, or
+/// live-world detection.
+/// </summary>
+public enum RecommendationRaidRisk
+{
+    Low = 1,
+    Elevated,
+    High,
+    Critical,
+}
+
+/// <summary>Ephemeral raid context used only when evaluating loot advice.</summary>
+public sealed record RecommendationRaidContext
+{
+    public RecommendationRaidContext(
+        EvidencedValue<RecommendationRaidPhase?> phase,
+        EvidencedValue<RecommendationRaidRisk?> risk)
+    {
+        Phase = V2ContractGuard.Defined(phase, nameof(phase));
+        Risk = V2ContractGuard.Defined(risk, nameof(risk));
+    }
+
+    public EvidencedValue<RecommendationRaidPhase?> Phase { get; }
+
+    public EvidencedValue<RecommendationRaidRisk?> Risk { get; }
+}
+
 /// <summary>A requirement before compatible observed holdings are allocated to it.</summary>
 public sealed record RecommendationNeed
 {
@@ -195,8 +255,10 @@ public sealed record ExplainableRecommendationRequest
         EvidencedValue<bool?> candidateFoundInRaid,
         RecommendationProfileFacts profile,
         RecommendationEconomics economics,
+        RecommendationScarcityFacts scarcity,
         ObservedInventoryEvidenceSnapshot? inventory = null,
-        CaptureSessionId? captureSessionId = null)
+        CaptureSessionId? captureSessionId = null,
+        RecommendationRaidContext? raidContext = null)
     {
         RecommendationId = V2ContractGuard.Required(recommendationId, nameof(recommendationId));
         ItemId = V2ContractGuard.Required(itemId, nameof(itemId));
@@ -207,10 +269,12 @@ public sealed record ExplainableRecommendationRequest
         CandidateFoundInRaid = candidateFoundInRaid ?? throw new ArgumentNullException(nameof(candidateFoundInRaid));
         Profile = profile ?? throw new ArgumentNullException(nameof(profile));
         Economics = economics ?? throw new ArgumentNullException(nameof(economics));
+        Scarcity = scarcity ?? throw new ArgumentNullException(nameof(scarcity));
         Inventory = inventory;
         CaptureSessionId = captureSessionId is { } session
             ? V2ContractGuard.Defined(session, nameof(captureSessionId))
             : null;
+        RaidContext = raidContext;
     }
 
     public string RecommendationId { get; }
@@ -231,7 +295,11 @@ public sealed record ExplainableRecommendationRequest
 
     public RecommendationEconomics Economics { get; }
 
+    public RecommendationScarcityFacts Scarcity { get; }
+
     public ObservedInventoryEvidenceSnapshot? Inventory { get; }
 
     public CaptureSessionId? CaptureSessionId { get; }
+
+    public RecommendationRaidContext? RaidContext { get; }
 }
