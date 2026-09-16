@@ -107,7 +107,16 @@
         </StackPanel>
       </Border>
 
-      <Border Classes="v2-card" IsVisible="{Binding !HasDecisions}">
+      <Border Classes="v2-card" IsVisible="{Binding HasNoVisibleLoot}"
+              AutomationProperties.Name="No visible loot detected">
+        <StackPanel Spacing="8" HorizontalAlignment="Center">
+          <TextBlock Classes="v2-heading-3" Text="No visible loot detected" HorizontalAlignment="Center" />
+          <TextBlock Classes="v2-body" Text="The reviewed grid is readable and contains no loot items."
+                     TextWrapping="Wrap" TextAlignment="Center" MaxWidth="520" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="v2-card" IsVisible="{Binding HasUnavailableResult}">
         <StackPanel Spacing="8" HorizontalAlignment="Center">
           <TextBlock Classes="v2-heading-3" Text="Nothing readable yet" HorizontalAlignment="Center" />
           <TextBlock Classes="v2-body" Text="Capture the loot and carried grids together, then review the highlighted regions."
@@ -127,6 +136,8 @@
                 AutomationProperties.AutomationId="v2-loot-scan-previous-top" />
         <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding PageSummary}"
                    TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"
+                   Focusable="True"
+                   AutomationProperties.AutomationId="v2-loot-scan-page-announcement"
                    AutomationProperties.LiveSetting="Polite" />
         <Button Grid.Column="2" Classes="v2-target" Content="Next"
                 Command="{Binding NextPageCommand}"
@@ -212,7 +223,8 @@
                 IsEnabled="{Binding HasPreviousPage}"
                 AutomationProperties.AutomationId="v2-loot-scan-previous-bottom" />
         <TextBlock Grid.Column="1" Classes="v2-label" Text="{Binding PageSummary}"
-                   TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center" />
+                   TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"
+                   AutomationProperties.LiveSetting="Polite" />
         <Button Grid.Column="2" Classes="v2-target" Content="Next"
                 Command="{Binding NextPageCommand}"
                 IsEnabled="{Binding HasNextPage}"

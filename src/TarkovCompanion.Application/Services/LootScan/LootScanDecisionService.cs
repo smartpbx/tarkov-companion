@@ -14,15 +14,25 @@ namespace TarkovCompanion.Application.Services.LootScan;
 /// </summary>
 public sealed class LootScanDecisionService
 {
+    private static readonly TimeSpan MaximumVolatileRaidRecommendationAge = TimeSpan.FromMinutes(15);
+
     private readonly TimeProvider _timeProvider;
     private readonly ExplainableRecommendationPolicy _policy;
+    private readonly int _maximumPlacementCellVisits;
 
     public LootScanDecisionService(
         TimeProvider? timeProvider = null,
-        ExplainableRecommendationPolicy? policy = null)
+        ExplainableRecommendationPolicy? policy = null,
+        int maximumPlacementCellVisits = LootScanPlannerLimits.MaximumPlacementCellVisits)
     {
+        if (maximumPlacementCellVisits is < 1 or > LootScanPlannerLimits.MaximumPlacementCellVisits)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumPlacementCellVisits));
+        }
+
         _timeProvider = timeProvider ?? TimeProvider.System;
         _policy = policy ?? ExplainableRecommendationPolicy.Default;
+        _maximumPlacementCellVisits = maximumPlacementCellVisits;
     }
 
     public LootScanResult Evaluate(LootScanRequest request, CancellationToken cancellationToken = default)
@@ -32,6 +42,7 @@ public sealed class LootScanDecisionService
         var started = _timeProvider.GetTimestamp();
         var issues = new List<LootScanIssue>();
         var decisions = new List<LootScanDecision>();
+        var placementBudget = new PlacementWorkBudget(_maximumPlacementCellVisits, cancellationToken);
 
         if (!request.IsReviewedFrameCurrent)
         {
@@ -85,7 +96,13 @@ public sealed class LootScanDecisionService
                          .ThenBy(item => item.Anchor.Column))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                decisions.Add(EvaluateResolved(request, cell, recommendations, capacity, cancellationToken));
+                decisions.Add(EvaluateResolved(
+                    request,
+                    cell,
+                    recommendations,
+                    capacity,
+                    placementBudget,
+                    cancellationToken));
             }
         }
 
@@ -109,7 +126,7 @@ public sealed class LootScanDecisionService
                 : ResultCompleteness.Complete;
         var status = new ResultStatus(
             completeness,
-            HasStaleInput(request) ? FreshnessState.Stale : FreshnessState.Current,
+            InputFreshness(request),
             completeness switch
             {
                 ResultCompleteness.Complete => "loot-scan.complete",
@@ -138,6 +155,7 @@ public sealed class LootScanDecisionService
         GridCellRecognition cell,
         IReadOnlyDictionary<GridCellAddress, LootScanCandidateRecommendation> recommendations,
         CapacityMap? capacity,
+        PlacementWorkBudget placementBudget,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -213,6 +231,17 @@ public sealed class LootScanDecisionService
                 economics);
         }
 
+        if (!IsRecommendationTemporallyCurrent(recommendation, advice, request.EvaluatedUtc))
+        {
+            return Review(
+                cell.Anchor,
+                cell.Item,
+                "recommendation.expired",
+                "The recommendation was produced in the future or is too old for its evidence class.",
+                recommendation,
+                economics);
+        }
+
         var economicDominant = IsEconomicLootAdvice(advice);
         if (economicDominant && economics.Status.Completeness != ResultCompleteness.Complete)
         {
@@ -258,20 +287,44 @@ public sealed class LootScanDecisionService
                 economics);
         }
 
-        if (capacity.TryFindFree(width, height, cancellationToken, out var freePlacement))
+        try
         {
-            capacity.CommitPlacement(freePlacement!);
-            return new(
+            if (capacity.TryFindFree(width, height, placementBudget, out var freePlacement))
+            {
+                capacity.CommitPlacement(freePlacement!);
+                return new(
+                    cell.Anchor,
+                    cell.Item,
+                    LootScanVerdict.Take,
+                    [new("capacity.visible-fit", "The item fits in verified visible carried space.")],
+                    recommendation: recommendation,
+                    economics: economics,
+                    placement: freePlacement);
+            }
+
+            var swapSearch = capacity.FindBestSwap(width, height, placementBudget);
+            return EvaluateSwap(cell, recommendation, economicDominant, economics, capacity, swapSearch);
+        }
+        catch (PlacementBudgetExceededException)
+        {
+            return Review(
                 cell.Anchor,
                 cell.Item,
-                LootScanVerdict.Take,
-                [new("capacity.visible-fit", "The item fits in verified visible carried space.")],
-                recommendation: recommendation,
-                economics: economics,
-                placement: freePlacement);
+                "capacity.search-budget-exhausted",
+                "The bounded placement search reached its work limit; review placement manually.",
+                recommendation,
+                economics);
         }
+    }
 
-        var swapSearch = capacity.FindBestSwap(width, height, cancellationToken);
+    private LootScanDecision EvaluateSwap(
+        GridCellRecognition cell,
+        RecommendationResult recommendation,
+        bool economicDominant,
+        LootScanEconomicProjection economics,
+        CapacityMap capacity,
+        SwapSearchResult swapSearch)
+    {
         var swap = swapSearch.Best;
         if (swap is null)
         {
@@ -549,28 +602,50 @@ public sealed class LootScanDecisionService
 
     private FreshnessState EconomicsFreshness(
         RecommendationEconomics economics,
-        DateTimeOffset evaluatedUtc) =>
-        new EvidencedValue<long?>[]
-            {
-                economics.FleaNetRoubles,
-                economics.TraderRoubles,
-            }
-            .Any(field => IsStaleOrExpired(field, evaluatedUtc, _policy.MaximumPriceAge)) ||
-        IsStaleOrExpired(economics.OccupiedSquares, evaluatedUtc, _policy.MaximumPriceAge)
-            ? FreshnessState.Stale
-            : FreshnessState.Current;
+        DateTimeOffset evaluatedUtc)
+    {
+        var prices = new[] { economics.FleaNetRoubles, economics.TraderRoubles };
+        if (prices.Any(field => IsStaleOrExpired(field, evaluatedUtc, _policy.MaximumPriceAge)) ||
+            IsStaleOrExpired(economics.OccupiedSquares, evaluatedUtc, _policy.MaximumPriceAge))
+        {
+            return FreshnessState.Stale;
+        }
+
+        return prices.Any(field => field.Status.Freshness == FreshnessState.Unknown) ||
+            economics.OccupiedSquares.Status.Freshness == FreshnessState.Unknown
+                ? FreshnessState.Unknown
+                : FreshnessState.Current;
+    }
 
     private static bool IsStaleOrExpired<T>(
         EvidencedValue<T> field,
         DateTimeOffset evaluatedUtc,
         TimeSpan maximumAge) =>
         field.Status.Freshness == FreshnessState.Stale ||
-        (field.Provenance.EvidenceThroughUtc <= evaluatedUtc &&
-         evaluatedUtc - field.Provenance.EvidenceThroughUtc > maximumAge);
+        IsOutsideTimeWindow(field.Provenance, evaluatedUtc, maximumAge);
+
+    private static bool IsOutsideTimeWindow(
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge) =>
+        provenance.EvidenceThroughUtc > evaluatedUtc ||
+        evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge;
 
     private static bool ContainsModelledEstimate(EvidenceProvenance provenance) =>
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
+
+    private FreshnessState InputFreshness(LootScanRequest request)
+    {
+        if (HasStaleInput(request))
+        {
+            return FreshnessState.Stale;
+        }
+
+        return HasUnknownFreshness(request)
+            ? FreshnessState.Unknown
+            : FreshnessState.Current;
+    }
 
     private bool HasStaleInput(LootScanRequest request)
     {
@@ -613,11 +688,77 @@ public sealed class LootScanDecisionService
             GridIsStale(request.CarriedInventory) ||
             request.Recommendations.Any(item =>
                 item.Recommendation.Decision.Status.Freshness == FreshnessState.Stale ||
+                (item.Recommendation.Decision.Value is { } decision &&
+                 !IsRecommendationTemporallyCurrent(item.Recommendation, decision, request.EvaluatedUtc)) ||
                 EconomicsIsStale(item.Economics)) ||
             request.CarriedPolicies.Any(policy =>
                 IsStaleOrExpired(policy.ProtectedItem, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
                 IsStaleOrExpired(policy.Pinned, request.EvaluatedUtc, _policy.MaximumInventoryAge) ||
                 IsStaleOrExpired(policy.ReplacementValueRoubles, request.EvaluatedUtc, _policy.MaximumPriceAge));
+    }
+
+    private static bool HasUnknownFreshness(LootScanRequest request)
+    {
+        static bool Unknown<T>(EvidencedValue<T> field) =>
+            field.Status.Freshness == FreshnessState.Unknown;
+
+        static bool EconomicsUnknown(RecommendationEconomics economics) =>
+            Unknown(economics.FleaGrossRoubles) ||
+            Unknown(economics.FleaFeeRoubles) ||
+            Unknown(economics.FleaNetRoubles) ||
+            Unknown(economics.TraderRoubles) ||
+            Unknown(economics.OccupiedSquares) ||
+            Unknown(economics.ConditionFraction);
+
+        static bool ItemUnknown(EvidencedValue<RecognizedItem> field) =>
+            Unknown(field) ||
+            (field.Value is { } item &&
+             (Unknown(item.CanonicalId) ||
+              Unknown(item.DisplayName) ||
+              Unknown(item.Quantity) ||
+              Unknown(item.WidthCells) ||
+              Unknown(item.HeightCells) ||
+              Unknown(item.Rotated) ||
+              Unknown(item.FoundInRaid) ||
+              Unknown(item.Condition)));
+
+        static bool GridUnknown(GridReconstructionResult grid) =>
+            grid.Recognition is { } recognition &&
+            (Unknown(recognition.Geometry.Rows) ||
+             Unknown(recognition.Geometry.Columns) ||
+             recognition.Cells.Any(cell => ItemUnknown(cell.Item))) ||
+            grid.UnresolvedCells.Any(cell => ItemUnknown(cell.Item));
+
+        return GridUnknown(request.VisibleLoot) ||
+            GridUnknown(request.CarriedInventory) ||
+            request.Recommendations.Any(item =>
+                item.Recommendation.Decision.Status.Freshness == FreshnessState.Unknown ||
+                EconomicsUnknown(item.Economics)) ||
+            request.CarriedPolicies.Any(policy =>
+                Unknown(policy.ProtectedItem) ||
+                Unknown(policy.Pinned) ||
+                Unknown(policy.ReplacementValueRoubles));
+    }
+
+    private bool IsRecommendationTemporallyCurrent(
+        RecommendationResult recommendation,
+        RecommendationDecision advice,
+        DateTimeOffset evaluatedUtc) =>
+        !IsOutsideTimeWindow(
+            recommendation.Decision.Provenance,
+            evaluatedUtc,
+            MaximumRecommendationAge(advice));
+
+    private TimeSpan MaximumRecommendationAge(RecommendationDecision advice)
+    {
+        if (advice.Reasons.Any(reason => reason.Code.StartsWith("raid.", StringComparison.Ordinal)))
+        {
+            return MaximumVolatileRaidRecommendationAge;
+        }
+
+        return IsEconomicLootAdvice(advice)
+            ? _policy.MaximumPriceAge
+            : _policy.MaximumInventoryAge;
     }
 
     private static bool IsEconomicLootAdvice(RecommendationDecision advice)
@@ -652,6 +793,26 @@ public sealed class LootScanDecisionService
     private sealed record SwapSearchResult(
         SwapOption? Best,
         bool HasUnresolvedPolicyOption);
+
+    private sealed class PlacementWorkBudget(int maximumCellVisits, CancellationToken cancellationToken)
+    {
+        private int _remainingCellVisits = maximumCellVisits;
+
+        public void VisitCell()
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_remainingCellVisits == 0)
+            {
+                throw new PlacementBudgetExceededException();
+            }
+
+            _remainingCellVisits--;
+        }
+    }
+
+    private sealed class PlacementBudgetExceededException : Exception
+    {
+    }
 
     private sealed class CapacityMap
     {
@@ -708,17 +869,16 @@ public sealed class LootScanDecisionService
         public bool TryFindFree(
             int width,
             int height,
-            CancellationToken cancellationToken,
+            PlacementWorkBudget budget,
             out LootScanPlacement? placement)
         {
             foreach (var orientation in Orientations(width, height))
             {
                 for (var row = 0; row <= Rows - orientation.Height; row++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
                     for (var column = 0; column <= Columns - orientation.Width; column++)
                     {
-                        if (IsFree(row, column, orientation.Width, orientation.Height))
+                        if (IsFree(row, column, orientation.Width, orientation.Height, budget))
                         {
                             placement = new(
                                 new(row, column),
@@ -751,7 +911,7 @@ public sealed class LootScanDecisionService
             }
         }
 
-        public SwapSearchResult FindBestSwap(int width, int height, CancellationToken cancellationToken)
+        public SwapSearchResult FindBestSwap(int width, int height, PlacementWorkBudget budget)
         {
             SwapOption? best = null;
             var hasUnresolvedPolicyOption = false;
@@ -759,7 +919,6 @@ public sealed class LootScanDecisionService
             {
                 for (var row = 0; row <= Rows - orientation.Height; row++)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
                     for (var column = 0; column <= Columns - orientation.Width; column++)
                     {
                         if (!TryCollectBlockers(
@@ -767,6 +926,7 @@ public sealed class LootScanDecisionService
                                 column,
                                 orientation.Width,
                                 orientation.Height,
+                                budget,
                                 out var blockers) ||
                             blockers.Count == 0)
                         {
@@ -850,12 +1010,13 @@ public sealed class LootScanDecisionService
             CommitPlacement(swap.Placement);
         }
 
-        private bool IsFree(int row, int column, int width, int height)
+        private bool IsFree(int row, int column, int width, int height, PlacementWorkBudget budget)
         {
             for (var currentRow = row; currentRow < row + height; currentRow++)
             {
                 for (var currentColumn = column; currentColumn < column + width; currentColumn++)
                 {
+                    budget.VisitCell();
                     if (_occupied[currentRow, currentColumn] is not null)
                     {
                         return false;
@@ -866,13 +1027,20 @@ public sealed class LootScanDecisionService
             return true;
         }
 
-        private bool TryCollectBlockers(int row, int column, int width, int height, out HashSet<int> blockers)
+        private bool TryCollectBlockers(
+            int row,
+            int column,
+            int width,
+            int height,
+            PlacementWorkBudget budget,
+            out HashSet<int> blockers)
         {
             blockers = [];
             for (var currentRow = row; currentRow < row + height; currentRow++)
             {
                 for (var currentColumn = column; currentColumn < column + width; currentColumn++)
                 {
+                    budget.VisitCell();
                     if (_occupied[currentRow, currentColumn] is not { } index)
                     {
                         continue;

@@ -435,6 +435,80 @@ public sealed class LootScanDecisionServiceTests
         Assert.Equal("recommendation.incomplete", Assert.Single(decision.Reasons).Code);
     }
 
+    [Theory]
+    [InlineData(-25)]
+    [InlineData(1)]
+    public void ExpiredOrFutureRecommendationProvenanceCannotProduceDecisiveAdvice(int offsetHours)
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 2, 2),
+            [Recommendation(anchor, "loot", decisionObservedUtc: Now.AddHours(offsetHours))]);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("recommendation.expired", Assert.Single(decision.Reasons).Code);
+        Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void RaidRecommendationUsesTheShortVolatileEvidenceWindow()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 2, 2),
+            [Recommendation(
+                anchor,
+                "loot",
+                RecommendationReasonCategory.Safety,
+                reasonCode: "raid.risk.high",
+                decisionObservedUtc: Now.AddMinutes(-15).AddTicks(-1))]);
+
+        Assert.Equal(LootScanVerdict.Review, Assert.Single(result.Decisions).Verdict);
+        Assert.Equal(FreshnessState.Stale, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void RecommendationAtItsAgeBoundaryRemainsCurrent()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 2, 2),
+            [Recommendation(
+                anchor,
+                "loot",
+                RecommendationReasonCategory.Safety,
+                reasonCode: "raid.risk.high",
+                decisionObservedUtc: Now.AddMinutes(-15))]);
+
+        Assert.Equal(LootScanVerdict.Take, Assert.Single(result.Decisions).Verdict);
+        Assert.Equal(FreshnessState.Current, result.Status.Freshness);
+    }
+
+    [Fact]
+    public void PlacementWorkBudgetProducesReviewInsteadOfUnboundedSearch()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 2, Cell(anchor, "incoming", 2, 1)),
+            CompleteGrid(
+                InventoryGridSurface.CarriedInventory,
+                1,
+                2,
+                Cell(new GridCellAddress(0, 0), "left", 1, 1),
+                Cell(new GridCellAddress(0, 1), "right", 1, 1)),
+            [Recommendation(anchor, "incoming", occupiedSquares: 2)],
+            maximumPlacementCellVisits: 1);
+
+        var decision = Assert.Single(result.Decisions);
+        Assert.Equal(LootScanVerdict.Review, decision.Verdict);
+        Assert.Equal("capacity.search-budget-exhausted", Assert.Single(decision.Reasons).Code);
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
     [Fact]
     public void ResultFocusReturnsToTheDeviceThatInitiatedTheScan()
     {
@@ -473,6 +547,34 @@ public sealed class LootScanDecisionServiceTests
     }
 
     [Fact]
+    public void ReviewViewModelSurfacesStaleEvidenceInsteadOfCallingItReady()
+    {
+        var anchor = new GridCellAddress(0, 0);
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1, Cell(anchor, "loot", 1, 1)),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1),
+            [Recommendation(anchor, "loot", decisionObservedUtc: Now.AddHours(-25))]);
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+
+        Assert.Contains("expired", viewModel.StatusLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.False(viewModel.IsComplete);
+        Assert.True(viewModel.IsPartial);
+    }
+
+    [Fact]
+    public void ReviewViewModelDistinguishesAReadableEmptyGridFromAnUnavailableCapture()
+    {
+        var result = Evaluate(
+            CompleteGrid(InventoryGridSurface.VisibleLoot, 1, 1),
+            CompleteGrid(InventoryGridSurface.CarriedInventory, 1, 1));
+        var viewModel = new LootScanViewModel(result, culture: CultureInfo.InvariantCulture);
+
+        Assert.Equal(ResultCompleteness.Complete, result.Status.Completeness);
+        Assert.True(viewModel.HasNoVisibleLoot);
+        Assert.False(viewModel.HasUnavailableResult);
+    }
+
+    [Fact]
     public void ReviewViewPagesLargeScansAndUsesTheRequestedNumberCulture()
     {
         const int itemCount = 25;
@@ -498,12 +600,16 @@ public sealed class LootScanDecisionServiceTests
         Assert.True(viewModel.HasNextPage);
         Assert.Contains("120_000", viewModel.VisibleDecisions[0].ValueLabel, StringComparison.Ordinal);
 
+        var pageNavigations = 0;
+        viewModel.PageNavigated += (_, _) => pageNavigations++;
+
         viewModel.NextPageCommand.Execute(null);
 
         Assert.Single(viewModel.VisibleDecisions);
         Assert.True(viewModel.HasPreviousPage);
         Assert.False(viewModel.HasNextPage);
         Assert.Equal("Page 2 of 2 • 25 items", viewModel.PageSummary);
+        Assert.Equal(1, pageNavigations);
     }
 
     [Fact]
@@ -524,13 +630,53 @@ public sealed class LootScanDecisionServiceTests
             replacementCostRoubles: 200));
     }
 
+    [Fact]
+    public void LootDecisionContractBoundsReasonsBeforeCopyingThem()
+    {
+        var reasons = Enumerable.Range(0, LootScanPlannerLimits.MaximumReasonsPerDecision + 1)
+            .Select(index => new LootScanReason($"reason-{index}", "Bounded explanation"))
+            .ToArray();
+
+        Assert.Throws<ArgumentException>(() => new LootScanDecision(
+            new GridCellAddress(0, 0),
+            Complete("incoming", Item("incoming", 1, 1)),
+            LootScanVerdict.Review,
+            reasons));
+    }
+
+    [Fact]
+    public void LootDecisionContractRejectsReplacementCostOverflow()
+    {
+        var provenance = CatalogProvenance("replacement-overflow");
+        var first = new LootScanDropItem(
+            new GridCellAddress(0, 0),
+            Complete("first", Item("first", 1, 1)),
+            long.MaxValue,
+            provenance);
+        var second = new LootScanDropItem(
+            new GridCellAddress(0, 1),
+            Complete("second", Item("second", 1, 1)),
+            1,
+            provenance);
+
+        Assert.Throws<ArgumentException>(() => new LootScanDecision(
+            new GridCellAddress(1, 0),
+            Complete("incoming", Item("incoming", 2, 1)),
+            LootScanVerdict.Swap,
+            [new("swap", "Swap")],
+            placement: new(new GridCellAddress(0, 0), 2, 1, false),
+            drops: [first, second],
+            replacementCostRoubles: long.MaxValue));
+    }
+
     private static LootScanResult Evaluate(
         GridReconstructionResult visible,
         GridReconstructionResult carried,
         IReadOnlyList<LootScanCandidateRecommendation>? recommendations = null,
         IReadOnlyList<LootScanCarriedPolicy>? policies = null,
         string reviewedContentSha256 = SourceContentSha256,
-        string initiatingDeviceId = "desktop-primary")
+        string initiatingDeviceId = "desktop-primary",
+        int maximumPlacementCellVisits = LootScanPlannerLimits.MaximumPlacementCellVisits)
     {
         var request = new LootScanRequest(
             "loot-scan-282",
@@ -547,7 +693,7 @@ public sealed class LootScanDecisionServiceTests
             carried,
             recommendations ?? [],
             policies ?? []);
-        return new LootScanDecisionService().Evaluate(request);
+        return new LootScanDecisionService(maximumPlacementCellVisits: maximumPlacementCellVisits).Evaluate(request);
     }
 
     private static GridReconstructionResult CompleteGrid(
@@ -627,22 +773,23 @@ public sealed class LootScanDecisionServiceTests
         DateTimeOffset? economicsObservedUtc = null,
         ResultCompleteness decisionCompleteness = ResultCompleteness.Complete,
         FreshnessState decisionFreshness = FreshnessState.Current,
-        string reasonCode = "take")
+        string reasonCode = "take",
+        DateTimeOffset? decisionObservedUtc = null)
     {
         EvidencedValue<long?> opportunityCost;
         OpportunityCostLineage? lineage;
         EvidenceProvenance decisionProvenance;
         if (valueRoubles is { } value && category != RecommendationReasonCategory.Economics)
         {
-            var price = CatalogProvenance("price");
-            var footprint = ScreenshotProvenance("footprint");
-            decisionProvenance = DerivedProvenance(price, footprint);
+            var price = CatalogProvenance("price", decisionObservedUtc);
+            var footprint = ScreenshotProvenance("footprint", decisionObservedUtc);
+            decisionProvenance = DerivedProvenance(decisionObservedUtc ?? Now, price, footprint);
             opportunityCost = Complete<long?>("recommendation.opportunity-cost", value, decisionProvenance);
             lineage = new(price, footprint);
         }
         else
         {
-            decisionProvenance = CatalogProvenance("recommendation");
+            decisionProvenance = CatalogProvenance("recommendation", decisionObservedUtc);
             opportunityCost = new(
                 "recommendation.opportunity-cost",
                 null,
@@ -740,13 +887,15 @@ public sealed class LootScanDecisionServiceTests
         EvidenceConfidence.Certain,
         new ProducerIdentity("loot-scan-tests", "1"));
 
-    private static EvidenceProvenance DerivedProvenance(params EvidenceProvenance[] inputs) => new(
+    private static EvidenceProvenance DerivedProvenance(
+        DateTimeOffset observedUtc,
+        params EvidenceProvenance[] inputs) => new(
         EvidenceSourceClass.DerivedCalculation,
         "fixture://loot-scan/opportunity-cost",
-        Now,
+        observedUtc,
         EvidenceConfidence.Unscored,
         new ProducerIdentity("loot-scan-tests", "1"),
-        generatedUtc: Now,
+        generatedUtc: observedUtc,
         inputs: inputs);
 
     private static EvidenceProvenance ModelledProvenance(params EvidenceProvenance[] inputs) => new(

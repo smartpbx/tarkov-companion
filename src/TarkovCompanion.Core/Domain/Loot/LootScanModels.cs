@@ -310,20 +310,31 @@ public sealed record LootScanDecision
         Item = item ?? throw new ArgumentNullException(nameof(item));
         Verdict = Enum.IsDefined(verdict) ? verdict : throw new ArgumentOutOfRangeException(nameof(verdict));
         ArgumentNullException.ThrowIfNull(reasons);
-        var reasonCopy = reasons
-            .Select(reason => reason ?? throw new ArgumentException("Reasons cannot contain null.", nameof(reasons)))
-            .ToArray();
-        if (reasonCopy.Length == 0)
+        if (reasons.Count is < 1 or > LootScanPlannerLimits.MaximumReasonsPerDecision)
         {
-            throw new ArgumentException("A loot decision must explain itself.", nameof(reasons));
+            throw new ArgumentException(
+                $"A loot decision must contain between one and {LootScanPlannerLimits.MaximumReasonsPerDecision} reasons.",
+                nameof(reasons));
         }
 
-        var dropCopy = (drops ?? [])
-            .Select(drop => drop ?? throw new ArgumentException("Drops cannot contain null.", nameof(drops)))
-            .ToArray();
-        if (dropCopy.Length > LootScanPlannerLimits.MaximumSwapItems)
+        var reasonCopy = new LootScanReason[reasons.Count];
+        for (var index = 0; index < reasonCopy.Length; index++)
+        {
+            reasonCopy[index] = reasons[index] ??
+                throw new ArgumentException("Reasons cannot contain null.", nameof(reasons));
+        }
+
+        var suppliedDrops = drops ?? [];
+        if (suppliedDrops.Count > LootScanPlannerLimits.MaximumSwapItems)
         {
             throw new ArgumentException("A loot decision exceeds the bounded swap size.", nameof(drops));
+        }
+
+        var dropCopy = new LootScanDropItem[suppliedDrops.Count];
+        for (var index = 0; index < dropCopy.Length; index++)
+        {
+            dropCopy[index] = suppliedDrops[index] ??
+                throw new ArgumentException("Drops cannot contain null.", nameof(drops));
         }
 
         if (dropCopy.Select(drop => drop.Anchor).Distinct().Count() != dropCopy.Length)
@@ -346,8 +357,9 @@ public sealed record LootScanDecision
             throw new ArgumentOutOfRangeException(nameof(replacementCostRoubles));
         }
 
+        var summedReplacementCost = SumReplacementCost(dropCopy);
         if (verdict == LootScanVerdict.Swap &&
-            (replacementCostRoubles is null || replacementCostRoubles != dropCopy.Sum(drop => drop.ReplacementValueRoubles)))
+            (replacementCostRoubles is null || replacementCostRoubles != summedReplacementCost))
         {
             throw new ArgumentException("A swap replacement cost must equal the displaced item values.", nameof(replacementCostRoubles));
         }
@@ -368,6 +380,22 @@ public sealed record LootScanDecision
         Placement = placement;
         Drops = Array.AsReadOnly(dropCopy);
         ReplacementCostRoubles = replacementCostRoubles;
+    }
+
+    private static long SumReplacementCost(IReadOnlyList<LootScanDropItem> drops)
+    {
+        long sum = 0;
+        foreach (var drop in drops)
+        {
+            if (drop.ReplacementValueRoubles > long.MaxValue - sum)
+            {
+                throw new ArgumentException("Displaced item values exceed the supported replacement-cost range.", nameof(drops));
+            }
+
+            sum += drop.ReplacementValueRoubles;
+        }
+
+        return sum;
     }
 
     public GridCellAddress SourceAnchor { get; }
@@ -425,6 +453,14 @@ public sealed record LootScanStageTiming
 public static class LootScanPlannerLimits
 {
     public const int MaximumSwapItems = 3;
+
+    public const int MaximumReasonsPerDecision = 16;
+
+    /// <summary>
+    /// Shared deterministic ceiling for carried-grid cell inspections in one scan. The planner
+    /// returns review-only advice when legal but adversarial dimensions would exceed this work.
+    /// </summary>
+    public const int MaximumPlacementCellVisits = 2_000_000;
 
     public const int MaximumVisibleItems = 512;
 

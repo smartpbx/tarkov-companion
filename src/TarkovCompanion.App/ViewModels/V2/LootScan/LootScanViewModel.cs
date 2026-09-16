@@ -51,24 +51,37 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public IReadOnlyList<string> VisibleIssues => Issues.Take(VisibleIssueLimit).ToArray();
 
+    /// <summary>Requests the view to announce and reveal the new page after explicit navigation.</summary>
+    public event EventHandler? PageNavigated;
+
     public ICommand PreviousPageCommand { get; }
 
     public ICommand NextPageCommand { get; }
 
     public string Heading => "Loot Scan";
 
-    public string StatusLabel => Result.Status.Completeness switch
+    public string StatusLabel => Result.Status.Freshness switch
     {
-        ResultCompleteness.Complete => "Ready to review",
-        ResultCompleteness.Partial => "Review needed",
-        _ => "No usable result",
+        FreshnessState.Stale => "Evidence expired — review needed",
+        FreshnessState.Unknown => "Evidence freshness unknown",
+        _ => Result.Status.Completeness switch
+        {
+            ResultCompleteness.Complete => "Ready to review",
+            ResultCompleteness.Partial => "Review needed",
+            _ => "No usable result",
+        },
     };
 
-    public string StatusDetail => Result.Status.Completeness switch
+    public string StatusDetail => Result.Status.Freshness switch
     {
-        ResultCompleteness.Complete => "Every recommendation is tied to the reviewed screenshot and visible carried space.",
-        ResultCompleteness.Partial => "Uncertain cells stay visible and are never promoted into a take or swap.",
-        _ => "Retake the screenshot with both the loot and carried grid visible.",
+        FreshnessState.Stale => "Retake or refresh the scan before relying on its recommendations.",
+        FreshnessState.Unknown => "The scan cannot prove when all supporting evidence was current.",
+        _ => Result.Status.Completeness switch
+        {
+            ResultCompleteness.Complete => "Every recommendation is tied to the reviewed screenshot and visible carried space.",
+            ResultCompleteness.Partial => "Uncertain cells stay visible and are never promoted into a take or swap.",
+            _ => "Retake the screenshot with both the loot and carried grid visible.",
+        },
     };
 
     public string ContextLabel
@@ -115,6 +128,11 @@ public sealed class LootScanViewModel : BindableViewModel
 
     public bool HasDecisions => Decisions.Count > 0;
 
+    public bool HasNoVisibleLoot =>
+        Decisions.Count == 0 && Result.Status.Completeness == ResultCompleteness.Complete;
+
+    public bool HasUnavailableResult => !HasDecisions && !HasNoVisibleLoot;
+
     public bool HasIssues => Issues.Count > 0;
 
     public bool HasHiddenIssues => Issues.Count > VisibleIssueLimit;
@@ -133,9 +151,13 @@ public sealed class LootScanViewModel : BindableViewModel
     public string PageSummary =>
         $"Page {(_pageIndex + 1).ToString(_culture)} of {PageCount.ToString(_culture)} • {Decisions.Count.ToString(_culture)} items";
 
-    public bool IsComplete => Result.Status.Completeness == ResultCompleteness.Complete;
+    public bool IsComplete =>
+        Result.Status.Completeness == ResultCompleteness.Complete &&
+        Result.Status.Freshness == FreshnessState.Current;
 
-    public bool IsPartial => Result.Status.Completeness == ResultCompleteness.Partial;
+    public bool IsPartial =>
+        Result.Status.Completeness == ResultCompleteness.Partial ||
+        Result.Status.Freshness != FreshnessState.Current;
 
     private void PreviousPage()
     {
@@ -165,6 +187,7 @@ public sealed class LootScanViewModel : BindableViewModel
         OnPropertyChanged(nameof(HasPreviousPage));
         OnPropertyChanged(nameof(HasNextPage));
         OnPropertyChanged(nameof(PageSummary));
+        PageNavigated?.Invoke(this, EventArgs.Empty);
     }
 }
 
