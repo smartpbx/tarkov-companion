@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using TarkovCompanion.Application.Services.CaptureSessions;
 using TarkovCompanion.Core.Abstractions.V2;
+using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Loot;
 using TarkovCompanion.Core.Domain.Recognition.Grid;
 
