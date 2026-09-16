@@ -396,8 +396,8 @@ public sealed class SqliteStashSnapshotStore(
 
     private static bool ReadBoolean(object value, string description) => value switch
     {
-        long 0 => false,
-        long 1 => true,
+        0L => false,
+        1L => true,
         _ => throw new InvalidDataException($"Persisted {description} is not Boolean."),
     };
 

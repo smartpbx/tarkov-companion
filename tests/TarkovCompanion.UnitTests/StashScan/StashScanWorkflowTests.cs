@@ -183,7 +183,7 @@ public sealed class StashScanWorkflowTests
         var stash = result.Recognition.Result.Value!;
         Assert.Single(stash.Coverage);
         Assert.Equal("stash", stash.Coverage[0].ContainerPath);
-        var issue = Assert.Single(result.Report.Issues.Where(item => item.Kind == StashScanIssueKind.ClosedContainer));
+        var issue = Assert.Single(result.Report.Issues, item => item.Kind == StashScanIssueKind.ClosedContainer);
         Assert.Equal(StashScanRetryAction.ReopenAndCaptureContainer, issue.RetryAction);
         Assert.Equal("stash/bag-a", issue.ContainerPath);
     }
@@ -363,8 +363,8 @@ public sealed class StashScanWorkflowTests
             Request(frame),
             durableId,
             true,
-            TestContext.Current.CancellationToken);
-        var export = await workflow.ExportAsync(Scope, durableId, TestContext.Current.CancellationToken);
+            CancellationToken.None);
+        var export = await workflow.ExportAsync(Scope, durableId, CancellationToken.None);
 
         Assert.NotNull(store.Snapshot);
         Assert.Equal("catalog-1", store.Snapshot.DataSnapshotId);
@@ -394,7 +394,7 @@ public sealed class StashScanWorkflowTests
             correctedQuantity: 7,
             reason: "Reviewed visible stack count.");
 
-        await workflow.ReviewAsync(command, TestContext.Current.CancellationToken);
+        await workflow.ReviewAsync(command, CancellationToken.None);
 
         Assert.Same(command, Assert.Single(sink.Commands));
     }
