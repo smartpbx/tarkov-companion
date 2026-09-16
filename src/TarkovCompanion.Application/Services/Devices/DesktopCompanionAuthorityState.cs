@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Text;
 using TarkovCompanion.CompanionProtocol;
+using TarkovCompanion.Core.Abstractions.V2;
 
 namespace TarkovCompanion.Application.Services.Devices;
 
