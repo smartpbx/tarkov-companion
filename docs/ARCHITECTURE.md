@@ -61,8 +61,9 @@ compressed at rest. The client tries the relay first and falls back to upstream,
 keeps the relay an optimisation rather than a dependency.
 
 **Problem reports.** The client posts what it knows about itself; the relay keeps it and hands
-back a reference; an hourly workflow opens an issue naming that reference. The relay holds no
-GitHub credential — the workflow files the issue with the token Actions already gives it — which
+back a reference. An hourly workflow is designed to open an issue naming only a validated
+reference, but currently fails closed on the list/read reference mismatch assigned to #310. The
+relay holds no GitHub credential—the workflow files issues with the token Actions gives it—which
 matters because the relay is the internet-facing box.
 
 Two access models, deliberately separate. A group key is proof of belonging to one room and
@@ -71,9 +72,11 @@ reads every group's reports, registers which rooms may exist, and asks the relay
 group key can do any of that. Registering the first room closes the relay to unregistered ones,
 and until one is registered it is open, which is what it has always been.
 
-Persistent state lives in a directory outside the tree the updater replaces: marks, the room
-registry, submitted problem reports, and updater status stamps. Live member state is not written
-there, but a reached waypoint records who reached it and a report body can carry coordinates.
+Persistent state lives outside the tree the updater replaces. The relay's writable directory
+holds marks, the room registry, submitted problem reports, and the transient update request;
+authenticated updater history and panel status live in separate root-owned directories. Live
+member state is not written there, but a reached waypoint records who reached it and a report
+body can carry coordinates.
 The relay cannot start a systemd unit and must not be able to — asking it to update writes a file
 that a `.path` unit watches, and the updater ships its own units inside the archive so a fix to
 them reaches the box.

@@ -1,155 +1,142 @@
-# Is the relay up, and is it running what main says it should be?
-#
-# Nothing watched it. A relay that stopped answering, or that quietly stayed three days behind
-# because an update failed and kept failing, was noticed when somebody's group panel went
-# strange mid-raid — which is the worst moment and the least informative one.
+# Is the relay up, and does it identify a known default-branch build?
+# Signed private-ring selection remains the relay updater's authority; this workflow has neither
+# its feed credential nor its separately provisioned Sigstore trust root.
 name: Relay watch
 
 on:
   schedule:
-    # Hourly. The relay checks for its own updates every thirty minutes, so an hour is long
-    # enough that a normal update window is never mistaken for a fault.
     - cron: '17 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
 
+# Scheduled and manual default-branch watches serialize. Pull requests run the same fixture in
+# relay-watch-fixture.yml, whose workflow has no issue-writing permission.
 concurrency:
-  group: relay-watch
+  group: relay-watch-live
   cancel-in-progress: false
 
 jobs:
-  watch:
+  fixture:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
-      - name: Ask the relay what it is
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Prove relay, report, and issue controls
+        run: bash deploy/group-server/monitoring/test-relay-watch.sh
+
+  watch:
+    # Scheduled workflows already use the default branch. This prevents a manual dispatch from
+    # a feature branch from filing live incidents with feature-branch code.
+    if: github.ref_name == github.event.repository.default_branch
+    needs: fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate relay liveness and build lineage
         id: health
         env:
           RELAY: ${{ vars.RELAY_HEALTH_URL }}
         run: |
           set -uo pipefail
+
+          fail_watch() {
+            echo "reason=$1" >> "$GITHUB_OUTPUT"
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
           if [ -z "${RELAY:-}" ]; then
-            # Said where somebody will see it rather than on stderr of a green run. This
-            # workflow has reported success hourly since it was written while watching nothing
-            # at all, and the desktop "Report a problem" button files through it — so player
-            # reports have been landing on the relay and becoming issues never.
-            #
-            # Still not a failure. An unset variable is a thing nobody has done yet, not a
-            # thing that broke, and a red cross every hour would be noise somebody learns to
-            # ignore. A warning annotation and a line in the summary is the loudest thing that
-            # is still true.
             echo "::warning title=Relay watch is not configured::Set the RELAY_HEALTH_URL repository variable to the relay's /health address. Until then this workflow checks nothing and files no reports."
             {
               echo '### Relay watch is not configured'
               echo
-              echo "No \`RELAY_HEALTH_URL\` repository variable is set, so this run checked nothing."
+              echo 'No RELAY_HEALTH_URL repository variable is set, so this run checked nothing.'
               echo
-              echo 'While it is unset the relay is unwatched **and** problem reports sent by the'
-              echo 'desktop "Report a problem" button are never turned into issues — they stay on'
-              echo 'the relay until somebody reads them by hand.'
+              echo 'While it is unset the relay is unwatched and problem reports remain on the'
+              echo 'relay until an operator inspects its protected state.'
             } >> "$GITHUB_STEP_SUMMARY"
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          body="$(curl -fsS --max-time 20 "$RELAY" 2>/dev/null || true)"
-          if [ -z "$body" ]; then
-            echo "reason=The relay did not answer $RELAY within 20 seconds." >> "$GITHUB_OUTPUT"
+          task_temp="$(mktemp -d "${RUNNER_TEMP}/relay-watch.XXXXXX")"
+          trap 'rm -rf -- "$task_temp"' EXIT
+          health_file="${task_temp}/health.json"
+
+          if ! curl -fsS --max-time 20 --max-filesize 16384 -- "$RELAY" > "$health_file" 2>/dev/null; then
+            fail_watch "The relay did not answer its bounded health request within 20 seconds."
+          fi
+
+          if ! bash deploy/group-server/monitoring/relay-watch.sh \
+              --health-file "$health_file" \
+              --repository-root "$GITHUB_WORKSPACE" \
+              --default-branch-commit "$(git rev-parse HEAD)" \
+              --github-output "$GITHUB_OUTPUT"; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "$body"
-          commit="$(printf '%s' "$body" | jq -r '.commit // empty')"
-          version="$(printf '%s' "$body" | jq -r '.version // "unknown"')"
-          if [ -z "$commit" ]; then
-            echo "reason=The relay answered but named no commit, so it is a build from before /health reported one." >> "$GITHUB_OUTPUT"
-            echo "failed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Behind is normal for up to an hour; the relay polls every thirty minutes. Days
-          # behind means an update is failing and being refused, over and over.
-          if ! git -C . cat-file -e "$commit" 2>/dev/null; then
-            echo "The relay names a commit this checkout does not have; treating as up to date." >&2
-            exit 0
-          fi
-
-          age="$(git log -1 --format=%ct "$commit")"
-          now="$(date +%s)"
-          hours=$(( (now - age) / 3600 ))
-          echo "Relay is on $version ($commit), built ${hours}h ago."
-          if [ "$hours" -gt 24 ]; then
-            echo "reason=The relay is running a build from ${hours}h ago ($version, $commit). Its updater runs every thirty minutes, so it is refusing something." >> "$GITHUB_OUTPUT"
-            echo "failed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Turn any new problem reports into issues
+      - name: Validate report references before filing issues
+        if: steps.health.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELAY: ${{ vars.RELAY_HEALTH_URL }}
           ADMIN_KEY: ${{ secrets.TARKOV_RELAY_ADMIN_KEY }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "${RELAY:-}" ] || [ -z "${ADMIN_KEY:-}" ]; then
-            echo "No relay URL or admin key configured; not looking for reports." >&2
+            echo "::warning title=Problem report pickup is not configured::The relay URL or admin key is absent, so this run did not list reports."
             exit 0
           fi
 
-          # The relay holds the bodies and this names them. The repository is public, so an
-          # issue that carried a player's machine details would publish them; an issue that
-          # names a reference publishes nothing and is just as findable.
+          printf '%s\n' \
+            "Report bodies can contain sensitive paths and coordinates; this workflow never downloads them or attaches them to public issues."
+
+          report_list="$(mktemp "${RUNNER_TEMP}/relay-reports.XXXXXX.json")"
+          trap 'rm -f -- "$report_list"' EXIT
           base="${RELAY%/health}"
-          list="$(curl -fsS --max-time 20 -H "X-Admin-Key: $ADMIN_KEY" "$base/reports" || echo '[]')"
-          echo "$list" | jq -r '.[] | "\(.reference) \(.bytes) \(.receivedUtc)"' | while read -r ref bytes received; do
-            [ -z "$ref" ] && continue
-            title="Problem report $ref"
-            if gh issue list --repo "${{ github.repository }}" --state all \
-                 --search "in:title \"$title\"" --json number --jq '.[0].number // empty' | grep -q .; then
-              continue
-            fi
+          if ! curl -fsS --max-time 20 --max-filesize 65536 \
+              -H "X-Admin-Key: $ADMIN_KEY" -- "$base/reports" > "$report_list" 2>/dev/null; then
+            echo "::error title=Problem report pickup failed::The bounded report listing could not be downloaded; no report issue was written."
+            exit 1
+          fi
+          if ! bash deploy/group-server/monitoring/file-relay-reports.sh \
+              --list-file "$report_list" --repository "${GITHUB_REPOSITORY}"; then
+            echo "::error title=Problem report pickup refused input::The complete listing failed validation; no report issue was written."
+            exit 1
+          fi
 
-            printf '%s\n' \
-              "A player sent a diagnostic report from the companion's Report a problem button." \
-              "" \
-              "- reference: \`$ref\`" \
-              "- size: $bytes bytes" \
-              "- received: $received" \
-              "" \
-              "The report itself is on the relay, not here: this repository is public and the report describes somebody's machine. Read it with the relay admin key:" \
-              "" \
-              "\`\`\`" \
-              "curl -H \"X-Admin-Key: \$TARKOV_RELAY_ADMIN_KEY\" $base/reports/$ref" \
-              "\`\`\`" \
-              "" \
-              "It excludes game logs, the group key and screenshot pixels, but can contain folder paths and screenshot coordinates. Do not paste it into this issue; see docs/OPERATIONS.md." \
-              > /tmp/report.md
-            gh issue create --repo "${{ github.repository }}" --title "$title" --body-file /tmp/report.md --label problem-report
-            echo "opened an issue for $ref"
-          done
-
-      - name: Open one issue, and only one
-        if: steps.health.outputs.failed == 'true'
+      - name: Open one health incident, and only one
+        if: always() && steps.health.outputs.failed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REASON: ${{ steps.health.outputs.reason }}
         run: |
           set -euo pipefail
           title="Relay watch: the group relay needs looking at"
-          existing="$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "in:title \"$title\"" --json number --jq '.[0].number // empty')"
-
-          # Commented on rather than duplicated. An hourly check that opens an issue an hour
-          # would bury the one useful report under twenty-three copies of itself.
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$REASON"
-            exit 0
-          fi
-
+          body_file="$(mktemp "${RUNNER_TEMP}/relay-incident.XXXXXX.md")"
+          trap 'rm -f -- "$body_file"' EXIT
           printf '%s\n\n%s\n' \
             "$REASON" \
-            "Checked hourly by relay-watch.yml. docs/OPERATIONS.md says what the relay is and where it keeps things. This issue is commented on rather than duplicated while it stays open." \
-            > /tmp/body.md
-          gh issue create --repo "${{ github.repository }}" --title "$title" --body-file /tmp/body.md
+            "Checked hourly by relay-watch.yml. docs/OPERATIONS.md describes the operator evidence. This issue is commented on rather than duplicated while it stays open." \
+            > "$body_file"
+          bash deploy/group-server/monitoring/open-relay-issue.sh \
+            --repository "${GITHUB_REPOSITORY}" \
+            --title "$title" \
+            --body-file "$body_file" \
+            --existing-state open

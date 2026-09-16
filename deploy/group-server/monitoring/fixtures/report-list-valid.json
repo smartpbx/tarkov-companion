@@ -1,0 +1,12 @@
+[
+  {
+    "reference": "abcdef123456",
+    "bytes": 2048,
+    "receivedUtc": "2026-09-15T12:00:00Z"
+  },
+  {
+    "reference": "123456abcdef",
+    "bytes": 65536,
+    "receivedUtc": "2026-09-15T12:00:00.1234567+00:00"
+  }
+]
