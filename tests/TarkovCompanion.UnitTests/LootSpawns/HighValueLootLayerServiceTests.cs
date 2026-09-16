@@ -55,7 +55,7 @@ public sealed class HighValueLootLayerServiceTests
         var spawn = Spawn(
             "customs-outside",
             [Candidate("gpu", "Graphics card", 900_000)],
-            new LootSpawnLocation(LootSpawnPrecision.ExactPoint, MapSceneGeometry.At(new(250, 20))));
+            new LootSpawnLocation(LootSpawnPrecision.ExactPoint, [new(250, 20)]));
 
         var result = Build(Snapshot([spawn]));
 
@@ -64,6 +64,39 @@ public sealed class HighValueLootLayerServiceTests
         var diagnostic = Assert.Single(result.Diagnostics, item => item.Kind == HighValueLootDiagnosticKind.InvalidGeometry);
         Assert.Equal(spawn.SpawnId, diagnostic.SpawnId);
         Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
+    public void Floor_absent_from_the_selected_transform_is_quarantined_before_scene_composition()
+    {
+        var location = new LootSpawnLocation(
+            LootSpawnPrecision.ExactPoint,
+            [new(20, 30)],
+            ["basement"]);
+        var spawn = Spawn("customs-wrong-floor", [Candidate("gpu", "Graphics card", 900_000)], location);
+
+        var result = Build(Snapshot([spawn]), floorIds: ["ground"]);
+
+        Assert.Empty(result.Objects);
+        Assert.Empty(result.Entries);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal(HighValueLootDiagnosticKind.InvalidFloor, diagnostic.Kind);
+        Assert.Equal("spawn.floor-not-in-map-transform", diagnostic.Code);
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
+    public void Declared_floor_survives_projection_for_shared_scene_validation()
+    {
+        var location = new LootSpawnLocation(
+            LootSpawnPrecision.ExactPoint,
+            [new(20, 30)],
+            ["basement"]);
+        var spawn = Spawn("customs-valid-floor", [Candidate("gpu", "Graphics card", 900_000)], location);
+
+        var result = Build(Snapshot([spawn]), floorIds: ["ground", "basement"]);
+
+        Assert.Equal(["basement"], Assert.Single(result.Objects).FloorIds);
     }
 
     [Fact]
@@ -155,6 +188,55 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Partially_valued_pool_never_presents_a_subset_maximum_as_the_pool_ceiling()
+    {
+        var unknown = new LootSpawnCandidate(
+            "mystery",
+            "Mystery item",
+            "electronics",
+            Unknown<long?>("mystery-gross"),
+            Unknown<long?>("mystery-net"),
+            Unknown<long?>("mystery-trader"),
+            Complete<int?>("mystery-squares", 1));
+        var spawn = Spawn(
+            "customs-partial-values",
+            [Candidate("gpu", "Graphics card", 900_000), unknown]);
+
+        var result = Build(Snapshot([spawn]));
+
+        var entry = Assert.Single(result.Entries);
+        Assert.Equal(2, entry.MatchedCandidateCount);
+        Assert.Equal(1, entry.ValuedCandidateCount);
+        Assert.False(entry.IsValueRangeComplete);
+        Assert.Equal(900_000, entry.MaximumValue);
+        Assert.Contains("known current values up to", entry.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Potential up to", entry.Summary, StringComparison.Ordinal);
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
+    public void Unknown_candidate_prevents_a_partially_valued_pool_from_being_declared_below_threshold()
+    {
+        var unknown = new LootSpawnCandidate(
+            "mystery",
+            "Mystery item",
+            "electronics",
+            Unknown<long?>("mystery-gross"),
+            Unknown<long?>("mystery-net"),
+            Unknown<long?>("mystery-trader"),
+            Complete<int?>("mystery-squares", 1));
+        var spawn = Spawn(
+            "customs-indeterminate-values",
+            [Candidate("wire", "Wire", 10_000), unknown]);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Empty(result.Entries);
+        Assert.Contains(result.Diagnostics, item => item.Code == "spawn.value-incomplete");
+        Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
     public void Reliable_duplicate_need_is_not_hidden_by_an_older_duplicate()
     {
         var stale = new LootSpawnProfileNeed(
@@ -178,6 +260,43 @@ public sealed class HighValueLootLayerServiceTests
         var entry = Assert.Single(result.Entries);
         Assert.Equal("Current quest context.", Assert.Single(entry.ProfileNeeds).Explanation);
         Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
+        Assert.Equal(["quest.shared"], entry.ProfileNeedConflictCodes);
+        Assert.Contains(result.Diagnostics, item => item.Kind == HighValueLootDiagnosticKind.ConflictingEvidence);
+    }
+
+    [Fact]
+    public void Conflicting_profile_claim_resolution_is_reviewable_and_permutation_invariant()
+    {
+        var older = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Older interpretation.",
+            CompleteStatus,
+            Provenance("need-old", Now.AddMinutes(-20)));
+        var newer = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.CurrentQuest,
+            "quest.shared",
+            "Newer interpretation.",
+            CompleteStatus,
+            Provenance("need-new", Now.AddMinutes(-5)));
+        var firstCandidate = Candidate("a", "A", 900_000, [older]);
+        var secondCandidate = Candidate("b", "B", 900_000, [newer]);
+
+        var first = Build(Snapshot([Spawn("customs-conflict", [firstCandidate, secondCandidate])]));
+        var permuted = Build(Snapshot([Spawn("customs-conflict", [secondCandidate, firstCandidate])]));
+
+        var firstEntry = Assert.Single(first.Entries);
+        var permutedEntry = Assert.Single(permuted.Entries);
+        Assert.Equal("Newer interpretation.", Assert.Single(firstEntry.ProfileNeeds).Explanation);
+        Assert.Equal(
+            firstEntry.ProfileNeeds.Select(need => (need.Code, need.Explanation)),
+            permutedEntry.ProfileNeeds.Select(need => (need.Code, need.Explanation)));
+        Assert.Equal(firstEntry.ProfileNeedConflictCodes.ToArray(), permutedEntry.ProfileNeedConflictCodes.ToArray());
+        Assert.Equal(firstEntry.MissingFacts.ToArray(), permutedEntry.MissingFacts.ToArray());
+        Assert.Equal(
+            first.Diagnostics.Select(item => (item.Kind, item.Code, item.SpawnId)),
+            permuted.Diagnostics.Select(item => (item.Kind, item.Code, item.SpawnId)));
+        Assert.Equal(ResultCompleteness.Partial, first.Status.Completeness);
     }
 
     [Fact]
@@ -215,6 +334,49 @@ public sealed class HighValueLootLayerServiceTests
 
         Assert.Single(result.Entries);
         Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
+    }
+
+    [Fact]
+    public void Unknown_record_freshness_is_not_promoted_to_current_by_a_current_snapshot()
+    {
+        var unknownFreshness = new ResultStatus(ResultCompleteness.Complete, FreshnessState.Unknown);
+        var spawn = Spawn(
+            "customs-unknown-freshness",
+            [Candidate("gpu", "Graphics card", 900_000)],
+            status: unknownFreshness);
+
+        var result = Build(Snapshot([spawn]));
+
+        Assert.Equal(FreshnessState.Unknown, result.Status.Freshness);
+        Assert.Contains("Freshness unknown", result.CompactLegend, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Ambiguous_probability_and_respawn_are_reported_as_missing_facts()
+    {
+        var provenance = Provenance("ambiguous-spawn-facts");
+        var probability = new EvidencedValue<double?>(
+            "probability",
+            0.5,
+            CompleteStatus,
+            provenance,
+            candidates: [new EvidenceCandidate<double?>("other-probability", "Other probability", 0.2, provenance)]);
+        var respawn = new EvidencedValue<string?>(
+            "respawn",
+            "Once",
+            CompleteStatus,
+            provenance,
+            candidates: [new EvidenceCandidate<string?>("other-respawn", "Other behavior", "Unknown", provenance)]);
+        var spawn = Spawn(
+            "customs-ambiguous-facts",
+            [Candidate("gpu", "Graphics card", 900_000)],
+            spawnProbability: probability,
+            respawnBehavior: respawn);
+
+        var entry = Assert.Single(Build(Snapshot([spawn])).Entries);
+
+        Assert.Contains(entry.MissingFacts, fact => fact.StartsWith("Spawn probability", StringComparison.Ordinal));
+        Assert.Contains(entry.MissingFacts, fact => fact.StartsWith("Respawn behavior", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -271,6 +433,52 @@ public sealed class HighValueLootLayerServiceTests
     }
 
     [Fact]
+    public void Value_tier_boundaries_never_label_an_included_value_below_threshold()
+    {
+        var thresholds = new LootSpawnValueThresholds(50, 75, 150, 500);
+
+        Assert.Equal(LootSpawnValueTier.BelowThreshold, thresholds.Classify(49));
+        Assert.Equal(LootSpawnValueTier.Qualifying, thresholds.Classify(50));
+        Assert.Equal(LootSpawnValueTier.Qualifying, thresholds.Classify(74));
+        Assert.Equal(LootSpawnValueTier.Moderate, thresholds.Classify(75));
+        Assert.Equal(LootSpawnValueTier.High, thresholds.Classify(150));
+        Assert.Equal(LootSpawnValueTier.Exceptional, thresholds.Classify(500));
+    }
+
+    [Fact]
+    public void Projection_order_is_stable_across_record_permutations()
+    {
+        var alpha = Spawn("alpha", [Candidate("alpha-item", "Alpha", 900_000)]);
+        var middle = Spawn("middle", [Candidate("middle-item", "Middle", 900_000)]);
+        var zulu = Spawn("zulu", [Candidate("zulu-item", "Zulu", 900_000)]);
+
+        var first = Build(Snapshot([zulu, alpha, middle]));
+        var permuted = Build(Snapshot([middle, zulu, alpha]));
+
+        Assert.Equal(["alpha", "middle", "zulu"], first.Entries.Select(entry => entry.Spawn.SpawnId));
+        Assert.Equal(
+            first.Entries.Select(entry => entry.Spawn.SpawnId),
+            permuted.Entries.Select(entry => entry.Spawn.SpawnId));
+        Assert.Equal(first.Objects.Select(item => item.Id), permuted.Objects.Select(item => item.Id));
+    }
+
+    [Fact]
+    public void Diagnostic_order_is_stable_across_record_permutations()
+    {
+        static LootSpawnLocation Outside(double y) => new(
+            LootSpawnPrecision.ExactPoint,
+            [new(250, y)]);
+
+        var alpha = Spawn("alpha", [Candidate("alpha-item", "Alpha", 900_000)], Outside(10));
+        var middle = Spawn("middle", [Candidate("middle-item", "Middle", 900_000)], Outside(20));
+        var zulu = Spawn("zulu", [Candidate("zulu-item", "Zulu", 900_000)], Outside(30));
+
+        var result = Build(Snapshot([zulu, alpha, middle]));
+
+        Assert.Equal(["alpha", "middle", "zulu"], result.Diagnostics.Select(item => item.SpawnId));
+    }
+
+    [Fact]
     public void Layer_result_rejects_an_object_without_its_accessible_entry()
     {
         var valid = Build(Snapshot([Spawn("customs-linked", [Candidate("gpu", "Graphics card", 900_000)])]));
@@ -291,7 +499,7 @@ public sealed class HighValueLootLayerServiceTests
     {
         Assert.Throws<ArgumentException>(() => new LootSpawnLocation(
             LootSpawnPrecision.MapOnly,
-            MapSceneGeometry.At(new(20, 20))));
+            [new(20, 20)]));
 
         Assert.Throws<ArgumentException>(() => new LootSpawnRecord(
             "bad-pool",
@@ -343,15 +551,147 @@ public sealed class HighValueLootLayerServiceTests
         Assert.Contains("measured", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Geometry_complexity_is_rejected_at_the_loot_contract_boundary()
+    {
+        var pointCount = LootSpawnLocation.MaximumGeometryPoints + 1;
+        var points = Enumerable.Range(0, pointCount)
+            .Select(index =>
+            {
+                var angle = index * Math.Tau / pointCount;
+                return new MapScenePoint(50 + (Math.Cos(angle) * 10), 50 + (Math.Sin(angle) * 10));
+            })
+            .ToArray();
+        Assert.Throws<ArgumentException>(() => new LootSpawnLocation(
+            LootSpawnPrecision.BoundedArea,
+            points));
+    }
+
+    [Fact]
+    public void Misreported_geometry_collection_is_stopped_before_scene_geometry_allocation()
+    {
+        var hostile = new MisreportedReadOnlyList<MapScenePoint>(
+            new MapScenePoint(10, 10),
+            actualCount: 100_000,
+            reportedCount: 0);
+
+        Assert.Throws<ArgumentException>(() => new LootSpawnLocation(
+            LootSpawnPrecision.BoundedArea,
+            hostile));
+        Assert.Equal(LootSpawnLocation.MaximumGeometryPoints + 1, hostile.EnumeratedCount);
+    }
+
+    [Fact]
+    public void Misreported_profile_need_collection_is_stopped_at_the_hard_bound()
+    {
+        var need = new LootSpawnProfileNeed(
+            LootSpawnProfileNeedKind.FutureQuest,
+            "future",
+            "Future quest requirement.",
+            CompleteStatus,
+            Provenance("future"));
+        var hostile = new MisreportedReadOnlyList<LootSpawnProfileNeed>(
+            need,
+            actualCount: 10_000,
+            reportedCount: 0);
+
+        Assert.Throws<ArgumentException>(() => new LootSpawnCandidate(
+            "hostile",
+            "Hostile",
+            "test",
+            Complete<long?>("gross", 100_000),
+            Complete<long?>("net", 100_000),
+            Complete<long?>("trader", 50_000),
+            Complete<int?>("squares", 1),
+            hostile));
+        Assert.Equal(LootSpawnCandidate.MaximumProfileNeeds + 1, hostile.EnumeratedCount);
+    }
+
+    [Fact]
+    public void Snapshot_rejects_aggregate_candidate_budget_even_when_each_record_is_valid()
+    {
+        var candidates = Enumerable.Range(0, LootSpawnRecord.MaximumCandidates)
+            .Select(index => Candidate($"item-{index}", $"Item {index}", 100_000))
+            .ToArray();
+        var recordCount = (LootSpawnSnapshot.MaximumTotalCandidates / candidates.Length) + 1;
+        var records = Enumerable.Range(0, recordCount)
+            .Select(index => Spawn($"spawn-{index:D4}", candidates))
+            .ToArray();
+
+        var exception = Assert.Throws<ArgumentException>(() => Snapshot(records));
+
+        Assert.Contains("aggregate", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Snapshot_rejects_aggregate_profile_need_budget()
+    {
+        var needs = Enumerable.Range(0, LootSpawnCandidate.MaximumProfileNeeds)
+            .Select(index => new LootSpawnProfileNeed(
+                LootSpawnProfileNeedKind.FutureQuest,
+                $"need-{index}",
+                "Future quest requirement.",
+                CompleteStatus,
+                Provenance($"need-{index}")))
+            .ToArray();
+        var candidate = Candidate("reused", "Reused", 100_000, needs);
+        var recordCount = (LootSpawnSnapshot.MaximumTotalProfileNeeds / needs.Length) + 1;
+        var records = Enumerable.Range(0, recordCount)
+            .Select(index => Spawn($"spawn-{index:D4}", [candidate]))
+            .ToArray();
+
+        var exception = Assert.Throws<ArgumentException>(() => Snapshot(records));
+
+        Assert.Contains("aggregate", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Snapshot_rejects_aggregate_geometry_budget()
+    {
+        var pointCount = LootSpawnLocation.MaximumGeometryPoints;
+        var points = Enumerable.Range(0, pointCount)
+            .Select(index =>
+            {
+                var angle = index * Math.Tau / pointCount;
+                return new MapScenePoint(50 + (Math.Cos(angle) * 10), 50 + (Math.Sin(angle) * 10));
+            })
+            .ToArray();
+        var location = new LootSpawnLocation(
+            LootSpawnPrecision.BoundedArea,
+            points);
+        var recordCount = (LootSpawnSnapshot.MaximumTotalGeometryPoints / pointCount) + 1;
+        var records = Enumerable.Range(0, recordCount)
+            .Select(index => Spawn($"spawn-{index:D4}", [Candidate($"item-{index}", $"Item {index}", 100_000)], location))
+            .ToArray();
+
+        var exception = Assert.Throws<ArgumentException>(() => Snapshot(records));
+
+        Assert.Contains("aggregate", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Cancelled_projection_returns_no_partial_result()
+    {
+        var snapshot = Snapshot([Spawn("cancelled", [Candidate("gpu", "Graphics card", 900_000)])]);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => Build(snapshot, cancellationToken: cancellation.Token));
+    }
+
     private static HighValueLootLayerResult Build(
         LootSpawnSnapshot snapshot,
-        HighValueLootFilter? filter = null) => new HighValueLootLayerService().Build(new(
-        "customs",
-        "transform-1",
-        new MapSceneBounds(0, 0, 100, 100),
-        Now,
-        filter ?? Filter(),
-        snapshot));
+        HighValueLootFilter? filter = null,
+        IReadOnlyList<string>? floorIds = null,
+        CancellationToken cancellationToken = default) => new HighValueLootLayerService().Build(new(
+            "customs",
+            "transform-1",
+            new MapSceneBounds(0, 0, 100, 100),
+            Now,
+            filter ?? Filter(),
+            snapshot,
+            floorIds),
+        cancellationToken);
 
     private static LootSpawnSnapshot Snapshot(
         IReadOnlyList<LootSpawnRecord> records,
@@ -377,15 +717,17 @@ public sealed class HighValueLootLayerServiceTests
         IReadOnlyList<LootSpawnCandidate> candidates,
         LootSpawnLocation? location = null,
         string datasetVersion = "dataset-1",
-        ResultStatus? status = null) => new(
+        ResultStatus? status = null,
+        EvidencedValue<double?>? spawnProbability = null,
+        EvidencedValue<string?>? respawnBehavior = null) => new(
         id,
         "customs",
         $"Spawn {id}",
         location ?? Point(),
         candidates.Count == 1 ? LootSpawnPoolKind.SingleKnownItem : LootSpawnPoolKind.UnweightedCandidates,
         candidates,
-        Unknown<double?>("probability"),
-        Unknown<string?>("respawn"),
+        spawnProbability ?? Unknown<double?>("probability"),
+        respawnBehavior ?? Unknown<string?>("respawn"),
         datasetVersion,
         "transform-1",
         status ?? CompleteStatus,
@@ -393,7 +735,7 @@ public sealed class HighValueLootLayerServiceTests
 
     private static LootSpawnLocation Point() => new(
         LootSpawnPrecision.ExactPoint,
-        MapSceneGeometry.At(new(20, 30)));
+        [new(20, 30)]);
 
     private static LootSpawnCandidate Candidate(
         string id,
@@ -444,4 +786,26 @@ public sealed class HighValueLootLayerServiceTests
     private static ResultStatus CompleteStatus { get; } = new(
         ResultCompleteness.Complete,
         FreshnessState.Current);
+
+    private sealed class MisreportedReadOnlyList<T>(T value, int actualCount, int reportedCount) : IReadOnlyList<T>
+    {
+        public int EnumeratedCount { get; private set; }
+
+        public int Count { get; } = reportedCount;
+
+        public T this[int index] => index >= 0 && index < actualCount
+            ? value
+            : throw new ArgumentOutOfRangeException(nameof(index));
+
+        public IEnumerator<T> GetEnumerator()
+        {
+            for (var index = 0; index < actualCount; index++)
+            {
+                EnumeratedCount++;
+                yield return value;
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }

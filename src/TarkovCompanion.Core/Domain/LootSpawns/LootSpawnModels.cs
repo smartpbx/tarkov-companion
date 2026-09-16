@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json.Serialization;
 using TarkovCompanion.Core.Domain.Evidence;
 using TarkovCompanion.Core.Domain.Maps.Scene;
 
@@ -33,6 +34,7 @@ public enum LootSpawnValueTier
     Unknown = 0,
     BelowThreshold,
     ProfileRelevant,
+    Qualifying,
     Moderate,
     High,
     Exceptional,
@@ -100,6 +102,8 @@ public sealed record LootSpawnCandidate
 {
     public const int MaximumProfileNeeds = 32;
 
+    public const int MaximumEvidenceAlternatives = 64;
+
     public LootSpawnCandidate(
         string itemId,
         string displayName,
@@ -117,18 +121,22 @@ public sealed record LootSpawnCandidate
         FleaNetRoubles = fleaNetRoubles ?? throw new ArgumentNullException(nameof(fleaNetRoubles));
         BestTraderRoubles = bestTraderRoubles ?? throw new ArgumentNullException(nameof(bestTraderRoubles));
         OccupiedSquares = occupiedSquares ?? throw new ArgumentNullException(nameof(occupiedSquares));
+        ValidateEvidenceBounds(fleaGrossRoubles, nameof(fleaGrossRoubles));
+        ValidateEvidenceBounds(fleaNetRoubles, nameof(fleaNetRoubles));
+        ValidateEvidenceBounds(bestTraderRoubles, nameof(bestTraderRoubles));
+        ValidateEvidenceBounds(occupiedSquares, nameof(occupiedSquares));
         ValidateNonNegative(fleaGrossRoubles, nameof(fleaGrossRoubles));
         ValidateNonNegative(fleaNetRoubles, nameof(fleaNetRoubles));
         ValidateNonNegative(bestTraderRoubles, nameof(bestTraderRoubles));
         ValidatePositive(occupiedSquares, nameof(occupiedSquares));
 
-        var needs = (profileNeeds ?? [])
+        var needs = BoundedCopy(profileNeeds ?? [], MaximumProfileNeeds, nameof(profileNeeds))
             .Select(need => need ?? throw new ArgumentException("Profile needs cannot contain null.", nameof(profileNeeds)))
+            .OrderBy(need => need.Code, StringComparer.Ordinal)
+            .ThenBy(need => need.Kind)
+            .ThenByDescending(need => need.Provenance.EvidenceThroughUtc)
+            .ThenBy(need => need.Explanation, StringComparer.Ordinal)
             .ToArray();
-        if (needs.Length > MaximumProfileNeeds)
-        {
-            throw new ArgumentException($"An item cannot carry more than {MaximumProfileNeeds} profile needs.", nameof(profileNeeds));
-        }
 
         if (needs.Select(need => need.Code).Distinct(StringComparer.Ordinal).Count() != needs.Length)
         {
@@ -177,6 +185,39 @@ public sealed record LootSpawnCandidate
             throw new ArgumentOutOfRangeException(parameterName, "Occupied squares must be positive when known.");
         }
     }
+
+    private static void ValidateEvidenceBounds<T>(EvidencedValue<T> field, string parameterName)
+    {
+        if (field.Candidates.Count > MaximumEvidenceAlternatives ||
+            field.Corrections.Count > MaximumEvidenceAlternatives)
+        {
+            throw new ArgumentException(
+                $"An evidenced loot field cannot carry more than {MaximumEvidenceAlternatives} candidates or corrections.",
+                parameterName);
+        }
+    }
+
+    internal static IReadOnlyList<T> BoundedCopy<T>(
+        IReadOnlyList<T> values,
+        int maximum,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        if (values.Count > maximum)
+        {
+            throw new ArgumentException($"A collection cannot contain more than {maximum} entries.", parameterName);
+        }
+
+        // Count is only an early rejection. A custom IReadOnlyList can lie about Count, so enumeration
+        // is independently stopped at maximum + 1 instead of trusting or fully materializing it.
+        var copied = values.Take(maximum + 1).ToArray();
+        if (copied.Length > maximum)
+        {
+            throw new ArgumentException($"A collection cannot contain more than {maximum} entries.", parameterName);
+        }
+
+        return copied;
+    }
 }
 
 /// <summary>A source-honest location. Map-only knowledge deliberately has no geometry.</summary>
@@ -184,9 +225,11 @@ public sealed record LootSpawnLocation
 {
     public const int MaximumFloors = 32;
 
+    public const int MaximumGeometryPoints = 1024;
+
     public LootSpawnLocation(
         LootSpawnPrecision precision,
-        MapSceneGeometry? geometry,
+        IReadOnlyList<MapScenePoint>? geometryPoints,
         IReadOnlyList<string>? floorIds = null)
     {
         Precision = LootSpawnProfileNeed.Defined(precision, nameof(precision));
@@ -198,28 +241,38 @@ public sealed record LootSpawnLocation
             LootSpawnPrecision.MapOnly => (MapSceneGeometryKind?)null,
             _ => throw new ArgumentOutOfRangeException(nameof(precision)),
         };
-        var expectsNoGeometry = expectedGeometry is null;
-        if (expectsNoGeometry != (geometry is null) ||
-            expectedGeometry is { } expected && geometry?.Kind != expected)
+        if ((expectedGeometry is null) != (geometryPoints is null))
         {
-            throw new ArgumentException("Location precision and geometry must agree without inventing a point.", nameof(geometry));
+            throw new ArgumentException("Location precision and geometry must agree without inventing a point.", nameof(geometryPoints));
         }
 
-        var floors = (floorIds ?? [])
+        var copiedPoints = expectedGeometry is not null
+            ? LootSpawnCandidate.BoundedCopy(
+                geometryPoints!,
+                MaximumGeometryPoints,
+                nameof(geometryPoints))
+            : null;
+        var geometry = expectedGeometry is { } kind
+            ? new MapSceneGeometry(kind, copiedPoints!)
+            : null;
+
+        var floors = LootSpawnCandidate.BoundedCopy(floorIds ?? [], MaximumFloors, nameof(floorIds))
             .Select(floor => LootSpawnProfileNeed.Required(floor, nameof(floorIds), 96))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ThenBy(floor => floor, StringComparer.Ordinal)
             .ToArray();
-        if (floors.Length > MaximumFloors)
-        {
-            throw new ArgumentException($"A spawn cannot name more than {MaximumFloors} floors.", nameof(floorIds));
-        }
 
         Geometry = geometry;
+        GeometryPoints = copiedPoints is null ? null : Array.AsReadOnly(copiedPoints.ToArray());
         FloorIds = Array.AsReadOnly(floors);
     }
 
     public LootSpawnPrecision Precision { get; }
 
+    public IReadOnlyList<MapScenePoint>? GeometryPoints { get; }
+
+    [JsonIgnore]
     public MapSceneGeometry? Geometry { get; }
 
     /// <summary>An empty list means the source did not resolve a floor.</summary>
@@ -260,8 +313,12 @@ public sealed record LootSpawnRecord
             ? null
             : LootSpawnProfileNeed.Required(accessNote, nameof(accessNote), 1024);
 
-        var copied = (candidates ?? throw new ArgumentNullException(nameof(candidates)))
+        var copied = LootSpawnCandidate.BoundedCopy(
+                candidates ?? throw new ArgumentNullException(nameof(candidates)),
+                MaximumCandidates,
+                nameof(candidates))
             .Select(candidate => candidate ?? throw new ArgumentException("Candidate pools cannot contain null.", nameof(candidates)))
+            .OrderBy(candidate => candidate.ItemId, StringComparer.Ordinal)
             .ToArray();
         if (copied.Length is < 1 or > MaximumCandidates)
         {
@@ -278,6 +335,8 @@ public sealed record LootSpawnRecord
             throw new ArgumentException("A single-known-item pool has exactly one candidate; larger pools must be unweighted.", nameof(candidates));
         }
 
+        ValidateEvidenceBounds(spawnProbability, nameof(spawnProbability));
+        ValidateEvidenceBounds(respawnBehavior, nameof(respawnBehavior));
         ValidateProbability(spawnProbability);
         Candidates = Array.AsReadOnly(copied);
     }
@@ -319,6 +378,18 @@ public sealed record LootSpawnRecord
             throw new ArgumentOutOfRangeException(nameof(field), "Spawn probability must be between zero and one when known.");
         }
     }
+
+    private static void ValidateEvidenceBounds<T>(EvidencedValue<T> field, string parameterName)
+    {
+        if (field.Candidates.Count > LootSpawnCandidate.MaximumEvidenceAlternatives ||
+            field.Corrections.Count > LootSpawnCandidate.MaximumEvidenceAlternatives)
+        {
+            throw new ArgumentException(
+                "An evidenced loot field cannot carry more than " +
+                $"{LootSpawnCandidate.MaximumEvidenceAlternatives} candidates or corrections.",
+                parameterName);
+        }
+    }
 }
 
 public sealed record LootSpawnCoverage
@@ -350,6 +421,12 @@ public sealed record LootSpawnSnapshot
 {
     public const int MaximumRecords = 4096;
 
+    public const int MaximumTotalCandidates = 4096;
+
+    public const int MaximumTotalProfileNeeds = 16384;
+
+    public const int MaximumTotalGeometryPoints = 32768;
+
     public LootSpawnSnapshot(
         string snapshotId,
         string datasetVersion,
@@ -375,13 +452,13 @@ public sealed record LootSpawnSnapshot
         Coverage = coverage ?? throw new ArgumentNullException(nameof(coverage));
         Provenance = provenance ?? throw new ArgumentNullException(nameof(provenance));
 
-        var copied = (records ?? throw new ArgumentNullException(nameof(records)))
+        var copied = LootSpawnCandidate.BoundedCopy(
+                records ?? throw new ArgumentNullException(nameof(records)),
+                MaximumRecords,
+                nameof(records))
             .Select(record => record ?? throw new ArgumentException("Snapshots cannot contain null records.", nameof(records)))
+            .OrderBy(record => record.SpawnId, StringComparer.Ordinal)
             .ToArray();
-        if (copied.Length > MaximumRecords)
-        {
-            throw new ArgumentException($"A map snapshot cannot contain more than {MaximumRecords} records.", nameof(records));
-        }
 
         if (copied.Select(record => record.SpawnId).Distinct(StringComparer.Ordinal).Count() != copied.Length)
         {
@@ -393,6 +470,19 @@ public sealed record LootSpawnSnapshot
                                  !string.Equals(record.TransformVersion, TransformVersion, StringComparison.Ordinal)))
         {
             throw new ArgumentException("Every record must match its snapshot map, dataset, and transform.", nameof(records));
+        }
+
+        var totalCandidates = copied.Sum(record => (long)record.Candidates.Count);
+        var totalProfileNeeds = copied.Sum(record =>
+            record.Candidates.Sum(candidate => (long)candidate.ProfileNeeds.Count));
+        var totalGeometryPoints = copied.Sum(record => (long)(record.Location.Geometry?.Points.Count ?? 0));
+        if (totalCandidates > MaximumTotalCandidates ||
+            totalProfileNeeds > MaximumTotalProfileNeeds ||
+            totalGeometryPoints > MaximumTotalGeometryPoints)
+        {
+            throw new ArgumentException(
+                "The loot-spawn snapshot exceeds its aggregate candidate, profile-need, or geometry budget.",
+                nameof(records));
         }
 
         if (coverage.Published != copied.Length)
@@ -462,6 +552,7 @@ public sealed record LootSpawnValueThresholds
         var amount when amount >= Exceptional => LootSpawnValueTier.Exceptional,
         var amount when amount >= High => LootSpawnValueTier.High,
         var amount when amount >= Moderate => LootSpawnValueTier.Moderate,
+        var amount when amount >= Minimum => LootSpawnValueTier.Qualifying,
         _ => LootSpawnValueTier.BelowThreshold,
     };
 
@@ -538,14 +629,15 @@ public sealed record HighValueLootFilter
 
     private static ReadOnlyCollection<string> CopyFilter(IReadOnlyList<string>? values, string parameterName)
     {
-        var copied = (values ?? [])
+        var copied = LootSpawnCandidate.BoundedCopy(
+                values ?? [],
+                MaximumFilterValues,
+                parameterName)
             .Select(value => LootSpawnProfileNeed.Required(value, parameterName, 256))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ThenBy(value => value, StringComparer.Ordinal)
             .ToArray();
-        if (copied.Length > MaximumFilterValues)
-        {
-            throw new ArgumentException($"A filter cannot contain more than {MaximumFilterValues} values.", parameterName);
-        }
 
         return Array.AsReadOnly(copied);
     }

@@ -15,6 +15,8 @@ public enum HighValueLootDiagnosticKind
     SnapshotMismatch,
     RecordUnavailable,
     InvalidGeometry,
+    InvalidFloor,
+    ConflictingEvidence,
     SourceTooOld,
     ConfidenceBelowFilter,
     FloorUnknown,
@@ -51,18 +53,23 @@ public sealed record HighValueLootDiagnostic
         HighValueLootDiagnosticKind.SnapshotMismatch or
         HighValueLootDiagnosticKind.RecordUnavailable or
         HighValueLootDiagnosticKind.InvalidGeometry or
+        HighValueLootDiagnosticKind.InvalidFloor or
+        HighValueLootDiagnosticKind.ConflictingEvidence or
         HighValueLootDiagnosticKind.ValueUnavailable;
 }
 
 public sealed record HighValueLootLayerRequest
 {
+    public const int MaximumDeclaredFloors = 64;
+
     public HighValueLootLayerRequest(
         string mapId,
         string transformVersion,
         MapSceneBounds mapBounds,
         DateTimeOffset evaluatedUtc,
         HighValueLootFilter filter,
-        LootSpawnSnapshot? snapshot)
+        LootSpawnSnapshot? snapshot,
+        IReadOnlyList<string>? floorIds = null)
     {
         MapId = HighValueLootGuard.Required(mapId, nameof(mapId), 128);
         TransformVersion = HighValueLootGuard.Required(transformVersion, nameof(transformVersion), 128);
@@ -75,6 +82,11 @@ public sealed record HighValueLootLayerRequest
         EvaluatedUtc = evaluatedUtc;
         Filter = filter ?? throw new ArgumentNullException(nameof(filter));
         Snapshot = snapshot;
+        FloorIds = HighValueLootGuard.CopyStrings(
+            floorIds ?? [],
+            MaximumDeclaredFloors,
+            nameof(floorIds),
+            96);
     }
 
     public string MapId { get; }
@@ -88,6 +100,9 @@ public sealed record HighValueLootLayerRequest
     public HighValueLootFilter Filter { get; }
 
     public LootSpawnSnapshot? Snapshot { get; }
+
+    /// <summary>The exact floor identities published by the selected, validated map transform.</summary>
+    public IReadOnlyList<string> FloorIds { get; }
 }
 
 /// <summary>A list/table row backed by the same projection as the scene object.</summary>
@@ -102,11 +117,14 @@ public sealed record HighValueLootEntry
         long? maximumValue,
         long? minimumValuePerSquare,
         long? maximumValuePerSquare,
+        int matchedCandidateCount,
         int valuedCandidateCount,
         int highValueCandidateCount,
+        bool isValueRangeComplete,
         string valueBasis,
         string summary,
         IReadOnlyList<LootSpawnProfileNeed> profileNeeds,
+        IReadOnlyList<string> profileNeedConflictCodes,
         IReadOnlyList<string> missingFacts,
         MapSceneObjectId? sceneObjectId)
     {
@@ -114,7 +132,8 @@ public sealed record HighValueLootEntry
         Tier = HighValueLootGuard.Defined(tier, nameof(tier));
         if (minimumValue < 0 || maximumValue < 0 || minimumValuePerSquare < 0 || maximumValuePerSquare < 0 ||
             minimumValue > maximumValue || minimumValuePerSquare > maximumValuePerSquare ||
-            valuedCandidateCount < 0 || valuedCandidateCount > spawn.Candidates.Count ||
+            matchedCandidateCount < 1 || matchedCandidateCount > spawn.Candidates.Count ||
+            valuedCandidateCount < 0 || valuedCandidateCount > matchedCandidateCount ||
             highValueCandidateCount < 0 || highValueCandidateCount > valuedCandidateCount)
         {
             throw new ArgumentOutOfRangeException(nameof(minimumValue), "Projected value ranges or counts are invalid.");
@@ -124,11 +143,14 @@ public sealed record HighValueLootEntry
         MaximumValue = maximumValue;
         MinimumValuePerSquare = minimumValuePerSquare;
         MaximumValuePerSquare = maximumValuePerSquare;
+        MatchedCandidateCount = matchedCandidateCount;
         ValuedCandidateCount = valuedCandidateCount;
         HighValueCandidateCount = highValueCandidateCount;
+        IsValueRangeComplete = isValueRangeComplete;
         ValueBasis = HighValueLootGuard.Required(valueBasis, nameof(valueBasis), 64);
         Summary = HighValueLootGuard.Required(summary, nameof(summary), 1024);
         ProfileNeeds = Copy(profileNeeds, MaximumProjectedProfileNeeds, nameof(profileNeeds));
+        ProfileNeedConflictCodes = CopyStrings(profileNeedConflictCodes, nameof(profileNeedConflictCodes));
         MissingFacts = CopyStrings(missingFacts, nameof(missingFacts));
         SceneObjectId = sceneObjectId;
     }
@@ -139,16 +161,24 @@ public sealed record HighValueLootEntry
 
     public long? MinimumValue { get; }
 
-    /// <summary>A ceiling for an unweighted pool, never an expected or likely value.</summary>
+    /// <summary>
+    /// A ceiling only when <see cref="IsValueRangeComplete"/> is true; otherwise the maximum of the
+    /// explicitly valued subset. It is never an expected or likely value.
+    /// </summary>
     public long? MaximumValue { get; }
 
     public long? MinimumValuePerSquare { get; }
 
     public long? MaximumValuePerSquare { get; }
 
+    public int MatchedCandidateCount { get; }
+
     public int ValuedCandidateCount { get; }
 
     public int HighValueCandidateCount { get; }
+
+    /// <summary>False means the numeric range covers only the explicitly valued subset.</summary>
+    public bool IsValueRangeComplete { get; }
 
     /// <summary>Expected value stays absent because this slice never invents candidate weights.</summary>
     public long? ExpectedValueRoubles => null;
@@ -158,6 +188,8 @@ public sealed record HighValueLootEntry
     public string Summary { get; }
 
     public IReadOnlyList<LootSpawnProfileNeed> ProfileNeeds { get; }
+
+    public IReadOnlyList<string> ProfileNeedConflictCodes { get; }
 
     public IReadOnlyList<string> MissingFacts { get; }
 
@@ -172,9 +204,16 @@ public sealed record HighValueLootEntry
             throw new ArgumentException($"A projection cannot contain more than {maximum} entries.", parameterName);
         }
 
-        return Array.AsReadOnly(values
+        var copied = values
+            .Take(maximum + 1)
             .Select(value => value ?? throw new ArgumentException("Projection lists cannot contain null.", parameterName))
-            .ToArray());
+            .ToArray();
+        if (copied.Length > maximum)
+        {
+            throw new ArgumentException($"A projection cannot contain more than {maximum} entries.", parameterName);
+        }
+
+        return Array.AsReadOnly(copied);
     }
 
     private static ReadOnlyCollection<string> CopyStrings(IReadOnlyList<string> values, string parameterName)
@@ -182,16 +221,30 @@ public sealed record HighValueLootEntry
         ArgumentNullException.ThrowIfNull(values, parameterName);
         if (values.Count > 64)
         {
-            throw new ArgumentException("A projection cannot contain more than 64 missing-fact entries.", parameterName);
+            throw new ArgumentException("A projection cannot contain more than 64 string entries.", parameterName);
         }
 
-        return Array.AsReadOnly(values
+        var copied = values
+            .Take(65)
             .Select(value => HighValueLootGuard.Required(value, parameterName, 256))
             .Distinct(StringComparer.Ordinal)
-            .ToArray());
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (copied.Length > 64)
+        {
+            throw new ArgumentException("A projection cannot contain more than 64 entries.", parameterName);
+        }
+
+        return Array.AsReadOnly(copied);
     }
 }
 
+/// <summary>The renderable scene slice plus its typed accessible/detail projection.</summary>
+/// <remarks>
+/// The shared scene has no typed extension bag for loot-specific detail; #318 owns that integration.
+/// Paired consumers must carry <see cref="Entries"/> beside <see cref="Objects"/> and join by
+/// <see cref="HighValueLootEntry.SceneObjectId"/>; parsing <c>Detail</c> is unsupported.
+/// </remarks>
 public sealed record HighValueLootLayerResult
 {
     public HighValueLootLayerResult(
@@ -217,18 +270,18 @@ public sealed record HighValueLootLayerResult
         Objects = Copy(objects, LootSpawnSnapshot.MaximumRecords, nameof(objects));
         Entries = Copy(entries, LootSpawnSnapshot.MaximumRecords, nameof(entries));
         Diagnostics = Copy(diagnostics, LootSpawnSnapshot.MaximumRecords * 2, nameof(diagnostics));
-        if (objects.Select(item => item.Id).Distinct().Count() != objects.Count)
+        if (Objects.Select(item => item.Id).Distinct().Count() != Objects.Count)
         {
             throw new ArgumentException("Layer scene-object IDs must be unique.", nameof(objects));
         }
 
-        if (entries.Select(item => item.Spawn.SpawnId).Distinct(StringComparer.Ordinal).Count() != entries.Count)
+        if (Entries.Select(item => item.Spawn.SpawnId).Distinct(StringComparer.Ordinal).Count() != Entries.Count)
         {
             throw new ArgumentException("Layer entry spawn IDs must be unique.", nameof(entries));
         }
 
-        var objectIds = objects.Select(item => item.Id).ToHashSet();
-        var entryObjectIds = entries
+        var objectIds = Objects.Select(item => item.Id).ToHashSet();
+        var entryObjectIds = Entries
             .Where(item => item.SceneObjectId is not null)
             .Select(item => item.SceneObjectId!.Value)
             .ToArray();
@@ -240,7 +293,7 @@ public sealed record HighValueLootLayerResult
                 nameof(entries));
         }
 
-        if (entries.Any(item =>
+        if (Entries.Any(item =>
                 (item.Spawn.Location.Geometry is null) != (item.SceneObjectId is null)))
         {
             throw new ArgumentException(
@@ -248,7 +301,7 @@ public sealed record HighValueLootLayerResult
                 nameof(entries));
         }
 
-        if (objects.Any(item => item.LayerId != layer.Id ||
+        if (Objects.Any(item => item.LayerId != layer.Id ||
                                 item.Kind != MapSceneObjectKind.LootSpawn ||
                                 item.Truth != MapSceneTruthKind.PotentialSpawn))
         {
@@ -283,9 +336,16 @@ public sealed record HighValueLootLayerResult
             throw new ArgumentException($"A layer result cannot contain more than {maximum} {parameterName}.", parameterName);
         }
 
-        return Array.AsReadOnly(values
+        var copied = values
+            .Take(maximum + 1)
             .Select(value => value ?? throw new ArgumentException("Layer result lists cannot contain null.", parameterName))
-            .ToArray());
+            .ToArray();
+        if (copied.Length > maximum)
+        {
+            throw new ArgumentException($"A layer result cannot contain more than {maximum} {parameterName}.", parameterName);
+        }
+
+        return Array.AsReadOnly(copied);
     }
 }
 
@@ -342,7 +402,7 @@ public sealed class HighValueLootLayerService
         var entries = new List<HighValueLootEntry>(snapshot.Records.Count);
         var objects = new List<MapSceneObject>(snapshot.Records.Count);
         var diagnostics = new List<HighValueLootDiagnostic>();
-        foreach (var spawn in snapshot.Records)
+        foreach (var spawn in snapshot.Records.OrderBy(record => record.SpawnId, StringComparer.Ordinal))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (spawn.Status.Completeness is ResultCompleteness.Unknown or ResultCompleteness.Unavailable)
@@ -351,6 +411,16 @@ public sealed class HighValueLootLayerService
                     HighValueLootDiagnosticKind.RecordUnavailable,
                     "spawn.unavailable",
                     "This spawn record has no usable facts.",
+                    spawn.SpawnId));
+                continue;
+            }
+
+            if (!LocationPasses(spawn, request, cancellationToken, out var locationDiagnostic))
+            {
+                diagnostics.Add(new(
+                    locationDiagnostic!.Kind,
+                    locationDiagnostic.Code,
+                    locationDiagnostic.Explanation,
                     spawn.SpawnId));
                 continue;
             }
@@ -375,7 +445,7 @@ public sealed class HighValueLootLayerService
                 continue;
             }
 
-            var candidates = ApplyCandidateFilters(spawn.Candidates, request.Filter);
+            var candidates = ApplyCandidateFilters(spawn.Candidates, request.Filter, cancellationToken);
             if (candidates.Count == 0)
             {
                 diagnostics.Add(new(
@@ -386,16 +456,33 @@ public sealed class HighValueLootLayerService
                 continue;
             }
 
-            var projection = Project(spawn, candidates, request);
-            if (!projection.Include)
+            var projection = Project(spawn, candidates, request, cancellationToken);
+            if (projection.ProfileNeedConflictCodes.Count > 0)
             {
                 diagnostics.Add(new(
-                    projection.Values.Count == 0
+                    HighValueLootDiagnosticKind.ConflictingEvidence,
+                    "spawn.profile-need-conflict",
+                    "Conflicting profile-relevance claims remain available for review.",
+                    spawn.SpawnId));
+            }
+
+            if (!projection.Include)
+            {
+                var valueIndeterminate = request.Filter.ValueBasis != LootSpawnValueBasis.ProfileUtility &&
+                                         !projection.IsValueRangeComplete;
+                diagnostics.Add(new(
+                    projection.Values.Count == 0 || valueIndeterminate
                         ? HighValueLootDiagnosticKind.ValueUnavailable
                         : HighValueLootDiagnosticKind.FilteredOut,
-                    projection.Values.Count == 0 ? "spawn.value-unavailable" : "spawn.below-threshold",
+                    projection.Values.Count == 0
+                        ? "spawn.value-unavailable"
+                        : valueIndeterminate
+                            ? "spawn.value-incomplete"
+                            : "spawn.below-threshold",
                     projection.Values.Count == 0
                         ? "No current trustworthy value supports this high-value filter."
+                        : valueIndeterminate
+                            ? "Current values are incomplete, so this pool cannot be classified below the active threshold."
                         : "Every valued candidate is below the active threshold.",
                     spawn.SpawnId));
                 continue;
@@ -404,16 +491,6 @@ public sealed class HighValueLootLayerService
             MapSceneObjectId? objectId = null;
             if (spawn.Location.Geometry is { } geometry)
             {
-                if (geometry.Points.Any(point => !request.MapBounds.Contains(point)))
-                {
-                    diagnostics.Add(new(
-                        HighValueLootDiagnosticKind.InvalidGeometry,
-                        "spawn.outside-map-bounds",
-                        "The spawn geometry is outside the reviewed map bounds and was quarantined instead of clamped.",
-                        spawn.SpawnId));
-                    continue;
-                }
-
                 objectId = StableObjectId(snapshot, spawn);
                 objects.Add(new(
                     objectId.Value,
@@ -434,73 +511,128 @@ public sealed class HighValueLootLayerService
                 projection.Values.Count == 0 ? null : projection.Values.Max(),
                 projection.ValuesPerSquare.Count == 0 ? null : projection.ValuesPerSquare.Min(),
                 projection.ValuesPerSquare.Count == 0 ? null : projection.ValuesPerSquare.Max(),
+                candidates.Count,
                 projection.Values.Count,
                 projection.HighValueCandidateCount,
+                projection.IsValueRangeComplete,
                 BasisLabel(request.Filter.ValueBasis),
                 projection.Summary,
                 projection.ProfileNeeds,
+                projection.ProfileNeedConflictCodes,
                 projection.MissingFacts,
                 objectId));
         }
 
-        var freshness = snapshot.Status.Freshness == FreshnessState.Stale ||
-                        entries.Any(entry => entry.Spawn.Status.Freshness == FreshnessState.Stale)
-            ? FreshnessState.Stale
-            : snapshot.Status.Freshness;
+        var freshness = MergeFreshness(
+            snapshot.Status.Freshness,
+            entries.Select(entry => entry.Spawn.Status.Freshness));
         var incomplete = diagnostics.Any(diagnostic => diagnostic.AffectsCompleteness) ||
                          snapshot.Status.Completeness == ResultCompleteness.Partial ||
                          entries.Any(entry => entry.Spawn.Status.Completeness != ResultCompleteness.Complete) ||
                          request.Filter.ValueBasis != LootSpawnValueBasis.ProfileUtility &&
-                         entries.Any(entry => entry.ValuedCandidateCount == 0);
+                         entries.Any(entry => !entry.IsValueRangeComplete);
         var status = new ResultStatus(
             incomplete ? ResultCompleteness.Partial : ResultCompleteness.Complete,
             freshness,
             incomplete ? "loot-spawns.partial" : "loot-spawns.ready");
         var through = snapshot.Provenance.EvidenceThroughUtc;
         var legend = $"Potential spawns · Updated {through:yyyy-MM-dd}" +
-                     (freshness == FreshnessState.Stale ? " · Stale" : string.Empty);
+                     (freshness switch
+                     {
+                         FreshnessState.Stale => " · Stale",
+                         FreshnessState.Unknown => " · Freshness unknown",
+                         _ => string.Empty,
+                     });
         return new(Layer, status, legend, through, snapshot.Coverage, objects, entries, diagnostics);
     }
 
     private static Projection Project(
         LootSpawnRecord spawn,
         IReadOnlyList<LootSpawnCandidate> candidates,
-        HighValueLootLayerRequest request)
+        HighValueLootLayerRequest request,
+        CancellationToken cancellationToken)
     {
         var values = new List<long>(candidates.Count);
         var valuesPerSquare = new List<long>(candidates.Count);
         var highValueCandidateCount = 0;
         var missing = new HashSet<string>(StringComparer.Ordinal);
-        var suppliedNeeds = candidates
-            .SelectMany(candidate => candidate.ProfileNeeds)
-            .ToArray();
-        var suppliedNeedCodes = suppliedNeeds
-            .Select(need => need.Code)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        var allReliableNeeds = suppliedNeeds
-            .Where(need => NeedIsReliable(need, request))
+        var suppliedNeeds = new List<SourcedProfileNeed>();
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var need in candidate.ProfileNeeds)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                suppliedNeeds.Add(new(candidate.ItemId, need));
+            }
+        }
+
+        var resolvedNeeds = new List<LootSpawnProfileNeed>();
+        var conflictCodes = new List<string>();
+        var hasOmittedConflictCodes = false;
+        foreach (var group in suppliedNeeds
+                     .GroupBy(item => item.Need.Code, StringComparer.Ordinal)
+                     .OrderBy(group => group.Key, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var distinctClaims = group
+                .Select(item => item.Need)
+                .Distinct()
+                .ToArray();
+            if (distinctClaims.Length > 1)
+            {
+                if (conflictCodes.Count < 64)
+                {
+                    conflictCodes.Add(group.Key);
+                }
+                else
+                {
+                    hasOmittedConflictCodes = true;
+                }
+
+                missing.Add("Conflicting profile relevance remains available for review.");
+            }
+
+            var reliable = group
+                .Where(item => NeedIsReliable(item.Need, request))
+                .OrderBy(item => NeedPriority(item.Need.Kind))
+                .ThenByDescending(item => item.Need.Provenance.EvidenceThroughUtc)
+                .ThenBy(item => item.Need.Explanation, StringComparer.Ordinal)
+                .ThenBy(item => item.Need.Provenance.SourceIdentifier, StringComparer.Ordinal)
+                .ThenBy(item => item.CandidateId, StringComparer.Ordinal)
+                .ToArray();
+            if (reliable.Length == 0 || reliable.Length != group.Count())
+            {
+                missing.Add("Some profile relevance is stale, incomplete, or below the confidence filter.");
+            }
+
+            if (reliable.Length > 0)
+            {
+                resolvedNeeds.Add(reliable[0].Need);
+            }
+        }
+
+        var orderedNeeds = resolvedNeeds
             .OrderBy(need => NeedPriority(need.Kind))
             .ThenBy(need => need.Code, StringComparer.Ordinal)
             .ThenByDescending(need => need.Provenance.EvidenceThroughUtc)
-            .DistinctBy(need => need.Code, StringComparer.Ordinal)
+            .ThenBy(need => need.Explanation, StringComparer.Ordinal)
             .ToArray();
-        if (allReliableNeeds.Length != suppliedNeedCodes.Length)
-        {
-            missing.Add("Some profile relevance is stale, incomplete, or below the confidence filter.");
-        }
-
-        if (allReliableNeeds.Length > HighValueLootEntry.MaximumProjectedProfileNeeds)
+        if (orderedNeeds.Length > HighValueLootEntry.MaximumProjectedProfileNeeds)
         {
             missing.Add("Additional profile relevance was omitted from this bounded projection.");
         }
 
-        var needs = allReliableNeeds
-            .Take(HighValueLootEntry.MaximumProjectedProfileNeeds)
-            .ToArray();
+        if (hasOmittedConflictCodes)
+        {
+            missing.Add("Additional profile-relevance conflicts were omitted from the bounded conflict list.");
+        }
+
+        var needs = orderedNeeds.Take(HighValueLootEntry.MaximumProjectedProfileNeeds).ToArray();
 
         foreach (var candidate in candidates)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var value = ValueFor(candidate, request, missing);
             if (value is { } amount)
             {
@@ -524,6 +656,8 @@ public sealed class HighValueLootLayerService
         }
 
         var profileRelevant = request.Filter.IncludeProfileRelevant && needs.Length > 0;
+        var isValueRangeComplete = request.Filter.ValueBasis == LootSpawnValueBasis.ProfileUtility ||
+                                   values.Count == candidates.Count;
         var include = request.Filter.ValueBasis == LootSpawnValueBasis.ProfileUtility
             ? profileRelevant
             : values.Any(value => value >= request.Filter.Thresholds.Minimum) || profileRelevant;
@@ -535,24 +669,35 @@ public sealed class HighValueLootLayerService
                 : maximum is null
                     ? LootSpawnValueTier.Unknown
                     : LootSpawnValueTier.BelowThreshold;
-        if (spawn.SpawnProbability.Value is null)
+        if (Reliable(spawn.SpawnProbability, request, request.Filter.MaximumSourceAge) is null)
         {
-            missing.Add("Spawn probability is unknown; expected value is not calculated.");
+            missing.Add(
+                "Spawn probability is unknown, stale, incomplete, ambiguous, or below the confidence filter; " +
+                "expected value is not calculated.");
         }
 
-        if (string.IsNullOrWhiteSpace(spawn.RespawnBehavior.Value))
+        if (ReliableString(spawn.RespawnBehavior, request, request.Filter.MaximumSourceAge) is null)
         {
-            missing.Add("Respawn behavior is unknown.");
+            missing.Add("Respawn behavior is unknown, stale, incomplete, ambiguous, or below the confidence filter.");
         }
 
-        var summary = Summary(spawn, candidates, request.Filter.ValueBasis, values, highValueCandidateCount, needs);
+        var summary = Summary(
+            spawn,
+            candidates,
+            request.Filter.ValueBasis,
+            values,
+            highValueCandidateCount,
+            needs,
+            isValueRangeComplete);
         return new(
             include,
             tier,
             values,
             valuesPerSquare,
             highValueCandidateCount,
+            isValueRangeComplete,
             needs,
+            conflictCodes,
             missing.Order(StringComparer.Ordinal).ToArray(),
             summary);
     }
@@ -632,14 +777,79 @@ public sealed class HighValueLootLayerService
             ? value
             : null;
 
+    private static string? ReliableString(
+        EvidencedValue<string?> field,
+        HighValueLootLayerRequest request,
+        TimeSpan maximumAge) =>
+        !string.IsNullOrWhiteSpace(field.Value) &&
+        field.Candidates.Count == 0 &&
+        field.Status.Completeness == ResultCompleteness.Complete &&
+        field.Status.Freshness == FreshnessState.Current &&
+        field.Provenance.EvidenceThroughUtc <= request.EvaluatedUtc &&
+        request.EvaluatedUtc - field.Provenance.EvidenceThroughUtc <= maximumAge &&
+        ConfidencePasses(field.Provenance, request.Filter.MinimumConfidence)
+            ? field.Value
+            : null;
+
     private static IReadOnlyList<LootSpawnCandidate> ApplyCandidateFilters(
         IReadOnlyList<LootSpawnCandidate> candidates,
-        HighValueLootFilter filter) => candidates
-        .Where(candidate => filter.ItemIds.Count == 0 ||
-                            filter.ItemIds.Contains(candidate.ItemId, StringComparer.OrdinalIgnoreCase))
-        .Where(candidate => filter.Categories.Count == 0 ||
-                            filter.Categories.Contains(candidate.Category, StringComparer.OrdinalIgnoreCase))
-        .ToArray();
+        HighValueLootFilter filter,
+        CancellationToken cancellationToken)
+    {
+        var filtered = new List<LootSpawnCandidate>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if ((filter.ItemIds.Count == 0 ||
+                 filter.ItemIds.Contains(candidate.ItemId, StringComparer.OrdinalIgnoreCase)) &&
+                (filter.Categories.Count == 0 ||
+                 filter.Categories.Contains(candidate.Category, StringComparer.OrdinalIgnoreCase)))
+            {
+                filtered.Add(candidate);
+            }
+        }
+
+        return filtered;
+    }
+
+    private static bool LocationPasses(
+        LootSpawnRecord spawn,
+        HighValueLootLayerRequest request,
+        CancellationToken cancellationToken,
+        out HighValueLootDiagnostic? diagnostic)
+    {
+        foreach (var floorId in spawn.Location.FloorIds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!request.FloorIds.Contains(floorId, StringComparer.OrdinalIgnoreCase))
+            {
+                diagnostic = new(
+                    HighValueLootDiagnosticKind.InvalidFloor,
+                    "spawn.floor-not-in-map-transform",
+                    "The spawn names a floor that is absent from the selected validated map transform.");
+                return false;
+            }
+        }
+
+        if (spawn.Location.Geometry is { } geometry)
+        {
+            foreach (var point in geometry.Points)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!request.MapBounds.Contains(point))
+                {
+                    diagnostic = new(
+                        HighValueLootDiagnosticKind.InvalidGeometry,
+                        "spawn.outside-map-bounds",
+                        "The spawn geometry is outside the reviewed map bounds and was quarantined instead of clamped.");
+                    return false;
+                }
+            }
+        }
+
+        diagnostic = null;
+        return true;
+    }
 
     private static bool SourcePasses(
         EvidenceProvenance provenance,
@@ -720,7 +930,8 @@ public sealed class HighValueLootLayerService
         LootSpawnValueBasis basis,
         IReadOnlyList<long> values,
         int highValueCandidateCount,
-        IReadOnlyList<LootSpawnProfileNeed> needs)
+        IReadOnlyList<LootSpawnProfileNeed> needs,
+        bool isValueRangeComplete)
     {
         var basisText = BasisLabel(basis);
         if (basis == LootSpawnValueBasis.ProfileUtility)
@@ -738,9 +949,29 @@ public sealed class HighValueLootLayerService
         var maximum = values.Max();
         return spawn.PoolKind == LootSpawnPoolKind.SingleKnownItem
             ? $"Potential {candidates[0].DisplayName} · {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText}"
-            : $"Potential up to {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText} · " +
-              $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates · " +
-              $"{highValueCandidateCount.ToString(CultureInfo.InvariantCulture)} above threshold";
+            : isValueRangeComplete
+                ? $"Potential up to {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText} · " +
+                  $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates · " +
+                  $"{highValueCandidateCount.ToString(CultureInfo.InvariantCulture)} above threshold"
+                : $"Potential · known current values up to {maximum.ToString("N0", CultureInfo.InvariantCulture)} ₽ {basisText} · " +
+                  $"{values.Count.ToString(CultureInfo.InvariantCulture)} of " +
+                  $"{candidates.Count.ToString(CultureInfo.InvariantCulture)} candidates valued · " +
+                  $"{highValueCandidateCount.ToString(CultureInfo.InvariantCulture)} above threshold";
+    }
+
+    private static FreshnessState MergeFreshness(
+        FreshnessState snapshotFreshness,
+        IEnumerable<FreshnessState> recordFreshness)
+    {
+        var states = new[] { snapshotFreshness }.Concat(recordFreshness).ToArray();
+        if (states.Contains(FreshnessState.Stale))
+        {
+            return FreshnessState.Stale;
+        }
+
+        return states.Contains(FreshnessState.Unknown)
+            ? FreshnessState.Unknown
+            : FreshnessState.Current;
     }
 
     private static string BasisLabel(LootSpawnValueBasis basis) => basis switch
@@ -809,9 +1040,13 @@ public sealed class HighValueLootLayerService
         IReadOnlyList<long> Values,
         IReadOnlyList<long> ValuesPerSquare,
         int HighValueCandidateCount,
+        bool IsValueRangeComplete,
         IReadOnlyList<LootSpawnProfileNeed> ProfileNeeds,
+        IReadOnlyList<string> ProfileNeedConflictCodes,
         IReadOnlyList<string> MissingFacts,
         string Summary);
+
+    private sealed record SourcedProfileNeed(string CandidateId, LootSpawnProfileNeed Need);
 }
 
 /// <summary>The one-action layer preset; the shell supplies any additional user-required context.</summary>
@@ -865,5 +1100,33 @@ internal static class HighValueLootGuard
         return normalized.Length <= maximumLength
             ? normalized
             : throw new ArgumentOutOfRangeException(parameterName);
+    }
+
+    internal static IReadOnlyList<string> CopyStrings(
+        IReadOnlyList<string> values,
+        int maximumCount,
+        string parameterName,
+        int maximumLength)
+    {
+        ArgumentNullException.ThrowIfNull(values, parameterName);
+        if (values.Count > maximumCount)
+        {
+            throw new ArgumentException($"A collection cannot contain more than {maximumCount} entries.", parameterName);
+        }
+
+        var copied = values
+            .Take(maximumCount + 1)
+            .Select(value => Required(value, parameterName, maximumLength))
+            .ToArray();
+        if (copied.Length > maximumCount)
+        {
+            throw new ArgumentException($"A collection cannot contain more than {maximumCount} entries.", parameterName);
+        }
+
+        return Array.AsReadOnly(copied
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ThenBy(value => value, StringComparer.Ordinal)
+            .ToArray());
     }
 }
