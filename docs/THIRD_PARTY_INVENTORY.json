@@ -1264,10 +1264,11 @@
         "id": "SkiaSharp.NativeAssets.Linux",
         "version": "3.119.4",
         "contentHash": "UAyVzbqNfZsZbKbzj68zXLyUyF/SbTKmzTfOO6qDu++dtIUMMTzPBe8oOuzU/DiewpfKoUUlOSsJmqWc6blxBw==",
-        "relationship": "transitive",
+        "relationship": "direct",
         "projects": [
           "src/TarkovCompanion.App/TarkovCompanion.App.csproj",
-          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj"
+          "src/TarkovCompanion.EftSimulator/TarkovCompanion.EftSimulator.csproj",
+          "src/TarkovCompanion.Infrastructure/TarkovCompanion.Infrastructure.csproj"
         ],
         "component": "SkiaSharp non-Windows native assets",
         "scope": "platform",
