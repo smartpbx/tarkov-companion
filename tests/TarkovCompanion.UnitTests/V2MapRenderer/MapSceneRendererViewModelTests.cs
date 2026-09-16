@@ -433,6 +433,53 @@ public sealed class MapSceneRendererViewModelTests
         Assert.True(IsVisible(renderer, HighValueLootLayerService.LayerId));
         Assert.True(IsVisible(renderer, new("extracts")));
         Assert.True(IsVisible(renderer, new("companion-markers")));
+        Assert.True(IsVisible(renderer, new("hazards")));
+        Assert.False(IsVisible(renderer, new("estimates")));
+    }
+
+    [Fact]
+    public void High_value_preset_keeps_a_visible_host_selected_context_layer()
+    {
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
+            "Potential spawns · Data unavailable",
+            null,
+            null,
+            [],
+            [],
+            []);
+        var original = Scene(includeHighValueLoot: true);
+        var safety = new MapSceneLayer(new("host-safety"), "Host safety", 35, true);
+        var scene = new MapSceneSnapshot(
+            original.Revision,
+            original.LocationId,
+            original.VariantKey,
+            original.TransformVersion,
+            original.Bounds,
+            original.FloorIds,
+            original.Capabilities,
+            new(
+                original.View.Mode,
+                original.View.SelectedFloorId,
+                original.View.Camera,
+                original.View.Layers.Append(new MapSceneLayerState(safety.Id, true)).ToArray()),
+            original.Layers.Append(safety).ToArray(),
+            original.Objects,
+            original.Assets);
+        var renderer = new MapSceneRendererViewModel(
+            scene,
+            Presentation,
+            highValueLoot: result,
+            highValueLootPresetPreservedLayers: [safety.Id]);
+        renderer.ViewChangeRequested += change =>
+            renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, change).Scene);
+
+        renderer.HighValueLootPresetCommand.Execute(null);
+
+        Assert.True(IsVisible(renderer, safety.Id));
+        Assert.True(IsVisible(renderer, new("hazards")));
+        Assert.True(IsVisible(renderer, HighValueLootLayerService.LayerId));
         Assert.False(IsVisible(renderer, new("estimates")));
     }
 
@@ -469,6 +516,78 @@ public sealed class MapSceneRendererViewModelTests
     }
 
     [Fact]
+    public void High_value_preset_keeps_earlier_steps_when_a_later_step_is_rejected()
+    {
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
+            "Potential spawns · Data unavailable",
+            null,
+            null,
+            [],
+            [],
+            []);
+        var renderer = new MapSceneRendererViewModel(
+            Scene(includeHighValueLoot: true),
+            Presentation,
+            highValueLoot: result);
+        var requestCount = 0;
+        renderer.ViewChangeRequested += change =>
+        {
+            requestCount++;
+            if (requestCount == 1)
+            {
+                renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, change).Scene);
+                return;
+            }
+
+            renderer.Present(renderer.Scene);
+        };
+
+        renderer.HighValueLootPresetCommand.Execute(null);
+
+        Assert.Equal(2, requestCount);
+        Assert.False(IsVisible(renderer, new("estimates")));
+        Assert.False(IsVisible(renderer, HighValueLootLayerService.LayerId));
+        Assert.True(IsVisible(renderer, new("hazards")));
+        Assert.Contains("Earlier confirmed layer changes remain applied", renderer.RendererNotice,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void High_value_filter_choices_bound_untrusted_host_enumeration_and_rendering()
+    {
+        var result = new HighValueLootLayerResult(
+            HighValueLootLayerService.Layer,
+            new(ResultCompleteness.Unavailable, FreshnessState.Unknown, "fixture.unavailable"),
+            "Potential spawns · Data unavailable",
+            null,
+            null,
+            [],
+            [],
+            []);
+        var categories = new LyingOptionList("category");
+        var floors = new LyingOptionList("floor");
+
+        var loot = new HighValueLootLayerViewModel(
+            result,
+            HighValueLootLayerFilterState.Default,
+            categories,
+            floors,
+            true,
+            Presentation,
+            _ => { },
+            _ => { });
+
+        Assert.Equal(HighValueLootLayerViewModel.MaximumRenderedFilterOptions + 1, loot.CategoryChoices.Count);
+        Assert.Equal(HighValueLootLayerViewModel.MaximumRenderedFilterOptions + 1, loot.FloorChoices.Count);
+        Assert.True(loot.HasCategoryOptionsNotice);
+        Assert.True(loot.HasFloorOptionsNotice);
+        Assert.InRange(categories.EnumeratedCount, 1, 257);
+        Assert.InRange(floors.EnumeratedCount, 1, 257);
+    }
+
+    [Fact]
     public void High_value_offline_gallery_has_an_explicit_unavailable_empty_state()
     {
         var renderer = MapSceneRendererGalleryViewModel.Create(largeText: false, lootOffline: true).Renderer;
@@ -497,13 +616,17 @@ public sealed class MapSceneRendererViewModelTests
     {
         var extracts = new MapSceneLayer(new("extracts"), "Extracts", 10, true);
         var loot = new MapSceneLayer(new("loot"), "Loot", 20, false);
+        var hazards = new MapSceneLayer(new("hazards"), "Hazards", 25, true);
+        var estimates = new MapSceneLayer(new("estimates"), "Historical estimates", 30, true);
         IReadOnlyList<MapSceneLayer> layers = includeHighValueLoot
-            ? [extracts, loot, HighValueLootLayerService.Layer]
+            ? [extracts, loot, hazards, estimates, HighValueLootLayerService.Layer]
             : [extracts, loot];
         IReadOnlyList<MapSceneLayerState> layerStates = includeHighValueLoot
             ? [
                 new(extracts.Id, true),
                 new(loot.Id, false),
+                new(hazards.Id, true),
+                new(estimates.Id, true),
                 new(HighValueLootLayerService.LayerId, false),
             ]
             : [new(extracts.Id, true), new(loot.Id, false)];
@@ -604,4 +727,24 @@ public sealed class MapSceneRendererViewModelTests
         "fixture",
         new DateTimeOffset(2026, 9, 16, 0, 0, 0, TimeSpan.Zero),
         Confidence: new Confidence(confidence));
+
+    private sealed class LyingOptionList(string prefix) : IReadOnlyList<string>
+    {
+        public int EnumeratedCount { get; private set; }
+
+        public int Count => 0;
+
+        public string this[int index] => $"{prefix}-{index:D4}";
+
+        public IEnumerator<string> GetEnumerator()
+        {
+            for (var index = 0; ; index++)
+            {
+                EnumeratedCount++;
+                yield return this[index];
+            }
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }

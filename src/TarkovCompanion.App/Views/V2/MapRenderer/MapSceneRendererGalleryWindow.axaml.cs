@@ -88,6 +88,7 @@ public sealed record MapSceneRendererGalleryViewModel(
     {
         var reference = new MapSceneLayer(new("extracts"), "Extracts", 10, true);
         var observations = new MapSceneLayer(new("companion-markers"), "Companion markers", 20, true);
+        var hazards = new MapSceneLayer(new("hazards"), "Hazards", 25, true);
         var estimates = new MapSceneLayer(new("estimates"), "Historical estimates", 30, true);
         var objects = loot.Objects.Concat(
         [
@@ -101,6 +102,8 @@ public sealed record MapSceneRendererGalleryViewModel(
                 "My last recorded position", 48, 70),
             Point("team:last", observations.Id, MapSceneObjectKind.TeammateLastKnown, MapSceneTruthKind.TeamSharedLastKnown,
                 "Team-shared last recorded position", 62, 76),
+            Point("hazard:water", hazards.Id, MapSceneObjectKind.Risk, MapSceneTruthKind.StaticReference,
+                "Deep water hazard", 88, 64),
             HistoricalTraffic(estimates.Id),
             new(
                 new("route:plan"),
@@ -131,10 +134,11 @@ public sealed record MapSceneRendererGalleryViewModel(
                 [
                     new(reference.Id, true),
                     new(observations.Id, true),
+                    new(hazards.Id, true),
                     new(estimates.Id, true),
                     new(loot.Layer.Id, true),
                 ]),
-            [reference, observations, estimates, loot.Layer],
+            [reference, observations, hazards, estimates, loot.Layer],
             objects,
             [new(
                 new("asset:gallery-plan"),

@@ -69,12 +69,17 @@ assigned a point. The existing deterministic point clustering applies to positio
 the typed list remains the route to every source record.
 
 The **High-value loot only** preset is emitted as a serialized sequence of the existing
-revision-checked layer-visibility changes. It retains built-in orientation layers and the selected
-object's layer, and it leaves camera, floor, and selection unchanged. Filter requests are rebuilt
-by the host through the loot-layer service and returned as one matching scene/result publication;
-the renderer applies only the minimum-tier display projection locally. The current scene change
-contract has no create-waypoint operation, so selected loot cannot yet be handed off as a planning
-stop without a new shared command owned by the map contract.
+revision-checked layer-visibility changes. It retains built-in orientation layers, visible hazards,
+the selected object's layer, and any visible safety/context layers in the host's bounded preserve
+set; it leaves camera, floor, and selection unchanged. The sequence is deliberately non-atomic:
+if a later change conflicts, earlier confirmed changes remain applied, the remaining changes stop,
+and the renderer asks the user to review the current layers before retrying. Filter requests are
+rebuilt by the host through the loot-layer service and returned as one matching scene/result
+publication; the renderer applies only the minimum-tier display projection locally. Host-supplied
+category and floor choices have bounded reads and a 12-choice rendered cap; an accessible message
+says when additional choices were omitted. The current scene change contract has no
+create-waypoint operation, so selected loot cannot yet be handed off as a planning stop without a
+new shared command owned by the map contract.
 
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential

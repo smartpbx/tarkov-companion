@@ -69,8 +69,11 @@ The desktop map can carry the typed high-value-loot result beside the canonical 
 everyday identity is the compact `Potential spawns · Updated <date>` legend. The independent
 layer toggle and the one-action **High-value loot only** preset use the same revision-checked map
 state as every other renderer action. The preset keeps extracts, companion position/orientation,
-routes, pings, waypoints, and the layer containing the current selection; it does not reset the
-camera, floor, or selected spawn.
+routes, pings, waypoints, visible hazards, any visible safety/context layers selected by the host,
+and the layer containing the current selection; it does not reset the camera, floor, or selected
+spawn. Its ordinary layer changes are serialized rather than atomic. A later revision conflict
+leaves earlier confirmed changes in place, stops the remainder, and displays a review-and-retry
+notice.
 
 The desktop filters value basis, minimum displayed tier, profile relevance, category, and floor.
 Value-basis, profile, category, and floor changes ask the owning application service to rebuild
@@ -79,7 +82,9 @@ presentation filter over the service-assigned tier. The accessible paged list in
 and unresolved-floor records that cannot truthfully become markers. Selection progressively
 discloses possible items and categories, value range and basis, profile reasons, coverage,
 precision, access notes, source age and confidence, plus unknown probability, respawn, value,
-floor, or location states.
+floor, or location states. Host-provided category and floor option streams are read to a fixed
+ceiling and render at most 12 named choices plus the all-choice; the UI announces when more are
+available instead of creating an unbounded control list.
 
 The current shared map command contract can change presentation, floor, layer visibility, and
 camera only. It has no waypoint/planning-stop creation command, so this slice does not display a

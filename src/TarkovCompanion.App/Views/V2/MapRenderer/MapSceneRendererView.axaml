@@ -381,6 +381,11 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <TextBlock Classes="v2-label" Text="{Binding CategoryOptionsNotice}"
+                               IsVisible="{Binding HasCategoryOptionsNotice}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-category-more"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding CategoryOptionsNotice}" />
 
                     <TextBlock Classes="v2-label" Text="{Binding FloorLabel}" />
                     <ItemsControl ItemsSource="{Binding FloorChoices}">
@@ -396,6 +401,11 @@
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <TextBlock Classes="v2-label" Text="{Binding FloorOptionsNotice}"
+                               IsVisible="{Binding HasFloorOptionsNotice}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="v2-map-loot-floor-more"
+                               AutomationProperties.AccessibilityView="Control"
+                               AutomationProperties.Name="{Binding FloorOptionsNotice}" />
 
                     <WrapPanel ItemSpacing="8" LineSpacing="8">
                       <TextBlock Classes="v2-label" Text="{Binding PageLabel}" VerticalAlignment="Center"

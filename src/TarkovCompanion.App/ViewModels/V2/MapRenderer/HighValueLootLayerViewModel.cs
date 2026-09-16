@@ -17,6 +17,10 @@ namespace TarkovCompanion.App.ViewModels.V2.MapRenderer;
 public sealed class HighValueLootLayerViewModel : BindableViewModel
 {
     public const int PageSize = 50;
+    public const int MaximumRenderedFilterOptions = 12;
+
+    private const int MaximumFilterOptionsRead = 256;
+    private const int MaximumFilterOptionLength = 96;
 
     private readonly MapSceneRendererPresentation _presentation;
     private readonly Action<HighValueLootLayerFilterState> _requestFilter;
@@ -25,6 +29,8 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     private HighValueLootLayerFilterState _filterState;
     private IReadOnlyList<string> _availableCategories;
     private IReadOnlyList<string> _availableFloors;
+    private bool _categoryOptionsTruncated;
+    private bool _floorOptionsTruncated;
     private bool _isLayerVisible;
     private int _pageIndex;
 
@@ -43,8 +49,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         _requestFilter = requestFilter ?? throw new ArgumentNullException(nameof(requestFilter));
         _select = select ?? throw new ArgumentNullException(nameof(select));
-        _availableCategories = NormalizeOptions(availableCategories ?? CategoriesFrom(result));
-        _availableFloors = NormalizeOptions(availableFloors ?? []);
+        (_availableCategories, _categoryOptionsTruncated) =
+            NormalizeOptions(availableCategories ?? CategoriesFrom(result));
+        (_availableFloors, _floorOptionsTruncated) = NormalizeOptions(availableFloors ?? []);
         _isLayerVisible = isLayerVisible;
         PreviousPageCommand = new DelegateCommand(() => ChangePage(-1));
         NextPageCommand = new DelegateCommand(() => ChangePage(1));
@@ -65,6 +72,10 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     public string ProfileRelevanceLabel => Text("Map.Loot.ProfileRelevance");
     public string CategoryLabel => Text("Map.Loot.Category");
     public string FloorLabel => Text("Map.Loot.Floor");
+    public bool HasCategoryOptionsNotice => _categoryOptionsTruncated;
+    public bool HasFloorOptionsNotice => _floorOptionsTruncated;
+    public string CategoryOptionsNotice => Text("Map.Loot.MoreCategories");
+    public string FloorOptionsNotice => Text("Map.Loot.MoreFloors");
     public string PreviousPageLabel => Text("Map.Action.Previous");
     public string NextPageLabel => Text("Map.Action.Next");
     public IReadOnlyList<HighValueLootFilterChoiceViewModel> ValueBasisChoices { get; private set; } = [];
@@ -112,8 +123,15 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
     {
         _result = result ?? throw new ArgumentNullException(nameof(result));
         _filterState = filterState ?? throw new ArgumentNullException(nameof(filterState));
-        _availableCategories = NormalizeOptions(availableCategories ?? _availableCategories);
-        _availableFloors = NormalizeOptions(availableFloors ?? _availableFloors);
+        if (availableCategories is not null)
+        {
+            (_availableCategories, _categoryOptionsTruncated) = NormalizeOptions(availableCategories);
+        }
+
+        if (availableFloors is not null)
+        {
+            (_availableFloors, _floorOptionsTruncated) = NormalizeOptions(availableFloors);
+        }
         _pageIndex = 0;
         Rebuild();
         RaiseAllChanged();
@@ -312,13 +330,41 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
         .Select(candidate => candidate.Category)
         .ToArray();
 
-    private static IReadOnlyList<string> NormalizeOptions(IReadOnlyList<string> values) => values
-        .Where(value => !string.IsNullOrWhiteSpace(value))
-        .Select(value => value.Trim())
-        .Distinct(StringComparer.OrdinalIgnoreCase)
-        .Order(StringComparer.OrdinalIgnoreCase)
-        .ThenBy(value => value, StringComparer.Ordinal)
-        .ToArray();
+    private static NormalizedOptions NormalizeOptions(IReadOnlyList<string> values)
+    {
+        ArgumentNullException.ThrowIfNull(values);
+        var distinct = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inputWasTruncated = false;
+        using var enumerator = values.GetEnumerator();
+        var read = 0;
+        while (read < MaximumFilterOptionsRead && enumerator.MoveNext())
+        {
+            read++;
+            var value = enumerator.Current;
+            if (!string.IsNullOrWhiteSpace(value) && value.Length <= MaximumFilterOptionLength)
+            {
+                distinct.Add(value.Trim());
+            }
+            else if (value?.Length > MaximumFilterOptionLength)
+            {
+                inputWasTruncated = true;
+            }
+        }
+
+        // Do not trust Count: an external IReadOnlyList can under-report its size or enumerate
+        // forever. Probe once beyond the read ceiling, then stop without materializing the tail.
+        if (read == MaximumFilterOptionsRead && enumerator.MoveNext())
+        {
+            inputWasTruncated = true;
+        }
+
+        var ordered = distinct
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .ThenBy(value => value, StringComparer.Ordinal)
+            .ToArray();
+        var rendered = ordered.Take(MaximumRenderedFilterOptions).ToArray();
+        return new(rendered, inputWasTruncated || rendered.Length < ordered.Length);
+    }
 
     private string Number(int value) => value.ToString("N0", _presentation.Culture);
 
@@ -332,7 +378,9 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
                  {
                      nameof(Legend), nameof(StateMessage), nameof(CoverageLabel), nameof(HasCoverage),
                      nameof(ValueBasisChoices), nameof(MinimumTierChoices), nameof(ProfileRelevanceChoices),
-                     nameof(CategoryChoices), nameof(FloorChoices), nameof(Rows), nameof(HasEntries),
+                     nameof(CategoryChoices), nameof(FloorChoices), nameof(HasCategoryOptionsNotice),
+                     nameof(HasFloorOptionsNotice), nameof(CategoryOptionsNotice), nameof(FloorOptionsNotice),
+                     nameof(Rows), nameof(HasEntries),
                      nameof(ShowsEmpty), nameof(FilteredCount), nameof(PageCount), nameof(PageNumber),
                      nameof(PageLabel), nameof(CanGoToPreviousPage), nameof(CanGoToNextPage),
                  })
@@ -352,6 +400,8 @@ public sealed class HighValueLootLayerViewModel : BindableViewModel
             OnPropertyChanged(property);
         }
     }
+
+    private sealed record NormalizedOptions(IReadOnlyList<string> Values, bool Truncated);
 }
 
 public sealed record HighValueLootLayerFilterState

@@ -23,10 +23,12 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     public const int ListPageSize = 50;
     public const int MaximumListItems = ListPageSize;
     public const double MarkerExtent = 48;
+    public const int MaximumLootPresetPreservedLayers = 64;
 
     private const int ClusterColumns = 20;
     private const int ClusterRows = 14;
     private const double MapInset = MarkerExtent / 2;
+    private static readonly MapSceneLayerId HazardsLayerId = new("hazards");
 
     private readonly MapSceneRendererPresentation _presentation;
     private readonly Func<Guid> _nextChangeId;
@@ -46,6 +48,7 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
     private IReadOnlyList<MapSceneObject> _filteredListObjects = [];
     private string? _resolvedAssetKey;
     private IReadOnlyDictionary<MapSceneLayerId, bool>? _lootPresetTargets;
+    private readonly IReadOnlySet<MapSceneLayerId> _lootPresetPreservedLayers;
     private string? _selectedLootSpawnId;
     private IReadOnlyList<string>? _lootCategories;
 
@@ -56,12 +59,14 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         Func<MapSceneAsset, IImage?>? reviewedAssetResolver = null,
         HighValueLootLayerResult? highValueLoot = null,
         HighValueLootLayerFilterState? highValueLootFilterState = null,
-        IReadOnlyList<string>? highValueLootCategories = null)
+        IReadOnlyList<string>? highValueLootCategories = null,
+        IReadOnlyList<MapSceneLayerId>? highValueLootPresetPreservedLayers = null)
     {
         _scene = scene ?? throw new ArgumentNullException(nameof(scene));
         _presentation = presentation ?? throw new ArgumentNullException(nameof(presentation));
         _nextChangeId = nextChangeId ?? Guid.NewGuid;
         _reviewedAssetResolver = reviewedAssetResolver;
+        _lootPresetPreservedLayers = CreateLootPresetPreserveSet(scene, highValueLootPresetPreservedLayers);
         _projection = CreateProjection();
 
         ClearSelectionCommand = new DelegateCommand(ClearSelection);
@@ -262,9 +267,9 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         var presetRejected = _lootPresetTargets is not null && requestedRevision == scene.Revision;
         if (presetRejected)
         {
-            // A preset is a serialized series of ordinary revision-checked changes. If its
-            // owner republishes the same revision, the in-flight step was rejected; retrying
-            // synchronously would loop and applying the remaining steps would split the preset.
+            // A preset is a serialized, non-atomic series of ordinary revision-checked changes.
+            // If a later step is rejected, earlier acknowledged steps remain canonical; abort
+            // the remainder rather than looping or pretending those prior changes rolled back.
             _lootPresetTargets = null;
         }
         HighValueLoot?.SetLayerVisibility(
@@ -589,9 +594,13 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
             return;
         }
 
-        var preserve = _selectedObjectId is { } selected
-            ? _scene.Objects.Where(item => item.Id == selected).Select(item => item.LayerId).ToArray()
-            : [];
+        var preserve = _lootPresetPreservedLayers
+            .Where(id => _scene.Layers.Any(layer => layer.Id == id) && IsLayerVisible(id))
+            .Concat(_selectedObjectId is { } selected
+                ? _scene.Objects.Where(item => item.Id == selected).Select(item => item.LayerId)
+                : [])
+            .Distinct()
+            .ToArray();
         _lootPresetTargets = HighValueLootLayerPreset.Create(_scene.Layers, preserve)
             .ToDictionary(state => state.LayerId, state => state.IsVisible);
         DispatchHighValueLootPresetChange();
@@ -635,6 +644,47 @@ public sealed class MapSceneRendererViewModel : BindableViewModel
         }
 
         HighValueLootFilterRequested.Invoke(state);
+    }
+
+    private static IReadOnlySet<MapSceneLayerId> CreateLootPresetPreserveSet(
+        MapSceneSnapshot scene,
+        IReadOnlyList<MapSceneLayerId>? requested)
+    {
+        var known = scene.Layers.Select(layer => layer.Id).ToHashSet();
+        var preserved = new HashSet<MapSceneLayerId>();
+        if (known.Contains(HazardsLayerId))
+        {
+            preserved.Add(HazardsLayerId);
+        }
+
+        if (requested is null)
+        {
+            return preserved;
+        }
+
+        using var enumerator = requested.GetEnumerator();
+        var read = 0;
+        while (read < MaximumLootPresetPreservedLayers && enumerator.MoveNext())
+        {
+            read++;
+            if (!known.Contains(enumerator.Current))
+            {
+                throw new ArgumentException(
+                    $"Loot-preset preserve layer '{enumerator.Current}' is not declared by the scene.",
+                    nameof(requested));
+            }
+
+            preserved.Add(enumerator.Current);
+        }
+
+        if (read == MaximumLootPresetPreservedLayers && enumerator.MoveNext())
+        {
+            throw new ArgumentException(
+                $"A loot preset cannot preserve more than {MaximumLootPresetPreservedLayers} supplied layers.",
+                nameof(requested));
+        }
+
+        return preserved;
     }
 
     private void SelectHighValueLootEntry(HighValueLootEntry entry)

@@ -986,7 +986,8 @@ $Shots.Add([pscustomobject]@{
                 action = "invoke"; description = "apply the high-value loot-only preset"
                 targetAutomationId = "v2-map-loot-preset"; targetControlType = "Button"
                 expectedNamePatterns = @(
-                    [pscustomobject]@{ automationId = "v2-map-layer-estimates-d4fc996e"; pattern = '^Show Historical estimates$'; includeOffscreen = $true })
+                    [pscustomobject]@{ automationId = "v2-map-layer-estimates-d4fc996e"; pattern = '^Show Historical estimates$'; includeOffscreen = $true },
+                    [pscustomobject]@{ automationId = "v2-map-layer-hazards-88da2def"; pattern = '^Hide Hazards$'; includeOffscreen = $true })
             },
             [pscustomobject]@{
                 action = "invoke"; description = "filter the typed loot layer to exceptional spawns"
