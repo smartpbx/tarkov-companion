@@ -554,47 +554,57 @@ public sealed class ExplainableRecommendationEngine(
             return;
         }
 
-        var normal = _policy.LootThresholds.Normal;
-        var contextBlocksTake = economics is { } economic &&
-            (int)economic.Band >= (int)normal &&
-            (int)economic.Band < (int)context.RequiredBand;
-        var strictestContext = (int)_policy.LootThresholds.CriticalRisk >= (int)_policy.LootThresholds.Extracting
-            ? _policy.LootThresholds.CriticalRisk
-            : _policy.LootThresholds.Extracting;
-        var higherContextWouldBlock = economics is { } ordinary &&
-            (int)ordinary.Band >= (int)context.RequiredBand &&
-            (int)ordinary.Band < (int)strictestContext;
+        if (economics is not { } economic ||
+            context.Phase is not { } phase ||
+            context.Risk is not { } risk)
+        {
+            return;
+        }
+
+        var currentAction = EconomicLootAction(economic.Band, phase, risk);
 
         if (context.Risk != RecommendationRaidRisk.Low)
         {
+            var lowerRiskAction = EconomicLootAction(economic.Band, phase, RecommendationRaidRisk.Low);
             sensitivities.Add(new(
                 "raid-risk-reduced",
                 "Lowering the current raid risk may lower the economic band required to take this item.",
-                contextBlocksTake ? V2RecommendationAction.Take : null));
+                lowerRiskAction != currentAction ? lowerRiskAction : null));
         }
         else
         {
+            var higherRiskAction = EconomicLootAction(economic.Band, phase, RecommendationRaidRisk.Critical);
             sensitivities.Add(new(
                 "raid-risk-increased",
                 "Higher raid risk may make ordinary economic loot a leave.",
-                higherContextWouldBlock ? V2RecommendationAction.Leave : null));
+                higherRiskAction != currentAction ? higherRiskAction : null));
         }
 
         if (context.Phase is RecommendationRaidPhase.Late or RecommendationRaidPhase.Extracting)
         {
+            var earlierPhaseAction = EconomicLootAction(economic.Band, RecommendationRaidPhase.Middle, risk);
             sensitivities.Add(new(
                 "raid-phase-earlier",
                 "An earlier raid phase may lower the economic band required to take this item.",
-                contextBlocksTake ? V2RecommendationAction.Take : null));
+                earlierPhaseAction != currentAction ? earlierPhaseAction : null));
         }
         else
         {
+            var laterPhaseAction = EconomicLootAction(economic.Band, RecommendationRaidPhase.Extracting, risk);
             sensitivities.Add(new(
                 "raid-phase-later",
                 "A later raid phase may make ordinary economic loot a leave.",
-                higherContextWouldBlock ? V2RecommendationAction.Leave : null));
+                laterPhaseAction != currentAction ? laterPhaseAction : null));
         }
     }
+
+    private V2RecommendationAction EconomicLootAction(
+        EconomicValueBand band,
+        RecommendationRaidPhase phase,
+        RecommendationRaidRisk risk) =>
+        (int)band >= (int)_policy.LootThresholds.RequiredBand(phase, risk)
+            ? V2RecommendationAction.Take
+            : V2RecommendationAction.Leave;
 
     private EconomicInspection? InspectEconomics(
         ExplainableRecommendationRequest request,
@@ -942,13 +952,26 @@ public sealed class ExplainableRecommendationEngine(
         provenance.SourceClass == EvidenceSourceClass.ModelledEstimate ||
         provenance.Inputs.Any(ContainsModelledEstimate);
 
-    private static bool HasStaleContext(ExplainableRecommendationRequest request) =>
+    private bool HasStaleContext(ExplainableRecommendationRequest request) =>
         request.Profile.Status.Freshness == FreshnessState.Stale ||
         request.Scarcity.Obtainability.Status.Freshness == FreshnessState.Stale ||
+        IsPolicyExpired(
+            request.Scarcity.Obtainability.Provenance,
+            request.EvaluatedUtc,
+            _policy.MaximumScarcityAge) ||
         (request.UseCase == RecommendationUseCase.Loot &&
          request.RaidContext is { } raid &&
          (raid.Phase.Status.Freshness == FreshnessState.Stale ||
-          raid.Risk.Status.Freshness == FreshnessState.Stale));
+          raid.Risk.Status.Freshness == FreshnessState.Stale ||
+          IsPolicyExpired(raid.Phase.Provenance, request.EvaluatedUtc, _policy.MaximumRaidContextAge) ||
+          IsPolicyExpired(raid.Risk.Provenance, request.EvaluatedUtc, _policy.MaximumRaidContextAge)));
+
+    private static bool IsPolicyExpired(
+        EvidenceProvenance provenance,
+        DateTimeOffset evaluatedUtc,
+        TimeSpan maximumAge) =>
+        provenance.EvidenceThroughUtc <= evaluatedUtc &&
+        evaluatedUtc - provenance.EvidenceThroughUtc > maximumAge;
 
     private static void ValidateEvidenceTimes(ExplainableRecommendationRequest request)
     {

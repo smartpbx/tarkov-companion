@@ -221,11 +221,33 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Equal("raid.phase.late", exposed.Reasons[0].Code);
         Assert.Equal("raid.risk.high", exposed.Reasons[1].Code);
         Assert.Equal("economics.flea-net.moderate", exposed.Reasons[2].Code);
-        Assert.Contains(exposed.ChangesTheAnswer, change =>
-            change.FactCode == "raid-risk-reduced" && change.AlternativeAction == V2Action.Take);
-        Assert.Contains(exposed.ChangesTheAnswer, change =>
-            change.FactCode == "raid-phase-earlier" && change.AlternativeAction == V2Action.Take);
+        Assert.Null(Assert.Single(exposed.ChangesTheAnswer, change =>
+            change.FactCode == "raid-risk-reduced").AlternativeAction);
+        Assert.Null(Assert.Single(exposed.ChangesTheAnswer, change =>
+            change.FactCode == "raid-phase-earlier").AlternativeAction);
         Assert.Equal(40_000, exposed.OpportunityCostRoubles.Value);
+    }
+
+    [Fact]
+    public void RaidSensitivityChangesActionOnlyWhenThatAxisAloneChangesTheThreshold()
+    {
+        var riskBound = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 60_000, trader: 40_000, squares: 2),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Middle,
+                RecommendationRaidRisk.High))).Decision.Value!;
+        var phaseBound = new ExplainableRecommendationEngine().Evaluate(Request(
+            economics: Economics(fleaNet: 40_000, trader: 30_000, squares: 2),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                RecommendationRaidPhase.Late,
+                RecommendationRaidRisk.Low))).Decision.Value!;
+
+        Assert.Equal(V2Action.Take, Assert.Single(riskBound.ChangesTheAnswer, change =>
+            change.FactCode == "raid-risk-reduced").AlternativeAction);
+        Assert.Equal(V2Action.Take, Assert.Single(phaseBound.ChangesTheAnswer, change =>
+            change.FactCode == "raid-phase-earlier").AlternativeAction);
     }
 
     [Fact]
@@ -290,6 +312,49 @@ public sealed class ExplainableRecommendationEngineTests
         Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
         Assert.Equal(FreshnessState.Stale, result.Decision.Status.Freshness);
         Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "raid-context.risk-untrusted");
+    }
+
+    [Fact]
+    public void PolicyExpiredScarcityReportsStaleEvenWhenSourceLabelsItCurrent()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            scarcity: Scarcity(
+                RecommendationObtainabilityBand.Available,
+                provenance: Provenance("expired-scarcity", Now.AddDays(-7).AddTicks(-1)))));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Equal(FreshnessState.Stale, result.Decision.Status.Freshness);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "scarcity.untrusted");
+    }
+
+    [Fact]
+    public void PolicyExpiredRaidContextReportsStaleEvenWhenSourceLabelsItCurrent()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                phaseProvenance: Provenance("raid-phase-boundary", Now.AddMinutes(-15)),
+                riskProvenance: Provenance("expired-raid-risk", Now.AddMinutes(-15).AddTicks(-1)))));
+
+        Assert.Equal(V2Action.Review, result.Decision.Value!.Action);
+        Assert.Equal(FreshnessState.Stale, result.Decision.Status.Freshness);
+        Assert.Contains(result.Decision.Value.Reasons, reason => reason.Code == "raid-context.risk-untrusted");
+    }
+
+    [Fact]
+    public void PolicyAgeBoundaryRemainsCurrent()
+    {
+        var result = new ExplainableRecommendationEngine().Evaluate(Request(
+            scarcity: Scarcity(
+                RecommendationObtainabilityBand.Available,
+                provenance: Provenance("scarcity-boundary", Now.AddDays(-7))),
+            useCase: RecommendationUseCase.Loot,
+            raidContext: RaidContext(
+                phaseProvenance: Provenance("raid-phase-boundary", Now.AddMinutes(-15)),
+                riskProvenance: Provenance("raid-risk-boundary", Now.AddMinutes(-15)))));
+
+        Assert.Equal(FreshnessState.Current, result.Decision.Status.Freshness);
+        Assert.Equal(ResultCompleteness.Complete, result.Decision.Status.Completeness);
     }
 
     [Fact]
