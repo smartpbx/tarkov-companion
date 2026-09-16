@@ -116,8 +116,16 @@ public sealed record DesktopCompanionAuthorityState
 /// <summary>
 /// Loads and atomically replaces the complete desktop authority record.
 /// </summary>
+/// <remarks>
+/// An authority must retain the exclusive lease from open through disposal. A per-instance
+/// mutation gate cannot prevent a second desktop process from loading an old delivery ledger and
+/// later replacing a newer record with it.
+/// </remarks>
 public interface IDesktopCompanionAuthorityStore
 {
+    /// <summary>Acquires exclusive ownership of this durable authority record.</summary>
+    ValueTask<IDisposable> AcquireExclusiveLeaseAsync(CancellationToken cancellationToken);
+
     ValueTask<DesktopCompanionAuthorityState?> LoadAsync(CancellationToken cancellationToken);
 
     ValueTask SaveAsync(DesktopCompanionAuthorityState state, CancellationToken cancellationToken);

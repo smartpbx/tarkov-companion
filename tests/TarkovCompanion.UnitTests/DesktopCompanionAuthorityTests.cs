@@ -179,6 +179,62 @@ public sealed class DesktopCompanionAuthorityTests
         }
     }
 
+    [Fact]
+    public async Task JsonAuthorityLeaseRejectsASecondAuthorityWhileTheFirstMutates()
+    {
+        var directory = Directory.CreateTempSubdirectory("tarkov-companion-device-authority-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "authority.json");
+            var seeded = SeededState();
+            var seededStore = new JsonFileDesktopCompanionAuthorityStore(path);
+            await seededStore.SaveAsync(seeded, CancellationToken.None);
+            using (var first = await DesktopCompanionAuthority.OpenAsync(
+                       seededStore,
+                       seeded.CanonicalState))
+            {
+                var command = new SetInteractionModeCommand(
+                    Command(6),
+                    new AggregateRevision(1),
+                    Now.AddMinutes(1),
+                    Now.AddMinutes(2),
+                    CompanionInteractionMode.Independent);
+                var mutation = first.ApplyCommandAsync(Frame(Now.AddMinutes(1)), Envelope(command)).AsTask();
+                await Assert.ThrowsAsync<IOException>(async () => await DesktopCompanionAuthority.OpenAsync(
+                    new JsonFileDesktopCompanionAuthorityStore(path),
+                    seeded.CanonicalState));
+                var committed = await mutation;
+
+                Assert.Equal(new GlobalRevision(1), committed.State.CanonicalState.GlobalRevision);
+                Assert.Equal(new DeliverySequence(2), committed.State.DeliveryLedger.For(TabletDevice)!.LastAssigned);
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task JsonStoreRejectsDocumentsPastTheBoundedReadLimit()
+    {
+        var directory = Directory.CreateTempSubdirectory("tarkov-companion-device-authority-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "authority.json");
+            await File.WriteAllBytesAsync(
+                path,
+                new byte[JsonFileDesktopCompanionAuthorityStore.MaximumDocumentBytes + 1]);
+
+            var store = new JsonFileDesktopCompanionAuthorityStore(path);
+            await Assert.ThrowsAsync<InvalidDataException>(async () => await store.LoadAsync(CancellationToken.None));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
     private static DesktopCompanionAuthorityState SeededState()
     {
         var device = PairedTablet();
@@ -293,10 +349,22 @@ public sealed class DesktopCompanionAuthorityTests
     private sealed class MemoryAuthorityStore(DesktopCompanionAuthorityState? state) : IDesktopCompanionAuthorityStore
     {
         private DesktopCompanionAuthorityState? _state = state;
+        private readonly SemaphoreSlim _lease = new(1, 1);
 
         public int SaveCalls { get; private set; }
 
         public bool FailNextSave { get; set; }
+
+        public ValueTask<IDisposable> AcquireExclusiveLeaseAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_lease.Wait(0))
+            {
+                throw new IOException("fixture authority is already leased");
+            }
+
+            return ValueTask.FromResult<IDisposable>(new Lease(_lease));
+        }
 
         public ValueTask<DesktopCompanionAuthorityState?> LoadAsync(CancellationToken cancellationToken)
         {
@@ -316,6 +384,16 @@ public sealed class DesktopCompanionAuthorityTests
 
             _state = next;
             return ValueTask.CompletedTask;
+        }
+
+        private sealed class Lease(SemaphoreSlim gate) : IDisposable
+        {
+            private SemaphoreSlim? _gate = gate;
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref _gate, null)?.Release();
+            }
         }
     }
 }
