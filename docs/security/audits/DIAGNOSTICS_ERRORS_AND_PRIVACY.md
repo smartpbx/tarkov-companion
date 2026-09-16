@@ -29,6 +29,19 @@ DIAG-08, DIAG-09, and DIAG-10 add distinct canonical risks. The complete ID cros
 issues, and exact verification are in [`../CONTROLS_AND_RESIDUAL_RISK.md`](../CONTROLS_AND_RESIDUAL_RISK.md);
 their V2 owners are #281, #310, #309, and #271 as recorded there.
 
+## 2026-09-16 remediation reconciliation
+
+The findings table below preserves the reviewed 2026-09-14 baseline. The #281 client checkpoint
+has since replaced `SupportBundle`'s denylist/log-tail design with a closed, bounded projection
+and a complete hostile-payload fixture. It never opens the log input or renders free-form runtime
+fields, paths, coordinates, screenshot names, identities, credentials, OCR/pixels, exception
+bodies, or injected Markdown. That repairs DIAG-01's ordinary desktop source path and removes the
+support-report half of DIAG-02; unsafe local log presentation remains a separate DIAG-02 concern.
+DIAG-06 remains open because **Report a problem** still sends without an explicit confirmation
+preview and the relay still accepts and persists arbitrary bodies. The canonical risk therefore
+stays High until #281/#310 provide byte-exact preview/send/ingress/persistence evidence and CI
+passes the new fixture.
+
 ## Findings
 
 | ID | Concrete adversarial scenario | Severity | Current control and evidence | Residual risk / disposition | Owner issue | Exact test |
