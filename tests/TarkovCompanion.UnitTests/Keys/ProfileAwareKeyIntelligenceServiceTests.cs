@@ -235,6 +235,67 @@ public sealed class ProfileAwareKeyIntelligenceServiceTests
     }
 
     [Fact]
+    public void ReviewedOverrideCannotClaimReviewBeforeItsCuratedEvidenceExisted()
+    {
+        var curated = new EvidenceProvenance(
+            EvidenceSourceClass.CuratedData,
+            "reviewed key manifest",
+            ObservedUtc,
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.85),
+            new ProducerIdentity("key reviewers", "1"),
+            reference: "manifest://keys/review-1");
+
+        var exception = Assert.Throws<ArgumentException>(() => new ReviewedKeyOverride(
+            88,
+            KeyIntelligenceTier.S,
+            "Reviewed route priority.",
+            null,
+            "0.16.9",
+            "maps-2026-09-16",
+            "reviewer-1",
+            ObservedUtc.AddSeconds(-1),
+            curated));
+
+        Assert.Contains("cannot predate", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewedOverrideCannotInfluenceAnEvaluationBeforeItsReviewTime()
+    {
+        var curated = new EvidenceProvenance(
+            EvidenceSourceClass.CuratedData,
+            "reviewed key manifest",
+            ObservedUtc,
+            new EvidenceConfidence(EvidenceConfidenceKind.ProviderScore, 0.85),
+            new ProducerIdentity("key reviewers", "1"),
+            reference: "manifest://keys/review-1");
+        var reviewed = new ReviewedKeyOverride(
+            88,
+            KeyIntelligenceTier.S,
+            "Reviewed route priority.",
+            null,
+            "0.16.9",
+            "maps-2026-09-16",
+            "reviewer-1",
+            ObservedUtc.AddMinutes(2),
+            curated);
+        var baseline = CompleteRequest(KeyIntelligenceEntryPoint.Search);
+
+        var exception = Assert.Throws<ArgumentException>(() => new ProfileAwareKeyIntelligenceRequest(
+            baseline.EntryPoint,
+            baseline.ItemId,
+            ObservedUtc.AddMinutes(1),
+            baseline.Inventory,
+            baseline.RequirementsStatus,
+            baseline.RequirementsProvenance,
+            baseline.Requirements,
+            baseline.Utility,
+            reviewed));
+
+        Assert.Contains("cannot postdate", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReviewedOverrideCarriesReviewerVersionsAndWinsGeneratedScore()
     {
         var curated = new EvidenceProvenance(

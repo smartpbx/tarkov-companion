@@ -261,9 +261,9 @@ public sealed record ReviewedKeyOverride
         MapDataVersion = KeyIntelligenceGuard.Required(mapDataVersion, nameof(mapDataVersion));
         Reviewer = KeyIntelligenceGuard.Required(reviewer, nameof(reviewer));
         ReviewedUtc = KeyIntelligenceGuard.Utc(reviewedUtc, nameof(reviewedUtc));
-        if (ReviewedUtc > provenance.ObservedUtc)
+        if (ReviewedUtc < provenance.ObservedUtc)
         {
-            throw new ArgumentException("Override provenance cannot predate its review.", nameof(provenance));
+            throw new ArgumentException("Override review cannot predate its provenance.", nameof(reviewedUtc));
         }
     }
 

@@ -57,6 +57,11 @@ public sealed record ProfileAwareKeyIntelligenceRequest
         }
 
         Requirements = Array.AsReadOnly(copied);
+        if (reviewedOverride is { } reviewed && reviewed.ReviewedUtc > EvaluatedUtc)
+        {
+            throw new ArgumentException("A reviewed override cannot postdate this evaluation.", nameof(reviewedOverride));
+        }
+
         ReviewedOverride = reviewedOverride;
     }
 
