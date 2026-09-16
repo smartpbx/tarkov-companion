@@ -102,6 +102,131 @@ public sealed class MapSceneRendererViewModelTests
         Assert.Contains("unavailable", renderer.RendererNotice, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Renderer_keeps_sourced_lines_and_regions_as_geometry()
+    {
+        var route = SceneObject(
+            "route",
+            MapSceneObjectKind.Route,
+            MapSceneTruthKind.PersonalPlan,
+            new(MapSceneGeometryKind.Line, [new(10, 20), new(50, 60), new(90, 20)]));
+        var risk = SceneObject(
+            "risk",
+            MapSceneObjectKind.Risk,
+            MapSceneTruthKind.StaticReference,
+            new(MapSceneGeometryKind.Region, [new(20, 20), new(40, 20), new(30, 40)]));
+        var renderer = new MapSceneRendererViewModel(Scene(firstFloorObjects: [route, risk]));
+
+        Assert.Empty(renderer.SpatialObjects);
+        Assert.Collection(
+            renderer.GeometryObjects,
+            item =>
+            {
+                Assert.Equal(MapSceneGeometryKind.Line, item.Kind);
+                Assert.Equal(3, item.Points.Count);
+            },
+            item => Assert.Equal(MapSceneGeometryKind.Region, item.Kind));
+        Assert.Equal(2, renderer.ListItems.Count);
+    }
+
+    [Fact]
+    public void Renderer_does_not_clamp_out_of_bounds_points_to_a_false_edge_position()
+    {
+        var maximumEdge = SceneObject(
+            "edge",
+            MapSceneObjectKind.Waypoint,
+            MapSceneTruthKind.UserAuthored,
+            MapSceneGeometry.At(new(100, 100)));
+        var outside = SceneObject(
+            "outside",
+            MapSceneObjectKind.Waypoint,
+            MapSceneTruthKind.UserAuthored,
+            MapSceneGeometry.At(new(1_000, 1_000)));
+        var renderer = new MapSceneRendererViewModel(Scene(firstFloorObjects: [maximumEdge, outside]));
+
+        var marker = Assert.Single(renderer.SpatialObjects);
+        Assert.Equal("Edge", marker.Label);
+        Assert.InRange(marker.AnchorLeft, 0, renderer.CanvasWidth - MapSceneRendererViewModel.MarkerExtent);
+        Assert.InRange(marker.AnchorTop, 0, renderer.CanvasHeight - MapSceneRendererViewModel.MarkerExtent);
+        Assert.Equal(2, renderer.ListItems.Count);
+    }
+
+    [Fact]
+    public void Renderer_bounds_dense_scenes_and_labels_its_clusters()
+    {
+        var objects = Enumerable.Range(0, 340)
+            .Select(index => SceneObject(
+                $"loot-{index}",
+                MapSceneObjectKind.LootSpawn,
+                MapSceneTruthKind.PotentialSpawn,
+                MapSceneGeometry.At(new(index % 100, index / 4d % 100))))
+            .ToArray();
+        var renderer = new MapSceneRendererViewModel(Scene(firstFloorObjects: objects));
+
+        Assert.InRange(renderer.SpatialObjects.Count, 1, MapSceneRendererViewModel.MaximumPointMarkers);
+        Assert.Contains(renderer.SpatialObjects, item => item.IsCluster);
+        Assert.Equal(MapSceneRendererViewModel.MaximumListItems, renderer.ListItems.Count);
+        Assert.True(renderer.HasDenseSceneNotice);
+        Assert.Contains("grouped", renderer.DenseSceneNotice, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Renderer_preserves_unknown_and_inapplicable_statuses_honestly()
+    {
+        var loot = SceneObject(
+            "loot",
+            MapSceneObjectKind.LootSpawn,
+            MapSceneTruthKind.PotentialSpawn,
+            MapSceneGeometry.At(new(30, 30)));
+        var renderer = new MapSceneRendererViewModel(Scene(firstFloorObjects: [loot]));
+
+        var item = Assert.Single(renderer.ListItems);
+        Assert.Equal("Faction unknown", item.FactionLabel);
+        Assert.False(item.HasOfferStatus);
+        Assert.False(item.IsOfferUnknown);
+        Assert.Equal("Potential spawn", item.TruthLabel);
+        Assert.Contains("fixture", item.EvidenceLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Renderer_consumes_canonical_camera_and_emits_pan_and_zoom_changes()
+    {
+        var renderer = new MapSceneRendererViewModel(
+            Scene(revision: 18),
+            new Queue<Guid>(
+            [
+                Guid.Parse("20000000-0000-0000-0000-000000000318"),
+                Guid.Parse("20000000-0000-0000-0000-000000000319"),
+            ]).Dequeue);
+
+        renderer.RequestPan(50, -25);
+        var pan = Assert.IsType<MapSceneViewChange>(renderer.LastRequestedChange);
+        Assert.Equal(MapSceneViewChangeKind.SetCamera, pan.Kind);
+        Assert.True(pan.Camera.HasValue);
+        Assert.NotEqual(renderer.Scene.View.Camera.CenterX, pan.Camera.Value.CenterX);
+        renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, pan).Scene);
+
+        renderer.RequestZoom(1);
+        var zoom = Assert.IsType<MapSceneViewChange>(renderer.LastRequestedChange);
+        Assert.True(zoom.Camera.HasValue);
+        Assert.Equal(1.25, zoom.Camera.Value.Zoom);
+        renderer.Present(MapSceneViewReducer.Apply(renderer.Scene, zoom).Scene);
+
+        Assert.Equal(1.25, renderer.CameraZoom);
+        Assert.Equal(0.8, renderer.MarkerInverseZoom, 6);
+    }
+
+    [Fact]
+    public void Renderer_reports_reviewed_artwork_when_the_verified_cache_has_no_image()
+    {
+        var renderer = new MapSceneRendererViewModel(Scene());
+
+        Assert.False(renderer.HasBackgroundImage);
+        Assert.True(renderer.HasBackgroundStatus);
+        Assert.Contains("not cached", renderer.BackgroundStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Example map author", renderer.ReviewedAssetLabel, StringComparison.Ordinal);
+    }
+
     private static MapSceneSnapshot Scene(
         long revision = 7,
         bool supportsFloorStack = false,
@@ -140,6 +265,32 @@ public sealed class MapSceneRendererViewModelTests
         Provenance(),
         faction: MapFeatureFaction.Pmc,
         offerState: offerState);
+
+    private static MapSceneObject SceneObject(
+        string id,
+        MapSceneObjectKind kind,
+        MapSceneTruthKind truth,
+        MapSceneGeometry geometry) => new(
+            new($"object:{id}"),
+            new("extracts"),
+            kind,
+            truth,
+            char.ToUpperInvariant(id[0]) + id[1..],
+            $"{id} details",
+            geometry,
+            ["first"],
+            Provenance(),
+            truth == MapSceneTruthKind.HistoricalEstimate
+                ? new(
+                    new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero),
+                    new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero),
+                    new DateTimeOffset(2026, 9, 11, 0, 0, 0, TimeSpan.Zero),
+                    "catalog sample",
+                    "uncalibrated",
+                    "transform-1",
+                    "model-1")
+                : null,
+            faction: MapFeatureFaction.Unknown);
 
     private static MapSceneAsset Asset() => new(
         new("asset:customs-plan"),

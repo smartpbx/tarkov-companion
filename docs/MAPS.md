@@ -34,6 +34,15 @@ asset manifests. Its list alternative and hit testing use the same visibility st
 map. Flat 2D is the baseline; floor-stack and interior presentations are capabilities over the
 same scene, not separate sources of map truth.
 
+The Avalonia consumer resolves reviewed artwork through an injected verified-cache resolver; it
+does not fetch a manifest URL from the view. Point features use fixed-size accessible controls,
+while line, area, and region geometry remains geometry. Coordinates outside reviewed bounds are
+not clamped into a false edge marker. Dense point layers are deterministically grouped and both
+the spatial and list presentations are bounded with a visible narrowing message. Pan, zoom, fit,
+floor, mode, and layer actions emit revision-checked scene changes and wait for the canonical
+snapshot to return before another change is sent. Narrow windows stack details below the map and
+preserve the same scene, projection, selection, and commands used by the desktop layout.
+
 Historical estimates carry their observation window, data-through and generation times,
 coverage, calibration, transform version, model version, source, and confidence. Potential
 spawns remain potential. An interior asset is renderable only after its source, licence, hash,
