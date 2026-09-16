@@ -156,7 +156,8 @@ public sealed class HighValueLootLayerServiceTests
         Assert.Equal(LootSpawnValueTier.ProfileRelevant, entry.Tier);
         Assert.Null(entry.MinimumValue);
         Assert.Null(entry.MaximumValue);
-        Assert.Contains(entry.MissingFacts, fact => fact.Contains("unavailable", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(entry.MissingFacts, fact =>
+            fact.Contains("both required", StringComparison.OrdinalIgnoreCase));
         Assert.Equal("quest.current", Assert.Single(entry.ProfileNeeds).Code);
         Assert.Equal(ResultCompleteness.Partial, result.Status.Completeness);
     }
