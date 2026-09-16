@@ -73,17 +73,20 @@ public sealed record AppCommandLine(
     public bool StacksFloors { get; init; }
 
     /// <summary>
-    /// Which shell to draw: <c>legacy</c> unless <c>--ui-shell v2-a</c> or <c>v2-b</c> says otherwise.
+    /// Which shell to draw: variant B unless <c>--ui-shell legacy</c> or <c>v2-a</c> says otherwise.
     /// </summary>
     /// <remarks>
     /// Chosen at process start and never swapped, and fatal when unrecognised rather than reported
     /// like an unknown option: somebody asking for a particular interface and silently getting a
-    /// different one would mislabel every screenshot taken from that launch. The two V2 values are
-    /// provisional presentations from #265, which has not yet run, so neither is ever the default.
+    /// different one would mislabel every screenshot taken from that launch. Variant B is now the
+    /// default launch shell (package 1 of the V2 rough pass); <c>--ui-shell legacy</c> remains the
+    /// explicit fallback to the V1 shell.
     ///
     /// Under a V2 shell, <c>--page</c> is read as that variant's address (<c>raid/loot</c>,
     /// <c>home</c>) rather than a V1 page name, and an address the variant does not have is fatal
-    /// in the same way.
+    /// in the same way. This property's own default (used when this record is built by hand rather
+    /// than through <see cref="Parse"/>) stays <see cref="V2ShellMode.Legacy"/> so tests that
+    /// construct it directly keep seeing V1 behavior; only command-line parsing defaults to V2.
     /// </remarks>
     public V2ShellMode UiShell { get; init; } = V2ShellMode.Legacy;
 
@@ -127,7 +130,9 @@ public sealed record AppCommandLine(
             MapId = GetValue(args, "--map"),
             MapFloor = GetValue(args, "--floor"),
             StacksFloors = HasFlag(args, "--stack"),
-            UiShell = V2ShellModes.Parse(GetValue(args, V2ShellModes.Option)),
+            UiShell = GetValue(args, V2ShellModes.Option) is { } shellToken
+                ? V2ShellModes.Parse(shellToken)
+                : V2ShellMode.VariantB,
             OcrProbePath = GetValue(args, "--ocr-probe"),
             OcrProbeRegion = GetValue(args, "--ocr-probe-region"),
             OcrProbeCells = HasFlag(args, "--ocr-probe-cells"),

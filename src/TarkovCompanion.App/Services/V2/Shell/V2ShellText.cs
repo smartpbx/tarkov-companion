@@ -36,6 +36,7 @@ public static class V2ShellText
         ["V2.Shell.Route.Home"] = "Home",
         ["V2.Shell.Route.Raid"] = "Raid",
         ["V2.Shell.Route.Loot"] = "Loot decision",
+        ["V2.Shell.LootScan.Empty"] = "Arm Loot decision, then take a screenshot.",
         ["V2.Shell.Route.Items"] = "Items",
         ["V2.Shell.Route.Ammo"] = "Ammo",
         ["V2.Shell.Route.Keys"] = "Keys",

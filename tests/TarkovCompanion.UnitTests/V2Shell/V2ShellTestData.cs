@@ -7,9 +7,14 @@ internal static class V2ShellTestData
 {
     public static readonly DateTimeOffset Now = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
+    /// <summary>
+    /// Every V1 page a V2 route still hosts as <c>LegacyPage</c>. "Scanner" is deliberately absent:
+    /// the Loot route now hosts the real <c>LootScanView</c> instead (package 1, #282), so v1's
+    /// Scanner page is no longer reachable through the V2 shell at all.
+    /// </summary>
     public static readonly string[] V1Destinations =
     [
-        "Raid", "Squad", "Group", "Scanner", "Items", "Ammo", "Keys",
+        "Raid", "Squad", "Group", "Items", "Ammo", "Keys",
         "Flea", "Quests", "Hideout", "Events", "Loadout", "History", "Settings",
     ];
 
