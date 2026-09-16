@@ -1008,9 +1008,14 @@ $Shots.Add([pscustomobject]@{
                     [pscustomobject]@{ automationId = "v2-map-loot-page-status"; pattern = '^Loot page 1 of 1 .* 2 matching spawns$'; includeOffscreen = $true })
             },
             [pscustomobject]@{
-                action = "invoke"; description = "open typed list-only loot details"
+                action = "focus"; description = "bring the list-only loot row into keyboard view"
                 targetAutomationId = "v2-map-loot-row-map-only-cache-9594a087"; targetControlType = "Button"
                 includeOffscreen = $true
+                expectedFocusAutomationId = "v2-map-loot-row-map-only-cache-9594a087"
+            },
+            [pscustomobject]@{
+                action = "invoke"; description = "open typed list-only loot details"
+                targetAutomationId = "v2-map-loot-row-map-only-cache-9594a087"; targetControlType = "Button"
                 expectedNamePatterns = @(
                     # Text peers may expose either the explicit composite AutomationProperties.Name
                     # or their visible heading as the UIA Name. The stable id proves this is the
