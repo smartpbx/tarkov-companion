@@ -25,11 +25,11 @@ public sealed class TrafficModelPackageImporterTests
         var importer = new TrafficModelPackageImporter(verifier);
         var package = Package(key, "2026.09.16", "artifact-one");
 
-        var accepted = await importer.ImportAsync(package.Streams(), Scope, TestContext.Current.CancellationToken);
+        var accepted = await importer.ImportAsync(package.Streams(), Scope, CancellationToken.None);
         var incompatible = await importer.ImportAsync(
             package.Streams(),
             new TrafficCompatibilityScope("customs", "0.17.0", ProfileGameMode.Pvp, "wipe-2026-2", "all-players"),
-            TestContext.Current.CancellationToken);
+            CancellationToken.None);
 
         Assert.True(accepted.IsAccepted);
         Assert.NotNull(accepted.Publication);
@@ -50,7 +50,7 @@ public sealed class TrafficModelPackageImporterTests
         dataset["records"]![0]!["liveCoordinates"] = new JsonObject { ["x"] = 1, ["y"] = 2 };
         var hostile = package with { Dataset = Encoding.UTF8.GetBytes(dataset.ToJsonString()) };
 
-        var result = await importer.ImportAsync(hostile.Streams(), Scope, TestContext.Current.CancellationToken);
+        var result = await importer.ImportAsync(hostile.Streams(), Scope, CancellationToken.None);
 
         Assert.Equal(TrafficModelImportDisposition.Quarantined, result.Disposition);
         Assert.Null(result.Publication);
@@ -67,7 +67,7 @@ public sealed class TrafficModelPackageImporterTests
             verifier,
             new TrafficModelImportLimits(MaximumDatasetBytes: package.Dataset.Length - 1));
 
-        var result = await importer.ImportAsync(package.Streams(), Scope, TestContext.Current.CancellationToken);
+        var result = await importer.ImportAsync(package.Streams(), Scope, CancellationToken.None);
 
         Assert.Equal(TrafficModelImportDisposition.Quarantined, result.Disposition);
         Assert.Null(result.Publication);
@@ -89,7 +89,7 @@ public sealed class TrafficModelPackageImporterTests
         var result = await importer.ImportAsync(
             (package with { Manifest = duplicate }).Streams(),
             Scope,
-            TestContext.Current.CancellationToken);
+            CancellationToken.None);
 
         Assert.Equal(TrafficModelImportDisposition.Quarantined, result.Disposition);
         Assert.Null(result.Publication);
@@ -104,7 +104,7 @@ public sealed class TrafficModelPackageImporterTests
         var package = Package(key, "2026.09.16", "artifact-one");
 
         var results = await Task.WhenAll(Enumerable.Range(0, 16).Select(_ =>
-            importer.ImportAsync(package.Streams(), Scope, TestContext.Current.CancellationToken)));
+            importer.ImportAsync(package.Streams(), Scope, CancellationToken.None)));
 
         Assert.All(results, result => Assert.True(result.IsAccepted));
     }
@@ -122,7 +122,7 @@ public sealed class TrafficModelPackageImporterTests
         var result = await importer.ImportAsync(
             (package with { Signature = Encoding.UTF8.GetBytes(envelope.ToJsonString()) }).Streams(),
             Scope,
-            TestContext.Current.CancellationToken);
+            CancellationToken.None);
 
         Assert.True(result.IsAccepted);
     }
@@ -138,10 +138,10 @@ public sealed class TrafficModelPackageImporterTests
         {
             using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
             var valid = Package(key, "2026.09.16", "artifact-one");
-            var installed = await store.InstallAsync(valid.Streams(), Scope, TestContext.Current.CancellationToken);
+            var installed = await store.InstallAsync(valid.Streams(), Scope, CancellationToken.None);
             var corrupt = valid with { Artifact = Encoding.UTF8.GetBytes("tampered") };
 
-            var refused = await store.InstallAsync(corrupt.Streams(), Scope, TestContext.Current.CancellationToken);
+            var refused = await store.InstallAsync(corrupt.Streams(), Scope, CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
             Assert.Equal(installed.CurrentReceiptSha256, refused.CurrentReceiptSha256);
@@ -170,17 +170,17 @@ public sealed class TrafficModelPackageImporterTests
             var first = await store.InstallAsync(
                 Package(key, "2026.09.16", "artifact-one").Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
             var second = await store.InstallAsync(
                 Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1)).Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
             await File.WriteAllTextAsync(
                 Path.Combine(root, "versions", second.CurrentReceiptSha256!, "model.artifact"),
                 "corrupt",
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
-            var loaded = await store.LoadAsync(Scope, TestContext.Current.CancellationToken);
+            var loaded = await store.LoadAsync(Scope, CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Accepted, loaded.Disposition);
             Assert.Equal("rolled-back-to-last-known-good", loaded.ReasonCode);
@@ -207,18 +207,18 @@ public sealed class TrafficModelPackageImporterTests
         {
             using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
             var first = Package(key, "2026.09.16", "artifact-one");
-            var installed = await store.InstallAsync(first.Streams(), Scope, TestContext.Current.CancellationToken);
+            var installed = await store.InstallAsync(first.Streams(), Scope, CancellationToken.None);
             var second = Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1));
-            var inspected = await importer.ImportAsync(second.Streams(), Scope, TestContext.Current.CancellationToken);
+            var inspected = await importer.ImportAsync(second.Streams(), Scope, CancellationToken.None);
             Assert.True(inspected.IsAccepted);
             var occupied = Path.Combine(root, "versions", inspected.ReceiptSha256);
             Directory.CreateDirectory(occupied);
             await File.WriteAllTextAsync(
                 Path.Combine(occupied, "model.artifact"),
                 "corrupt-preexisting-content",
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
-            var refused = await store.InstallAsync(second.Streams(), Scope, TestContext.Current.CancellationToken);
+            var refused = await store.InstallAsync(second.Streams(), Scope, CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
             Assert.Equal(installed.CurrentReceiptSha256, refused.CurrentReceiptSha256);
@@ -244,15 +244,15 @@ public sealed class TrafficModelPackageImporterTests
         {
             using var store = new TrafficSnapshotStore(new TrafficSnapshotStoreOptions(root), importer);
             var older = Package(key, "2026.09.16", "artifact-one");
-            var first = await store.InstallAsync(older.Streams(), Scope, TestContext.Current.CancellationToken);
+            var first = await store.InstallAsync(older.Streams(), Scope, CancellationToken.None);
             var second = await store.InstallAsync(
                 Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-1)).Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
             var statePath = Path.Combine(root, "snapshot-state.json");
-            var stateBeforeReplay = await File.ReadAllBytesAsync(statePath, TestContext.Current.CancellationToken);
+            var stateBeforeReplay = await File.ReadAllBytesAsync(statePath, CancellationToken.None);
 
-            var replayed = await store.InstallAsync(older.Streams(), Scope, TestContext.Current.CancellationToken);
+            var replayed = await store.InstallAsync(older.Streams(), Scope, CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Quarantined, replayed.Disposition);
             Assert.Equal("snapshot-data-through-regression", replayed.ReasonCode);
@@ -260,9 +260,9 @@ public sealed class TrafficModelPackageImporterTests
             Assert.Equal(first.CurrentReceiptSha256, replayed.LastKnownGoodReceiptSha256);
             Assert.Equal(
                 stateBeforeReplay,
-                await File.ReadAllBytesAsync(statePath, TestContext.Current.CancellationToken));
+                await File.ReadAllBytesAsync(statePath, CancellationToken.None));
 
-            var rolledBack = await store.RollbackAsync(TestContext.Current.CancellationToken);
+            var rolledBack = await store.RollbackAsync(CancellationToken.None);
 
             Assert.Equal("explicit-rollback", rolledBack.ReasonCode);
             Assert.Equal(first.CurrentReceiptSha256, rolledBack.CurrentReceiptSha256);
@@ -289,12 +289,12 @@ public sealed class TrafficModelPackageImporterTests
             var installed = await store.InstallAsync(
                 Package(key, "2026.09.16", "artifact-one").Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
             var refused = await store.InstallAsync(
                 Package(key, "2026.09.17", "artifact-two").Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
             Assert.Equal("snapshot-generation-conflict", refused.ReasonCode);
@@ -323,12 +323,12 @@ public sealed class TrafficModelPackageImporterTests
             var installed = await store.InstallAsync(
                 Package(key, "2026.09.17", "artifact-two", Now.AddDays(1), Now.AddDays(-2)).Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
             var refused = await store.InstallAsync(
                 Package(key, "2026.09.16", "artifact-one").Streams(),
                 Scope,
-                TestContext.Current.CancellationToken);
+                CancellationToken.None);
 
             Assert.Equal(TrafficModelImportDisposition.Quarantined, refused.Disposition);
             Assert.Equal("snapshot-generation-regression", refused.ReasonCode);

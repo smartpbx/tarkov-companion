@@ -474,7 +474,7 @@ public sealed class TrafficDataContractTests
 
     private static void AssertRejected<T>(string json)
     {
-        var failure = Record.Exception(() => JsonSerializer.Deserialize<T>(json, Json));
+        var failure = Xunit.Record.Exception(() => JsonSerializer.Deserialize<T>(json, Json));
 
         Assert.NotNull(failure);
         Assert.True(
